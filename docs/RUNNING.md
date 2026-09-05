@@ -605,8 +605,14 @@ has the truth, and every child was configured from it.
 - **Windows shutdown is a hard stop.** There is no portable graceful stop for a child that does not
   share the supervisor's console — `GenerateConsoleCtrlEvent` needs a shared console group, and
   attaching to a child's console would signal the supervisor too. Unix gets `SIGTERM` and a grace
-  period. In practice .NET's SQLite WAL survives termination; a hard kill of the *supervisor*
-  (rather than Ctrl+C) does orphan the children on Windows, and they have to be stopped by name.
+  period. In practice .NET's SQLite WAL survives termination.
+
+  A hard kill of the *supervisor* used to orphan the children, which then had to be stopped by
+  name. Since M7 they are all put in a **Win32 job object** with `KILL_ON_JOB_CLOSE`, so the kernel
+  terminates them when the supervisor's process object goes away — however it went away, including
+  a `Stop-Process -Force` or a crash, where no code of ours runs at all. Creating the job is never
+  fatal: a host that already has this process in a job forbidding breakaway logs a warning and the
+  node comes up without it.
 - **InfiniDysk is not wired in.** `children.infinidysk` is off; enabling it fails with a clear
   message.
 

@@ -198,6 +198,11 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // every call site.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
+    // Before anything is spawned: on Windows this creates a job object every child is put into, so
+    // a supervisor that is *killed* takes them with it instead of leaving five processes holding
+    // their ports. No-op elsewhere, and never fatal. See supervisor::jobobject.
+    supervisor::jobobject::init();
+
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let layout = Layout::new(&data_dir);
     layout.create_all()?;

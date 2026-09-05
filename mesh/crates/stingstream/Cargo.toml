@@ -54,6 +54,18 @@ libc = "0.2"
 # al.) that can only hard-kill the process it launched. See src/service.rs.
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
+# A job object, so a *killed* supervisor does not orphan five children holding their ports.
+# `kill_on_drop` covers every path where our own code runs; this covers the one where none does.
+# See supervisor/jobobject.rs.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    # `CreateJobObjectW` takes a SECURITY_ATTRIBUTES pointer, and
+    # `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` embeds IO_COUNTERS, so both of those namespaces have
+    # to be enabled even though nothing here names a type from either.
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tempfile = "3"

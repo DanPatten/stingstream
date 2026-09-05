@@ -10,6 +10,7 @@
 
 pub mod childdef;
 pub mod health;
+pub mod jobobject;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -502,6 +503,12 @@ fn spawn(def: &ChildDef, logger: &ChildLogger) -> Result<tokio::process::Child> 
     let mut child = cmd
         .spawn()
         .with_context(|| format!("spawning {} {}", def.program.display(), def.args.join(" ")))?;
+
+    // On Windows, hand the child to the process-wide job object as well. `kill_on_drop` above
+    // covers every way this process can end where its own code runs; the job covers the one where
+    // none does -- a `Stop-Process -Force`, the Task Manager, a crash -- which is the case that
+    // used to leave Jellyfin and both arrs running and holding their ports. No-op elsewhere.
+    jobobject::adopt(&child);
 
     if let Some(out) = child.stdout.take() {
         tokio::spawn(logger.clone().pump("stdout", out));

@@ -1444,6 +1444,18 @@ README ones went to M8a. The three that were code came here:
   sentence that says what to check, and reported on `/healthz` as `off` / `joining` / `joined` /
   `local_only` / `failed`.
 
+#### Windows children no longer outlive a killed supervisor
+
+`kill_on_drop(true)` covers every way the supervisor can end where its own code runs — a panic, an
+error, Ctrl+C. It does nothing for a `Stop-Process -Force`, the Task Manager, or a crash, because no
+destructor runs; and M1 recorded the resulting orphans as an accepted limitation to be fixed "when
+M8 adds a Job Object". It was cheap enough to do here: a job object with `KILL_ON_JOB_CLOSE` that
+every child is assigned to, and the kernel terminates the lot when the supervisor's process object
+is torn down. That is a property of the process tree rather than a shutdown path that has to run.
+Never fatal — a host that already has this process in a job forbidding breakaway logs a warning and
+carries on. `tools/e2e-m1.ps1`'s "kill anything still holding a port" block is now a belt over
+braces rather than the only thing standing between one run and the next.
+
 Verified locally rather than in Docker: `tools/e2e-m7.ps1` restarts node B with
 `STINGSTREAM_JOIN_CODE` in its environment and asserts it joins, reaches a member, and converges the
 index — the code path the profile depends on, without needing a container runtime this machine does
