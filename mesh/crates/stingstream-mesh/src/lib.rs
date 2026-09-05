@@ -13,7 +13,8 @@
 //! * **Peer HTTP over iroh** ([`peer`]) on ALPN `stingstream/http/1`: one HTTP/1.1 request per QUIC
 //!   bidirectional stream, after a group-secret handshake ([`auth`]).
 //! * **Gossip** ([`gossip`]): signed, group-encrypted inventory snapshots, deltas and heartbeats
-//!   over `iroh-gossip`, merged into a SQLite `group_index` ([`db`]).
+//!   over `iroh-gossip`, merged into a SQLite `group_index` ([`db`]). Member requests and the
+//!   claims that decide which node fulfils one ([`requests`]) ride the same topic.
 //!
 //! See `docs/MESH.md` for the wire protocol, the invite format and the local/peer API reference.
 
@@ -28,6 +29,7 @@ pub mod inventory;
 pub mod node;
 pub mod peer;
 pub mod rendezvous;
+pub mod requests;
 pub mod score;
 pub mod sidedoor;
 pub mod tunnel;

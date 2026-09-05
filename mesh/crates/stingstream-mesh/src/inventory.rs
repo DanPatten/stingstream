@@ -194,6 +194,23 @@ pub struct Heartbeat {
     pub active_transcodes: u32,
     /// Free bytes on the volume holding this node's media.
     pub free_space: u64,
+    /// Whether this node could *grab* a film if the group asked it to: a Radarr with at least one
+    /// enabled movie indexer, a root folder, and room on the volume.
+    ///
+    /// Advertised rather than inferred, because free space alone does not answer it. A phone is a
+    /// light node with terabytes of nothing useful; a seedbox with no indexers cannot search. M6's
+    /// request router picks a volunteer node out of these two flags and [`Heartbeat::free_space`],
+    /// and a node that cannot fulfil says so rather than being discovered to be useless one claim
+    /// later.
+    ///
+    /// `#[serde(default)]` on both, so a heartbeat from a build that predates M6 reads as "cannot
+    /// fulfil" — which is the safe answer, not a silently-wrong volunteer.
+    #[serde(default)]
+    pub can_fulfil_movies: bool,
+    /// Whether this node could grab a series: a Sonarr with at least one enabled TV indexer, a root
+    /// folder, and room. See [`Heartbeat::can_fulfil_movies`].
+    #[serde(default)]
+    pub can_fulfil_tv: bool,
     /// Where a *browser* can reach this node over HTTPS — the side door's candidate hostnames and
     /// the coordinator's last reachability verdict. `None` on a node with no coordinator or no
     /// certificate, which is the zero-server default. See [`crate::sidedoor`].

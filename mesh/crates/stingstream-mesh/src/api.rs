@@ -3,8 +3,8 @@
 //! Two audiences:
 //!
 //! * **`StingStream.Core`** (inside Jellyfin) pushes inventory and reads the merged group index:
-//!   `PUT`/`PATCH /mesh/v1/inventory`, `GET /mesh/v1/index`, `GET /mesh/v1/peers`, and the group
-//!   lifecycle under `/mesh/v1/groups`.
+//!   `PUT`/`PATCH /mesh/v1/inventory`, `GET /mesh/v1/index`, `GET /mesh/v1/peers`, the group
+//!   lifecycle under `/mesh/v1/groups`, and M6's member requests under `/mesh/v1/requests`.
 //! * **the player**, through `/stream/{group}/{item_key}/{node}`. A federated `.strm` file holds
 //!   `https://stingstream.local/stream/...`; the native app rewrites the host to its own embedded
 //!   mesh listener, and a browser gets the same path proxied by the node's own gateway. **The path
@@ -44,6 +44,9 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/peers", get(peers))
         .route("/mesh/v1/peers/{node}/stats", get(peer_stats))
         .route("/mesh/v1/sources/{group}/{item_key}", get(sources))
+        .route("/mesh/v1/requests", get(list_requests).post(publish_request))
+        .route("/mesh/v1/requests/claim", post(claim_request))
+        .route("/mesh/v1/requests/{request_id}", get(get_request))
         .route(
             "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
             get(image),
@@ -461,6 +464,109 @@ async fn peer_stats(
                 format!("this node has never seen {peer} in that group"),
             )
         })
+}
+
+// --- requests -----------------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct PublishRequest {
+    group: String,
+    #[serde(flatten)]
+    request: crate::requests::RequestRecord,
+}
+
+/// `POST /mesh/v1/requests` — publish a member request into the group.
+///
+/// Only the requester's home node calls this, and only once the request is approved. Everything
+/// about *who* asked and *whether they were allowed to* stays in `StingStream.Core`; what the group
+/// is told is only what a volunteer needs in order to grab the right thing.
+async fn publish_request(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<PublishRequest>,
+) -> ApiResult<Json<crate::requests::RequestView>> {
+    let id = parse_group(&body.group)?;
+    if body.request.item_key.trim().is_empty() {
+        return Err(ApiError::bad_request("a request needs an item_key"));
+    }
+    Ok(Json(node.publish_request(&id, &body.request).await?))
+}
+
+#[derive(Deserialize)]
+struct ClaimBody {
+    group: String,
+    request_id: String,
+    /// One of `claimed`, `fulfilling`, `available`, `failed`, `released`.
+    state: String,
+    #[serde(default)]
+    note: String,
+}
+
+/// `POST /mesh/v1/requests/claim` — claim a request, or say how the claim is going.
+///
+/// The answer carries `winner`, which is the only thing the caller actually wants to know. A node
+/// that claims and is not the winner must release rather than grab; see `docs/REQUESTS.md`.
+async fn claim_request(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<ClaimBody>,
+) -> ApiResult<Json<crate::requests::RequestView>> {
+    let id = parse_group(&body.group)?;
+    if body.request_id.trim().is_empty() {
+        return Err(ApiError::bad_request("a claim needs a request_id"));
+    }
+    if !matches!(
+        body.state.as_str(),
+        crate::requests::ClaimStates::CLAIMED
+            | crate::requests::ClaimStates::FULFILLING
+            | crate::requests::ClaimStates::AVAILABLE
+            | crate::requests::ClaimStates::FAILED
+            | crate::requests::ClaimStates::RELEASED
+    ) {
+        return Err(ApiError::bad_request(format!(
+            "{:?} is not a claim state",
+            body.state
+        )));
+    }
+    Ok(Json(
+        node.claim_request(&id, &body.request_id, &body.state, &body.note)
+            .await?,
+    ))
+}
+
+#[derive(Serialize)]
+struct RequestsBody {
+    group: String,
+    requests: Vec<crate::requests::RequestView>,
+}
+
+async fn list_requests(
+    State(node): State<Arc<MeshNode>>,
+    Query(q): Query<GroupQuery>,
+) -> ApiResult<Json<RequestsBody>> {
+    let group = q
+        .group
+        .ok_or_else(|| ApiError::bad_request("?group= is required"))?;
+    let id = parse_group(&group)?;
+    Ok(Json(RequestsBody {
+        group: id.to_string(),
+        requests: node.requests(&id)?,
+    }))
+}
+
+async fn get_request(
+    State(node): State<Arc<MeshNode>>,
+    Path(request_id): Path<String>,
+    Query(q): Query<GroupQuery>,
+) -> ApiResult<Json<crate::requests::RequestView>> {
+    let group = q
+        .group
+        .ok_or_else(|| ApiError::bad_request("?group= is required"))?;
+    let id = parse_group(&group)?;
+    node.request(&id, &request_id)?.map(Json).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            format!("this node has never heard of request {request_id}"),
+        )
+    })
 }
 
 // --- streaming ----------------------------------------------------------------------------------

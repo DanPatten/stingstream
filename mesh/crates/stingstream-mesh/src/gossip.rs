@@ -127,6 +127,21 @@ pub enum Body {
     Membership { members: Vec<Member> },
     /// "I just joined, please re-send your snapshot."
     RequestSnapshot,
+    /// A member request, published by the requester's home node once it is approved (M6).
+    ///
+    /// Every member stores it, because any member with the right indexers may end up fulfilling
+    /// it. Re-published while the request is open, so a node that joins mid-flight learns about it
+    /// and a lost message repairs itself on the next tick.
+    Request {
+        request: crate::requests::RequestRecord,
+    },
+    /// "I will fulfil that request", and later how it went.
+    ///
+    /// The message that makes exactly one node grab the file. See [`crate::requests`] for why the
+    /// winner is a pure function of these and needs no coordinator.
+    RequestClaim {
+        claim: crate::requests::ClaimRecord,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,6 +296,7 @@ pub async fn spawn(
                         // Send them what we hold, and ask for theirs. Both are cheap and make a
                         // fresh join converge without waiting for the next snapshot tick.
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
+                        publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish(&sender, &group, &secret, &node_key, &Body::RequestSnapshot).await;
                     }
                     Event::NeighborDown(peer) => {
@@ -344,6 +360,7 @@ pub async fn spawn(
                     }
                     _ = snap.tick() => {
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
+                        publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                     }
                 }
             }
@@ -419,6 +436,63 @@ pub async fn publish_snapshot(
             },
         )
         .await;
+    }
+}
+
+/// Re-broadcast every still-open request this node originated, and this node's own claims.
+///
+/// Requests are not carried by [`publish_snapshot`], which is about *inventory*. They ride the same
+/// tick because they have the same repair property: a member who joined after a request was made,
+/// or who missed the message, learns about it on the next snapshot interval rather than never.
+///
+/// "Still open" is "no live claim says it is available". A finished request stops being re-sent and
+/// ages out of every member's database on its own ([`Db::expire_requests`]).
+pub async fn publish_open_requests(
+    db: &Db,
+    sender: &GossipSender,
+    group: &GroupId,
+    secret: &GroupSecret,
+    node_key: &SecretKey,
+) {
+    let me = node_key.public().to_string();
+    let views = match db.requests(group) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(%group, error = %e, "reading requests to re-publish");
+            return;
+        }
+    };
+    for view in views {
+        let settled = view
+            .claims
+            .iter()
+            .any(|c| c.state == crate::requests::ClaimStates::AVAILABLE);
+        if view.origin == me && !settled {
+            publish(
+                sender,
+                group,
+                secret,
+                node_key,
+                &Body::Request {
+                    request: view.request.clone(),
+                },
+            )
+            .await;
+        }
+        // Our own claim goes out again whatever the origin, because it is how a peer that missed
+        // the first one learns not to start a second download.
+        if let Some(mine) = view.claims.iter().find(|c| c.node == me) {
+            publish(
+                sender,
+                group,
+                secret,
+                node_key,
+                &Body::RequestClaim {
+                    claim: mine.clone(),
+                },
+            )
+            .await;
+        }
     }
 }
 
@@ -545,6 +619,31 @@ async fn handle(
         }
         Body::RequestSnapshot => {
             publish_snapshot(db, sender, group, secret, node_key, node_name).await;
+        }
+        Body::Request { request } => {
+            tracing::debug!(
+                %group, peer = %author.fmt_short(), request = %request.request_id,
+                item_key = %request.item_key, "member request"
+            );
+            let _ = db.set_peer_online(group, &author_s, true);
+            if let Err(e) = db.record_request(group, &author_s, &request) {
+                tracing::warn!(error = %e, "recording a member request");
+            }
+        }
+        Body::RequestClaim { mut claim } => {
+            // The claiming node is the *author*, never whatever the body says. Taking the node id
+            // from the payload would let any member write a claim in somebody else's name and take
+            // a request off the node that was going to fulfil it -- the signature covers the whole
+            // body, but it proves who wrote it, not who it is about.
+            claim.node = author_s.clone();
+            tracing::debug!(
+                %group, peer = %author.fmt_short(), request = %claim.request_id,
+                state = %claim.state, "request claim"
+            );
+            let _ = db.set_peer_online(group, &author_s, true);
+            if let Err(e) = db.record_claim(group, &claim) {
+                tracing::warn!(error = %e, "recording a request claim");
+            }
         }
     }
 }
@@ -754,6 +853,60 @@ mod tests {
         let a = seal(&group, &secret, &key, &body()).unwrap();
         let b = seal(&group, &secret, &key, &body()).unwrap();
         assert_ne!(a, b, "a fresh nonce per message");
+    }
+
+    #[test]
+    fn a_request_and_a_claim_survive_the_round_trip() {
+        let group = GroupId::generate();
+        let secret = GroupSecret::generate();
+        let key = SecretKey::generate();
+
+        let request = Body::Request {
+            request: crate::requests::RequestRecord {
+                request_id: "req-1".into(),
+                kind: "series".into(),
+                item_key: "episode:tvdb:73739:".into(),
+                title: "Lost".into(),
+                provider: "tvdb".into(),
+                provider_id: "73739".into(),
+                seasons: vec![1, 2],
+                requested_by: "dan".into(),
+                requested_at: "2026-09-05T00:00:00Z".into(),
+            },
+        };
+        let wire = seal(&group, &secret, &key, &request).unwrap();
+        assert_eq!(open(&group, &secret, &wire).unwrap().1, request);
+
+        let claim = Body::RequestClaim {
+            claim: crate::requests::ClaimRecord {
+                request_id: "req-1".into(),
+                node: key.public().to_string(),
+                node_name: "loft".into(),
+                claimed_at: 1_757_000_000_000,
+                state: crate::requests::ClaimStates::CLAIMED.into(),
+                note: String::new(),
+                updated_at: "2026-09-05T00:00:01Z".into(),
+            },
+        };
+        let wire = seal(&group, &secret, &key, &claim).unwrap();
+        assert_eq!(open(&group, &secret, &wire).unwrap().1, claim);
+    }
+
+    #[test]
+    fn a_request_body_from_a_build_without_the_optional_fields_still_reads() {
+        // Every field but the four required ones carries `#[serde(default)]`, so a member on an
+        // older build -- or a film, which has no seasons -- produces a body this one accepts.
+        let json = r#"{"Request":{"request":{"request_id":"r","kind":"movie",
+            "item_key":"movie:tmdb:10378","requested_at":"2026-09-05T00:00:00Z"}}}"#;
+        let body: Body = serde_json::from_str(json).unwrap();
+        match body {
+            Body::Request { request } => {
+                assert_eq!(request.request_id, "r");
+                assert!(request.seasons.is_empty());
+                assert_eq!(request.title, "");
+            }
+            other => panic!("expected a request, got {other:?}"),
+        }
     }
 
     #[test]

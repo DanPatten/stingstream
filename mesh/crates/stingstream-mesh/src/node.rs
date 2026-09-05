@@ -732,6 +732,133 @@ impl MeshNode {
         Ok(rows)
     }
 
+    // --- requests -----------------------------------------------------------------------------
+
+    /// Publish a member request into the group and record it locally.
+    ///
+    /// Called by `StingStream.Core` on the requester's home node once the request is approved.
+    /// Storing it locally as well as gossiping it is what lets this node answer
+    /// `GET /mesh/v1/requests` immediately, and is what the re-publish tick reads.
+    pub async fn publish_request(
+        &self,
+        group_id: &GroupId,
+        request: &crate::requests::RequestRecord,
+    ) -> Result<crate::requests::RequestView> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        if request.request_id.trim().is_empty() {
+            bail!("a request needs a request_id");
+        }
+        let me = self.node_id();
+        self.db.record_request(group_id, &me, request)?;
+        if let Some(rg) = self.groups.lock().await.get(group_id) {
+            gossip::publish(
+                &rg.gossip.sender,
+                group_id,
+                &group.secret,
+                &self.secret_key,
+                &Body::Request {
+                    request: request.clone(),
+                },
+            )
+            .await;
+        }
+        self.db
+            .request(group_id, &request.request_id)?
+            .context("the request vanished immediately after being written")
+    }
+
+    /// Claim a request for this node, or update the claim already made.
+    ///
+    /// The claim timestamp is taken **once**, on the first claim, and preserved by
+    /// [`crate::db::Db::record_claim`] on every subsequent write. Which is why this can be called
+    /// as often as the caller likes: re-claiming does not move this node in the ordering, so a
+    /// restart mid-fulfilment resumes rather than handing the job away.
+    ///
+    /// Returns the request's whole view, including who has won, because the caller's very next
+    /// question is always "did I?".
+    pub async fn claim_request(
+        &self,
+        group_id: &GroupId,
+        request_id: &str,
+        state: &str,
+        note: &str,
+    ) -> Result<crate::requests::RequestView> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let me = self.node_id();
+        let existing = self
+            .db
+            .claims(group_id, request_id)?
+            .into_iter()
+            .find(|c| c.node == me);
+        let claim = crate::requests::ClaimRecord {
+            request_id: request_id.to_string(),
+            node: me,
+            node_name: self.cfg.node_name.clone(),
+            // Frozen on the first claim. See the module docs in `crate::requests`.
+            claimed_at: existing
+                .as_ref()
+                .map(|c| c.claimed_at)
+                .unwrap_or_else(crate::util::now_millis),
+            state: state.to_string(),
+            note: note.to_string(),
+            updated_at: now_rfc3339(),
+        };
+        self.db.record_claim(group_id, &claim)?;
+        if let Some(rg) = self.groups.lock().await.get(group_id) {
+            gossip::publish(
+                &rg.gossip.sender,
+                group_id,
+                &group.secret,
+                &self.secret_key,
+                &Body::RequestClaim {
+                    claim: claim.clone(),
+                },
+            )
+            .await;
+        }
+        self.db
+            .request(group_id, request_id)
+            .map(|v| {
+                v.unwrap_or_else(|| {
+                    // A claim on a request this node has not yet heard of is legitimate: gossip
+                    // has no ordering guarantee, and the claim may well arrive first. The view is
+                    // built from what is known rather than refused.
+                    crate::requests::RequestView::new(
+                        crate::requests::RequestRecord {
+                            request_id: request_id.to_string(),
+                            ..Default::default()
+                        },
+                        String::new(),
+                        vec![claim],
+                    )
+                })
+            })
+    }
+
+    /// Every request this node knows about in a group, with claims and winners.
+    pub fn requests(&self, group_id: &GroupId) -> Result<Vec<crate::requests::RequestView>> {
+        if self.db.group(group_id)?.is_none() {
+            bail!("this node is not a member of group {group_id}");
+        }
+        self.db.requests(group_id)
+    }
+
+    /// One request, or `None`.
+    pub fn request(
+        &self,
+        group_id: &GroupId,
+        request_id: &str,
+    ) -> Result<Option<crate::requests::RequestView>> {
+        if self.db.group(group_id)?.is_none() {
+            bail!("this node is not a member of group {group_id}");
+        }
+        self.db.request(group_id, request_id)
+    }
+
     // --- streaming ----------------------------------------------------------------------------
 
     /// Score every holder of `item_key`, best first.

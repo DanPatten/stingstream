@@ -1,6 +1,6 @@
 //! `mesh.db` — the SQLite store behind the group index.
 //!
-//! Four tables:
+//! Six tables:
 //!
 //! * `groups` — the groups this node belongs to, including their secrets. The file is created
 //!   owner-only where the OS supports it, for the same reason `node.key` is.
@@ -10,6 +10,11 @@
 //! * `inventory` — one row per (group, node, item_key). `record` is the gossiped [`WireRecord`] as
 //!   JSON; `local_path` is populated **only** for this node's own rows and is what
 //!   [`crate::peer`] opens when a peer asks for the file.
+//! * `requests` — one row per member request gossiped into the group (M6). Every member holds every
+//!   request, because any member with the right indexers may end up fulfilling one.
+//! * `request_claims` — one row per (request, claiming node). The winner is a pure function of
+//!   these rows, which is what makes "exactly one node grabs it" true without a coordinator; see
+//!   [`crate::requests`].
 //! * `meta` — small key/value state, currently the per-group gossip sequence number.
 //!
 //! Every function here is synchronous and short. `rusqlite` is not `Send`-across-await friendly and
@@ -24,6 +29,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::group::{Group, GroupId, GroupSecret};
 use crate::inventory::{Heartbeat, IndexEntry, InventoryRecord, WireRecord};
+use crate::requests::{ClaimRecord, RequestRecord, RequestView};
 use crate::util::{now_rfc3339, restrict_to_owner};
 
 /// Bumped whenever the schema changes in a way an older binary could not read.
@@ -31,9 +37,11 @@ use crate::util::{now_rfc3339, restrict_to_owner};
 ///
 /// 2 added `inventory.local_images`, which is how the peer image route resolves a kind to a file
 /// this node holds. 3 added the rolling throughput columns on `peers`, which are what M4's source
-/// scorer weighs a candidate's bandwidth on. Every statement in [`SCHEMA`] is `IF NOT EXISTS`, so a
-/// new database is correct by construction; [`Db::migrate`] is what brings an existing one forward.
-pub const SCHEMA_VERSION: i64 = 3;
+/// scorer weighs a candidate's bandwidth on. 4 added M6's `requests` and `request_claims` tables
+/// and the two `can_fulfil_*` columns on `peers` the request router picks a volunteer out of. Every
+/// statement in [`SCHEMA`] is `IF NOT EXISTS`, so a new database is correct by construction;
+/// [`Db::migrate`] is what brings an existing one forward.
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -84,6 +92,36 @@ CREATE TABLE IF NOT EXISTS inventory (
 
 CREATE INDEX IF NOT EXISTS inventory_by_item ON inventory (group_id, item_key);
 CREATE INDEX IF NOT EXISTS inventory_by_hash ON inventory (group_id, file_hash);
+
+CREATE TABLE IF NOT EXISTS requests (
+    group_id     TEXT NOT NULL,
+    request_id   TEXT NOT NULL,
+    origin_node  TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    item_key     TEXT NOT NULL,
+    title        TEXT NOT NULL DEFAULT '',
+    provider     TEXT NOT NULL DEFAULT '',
+    provider_id  TEXT NOT NULL DEFAULT '',
+    seasons      TEXT NOT NULL DEFAULT '[]',
+    requested_by TEXT NOT NULL DEFAULT '',
+    requested_at TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (group_id, request_id)
+);
+
+CREATE TABLE IF NOT EXISTS request_claims (
+    group_id   TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    node_id    TEXT NOT NULL,
+    node_name  TEXT NOT NULL DEFAULT '',
+    claimed_at INTEGER NOT NULL,
+    state      TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, request_id, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS request_claims_by_request ON request_claims (group_id, request_id);
 "#;
 
 /// Handle on `mesh.db`.
@@ -130,6 +168,8 @@ impl Db {
             "ALTER TABLE peers ADD COLUMN throughput_samples INTEGER",
             "ALTER TABLE peers ADD COLUMN throughput_at TEXT",
             "ALTER TABLE peers ADD COLUMN side_door TEXT",
+            "ALTER TABLE peers ADD COLUMN can_fulfil_movies INTEGER",
+            "ALTER TABLE peers ADD COLUMN can_fulfil_tv INTEGER",
         ] {
             match conn.execute(statement, []) {
                 Ok(_) => tracing::info!(statement, "migrated mesh.db"),
@@ -345,7 +385,8 @@ impl Db {
                 "UPDATE peers SET online = 1, last_seen = ?3,
                         max_direct_streams = ?4, max_transcodes = ?5,
                         active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8,
-                        side_door = COALESCE(?9, side_door)
+                        side_door = COALESCE(?9, side_door),
+                        can_fulfil_movies = ?10, can_fulfil_tv = ?11
                  WHERE group_id = ?1 AND node_id = ?2",
                 params![
                     group.to_string(),
@@ -363,6 +404,12 @@ impl Db {
                     hb.side_door
                         .as_ref()
                         .and_then(|sd| serde_json::to_string(sd).ok()),
+                    // Not COALESCE: unlike the side door, these two are always present in a
+                    // heartbeat (they are plain bools with a serde default), so the latest beat is
+                    // always the truth. A node that has just had its last indexer removed must stop
+                    // volunteering on the next beat, not keep its old answer forever.
+                    hb.can_fulfil_movies as i64,
+                    hb.can_fulfil_tv as i64,
                 ],
             )
             .context("recording a heartbeat")?;
@@ -409,7 +456,7 @@ impl Db {
         let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
                           active_transcodes, free_space, throughput_bps, throughput_samples,
-                          throughput_at, side_door
+                          throughput_at, side_door, can_fulfil_movies, can_fulfil_tv
                    FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
@@ -438,6 +485,11 @@ impl Db {
                         .get::<_, Option<String>>(16)?
                         .as_deref()
                         .and_then(|j| serde_json::from_str(j).ok()),
+                    // NULL is "a peer that has not said", which the request router must read as
+                    // "no" -- volunteering a node that cannot search would strand the request on
+                    // it until the claim times out.
+                    can_fulfil_movies: r.get::<_, Option<i64>>(17)?.unwrap_or(0) != 0,
+                    can_fulfil_tv: r.get::<_, Option<i64>>(18)?.unwrap_or(0) != 0,
                 })
             })
             .context("listing peers")?;
@@ -883,6 +935,188 @@ impl Db {
         }
         Ok(out)
     }
+
+    // --- requests -----------------------------------------------------------------------------
+
+    /// Record a request gossiped into the group, or refresh one already known.
+    ///
+    /// The origin node is authoritative for a request's *content*, so a later publication from the
+    /// same origin replaces it. A publication from a *different* node for the same id is ignored
+    /// rather than overwriting: request ids are minted by their origin, and a second origin
+    /// claiming one is either a collision or a member behaving badly -- in both cases the row every
+    /// other member already agreed on is the one to keep.
+    pub fn record_request(&self, group: &GroupId, origin: &str, req: &RequestRecord) -> Result<bool> {
+        let seasons = serde_json::to_string(&req.seasons).unwrap_or_else(|_| "[]".to_string());
+        let n = self
+            .lock()
+            .execute(
+                "INSERT INTO requests
+                     (group_id, request_id, origin_node, kind, item_key, title, provider,
+                      provider_id, seasons, requested_by, requested_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 ON CONFLICT(group_id, request_id) DO UPDATE SET
+                     kind = excluded.kind,
+                     item_key = excluded.item_key,
+                     title = excluded.title,
+                     provider = excluded.provider,
+                     provider_id = excluded.provider_id,
+                     seasons = excluded.seasons,
+                     requested_by = excluded.requested_by,
+                     requested_at = excluded.requested_at,
+                     updated_at = excluded.updated_at
+                 WHERE requests.origin_node = excluded.origin_node",
+                params![
+                    group.to_string(),
+                    req.request_id,
+                    origin,
+                    req.kind,
+                    req.item_key,
+                    req.title,
+                    req.provider,
+                    req.provider_id,
+                    seasons,
+                    req.requested_by,
+                    req.requested_at,
+                    now_rfc3339(),
+                ],
+            )
+            .context("recording a group request")?;
+        Ok(n > 0)
+    }
+
+    /// Write this node's or a peer's claim on a request.
+    ///
+    /// **`claimed_at` is set once and never updated.** That single missing assignment in the
+    /// `ON CONFLICT` clause is the idempotence the whole protocol rests on: a node that re-claims
+    /// after a restart, or that re-publishes to carry a new state, keeps the timestamp it
+    /// originally won with. Bumping it would silently hand the job to whichever node happened to
+    /// claim second, and the group would download the title twice.
+    pub fn record_claim(&self, group: &GroupId, claim: &ClaimRecord) -> Result<()> {
+        self.lock()
+            .execute(
+                "INSERT INTO request_claims
+                     (group_id, request_id, node_id, node_name, claimed_at, state, note, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(group_id, request_id, node_id) DO UPDATE SET
+                     node_name = CASE WHEN excluded.node_name <> '' THEN excluded.node_name
+                                      ELSE request_claims.node_name END,
+                     state = excluded.state,
+                     note = excluded.note,
+                     updated_at = excluded.updated_at",
+                params![
+                    group.to_string(),
+                    claim.request_id,
+                    claim.node,
+                    claim.node_name,
+                    claim.claimed_at as i64,
+                    claim.state,
+                    claim.note,
+                    now_rfc3339(),
+                ],
+            )
+            .context("recording a request claim")?;
+        Ok(())
+    }
+
+    /// Every claim on one request, in no particular order.
+    pub fn claims(&self, group: &GroupId, request_id: &str) -> Result<Vec<ClaimRecord>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT request_id, node_id, node_name, claimed_at, state, note, updated_at
+                 FROM request_claims WHERE group_id = ?1 AND request_id = ?2",
+            )
+            .context("listing request claims")?;
+        let rows = stmt
+            .query_map(params![group.to_string(), request_id], |r| {
+                Ok(ClaimRecord {
+                    request_id: r.get(0)?,
+                    node: r.get(1)?,
+                    node_name: r.get(2)?,
+                    claimed_at: r.get::<_, i64>(3)? as u64,
+                    state: r.get(4)?,
+                    note: r.get(5)?,
+                    updated_at: r.get(6)?,
+                })
+            })
+            .context("listing request claims")?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .context("reading request claim rows")
+    }
+
+    /// Every request in a group, newest first, each with its claims and the winner.
+    pub fn requests(&self, group: &GroupId) -> Result<Vec<RequestView>> {
+        let bare = {
+            let conn = self.lock();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT request_id, origin_node, kind, item_key, title, provider, provider_id,
+                            seasons, requested_by, requested_at
+                     FROM requests WHERE group_id = ?1 ORDER BY requested_at DESC",
+                )
+                .context("listing group requests")?;
+            let rows = stmt
+                .query_map(params![group.to_string()], |r| {
+                    let seasons: String = r.get(7)?;
+                    Ok((
+                        RequestRecord {
+                            request_id: r.get(0)?,
+                            kind: r.get(2)?,
+                            item_key: r.get(3)?,
+                            title: r.get(4)?,
+                            provider: r.get(5)?,
+                            provider_id: r.get(6)?,
+                            seasons: serde_json::from_str(&seasons).unwrap_or_default(),
+                            requested_by: r.get(8)?,
+                            requested_at: r.get(9)?,
+                        },
+                        r.get::<_, String>(1)?,
+                    ))
+                })
+                .context("listing group requests")?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .context("reading group request rows")?
+        };
+
+        let mut out = Vec::with_capacity(bare.len());
+        for (req, origin) in bare {
+            let claims = self.claims(group, &req.request_id)?;
+            out.push(RequestView::new(req, origin, claims));
+        }
+        Ok(out)
+    }
+
+    /// One request with its claims, or `None` when this node has never heard of it.
+    pub fn request(&self, group: &GroupId, request_id: &str) -> Result<Option<RequestView>> {
+        Ok(self
+            .requests(group)?
+            .into_iter()
+            .find(|v| v.request.request_id == request_id))
+    }
+
+    /// Forget requests whose last activity is older than `keep_days`.
+    ///
+    /// An open request is re-published on the origin's snapshot tick, so a row that has not been
+    /// touched in a week belongs to a request that is finished or to a node that has left. Either
+    /// way, keeping it forever would mean every member's database grows without bound with other
+    /// people's history.
+    pub fn expire_requests(&self, keep_days: i64) -> Result<usize> {
+        let cutoff = time::OffsetDateTime::now_utc() - time::Duration::days(keep_days.max(1));
+        let cutoff = cutoff
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default();
+        let conn = self.lock();
+        conn.execute(
+            "DELETE FROM request_claims WHERE request_id IN
+                 (SELECT request_id FROM requests WHERE updated_at < ?1)",
+            params![cutoff],
+        )
+        .context("expiring request claims")?;
+        let n = conn
+            .execute("DELETE FROM requests WHERE updated_at < ?1", params![cutoff])
+            .context("expiring requests")?;
+        Ok(n)
+    }
 }
 
 fn insert_record(
@@ -958,6 +1192,13 @@ pub struct PeerRow {
     /// peer with no coordinator or no certificate. See [`crate::sidedoor`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side_door: Option<crate::sidedoor::SideDoor>,
+    /// Whether this peer advertises that it could grab a film — see
+    /// [`crate::inventory::Heartbeat::can_fulfil_movies`]. False for a peer that has not said.
+    #[serde(default)]
+    pub can_fulfil_movies: bool,
+    /// Whether this peer advertises that it could grab a series.
+    #[serde(default)]
+    pub can_fulfil_tv: bool,
 }
 
 #[cfg(test)]
@@ -1118,6 +1359,149 @@ mod tests {
         let idx = db.index(&g.id).unwrap();
         assert_eq!(idx[0].node_name, "loft");
         assert!(idx[0].online);
+    }
+
+    // --- requests -----------------------------------------------------------------------------
+
+    fn request(id: &str) -> RequestRecord {
+        RequestRecord {
+            request_id: id.into(),
+            kind: "series".into(),
+            item_key: "episode:tvdb:73739:".into(),
+            title: "Lost".into(),
+            provider: "tvdb".into(),
+            provider_id: "73739".into(),
+            seasons: vec![1],
+            requested_by: "dan".into(),
+            requested_at: "2026-09-05T00:00:00Z".into(),
+        }
+    }
+
+    fn a_claim(request_id: &str, node: &str, at: u64, state: &str) -> ClaimRecord {
+        ClaimRecord {
+            request_id: request_id.into(),
+            node: node.into(),
+            node_name: node.into(),
+            claimed_at: at,
+            state: state.into(),
+            note: String::new(),
+            updated_at: now_rfc3339(),
+        }
+    }
+
+    #[test]
+    fn a_request_round_trips_with_its_seasons() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.record_request(&g.id, "origin", &request("r1")).unwrap();
+
+        let views = db.requests(&g.id).unwrap();
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].origin, "origin");
+        assert_eq!(views[0].request.seasons, vec![1]);
+        assert_eq!(views[0].request.title, "Lost");
+        assert!(views[0].winner.is_none(), "nobody has claimed yet");
+    }
+
+    #[test]
+    fn a_second_origin_cannot_overwrite_somebody_elses_request() {
+        // Request ids are minted by their origin. A row arriving from a different node under the
+        // same id is either a collision or a member misbehaving, and in both cases the version
+        // every other member already has is the one to keep.
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.record_request(&g.id, "origin", &request("r1")).unwrap();
+
+        let mut impostor = request("r1");
+        impostor.item_key = "movie:tmdb:999".into();
+        let changed = db.record_request(&g.id, "somebody-else", &impostor).unwrap();
+
+        assert!(!changed);
+        assert_eq!(db.requests(&g.id).unwrap()[0].request.item_key, "episode:tvdb:73739:");
+    }
+
+    #[test]
+    fn re_claiming_keeps_the_original_timestamp() {
+        // The single property the whole no-coordinator protocol rests on. If a re-claim moved the
+        // timestamp, a node that restarted mid-download would lose the race it had already won and
+        // the group would grab the same title twice.
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.record_request(&g.id, "origin", &request("r1")).unwrap();
+
+        db.record_claim(&g.id, &a_claim("r1", "me", 1000, crate::requests::ClaimStates::CLAIMED))
+            .unwrap();
+        // A later write, as would happen when the state moves on.
+        db.record_claim(
+            &g.id,
+            &a_claim("r1", "me", 9999, crate::requests::ClaimStates::FULFILLING),
+        )
+        .unwrap();
+
+        let claims = db.claims(&g.id, "r1").unwrap();
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].claimed_at, 1000, "the first claim's timestamp is frozen");
+        assert_eq!(claims[0].state, crate::requests::ClaimStates::FULFILLING);
+    }
+
+    #[test]
+    fn the_winner_is_the_earliest_live_claim() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.record_request(&g.id, "origin", &request("r1")).unwrap();
+        db.record_claim(&g.id, &a_claim("r1", "late", 2000, crate::requests::ClaimStates::CLAIMED))
+            .unwrap();
+        db.record_claim(&g.id, &a_claim("r1", "early", 1000, crate::requests::ClaimStates::CLAIMED))
+            .unwrap();
+
+        assert_eq!(db.request(&g.id, "r1").unwrap().unwrap().winner.as_deref(), Some("early"));
+
+        // The winner steps aside; the other volunteer inherits the job with no message from anyone.
+        db.record_claim(&g.id, &a_claim("r1", "early", 1000, crate::requests::ClaimStates::RELEASED))
+            .unwrap();
+        assert_eq!(db.request(&g.id, "r1").unwrap().unwrap().winner.as_deref(), Some("late"));
+    }
+
+    #[test]
+    fn a_heartbeat_carries_what_a_node_can_fulfil() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.set_heartbeat(
+            &g.id,
+            "peer",
+            "loft",
+            &Heartbeat {
+                free_space: 500_000_000_000,
+                can_fulfil_movies: true,
+                can_fulfil_tv: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let peer = db.peer(&g.id, "peer").unwrap().unwrap();
+        assert!(peer.can_fulfil_movies);
+        assert!(!peer.can_fulfil_tv, "a node with no Sonarr must not be volunteered a series");
+        assert_eq!(peer.free_space, Some(500_000_000_000));
+    }
+
+    #[test]
+    fn a_peer_that_has_never_said_cannot_fulfil_anything() {
+        // NULL, not false, in the column. Reading it as "yes" would strand a request on a node
+        // that cannot search.
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.note_member(&g.id, "silent", "silent").unwrap();
+
+        let peer = db.peer(&g.id, "silent").unwrap().unwrap();
+        assert!(!peer.can_fulfil_movies);
+        assert!(!peer.can_fulfil_tv);
     }
 
     #[test]
