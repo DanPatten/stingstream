@@ -219,7 +219,14 @@ pwsh tools/e2e-m1.ps1 -KeepRunning          # leave the node up afterwards to po
 ```
 
 It uses gateway port 8791 and ephemeral child ports, so it does not collide with a development
-node you already have running. Its work directory lives beside the repository, not inside it.
+node you already have running. Its work directory lives beside the repository, not inside it, and
+it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
+was rejected, and the logs it leaves behind are the whole point when a step fails.
+
+A passing run takes about two minutes on a warm machine and prints a timed line per step. When one
+fails, the first place to look is `<work>/logs/` (the harness's own processes) and
+`<work>/data/logs/` (the node's), plus the arr's own file log at `<work>/data/<app>/logs/`, which
+is where the import decisions live.
 
 ---
 

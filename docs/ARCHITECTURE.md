@@ -549,12 +549,32 @@ fixed order so two nodes with different metadata coverage still agree.
 - **`IsStartupWizardCompleted` must not be pre-seeded** into Jellyfin's `system.xml`; see
   `docs/PATCHES.md` for why it crash-loops a fresh node.
 
-**M1 status (2026-09-05): complete.** Verified on a fresh data directory: all four children healthy;
-first-run wiring created the Jellyfin administrator, the Movies and TV Shows libraries and the
-torrent categories, and pushed root folders, both download clients, the naming rules and the import
-webhook into both arrs; both apps delivered their webhook Test through the receiver; and all four
-download-client tests (the qBittorrent shim and NZBGet, in Radarr and Sonarr) pass from the apps'
-own Test button. `tools/e2e-m1.ps1` runs the whole acceptance path end to end.
+**M1 status (2026-09-05): complete, acceptance passing.** `tools/e2e-m1.ps1` runs the whole path
+end to end on a throwaway data directory and passes all 21 steps in 109 seconds on the build
+machine: node up and every child healthy in 15 s; first-run wiring; the Jellyfin WebSocket proxied
+through the gateway (101 plus a real frame); the indexer added and synced into both apps; the movie
+(TMDB 10378) grabbed, downloaded over the qBittorrent-compatible API, imported and streamed back as
+2,197,380 bytes; the episode (TVDB 71471 S01E01) the same at 6,040,395 bytes; inventory records
+built for both (`movie:tmdb:10378`, `episode:tvdb:71471:s01e01`); and after a hard kill and restart
+every child healthy again, both items still present and both torrents restored from `core.db`. All
+four download-client tests — the qBittorrent shim and NZBGet, in Radarr and Sonarr — pass from the
+apps' own Test button.
+
+Three things the acceptance runs taught the implementation, each worth knowing before touching this
+code:
+
+- **The Omniarr sync has to run on every start, not just the first.** Ports are assigned at
+  start-up and can move, and the arrs *store* their download client's host and port; a node that
+  wired itself only once came back from a restart with both apps talking to dead ports, logging
+  nothing but "Unable to retrieve queue and history items" while completed downloads silently never
+  imported.
+- **A targeted refresh has to resolve downwards, not just walk up.** Nothing on the path of a
+  brand-new title is a known item — not even the library's own media directory, whose
+  `CollectionFolder` has a different `Path` and a no-op `ValidateChildrenInternal`. See
+  `docs/PATCHES.md`.
+- **The arrs' sample check is a table keyed on the title's runtime**, not a flat threshold: 90 s
+  for a 10-minute title, 300 s for a 30-minute one. A file below it downloads perfectly and then
+  sits in the queue forever as `importPending / Sample`.
 
 ### M2 — Unified UI v1 on one node (Sonnet 5; web-target spike by Opus 5 first)
 
