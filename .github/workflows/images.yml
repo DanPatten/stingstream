@@ -220,3 +220,103 @@ jobs:
             --tag ghcr.io/danpatten/stingstream-node:latest \
             ghcr.io/danpatten/stingstream-node:${{ github.sha }}-amd64 \
             ghcr.io/danpatten/stingstream-node:${{ github.sha }}-arm64
+
+  compose-smoke:
+    name: compose smoke test (arbitrary UID, join-code secret)
+    needs: build
+    # Only where an image was actually pushed (a PR build never pushes -- see `build`'s own `push:`
+    # condition) -- this job pulls the tag that step produces.
+    if: needs.build.result == 'success' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker compose config` renders and validates a file without starting anything -- the
+      # fastest way to catch a Compose Specification mistake (a bad secrets: block, an
+      # interpolation typo) before it reaches a real deploy. Every required env var gets a
+      # plausible dummy value; join-code files point at /dev/null, the same soft default the
+      # compose files themselves use.
+      - name: Validate deploy/node/compose.yml
+        run: |
+          STINGSTREAM_JOIN_CODE_FILE=/dev/null \
+            docker compose -f deploy/node/compose.yml config -q
+
+      - name: Validate deploy/coordinator/compose.yml (storage-node profile)
+        run: |
+          COORDINATOR_HOSTNAME=coord.example.org \
+          BASE_DOMAIN=example.org \
+          PUBLIC_IPS=203.0.113.1 \
+          ACME_CONTACT=admin@example.org \
+          STORAGE_NODE_JOIN_CODE_FILE=/dev/null \
+            docker compose -f deploy/coordinator/compose.yml --profile storage-node config -q
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the just-built amd64 image
+        run: docker pull ghcr.io/danpatten/stingstream-node:${{ github.sha }}-amd64
+
+      - name: Prepare fixtures for an arbitrary-UID run
+        run: |
+          mkdir -p /tmp/smoke-data /tmp/smoke-media
+          # 777, deliberately, and only for this throwaway CI fixture: proving an *arbitrary*,
+          # host-user-unrelated UID can write through a bind mount means the *host* side has to
+          # allow it, exactly the situation deploy/coordinator/compose.yml's own `user:` comment
+          # tells a real operator to solve by matching ownership instead.
+          chmod 777 /tmp/smoke-data /tmp/smoke-media
+          # Syntactically valid (non-empty) but not a real invite -- proves the secret-file ->
+          # STINGSTREAM_JOIN_CODE_FILE -> joincode::resolve -> async join attempt -> /healthz
+          # pipeline end-to-end without standing up a second coordinator+node in this job. A
+          # malformed code decodes to JoinState::Failed immediately and is never retried
+          # (mesh/crates/stingstream/src/joincode.rs), which is exactly what this test asserts on.
+          echo "InvalidTestInviteCodeForCISmokeTestOnly123456789" > /tmp/smoke-join-code.txt
+          chmod 644 /tmp/smoke-join-code.txt
+
+      - name: Start the node under an arbitrary UID with a join-code secret
+        run: |
+          docker run -d --name node-uid-smoke \
+            --user 1234:1234 \
+            -p 18791:8790 \
+            -v /tmp/smoke-data:/data \
+            -v /tmp/smoke-media:/data/media \
+            -v /tmp/smoke-join-code.txt:/run/secrets/join_code:ro \
+            -e STINGSTREAM_JOIN_CODE_FILE=/run/secrets/join_code \
+            ghcr.io/danpatten/stingstream-node:${{ github.sha }}-amd64
+
+      # Up to 300s: the supervisor's own first-run health grace (deploy/node/Dockerfile's
+      # HEALTHCHECK start-period, for the same reason) -- three self-contained .NET apps doing
+      # first-run database setup, now also under a UID that owns nothing the image built with.
+      - name: Wait up to 300s and assert healthy, with a join outcome on /healthz
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 150); do
+            code=$(curl -s -o /tmp/healthz.json -w '%{http_code}' http://127.0.0.1:18791/healthz || echo 000)
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 2
+          done
+          echo "-- /healthz --"
+          cat /tmp/healthz.json 2>/dev/null || true
+          echo
+          echo "-- docker logs --"
+          docker logs node-uid-smoke || true
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::node under --user 1234:1234 never reported healthy (200) within 300s"
+            docker rm -f node-uid-smoke || true
+            exit 1
+          fi
+          python3 - <<'PYEOF'
+          import json
+          d = json.load(open("/tmp/healthz.json"))
+          join = d.get("join")
+          assert join is not None, "no 'join' field in /healthz -- the join-outcome reporting did not surface"
+          assert join.get("state") == "failed", f"expected join.state == 'failed' for a malformed dummy code, got {join!r}"
+          print("OK: join outcome surfaced on /healthz:", join)
+          PYEOF
+          docker rm -f node-uid-smoke
