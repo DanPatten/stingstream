@@ -162,6 +162,25 @@ public sealed class LibraryStateStore
         return row;
     }
 
+    /// <summary>
+    /// Forget the decision recorded for one item key.
+    /// </summary>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Called when a title is deleted from the library. Leaving the row behind would keep Manage
+    /// explaining an add that no longer exists — "already held by loft; no download started" for a
+    /// film the user has just removed is worse than no explanation at all.
+    /// </remarks>
+    public Task RemoveAsync(string itemKey, CancellationToken cancellationToken)
+        => _db.WriteAsync(
+            c => CoreDatabase.Execute(
+                c,
+                "DELETE FROM library_state WHERE item_key = $k;",
+                ("$k", itemKey)),
+            cancellationToken);
+
     private const string Select =
         "SELECT item_key, kind, provider, provider_id, title, state, monitored, holders, note, "
         + "requested_by, updated_at FROM library_state";

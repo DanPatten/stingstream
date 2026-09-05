@@ -246,18 +246,21 @@ public sealed class PinService : BackgroundService
             await EnqueueMirrorsAsync(settings, cancellationToken).ConfigureAwait(false);
 
             var done = 0;
-            // One at a time, deliberately. A pin is a whole film over someone else's uplink; running
-            // several at once makes every one of them slower and makes the holder's advertised
-            // capacity a fiction. `MirrorConcurrency` raises it for a seedbox that means it.
-            var running = 0;
+            // Sequential, deliberately: each pin is awaited before the next one starts, so
+            // `MirrorConcurrency` is really "how many pins one pass may do", not how many run at
+            // the same time. The reason is the same either way -- a pin is a whole film over
+            // somebody else's uplink, and several at once makes every one of them slower and makes
+            // the holder's advertised stream capacity a fiction -- but the name promises more
+            // parallelism than the loop delivers, so it is spelled out here rather than inferred.
+            var started = 0;
             foreach (var row in _pins.Pending())
             {
-                if (running >= Math.Max(1, settings.MirrorConcurrency))
+                if (started >= Math.Max(1, settings.MirrorConcurrency))
                 {
                     break;
                 }
 
-                running++;
+                started++;
                 if (await RunPinAsync(row, cancellationToken).ConfigureAwait(false))
                 {
                     done++;

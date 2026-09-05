@@ -328,6 +328,120 @@ public sealed class ArrClient
             ?["value"];
     }
 
+    /// <summary>
+    /// Run the app's own connectivity test for a provider resource.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the endpoint upstream's own "Test" button calls. Its contract is unusual and the
+    /// unusual half is the useful half: <strong>success is an empty 200/202 body</strong>, and a
+    /// failure is a <c>400</c> whose body is an array of
+    /// <c>{ propertyName, errorMessage, isWarning }</c>. So a non-success status is not an error
+    /// to propagate — it is the answer — which is why this returns a result rather than throwing.
+    /// </para>
+    /// <para>
+    /// A transport failure (the app is not running at all) is still an exception, because that is a
+    /// different question from "the indexer rejected the key".
+    /// </para>
+    /// </remarks>
+    public async Task<ProviderTestResult> TestProviderAsync(
+        string resource,
+        JsonObject desired,
+        CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Post, $"{resource}/test");
+        req.Content = new StringContent(desired.ToJsonString(), Encoding.UTF8, "application/json");
+
+        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (res.IsSuccessStatusCode)
+        {
+            return new ProviderTestResult { Ok = true, Message = $"{Name} accepted it." };
+        }
+
+        return new ProviderTestResult
+        {
+            Ok = false,
+            Message = DescribeValidationFailure(text, res.StatusCode),
+            Status = (int)res.StatusCode,
+        };
+    }
+
+    /// <summary>
+    /// Turn NzbDrone's validation-failure array into one sentence.
+    /// </summary>
+    /// <remarks>
+    /// The array is what the app's own UI renders field by field; a StingStream caller has one
+    /// message box, so the property names are folded in rather than dropped — "ApiKey: Unauthorized"
+    /// says which half of a Torznab URL is wrong, and "Unauthorized" on its own does not.
+    /// </remarks>
+    public static string DescribeValidationFailure(string body, HttpStatusCode status)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return $"{(int)status} {status}";
+        }
+
+        try
+        {
+            if (JsonNode.Parse(body) is JsonArray failures && failures.Count > 0)
+            {
+                var lines = failures
+                    .OfType<JsonObject>()
+                    .Select(f =>
+                    {
+                        var property = f["propertyName"]?.GetValue<string>();
+                        var message = f["errorMessage"]?.GetValue<string>()
+                            ?? f["detailedDescription"]?.GetValue<string>()
+                            ?? "failed";
+                        return string.IsNullOrWhiteSpace(property) ? message : $"{property}: {message}";
+                    })
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+                if (lines.Count > 0)
+                {
+                    return string.Join("; ", lines);
+                }
+            }
+
+            // A ProblemDetails-shaped body, which is what a 500 out of the app looks like.
+            if (JsonNode.Parse(body) is JsonObject obj)
+            {
+                var message = obj["message"]?.GetValue<string>()
+                    ?? obj["errorMessage"]?.GetValue<string>()
+                    ?? obj["title"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    return message;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON at all. The raw text is still the best thing to show.
+        }
+
+        return Truncate(body);
+    }
+
+    // --- versions ----------------------------------------------------------
+
+    /// <summary>The app's own version string, or null when it is not answering.</summary>
+    public async Task<string?> VersionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var status = await GetAsync("system/status", ct).ConfigureAwait(false);
+            return (status as JsonObject)?["version"]?.GetValue<string>();
+        }
+        catch (Exception ex) when (ex is ArrApiException or HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogDebug(ex, "{App} did not report a version", Name);
+            return null;
+        }
+    }
+
     // --- root folders ------------------------------------------------------
 
     /// <summary>Add a root folder if the app does not already have it. Idempotent.</summary>
@@ -391,6 +505,31 @@ public sealed class ArrClient
         return profiles[0]["id"]?.GetValue<int>();
     }
 
+    /// <summary>Every quality profile this app has, verbatim.</summary>
+    public Task<List<JsonObject>> QualityProfilesAsync(CancellationToken ct = default)
+        => ListAsync("qualityprofile", ct);
+
+    /// <summary>One quality profile by name, or null.</summary>
+    public async Task<JsonObject?> QualityProfileByNameAsync(string name, CancellationToken ct = default)
+    {
+        var profiles = await QualityProfilesAsync(ct).ConfigureAwait(false);
+        return profiles.FirstOrDefault(p =>
+            string.Equals(p["name"]?.GetValue<string>(), name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The app's own blank quality profile, with its complete quality tree filled in.
+    /// </summary>
+    /// <remarks>
+    /// The same reasoning as <see cref="GetSchemaAsync"/>: a profile's <c>items</c> array is the
+    /// app's whole quality definition list, in its own order, with its own groups — Radarr's and
+    /// Sonarr's differ from each other and from release to release. Building one by hand would be
+    /// a copy of upstream's seed data that goes stale silently; asking the app produces one that
+    /// is correct for the version actually running.
+    /// </remarks>
+    public async Task<JsonObject?> QualityProfileSchemaAsync(CancellationToken ct = default)
+        => await GetAsync("qualityprofile/schema", ct).ConfigureAwait(false) as JsonObject;
+
     // --- library -----------------------------------------------------------
 
     /// <summary>Look up an existing movie by TMDB id.</summary>
@@ -421,9 +560,75 @@ public sealed class ArrClient
         return node is JsonArray arr ? arr.OfType<JsonObject>().FirstOrDefault() : node as JsonObject;
     }
 
+    /// <summary>
+    /// Every candidate the app's metadata lookup returns for a typed term.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="LookupAsync"/> is the add path, which wants exactly one answer for
+    /// <c>tmdb:1234</c>. This is the *search* path, which wants the list — and the two must stay
+    /// separate, because a search that silently took the first result would add the wrong film.
+    /// </remarks>
+    public async Task<List<JsonObject>> LookupManyAsync(string term, CancellationToken ct = default)
+    {
+        var path = Kind == ArrKind.Radarr
+            ? $"movie/lookup?term={Uri.EscapeDataString(term)}"
+            : $"series/lookup?term={Uri.EscapeDataString(term)}";
+        var node = await GetAsync(path, ct).ConfigureAwait(false);
+        return node switch
+        {
+            JsonArray arr => arr.OfType<JsonObject>().ToList(),
+            JsonObject one => new List<JsonObject> { one },
+            _ => new List<JsonObject>(),
+        };
+    }
+
     /// <summary>Trigger one of the app's named commands, e.g. <c>MoviesSearch</c> or <c>RefreshSeries</c>.</summary>
     public Task<JsonNode?> CommandAsync(JsonObject command, CancellationToken ct = default)
         => PostAsync("command", command, ct);
+
+    // --- calendar and history ----------------------------------------------
+
+    /// <summary>
+    /// Everything releasing between two dates.
+    /// </summary>
+    /// <remarks>
+    /// <c>unmonitored=true</c> because the screen showing this is a management screen: "the season
+    /// I stopped monitoring starts on Thursday" is exactly the row a user is looking for, and
+    /// leaving it out would make the calendar quietly disagree with the library list beside it.
+    /// </remarks>
+    public async Task<List<JsonObject>> CalendarAsync(
+        DateTime startUtc,
+        DateTime endUtc,
+        CancellationToken ct = default)
+    {
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"calendar?start={startUtc:yyyy-MM-dd}&end={endUtc:yyyy-MM-dd}&unmonitored=true&includeSeries=true&includeEpisodeFile=true");
+        return await ListAsync(path, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>One page of the app's own history table, newest first.</summary>
+    /// <returns>The page's records and the total the app reports.</returns>
+    public async Task<(List<JsonObject> Records, int Total)> HistoryAsync(
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"history?page={Math.Max(page, 1)}&pageSize={Math.Clamp(pageSize, 1, 200)}&sortKey=date&sortDirection=descending");
+        var node = await GetAsync(path, ct).ConfigureAwait(false);
+        if (node is JsonObject paged)
+        {
+            var records = paged["records"] is JsonArray arr
+                ? arr.OfType<JsonObject>().ToList()
+                : new List<JsonObject>();
+            return (records, paged["totalRecords"]?.GetValue<int>() ?? records.Count);
+        }
+
+        var flat = node is JsonArray plain ? plain.OfType<JsonObject>().ToList() : new List<JsonObject>();
+        return (flat, flat.Count);
+    }
 
     /// <summary>The app's queue, used to watch a grab progress.</summary>
     public async Task<List<JsonObject>> QueueAsync(CancellationToken ct = default)
@@ -438,6 +643,54 @@ public sealed class ArrClient
         return node is JsonArray arr ? arr.OfType<JsonObject>().ToList() : new List<JsonObject>();
     }
 
+    /// <summary>
+    /// Replace a library item, which is how <c>monitored</c> and the quality profile are changed.
+    /// </summary>
+    /// <remarks>
+    /// Both apps' library <c>PUT</c> takes the whole resource, not a patch, so the caller reads the
+    /// current one, edits the fields it owns and posts the result back. Sonarr additionally accepts
+    /// <c>?moveFiles=false</c>, which is the default and is stated explicitly so a future upstream
+    /// change of that default cannot silently start moving somebody's library.
+    /// </remarks>
+    public async Task<JsonObject?> UpdateLibraryItemAsync(
+        int id,
+        JsonObject resource,
+        CancellationToken ct = default)
+    {
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{LibraryResource}/{id}?moveFiles=false");
+        return await PutAsync(path, resource, ct).ConfigureAwait(false) as JsonObject;
+    }
+
+    /// <summary>Delete a library item, optionally taking its files with it.</summary>
+    /// <remarks>
+    /// <c>addImportExclusion=false</c> deliberately: an exclusion means "never let this back in",
+    /// which is a much larger promise than the delete button a user just pressed, and it is not
+    /// visible anywhere in StingStream's UI to undo.
+    /// </remarks>
+    public Task DeleteLibraryItemAsync(int id, bool deleteFiles, CancellationToken ct = default)
+    {
+        var flag = deleteFiles ? "true" : "false";
+        var path = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{LibraryResource}/{id}?deleteFiles={flag}&addImportExclusion=false");
+        return DeleteAsync(path, ct);
+    }
+
     /// <summary>Format a number the way NzbDrone's JSON expects, with no locale surprises.</summary>
     internal static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);
+}
+
+/// <summary>What one of the apps said when asked to test a provider resource.</summary>
+public sealed class ProviderTestResult
+{
+    /// <summary>True when the app accepted the configuration.</summary>
+    public bool Ok { get; set; }
+
+    /// <summary>A sentence for a person: the app's own validation failures, folded onto one line.</summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>The HTTP status the app answered with, when it was not a success.</summary>
+    public int? Status { get; set; }
 }

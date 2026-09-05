@@ -25,6 +25,19 @@ public sealed class SharedSettings
 
     public DownloadClientSettings DownloadClients { get; set; } = new();
 
+    /// <summary>
+    /// Download clients somebody else runs, registered in both arrs alongside the embedded ones.
+    /// </summary>
+    /// <remarks>
+    /// The answer to <c>docs/UI-API-GAPS.md</c> gap 8, and the answer is yes: StingStream supports
+    /// bring-your-own-client. Not because the embedded engines are insufficient, but because a
+    /// person migrating to StingStream already has a seedbox or a SABnzbd with a queue in it, and
+    /// "move all of that first" is a bad first day. These are pushed into both apps exactly the way
+    /// indexers are — built from the app's own <c>downloadclient/schema</c>, matched by name,
+    /// idempotent.
+    /// </remarks>
+    public List<ExternalDownloadClientSettings> ExternalDownloadClients { get; set; } = new();
+
     public RootFolderSettings RootFolders { get; set; } = new();
 
     public NamingSettings Naming { get; set; } = new();
@@ -60,6 +73,81 @@ public sealed class SharedSettings
     /// <summary>Find an indexer by its identifier.</summary>
     public IndexerSettings? Indexer(string id)
         => Indexers.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Find an external download client by its identifier.</summary>
+    public ExternalDownloadClientSettings? ExternalDownloadClient(string id)
+        => ExternalDownloadClients.FirstOrDefault(
+            c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>
+/// A download client running somewhere else, registered in both arrs.
+/// </summary>
+/// <remarks>
+/// Deliberately not modelled per implementation. Every client NzbDrone supports declares its own
+/// <c>fields</c> array, and the four below (<c>host</c>, <c>port</c>, <c>useSsl</c>,
+/// <c>urlBase</c>) plus credentials and a category are the ones every one of them has — so
+/// <see cref="Arr.OmniarrSyncService"/> sets those on whatever schema the app hands back and
+/// leaves each implementation's own extras at their defaults. That covers qBittorrent,
+/// Transmission, Deluge, SABnzbd, rTorrent and NZBGet without StingStream carrying a copy of six
+/// settings classes that change with every upstream release.
+/// </remarks>
+public sealed class ExternalDownloadClientSettings
+{
+    /// <summary>Stable identifier, generated when the client is added.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>The name it is registered under in both apps. Must be unique.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// NzbDrone's implementation name, e.g. <c>QBittorrent</c>, <c>Sabnzbd</c>, <c>Transmission</c>,
+    /// <c>Deluge</c>, <c>Nzbget</c>, <c>RTorrent</c>.
+    /// </summary>
+    /// <remarks>
+    /// Matched case-insensitively against the app's own <c>downloadclient/schema</c>, so an
+    /// implementation one app has and the other does not (or a typo) is reported per app rather
+    /// than failing the whole sync.
+    /// </remarks>
+    public string Implementation { get; set; } = string.Empty;
+
+    /// <summary><c>torrent</c> or <c>usenet</c>. Both apps validate this against the implementation.</summary>
+    public string Protocol { get; set; } = "torrent";
+
+    public string Host { get; set; } = string.Empty;
+
+    public int Port { get; set; }
+
+    public bool UseSsl { get; set; }
+
+    /// <summary>Path prefix, when the client is behind a reverse proxy. Usually empty.</summary>
+    public string UrlBase { get; set; } = string.Empty;
+
+    public string Username { get; set; } = string.Empty;
+
+    public string Password { get; set; } = string.Empty;
+
+    /// <summary>Category for Radarr's downloads, when this client is used for movies.</summary>
+    public string MovieCategory { get; set; } = string.Empty;
+
+    /// <summary>Category for Sonarr's downloads.</summary>
+    public string TvCategory { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>1 (highest) to 50. The embedded engines register at 1, so 2 is a sensible default.</summary>
+    public int Priority { get; set; } = 2;
+
+    /// <summary>Push this client to Radarr.</summary>
+    public bool ForMovies { get; set; } = true;
+
+    /// <summary>Push this client to Sonarr.</summary>
+    public bool ForSeries { get; set; } = true;
+
+    /// <summary>Let the apps delete completed downloads once imported.</summary>
+    public bool RemoveCompletedDownloads { get; set; } = true;
+
+    public bool RemoveFailedDownloads { get; set; } = true;
 }
 
 /// <summary>
@@ -255,11 +343,14 @@ public sealed class FederatedSettings
     public bool MirrorTv { get; set; }
 
     /// <summary>
-    /// How many pins may copy at once, mirror or hand-requested.
+    /// How many pins one pass may copy, mirror or hand-requested.
     /// </summary>
     /// <remarks>
     /// One by default. A pin is a whole film over someone else's uplink; running four at once makes
-    /// all four slower, and makes the stream-capacity numbers a holder advertises a fiction.
+    /// all four slower, and makes the stream-capacity numbers a holder advertises a fiction — so
+    /// <see cref="Federated.PinService"/> awaits each pin before starting the next, and this is a
+    /// budget <em>per pass</em> rather than a number running concurrently. The name is kept for the
+    /// settings documents already written with it.
     /// </remarks>
     public int MirrorConcurrency { get; set; } = 1;
 

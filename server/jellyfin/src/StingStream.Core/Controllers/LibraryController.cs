@@ -510,6 +510,552 @@ public sealed class LibraryController : StingStreamControllerBase
         }
     }
 
+    // --- lookup ------------------------------------------------------------
+
+    /// <summary>
+    /// Search for a film by title.
+    /// </summary>
+    /// <param name="term">What the user typed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The candidates, best match first, as the metadata provider ranked them.</response>
+    /// <response code="400">No search term.</response>
+    /// <response code="503">Radarr is not configured or not answering.</response>
+    /// <returns>The candidates.</returns>
+    /// <remarks>
+    /// Core's own thin shape over Radarr's <c>movie/lookup</c>, rather than a pass-through: the add
+    /// form needs a title, a year, an id and a poster, and passing the arr's whole resource through
+    /// would make the app depend on a schema it has no business knowing. <c>existsInLibrary</c> is
+    /// the one field the arr's lookup does not answer usefully on its own — it reports its internal
+    /// id as zero for an unknown film, which is not the same question as "have I already added it".
+    /// </remarks>
+    [HttpGet("movies/lookup", Name = "LookupMovies")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<List<LookupResult>>> LookupMovies(
+        [FromQuery] string? term,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return BadRequest(new { error = "?term= is required." });
+        }
+
+        var client = _factory.Create(ArrKind.Radarr);
+        if (client is null)
+        {
+            return Unavailable("radarr");
+        }
+
+        try
+        {
+            var results = await client.LookupManyAsync(term, cancellationToken).ConfigureAwait(false);
+            return results.Select(r => ToLookupResult(r, isMovie: true)).ToList();
+        }
+        catch (ArrApiException ex)
+        {
+            return ArrFailure(ex);
+        }
+    }
+
+    /// <summary>Search for a series by title.</summary>
+    /// <param name="term">What the user typed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The candidates, best match first.</response>
+    /// <response code="400">No search term.</response>
+    /// <response code="503">Sonarr is not configured or not answering.</response>
+    /// <returns>The candidates.</returns>
+    [HttpGet("series/lookup", Name = "LookupSeries")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<List<LookupResult>>> LookupSeries(
+        [FromQuery] string? term,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return BadRequest(new { error = "?term= is required." });
+        }
+
+        var client = _factory.Create(ArrKind.Sonarr);
+        if (client is null)
+        {
+            return Unavailable("sonarr");
+        }
+
+        try
+        {
+            var results = await client.LookupManyAsync(term, cancellationToken).ConfigureAwait(false);
+            return results.Select(r => ToLookupResult(r, isMovie: false)).ToList();
+        }
+        catch (ArrApiException ex)
+        {
+            return ArrFailure(ex);
+        }
+    }
+
+    /// <summary>Reshape one arr lookup result into Core's own contract.</summary>
+    private static LookupResult ToLookupResult(JsonObject raw, bool isMovie)
+    {
+        var images = raw["images"] as JsonArray;
+        string? Poster(string kind) => images?
+            .OfType<JsonObject>()
+            .Where(i => string.Equals(i["coverType"]?.GetValue<string>(), kind, StringComparison.OrdinalIgnoreCase))
+            // remoteUrl is the provider's own CDN; url is a path on the arr, which the app cannot
+            // reach (its UI is not routed on a production node -- see docs/RUNNING.md).
+            .Select(i => i["remoteUrl"]?.GetValue<string>())
+            .FirstOrDefault(u => !string.IsNullOrWhiteSpace(u));
+
+        // A lookup result for a title the app already tracks carries its real internal id; one for
+        // an unknown title carries 0. That is the only honest "already added" signal available
+        // without a second round trip per row.
+        var arrId = raw["id"]?.GetValue<int>() ?? 0;
+
+        return new LookupResult
+        {
+            Title = raw["title"]?.GetValue<string>() ?? string.Empty,
+            SortTitle = raw["sortTitle"]?.GetValue<string>(),
+            Year = raw["year"]?.GetValue<int>(),
+            TmdbId = isMovie ? raw["tmdbId"]?.GetValue<int>() ?? 0 : 0,
+            TvdbId = isMovie ? 0 : raw["tvdbId"]?.GetValue<int>() ?? 0,
+            ImdbId = raw["imdbId"]?.GetValue<string>(),
+            Overview = raw["overview"]?.GetValue<string>(),
+            PosterUrl = Poster("poster"),
+            BackdropUrl = Poster("fanart"),
+            Runtime = raw["runtime"]?.GetValue<int>(),
+            Status = raw["status"]?.GetValue<string>(),
+            Network = raw["network"]?.GetValue<string>(),
+            SeasonCount = (raw["seasons"] as JsonArray)?.Count,
+            ExistsInLibrary = arrId > 0,
+            ArrId = arrId > 0 ? arrId : null,
+        };
+    }
+
+    // --- monitor and delete ------------------------------------------------
+
+    /// <summary>
+    /// Change a film's monitoring or quality profile.
+    /// </summary>
+    /// <param name="tmdbId">The Movie Database id.</param>
+    /// <param name="request">What to change. Omitted fields are left alone.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The film as Radarr now stores it.</response>
+    /// <response code="404">Radarr is not tracking that film.</response>
+    /// <response code="503">Radarr is not configured or not answering.</response>
+    /// <returns>The updated film.</returns>
+    /// <remarks>
+    /// A read-modify-write, because Radarr's library <c>PUT</c> replaces the whole resource. The
+    /// alternative — building a resource from the request — would silently reset every field the
+    /// request did not mention, which for a film that has been in the library a while means its
+    /// tags, its root folder and its availability rule.
+    /// </remarks>
+    [HttpPatch("movies/{tmdbId}", Name = "UpdateMovie")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> UpdateMovie(
+        int tmdbId,
+        [FromBody] UpdateLibraryItemRequest request,
+        CancellationToken cancellationToken)
+        => UpdateItemAsync(ArrKind.Radarr, tmdbId, request, cancellationToken);
+
+    /// <summary>Change a series' monitoring or quality profile.</summary>
+    /// <param name="tvdbId">The TheTVDB id.</param>
+    /// <param name="request">What to change. Omitted fields are left alone.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The series as Sonarr now stores it.</response>
+    /// <response code="404">Sonarr is not tracking that series.</response>
+    /// <response code="503">Sonarr is not configured or not answering.</response>
+    /// <returns>The updated series.</returns>
+    [HttpPatch("series/{tvdbId}", Name = "UpdateSeries")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> UpdateSeries(
+        int tvdbId,
+        [FromBody] UpdateLibraryItemRequest request,
+        CancellationToken cancellationToken)
+        => UpdateItemAsync(ArrKind.Sonarr, tvdbId, request, cancellationToken);
+
+    private async Task<IActionResult> UpdateItemAsync(
+        ArrKind kind,
+        int providerId,
+        UpdateLibraryItemRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var isMovie = kind == ArrKind.Radarr;
+        var client = _factory.Create(kind);
+        if (client is null)
+        {
+            return Unavailable(isMovie ? "radarr" : "sonarr");
+        }
+
+        try
+        {
+            var existing = isMovie
+                ? await client.FindMovieByTmdbAsync(providerId, cancellationToken).ConfigureAwait(false)
+                : await client.FindSeriesByTvdbAsync(providerId, cancellationToken).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return NotFound(new
+                {
+                    error = isMovie
+                        ? $"Radarr is not tracking TMDB {providerId.ToString(CultureInfo.InvariantCulture)}."
+                        : $"Sonarr is not tracking TVDB {providerId.ToString(CultureInfo.InvariantCulture)}.",
+                });
+            }
+
+            var id = existing["id"]?.GetValue<int>() ?? 0;
+            var body = existing.DeepClone().AsObject();
+
+            if (request?.Monitored is { } monitored)
+            {
+                body["monitored"] = monitored;
+                if (!isMovie && body["seasons"] is JsonArray seasons && request.ApplyToSeasons)
+                {
+                    // Sonarr keeps a per-season monitored flag, and a series whose seasons are all
+                    // unmonitored downloads nothing however the series flag reads. Applying the
+                    // toggle downwards is what makes the switch mean what the screen says.
+                    foreach (var season in seasons.OfType<JsonObject>())
+                    {
+                        season["monitored"] = monitored;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(request?.QualityProfileName))
+            {
+                var profileId = await client
+                    .ResolveQualityProfileAsync(request.QualityProfileName, cancellationToken)
+                    .ConfigureAwait(false);
+                if (profileId is null)
+                {
+                    return StatusCode(
+                        StatusCodes.Status503ServiceUnavailable,
+                        new { error = $"{client.Name} has no quality profiles." });
+                }
+
+                body["qualityProfileId"] = profileId.Value;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request?.RootFolderPath))
+            {
+                body["rootFolderPath"] = request.RootFolderPath;
+            }
+
+            // Sonarr v5 computes languageProfileId with no setter, so posting one back is rejected.
+            body.Remove("languageProfileId");
+
+            var updated = await client.UpdateLibraryItemAsync(id, body, cancellationToken).ConfigureAwait(false);
+
+            if (request?.SearchNow == true)
+            {
+                await SearchAsync(
+                        client,
+                        isMovie ? "MoviesSearch" : "SeriesSearch",
+                        isMovie ? "movieIds" : "seriesId",
+                        existing["id"],
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            _logger.LogInformation(
+                "Updated {App} item {Id} (monitored={Monitored}, profile={Profile})",
+                client.Name,
+                id,
+                request?.Monitored,
+                request?.QualityProfileName);
+            return new JsonResult(updated ?? body);
+        }
+        catch (ArrApiException ex)
+        {
+            return ArrFailure(ex);
+        }
+    }
+
+    /// <summary>Remove a film from the library.</summary>
+    /// <param name="tmdbId">The Movie Database id.</param>
+    /// <param name="deleteFiles">Also delete the files on disk.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">Removed.</response>
+    /// <response code="404">Radarr is not tracking that film.</response>
+    /// <response code="503">Radarr is not configured or not answering.</response>
+    /// <returns>No content.</returns>
+    [HttpDelete("movies/{tmdbId}", Name = "DeleteMovie")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> DeleteMovie(
+        int tmdbId,
+        [FromQuery] bool deleteFiles,
+        CancellationToken cancellationToken)
+        => DeleteItemAsync(ArrKind.Radarr, tmdbId, deleteFiles, cancellationToken);
+
+    /// <summary>Remove a series from the library.</summary>
+    /// <param name="tvdbId">The TheTVDB id.</param>
+    /// <param name="deleteFiles">Also delete the files on disk.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">Removed.</response>
+    /// <response code="404">Sonarr is not tracking that series.</response>
+    /// <response code="503">Sonarr is not configured or not answering.</response>
+    /// <returns>No content.</returns>
+    [HttpDelete("series/{tvdbId}", Name = "DeleteSeries")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> DeleteSeries(
+        int tvdbId,
+        [FromQuery] bool deleteFiles,
+        CancellationToken cancellationToken)
+        => DeleteItemAsync(ArrKind.Sonarr, tvdbId, deleteFiles, cancellationToken);
+
+    private async Task<IActionResult> DeleteItemAsync(
+        ArrKind kind,
+        int providerId,
+        bool deleteFiles,
+        CancellationToken cancellationToken)
+    {
+        var isMovie = kind == ArrKind.Radarr;
+        var client = _factory.Create(kind);
+        if (client is null)
+        {
+            return Unavailable(isMovie ? "radarr" : "sonarr");
+        }
+
+        try
+        {
+            var existing = isMovie
+                ? await client.FindMovieByTmdbAsync(providerId, cancellationToken).ConfigureAwait(false)
+                : await client.FindSeriesByTvdbAsync(providerId, cancellationToken).ConfigureAwait(false);
+            if (existing?["id"]?.GetValue<int>() is not { } id)
+            {
+                return NotFound(new
+                {
+                    error = $"{client.Name} is not tracking "
+                        + $"{(isMovie ? "TMDB" : "TVDB")} {providerId.ToString(CultureInfo.InvariantCulture)}.",
+                });
+            }
+
+            await client.DeleteLibraryItemAsync(id, deleteFiles, cancellationToken).ConfigureAwait(false);
+
+            // The stored add decision is about a title this node no longer wants; leaving it would
+            // make Manage show "already held by loft" for something the user just deleted.
+            var itemKey = isMovie
+                ? StingStream.Core.Inventory.InventoryKeys.Movie(providerId)
+                : StingStream.Core.Inventory.InventoryKeys.SeriesPrefix(providerId);
+            await _state.RemoveAsync(itemKey, cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Deleted {App} item {Id} (deleteFiles={DeleteFiles})",
+                client.Name,
+                id,
+                deleteFiles);
+            return NoContent();
+        }
+        catch (ArrApiException ex)
+        {
+            return ArrFailure(ex);
+        }
+    }
+
+    // --- calendar ----------------------------------------------------------
+
+    /// <summary>
+    /// What is coming out, across both apps, merged and sorted by date.
+    /// </summary>
+    /// <param name="start">First day, <c>yyyy-MM-dd</c>. Defaults to a week ago.</param>
+    /// <param name="end">Last day, <c>yyyy-MM-dd</c>. Defaults to four weeks ahead.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The merged calendar.</response>
+    /// <response code="400">The range is backwards or longer than a year.</response>
+    /// <returns>The calendar.</returns>
+    /// <remarks>
+    /// The default window starts in the past on purpose: "it came out on Tuesday and I still do not
+    /// have it" is the question this screen actually gets asked, and a calendar that begins today
+    /// cannot answer it.
+    /// </remarks>
+    [HttpGet("calendar", Name = "GetCalendar")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<List<CalendarEntry>>> Calendar(
+        [FromQuery] DateTime? start,
+        [FromQuery] DateTime? end,
+        CancellationToken cancellationToken)
+    {
+        var from = (start ?? DateTime.UtcNow.AddDays(-7)).Date;
+        var to = (end ?? DateTime.UtcNow.AddDays(28)).Date;
+        if (to < from)
+        {
+            return BadRequest(new { error = "end must not be before start." });
+        }
+
+        if ((to - from).TotalDays > 366)
+        {
+            return BadRequest(new { error = "a calendar range may not exceed a year." });
+        }
+
+        var entries = new List<CalendarEntry>();
+        foreach (var client in _factory.CreateAll())
+        {
+            try
+            {
+                foreach (var row in await client.CalendarAsync(from, to, cancellationToken).ConfigureAwait(false))
+                {
+                    var entry = ToCalendarEntry(client.Kind, row);
+                    if (entry is not null)
+                    {
+                        entries.Add(entry);
+                    }
+                }
+            }
+            catch (ArrApiException ex)
+            {
+                _logger.LogDebug(ex, "Could not read {App}'s calendar", client.Name);
+            }
+        }
+
+        return entries
+            .OrderBy(e => e.Date, StringComparer.Ordinal)
+            .ThenBy(e => e.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static CalendarEntry? ToCalendarEntry(ArrKind kind, JsonObject row)
+    {
+        if (kind == ArrKind.Radarr)
+        {
+            // Radarr has three dates and which one matters depends on the film. The earliest one
+            // that exists is the honest answer to "when can I have it": a digital release beats a
+            // cinema date, and a film with only a cinema date still belongs on the calendar.
+            var date = First(row, "digitalRelease", "physicalRelease", "inCinemas");
+            if (date is null)
+            {
+                return null;
+            }
+
+            return new CalendarEntry
+            {
+                App = "radarr",
+                Kind = "movie",
+                Title = row["title"]?.GetValue<string>() ?? string.Empty,
+                Year = row["year"]?.GetValue<int>(),
+                Date = date,
+                HasFile = row["hasFile"]?.GetValue<bool>() ?? false,
+                Monitored = row["monitored"]?.GetValue<bool>() ?? false,
+                TmdbId = row["tmdbId"]?.GetValue<int>(),
+            };
+        }
+
+        var air = First(row, "airDateUtc", "airDate");
+        if (air is null)
+        {
+            return null;
+        }
+
+        return new CalendarEntry
+        {
+            App = "sonarr",
+            Kind = "episode",
+            Title = (row["series"] as JsonObject)?["title"]?.GetValue<string>() ?? string.Empty,
+            EpisodeTitle = row["title"]?.GetValue<string>(),
+            SeasonNumber = row["seasonNumber"]?.GetValue<int>(),
+            EpisodeNumber = row["episodeNumber"]?.GetValue<int>(),
+            Date = air,
+            HasFile = row["hasFile"]?.GetValue<bool>() ?? false,
+            Monitored = row["monitored"]?.GetValue<bool>() ?? false,
+            TvdbId = (row["series"] as JsonObject)?["tvdbId"]?.GetValue<int>(),
+        };
+    }
+
+    private static string? First(JsonObject row, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var value = row[key]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    // --- history -----------------------------------------------------------
+
+    /// <summary>
+    /// Completed grabs and imports, across both apps, newest first.
+    /// </summary>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="pageSize">Rows per page, per app. Capped at 100.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The merged page.</response>
+    /// <returns>The history.</returns>
+    /// <remarks>
+    /// The paging is per app and then merged, which means a page holds up to <c>pageSize</c> rows
+    /// from each. That is deliberate rather than exact: the two apps have independent history
+    /// tables with no shared cursor, and a truly merged pager would have to over-fetch both and
+    /// hold a cursor per app. <see cref="HistoryPage.Total"/> is the sum of both totals, so a UI
+    /// can still say how much there is.
+    /// </remarks>
+    [HttpGet("history", Name = "GetHistory")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<HistoryPage>> History(
+        [FromQuery] int page,
+        [FromQuery] int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var wanted = pageSize <= 0 ? 25 : Math.Clamp(pageSize, 1, 100);
+        var result = new HistoryPage { Page = Math.Max(page, 1), PageSize = wanted };
+
+        foreach (var client in _factory.CreateAll())
+        {
+            try
+            {
+                var (records, total) = await client
+                    .HistoryAsync(result.Page, wanted, cancellationToken)
+                    .ConfigureAwait(false);
+                result.Total += total;
+                foreach (var row in records)
+                {
+                    result.Records.Add(ToHistoryRecord(client, row));
+                }
+            }
+            catch (ArrApiException ex)
+            {
+                _logger.LogDebug(ex, "Could not read {App}'s history", client.Name);
+            }
+        }
+
+        result.Records = result.Records
+            .OrderByDescending(r => r.Date, StringComparer.Ordinal)
+            .ToList();
+        return result;
+    }
+
+    private static HistoryRecord ToHistoryRecord(ArrClient client, JsonObject row)
+    {
+        var quality = (row["quality"] as JsonObject)?["quality"] as JsonObject;
+        var data = row["data"] as JsonObject;
+        return new HistoryRecord
+        {
+            App = client.Name,
+            EventType = row["eventType"]?.GetValue<string>() ?? string.Empty,
+            Title = client.Kind == ArrKind.Radarr
+                ? (row["movie"] as JsonObject)?["title"]?.GetValue<string>() ?? row["sourceTitle"]?.GetValue<string>() ?? string.Empty
+                : (row["series"] as JsonObject)?["title"]?.GetValue<string>() ?? row["sourceTitle"]?.GetValue<string>() ?? string.Empty,
+            SourceTitle = row["sourceTitle"]?.GetValue<string>(),
+            Date = row["date"]?.GetValue<string>() ?? string.Empty,
+            Quality = quality?["name"]?.GetValue<string>(),
+            Indexer = data?["indexer"]?.GetValue<string>(),
+            DownloadClient = data?["downloadClientName"]?.GetValue<string>() ?? data?["downloadClient"]?.GetValue<string>(),
+            Reason = data?["reason"]?.GetValue<string>() ?? data?["message"]?.GetValue<string>(),
+            SeasonNumber = row["episode"] is JsonObject episode ? episode["seasonNumber"]?.GetValue<int>() : null,
+            EpisodeNumber = row["episode"] is JsonObject ep2 ? ep2["episodeNumber"]?.GetValue<int>() : null,
+        };
+    }
+
     // --- queue -------------------------------------------------------------
 
     /// <summary>
@@ -608,6 +1154,154 @@ public sealed class LibraryController : StingStreamControllerBase
             StatusCodes.Status503ServiceUnavailable,
             $"{app} is not configured on this node. Is it enabled in config.toml, and was this "
             + "server started by the StingStream supervisor?");
+}
+
+/// <summary>One candidate from a title search.</summary>
+/// <remarks>
+/// Core's own shape, not the arr's: the add form needs a title, a year, an id and a poster, and
+/// the arr's own resource carries eighty fields the app has no business depending on.
+/// </remarks>
+public sealed class LookupResult
+{
+    public string Title { get; set; } = string.Empty;
+
+    public string? SortTitle { get; set; }
+
+    public int? Year { get; set; }
+
+    /// <summary>The Movie Database id, for a film. Zero for a series.</summary>
+    public int TmdbId { get; set; }
+
+    /// <summary>The TheTVDB id, for a series. Zero for a film.</summary>
+    public int TvdbId { get; set; }
+
+    public string? ImdbId { get; set; }
+
+    public string? Overview { get; set; }
+
+    /// <summary>The provider's own poster URL, reachable from anywhere.</summary>
+    public string? PosterUrl { get; set; }
+
+    public string? BackdropUrl { get; set; }
+
+    /// <summary>Minutes.</summary>
+    public int? Runtime { get; set; }
+
+    /// <summary>The arr's status word: <c>released</c>, <c>continuing</c>, <c>ended</c> and so on.</summary>
+    public string? Status { get; set; }
+
+    /// <summary>The broadcaster, for a series.</summary>
+    public string? Network { get; set; }
+
+    /// <summary>How many seasons a series has, when the lookup said.</summary>
+    public int? SeasonCount { get; set; }
+
+    /// <summary>True when the arr is already tracking this title.</summary>
+    public bool ExistsInLibrary { get; set; }
+
+    /// <summary>The arr's internal id, when it has one.</summary>
+    public int? ArrId { get; set; }
+}
+
+/// <summary>Change a tracked title. Omitted fields are left as they are.</summary>
+public sealed class UpdateLibraryItemRequest
+{
+    /// <summary>Monitor or stop monitoring the title.</summary>
+    public bool? Monitored { get; set; }
+
+    /// <summary>
+    /// Apply <see cref="Monitored"/> to every season too. Series only; ignored for a film.
+    /// </summary>
+    /// <remarks>
+    /// On by default, because a series whose seasons are all unmonitored downloads nothing whatever
+    /// the series flag says — a toggle that did not descend would look broken.
+    /// </remarks>
+    public bool ApplyToSeasons { get; set; } = true;
+
+    /// <summary>Move the title onto another quality profile, by name.</summary>
+    public string? QualityProfileName { get; set; }
+
+    /// <summary>Change the root folder. Files are not moved.</summary>
+    public string? RootFolderPath { get; set; }
+
+    /// <summary>Kick off a search once the change is stored.</summary>
+    public bool SearchNow { get; set; }
+}
+
+/// <summary>One row of the merged calendar.</summary>
+public sealed class CalendarEntry
+{
+    /// <summary><c>radarr</c> or <c>sonarr</c>.</summary>
+    public string App { get; set; } = string.Empty;
+
+    /// <summary><c>movie</c> or <c>episode</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The film's title, or the series'.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The episode's own title, for a series.</summary>
+    public string? EpisodeTitle { get; set; }
+
+    public int? Year { get; set; }
+
+    public int? SeasonNumber { get; set; }
+
+    public int? EpisodeNumber { get; set; }
+
+    /// <summary>The date this releases or airs, RFC 3339 or <c>yyyy-MM-dd</c> as the app gave it.</summary>
+    public string Date { get; set; } = string.Empty;
+
+    public bool HasFile { get; set; }
+
+    public bool Monitored { get; set; }
+
+    public int? TmdbId { get; set; }
+
+    public int? TvdbId { get; set; }
+}
+
+/// <summary>One page of merged history.</summary>
+public sealed class HistoryPage
+{
+    /// <summary>The sum of both apps' totals.</summary>
+    public int Total { get; set; }
+
+    public int Page { get; set; }
+
+    public int PageSize { get; set; }
+
+    public List<HistoryRecord> Records { get; set; } = new();
+}
+
+/// <summary>One grab, import, upgrade, failure or deletion, as the app recorded it.</summary>
+public sealed class HistoryRecord
+{
+    public string App { get; set; } = string.Empty;
+
+    /// <summary><c>grabbed</c>, <c>downloadFolderImported</c>, <c>downloadFailed</c> and so on.</summary>
+    public string EventType { get; set; } = string.Empty;
+
+    /// <summary>The title as the library knows it.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The release name, which is what actually got grabbed.</summary>
+    public string? SourceTitle { get; set; }
+
+    public string Date { get; set; } = string.Empty;
+
+    public string? Quality { get; set; }
+
+    public string? Indexer { get; set; }
+
+    public string? DownloadClient { get; set; }
+
+    /// <summary>Why, for a failure or a deletion.</summary>
+    public string? Reason { get; set; }
+
+    public int? SeasonNumber { get; set; }
+
+    public int? EpisodeNumber { get; set; }
 }
 
 /// <summary>Request to add a title, checking the group first.</summary>

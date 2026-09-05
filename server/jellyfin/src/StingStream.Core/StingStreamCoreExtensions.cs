@@ -16,6 +16,7 @@ using StingStream.Core.Inventory;
 using StingStream.Core.Library;
 using StingStream.Core.Mesh;
 using StingStream.Core.Playback;
+using StingStream.Core.Requests;
 using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -69,6 +70,18 @@ public static class StingStreamCoreExtensions
         });
         services.AddSingleton<ArrClientFactory>();
         services.AddSingleton<OmniarrSyncService>();
+        services.AddSingleton<QualityProfileService>();
+
+        // NZBGet's own control API, which is how the unified Downloads list reaches the usenet half.
+        // Short timeout: it is on loopback, and a Downloads screen polling every few seconds must
+        // not queue up behind a child that has stopped answering.
+        services.AddHttpClient(StingStream.Core.Downloads.NzbgetClient.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+        services.AddSingleton<StingStream.Core.Downloads.NzbgetClientFactory>();
+        services.AddSingleton<StingStream.Core.Downloads.DownloadsService>();
+        services.AddSingleton<ChildVersionService>();
 
         // Torrents. Registered once and resolved as both the concrete engine and a hosted service,
         // so the qBittorrent shim and the lifecycle share one instance.
@@ -131,6 +144,9 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<PinStore>();
         services.AddSingleton<PinService>();
         services.AddHostedService(sp => sp.GetRequiredService<PinService>());
+
+        // Member requests (M6). One call, defined in Requests/RequestsRegistration.cs.
+        services.AddStingStreamRequests();
 
         AddStingStreamLocalResolution(services);
 

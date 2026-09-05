@@ -117,6 +117,56 @@ public sealed class MeshController : StingStreamControllerBase
     public async Task<ActionResult<MeshInvite>> Invite(string group, CancellationToken cancellationToken)
         => new MeshInvite { Code = await _mesh.InviteAsync(group, cancellationToken).ConfigureAwait(false) };
 
+    /// <summary>
+    /// Point a group at a different coordinator.
+    /// </summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="body">The new coordinator URL, or null/empty to go back to public infrastructure.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The group as it now stands.</response>
+    /// <response code="400">The URL will not parse, or a newer change is already stored.</response>
+    /// <response code="404">This node is not a member of that group.</response>
+    /// <response code="503">The mesh is not answering.</response>
+    /// <returns>The group.</returns>
+    /// <remarks>
+    /// <para>
+    /// A group's coordinator used to be fixed at creation, which meant a group whose owner's server
+    /// moved — or one that outgrew the shared fallback — had to be rebuilt and re-joined by every
+    /// member. This changes it in place.
+    /// </para>
+    /// <para>
+    /// Core does not arbitrate: it hands the change to the mesh, which stamps it, re-seeds its own
+    /// relay map, announces at the new coordinator's rendezvous and gossips a signed record that
+    /// every other member applies under a last-writer-wins rule (see <c>docs/MESH.md</c>). Invite
+    /// codes minted afterwards carry the new value automatically, because the mesh reads the group
+    /// fresh when it mints one.
+    /// </para>
+    /// <para>
+    /// Elevation, like every other operation that changes what a group is: a coordinator is the
+    /// node's route to its peers, not a per-user preference. The app is expected to have validated
+    /// the hostname against the candidate's own <c>/healthz</c> first (M3c's coordinator picker
+    /// does), but this endpoint deliberately does not require that — a coordinator that is briefly
+    /// down is still the right answer, and refusing the change would leave the group pointing at
+    /// one that is down for good.
+    /// </para>
+    /// </remarks>
+    [HttpPut("groups/{group}/coordinator")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshGroup>> SetCoordinator(
+        string group,
+        [FromBody] SetCoordinatorRequest body,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return await _mesh
+            .SetCoordinatorAsync(group, body.Coordinator, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <summary>Leave a group.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -269,4 +319,19 @@ public sealed class JoinGroupRequest
 {
     /// <summary>The base58 invite code.</summary>
     public string Code { get; set; } = string.Empty;
+}
+
+/// <summary>Body of <c>PUT /mesh/groups/{group}/coordinator</c>.</summary>
+public sealed class SetCoordinatorRequest
+{
+    /// <summary>
+    /// The new coordinator URL.
+    /// </summary>
+    /// <remarks>
+    /// Null or empty is a real value, not "leave it alone": it means the group goes back to the
+    /// zero-server default of iroh's public relays, n0 DNS and the mainline DHT, with the build's
+    /// shared fallback coordinator at the lowest priority. There is no other way to express that,
+    /// which is why the field is nullable rather than required.
+    /// </remarks>
+    public string? Coordinator { get; set; }
 }

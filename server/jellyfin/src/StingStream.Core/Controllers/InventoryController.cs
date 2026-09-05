@@ -32,7 +32,11 @@ public sealed class InventoryController : StingStreamControllerBase
     /// <param name="limit">Maximum records to return (1-5000).</param>
     /// <param name="offset">Records to skip.</param>
     /// <response code="200">The records.</response>
-    [HttpGet]
+    /// <remarks>
+    /// The route is named so the OpenAPI document has a unique <c>operationId</c>; see
+    /// <c>SettingsController.Get</c> for why.
+    /// </remarks>
+    [HttpGet(Name = "GetInventory")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<InventoryPage> Get([FromQuery] int limit = 200, [FromQuery] int offset = 0)
         => new InventoryPage

@@ -64,6 +64,21 @@ public interface IMeshClient
     /// <returns>The invite code.</returns>
     Task<string> InviteAsync(string group, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Point a group at a different coordinator (M4.5).
+    /// </summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="coordinator">The new coordinator URL, or null to go back to public infrastructure.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The group as it now stands.</returns>
+    /// <remarks>
+    /// The mesh does the whole change: stamp, re-seed its relay map, announce at the new
+    /// coordinator's rendezvous, and gossip a signed record every other member applies under a
+    /// last-writer-wins rule. Core neither arbitrates nor stores a copy — see <c>docs/MESH.md</c>,
+    /// "Changing a group's coordinator".
+    /// </remarks>
+    Task<MeshGroup> SetCoordinatorAsync(string group, string? coordinator, CancellationToken cancellationToken);
+
     /// <summary>Leave a group.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -362,6 +377,28 @@ public sealed class MeshClient : IMeshClient
         await ThrowIfFailedAsync(response, "minting an invite", cancellationToken).ConfigureAwait(false);
         var invite = await ReadAsync<MeshInvite>(response, cancellationToken).ConfigureAwait(false);
         return invite.Code;
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshGroup> SetCoordinatorAsync(
+        string group,
+        string? coordinator,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        // The mesh probes the new coordinator's /healthz before deciding whether to register it
+        // with QUIC address discovery, and announces at its rendezvous straight afterwards. Both
+        // are network round trips to somebody else's server, so the default timeout is too short.
+        http.Timeout = TimeSpan.FromSeconds(60);
+        using var response = await http.PutAsJsonAsync(
+                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/coordinator",
+                new { coordinator },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "changing a group's coordinator", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshGroup>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

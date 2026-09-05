@@ -30,6 +30,7 @@ public sealed class StatusController : StingStreamControllerBase
     private readonly ArrClientFactory _arrs;
     private readonly ArrWebhookService _webhooks;
     private readonly FirstRunService _firstRun;
+    private readonly ChildVersionService _versions;
 
     public StatusController(
         INodeRuntimeProvider runtime,
@@ -40,8 +41,10 @@ public sealed class StatusController : StingStreamControllerBase
         SettingsStore settings,
         ArrClientFactory arrs,
         ArrWebhookService webhooks,
-        FirstRunService firstRun)
+        FirstRunService firstRun,
+        ChildVersionService versions)
     {
+        _versions = versions;
         _runtime = runtime;
         _db = db;
         _torrents = torrents;
@@ -54,12 +57,19 @@ public sealed class StatusController : StingStreamControllerBase
     }
 
     /// <summary>Everything about this node's StingStream half, in one call.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The node's status.</response>
-    [HttpGet]
+    /// <returns>The node's status.</returns>
+    /// <remarks>
+    /// The route is named so the OpenAPI document has a unique <c>operationId</c>; see
+    /// <c>SettingsController.Get</c> for why.
+    /// </remarks>
+    [HttpGet(Name = "GetNodeStatus")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<NodeStatus> Get()
+    public async Task<ActionResult<NodeStatus>> Get(CancellationToken cancellationToken)
     {
         var runtime = _runtime.Current;
+        var versions = await _versions.AllAsync(cancellationToken).ConfigureAwait(false);
         return new NodeStatus
         {
             NodeId = runtime?.NodeId ?? string.Empty,
@@ -93,6 +103,7 @@ public sealed class StatusController : StingStreamControllerBase
                         Port = kv.Value.Port,
                         BaseUrl = kv.Value.BaseUrl,
                         HasApiKey = !string.IsNullOrEmpty(kv.Value.ApiKey),
+                        Version = versions.GetValueOrDefault(kv.Key),
                     },
                     StringComparer.OrdinalIgnoreCase),
             SyncStatuses = _settings.SyncStatuses(),
@@ -200,4 +211,14 @@ public sealed class ChildStatus
 
     /// <summary>Whether an API key is configured. The key itself stays in runtime.json.</summary>
     public bool HasApiKey { get; set; }
+
+    /// <summary>
+    /// The build this child is running, when it will say.
+    /// </summary>
+    /// <remarks>
+    /// <c>docs/UI-API-GAPS.md</c> gap 10. Null when the child is disabled, not answering, or has no
+    /// way to be asked — which is a real state and not an error, so the Node status screen shows a
+    /// dash rather than hiding the row.
+    /// </remarks>
+    public string? Version { get; set; }
 }

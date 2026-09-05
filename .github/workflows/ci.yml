@@ -137,6 +137,16 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # packages/api-client is linked into the app as `file:../../packages/api-client`, and a
+      # `file:` dependency's own dependencies are not hoisted into the app's node_modules -- so
+      # `src/client.ts`'s `import createClient from "openapi-fetch"` resolves only if the package
+      # has been installed in its own directory. Without this the app's Metro bundle fails with
+      # "Unable to resolve module openapi-fetch from packages/api-client/src/client.ts", which is
+      # what the node job did on master. It is first because the app's install must find it there.
+      - name: Install api-client dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+
       - name: Install dependencies
         working-directory: apps/stingstream
         run: bun install --frozen-lockfile
@@ -457,4 +467,117 @@ jobs:
         with:
           name: e2e-m4-federated
           path: .e2e-m4-artifacts/
+          if-no-files-found: warn
+
+  # The M6 acceptance harness: a member with no indexers asks for a series, and somebody else's node
+  # goes and gets it. Two nodes, but deliberately lopsided -- node A runs Jellyfin and the mesh only,
+  # so its inability to fulfil anything is configuration rather than a mock, and node B runs both
+  # arrs plus the Torznab stub and the seeder. That means the full download path once, not twice,
+  # which is why this is lighter than the M3 job despite covering the same pipeline.
+  #
+  # No -SkipCoordinator equivalent is needed: every step runs on loopback and the group is created
+  # with no coordinator at all. See tools/e2e-m6.ps1 and docs/REQUESTS.md.
+  e2e-m6:
+    name: e2e (M6 acceptance)
+    runs-on: ubuntu-latest
+    # Two Jellyfins, one arr pair, one real grab, and two twenty-second volunteer delays.
+    timeout-minutes: 75
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDKs (8.0, 10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      # The harness generates both the episode it seeds and the film node B already holds.
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build the supervisor
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream
+
+      - name: Build Jellyfin (with StingStream.Core)
+        run: dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Debug
+
+      # Only node B runs these, but both have to exist before either node starts.
+      - name: Build Radarr
+        run: dotnet build server/radarr/src/Radarr.sln -c Debug
+
+      - name: Build Sonarr
+        run: dotnet build server/sonarr/src/Sonarr.sln -c Debug
+
+      - name: Build the harness support tools
+        run: |
+          dotnet build tools/seeder/Seeder.csproj -c Release
+          dotnet build tools/torznab-stub/TorznabStub.csproj -c Release
+
+      - name: Run the M6 acceptance harness
+        run: >
+          pwsh tools/e2e-m6.ps1 -SkipBuild
+          -WorkDir "${{ github.workspace }}/.e2e-m6-work"
+
+      # Both nodes' logs. A failing claim step is decided by lines that appear in *both* -- A's
+      # mesh log says what it published, B's says what it claimed -- and reading only one of them
+      # cannot tell "nobody claimed" from "the claim never arrived".
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m6-logs
+          path: |
+            .e2e-m6-work/logs/
+            .e2e-m6-work/node-a/logs/
+            .e2e-m6-work/node-b/logs/
+            .e2e-m6-work/node-a/runtime.json
+            .e2e-m6-work/node-b/runtime.json
+          if-no-files-found: warn
+
+      # The request rows and the claims, straight out of both databases. When a request is stuck the
+      # question is always "which node thinks it owns this", and the answer is two tables.
+      - name: Collect the request tables
+        if: always()
+        run: |
+          mkdir -p .e2e-m6-artifacts
+          sudo apt-get install -y --no-install-recommends sqlite3 >/dev/null 2>&1 || true
+          for node in a b; do
+            core=".e2e-m6-work/node-$node/core.db"
+            mesh=".e2e-m6-work/node-$node/mesh.db"
+            if [ -f "$core" ]; then
+              {
+                echo "===== node-$node core.db requests"
+                sqlite3 -header -column "$core" \
+                  'SELECT id, kind, item_key, state, mine, fulfilling_node_name, note FROM requests;' || true
+                echo
+                echo "===== node-$node core.db notifications"
+                sqlite3 -header -column "$core" \
+                  'SELECT id, kind, title, read FROM notifications;' || true
+              } >> .e2e-m6-artifacts/requests.txt
+            fi
+            if [ -f "$mesh" ]; then
+              {
+                echo "===== node-$node mesh.db request_claims"
+                sqlite3 -header -column "$mesh" \
+                  'SELECT request_id, node_name, claimed_at, state, note FROM request_claims;' || true
+              } >> .e2e-m6-artifacts/claims.txt
+            fi
+          done
+
+      - name: Upload the request tables
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m6-requests
+          path: .e2e-m6-artifacts/
           if-no-files-found: warn

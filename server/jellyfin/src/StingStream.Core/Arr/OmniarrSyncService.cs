@@ -264,6 +264,90 @@ public sealed class OmniarrSyncService
                 }
             }
         }
+
+        await SyncExternalDownloadClientsAsync(client, shared, status, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Push the user's own download clients into one app, the same way indexers go in.</summary>
+    private async Task SyncExternalDownloadClientsAsync(
+        ArrClient client,
+        SharedSettings shared,
+        SyncStatus status,
+        CancellationToken ct)
+    {
+        var wanted = shared.ExternalDownloadClients
+            .Where(c => c.Enabled && (client.Kind == ArrKind.Radarr ? c.ForMovies : c.ForSeries))
+            .ToList();
+
+        if (wanted.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var external in wanted)
+        {
+            var resource = await BuildExternalClientAsync(client, external, ct).ConfigureAwait(false);
+            if (resource is null)
+            {
+                status.Detail.Add(
+                    $"external client: {external.Name} skipped ({client.Name} has no "
+                    + $"\"{external.Implementation}\" implementation)");
+                continue;
+            }
+
+            await client.UpsertProviderAsync("downloadclient", resource, ct).ConfigureAwait(false);
+            status.Detail.Add(
+                $"external client: {external.Name} -> {external.Host}:{external.Port.ToString(CultureInfo.InvariantCulture)}");
+        }
+    }
+
+    /// <summary>
+    /// One app's <c>downloadclient</c> resource for a user-configured external client.
+    /// </summary>
+    /// <remarks>
+    /// Public because the test endpoint needs exactly this object: NzbDrone's
+    /// <c>downloadclient/test</c> takes the same resource a save does, so building it in two places
+    /// would mean a test that passes against a resource the save then changes.
+    /// </remarks>
+    /// <returns>The resource, or null when this app has no such implementation.</returns>
+    public async Task<JsonObject?> BuildExternalClientAsync(
+        ArrClient client,
+        ExternalDownloadClientSettings external,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(external);
+
+        var schema = await client.GetSchemaAsync("downloadclient", external.Implementation, ct)
+            .ConfigureAwait(false);
+        if (schema is null)
+        {
+            return null;
+        }
+
+        var resource = schema.DeepClone().AsObject();
+        resource["name"] = external.Name;
+        resource["enable"] = true;
+        resource["protocol"] = external.Protocol;
+        resource["priority"] = external.Priority;
+        resource["removeCompletedDownloads"] = external.RemoveCompletedDownloads;
+        resource["removeFailedDownloads"] = external.RemoveFailedDownloads;
+        resource["tags"] = new JsonArray();
+
+        // SetField only writes fields the app actually declared, so setting the union of what the
+        // implementations use is safe: a client with no urlBase simply does not get one.
+        ArrClient.SetField(resource, "host", external.Host);
+        ArrClient.SetField(resource, "port", external.Port);
+        ArrClient.SetField(resource, "useSsl", external.UseSsl);
+        ArrClient.SetField(resource, "urlBase", external.UrlBase);
+        ArrClient.SetField(resource, "username", external.Username);
+        ArrClient.SetField(resource, "password", external.Password);
+        // SABnzbd authenticates with an API key rather than a password, and calls it apiKey.
+        ArrClient.SetField(resource, "apiKey", external.Password);
+        ArrClient.SetField(resource, "movieCategory", external.MovieCategory);
+        ArrClient.SetField(resource, "tvCategory", external.TvCategory);
+        ArrClient.SetField(resource, "movieImportedCategory", string.Empty);
+        return resource;
     }
 
     // --- indexers ----------------------------------------------------------
@@ -293,31 +377,88 @@ public sealed class OmniarrSyncService
 
         foreach (var indexer in wanted)
         {
-            var resource = schema.DeepClone().AsObject();
-            resource["name"] = indexer.Name;
-            resource["enableRss"] = indexer.EnableRss;
-            resource["enableAutomaticSearch"] = indexer.EnableAutomaticSearch;
-            resource["enableInteractiveSearch"] = indexer.EnableInteractiveSearch;
-            resource["protocol"] = "torrent";
-            resource["priority"] = indexer.Priority;
-            resource["downloadClientId"] = 0;
-            resource["tags"] = new JsonArray();
-
-            ArrClient.SetField(resource, "baseUrl", indexer.BaseUrl);
-            ArrClient.SetField(resource, "apiPath", indexer.ApiPath);
-            ArrClient.SetField(resource, "apiKey", indexer.ApiKey);
-            ArrClient.SetField(resource, "minimumSeeders", indexer.MinimumSeeders);
-            // Both apps' Torznab validator rejects an empty category list outright, and the two
-            // apps want different halves of the Newznab category tree.
-            var categories = client.Kind == ArrKind.Radarr ? indexer.MovieCategories : indexer.TvCategories;
-            ArrClient.SetField(resource, "categories", ToJsonArray(categories));
-            // Sonarr additionally declares animeCategories; leaving it empty is valid there and
-            // the field simply does not exist in Radarr.
-            ArrClient.SetField(resource, "animeCategories", new JsonArray());
-
+            var resource = BuildIndexer(schema, indexer, client.Kind);
             await client.UpsertProviderAsync("indexer", resource, ct).ConfigureAwait(false);
             status.Detail.Add($"indexer: {indexer.Name} -> {indexer.BaseUrl}{indexer.ApiPath}");
         }
+    }
+
+    /// <summary>
+    /// One app's Torznab <c>indexer</c> resource for a configured indexer.
+    /// </summary>
+    /// <remarks>
+    /// Public because the test endpoint posts exactly this object to <c>indexer/test</c>: sharing
+    /// the builder is what makes "the test passed" mean "the save will work", which is the only
+    /// reason a test button is worth having.
+    /// </remarks>
+    public static JsonObject BuildIndexer(JsonObject schema, IndexerSettings indexer, ArrKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(indexer);
+
+        var resource = schema.DeepClone().AsObject();
+        resource["name"] = indexer.Name;
+        resource["enableRss"] = indexer.EnableRss;
+        resource["enableAutomaticSearch"] = indexer.EnableAutomaticSearch;
+        resource["enableInteractiveSearch"] = indexer.EnableInteractiveSearch;
+        resource["protocol"] = "torrent";
+        resource["priority"] = indexer.Priority;
+        resource["downloadClientId"] = 0;
+        resource["tags"] = new JsonArray();
+
+        ArrClient.SetField(resource, "baseUrl", indexer.BaseUrl);
+        ArrClient.SetField(resource, "apiPath", indexer.ApiPath);
+        ArrClient.SetField(resource, "apiKey", indexer.ApiKey);
+        ArrClient.SetField(resource, "minimumSeeders", indexer.MinimumSeeders);
+        // Both apps' Torznab validator rejects an empty category list outright, and the two
+        // apps want different halves of the Newznab category tree.
+        var categories = kind == ArrKind.Radarr ? indexer.MovieCategories : indexer.TvCategories;
+        ArrClient.SetField(resource, "categories", ToJsonArray(categories));
+        // Sonarr additionally declares animeCategories; leaving it empty is valid there and
+        // the field simply does not exist in Radarr.
+        ArrClient.SetField(resource, "animeCategories", new JsonArray());
+        return resource;
+    }
+
+    /// <summary>
+    /// Remove a provider by name from every configured app.
+    /// </summary>
+    /// <remarks>
+    /// Sync itself never deletes — it cannot tell a provider a user made by hand from one it made
+    /// itself, and guessing wrong loses somebody's configuration. A deletion that came from
+    /// StingStream's own UI is a different case: the user named the thing they wanted gone, so it
+    /// goes, in both apps.
+    /// </remarks>
+    public async Task<List<string>> RemoveProviderEverywhereAsync(
+        string resource,
+        string name,
+        CancellationToken ct = default)
+    {
+        var detail = new List<string>();
+        foreach (var client in _factory.CreateAll())
+        {
+            try
+            {
+                var existing = await client.FindByNameAsync(resource, name, ct).ConfigureAwait(false);
+                if (existing?["id"]?.GetValue<int>() is not { } id)
+                {
+                    detail.Add($"{client.Name}: not present");
+                    continue;
+                }
+
+                await client
+                    .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"{resource}/{id}"), ct)
+                    .ConfigureAwait(false);
+                detail.Add($"{client.Name}: removed");
+            }
+            catch (ArrApiException ex)
+            {
+                detail.Add($"{client.Name}: {ex.Message}");
+                _logger.LogWarning(ex, "Removing {Resource} {Name} from {App} failed", resource, name, client.Name);
+            }
+        }
+
+        return detail;
     }
 
     private static JsonArray ToJsonArray(IEnumerable<int> values)
