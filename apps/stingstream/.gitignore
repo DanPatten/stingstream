@@ -2,10 +2,16 @@
 node_modules/
 bun.lockb
 package-lock.json
+# bun.lock is the lockfile of record (see .github/workflows/check-lockfile.yml);
+# yarn.lock is a local by-product of installing with yarn on machines without bun.
+yarn.lock
 
 # Expo and React Native Build Artifacts
 .expo/
 dist/
+# `expo export --output-dir` targets used while validating the web/native
+# bundles side by side (M2 web spike).
+dist-*/
 dist-web/
 desktop/
 web-build/

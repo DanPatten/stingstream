@@ -7,6 +7,16 @@
     "icon": "./assets/images/icon.png",
     "scheme": "streamyfin",
     "userInterfaceStyle": "dark",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/icon.png",
+      "name": "StingStream",
+      "shortName": "StingStream",
+      "themeColor": "#010101",
+      "backgroundColor": "#010101"
+    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "requireFullScreen": true,

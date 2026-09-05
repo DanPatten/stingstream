@@ -26,6 +26,7 @@
     "components/**/*",
     "constants/**/*",
     "hooks/**/*",
+    "lib/**/*",
     "modules/**/*",
     "packages/**/*",
     "plugins/**/*",
