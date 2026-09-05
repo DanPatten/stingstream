@@ -87,3 +87,12 @@ silently resolved to `any`, and dozens of implicit-`any` errors turned up across
 settings screens in CI while passing fine locally (where `dist/` happened to already exist).
 `bun run build` still exists for anyone who wants a standalone compiled/declared check of this
 package in isolation, but nothing depends on its output.
+
+**This package's own `node_modules` (specifically `openapi-fetch`) must still exist**, though —
+`src/index.ts` importing straight from `src/client.ts` means TypeScript type-checks (and Metro
+bundles) this package's real source, which resolves `openapi-fetch` starting from
+`packages/api-client/node_modules`, not from `apps/stingstream/node_modules`. `bun install` in
+`apps/stingstream` alone does not populate that directory. Run `bun install --frozen-lockfile` in
+`packages/api-client` too on a fresh clone (CI does this in `.github/workflows/app.yml`) — the
+same class of "passes locally, fails from a clean clone" gap as the `dist/` one above, since a
+dev machine that has ever run anything in this package already has it.
