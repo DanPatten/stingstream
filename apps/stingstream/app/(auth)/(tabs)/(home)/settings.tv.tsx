@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
 import { TVPasswordEntryModal } from "@/components/login/TVPasswordEntryModal";
 import { TVPINEntryModal } from "@/components/login/TVPINEntryModal";
+import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
 import type { TVOptionItem } from "@/components/tv";
 import {
   TVCustomHeadersSection,
@@ -25,6 +26,7 @@ import {
   TVSettingsToggle,
 } from "@/components/tv";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import useRouter from "@/hooks/useAppRouter";
 import { useMediaPreferences } from "@/hooks/useMediaPreferences";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
 import { useTVUserSwitchModal } from "@/hooks/useTVUserSwitchModal";
@@ -94,6 +96,8 @@ export default function SettingsTV() {
   const { showUserSwitchModal } = useTVUserSwitchModal();
   const typography = useScaledTVTypography();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const meshSummary = useMeshSummary();
 
   // Local state for OpenSubtitles API key (only commit on blur)
   const [openSubtitlesApiKey, setOpenSubtitlesApiKey] = useState(
@@ -1411,6 +1415,17 @@ export default function SettingsTV() {
             value={settings.sentryEnabled}
             disabledByAdmin={pluginSettings?.sentryEnabled?.locked === true}
             onToggle={(value) => updateSettings({ sentryEnabled: value })}
+          />
+
+          {/* Mesh Section — groups, members and this TV's own light node.
+              A TV is mains-powered and always on, so it is the member the rest
+              of the group is most likely to find online; the screens themselves
+              handle the ten-foot differences (no QR scanner, code typed in). */}
+          <TVSectionHeader title='Mesh' />
+          <TVSettingsRow
+            label='Groups'
+            value={meshSummary}
+            onPress={() => router.push("/settings/groups/page")}
           />
 
           {/* Custom proxy auth headers for Jellyfin and each integration */}

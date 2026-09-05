@@ -276,6 +276,46 @@ export default function IndexLayout() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name='settings/groups/page'
+        options={{
+          title: "Groups",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/groups/create/page'
+        options={{
+          title: "Create group",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/groups/join/page'
+        options={{
+          title: "Join group",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/groups/[group]/page'
+        options={{
+          title: "Group",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
       {Object.entries(nestedTabPageScreenOptions).map(([name, options]) => (
         <Stack.Screen key={name} name={name} options={options} />
       ))}

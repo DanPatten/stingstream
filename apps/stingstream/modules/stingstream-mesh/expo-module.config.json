@@ -1,0 +1,8 @@
+{
+  "name": "stingstream-mesh",
+  "version": "1.0.0",
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.stingstreammesh.StingstreamMeshModule"]
+  }
+}

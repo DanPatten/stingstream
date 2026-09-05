@@ -89,3 +89,34 @@ export {
   refreshTvRecommendations,
   syncTvRecommendations,
 } from "./tv-recommendations";
+// StingStream mesh light node (Android + Android TV)
+export type {
+  MeshGroup,
+  MeshJoinResult,
+  MeshPathKind,
+  MeshPeer,
+  MeshPeerEvent,
+  MeshStartConfig,
+  MeshStateEvent,
+  MeshStatus,
+  MeshStreamStats,
+} from "./stingstream-mesh";
+export {
+  addMeshPeerOfflineListener,
+  addMeshPeerOnlineListener,
+  addMeshStateListener,
+  addMeshStreamStatsListener,
+  getMeshLocalPort,
+  getMeshNodeId,
+  getMeshStatus,
+  isMeshAvailable,
+  isMeshRunning,
+  joinMeshGroup,
+  leaveMeshGroup,
+  listMeshGroups,
+  listMeshPeers,
+  setMeshIdleTimeoutMs,
+  setMeshKeepAwake,
+  startMesh,
+  stopMesh,
+} from "./stingstream-mesh";

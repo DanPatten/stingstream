@@ -6,6 +6,7 @@ import type {
 import { BaseItemKind } from "@jellyfin/sdk/lib/generated-client/models/base-item-kind";
 import { getMediaInfoApi } from "@jellyfin/sdk/lib/utils/api";
 import { markExpectedError } from "../../errors";
+import { rewriteStreamUrlForMesh } from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
 import type { AudioTranscodeModeType } from "../../profiles/native";
 
@@ -51,14 +52,22 @@ const getPlaybackUrl = (
   }
 
   // Handle remote/external streams (like live TV with external URLs)
-  // These have Protocol "Http" and IsRemote true, with the actual URL in Path
+  // These have Protocol "Http" and IsRemote true, with the actual URL in Path.
+  //
+  // A federated library item arrives here too: its `.strm` holds
+  // `https://stingstream.local/stream/<group>/<item_key>/<node>`, and this is the one place the
+  // app sees that URL before handing it to a player. `rewriteStreamUrlForMesh` points it at the
+  // embedded mesh's loopback port when this device has joined the group, so MPV pulls the bytes
+  // off the holder's disk over iroh; otherwise it returns the URL untouched and the home node's
+  // gateway proxies `/stream/*` instead. See docs/APP-MESH.md.
   if (
     mediaSource?.IsRemote &&
     mediaSource?.Protocol === "Http" &&
     mediaSource?.Path
   ) {
-    console.log("Video is remote stream, using direct Path:", mediaSource.Path);
-    return mediaSource.Path;
+    const remote = rewriteStreamUrlForMesh(mediaSource.Path);
+    console.log("Video is remote stream, using direct Path:", remote);
+    return remote;
   }
 
   // Fall back to direct play
@@ -94,6 +103,22 @@ const getDownloadUrl = (
   mediaSource: MediaSourceInfo,
   sessionId: string | null | undefined,
 ): StreamResult => {
+  // A federated item has no file on this node to download from, so `/Items/{id}/Download` would
+  // make the home node fetch it over the mesh and re-serve it — two hops for the same bytes.
+  // Take the mesh path directly when this device can.
+  if (
+    mediaSource.IsRemote &&
+    mediaSource.Protocol === "Http" &&
+    mediaSource.Path &&
+    !mediaSource.TranscodingUrl
+  ) {
+    return {
+      url: rewriteStreamUrlForMesh(mediaSource.Path),
+      sessionId: sessionId || null,
+      mediaSource,
+    };
+  }
+
   if (!mediaSource.TranscodingUrl) {
     return {
       url: `${api.basePath}/Items/${mediaSource.Id}/Download?ApiKey=${api.accessToken}`,

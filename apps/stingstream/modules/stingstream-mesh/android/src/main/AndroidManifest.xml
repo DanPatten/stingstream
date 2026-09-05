@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    INTERNET is already declared by the app. Nothing else is needed: the mesh binds a QUIC socket
+    outbound and an HTTP listener on 127.0.0.1, and both are ordinary app-sandbox operations.
+
+    Nothing here is exported. The loopback listener is reachable only from inside the app's own
+    network namespace on a non-rooted device, and it carries an ephemeral port that changes every
+    launch.
+  -->
+</manifest>

@@ -1,0 +1,51 @@
+[package]
+name = "stingstream-mesh-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "uniffi wrapper around stingstream-mesh for the StingStream app's embedded light node. See docs/APP-MESH.md."
+
+[lib]
+name = "stingstream_mesh_ffi"
+path = "src/lib.rs"
+# `cdylib` is what Android loads; `staticlib` is here for a future iOS/desktop link; `lib` is what
+# the crate's own tests and the bindgen binary below use.
+crate-type = ["cdylib", "staticlib", "lib"]
+
+# uniffi's bindings generator, as a binary in this crate so it always matches the `uniffi` version
+# the library was built with. `src/bindgen.rs`, not `src/bin/`: the repository's root .gitignore
+# carries a bare `bin/` rule for the .NET subtrees, which silently untracks anything under a Rust
+# crate's `src/bin/` too (see docs/MESH.md section 8).
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bindgen.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+http = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+stingstream-mesh = { path = "../stingstream-mesh" }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uniffi = { version = "0.32", features = ["cli"] }
+url = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android has no stdout worth reading; `logcat` is where a mesh log line has to land or it may as
+# well not exist.
+tracing-android = "0.2"
+
+[dev-dependencies]
+bytes = "1"
+http-body-util = "0.1"
+iroh = "1.1"
+# No TLS features: the only thing these tests fetch is `http://127.0.0.1`, and pulling a TLS stack
+# in for that would be a second copy of one the mesh already links.
+reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }

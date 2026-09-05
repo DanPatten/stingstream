@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/stingstream",
     "crates/stingstream-mesh",
+    "crates/stingstream-mesh-ffi",
     "crates/stingstream-relay",
 ]
 # mesh/jellyswarrm (subtree: LLukas22/Jellyswarrm) is deliberately NOT a member of this workspace.

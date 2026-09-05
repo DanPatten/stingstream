@@ -27,6 +27,15 @@ web-build/
 # Native module build outputs (any module)
 modules/*/android/build/
 
+# The mesh light node's native library: ~25 MB of .so per ABI, produced by
+# scripts/build-mesh-android.ps1 (see docs/APP-MESH.md).
+#
+# The generated Kotlin bindings beside it are deliberately NOT ignored. They are machine-written,
+# but committing them is what lets `assembleDebug` work on a machine with no Rust toolchain: the
+# module compiles, the .so is absent, and the mesh reports available:false exactly as it does on
+# web. Regenerate them with the same script whenever the FFI surface changes.
+modules/stingstream-mesh/android/src/main/jniLibs/
+
 # Generated Applications
 Streamyfin.app
 *.apk

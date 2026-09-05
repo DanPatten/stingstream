@@ -12,6 +12,7 @@ import { AppLanguageSelector } from "@/components/settings/AppLanguageSelector";
 import { QuickConnect } from "@/components/settings/QuickConnect";
 import { StorageSettings } from "@/components/settings/StorageSettings";
 import { UserInfo } from "@/components/settings/UserInfo";
+import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
 import useRouter from "@/hooks/useAppRouter";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 
@@ -24,6 +25,7 @@ function SettingsMobile() {
   const insets = useSafeAreaInsets();
   const [user] = useAtom(userAtom);
   const { logout } = useJellyfin();
+  const meshSummary = useMeshSummary();
 
   const navigation = useNavigation();
   useEffect(() => {
@@ -148,6 +150,25 @@ function SettingsMobile() {
             </ListGroup>
           </View>
         )}
+
+        {/* Not admin-gated: a group is what makes other people's titles appear in this
+            user's library, and the mesh row is about *this device*, not the server. */}
+        <View className='mb-4'>
+          <ListGroup title='Mesh'>
+            <ListItem
+              onPress={() => router.push("/settings/groups/page")}
+              showArrow
+              title='Groups'
+              subtitle='Members, invites, coordinator'
+            />
+            <ListItem
+              onPress={() => router.push("/settings/groups/page")}
+              showArrow
+              title='This device'
+              value={meshSummary}
+            />
+          </ListGroup>
+        </View>
 
         <StorageSettings />
       </View>

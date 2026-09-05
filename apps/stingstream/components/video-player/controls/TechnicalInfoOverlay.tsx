@@ -22,6 +22,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
 import type { TechnicalInfo } from "@/modules/mpv-player";
+import {
+  type MeshConnectionKind,
+  useMeshSourceStatus,
+} from "@/providers/MeshProvider";
 import { HEADER_LAYOUT } from "./constants";
 
 type PlayMethod = "DirectPlay" | "DirectStream" | "Transcode";
@@ -204,6 +208,23 @@ const formatTranscodeReason = (reason: string): string => {
   return reasonMap[reason] || reason;
 };
 
+/**
+ * The mesh status pill's colour, on the same scale the play method uses: green is the good case
+ * (bytes came straight off the holder's disk), amber is "working, but longer than it needs to be".
+ */
+const getMeshStatusColor = (kind: MeshConnectionKind): string => {
+  switch (kind) {
+    case "direct":
+      return "#4ade80";
+    case "relayed":
+      return "#fbbf24";
+    case "home-node":
+      return "#fbbf24";
+    default:
+      return "#9ca3af";
+  }
+};
+
 export const TechnicalInfoOverlay: FC<TechnicalInfoOverlayProps> = memo(
   ({
     showControls: _showControls,
@@ -218,6 +239,10 @@ export const TechnicalInfoOverlay: FC<TechnicalInfoOverlayProps> = memo(
   }) => {
     const typography = useScaledTVTypography();
     const { t } = useTranslation();
+    // How this source is reaching the device — direct off the holder's disk, through a relay, or
+    // proxied by the home node. `null` for anything that is not a mesh source, so ordinary local
+    // playback gains no extra line.
+    const meshStatus = useMeshSourceStatus(mediaSource);
     const insets = useSafeAreaInsets();
     const safeInsets = useControlsSafeAreaInsets();
     const [info, setInfo] = useState<TechnicalInfo | null>(null);
@@ -328,6 +353,18 @@ export const TechnicalInfoOverlay: FC<TechnicalInfoOverlayProps> = memo(
               style={[textStyle, { color: getPlayMethodColor(playMethod) }]}
             >
               {getPlayMethodLabel(playMethod)}
+            </Text>
+          )}
+          {meshStatus && (
+            <Text
+              style={[
+                textStyle,
+                { color: getMeshStatusColor(meshStatus.kind) },
+              ]}
+            >
+              {meshStatus.label}
+              {meshStatus.nodeName ? ` · ${meshStatus.nodeName}` : ""}
+              {meshStatus.rttMs != null ? ` · ${meshStatus.rttMs} ms` : ""}
             </Text>
           )}
           {transcodeReasons && transcodeReasons.length > 0 && (

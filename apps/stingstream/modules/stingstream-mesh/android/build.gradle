@@ -1,0 +1,79 @@
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'expo.modules.stingstreammesh'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace "expo.modules.stingstreammesh"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+
+  sourceSets {
+    main {
+      // Produced by apps/stingstream/scripts/build-mesh-android.ps1 and gitignored — see the
+      // check below for what happens when it has not been run.
+      jniLibs.srcDirs += ['src/main/jniLibs']
+    }
+  }
+}
+
+dependencies {
+  // uniffi's Kotlin bindings call into the .so through JNA, and the `@aar` classifier is what
+  // brings `libjnidispatch.so` for every ABI along with the classes. A plain jar dependency
+  // compiles and then fails on the device.
+  implementation 'net.java.dev.jna:jna:5.14.0@aar'
+
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1'
+}
+
+/**
+ * The mesh library is minutes to cross-compile and cargo's freshness check is invisible to Gradle,
+ * so this only *reports* whether the build script has been run — it never runs it.
+ *
+ * A missing library is a **warning** in a debug build, not an error. The generated Kotlin bindings
+ * are committed, so the module still compiles; at runtime `System.loadLibrary` fails, the module
+ * answers `available: false`, and the app behaves exactly as it does on web — streams are proxied
+ * by the home node instead of dialled peer to peer. That keeps `assembleDebug` working for anyone
+ * without a Rust toolchain, which is most people touching a screen rather than the mesh.
+ *
+ * A release build fails hard, because shipping an APK whose mesh silently does nothing is a much
+ * worse outcome than a build error. `-PstingstreamMeshRequired=true`, or STINGSTREAM_MESH_REQUIRED=1
+ * in the environment, forces the same strictness on a debug build.
+ */
+tasks.configureEach { task ->
+  if (!(task.name ==~ /^merge(.*)JniLibFolders$/)) return
+
+  task.doFirst {
+    def abis = file('src/main/jniLibs').listFiles()?.findAll { dir ->
+      dir.isDirectory() && new File(dir, 'libstingstream_mesh_ffi.so').exists()
+    }
+    if (abis) return
+
+    def required = project.hasProperty('stingstreamMeshRequired')
+      ? project.property('stingstreamMeshRequired').toString().toBoolean()
+      : System.getenv('STINGSTREAM_MESH_REQUIRED') == '1' || task.name.toLowerCase().contains('release')
+
+    def message =
+      "The StingStream mesh native library is missing from " +
+      "apps/stingstream/modules/stingstream-mesh/android/src/main/jniLibs.\n" +
+      "Build it with:  pwsh apps/stingstream/scripts/build-mesh-android.ps1\n" +
+      "See docs/APP-MESH.md."
+
+    if (required) {
+      throw new GradleException(
+        message + "\n\nThis is a release build, where a mesh that does nothing would ship silently."
+      )
+    }
+    logger.warn(
+      "\nw: " + message +
+      "\nw: Continuing anyway: the app will run with the mesh reporting available:false, and " +
+      "streams will be proxied by the home node.\n"
+    )
+  }
+}

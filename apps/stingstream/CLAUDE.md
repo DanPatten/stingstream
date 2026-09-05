@@ -162,7 +162,8 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
 **Navigation**
 - File based routing under `app/`.
 - Tab groups: `(home)`, `(search)`, `(favorites)`, `(libraries)`, `(watchlists)`,
-  `(custom-links)`, `(settings)`. Routes shared by several tabs live in the combined
+  `(custom-links)`, `(settings)`, `(manage)`, `(downloads)`. The last two are
+  administrator-only and hidden on TV. Routes shared by several tabs live in the combined
   group `(home,libraries,search,favorites,watchlists)`.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
@@ -209,8 +210,9 @@ PersistQueryClientProvider
 
 **Native modules** in `modules/`: `mpv-player` (the native player, iOS and Android),
 `exoplayer-player`, `background-downloader`, `glass-poster`, `hero-carousel`,
-`system-volume`, `top-shelf-cache`, `tv-recommendations`, `tv-search`, `tv-user-profile`,
-`wifi-ssid`.
+`stingstream-mesh` (the embedded mesh light node, Android and Android TV — see
+`docs/APP-MESH.md`), `system-volume`, `top-shelf-cache`, `tv-recommendations`, `tv-search`,
+`tv-user-profile`, `wifi-ssid`.
 
 **Path aliases**: `@/` maps to the repo root.
 

@@ -58,6 +58,7 @@ import {
   type MpvPlayerViewRef,
   type MpvVideoSource,
 } from "@/modules";
+import { setMeshKeepAwake } from "@/modules/stingstream-mesh";
 import { useDownload } from "@/providers/DownloadProvider";
 import { DownloadedItem } from "@/providers/Downloads/types";
 import { useInactivity } from "@/providers/InactivityProvider";
@@ -748,6 +749,17 @@ export default function DirectPlayerPage() {
       reportPlaybackStoppedRef.current();
     };
   }, [itemId, item?.Id, stream?.sessionId, mediaSourceId]);
+
+  // Hold the embedded mesh open for as long as this player is mounted.
+  //
+  // Backgrounding the app mid-film is normal — a message arrives, the screen turns off with audio
+  // still playing — and the mesh's idle timer would otherwise close the QUIC socket the stream is
+  // running over. Released on unmount, including the error paths, because a leaked hold costs
+  // battery until the app is next foregrounded.
+  useEffect(() => {
+    setMeshKeepAwake(true);
+    return () => setMeshKeepAwake(false);
+  }, []);
 
   // Stop on navigation-away. Re-subscribing when the navigation object identity
   // changes (e.g. after a setParams) no longer reports anything on its own.
