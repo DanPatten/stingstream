@@ -376,6 +376,17 @@ Notes that cost time to find:
   them, saving about 15 MB per ABI.
 * The APK needs cleartext HTTP to `127.0.0.1`. `app.json` already sets
   `expo-build-properties → android.usesCleartextTraffic: true`.
+* **Windows: `GRADLE_USER_HOME` has to be shallow.** `react-native-screens`'s CMake step stats
+  `…/transforms/<hash>/workspace/transformed/jetified-react-android-…/prefab/modules/reactnative/include/react/renderer/runtimescheduler/RuntimeSchedulerIntersectionObserverDelegate.h`,
+  which from `E:\Dan\Documents\Repos\.gradle` comes to **261** characters — one over
+  `MAX_PATH` — and ninja fails with `Filename longer than 260 characters`. Nothing to do with the
+  mesh; it bites any Android build on this machine. A junction fixes it without re-downloading the
+  cache:
+
+  ```powershell
+  cmd /c mklink /J E:\g E:\Dan\Documents\Repos\.gradle   # once, no admin needed
+  $env:GRADLE_USER_HOME = "E:/g"                            # 261 -> 235 characters
+  ```
 
 ---
 

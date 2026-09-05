@@ -21,6 +21,7 @@ import {
   getMeshLocalPort,
   getMeshStatus,
   isMeshAvailable,
+  isMeshRunning,
   joinMeshGroup,
   leaveMeshGroup,
   listMeshGroups,
@@ -177,6 +178,11 @@ export function MeshProvider({ children }: { children: ReactNode }) {
 
   const syncGroups = useCallback(async () => {
     if (!available || !apiBaseUrl || syncInFlight.current) return;
+    // Nothing to sync into. Without this, a build whose native library failed to start would
+    // fetch the node's groups, fail to join every one of them, and put a wall of errors on the
+    // Group screen — where the honest answer is the one `DeviceMeshSection` already gives:
+    // the embedded node is not running and the home node is proxying.
+    if (!isMeshRunning()) return;
     syncInFlight.current = true;
     setSyncing(true);
     try {
@@ -237,10 +243,15 @@ export function MeshProvider({ children }: { children: ReactNode }) {
     (async () => {
       const started = await startMesh();
       if (cancelled) return;
-      if (started) {
-        setStatus(started);
-        setRunning(started.localPort > 0);
+      if (!started) {
+        // The module exists but the node would not come up — a missing native library, or a
+        // data directory the OS would not let us write. `DeviceMeshSection` says so; there is
+        // nothing to join groups into.
+        setRunning(false);
+        return;
       }
+      setStatus(started);
+      setRunning(started.localPort > 0);
       await syncGroups();
     })();
     return () => {
