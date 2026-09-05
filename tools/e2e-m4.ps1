@@ -348,6 +348,33 @@ function Get-MeshSourcePath {
     return [string](Get-Member-Value $Source 'Path')
 }
 
+function Resolve-PlaylistRef {
+    <#
+    .SYNOPSIS
+        Resolve one line of an HLS playlist against the URL the playlist came from.
+    .DESCRIPTION
+        Jellyfin's master playlist points at `main.m3u8?<the same query>` and the variant points at
+        `hls1/main/0.ts?<the same query>` -- both relative, both carrying a query string of their
+        own. Resolving them by hand rather than with [System.Uri] because the *base* has a query
+        too, and the query can contain slashes (a base64 DeviceId will), so "everything up to the
+        last slash" has to be taken from the path and not from the whole URL.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$PlaylistUrl,
+        [Parameter(Mandatory)][string]$Ref
+    )
+    if ($Ref -match '^https?://') { return $Ref }
+
+    $question = $PlaylistUrl.IndexOf('?')
+    $path = if ($question -ge 0) { $PlaylistUrl.Substring(0, $question) } else { $PlaylistUrl }
+    if ($Ref.StartsWith('/')) {
+        $uri = [Uri]$path
+        return "$($uri.Scheme)://$($uri.Authority)$Ref"
+    }
+
+    return $path.Substring(0, $path.LastIndexOf('/') + 1) + $Ref
+}
+
 function Test-BytesEqual {
     param([byte[]]$Actual, [byte[]]$Expected, [string]$What)
     if ($Actual.Length -ne $Expected.Length) {
@@ -359,10 +386,23 @@ function Test-BytesEqual {
 }
 
 function Get-NodeLog {
+    <#
+    .SYNOPSIS
+        Everything a node has written this run, both streams.
+    .DESCRIPTION
+        Both, because the supervisor's structured log goes to stderr and its banner to stdout, and
+        the assertions that read a log are looking for the mesh's `tracing` output -- which is the
+        stderr half. Reading only stdout finds nothing and calls it a failure.
+    #>
     param([Parameter(Mandatory)]$Node)
-    $path = Join-Path (Join-Path $WorkDir 'logs') "node-$($Node.Name).out.log"
-    if (-not (Test-Path $path)) { return '' }
-    return (Get-Content $path -Raw -ErrorAction SilentlyContinue)
+    $text = ''
+    foreach ($stream in 'out', 'err') {
+        $path = Join-Path (Join-Path $WorkDir 'logs') "node-$($Node.Name).$stream.log"
+        if (Test-Path $path) {
+            $text += (Get-Content $path -Raw -ErrorAction SilentlyContinue)
+        }
+    }
+    return $text
 }
 
 trap {
@@ -404,15 +444,35 @@ $FFmpeg = Invoke-Step 'Locate ffmpeg' {
 # ============================================================================================
 $Media = Invoke-Step 'Generate two encodes of one film, and two more films' {
     function New-Clip {
+        <#
+        .SYNOPSIS
+            Encode a clip at an exact bitrate.
+        .DESCRIPTION
+            Constant bitrate, not a target, and the difference is the whole test. A colour-bar
+            pattern is a static image: with an ordinary `-b:v 20M` x264 compresses twelve seconds of
+            it to a couple of hundred kilobytes, and the bitrate the scorer then reads out of the
+            index is fiction -- every source "fits" every link and the Speed-first and Quality-first
+            answers become identical. `-minrate` with `nal-hrd=cbr` makes the encoder pad to the
+            rate it was asked for, so a 4K source really does need 20 Mbit/s and a link capped below
+            that really cannot carry it.
+        #>
         param([string]$Path, [int]$Width, [int]$Height, [int]$Seconds, [string]$Bitrate, [string]$Preset = 'veryfast')
         & $FFmpeg -y -hide_banner -loglevel error `
             -f lavfi -i "smptebars=size=${Width}x${Height}:rate=24" `
             -f lavfi -i "sine=frequency=440:sample_rate=48000" `
             -t $Seconds -c:v libx264 -preset $Preset -pix_fmt yuv420p `
-            -b:v $Bitrate -maxrate $Bitrate -bufsize $Bitrate `
+            -b:v $Bitrate -minrate $Bitrate -maxrate $Bitrate -bufsize $Bitrate `
+            -x264-params nal-hrd=cbr `
             -c:a aac -b:a 128k -shortest $Path
         if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed writing $Path ($LASTEXITCODE)" }
-        Write-Host ("      {0}: {1:N0} bytes" -f (Split-Path -Leaf $Path), (Get-Item $Path).Length)
+        $size = (Get-Item $Path).Length
+        Write-Host ("      {0}: {1:N0} bytes ({2} for {3}s)" -f (Split-Path -Leaf $Path), $size, $Bitrate, $Seconds)
+        # A clip that came out at a tenth of what was asked for means the CBR flags stopped working,
+        # and every assertion downstream would then pass for the wrong reason.
+        $wanted = [int]($Bitrate.TrimEnd('M')) * 1MB / 8 * $Seconds
+        if ($size -lt $wanted * 0.5) {
+            throw "$Path is $size bytes; $Bitrate for ${Seconds}s should be about $([int]$wanted). The CBR flags did not take."
+        }
         return $Path
     }
 
@@ -692,14 +752,7 @@ Invoke-Step "Quality first on a link that cannot carry it falls back to A's tran
     # got the master, then fetch the first real media reference either way.
     $target = ($text -split "`n" | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | Select-Object -First 1)
     if (-not $target) { throw "the playlist has no media reference:`n$text" }
-    $target = $target.Trim()
-    $next = if ($target -match '^https?://') { $target } else { "$($NodeA.Url)/jellyfin/videos/" + $target.TrimStart('/') }
-    if ($target -notmatch '^https?://' -and $target -notlike 'videos/*') {
-        # Jellyfin's master playlist emits a path relative to /videos/{id}/, which is where the
-        # request came from; rebuild it against the playlist's own directory rather than guessing.
-        $base = $playlistUrl.Substring(0, $playlistUrl.LastIndexOf('/') + 1)
-        $next = $base + $target
-    }
+    $next = Resolve-PlaylistRef -PlaylistUrl $playlistUrl -Ref $target.Trim()
     Write-Host "      following: $next"
     $second = Invoke-Bytes -Uri $next -Headers (Get-AuthHeaders $NodeA) -TimeoutSec 420
     if ($second.StatusCode -ne 200) { throw "the playlist's first reference returned HTTP $($second.StatusCode)." }
@@ -708,13 +761,10 @@ Invoke-Step "Quality first on a link that cannot carry it falls back to A's tran
 
     if ($secondText -match '#EXTM3U') {
         # That was the variant playlist; now fetch a real segment.
-        $segment = ($secondText -split "`n" | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | Select-Object -First 1)
         $fullVariant = [System.Text.Encoding]::UTF8.GetString($second.Bytes)
         $segment = ($fullVariant -split "`n" | Where-Object { $_.Trim() -and -not $_.StartsWith('#') } | Select-Object -First 1)
         if (-not $segment) { throw "the variant playlist lists no segments:`n$fullVariant" }
-        $segment = $segment.Trim()
-        $base = $next.Substring(0, $next.LastIndexOf('/') + 1)
-        $segmentUrl = if ($segment -match '^https?://') { $segment } else { $base + $segment }
+        $segmentUrl = Resolve-PlaylistRef -PlaylistUrl $next -Ref $segment.Trim()
         Write-Host "      first segment: $segmentUrl"
         $bytes = Invoke-Bytes -Uri $segmentUrl -Headers (Get-AuthHeaders $NodeA) -TimeoutSec 420
         if ($bytes.StatusCode -ne 200) { throw "the first HLS segment returned HTTP $($bytes.StatusCode)." }
@@ -871,7 +921,9 @@ Invoke-Step 'Killing B mid-stream continues from C with no error' {
     $expected = [System.IO.File]::ReadAllBytes($Media['sita'])
     $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($Sita.ItemKey))/$($NodeB.MeshId)"
 
-    $logBefore = (Get-NodeLog -Node $NodeA).Length
+    # Count, not offset: the log is two streams concatenated and either can grow, so a substring
+    # from a remembered length would slice in the wrong place. An occurrence count only goes up.
+    $resumesBefore = ([regex]::Matches((Get-NodeLog -Node $NodeA), 'continuing the stream from another holder')).Count
     $job = Start-BytesJob -Uri $url -TimeoutSec 420
     # Long enough that bytes are genuinely in flight -- B is capped at 4 MB/s and the file is
     # tens of megabytes, so this is well before the end.
@@ -885,8 +937,8 @@ Invoke-Step 'Killing B mid-stream continues from C with no error' {
     $resumedAfter = $null
     $deadline = $killedAt.AddSeconds(60)
     while ((Get-Date) -lt $deadline) {
-        $log = Get-NodeLog -Node $NodeA
-        if ($log.Length -gt $logBefore -and $log.Substring($logBefore) -match 'continuing the stream from another holder') {
+        $now = ([regex]::Matches((Get-NodeLog -Node $NodeA), 'continuing the stream from another holder')).Count
+        if ($now -gt $resumesBefore) {
             $resumedAfter = ((Get-Date) - $killedAt).TotalSeconds
             break
         }

@@ -112,7 +112,19 @@ public static class StingStreamCoreExtensions
         // makes that possible.
         services.AddSingleton<PlaybackPolicyStore>();
         services.AddSingleton<FederatedSourceService>();
-        services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator, FederatedSourceDecorator>();
+        services.AddSingleton<FederatedSourceDecorator>();
+        services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator>(
+            sp => sp.GetRequiredService<FederatedSourceDecorator>());
+
+        // ...and again, on the way out. MediaInfoController re-sorts the sources *after* the
+        // decorator has run, floating "the source belonging to the queried item" to the front --
+        // which for a federated title is whichever .strm Jellyfin's resolver happened to read
+        // first, and has nothing to do with which holder can actually serve it. See
+        // PlaybackInfoOrderFilter for why that upstream rule is right for the case it was written
+        // for and wrong for this one.
+        services.AddSingleton<PlaybackInfoOrderFilter>();
+        services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(
+            options => options.Filters.AddService<PlaybackInfoOrderFilter>());
 
         // Pin and mirror.
         services.AddSingleton<LibraryStateStore>();

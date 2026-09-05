@@ -79,9 +79,30 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<MediaSourceInfo>> DecorateAsync(
+    public Task<IReadOnlyList<MediaSourceInfo>> DecorateAsync(
         BaseItem item,
         User user,
+        IReadOnlyList<MediaSourceInfo> sources,
+        CancellationToken cancellationToken)
+        => ApplyAsync(item?.Name, user?.Id.ToString(), sources, cancellationToken);
+
+    /// <summary>
+    /// Score, stamp and order a source list, for a caller that has ids rather than entities.
+    /// </summary>
+    /// <param name="label">What to call the item in the log.</param>
+    /// <param name="userId">Whose policy to score under; null or unknown gets the default.</param>
+    /// <param name="sources">The sources.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The sources to use, in the order to offer them.</returns>
+    /// <remarks>
+    /// Separate from <see cref="DecorateAsync"/> because <see cref="PlaybackInfoOrderFilter"/> has a
+    /// claims principal and a <c>PlaybackInfoResponse</c>, not a <c>BaseItem</c> and a
+    /// <c>User</c> — and it has to re-apply the order after Jellyfin's own re-sort. Idempotent:
+    /// running it twice on the same list sets the same values and produces the same order.
+    /// </remarks>
+    public async Task<IReadOnlyList<MediaSourceInfo>> ApplyAsync(
+        string? label,
+        string? userId,
         IReadOnlyList<MediaSourceInfo> sources,
         CancellationToken cancellationToken)
     {
@@ -103,26 +124,26 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
 
         try
         {
-            return await DecorateCoreAsync(item, user, sources, federated, cancellationToken)
+            return await ApplyCoreAsync(label, userId, sources, federated, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A decorator that throws would take playback down for an item it merely has an opinion
             // about. The undecorated list still plays: it is the M3 behaviour, one holder at a time.
-            _logger.LogWarning(ex, "Could not score the federated sources of {Item}; using them unordered", item?.Name);
+            _logger.LogWarning(ex, "Could not score the federated sources of {Item}; using them unordered", label);
             return sources;
         }
     }
 
-    private async Task<IReadOnlyList<MediaSourceInfo>> DecorateCoreAsync(
-        BaseItem item,
-        User user,
+    private async Task<IReadOnlyList<MediaSourceInfo>> ApplyCoreAsync(
+        string? label,
+        string? userId,
         IReadOnlyList<MediaSourceInfo> sources,
         List<(MediaSourceInfo Source, StreamRef? Parsed)> federated,
         CancellationToken cancellationToken)
     {
-        var policy = _policies.Get(user?.Id.ToString()).Parsed();
+        var policy = _policies.Get(userId).Parsed();
         var gateway = _runtime.Current?.Gateway.Port ?? 0;
 
         // One candidate lookup per distinct (group, item key), not per source: two holders of the
@@ -166,7 +187,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
         }
 
         var ordered = Order(sources, scores);
-        Log(item, policy, ordered, scores);
+        Log(label, policy, ordered, scores);
         return ordered;
     }
 
@@ -262,7 +283,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     }
 
     private void Log(
-        BaseItem item,
+        string? label,
         PlaybackPolicy policy,
         IReadOnlyList<MediaSourceInfo> ordered,
         IReadOnlyDictionary<string, ScoredSource> scores)
@@ -289,7 +310,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
         {
             _logger.LogInformation(
                 "Source order for {Item} under {Policy}: {Order}",
-                item?.Name,
+                label,
                 PolicyNames.Wire(policy),
                 string.Join(" | ", lines));
         }

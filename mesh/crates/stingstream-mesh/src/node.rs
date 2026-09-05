@@ -929,10 +929,9 @@ impl MeshNode {
             let mut queue = rest;
             let mut holder = first_node;
             let mut sent: u64 = 0;
-            let mut holder_bytes: u64 = 0;
-            let mut holder_started = std::time::Instant::now();
             let expected = end.map(|e| e.saturating_sub(start) + 1);
             let stall = self.cfg.peer.stream_stall_secs;
+            let mut meter = Meter::new(self.clone(), group.id, holder.clone());
 
             loop {
                 // A holder that was *killed* closes nothing: its socket stops answering and QUIC
@@ -956,7 +955,7 @@ impl MeshNode {
                     Some(Ok(f)) => {
                         if let Ok(data) = f.into_data() {
                             sent += data.len() as u64;
-                            holder_bytes += data.len() as u64;
+                            meter.add(data.len() as u64);
                             yield Ok::<bytes::Bytes, std::io::Error>(data);
                         }
                         continue;
@@ -974,7 +973,7 @@ impl MeshNode {
                         );
                     }
                     None => {
-                        self.note_throughput(&group.id, &holder, holder_bytes, holder_started.elapsed());
+                        meter.flush();
                         match expected {
                             Some(want) if sent < want => {
                                 tracing::warn!(
@@ -1011,8 +1010,7 @@ impl MeshNode {
                             );
                             current = resp.into_body();
                             holder = next;
-                            holder_bytes = 0;
-                            holder_started = std::time::Instant::now();
+                            meter.switch(holder.clone());
                             resumed = true;
                             break;
                         }
@@ -1243,6 +1241,66 @@ impl MeshNode {
             let _ = r.shutdown().await;
         }
         self.endpoint.close().await;
+    }
+}
+
+/// Measures how fast bytes actually came off one holder, and records it when they stop.
+///
+/// **It records on `Drop`, not only at end-of-body, and that is the whole point of it existing.**
+/// The obvious version — measure the transfer, record it when the upstream body reports EOF — never
+/// fires for the case that matters. The response carries a `Content-Length`, so once hyper has
+/// written that many bytes it considers the message complete and drops the body without polling it
+/// again; the generator is dropped mid-`await` and the EOF arm is never reached. Every completed
+/// range read looked, from the scorer's point of view, like a link that had never been used.
+///
+/// Recording on drop also means a *seek* measures the link: a player that abandons a range after
+/// three seconds still delivered three seconds of real bytes, and that is a better sample than
+/// none. Samples too small or too brief to mean anything are discarded inside
+/// [`crate::db::Db::record_throughput`], not here.
+struct Meter {
+    node: Arc<MeshNode>,
+    group: GroupId,
+    holder: String,
+    bytes: u64,
+    started: std::time::Instant,
+}
+
+impl Meter {
+    fn new(node: Arc<MeshNode>, group: GroupId, holder: String) -> Self {
+        Self {
+            node,
+            group,
+            holder,
+            bytes: 0,
+            started: std::time::Instant::now(),
+        }
+    }
+
+    fn add(&mut self, bytes: u64) {
+        self.bytes += bytes;
+    }
+
+    /// Record what has been measured so far and start a fresh window.
+    fn flush(&mut self) {
+        if self.bytes > 0 {
+            self.node
+                .note_throughput(&self.group, &self.holder, self.bytes, self.started.elapsed());
+        }
+        self.bytes = 0;
+        self.started = std::time::Instant::now();
+    }
+
+    /// Attribute what follows to a different holder. Failing over must not blame the new holder for
+    /// the old one's bytes, or for the seconds it spent dying.
+    fn switch(&mut self, holder: String) {
+        self.flush();
+        self.holder = holder;
+    }
+}
+
+impl Drop for Meter {
+    fn drop(&mut self) {
+        self.flush();
     }
 }
 
