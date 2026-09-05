@@ -1,0 +1,10 @@
+[package]
+name = "stingstream-mesh"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "iroh transport, groups, gossip group_index, source selection. See docs/ARCHITECTURE.md."
+
+[lib]
+path = "src/lib.rs"

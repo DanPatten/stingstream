@@ -1,0 +1,11 @@
+[package]
+name = "stingstream-relay"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Relay + discovery + storage-node profile (iroh-relay, iroh-dns-server). See docs/ARCHITECTURE.md."
+
+[[bin]]
+name = "stingstream-relay"
+path = "src/main.rs"

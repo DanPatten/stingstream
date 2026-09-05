@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stingstream",
+    "crates/stingstream-mesh",
+    "crates/stingstream-relay",
+]
+# mesh/jellyswarrm (subtree: LLukas22/Jellyswarrm) is added as a member here once the subtree
+# lands, if doing so resolves cleanly alongside the three crates above. See docs/ARCHITECTURE.md
+# "Mesh workspace" for the outcome of that check.
+
+[workspace.package]
+edition = "2021"
+license = "GPL-2.0-or-later"
+publish = false
