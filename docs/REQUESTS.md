@@ -323,6 +323,10 @@ wants to watch, and a household member should not be able to enumerate the rest 
 | `POST` | `/mesh/v1/requests/claim` | Claim, or update this node's claim. The answer carries `winner`, which is the only thing the caller wants to know. |
 | `GET`/`PUT` | `/mesh/v1/fulfilment` | What this node advertises it could grab. |
 
+Core's own `GET /stingstream/api/v1/mesh/peers` carries `canFulfilMovies` and `canFulfilTv` for
+every member alongside the capacity numbers, so a screen — or a harness — can see the routing
+inputs without reaching past Jellyfin's authentication to the mesh's loopback API.
+
 ---
 
 ## 8. Storage

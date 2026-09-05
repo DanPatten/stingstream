@@ -178,6 +178,24 @@ public sealed class MeshPeer
     public string? ThroughputAt { get; set; }
 
     /// <summary>
+    /// Whether this peer advertises that it could <em>grab</em> a film if the group asked it to.
+    /// </summary>
+    /// <remarks>
+    /// True only when that peer has a Radarr answering, at least one enabled movie indexer, a root
+    /// folder and room on its volume — see <c>Requests/RequestWorker.CapabilityAsync</c>, which is
+    /// what computes it, and <c>docs/REQUESTS.md</c> §4 for why free space alone cannot answer the
+    /// question. False for a peer on a build that predates M6, which is the safe reading: a node
+    /// that has not said it can grab a film must not be volunteered one.
+    ///
+    /// Separate from the capacity numbers above because they are about <em>serving</em> what a node
+    /// already holds and this is about acquiring what it does not.
+    /// </remarks>
+    public bool CanFulfilMovies { get; set; }
+
+    /// <summary>Whether this peer advertises that it could grab a series.</summary>
+    public bool CanFulfilTv { get; set; }
+
+    /// <summary>
     /// Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
     /// coordinator's last reachability verdict. Null on a node with no coordinator or no
     /// certificate, which is the zero-server default. Passed through from the mesh unchanged --
