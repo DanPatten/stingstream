@@ -1215,6 +1215,39 @@ prompt) is written as a manual checklist for Dan since no Chromecast is availabl
 **Accept:** a non-admin on node A (no usenet) requests a series; node B fulfils it; it appears for
 everyone; requester is notified.
 
+**M6 status (2026-09-05): built.** `docs/REQUESTS.md` is the reference — states, policy, the claim
+protocol, the endpoint table. The parts worth knowing from here:
+
+- **Requests are answered against the group index first.** A title a member already holds comes back
+  `available` having downloaded nothing, and the row's `note` says so. That is why Jellyseerr was
+  dropped rather than kept: a Seerr instance sits in front of one Radarr and one Sonarr and cannot
+  know what the *group* has, which in a library-pooling group is the interesting answer. The
+  upstream screens and settings stay in the tree so an upstream pull still merges; nothing routes to
+  them.
+- **The claim decides who grabs it, with no coordinator.** The heartbeat gains
+  `can_fulfil_movies` / `can_fulfil_tv` (an arr running, an enabled indexer for that kind, a root
+  folder, and room), and the winner of a request is
+  `min over live claims of (claimed_at_ms, node_id)` — a pure function every member computes for
+  itself. `claimed_at` is frozen at the first claim and never moves, which is what makes a re-claim
+  after a restart resume rather than hand the job away; `released` and `failed` drop out of the
+  ordering, so a second volunteer inherits without being told. A node that is not the origin waits
+  20 s before claiming, so the requester's own node wins when it can rather than winning a coin toss
+  on node id.
+- **`Option<bool>` on those two flags, deliberately.** Core's capacity push carries neither, and a
+  plain `false` would erase the node's answer on every beat — the same trap the side door's own
+  separate endpoint exists to avoid. They are published by M6's own loop through
+  `PUT /mesh/v1/fulfilment`.
+- **The activity log is Jellyfin's notification service now.** Its `INotificationManager` moved to
+  plugins years ago, so a request notification is three things at once: a polled row in
+  `notifications`, a `DisplayMessage` to live sessions, and an `IActivityManager` entry the dashboard
+  renders. All three failures are swallowed; a notification that could not be delivered must not fail
+  the state change it was reporting.
+- **M6's five `core.db` tables are declared in `RequestStore`, not `CoreDatabase.ApplySchema`.** Same
+  database, same `IF NOT EXISTS` statements; the reason is the shared checkout — `RequestStore.cs` is
+  one package's alone and `CoreDatabase.cs` is edited by all of them at once.
+- Acceptance: `tools/e2e-m6.ps1`, two nodes, node A with no arrs and no indexers at all so its
+  inability to fulfil is configuration rather than a mock.
+
 ### M7 — Watch-together, subtitles, Live TV, storage-node polish (Opus 5 for SyncPlay; Sonnet 5 for the rest)
 
 - Watch-together: within one home node, Jellyfin's native SyncPlay already covers federated items;

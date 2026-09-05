@@ -16,8 +16,9 @@ yet.
 | Server settings | Settings → Server settings | phone, web | yes |
 | Admin | Settings → Admin | phone, web | yes |
 | Node status | Settings → Node status | phone, web | yes |
+| Requests (Discover / My requests / Alerts / Approvals / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
 
-All five are hidden on TV (`tabBarItemHidden: Platform.isTV` on the two tabs; the `settings.tsx`
+All five of the first block are hidden on TV (`tabBarItemHidden: Platform.isTV` on the two tabs; the `settings.tsx`
 entries only render inside the phone/web `SettingsMobile` branch, never `settings.tv.tsx`) — TV
 keeps the existing browse/play/requests surface untouched, per the M2 brief. All five are also
 gated behind `user?.Policy?.IsAdministrator` (`components/stingstream/shared/RequiresAdmin.tsx`),
@@ -25,6 +26,23 @@ because every `StingStream.Core` endpoint requires Jellyfin's `RequiresElevation
 operation's `security` block in `packages/api-client/openapi.json`) — there is no non-admin use for
 these screens today. Group and Requests are out of scope for M2 (M3/M6 respectively, per
 `docs/ARCHITECTURE.md`).
+
+**Requests (M6) is the exception to all of that, on purpose.** It is the one StingStream tab a
+non-administrator gets, because searching, asking and watching your own requests need nothing but a
+Jellyfin account — the whole point of the feature is that somebody who cannot administer the node
+can still ask it for something. There is no `RequiresAdmin` wrapper on the route; instead the two
+elevated sections (Approvals, Policy) are simply absent from the section bar for everybody else,
+which is better than a screen that answers 403. It is also the one StingStream tab present on TV,
+with those same two sections dropped there: approving a request on a remote control is worse than
+doing it on the phone already in the room. TV item details additionally gain a single
+`TVRequestButton` — "ask for the rest of this", every season, no picker — which renders nothing for
+an item with no TMDB or TVDB id. See `docs/REQUESTS.md`.
+
+The Jellyseerr entry under Settings → Plugins is gone with it. StingStream's own requests are
+answered against the *group* index first, and a second request system pointed at the same arrs would
+mean two sources of truth about what had been asked for. The upstream screens, settings keys and the
+`utils/jellyseerr` submodule stay in the tree so an upstream pull still merges; nothing routes to
+them.
 
 ### Where the route files live
 
@@ -60,14 +78,20 @@ Streamyfin's own settings sub-pages (network, logs, plugins, ...) are organized.
 
 ### Shared files touched (additive only, per this milestone's path ownership)
 
-- `app/(auth)/(tabs)/_layout.tsx` — two new `<NativeTabs.Screen>` entries (Manage, Downloads).
+- `app/(auth)/(tabs)/_layout.tsx` — two new `<NativeTabs.Screen>` entries (Manage, Downloads), and
+  in M6 a third (Requests) plus one entry in the Android-TV `TVNavBar` list, since that tab is the
+  one non-administrators and televisions both get.
 - `app/(auth)/(tabs)/(home)/_layout.tsx` — three new `<Stack.Screen>` entries for the settings
   sub-pages' headers.
 - `app/(auth)/(tabs)/(home)/settings.tsx` — one new `ListGroup` ("StingStream node") linking to the
   three settings sub-pages, rendered only for administrators.
+- `components/ItemContent.tv.tsx` (M6) — one `<TVRequestButton item={item} />` in the existing TV
+  action row, beside Favourite / Played / Refresh.
+- `components/settings/PluginSettings.tsx` (M6) — the Jellyseerr row removed, replaced by a comment
+  saying where requests went and why the upstream files are still there.
 
-No existing screen's behavior changed; every edit above is a new block appended to an existing
-list.
+No existing screen's behavior changed by M2; every M2 edit above is a new block appended to an
+existing list. M6's three are the same shape: one entry added, one row removed.
 
 ---
 

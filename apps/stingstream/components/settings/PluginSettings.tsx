@@ -26,11 +26,15 @@ export const PluginSettings = () => {
       title={t("home.settings.plugins.plugins_title")}
       className='mb-4'
     >
-      <ListItem
-        onPress={() => router.push("/settings/plugins/jellyseerr/page")}
-        title='Jellyseerr'
-        showArrow
-      />
+      {/* Jellyseerr is not offered. StingStream has its own Requests tab (M6): requests are made
+          against the group's own index, routed to whichever member node has the indexers, and
+          fulfilled through this node's Radarr and Sonarr. Pointing a second request system at the
+          same arrs would mean two sources of truth about what has been asked for, two approval
+          queues, and a Seerr instance that knows nothing about what the group already holds --
+          which is the one thing that makes StingStream's answer different. The upstream screen and
+          its settings are still in the tree (`components/settings/Jellyseerr.tsx`, the
+          `jellyseerr*` settings keys, the `utils/jellyseerr` submodule) so an upstream pull still
+          merges; nothing routes to them. See docs/REQUESTS.md. */}
       <ListItem
         onPress={() => router.push("/settings/plugins/streamystats/page")}
         title='Streamystats'

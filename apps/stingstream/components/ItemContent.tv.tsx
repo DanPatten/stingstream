@@ -27,6 +27,7 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { GenreTags } from "@/components/GenreTags";
 import { TVEpisodeList } from "@/components/series/TVEpisodeList";
+import { TVRequestButton } from "@/components/stingstream/requests/TVRequestButton";
 import {
   TVBackdrop,
   TVButton,
@@ -779,6 +780,9 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                 <TVFavoriteButton item={item} />
                 <TVPlayedButton item={item} />
                 <TVRefreshButton itemId={item.Id} />
+                {/* Renders nothing unless this is a film or a series with a provider id, which is
+                    what an item key -- and therefore a request -- needs. See M6's TVRequestButton. */}
+                <TVRequestButton item={item} />
               </View>
 
               {/* Playback options */}

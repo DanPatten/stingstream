@@ -71,6 +71,11 @@ function TVTabLayout() {
           ? null
           : { key: "(watchlists)", label: t("watchlists.title") },
         { key: "(libraries)", label: t("tabs.library") },
+        // Requests is the one StingStream tab a non-administrator gets, so unlike Manage and
+        // Downloads it is here on TV too. The screen itself drops Approvals and Policy on a
+        // television: approving on a remote control is worse than doing it on the phone that is
+        // already in the room.
+        { key: "(requests)", label: "Requests" },
         !settings?.showCustomMenuLinks
           ? null
           : { key: "(custom-links)", label: t("tabs.custom_links") },
@@ -253,6 +258,19 @@ export default function TabLayout() {
               Platform.OS === "android"
                 ? (_e) => require("@/assets/icons/downloads.arrow.png")
                 : (_e) => ({ sfSymbol: "arrow.down.circle.fill" }),
+          }}
+        />
+        <NativeTabs.Screen
+          name='(requests)'
+          options={{
+            title: "Requests",
+            // Visible to every member, not only administrators: asking the node for something
+            // needs nothing but a Jellyfin account, and the elevated half of the screen simply
+            // is not offered to anybody else.
+            tabBarIcon:
+              Platform.OS === "android"
+                ? (_e) => require("@/assets/icons/requests.bubble.png")
+                : (_e) => ({ sfSymbol: "plus.bubble.fill" }),
           }}
         />
         <NativeTabs.Screen
