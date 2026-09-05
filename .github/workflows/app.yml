@@ -59,6 +59,15 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # `@stingstream/api-client` is a `file:` dependency, and since 973ec6f its `types` point at
+      # `src/index.ts` — so TypeScript checks the package's *source*, which imports `openapi-fetch`
+      # from `packages/api-client/node_modules`. The app's own install does not populate that, so
+      # without this step CI fails with "Cannot find module 'openapi-fetch'" and a knock-on
+      # implicit-any wherever the client's return type is used. No build step: only the deps.
+      - name: Install the API client's dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+
       - name: Install dependencies
         working-directory: apps/stingstream
         run: bun install --frozen-lockfile

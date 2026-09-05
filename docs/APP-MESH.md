@@ -310,7 +310,7 @@ the same screens; the ten-foot differences are handled inside them.
 |---|---|
 | `groups/page` | this device's own node (id, port, relay in use, peer counts), then the home node's groups with member/online counts and whether this device has caught up |
 | `groups/create/page` | name + coordinator picker → the invite, shown immediately |
-| `groups/join/page` | paste, scan a QR (phone only), or type it (the only option on a TV) |
+| `groups/join/page` | paste, scan a QR (phone only), or type it. A TV gets paste and typing — no camera, and 250 base58 characters on a D-pad is why base58 has no look-alike characters |
 | `groups/[group]/page` | members with online state and direct/relayed, the coordinator, "show invite code", leave |
 
 The **coordinator picker** offers "Default (public infrastructure + StingStream fallback)" or "My
