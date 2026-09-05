@@ -56,6 +56,36 @@ fn status(code: StatusCode, msg: &str) -> Response<PeerBody> {
         .expect("a static response always builds")
 }
 
+/// Header a holder sets on a `404` that means "I looked, and I do not hold this".
+///
+/// The distinction matters to the reader, which is why it is a header rather than a body string.
+/// A `404` from this protocol can mean two very different things:
+///
+/// * the route does not exist (a peer built before the route did), which says nothing about the
+///   item and must not cause the reader to rewrite its index; or
+/// * **this node has no servable copy of that `item_key`**, which is an authoritative statement by
+///   the only node entitled to make it, and is exactly the correction the reader's index needs.
+///
+/// Only [`serve_file`] and [`serve_image`] set it, and only for the second case. See
+/// [`crate::node::MeshNode::stream`], which acts on it.
+pub const NOT_HELD_HEADER: &str = "x-stingstream-not-held";
+
+/// The value of [`NOT_HELD_HEADER`], and why the holder said so.
+///
+/// `no-record` — nothing in this node's index under that key (or not with that hash).
+/// `no-file` — the index had it, but the file is gone from disk; the row has just been retracted.
+pub const NOT_HELD_NO_RECORD: &str = "no-record";
+/// See [`NOT_HELD_NO_RECORD`].
+pub const NOT_HELD_NO_FILE: &str = "no-file";
+
+/// A `404` that carries [`NOT_HELD_HEADER`].
+fn not_held(msg: &str, why: &'static str) -> Response<PeerBody> {
+    let mut r = status(StatusCode::NOT_FOUND, msg);
+    r.headers_mut()
+        .insert(NOT_HELD_HEADER, HeaderValue::from_static(why));
+    r
+}
+
 // --- range parsing --------------------------------------------------------------------------
 
 /// A resolved byte range, inclusive of `end`.
@@ -510,9 +540,9 @@ async fn serve_file(
         }
     };
     let Some((path, hash)) = found else {
-        return status(
-            StatusCode::NOT_FOUND,
+        return not_held(
             "this node does not hold that item with that hash",
+            NOT_HELD_NO_RECORD,
         );
     };
     let path = PathBuf::from(path);
@@ -532,8 +562,32 @@ async fn serve_file(
     let meta = match tokio::fs::metadata(&path).await {
         Ok(m) => m,
         Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "a published item is missing on disk");
-            return status(StatusCode::NOT_FOUND, "the file is no longer on this node");
+            // The index said we hold it and the disk says otherwise. That disagreement is the
+            // whole of the bug M5 hit from a phone (`docs/APP-RELEASE.md` §11): the scorer named a
+            // holder, the holder answered 404, and nothing anywhere was corrected — so the next
+            // request made the same mistake. Retract the row here, at the only moment the truth is
+            // actually known, and tell the reader this was an authoritative "no".
+            //
+            // `NotFound` only. A permission error, a busy handle or an IO error on a network mount
+            // is a transient failure to *read* a file that is still there; retracting the row for
+            // those would empty a node's inventory the first time a NAS hiccupped.
+            if e.kind() == std::io::ErrorKind::NotFound {
+                let me = state.node_key.public().to_string();
+                match state.db.forget_local_item(&group, &me, item_key) {
+                    Ok(true) => tracing::warn!(
+                        %group, item_key, path = %path.display(),
+                        "a published item is missing on disk; retracting it from this node's inventory"
+                    ),
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(error = %e, "retracting a missing item"),
+                }
+                return not_held("the file is no longer on this node", NOT_HELD_NO_FILE);
+            }
+            tracing::warn!(path = %path.display(), error = %e, "a published item could not be read");
+            return status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the file could not be read on this node",
+            );
         }
     };
     let size = meta.len();

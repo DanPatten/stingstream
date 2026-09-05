@@ -764,6 +764,28 @@ impl Db {
         Ok(())
     }
 
+    /// Drop one of *this* node's own inventory rows, because it turned out not to be servable.
+    ///
+    /// The peer file server calls this the moment it discovers a published `local_path` is no
+    /// longer on disk (M7). It is the holder's own row, and the holder is the only node entitled
+    /// to correct it: every other member's copy is a cached opinion, and the index is only
+    /// trustworthy if the node that owns a row retracts it as soon as it knows better.
+    ///
+    /// `StingStream.Core` re-publishes a full snapshot every fifteen minutes, so this is a
+    /// *stop-advertising-now*, not a permanent delete: if the file comes back (an unmounted volume
+    /// remounted) the next snapshot re-adds it, and if it does not, Core's own reconciliation drops
+    /// it there too. Returns whether a row was actually removed.
+    pub fn forget_local_item(&self, group: &GroupId, node: &str, item_key: &str) -> Result<bool> {
+        let n = self
+            .lock()
+            .execute(
+                "DELETE FROM inventory WHERE group_id = ?1 AND node_id = ?2 AND item_key = ?3",
+                params![group.to_string(), node, item_key],
+            )
+            .context("forgetting a local inventory row")?;
+        Ok(n > 0)
+    }
+
     /// This node's own records for a group, in wire form, ready to gossip.
     pub fn local_wire_records(&self, group: &GroupId, node: &str) -> Result<Vec<WireRecord>> {
         let conn = self.lock();

@@ -1119,8 +1119,21 @@ impl MeshNode {
     /// `bytes=<where we got to>-` and the bytes keep coming on the same HTTP response. The reader
     /// sees one uninterrupted body: the `ETag` is derived from the file hash, so both holders are
     /// serving the same representation by definition, and a player never learns that anything
-    /// happened. A holder with a *different* encode is not a substitute and is never used — that
-    /// case is a restart by timestamp on the next `MediaSource`, which is the app's job.
+    /// happened. A holder with a *different* encode is not a substitute **mid-body** and is never
+    /// used there — resuming into different bytes at a byte offset produces garbage.
+    ///
+    /// **Before any byte is committed to the wire, though, a different encode is a perfectly good
+    /// substitute** — it is exactly what `?any=1` would have chosen — so the *opening* attempt
+    /// walks the named holder, then every other holder of the same hash, then every remaining
+    /// online holder in scored order (M7). That widening is what stops a stale pointer from being
+    /// a dead end: before it, a `.strm` naming a holder that had lost the file produced a bare
+    /// `404` with `failover_candidates=0` even when another member was holding the film all along.
+    ///
+    /// **Index correction.** A holder that answers `404` with [`peer::NOT_HELD_HEADER`] is making
+    /// an authoritative statement about its own inventory, and this node's copy of it is wrong.
+    /// The row is re-read from the holder itself before the next candidate is tried, so the same
+    /// mistake is not made twice and the *next* caller — `PlaybackInfo`, the scorer, the
+    /// materializer — sees the corrected index. See [`MeshNode::correct_after_not_held`].
     pub async fn stream(
         self: &Arc<Self>,
         group_id: &GroupId,
@@ -1134,56 +1147,43 @@ impl MeshNode {
         };
         let candidates = self.db.candidates(group_id, item_key)?;
 
-        // The order to try holders in. A named node goes first even if the scorer would not have
-        // chosen it: the caller asked for that source, and second-guessing a "Play from…" choice
-        // would make the menu a lie.
-        let order: Vec<String> = if node.eq_ignore_ascii_case(ANY_SOURCE) {
+        // The order to try holders in, each with the hash *that* holder is believed to be serving.
+        // A named node goes first even if the scorer would not have chosen it: the caller asked for
+        // that source, and second-guessing a "Play from…" choice would make the menu a lie.
+        let order = Self::open_order(&candidates, node, policy);
+        if order.is_empty() {
+            bail!("no online holder of {item_key} in group {group_id}");
+        }
+        if node.eq_ignore_ascii_case(ANY_SOURCE) {
             let ranked = crate::score::rank(&candidates, policy);
-            let chosen: Vec<String> = ranked
-                .iter()
-                .filter(|s| s.candidate.online)
-                .map(|s| s.candidate.node.clone())
-                .collect();
-            if chosen.is_empty() {
-                bail!("no online holder of {item_key} in group {group_id}");
+            if let Some(best) = ranked.iter().find(|s| s.candidate.online) {
+                tracing::info!(
+                    group = %group_id,
+                    item_key,
+                    policy = ?policy,
+                    chosen = %short(&best.candidate.node),
+                    score = best.score,
+                    reasons = %best.reasons.join("; "),
+                    "chose a source for an ?any= stream request"
+                );
             }
-            tracing::info!(
-                group = %group_id,
-                item_key,
-                policy = ?policy,
-                chosen = %short(&chosen[0]),
-                score = ranked[0].score,
-                reasons = %ranked[0].reasons.join("; "),
-                "chose a source for an ?any= stream request"
-            );
-            chosen
-        } else {
-            let mut order = vec![node.to_string()];
-            order.extend(
-                crate::score::failover_set(&candidates, node, policy)
-                    .into_iter()
-                    .map(|s| s.candidate.node),
-            );
-            order
-        };
-
-        // The hash from our own index, so a peer serving a *different* file under the same key is
-        // caught rather than played. Taken from the *first* candidate in the order, and reused for
-        // every failover, which is what makes "the same bytes" true rather than hoped for.
-        let hash = candidates
-            .iter()
-            .find(|c| c.node == order[0])
-            .and_then(|c| c.file_hash.clone())
-            .filter(|h| !h.is_empty())
-            .unwrap_or_else(|| ANY_HASH.to_string());
+        }
 
         // The first holder to answer supplies the headers the client sees, so a 503 from a
-        // saturated node has to be tried past *before* anything is committed to the wire.
+        // saturated node — or a 404 from one whose copy has gone — has to be tried past *before*
+        // anything is committed to the wire.
         let mut last: Option<anyhow::Error> = None;
         let mut opened: Option<(usize, Response<Incoming>)> = None;
-        for (i, holder) in order.iter().enumerate() {
+        for (i, attempt) in order.iter().enumerate() {
+            let holder = &attempt.node;
             match self
-                .open_range(&group, item_key, &hash, holder, RangeAsk::Passthrough(headers))
+                .open_range(
+                    &group,
+                    item_key,
+                    &attempt.hash,
+                    holder,
+                    RangeAsk::Passthrough(headers),
+                )
                 .await
             {
                 Ok(resp) if resp.status() == StatusCode::SERVICE_UNAVAILABLE => {
@@ -1196,16 +1196,46 @@ impl MeshNode {
                         short(holder)
                     ));
                 }
-                Ok(resp) if resp.status().is_server_error() => {
+                // A holder that says "I do not hold that" is telling the truth about the one thing
+                // it is authoritative for. Correct the index before moving on, so the stale row
+                // does not survive to mislead the next caller.
+                Ok(resp)
+                    if resp.status() == StatusCode::NOT_FOUND
+                        || resp.status() == StatusCode::GONE =>
+                {
+                    let authoritative = resp.headers().contains_key(peer::NOT_HELD_HEADER);
+                    tracing::warn!(
+                        group = %group_id, item_key, node = %short(holder),
+                        status = resp.status().as_u16(), authoritative,
+                        "a holder does not have this item; correcting the index and trying the next one"
+                    );
+                    if authoritative {
+                        self.correct_after_not_held(&group, holder, item_key).await;
+                    }
+                    last = Some(anyhow::anyhow!(
+                        "node {} no longer holds {item_key}",
+                        short(holder)
+                    ));
+                }
+                Ok(resp) if is_an_answer(resp.status()) => {
+                    opened = Some((i, resp));
+                    break;
+                }
+                // Everything else is the holder failing, not answering. `403` is the one worth
+                // naming: it is a light node — a phone that joined the group to *dial* sources and
+                // never to be one — which should not be in the index as a holder at all, and which
+                // used to stall a play outright.
+                Ok(resp) => {
+                    tracing::warn!(
+                        group = %group_id, item_key, node = %short(holder),
+                        status = resp.status().as_u16(),
+                        "a holder refused; trying the next one"
+                    );
                     last = Some(anyhow::anyhow!(
                         "node {} answered {}",
                         short(holder),
                         resp.status()
                     ));
-                }
-                Ok(resp) => {
-                    opened = Some((i, resp));
-                    break;
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -1219,11 +1249,22 @@ impl MeshNode {
         let Some((chosen_index, resp)) = opened else {
             return Err(last.unwrap_or_else(|| anyhow::anyhow!("no holder of {item_key} answered")));
         };
-        let chosen = order[chosen_index].clone();
-        // Everything before the one that answered has already failed this request; everything after
-        // it is still worth trying if it dies mid-body.
+        let chosen = order[chosen_index].node.clone();
+        // The hash that is now on the wire. Everything the body may fail over to has to be serving
+        // *these* bytes, whatever the pointer originally named.
+        let hash = order[chosen_index].hash.clone();
+        // Everything before the one that answered has already failed this request; of what is left,
+        // only holders of the same file can continue a body mid-stream.
+        let tried: std::collections::HashSet<&str> = order[..=chosen_index]
+            .iter()
+            .map(|a| a.node.as_str())
+            .collect();
         let queue: std::collections::VecDeque<String> =
-            order[chosen_index + 1..].iter().cloned().collect();
+            crate::score::failover_set(&candidates, &chosen, policy)
+                .into_iter()
+                .map(|s| s.candidate.node)
+                .filter(|n| !tried.contains(n.as_str()))
+                .collect();
 
         let (parts, body) = resp.into_parts();
         let (start, end, total) = span_of(&parts);
@@ -1235,6 +1276,7 @@ impl MeshNode {
             start,
             end,
             total,
+            tried = chosen_index + 1,
             failover_candidates = queue.len(),
             "streaming from a peer"
         );
@@ -1254,6 +1296,104 @@ impl MeshNode {
             out.headers_mut().insert(name, value.clone());
         }
         Ok(out)
+    }
+
+    /// The holders to try when opening a stream, best first, each with its own hash.
+    ///
+    /// Split out of [`MeshNode::stream`] so the widening rule can be tested without two live QUIC
+    /// endpoints. Three tiers, in order:
+    ///
+    /// 1. the holder the caller named (a `.strm`'s own node, or the scorer's pick for `any`);
+    /// 2. every other **online holder of the same file**, scored — these can also continue a body
+    ///    mid-stream;
+    /// 3. every remaining **online holder of a different encode**, scored. Only usable before any
+    ///    byte has been sent, which is exactly where this list is used.
+    ///
+    /// An offline holder is never tried: it earns a `-10_000` from the scorer and would cost a dial
+    /// timeout apiece. For `any`, tier 1 is simply the top of the scored list.
+    fn open_order(
+        candidates: &[crate::score::Candidate],
+        node: &str,
+        policy: crate::score::Policy,
+    ) -> Vec<Attempt> {
+        let hash_of = |n: &str| {
+            candidates
+                .iter()
+                .find(|c| c.node == n)
+                .and_then(|c| c.file_hash.clone())
+                .filter(|h| !h.is_empty())
+                .unwrap_or_else(|| ANY_HASH.to_string())
+        };
+        let ranked = crate::score::rank(candidates, policy);
+
+        let mut order: Vec<Attempt> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut push = |order: &mut Vec<Attempt>, n: &str| {
+            if seen.insert(n.to_string()) {
+                order.push(Attempt {
+                    node: n.to_string(),
+                    hash: hash_of(n),
+                });
+            }
+        };
+
+        if node.eq_ignore_ascii_case(ANY_SOURCE) {
+            for s in ranked.iter().filter(|s| s.candidate.online) {
+                push(&mut order, &s.candidate.node);
+            }
+            return order;
+        }
+
+        // The named holder, even when it is offline or unknown to the index: a `.strm` that names
+        // it is the caller's explicit choice, and one dial is a cheap way to be wrong.
+        push(&mut order, node);
+        for s in crate::score::failover_set(candidates, node, policy) {
+            push(&mut order, &s.candidate.node);
+        }
+        for s in ranked.iter().filter(|s| s.candidate.online) {
+            push(&mut order, &s.candidate.node);
+        }
+        order
+    }
+
+    /// Re-read one holder's inventory after it told us, authoritatively, that it does not hold an
+    /// item this node's index says it does.
+    ///
+    /// The holder is the only node entitled to say what it holds, so the correction is *its* whole
+    /// answer rather than a guess: `GET /peer/v1/inventory` and replace every row we had for it.
+    /// That fixes the item that just failed and anything else that had drifted in the same window,
+    /// in one round trip on a connection that is already open.
+    ///
+    /// Best-effort by design. If the holder cannot be reached at all — which is the ordinary case
+    /// for a node that has just gone away — the single offending row is dropped instead, because a
+    /// row we have just been told is wrong is worse than no row: it is what the scorer ranks, what
+    /// `PlaybackInfo` returns and what the materializer writes a pointer for.
+    async fn correct_after_not_held(&self, group: &Group, node: &str, item_key: &str) {
+        let addr = match node.parse::<EndpointId>() {
+            Ok(id) => EndpointAddr::new(id),
+            Err(e) => {
+                tracing::debug!(node, error = %e, "not a node id; nothing to correct");
+                return;
+            }
+        };
+        match self.sync_from(group, addr).await {
+            Ok(n) => tracing::info!(
+                group = %group.id, node = %short(node), records = n,
+                "re-read a holder's inventory after it refused an item it was indexed as holding"
+            ),
+            Err(e) => {
+                tracing::warn!(
+                    group = %group.id, node = %short(node), error = %e,
+                    "could not re-read a holder's inventory; dropping just the row it refused"
+                );
+                if let Err(e) =
+                    self.db
+                        .remove_peer_records(&group.id, node, &[item_key.to_string()])
+                {
+                    tracing::warn!(error = %e, "dropping a refused inventory row");
+                }
+            }
+        }
     }
 
     /// Wrap a peer's body so a holder dying mid-stream is a re-dial rather than a broken player.
@@ -1669,6 +1809,37 @@ pub const ANY_SOURCE: &str = "any";
 /// stale pointer from playing whatever file has since taken that item key.
 const ANY_HASH: &str = "any";
 
+/// Whether a holder's status is an *answer to the client's request* rather than a failure.
+///
+/// The distinction decides whether the reader forwards the response or walks on to the next
+/// holder, so it is an allow-list rather than "not an error": every status in it is one the client
+/// asked for and that another holder would answer identically.
+///
+/// * `2xx` — the bytes, or a `HEAD`'s headers.
+/// * `304` — the client sent `If-None-Match` and already has this representation.
+/// * `416` — the client's own `Range` starts past the end of the file. Trying another holder of
+///   the same file would produce the same `416` and lose the `Content-Range: bytes */len` the
+///   player needs to correct itself.
+///
+/// Everything else — `403` from a light node, `404`/`410` from a holder whose copy has gone, `503`
+/// from a saturated one, any `5xx` — is that *holder* failing, and the next candidate gets a turn.
+fn is_an_answer(status: StatusCode) -> bool {
+    status.is_success()
+        || status == StatusCode::NOT_MODIFIED
+        || status == StatusCode::RANGE_NOT_SATISFIABLE
+}
+
+/// One holder to try, with the hash *that holder* is believed to be serving.
+///
+/// The hash is per-holder rather than per-request because [`MeshNode::open_order`] may fall back to
+/// a holder with a different encode when nothing has been committed to the wire yet, and asking it
+/// for somebody else's hash would produce a `404` from a node that has a perfectly good copy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Attempt {
+    pub node: String,
+    pub hash: String,
+}
+
 /// What to ask a holder for.
 #[derive(Clone, Copy)]
 enum RangeAsk<'a> {
@@ -1995,9 +2166,18 @@ pub fn encode_segment(s: &str) -> String {
 }
 
 /// Map any error out of the node into a plain HTTP status, for the local API.
+///
+/// The distinction that matters to a *player* is "this does not exist" against "the thing behind me
+/// failed": the first is final, the second is worth a retry. A stream request that walked every
+/// holder and was told by each of them that the item is not there is the first kind, and answering
+/// it with a `502` would have a client retrying a pointer that will never resolve (M7).
 pub fn status_for(e: &anyhow::Error) -> StatusCode {
     let text = e.to_string();
-    if text.contains("not a member of group") {
+    if text.contains("not a member of group")
+        || text.contains("no online holder of")
+        || text.contains("no longer holds")
+        || text.contains("no holder of")
+    {
         StatusCode::NOT_FOUND
     } else {
         StatusCode::BAD_GATEWAY
@@ -2024,6 +2204,170 @@ mod tests {
             status_for(&anyhow::anyhow!("connection refused")),
             StatusCode::BAD_GATEWAY
         );
+    }
+
+    #[test]
+    fn a_stream_nobody_holds_is_not_found_rather_than_a_bad_gateway() {
+        for text in [
+            "no online holder of movie:tmdb:1 in group abc",
+            "node abcdef no longer holds movie:tmdb:1",
+            "no holder of movie:tmdb:1 answered",
+        ] {
+            assert_eq!(
+                status_for(&anyhow::anyhow!("{text}")),
+                StatusCode::NOT_FOUND,
+                "{text}"
+            );
+        }
+    }
+
+    // --- which holders an opening stream walks (M7) --------------------------------------------
+
+    fn holder(node: &str, hash: Option<&str>, online: bool) -> crate::score::Candidate {
+        crate::score::Candidate {
+            node: node.to_string(),
+            node_name: node.to_string(),
+            online,
+            file_hash: hash.map(str::to_string),
+            bitrate: Some(5_000_000),
+            height: Some(1080),
+            width: Some(1920),
+            resolution: Some("1080p".into()),
+            path: Some("direct".into()),
+            rtt_ms: Some(5),
+            throughput_bps: Some(50_000_000),
+            max_direct_streams: Some(8),
+            active_direct_streams: Some(0),
+            updated_at: "2026-09-05T00:00:00Z".into(),
+            ..Default::default()
+        }
+    }
+
+    fn nodes(order: &[Attempt]) -> Vec<&str> {
+        order.iter().map(|a| a.node.as_str()).collect()
+    }
+
+    #[test]
+    fn the_named_holder_is_tried_first_even_when_the_scorer_prefers_another() {
+        let mut slow = holder("named", Some("h1"), true);
+        slow.throughput_bps = Some(1_000_000);
+        slow.rtt_ms = Some(400);
+        let fast = holder("fast", Some("h1"), true);
+        let order = MeshNode::open_order(&[slow, fast], "named", crate::score::Policy::SpeedFirst);
+        assert_eq!(nodes(&order)[0], "named", "a .strm names its holder on purpose");
+    }
+
+    /// The widening M5's phone needed: a different encode is a fine substitute *before* any byte
+    /// has been sent, and refusing it is what produced `failover_candidates=0`.
+    #[test]
+    fn a_different_encode_is_tried_after_every_copy_of_the_same_file() {
+        let named = holder("named", Some("same"), true);
+        let twin = holder("twin", Some("same"), true);
+        let other = holder("other", Some("different"), true);
+        let order = MeshNode::open_order(
+            &[named, twin, other],
+            "named",
+            crate::score::Policy::SpeedFirst,
+        );
+        assert_eq!(nodes(&order), vec!["named", "twin", "other"]);
+    }
+
+    /// Each holder is asked for *its own* hash. Asking a holder of a different encode for somebody
+    /// else's hash is a guaranteed 404 from a node that has a perfectly good copy.
+    #[test]
+    fn every_attempt_carries_the_hash_that_holder_actually_has() {
+        let order = MeshNode::open_order(
+            &[
+                holder("named", Some("aaa"), true),
+                holder("other", Some("bbb"), true),
+                holder("unhashed", None, true),
+            ],
+            "named",
+            crate::score::Policy::SpeedFirst,
+        );
+        let hash_of = |n: &str| {
+            order
+                .iter()
+                .find(|a| a.node == n)
+                .map(|a| a.hash.clone())
+                .unwrap()
+        };
+        assert_eq!(hash_of("named"), "aaa");
+        assert_eq!(hash_of("other"), "bbb");
+        assert_eq!(hash_of("unhashed"), ANY_HASH, "no hash means 'whatever you hold'");
+    }
+
+    #[test]
+    fn an_offline_holder_is_never_tried_unless_it_is_the_one_that_was_named() {
+        let order = MeshNode::open_order(
+            &[
+                holder("named", Some("h"), true),
+                holder("gone", Some("h"), false),
+            ],
+            "named",
+            crate::score::Policy::SpeedFirst,
+        );
+        assert_eq!(nodes(&order), vec!["named"], "a dial to a dead node costs a timeout");
+
+        // …but a pointer naming an offline node still gets its one dial: "offline" is this node's
+        // opinion from a missed heartbeat, and it is wrong often enough to be worth checking.
+        let order = MeshNode::open_order(
+            &[holder("named", Some("h"), false)],
+            "named",
+            crate::score::Policy::SpeedFirst,
+        );
+        assert_eq!(nodes(&order), vec!["named"]);
+    }
+
+    #[test]
+    fn a_named_holder_the_index_has_never_heard_of_is_still_tried() {
+        let order = MeshNode::open_order(
+            &[holder("known", Some("h"), true)],
+            "stranger",
+            crate::score::Policy::SpeedFirst,
+        );
+        assert_eq!(nodes(&order), vec!["stranger", "known"]);
+        assert_eq!(order[0].hash, ANY_HASH);
+    }
+
+    #[test]
+    fn a_holders_answer_is_forwarded_and_a_holders_failure_is_not() {
+        for ok in [
+            StatusCode::OK,
+            StatusCode::PARTIAL_CONTENT,
+            StatusCode::NOT_MODIFIED,
+            // The client's own Range is past the end of the file. Every holder of the same file
+            // answers this identically, and the Content-Range it carries is what lets the player
+            // correct itself.
+            StatusCode::RANGE_NOT_SATISFIABLE,
+        ] {
+            assert!(is_an_answer(ok), "{ok}");
+        }
+        for bad in [
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+            StatusCode::GONE,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::METHOD_NOT_ALLOWED,
+        ] {
+            assert!(!is_an_answer(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn any_walks_the_scored_list_and_nothing_else() {
+        let mut slow = holder("slow", Some("h1"), true);
+        slow.throughput_bps = Some(1_000_000);
+        slow.rtt_ms = Some(400);
+        let fast = holder("fast", Some("h2"), true);
+        let offline = holder("offline", Some("h3"), false);
+        let order = MeshNode::open_order(
+            &[slow, fast, offline],
+            ANY_SOURCE,
+            crate::score::Policy::SpeedFirst,
+        );
+        assert_eq!(nodes(&order), vec!["fast", "slow"]);
     }
 
     // --- the DHT is allowed to be unavailable -------------------------------------------------

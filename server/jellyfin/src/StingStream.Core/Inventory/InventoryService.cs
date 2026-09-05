@@ -13,6 +13,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 
 namespace StingStream.Core.Inventory;
@@ -65,6 +66,7 @@ public sealed class InventoryService : IInventoryService
     private readonly CoreDatabase _db;
     private readonly HashingService _hashing;
     private readonly InventoryChangeFeed _changes;
+    private readonly INodeRuntimeProvider _runtime;
     private readonly ILogger<InventoryService> _logger;
 
     public InventoryService(
@@ -73,6 +75,7 @@ public sealed class InventoryService : IInventoryService
         CoreDatabase db,
         HashingService hashing,
         InventoryChangeFeed changes,
+        INodeRuntimeProvider runtime,
         ILogger<InventoryService> logger)
     {
         _library = library;
@@ -80,7 +83,23 @@ public sealed class InventoryService : IInventoryService
         _db = db;
         _hashing = hashing;
         _changes = changes;
+        _runtime = runtime;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Where this node materializes its peers' titles. Items under it are pointers, not files.
+    /// </summary>
+    private string? FederatedRoot()
+    {
+        var configured = _runtime.Current?.Paths.Federated;
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        var dataDir = _runtime.DataDirectory;
+        return string.IsNullOrWhiteSpace(dataDir) ? null : Path.Combine(dataDir, "federated");
     }
 
     /// <inheritdoc />
@@ -251,6 +270,15 @@ public sealed class InventoryService : IInventoryService
             return null;
         }
 
+        if (!IsServableLocally(item.Path, item.Tags, FederatedRoot()))
+        {
+            _logger.LogDebug(
+                "Skipping {Name}: {Path} is a pointer to somebody else's file, not a file this node can serve",
+                item.Name,
+                item.Path);
+            return null;
+        }
+
         var itemKey = BuildItemKey(item);
         if (itemKey is null)
         {
@@ -308,6 +336,103 @@ public sealed class InventoryService : IInventoryService
                 ("$j", JsonSerializer.Serialize(record, _json)),
                 ("$u", record.UpdatedAt)),
             cancellationToken);
+
+    /// <summary>
+    /// Whether this node could actually hand a peer the bytes of this item.
+    /// </summary>
+    /// <param name="path">The item's path on this node.</param>
+    /// <param name="tags">The item's tags, as Jellyfin read them (from the <c>.nfo</c> for a
+    /// federated pointer).</param>
+    /// <param name="federatedRoot">Where this node materializes its peers' titles, if known.</param>
+    /// <returns>True when the inventory may publish it.</returns>
+    /// <remarks>
+    /// <para>
+    /// **This is the fix for the bug M5's phone found** (`docs/APP-RELEASE.md` §11: a holder that
+    /// `/items/{id}/sources` had just returned as online answered `404` for the exact item, with
+    /// `failover_candidates=0`). The chain was short and entirely self-inflicted:
+    /// </para>
+    /// <list type="number">
+    ///   <item>the materializer wrote a peer's title into <c>Shared Movies</c> as a <c>.strm</c>;</item>
+    ///   <item>Jellyfin resolved it into an ordinary <c>Movie</c>, so
+    ///     <see cref="RebuildAllAsync"/> — which queries every library, unrestricted — built an
+    ///     inventory record for it with <c>LocalPath</c> pointing at the <c>.strm</c>, and this
+    ///     node started advertising itself to the group as a holder of a film it does not have;</item>
+    ///   <item>the next materialization pass saw that item key in
+    ///     <see cref="IInventoryService.Keys"/>, concluded "held locally, the local file wins", and
+    ///     deleted its own pointer file;</item>
+    ///   <item>the inventory record survived the pointer, so the group index named this node as a
+    ///     holder of a path that no longer exists — and every fetch got a 404.</item>
+    /// </list>
+    /// <para>
+    /// The rule is "a file this node can serve", not "not in the federated library", because a
+    /// <c>.strm</c> is never servable *whoever* wrote it: handing a peer sixty bytes of URL where a
+    /// film should be is wrong for a debrid user's own library too. Three independent tests, so a
+    /// pointer whose <c>.nfo</c> was not read, or one materialized somewhere unexpected, is still
+    /// caught by the others.
+    /// </para>
+    /// <para>
+    /// Deliberately **not** a <c>File.Exists</c> check. <see cref="RebuildAllAsync"/> prunes
+    /// anything it does not rebuild, so a missing-file test here would empty this node's whole
+    /// inventory the first time a NAS was slow to mount. A file that has gone is caught where it is
+    /// unambiguous — when a peer asks for it and the mesh looks — and the row is retracted there.
+    /// </para>
+    /// </remarks>
+    public static bool IsServableLocally(
+        string? path,
+        IReadOnlyList<string>? tags,
+        string? federatedRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        // 1. A pointer file. Both arrs treat `.strm` as video and so does Jellyfin, which is why
+        //    one reaches this method at all.
+        if (path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // 2. The tag every federated `.nfo` carries. Catches a pointer with some other extension.
+        if (tags is not null)
+        {
+            foreach (var tag in tags)
+            {
+                if (string.Equals(tag, Federated.NfoWriter.FederatedTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+        }
+
+        // 3. Anything under the federated root, tagged or not.
+        return !IsUnder(path, federatedRoot);
+    }
+
+    /// <summary>Whether <paramref name="path"/> sits inside <paramref name="root"/>.</summary>
+    private static bool IsUnder(string path, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
+            return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException
+                                       or UnauthorizedAccessException or PathTooLongException)
+        {
+            // An unresolvable path is not evidence of anything; the extension and tag checks above
+            // have already had their say.
+            return false;
+        }
+    }
 
     /// <summary>
     /// Content identity for an item, or <see langword="null"/> when it has no provider IDs.

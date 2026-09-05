@@ -307,8 +307,10 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
         Some(format!("bytes */{size}").as_str())
     );
 
-    // An item this node does not hold.
-    let resp = a
+    // An item this node does not hold. Since M7 a holder's "I do not have that" is a *failure* to
+    // be walked past rather than a response to hand the player, so `stream` errors out once every
+    // candidate has refused — and the local API turns that into the 404 the player needs.
+    let err = a
         .stream(
             &group.id,
             "movie:tmdb:does-not-exist",
@@ -316,8 +318,13 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
             &http::HeaderMap::new(),
             Policy::default(),
         )
-        .await?;
-    assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        .await
+        .expect_err("no holder has this item, so opening a stream must fail");
+    assert_eq!(
+        stingstream_mesh::node::status_for(&err),
+        http::StatusCode::NOT_FOUND,
+        "{err:#}"
+    );
 
     a.shutdown().await;
     b.shutdown().await;
@@ -531,6 +538,182 @@ async fn a_useless_dht_does_not_stop_a_node_or_its_group() -> Result<()> {
 
     a.shutdown().await;
     b.shutdown().await;
+    Ok(())
+}
+
+/// A holder whose published file has gone is corrected, not believed (M7).
+///
+/// This is the regression for the bug M5's phone found and `docs/APP-RELEASE.md` §11 recorded:
+/// `/items/{id}/sources` named a holder, the reader dialled it, and the holder answered `404` —
+/// `status=404 failover_candidates=0`, with nothing anywhere put right, so the next attempt made
+/// the same mistake. Two separate faults produced that one line, and both are asserted here.
+///
+/// **The reproduction is the real one.** A node's inventory row and the file it names are written
+/// at different times by different things, and the row outlives the file: on a real node the row
+/// came from `StingStream.Core` (which had wrongly indexed a federated `.strm` pointer — see
+/// `InventoryService.BuildAsync`) and the pointer was then deleted by the materializer. Here the
+/// file is simply removed from under a published row, which is the same disagreement with a
+/// tenth of the machinery: the holder's index says it has the item, the disk says otherwise, and
+/// every other member's index agrees with the holder's index.
+///
+/// The two faults:
+///
+/// 1. **A `404` was treated as a successful open.** `is_server_error()` is false for `404`, so the
+///    reader forwarded it to the player verbatim instead of trying anyone else.
+/// 2. **The failover set was same-hash only, even before a byte was sent.** With one holder in the
+///    index for that hash, the queue was empty — `failover_candidates=0` — although another member
+///    was holding the film all along.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_holder_that_lost_its_file_is_failed_past_and_the_index_is_corrected() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
+    let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
+    let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
+
+    let group = a.create_group("stale", None).await?;
+    b.join(&a.invite(&group.id).await?).await?;
+    c.join(&a.invite(&group.id).await?).await?;
+
+    // B and C hold byte-identical copies, so they share a hash: that is what makes C a substitute
+    // for B at all, and it is the ordinary case for a file that was pinned or grabbed twice.
+    let size = 256 * 1024u64;
+    let hash = "b3stale00000000000000000000000000000000000000000000000000000000f";
+    let item_key = "movie:tmdb:22820";
+
+    let b_media = root.path().join("b-media");
+    std::fs::create_dir_all(&b_media)?;
+    let b_file = b_media.join("Sita Sings the Blues (2008).mkv");
+    write_test_file(&b_file, size)?;
+    b.put_inventory(&group.id, &[record(item_key, &b_file, size, hash)])
+        .await?;
+
+    let c_media = root.path().join("c-media");
+    std::fs::create_dir_all(&c_media)?;
+    let c_file = c_media.join("Sita Sings the Blues (2008).mkv");
+    write_test_file(&c_file, size)?;
+    c.put_inventory(&group.id, &[record(item_key, &c_file, size, hash)])
+        .await?;
+
+    wait_for("both holders to reach A's index", Duration::from_secs(30), || async {
+        let idx = a.index(&group.id).ok()?;
+        let holders = idx
+            .iter()
+            .filter(|e| e.record.item_key == item_key && e.online)
+            .count();
+        (holders == 2).then_some(())
+    })
+    .await?;
+
+    // The file goes. Nobody is told: no delta, no snapshot, no gossip. Every node's index — B's
+    // own included — still says B holds it, which is precisely the state the bug was found in.
+    std::fs::remove_file(&b_file)?;
+
+    // A plays the pointer that names B, exactly as a `.strm` written for B would.
+    let resp = a
+        .stream(&group.id, item_key, &b.node_id(), &http::HeaderMap::new(), Policy::default())
+        .await
+        .context("the stream should have come from C rather than failing")?;
+    assert_eq!(
+        resp.status(),
+        http::StatusCode::OK,
+        "a holder that lost the file must be walked past, not forwarded to the player"
+    );
+    let body = collect(resp.into_body()).await?;
+    assert_eq!(body.len() as u64, size, "the whole file, from the other holder");
+    for (i, got) in body.iter().enumerate() {
+        assert_eq!(*got, expected_byte(i as u64), "byte {i} came back wrong");
+    }
+
+    // B retracted the row the moment it looked and found nothing, so B stops advertising it.
+    assert!(
+        b.index(&group.id)?
+            .iter()
+            .all(|e| !(e.node == b.node_id() && e.record.item_key == item_key)),
+        "the holder must retract a row whose file is gone"
+    );
+
+    // And A's copy of B's inventory was corrected from B itself, so the *next* caller — the scorer,
+    // PlaybackInfo, the materializer — no longer sees a holder that cannot serve.
+    wait_for("A to drop B as a holder", Duration::from_secs(20), || async {
+        let idx = a.index(&group.id).ok()?;
+        let b_still = idx
+            .iter()
+            .any(|e| e.node == b.node_id() && e.record.item_key == item_key);
+        let c_still = idx
+            .iter()
+            .any(|e| e.node == c.node_id() && e.record.item_key == item_key);
+        (!b_still && c_still).then_some(())
+    })
+    .await?;
+
+    // The scorer agrees, which is the view `/items/{id}/sources` and `/mesh/v1/sources` answer from.
+    let sources = a.sources(&group.id, item_key, Policy::default())?;
+    assert_eq!(sources.len(), 1, "only the holder that really has it");
+    assert_eq!(sources[0].candidate.node, c.node_id());
+
+    a.shutdown().await;
+    b.shutdown().await;
+    c.shutdown().await;
+    Ok(())
+}
+
+/// A pointer naming a holder that never had the item still plays, when somebody else does (M7).
+///
+/// The other half of the widening: here the substitute is a *different encode*, so it shares no
+/// hash with what the pointer named and the same-hash failover set is empty by definition. Nothing
+/// has been committed to the wire yet, so a different encode is a perfectly good answer — it is
+/// exactly what `?any=1` would have chosen — and refusing it was the difference between a film that
+/// plays and `failover_candidates=0`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pointer_to_a_node_that_never_held_it_falls_back_to_a_different_encode() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
+    let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
+    let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
+
+    let group = a.create_group("widening", None).await?;
+    b.join(&a.invite(&group.id).await?).await?;
+    c.join(&a.invite(&group.id).await?).await?;
+
+    let item_key = "movie:tmdb:10331";
+    let size = 64 * 1024u64;
+
+    // C holds a real file. B advertises the same title at a path that does not exist — the shape a
+    // wrongly-indexed `.strm` pointer had on a real node — under its own, different hash.
+    let c_media = root.path().join("c-media");
+    std::fs::create_dir_all(&c_media)?;
+    let c_file = c_media.join("Night of the Living Dead (1968).mkv");
+    write_test_file(&c_file, size)?;
+    c.put_inventory(
+        &group.id,
+        &[record(item_key, &c_file, size, "c000000000000000")],
+    )
+    .await?;
+
+    let ghost = root.path().join("b-media").join("gone.strm");
+    b.put_inventory(
+        &group.id,
+        &[record(item_key, &ghost, size, "b000000000000000")],
+    )
+    .await?;
+
+    wait_for("both rows to reach A", Duration::from_secs(30), || async {
+        let idx = a.index(&group.id).ok()?;
+        (idx.iter().filter(|e| e.record.item_key == item_key && e.online).count() == 2)
+            .then_some(())
+    })
+    .await?;
+
+    let resp = a
+        .stream(&group.id, item_key, &b.node_id(), &http::HeaderMap::new(), Policy::default())
+        .await
+        .context("C holds this title, so naming B must not be a dead end")?;
+    assert_eq!(resp.status(), http::StatusCode::OK);
+    assert_eq!(collect(resp.into_body()).await?.len() as u64, size);
+
+    a.shutdown().await;
+    b.shutdown().await;
+    c.shutdown().await;
     Ok(())
 }
 

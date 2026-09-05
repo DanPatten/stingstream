@@ -167,6 +167,8 @@ public sealed class InventoryPublisher : BackgroundService
     public async Task PublishSnapshotAsync(IReadOnlyList<MeshGroup> groups, CancellationToken cancellationToken)
     {
         var records = new List<MeshInventoryRecord>();
+        var missing = 0;
+        var seen = 0;
         var offset = 0;
         const int Page = 500;
         while (true)
@@ -174,6 +176,13 @@ public sealed class InventoryPublisher : BackgroundService
             var page = _inventory.All(Page, offset);
             foreach (var record in page)
             {
+                seen++;
+                if (!Servable(record))
+                {
+                    missing++;
+                    continue;
+                }
+
                 records.Add(ToMesh(record));
             }
 
@@ -183,6 +192,21 @@ public sealed class InventoryPublisher : BackgroundService
             }
 
             offset += Page;
+        }
+
+        if (missing > 0)
+        {
+            // Worth a warning rather than a debug line: a handful is a file deleted by hand between
+            // scans, and *all of them* is a volume that did not mount — which reads unmistakably in
+            // a log as "dropped 412 of 412" and is a question worth someone answering. Either way
+            // the group is better off not being told this node holds them: a holder that answers
+            // 404 is what M5's phone hit (`docs/APP-RELEASE.md` §11), and the pointers on peers
+            // survive on the federated library's grace period, which is measured in days.
+            _logger.LogWarning(
+                "Dropped {Missing} of {Seen} inventory record(s) from the snapshot: their files are "
+                + "not on disk. They are re-advertised as soon as they are readable again.",
+                missing,
+                seen);
         }
 
         foreach (var group in groups)
@@ -204,10 +228,11 @@ public sealed class InventoryPublisher : BackgroundService
         foreach (var key in upsertKeys)
         {
             var record = _inventory.ByKey(key);
-            if (record is null)
+            if (record is null || !Servable(record))
             {
-                // Written and then deleted between the queue and the drain. Publishing it as a
-                // removal is right either way: nobody should hold a pointer to it.
+                // Written and then deleted between the queue and the drain, or written for a file
+                // that is not there. Publishing it as a removal is right either way: nobody should
+                // hold a pointer to something this node cannot serve.
                 vanished.Add(key);
                 continue;
             }
@@ -240,6 +265,45 @@ public sealed class InventoryPublisher : BackgroundService
             // Put the keys back so the next pass retries rather than losing the change silently.
             _changes.Requeue(upsertKeys, removals);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Whether the file this record names is still there to be served.
+    /// </summary>
+    /// <param name="record">The record.</param>
+    /// <returns>True when a peer asking for it would get bytes.</returns>
+    /// <remarks>
+    /// A node advertises what it can serve, and "can serve" is a claim about the disk, not about
+    /// the database. Publishing a record whose file has gone is what makes the group index and the
+    /// holder's own peer server disagree — the exact disagreement M5's phone hit, and the one M7
+    /// set out to make impossible (`docs/APP-RELEASE.md` §11, `docs/MESH.md` "Index correction").
+    ///
+    /// One <c>File.Exists</c> per record per publish. A delta is a handful of records every three
+    /// seconds; a snapshot is the whole library every fifteen minutes, which is a metadata read per
+    /// title on a timer generous enough that even a spun-down disk does not notice.
+    ///
+    /// A record with no path at all is *not* dropped: that is a record for something this node is
+    /// still working out (a title mid-import), and it will gain a path on the next refresh.
+    /// </remarks>
+    private static bool Servable(InventoryRecord record)
+    {
+        if (string.IsNullOrWhiteSpace(record.LocalPath))
+        {
+            return true;
+        }
+
+        try
+        {
+            return File.Exists(record.LocalPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or ArgumentException or NotSupportedException)
+        {
+            // A path we cannot even ask about is not evidence the file has gone. Keep advertising
+            // it; the peer server is the one that finds out for certain, and it retracts the row
+            // itself when it does.
+            return true;
         }
     }
 
