@@ -203,18 +203,25 @@ jobs:
           dotnet build tools/seeder/Seeder.csproj -c Release
           dotnet build tools/torznab-stub/TorznabStub.csproj -c Release
 
+      # -WorkDir inside the workspace: the harness defaults to a directory beside the repository,
+      # which keeps a whole node's data out of git status locally, but actions/upload-artifact
+      # refuses any path outside $GITHUB_WORKSPACE.
       - name: Run the acceptance harness
-        run: pwsh tools/e2e-m1.ps1 -SkipBuild
+        run: pwsh tools/e2e-m1.ps1 -SkipBuild -WorkDir "${{ github.workspace }}/.e2e-work"
 
       # The node's own logs are the only way to work out why a failure happened, and the run is
-      # long enough that re-running it locally to find out is expensive.
+      # long enough that re-running it locally to find out is expensive. The arrs' own file logs
+      # are included because that is where their import decisions live -- their console output,
+      # which is what the supervisor captures, says nothing about a rejected import.
       - name: Upload node logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-m1-logs
           path: |
-            ../.stingstream-e2e/logs/
-            ../.stingstream-e2e/data/logs/
-            ../.stingstream-e2e/data/runtime.json
+            .e2e-work/logs/
+            .e2e-work/data/logs/
+            .e2e-work/data/runtime.json
+            .e2e-work/data/radarr/logs/
+            .e2e-work/data/sonarr/logs/
           if-no-files-found: warn

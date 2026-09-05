@@ -28,6 +28,11 @@ yarn-error.log*
 .yarn/unplugged/
 .yarn/install-state.gz
 
+# === Acceptance-harness scratch (tools/e2e-m1.ps1) ===
+# Only used when the harness is pointed inside the repository, as CI does so its logs can be
+# uploaded as an artifact; the local default puts this beside the repository instead.
+.e2e-work/
+
 # === Vendored binaries fetched at build time, not committed ===
 third_party/nzbget/bin/
 third_party/ffmpeg/bin/

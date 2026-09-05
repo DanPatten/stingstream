@@ -522,11 +522,29 @@ console = true
     )
     $script:Supervisor = $tool
 
-    Wait-Until -What 'the gateway to answer' -Seconds 120 -PollSeconds 2 -Condition {
-        try { $null = Invoke-WebRequest -Uri "$script:GatewayUrl/healthz" -UseBasicParsing -TimeoutSec 5; $true }
-        catch { $_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 503 }
+    # A plain TCP connect, not an HTTP request: /healthz answers 503 while children are still
+    # starting, and the two PowerShell editions surface a non-2xx response completely differently
+    # (Windows PowerShell throws a WebException with .Response; pwsh throws an
+    # HttpResponseException, and a *connection* failure throws HttpRequestException with no
+    # .Response at all). Whether the listener is up is the only question here; the next step asks
+    # the real one.
+    Wait-Until -What 'the gateway to accept connections' -Seconds 120 -PollSeconds 2 -Condition {
+        if ($script:Supervisor.Process.HasExited) {
+            throw ("The supervisor exited with code $($script:Supervisor.Process.ExitCode) before the gateway came up.`n" +
+                (Get-Content $script:Supervisor.Stdout -Raw -ErrorAction SilentlyContinue) + "`n" +
+                (Get-Content $script:Supervisor.Stderr -Raw -ErrorAction SilentlyContinue))
+        }
+        $probe = [System.Net.Sockets.TcpClient]::new()
+        try {
+            $probe.Connect('127.0.0.1', $GatewayPort)
+            return $probe.Connected
+        } catch {
+            return $false
+        } finally {
+            $probe.Dispose()
+        }
     } | Out-Null
-    Write-Host "      gateway is answering on $script:GatewayUrl"
+    Write-Host "      gateway is listening on $script:GatewayUrl"
 }
 
 # ============================================================================================
