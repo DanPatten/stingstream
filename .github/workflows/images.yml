@@ -54,12 +54,16 @@ concurrency:
 jobs:
   build:
     name: build (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    # Generous on purpose: a cold GHA cache plus QEMU-emulated Rust-from-scratch on the arm64 leg
-    # is genuinely slow (found taking over 90 minutes for BOTH architectures combined in one job,
-    # before this was split). A warm cache (cache-from/cache-to below, scoped per architecture) is
-    # far faster on every run after the first.
-    timeout-minutes: 120
+    runs-on: ${{ matrix.runner }}
+    # A cold GHA cache still takes a while (the amd64 leg alone took ~19 minutes cold), but this
+    # no longer has to also cover QEMU-emulated Rust-from-scratch: found for real that emulating
+    # the arm64 leg on an x86_64 runner ran for the full previous 120-minute budget and was killed
+    # by the timeout, not by anything actually wrong -- QEMU-emulated compilation of this much
+    # Rust plus three self-contained .NET publishes just does not fit any sane budget. Fixed by
+    # giving arm64 a genuinely native arm64 runner instead (see `runner:` in the matrix below) --
+    # this repository is public, so GitHub's hosted `ubuntu-24.04-arm` runners are available at no
+    # extra cost, and a native build needs no emulation at all.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -75,10 +79,12 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
+            runner: ubuntu-latest
             ffmpeg_platform: linux64
             fetch_nzbget: true
           - arch: arm64
             platform: linux/arm64
+            runner: ubuntu-24.04-arm
             ffmpeg_platform: linuxarm64
             # No linux-arm64 nzbget asset upstream -- see deploy/node/LAYOUT.md. The Dockerfile's
             # `thirdparty` stage already handles a missing nzbget for this arch gracefully.
@@ -132,10 +138,9 @@ jobs:
           bun install --frozen-lockfile
           bun run build:web
 
-      # QEMU is only needed to emulate a non-native architecture; skip it on the amd64 leg, which
-      # is already the runner's own arch.
-      - uses: docker/setup-qemu-action@v3
-        if: matrix.arch != 'amd64'
+      # No docker/setup-qemu-action: each leg now runs on a runner whose own architecture matches
+      # its target platform (see the matrix's `runner:` field above), so this is always a native
+      # build -- no emulation needed for either leg.
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
