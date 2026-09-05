@@ -62,7 +62,7 @@ tasks.configureEach { task ->
     def message =
       "The StingStream mesh native library is missing from " +
       "apps/stingstream/modules/stingstream-mesh/android/src/main/jniLibs.\n" +
-      "Build it with:  pwsh apps/stingstream/scripts/build-mesh-android.ps1\n" +
+      "Build it with:  powershell -File apps/stingstream/scripts/build-mesh-android.ps1\n" +
       "See docs/APP-MESH.md."
 
     if (required) {

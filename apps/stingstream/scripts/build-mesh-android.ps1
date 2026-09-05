@@ -39,11 +39,11 @@
     Keep debug symbols in the .so. Roughly 35 MB per ABI instead of 25 MB.
 
 .EXAMPLE
-    pwsh apps/stingstream/scripts/build-mesh-android.ps1
+    powershell -File apps/stingstream/scripts/build-mesh-android.ps1
 
 .EXAMPLE
     # Just the emulator's ABI, which is what a quick check on `stingstream-tv` needs.
-    pwsh apps/stingstream/scripts/build-mesh-android.ps1 -Abis x86_64
+    powershell -File apps/stingstream/scripts/build-mesh-android.ps1 -Abis x86_64
 #>
 [CmdletBinding()]
 param(

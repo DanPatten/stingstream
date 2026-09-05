@@ -343,7 +343,7 @@ cargo install cargo-ndk --locked
 & "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat" "ndk;29.0.14206865"
 
 # Every time the Rust changes
-pwsh apps/stingstream/scripts/build-mesh-android.ps1
+powershell -File apps/stingstream/scripts/build-mesh-android.ps1
 ```
 
 That produces, under `modules/stingstream-mesh/android/src/main`:

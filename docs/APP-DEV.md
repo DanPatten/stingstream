@@ -118,7 +118,7 @@ bun install --frozen-lockfile
 # Skipping it is fine — the module still compiles (its uniffi bindings are committed), Gradle
 # prints a warning, and the app runs with the mesh reporting available:false, exactly as on web.
 # A *release* build fails without it. See docs/APP-MESH.md.
-pwsh scripts/build-mesh-android.ps1
+powershell -File scripts/build-mesh-android.ps1
 
 # Regenerate the native android/ project for the TV variant (android/ is gitignored, matching
 # upstream). Equivalent to the "prebuild:tv" package.json script.
