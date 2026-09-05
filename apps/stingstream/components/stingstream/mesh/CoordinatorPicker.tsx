@@ -92,8 +92,8 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
             infrastructure — iroh's relays, n0 DNS and the BitTorrent DHT — plus
             StingStream's shared fallback. A coordinator adds rendezvous (so
             joining works when the inviter is offline), a relay on TCP 443 and
-            the HTTPS side door. It is fixed when the group is created and
-            travels in every invite code.
+            the HTTPS side door. It is a property of the group: it travels in
+            every invite code, and changing it later reaches every member.
           </Text>
         }
       >

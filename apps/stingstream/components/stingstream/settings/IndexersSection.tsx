@@ -1,16 +1,19 @@
 import { useState } from "react";
-import { Alert, TextInput, TouchableOpacity, View } from "react-native";
+import { TextInput, TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { Colors } from "@/constants/Colors";
 import {
+  type ConnectivityTestResult,
   type IndexerSettings,
   useAddIndexer,
   useDeleteIndexer,
   useIndexers,
+  useTestIndexer,
 } from "@/lib/stingstream/hooks";
+import { confirmDestructive } from "../shared/confirm";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 const emptyForm: IndexerSettings = {
@@ -34,8 +37,10 @@ export function IndexersSection() {
   const { data: indexers, isLoading, error, refetch } = useIndexers();
   const addIndexer = useAddIndexer();
   const deleteIndexer = useDeleteIndexer();
+  const testIndexer = useTestIndexer();
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<IndexerSettings>(emptyForm);
+  const [verdict, setVerdict] = useState<ConnectivityTestResult | null>(null);
 
   const submit = async () => {
     if (!form.Name || !form.BaseUrl) {
@@ -46,35 +51,53 @@ export function IndexersSection() {
       await addIndexer.mutateAsync(form);
       toast.success(`Added indexer "${form.Name}"`);
       setForm(emptyForm);
+      setVerdict(null);
       setFormOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add indexer");
     }
   };
 
-  const remove = (indexer: IndexerSettings) => {
+  /**
+   * Gap 9 closed. The verdict is stored rather than toasted: a bad Torznab key
+   * produces a sentence per app naming the field that failed, which is worth
+   * leaving on screen next to the field somebody is about to correct.
+   */
+  const test = async () => {
+    if (!form.Name || !form.BaseUrl) {
+      toast.error("Name and Torznab base URL are required");
+      return;
+    }
+    setVerdict(null);
+    try {
+      setVerdict(await testIndexer.mutateAsync(form));
+    } catch (err) {
+      setVerdict({
+        Ok: false,
+        Message:
+          err instanceof Error
+            ? err.message
+            : "Neither app could be asked about it.",
+      });
+    }
+  };
+
+  const remove = async (indexer: IndexerSettings) => {
     if (!indexer.Id) return;
-    Alert.alert(
+    const ok = await confirmDestructive(
       "Remove indexer?",
-      `"${indexer.Name}" will be removed from both Radarr and Sonarr.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteIndexer.mutateAsync(indexer.Id!);
-              toast.success(`Removed "${indexer.Name}"`);
-            } catch (err) {
-              toast.error(
-                err instanceof Error ? err.message : "Could not remove indexer",
-              );
-            }
-          },
-        },
-      ],
+      `"${indexer.Name}" is removed from StingStream's settings. It stays configured inside Radarr and Sonarr until it is removed there too — sync only ever adds and updates.`,
+      "Remove",
     );
+    if (!ok) return;
+    try {
+      await deleteIndexer.mutateAsync(indexer.Id);
+      toast.success(`Removed "${indexer.Name}"`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not remove indexer",
+      );
+    }
   };
 
   return (
@@ -91,9 +114,10 @@ export function IndexersSection() {
       {formOpen && (
         <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
           <Text className='text-[#9899A1] text-xs mb-2'>
-            Testing an indexer before saving isn't available yet — Core has
-            add/edit/delete but no test endpoint (see docs/UI-API-GAPS.md). Both
-            apps still validate the URL when they search it.
+            "Test" asks Radarr and Sonarr to try it, using exactly the resource
+            a save would store. The two send different category lists, so both
+            are asked: an endpoint with films but no television passes one and
+            fails the other.
           </Text>
           <TextInput
             placeholder='Name'
@@ -118,16 +142,40 @@ export function IndexersSection() {
             onChangeText={(v) => setForm((f) => ({ ...f, ApiKey: v }))}
             className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
           />
-          <TouchableOpacity
-            disabled={addIndexer.isPending}
-            onPress={submit}
-            className='rounded-lg py-2 items-center'
-            style={{ backgroundColor: Colors.primary }}
-          >
-            <Text className='text-white font-semibold'>
-              {addIndexer.isPending ? "Adding…" : "Add indexer"}
-            </Text>
-          </TouchableOpacity>
+          {verdict && (
+            <View className='mb-2'>
+              <Text
+                className={
+                  verdict.Ok ? "text-green-500 text-xs" : "text-red-500 text-xs"
+                }
+              >
+                {verdict.Ok ? "✓ " : "✕ "}
+                {verdict.Message}
+              </Text>
+            </View>
+          )}
+
+          <View className='flex-row gap-2'>
+            <TouchableOpacity
+              disabled={testIndexer.isPending}
+              onPress={() => void test()}
+              className='flex-1 rounded-lg py-2 items-center bg-neutral-800'
+            >
+              <Text className='text-white'>
+                {testIndexer.isPending ? "Testing…" : "Test"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              disabled={addIndexer.isPending}
+              onPress={submit}
+              className='flex-1 rounded-lg py-2 items-center'
+              style={{ backgroundColor: Colors.primary }}
+            >
+              <Text className='text-white font-semibold'>
+                {addIndexer.isPending ? "Adding…" : "Add indexer"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -156,7 +204,7 @@ export function IndexersSection() {
                 ]
                   .filter(Boolean)
                   .join(" • ")}
-                onPress={() => remove(indexer)}
+                onPress={() => void remove(indexer)}
                 textColor='red'
                 showArrow={false}
               >

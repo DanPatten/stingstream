@@ -2,7 +2,11 @@ import { View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { useMeshStatus, useNodeStatus } from "@/lib/stingstream/hooks";
+import {
+  type NodeStatus,
+  useMeshStatus,
+  useNodeStatus,
+} from "@/lib/stingstream/hooks";
 import { useHealthz } from "@/lib/stingstream/status";
 import { GapNotice } from "../shared/GapNotice";
 import { QueryState } from "../shared/ScreenState";
@@ -10,6 +14,26 @@ import { SideDoorSection } from "./SideDoorSection";
 
 function stateColor(state: string): "default" | "red" {
   return state === "healthy" ? "default" : "red";
+}
+
+/**
+ * The build a child is running. Gap 10 closed.
+ *
+ * Two sources, on purpose. The supervisor probes each child as part of its own
+ * health poll and puts the answer on `/healthz`, which is the one that keeps
+ * working when Jellyfin itself is the child that is down. `NodeStatus` carries
+ * the same numbers from Core, which is where the mesh's crate version comes from
+ * and where the arrs' keys already live. Whichever answered is shown; the
+ * supervisor wins a disagreement, because it is the process that launched the
+ * binary.
+ */
+function versionOf(
+  name: string,
+  fromHealthz: string | null | undefined,
+  status: NodeStatus | undefined,
+): string {
+  const fromCore = status?.Children?.[name]?.Version;
+  return fromHealthz || fromCore || "—";
 }
 
 export function NodeStatusScreen() {
@@ -51,8 +75,8 @@ export function NodeStatusScreen() {
           <ListGroup
             description={
               <Text className='text-[#9899A1] text-xs'>
-                Per-child version numbers aren't reported yet — see
-                docs/UI-API-GAPS.md.
+                A version of "—" means the child is disabled, not answering, or
+                has no way to be asked — a real state, not an error.
               </Text>
             }
           >
@@ -67,6 +91,7 @@ export function NodeStatusScreen() {
                 ]
                   .filter(Boolean)
                   .join(" • ")}
+                value={versionOf(child.name, child.version, status.data)}
                 textColor={child.enabled ? stateColor(child.state) : "default"}
               />
             ))}

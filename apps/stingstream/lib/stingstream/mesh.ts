@@ -149,9 +149,10 @@ export function useNodeMeshStatus(): UseQueryResult<MeshNodeStatus> {
 /**
  * Create a group on the home node. Administrator only.
  *
- * The coordinator is fixed at creation: it is a property of the group that travels in every invite
- * code, and neither the mesh nor Core exposes a way to change it afterwards — doing so would have
- * to reach every member, and there is no gossip message for that. See `docs/APP-MESH.md`.
+ * The coordinator chosen here is a property of the group and travels in every invite code. It is no
+ * longer permanent: `useSetGroupCoordinator` below changes it afterwards and every member follows,
+ * which M4.5 added along with the gossip record that makes it reach them. See `docs/MESH.md`,
+ * "Changing a group's coordinator".
  */
 export function useCreateMeshGroup() {
   const { request } = useMeshApi();
@@ -203,6 +204,39 @@ export function useJoinMeshGroupOnNode() {
           body: JSON.stringify({ code: code.trim() }),
         }),
       ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
+  });
+}
+
+/**
+ * Point a group at a different coordinator. Administrator only.
+ *
+ * `coordinator: null` is a real value — it puts the group back on public infrastructure — so this
+ * takes an explicit null rather than an optional field. The home node does the whole change: it
+ * stamps it, re-seeds its own relay map, announces at the new coordinator's rendezvous and gossips
+ * a signed record every other member applies under a last-writer-wins rule. Nothing here has to
+ * poll for that; the other members' own screens follow within a gossip round.
+ *
+ * Invite codes minted afterwards carry the new value automatically, so a code copied *before* the
+ * change is not invalidated — it still joins, and the joiner adopts the real coordinator from the
+ * group's own gossip. See `docs/MESH.md`, "Changing a group's coordinator".
+ */
+export function useSetGroupCoordinator() {
+  const { request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      group,
+      coordinator,
+    }: {
+      group: string;
+      coordinator: string | null;
+    }) =>
+      request<unknown>(`/groups/${encodeURIComponent(group)}/coordinator`, {
+        method: "PUT",
+        body: JSON.stringify({ coordinator }),
+      }).then(toGroup),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
   });

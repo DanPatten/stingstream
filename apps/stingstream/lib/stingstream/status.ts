@@ -26,6 +26,12 @@ export interface HealthzChild {
   base_url: string;
   healthy_since?: string;
   last_exit?: string;
+  /**
+   * The build this child is running, probed by the supervisor when the child
+   * first becomes healthy (M4.5). Absent when the child is disabled, has never
+   * answered, or has no way to be asked — all real states, not errors.
+   */
+  version?: string | null;
 }
 
 export interface HealthzResponse {

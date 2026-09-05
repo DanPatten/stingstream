@@ -11,10 +11,17 @@ import {
   useLeaveMeshGroup,
   useNodeMeshGroups,
   useNodeMeshPeers,
+  useSetGroupCoordinator,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
+import {
+  type CoordinatorChoice,
+  CoordinatorPicker,
+  coordinatorChoiceReady,
+  coordinatorChoiceValue,
+} from "./CoordinatorPicker";
 import { InviteCard } from "./InviteCard";
 
 /**
@@ -33,6 +40,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
   const mesh = useMesh();
   const isAdmin = useIsStingStreamAdmin();
   const [showInvite, setShowInvite] = useState(false);
+  const [editingCoordinator, setEditingCoordinator] = useState(false);
 
   const info = useMemo(
     () => (groups.data ?? []).find((g) => g.group === group),
@@ -105,8 +113,18 @@ export function GroupDetailScreen({ group }: { group: string }) {
               ? undefined
               : "Public infrastructure + StingStream fallback"
           }
+          onPress={isAdmin ? () => setEditingCoordinator((v) => !v) : undefined}
+          showArrow={isAdmin}
         />
       </ListGroup>
+
+      {editingCoordinator && (
+        <ChangeCoordinator
+          group={group}
+          current={info?.coordinator ?? null}
+          onDone={() => setEditingCoordinator(false)}
+        />
+      )}
 
       <View className='h-4' />
 
@@ -169,6 +187,79 @@ export function GroupDetailScreen({ group }: { group: string }) {
         </Text>
       )}
     </QueryState>
+  );
+}
+
+/**
+ * Change the group's coordinator, with the same live check the create screen uses.
+ *
+ * The warning is the point of the screen. Changing a coordinator is not like changing a setting on
+ * this node: it reaches every member through gossip, and a member that is offline right now adopts
+ * it when it comes back. So the copy says who it affects and when, and the destructive-sounding
+ * half — "Use the default" — says what a group without a coordinator loses (rendezvous, the TCP-443
+ * relay, the HTTPS side door) rather than presenting it as simply turning something off.
+ */
+function ChangeCoordinator({
+  group,
+  current,
+  onDone,
+}: {
+  group: string;
+  current: string | null;
+  onDone: () => void;
+}) {
+  const [choice, setChoice] = useState<CoordinatorChoice>(
+    current ? { kind: "custom", url: current } : { kind: "default" },
+  );
+  const setCoordinator = useSetGroupCoordinator();
+
+  const next = coordinatorChoiceValue(choice);
+  const unchanged = (next ?? null) === (current ?? null);
+
+  const save = async () => {
+    try {
+      await setCoordinator.mutateAsync({ group, coordinator: next });
+      toast.success(
+        next
+          ? `Coordinator set to ${hostOf(next)}. Every member follows.`
+          : "Back to public infrastructure. Every member follows.",
+      );
+      onDone();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  return (
+    <View className='mt-3'>
+      <CoordinatorPicker
+        value={choice}
+        onChange={setChoice}
+        disabled={setCoordinator.isPending}
+      />
+      <Text className='text-[#9899A1] text-xs mt-3'>
+        The change is gossiped to the whole group, signed by this node. Members
+        that are offline adopt it when they return, and invite codes minted
+        afterwards carry it — codes already handed out still work.
+      </Text>
+      <View className='h-3' />
+      <Button
+        color='purple'
+        disabled={
+          unchanged ||
+          !coordinatorChoiceReady(choice) ||
+          setCoordinator.isPending
+        }
+        loading={setCoordinator.isPending}
+        onPress={() => void save()}
+      >
+        {unchanged ? "No change" : "Change coordinator"}
+      </Button>
+      <View className='h-2' />
+      <Button color='black' onPress={onDone}>
+        Cancel
+      </Button>
+    </View>
   );
 }
 
