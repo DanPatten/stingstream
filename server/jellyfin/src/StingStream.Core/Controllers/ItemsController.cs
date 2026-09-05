@@ -72,7 +72,7 @@ public sealed class ItemsController : StingStreamControllerBase
     /// never materialized — a title it holds locally, most obviously, whose remote copies are still
     /// perfectly playable and are what a failover would use.
     /// </remarks>
-    [HttpGet("{id}/sources")]
+    [HttpGet("{id}/sources", Name = "GetItemSources")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ItemSourcesResponse>> Sources(

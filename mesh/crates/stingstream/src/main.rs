@@ -320,6 +320,10 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
                     c.base_url = format!("http://127.0.0.1:{}", m.api_port);
                     c.healthy_since = Some(runtime::now_rfc3339());
                     c.last_error = None;
+                    // The embedded mesh is a pseudo-child: it never goes through the supervision
+                    // loop, so nothing polls it and nothing would probe its version. It is in this
+                    // process, so the answer is a constant rather than a request.
+                    c.version = Some(stingstream_mesh::VERSION.to_string());
                 });
                 Some(m)
             }

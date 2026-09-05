@@ -315,6 +315,23 @@ public sealed class ArrClient
         return false;
     }
 
+    /// <summary>
+    /// True when a provider resource declares a field, whatever its value.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="GetField"/>, which answers with the field's *value* — and a
+    /// declared field whose default is empty is indistinguishable from an absent one that way.
+    /// Which of those it is decides whether a client authenticates with a key or a password, so
+    /// the difference is load-bearing rather than pedantic.
+    /// </remarks>
+    public static bool HasField(JsonObject provider, string fieldName)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        return provider["fields"] is JsonArray fields
+            && fields.OfType<JsonObject>().Any(e =>
+                string.Equals(e["name"]?.GetValue<string>(), fieldName, StringComparison.Ordinal));
+    }
+
     /// <summary>Read a named field's value from a provider resource.</summary>
     public static JsonNode? GetField(JsonObject provider, string fieldName)
     {

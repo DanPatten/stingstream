@@ -49,14 +49,27 @@ public class DownloadsShapeTests
     }
 
     [Fact]
-    public void A_seeding_torrent_reads_as_completed_not_as_still_downloading()
+    public void A_seeding_torrent_reads_as_completed_but_can_still_be_paused()
     {
         // MonoTorrent says "Seeding" for a torrent whose payload is entirely on disk. To a Downloads
-        // screen that is finished; showing it as an active download would make the count wrong and
-        // the aggregate rate meaningless.
+        // screen that is finished, and showing it as an active download would make the count wrong
+        // and the aggregate rate meaningless — but it is still running, and pausing it stops the
+        // upload, which is a thing somebody on a metered line very much wants to do. The state word
+        // and the available action are answering two different questions.
         var item = DownloadsService.FromTorrent(Torrent(TorrentState.Seeding, 1.0, complete: true));
         Assert.Equal(DownloadStates.Completed, item.State);
+        Assert.True(item.CanPause);
+        Assert.False(item.CanResume);
+    }
+
+    [Fact]
+    public void A_torrent_in_error_offers_nothing_but_removal()
+    {
+        var item = DownloadsService.FromTorrent(Torrent(TorrentState.Error, 0.3));
+        Assert.Equal(DownloadStates.Failed, item.State);
         Assert.False(item.CanPause);
+        Assert.False(item.CanResume);
+        Assert.True(item.CanRemove);
     }
 
     [Fact]

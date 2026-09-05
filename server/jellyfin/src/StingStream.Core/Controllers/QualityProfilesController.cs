@@ -135,9 +135,7 @@ public sealed class QualityProfilesController : StingStreamControllerBase
             return Ok(result);
         }
 
-        return result.Message.StartsWith("No app has", System.StringComparison.Ordinal)
-            ? NotFound(result)
-            : BadRequest(result);
+        return result.NotFound ? NotFound(result) : BadRequest(result);
     }
 
     /// <summary>Remove a profile from both apps.</summary>
@@ -161,6 +159,9 @@ public sealed class QualityProfilesController : StingStreamControllerBase
             return Ok(result);
         }
 
-        return result.Ok ? BadRequest(result) : NotFound(result);
+        // A profile still in use by forty films is a refusal (400) carrying the app's own
+        // sentence; one that was never there is a 404. Reporting the first as the second sent a
+        // user looking for a profile that is plainly on the screen in front of them.
+        return result.NotFound ? NotFound(result) : BadRequest(result);
     }
 }

@@ -141,7 +141,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
     Json(StatusBody {
         node: node.node_id(),
         node_name: node.cfg.node_name.clone(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::VERSION.to_string(),
         groups: node.groups().await.len(),
         available_streams: node.available_streams(),
         relay_urls: addr.relay_urls().map(|u| u.to_string()).collect(),

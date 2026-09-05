@@ -147,6 +147,28 @@ public class QualityProfileMappingTests
     }
 
     [Fact]
+    public void A_cutoff_naming_a_quality_inside_a_group_resolves_to_the_group()
+    {
+        // Found by running it: NzbDrone stores the cutoff as one id, and a quality that lives
+        // inside a group has no addressable id of its own — so "upgrade until WEBDL-1080p" can
+        // only mean "until the WEB 1080p group". Matching only top-level names made *every* cutoff
+        // inside a group silently fall back to the lowest allowed quality, which is very nearly
+        // the opposite of what was asked for, and the picker offers member names because that is
+        // what the shared vocabulary is made of.
+        var schema = Schema();
+        var allowed = new HashSet<string>(new[] { "WEBDL-1080p", "Bluray-1080p" });
+
+        QualityProfileService.Apply(
+            schema,
+            Wanted("WEBDL-1080p", "WEBDL-1080p", "Bluray-1080p"),
+            allowed,
+            out var found);
+
+        Assert.True(found);
+        Assert.Equal(1001, schema["cutoff"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void A_cutoff_that_is_not_allowed_falls_back_to_the_lowest_allowed_quality()
     {
         // Both apps reject a profile whose cutoff is a disallowed quality outright, so there is no

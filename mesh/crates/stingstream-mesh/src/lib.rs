@@ -41,6 +41,14 @@ pub use node::MeshNode;
 pub use sidedoor::{SideDoor, SideDoorCandidate};
 
 /// ALPN for peer-to-peer HTTP/1.1 over iroh. One request per bidirectional QUIC stream.
+/// This crate's version, as `/mesh/v1/status` reports it.
+///
+/// Exposed so the supervisor can report the *embedded* mesh's version on `/healthz` without an
+/// HTTP round trip to a listener in its own process. A mesh running as a separate child is probed
+/// over its API like every other child; this is the same number by construction, because the two
+/// crates are versioned together in one workspace.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub const HTTP_ALPN: &[u8] = b"stingstream/http/1";
 
 /// ALPN for the coordinator's SNI passthrough: a raw TCP stream tunnelled to the node's gateway.

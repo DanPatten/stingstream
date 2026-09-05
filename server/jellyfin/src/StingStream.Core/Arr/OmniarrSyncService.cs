@@ -340,13 +340,31 @@ public sealed class OmniarrSyncService
         ArrClient.SetField(resource, "port", external.Port);
         ArrClient.SetField(resource, "useSsl", external.UseSsl);
         ArrClient.SetField(resource, "urlBase", external.UrlBase);
-        ArrClient.SetField(resource, "username", external.Username);
-        ArrClient.SetField(resource, "password", external.Password);
-        // SABnzbd authenticates with an API key rather than a password, and calls it apiKey.
-        ArrClient.SetField(resource, "apiKey", external.Password);
         ArrClient.SetField(resource, "movieCategory", external.MovieCategory);
         ArrClient.SetField(resource, "tvCategory", external.TvCategory);
         ArrClient.SetField(resource, "movieImportedCategory", string.Empty);
+
+        // Credentials are *either* a username and password *or* an API key, never both, and the
+        // apps enforce that: setting all three on a qBittorrent that declares an apiKey field --
+        // which newer Radarr does -- is refused outright with "Username must be empty when using
+        // API Key". StingStream's model has one credential pair, so the rule is the one a user
+        // already follows: a client with a username uses the pair, and one without (SABnzbd, and
+        // a qBittorrent configured for key auth) has pasted its key into the password box.
+        var usesApiKey = string.IsNullOrWhiteSpace(external.Username)
+            && ArrClient.HasField(resource, "apiKey");
+        if (usesApiKey)
+        {
+            ArrClient.SetField(resource, "apiKey", external.Password);
+            ArrClient.SetField(resource, "username", string.Empty);
+            ArrClient.SetField(resource, "password", string.Empty);
+        }
+        else
+        {
+            ArrClient.SetField(resource, "username", external.Username);
+            ArrClient.SetField(resource, "password", external.Password);
+            ArrClient.SetField(resource, "apiKey", string.Empty);
+        }
+
         return resource;
     }
 

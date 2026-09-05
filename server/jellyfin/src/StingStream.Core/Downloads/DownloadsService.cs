@@ -505,7 +505,11 @@ public sealed class DownloadsService
             State = state,
             StateDetail = t.State.ToString(),
             Eta = Eta(t.Remaining, t.DownloadRate),
-            CanPause = !paused && state != DownloadStates.Completed,
+            // A *seeding* torrent is "completed" to a person looking at a Downloads screen, and it
+            // is still perfectly pausable — pausing it stops the upload, which is a thing people
+            // want to do to a seedbox on a metered line. So pause follows what the engine can
+            // actually do (anything that is running), not what the state word suggests.
+            CanPause = !paused && t.State != TorrentState.Error && t.State != TorrentState.Stopping,
             CanResume = paused,
             CanRemove = true,
             AddedAt = t.AddedOn > 0

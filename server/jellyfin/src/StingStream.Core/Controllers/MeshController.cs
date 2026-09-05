@@ -266,7 +266,7 @@ public sealed class MeshController : StingStreamControllerBase
     /// policy, and is what the app should read; this exists so the two can be compared when they
     /// disagree, which is the failure mode of keeping one formula in two languages.
     /// </remarks>
-    [HttpGet("groups/{group}/sources/{itemKey}")]
+    [HttpGet("groups/{group}/sources/{itemKey}", Name = "GetMeshSources")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<MeshSources>> Sources(

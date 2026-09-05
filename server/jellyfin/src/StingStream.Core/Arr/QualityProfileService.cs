@@ -97,6 +97,16 @@ public sealed class QualityVocabulary
 /// <summary>What a write did, per app.</summary>
 public sealed class QualityProfileWriteResult
 {
+    /// <summary>
+    /// True when the failure was "no app has that profile" rather than "an app refused".
+    /// </summary>
+    /// <remarks>
+    /// The two need different status codes and read completely differently to a person: a profile
+    /// that is still in use by forty films is a 400 with the app's own sentence, and one that was
+    /// never there is a 404. Without this flag the controller could only guess from the message.
+    /// </remarks>
+    public bool NotFound { get; set; }
+
     /// <summary>The profile as it now stands, read back from the apps.</summary>
     public QualityProfileView? Profile { get; set; }
 
@@ -348,12 +358,21 @@ public sealed class QualityProfileService
 
         if (mustExist && !existedSomewhere)
         {
+            result.NotFound = true;
             result.Message = $"No app has a quality profile called \"{desired.Name}\".";
             return result;
         }
 
         result.Ok = wroteSomewhere;
         result.Profile = await GetAsync(desired.Name, ct).ConfigureAwait(false);
+        if (result.Profile is not null && desired.Unsupported.Count > 0)
+        {
+            // Re-reading the profile asks the apps what they *stored*, which by definition cannot
+            // mention a quality they do not have — so the one thing the caller most needs to know
+            // is the one thing the fresh read cannot carry. Copy it across.
+            result.Profile.Unsupported = desired.Unsupported;
+        }
+
         if (!result.Ok)
         {
             result.Message = string.Join("; ", result.Detail);
@@ -390,6 +409,9 @@ public sealed class QualityProfileService
             {
                 // The usual refusal is "this profile is still in use by N titles", which is exactly
                 // the sentence a user needs, so it is passed through rather than flattened.
+                // The app refused, which is a different thing from the profile not existing --
+                // usually "QualityProfile [5] is in use". That sentence is exactly what the user
+                // needs, so it is passed through rather than flattened into a 404.
                 found = true;
                 result.Detail.Add(
                     $"{client.Name}: {ArrClient.DescribeValidationFailure(ex.Body ?? ex.Message, System.Net.HttpStatusCode.BadRequest)}");
@@ -402,6 +424,7 @@ public sealed class QualityProfileService
         result.Ok = found;
         if (!found)
         {
+            result.NotFound = true;
             result.Message = $"No app has a quality profile called \"{name}\".";
         }
 
@@ -444,6 +467,8 @@ public sealed class QualityProfileService
                 // *before* anything is written -- writing as we go would leave every member before
                 // the one that flipped the group carrying the wrong value.
                 var members = item["items"] as JsonArray;
+                var cutoffNamesThisItem =
+                    string.Equals(name, desired.Cutoff, StringComparison.OrdinalIgnoreCase);
                 if (members is { Count: > 0 })
                 {
                     foreach (var memberName in members.OfType<JsonObject>().Select(ItemName))
@@ -457,6 +482,18 @@ public sealed class QualityProfileService
                         if (allowed.Contains(memberName))
                         {
                             isAllowed = true;
+                        }
+
+                        // A cutoff naming a quality that lives *inside* a group resolves to the
+                        // group. NzbDrone stores the cutoff as one id and a grouped quality does
+                        // not have an addressable one of its own, so "upgrade until WEBDL-1080p"
+                        // can only mean "until the WEB 1080p group" — and a caller who picked the
+                        // member name off the flat list has no way of knowing that. Without this,
+                        // every cutoff inside a group silently fell back to the lowest allowed
+                        // quality, which is very nearly the opposite of what was asked for.
+                        if (string.Equals(memberName, desired.Cutoff, StringComparison.OrdinalIgnoreCase))
+                        {
+                            cutoffNamesThisItem = true;
                         }
                     }
 
@@ -481,7 +518,7 @@ public sealed class QualityProfileService
                 {
                     // "items" is ordered best first, so the last allowed one is the lowest.
                     lowestAllowedId = id;
-                    if (string.Equals(name, desired.Cutoff, StringComparison.OrdinalIgnoreCase))
+                    if (cutoffNamesThisItem)
                     {
                         cutoffId = id;
                         cutoffFound = true;
