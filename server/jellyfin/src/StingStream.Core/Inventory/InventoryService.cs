@@ -534,6 +534,15 @@ public sealed class InventoryService : IInventoryService
     /// The minute, not the second: two tuners starting a second apart recorded the same programme.
     /// The date alone would be too coarse for a programme broadcast twice in a day.
     /// </para>
+    /// <para>
+    /// **Known limitation.** When the metadata carries only a *date* -- an NFO's <c>&lt;premiered&gt;</c>
+    /// round-trips as one, and some listings give nothing finer -- the minute is midnight, and two
+    /// broadcasts of one programme on one day collide into a single item with two "versions" that
+    /// are not versions of each other. Everything that could distinguish them (the file's own
+    /// timestamp, its size, this tuner's start time) is per-node, and using any of it would trade a
+    /// rare collision for the certainty that two nodes never agree about anything they both
+    /// recorded -- which is the property the whole grammar exists for. Left as it is, deliberately.
+    /// </para>
     /// </remarks>
     public static string? BuildRecordingKey(BaseItem item)
     {
@@ -761,11 +770,24 @@ public sealed class InventoryService : IInventoryService
                 Language = stream.Language ?? string.Empty,
                 Forced = stream.IsForced,
                 HearingImpaired = stream.IsHearingImpaired,
-                Format = stream.Codec ?? System.IO.Path.GetExtension(stream.Path).TrimStart('.'),
+                // The file's own extension, not `Codec`. Jellyfin reports an external SubRip file
+                // with `Codec = "subrip"`, and a peer writing `film.eng.subrip` beside its `.strm`
+                // gets a file Jellyfin's own resolver does not recognise as a subtitle -- it looks
+                // for the extensions, not the codec names. The extension is also what Jellyfin's
+                // `SubtitleManager` writes when it downloads one itself, which is what stops a
+                // sidecar fetched over the mesh and one downloaded here appearing twice.
+                Format = ExtensionOf(stream.Path) ?? stream.Codec ?? "srt",
             });
         }
 
         return subtitles;
+    }
+
+    /// <summary>A path's extension without the dot, lowercased, or null when it has none.</summary>
+    private static string? ExtensionOf(string? path)
+    {
+        var extension = System.IO.Path.GetExtension(path ?? string.Empty).TrimStart('.');
+        return string.IsNullOrWhiteSpace(extension) ? null : extension.ToLowerInvariant();
     }
 
     private MediaSummary BuildMediaSummary(BaseItem item)

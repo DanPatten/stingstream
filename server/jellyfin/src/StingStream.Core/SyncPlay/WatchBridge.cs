@@ -169,11 +169,26 @@ public sealed class WatchBridge : BackgroundService
         /// <summary>When it applied it, milliseconds since the epoch.</summary>
         public long LastAppliedAtMs { get; set; }
 
-        /// <summary>Where the local group was, last time the bridge looked.</summary>
+        /// <summary>Where the local group was when it last said so.</summary>
+        /// <remarks>
+        /// A **snapshot**, not a live position — it moves only when the group issues a command. Use
+        /// <see cref="LocalPositionAt"/> to ask where the film is *now*; reading this field
+        /// directly while the group is playing is reading a number that stopped advancing when the
+        /// user pressed play, which is a drift measurement that grows without anything drifting.
+        /// </remarks>
         public long LocalPositionMs { get; set; }
+
+        /// <summary>The instant <see cref="LocalPositionMs"/> was true, on this node's clock.</summary>
+        public long LocalPositionAtMs { get; set; }
 
         /// <summary>What the local group was doing, last time the bridge looked.</summary>
         public WatchState LocalState { get; set; }
+
+        /// <summary>Where this node's own group is at <paramref name="nowMs"/>.</summary>
+        /// <param name="nowMs">Now, milliseconds since the epoch.</param>
+        /// <returns>The position, milliseconds.</returns>
+        public long LocalPositionAt(long nowMs)
+            => WatchRelay.PositionAt(LocalState, LocalPositionMs, LocalPositionAtMs, nowMs);
 
         /// <summary>The last drift the bridge measured against the leader.</summary>
         public long DriftMs { get; set; }
@@ -236,9 +251,13 @@ public sealed class WatchBridge : BackgroundService
                 continue;
             }
 
-            // A follower: where should we be, and are we?
+            // A follower: where should we be, and are we? Both sides of the comparison have to be
+            // *live* positions -- the leader's `view.PositionMs` already is, and this node's has to
+            // be advanced from its last snapshot the same way, or a playing film reads as drifting
+            // by exactly the time since it started and gets seeked back to the start every pass.
+            var now = UnixMs.Now();
             var target = view.PositionMs;
-            var drift = WatchRelay.Drift(bridged.LocalPositionMs, target);
+            var drift = WatchRelay.Drift(bridged.LocalPositionAt(now), target);
             bridged.DriftMs = drift;
             if (WatchRelay.ShouldResync(drift))
             {
@@ -369,7 +388,14 @@ public sealed class WatchBridge : BackgroundService
     /// <param name="sessionId">The mesh session id the seat belongs to.</param>
     /// <param name="kind">What the group did.</param>
     /// <param name="positionMs">Where it says the film is.</param>
-    public void OnLocalCommand(string sessionId, WatchCommandKind kind, long positionMs)
+    /// <param name="atMs">
+    /// The instant the group scheduled that position for -- Jellyfin's own <c>SendCommand.When</c>,
+    /// which for a resume is a little in the future so every member reaches it together. Taking
+    /// "now" instead would start this node's local clock ahead of its own players by exactly the
+    /// head start the group allowed for the network, and every drift number computed from it would
+    /// carry that error.
+    /// </param>
+    public void OnLocalCommand(string sessionId, WatchCommandKind kind, long positionMs, long atMs)
     {
         if (!_bridged.TryGetValue(sessionId, out var bridged))
         {
@@ -377,6 +403,7 @@ public sealed class WatchBridge : BackgroundService
         }
 
         bridged.LocalPositionMs = positionMs;
+        bridged.LocalPositionAtMs = atMs;
         bridged.LocalState = kind switch
         {
             WatchCommandKind.Play => WatchState.Playing,
@@ -446,6 +473,7 @@ public sealed class WatchBridge : BackgroundService
             bridged.LastApplied = command;
             bridged.LastAppliedAtMs = UnixMs.Now();
             bridged.LocalPositionMs = command.PositionMs;
+            bridged.LocalPositionAtMs = command.AtMs;
             return;
         }
 
@@ -477,6 +505,10 @@ public sealed class WatchBridge : BackgroundService
             bridged.LastApplied = command;
             bridged.LastAppliedAtMs = UnixMs.Now();
             bridged.LocalPositionMs = command.PositionMs;
+            // The instant the *leader* scheduled, not now: a resume is deliberately a little in the
+            // future so every node reaches it together, and starting the local clock early would
+            // put this node ahead by exactly the head start the leader allowed for the network.
+            bridged.LocalPositionAtMs = command.AtMs;
             bridged.LocalState = command.Kind switch
             {
                 WatchCommandKind.Play => WatchState.Playing,
@@ -498,7 +530,7 @@ public sealed class WatchBridge : BackgroundService
                 bridged.Group,
                 bridged.SessionId,
                 bridged.LocalState,
-                bridged.LocalPositionMs,
+                bridged.LocalPositionAt(UnixMs.Now()),
                 LocalViewers(),
                 buffering: false,
                 cancellationToken).ConfigureAwait(false);
@@ -649,7 +681,11 @@ public sealed class BridgeSessionController : ISessionController
                 SendCommandType.Stop => WatchCommandKind.Stop,
                 _ => WatchCommandKind.Pause,
             };
-            _bridge.OnLocalCommand(_sessionId, kind, UnixMs.FromTicks(command.PositionTicks ?? 0));
+            _bridge.OnLocalCommand(
+                _sessionId,
+                kind,
+                UnixMs.FromTicks(command.PositionTicks ?? 0),
+                UnixMs.From(command.When));
         }
 
         return Task.CompletedTask;

@@ -24,7 +24,7 @@
       **DVR recordings.** A recording with no provider ids gets a `recording:` key and its own
       library, and plays on the other node like anything else.
 
-      **The M5 bug** (`docs/APP-RELEASE.md` §11): `/items/{id}/sources` named a holder that then
+      **The M5 bug** (`docs/APP-RELEASE.md` section 11): `/items/{id}/sources` named a holder that then
       404'd, with `failover_candidates=0` and nothing corrected. Its cause was a node publishing
       the federated `.strm` pointers in its own Shared library as if it held the films, so this
       asserts the thing that can never be true again -- A's own inventory contains nothing it only
@@ -123,8 +123,12 @@ $Recording = [pscustomobject]@{
     Programme = 'Gardeners World'
     Broadcast = [datetime]::new(2026, 9, 5, 19, 0, 0, [DateTimeKind]::Utc)
 }
-# `recording:{slug}:{yyyyMMddTHHmm}` -- InventoryService.BuildRecordingKey.
-$RecordingItemKey = 'recording:gardeners-world:20260905T1900'
+# `recording:{slug}:{yyyyMMddTHHmm}` -- InventoryService.BuildRecordingKey. Only the *prefix* is
+# asserted, and the whole key is read back from what B actually published: the minute comes from the
+# air date, and how much of an air date survives an NFO round trip is Jellyfin's NFO reader's
+# business rather than M7's. Pinning the exact string here would make this run fail the day that
+# parser changed, for a reason that has nothing to do with anything under test.
+$RecordingKeyPrefix = 'recording:gardeners-world:'
 
 # The milestone's bar, in so many words: "two members on different nodes watch in sync through the
 # bridge with under 1 s drift".
@@ -406,6 +410,26 @@ function Set-NowPlaying {
     } | Out-Null
 }
 
+function Set-SyncPlayReady {
+    <#
+    .SYNOPSIS
+        Tell a group not to wait for this session before it starts.
+    .DESCRIPTION
+        Jellyfin's group goes into `Waiting` on every play and every seek, and stays there until
+        each member reports `Ready` -- which a real client does when its player has buffered. A
+        harness session has no player and never will, so without this the group never leaves
+        `Waiting`, never issues an Unpause, the bridge never relays anything, and both nodes sit at
+        zero -- which the drift assertion would happily call "in sync".
+
+        `SetIgnoreWait` is the same request the bridge's own seat sends for itself, and for the same
+        reason: a member with nothing to buffer must not be able to hold up the room.
+    #>
+    param([Parameter(Mandatory)]$Session)
+    Invoke-AsSession $Session '/SyncPlay/SetIgnoreWait' -Method POST -Body @{
+        IgnoreWait = $true
+    } | Out-Null
+}
+
 function Get-SyncPlayGroups {
     param([Parameter(Mandatory)]$Session)
     return @(Invoke-AsSession $Session '/SyncPlay/List')
@@ -542,21 +566,28 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
 
     Wait-Until -What "B's inventory to carry the film and the recording" -Seconds 180 -PollSeconds 3 -Condition {
         $inv = Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 60
-        $keys = @($inv.Items | ForEach-Object { $_.ItemKey })
-        ($keys -contains $Film.ItemKey) -and ($keys -contains $RecordingItemKey)
+        $keys = @($inv.Records | ForEach-Object { $_.ItemKey })
+        ($keys -contains $Film.ItemKey) -and
+            @($keys | Where-Object { $_ -like "$RecordingKeyPrefix*" }).Count -ge 1
     } -Describe {
         $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 30 } catch { $null }
-        if ($inv) { (@($inv.Items | ForEach-Object { $_.ItemKey })) -join ', ' } else { 'no answer' }
+        if ($inv) { (@($inv.Records | ForEach-Object { $_.ItemKey })) -join ', ' } else { 'no answer' }
     } | Out-Null
 
     $inv = Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 60
-    $film = $inv.Items | Where-Object { $_.ItemKey -eq $Film.ItemKey } | Select-Object -First 1
+    $film = $inv.Records | Where-Object { $_.ItemKey -eq $Film.ItemKey } | Select-Object -First 1
     $subs = @(Get-Member-Value $film 'LocalSubtitles')
     if ($subs.Count -lt 1) {
         throw "B published no subtitle sidecar for $($Film.ItemKey); the group would never get it."
     }
     Write-Host "      B publishes $($subs.Count) subtitle sidecar(s) for the film"
-    Write-Host "      B holds the recording as $RecordingItemKey"
+
+    # The whole key, as B built it. Every later step uses this rather than a literal, so the run
+    # asserts M7's grammar (a `recording:` key derived from the programme and its air date) rather
+    # than one particular reading of one date string.
+    $script:RecordingItemKey = [string](@($inv.Records | ForEach-Object { $_.ItemKey } |
+        Where-Object { $_ -like "$RecordingKeyPrefix*" })[0])
+    Write-Host "      B holds the recording as $($script:RecordingItemKey)"
 }
 
 # ============================================================================================
@@ -627,24 +658,40 @@ Invoke-Step 'B joins from STINGSTREAM_JOIN_CODE, with nobody at the keyboard' {
 
 # ============================================================================================
 Invoke-Step "Both holders' inventories reach A's index" {
+    # Rebuild once more, now that both hold a group membership.
+    #
+    # `InventoryPublisher` publishes nothing at all while a node belongs to no group -- correctly,
+    # since there is nobody to publish to -- and then waits fifteen minutes for its next full
+    # snapshot. B is restarted by the join step above and so publishes immediately; C is not, and
+    # without this its records sit in its own database, invisible to the group, for a quarter of an
+    # hour. Worth knowing about outside the harness too: a node that joins its first group publishes
+    # on the next delta, but only because something changed.
+    foreach ($node in @($NodeB, $NodeC)) {
+        Invoke-Node $node '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 300 | Out-Null
+    }
+
     Wait-Until -What "the film, the recording and both holders to reach A" -Seconds 240 -PollSeconds 3 -Condition {
-        $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/index?group=$($script:GroupId)" -TimeoutSec 60
+        $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
         $entries = @(Get-Member-Value $index 'Entries')
         $film = @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey })
-        $rec = @($entries | Where-Object { $_.ItemKey -eq $RecordingItemKey })
+        $rec = @($entries | Where-Object { $_.ItemKey -eq $script:RecordingItemKey })
         ($film.Count -ge 2) -and ($rec.Count -ge 1)
     } -Describe {
-        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/index?group=$($script:GroupId)" -TimeoutSec 30 } catch { $null }
+        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 30 } catch { $null }
         if ($index) { "$(@(Get-Member-Value $index 'Entries').Count) entries" } else { 'no answer' }
     } | Out-Null
 
-    $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/index?group=$($script:GroupId)" -TimeoutSec 60
+    $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
     $entries = @(Get-Member-Value $index 'Entries')
     $film = @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey })
-    $subs = @(Get-Member-Value ($film | Select-Object -First 1) 'Subtitles')
-    Write-Host "      $($film.Count) holders of the film; the index carries $($subs.Count) subtitle track(s)"
+    # B's row specifically. C holds the same bytes but no sidecar, and asserting against whichever
+    # of the two the index happened to list first would be a coin toss.
+    $fromB = $film | Where-Object { $_.Node -eq $NodeB.MeshId } | Select-Object -First 1
+    if (-not $fromB) { throw "A's index has $($film.Count) holder(s) of the film, none of them B." }
+    $subs = @(Get-Member-Value $fromB 'Subtitles')
+    Write-Host "      $($film.Count) holders of the film; B's row carries $($subs.Count) subtitle track(s)"
     if ($subs.Count -lt 1) {
-        throw "the film reached A's index with no subtitle described; the sidecar can never be fetched."
+        throw "B's row reached A's index with no subtitle described; the sidecar can never be fetched."
     }
 }
 
@@ -696,12 +743,15 @@ Invoke-Step "The recording appears in A's Shared Recordings and plays" {
     Write-Host "      $($strms[0].Name)"
 
     $item = Get-JellyfinItemByName -Node $NodeA -Like "*$($Recording.Programme)*"
-    $bytes = Invoke-Bytes -Uri "$($NodeA.Url)/jellyfin/Videos/$($item.Id)/stream?static=true" `
+    # `Invoke-Bytes` answers an object, not a byte array: `.Bytes` is the payload, and `.Length` on
+    # the object itself is 1 -- which is a very quiet way to fail an assertion.
+    $played = Invoke-Bytes -Uri "$($NodeA.Url)/jellyfin/Videos/$($item.Id)/stream?static=true" `
         -Headers (Get-AuthHeaders $NodeA) -TimeoutSec 180
-    if ($bytes.Length -lt 1000) {
-        throw "playing the recording on A returned $($bytes.Length) byte(s)"
+    if ($played.StatusCode -ne 200) { throw "playing the recording answered HTTP $($played.StatusCode)" }
+    if ($played.Bytes.Length -lt 1000) {
+        throw "playing the recording on A returned $($played.Bytes.Length) byte(s)"
     }
-    Write-Host ("      played {0:N0} bytes of B's recording from A" -f $bytes.Length)
+    Write-Host ("      played {0:N0} bytes of B's recording from A" -f $played.Bytes.Length)
 }
 
 # ============================================================================================
@@ -716,8 +766,8 @@ Invoke-Step "A publishes nothing it only points at (the M5 bug's cause)" {
     #>
     Invoke-Node $NodeA '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 300 | Out-Null
     $inv = Invoke-Node $NodeA '/stingstream/api/v1/inventory?limit=500' -TimeoutSec 60
-    $keys = @($inv.Items | ForEach-Object { $_.ItemKey })
-    foreach ($pointerKey in @($Film.ItemKey, $RecordingItemKey)) {
+    $keys = @($inv.Records | ForEach-Object { $_.ItemKey })
+    foreach ($pointerKey in @($Film.ItemKey, $script:RecordingItemKey)) {
         if ($keys -contains $pointerKey) {
             throw ("A published $pointerKey as its own, but A only holds a pointer to it. " +
                 'This is exactly what made a holder answer 404 for an item the scorer had just offered.')
@@ -725,7 +775,7 @@ Invoke-Step "A publishes nothing it only points at (the M5 bug's cause)" {
     }
     Write-Host "      A's inventory holds $($keys.Count) item(s), none of them a pointer"
 
-    # …and A's pointers survived the rebuild, which is the other half: the old loop deleted them.
+    # ...and A's pointers survived the rebuild, which is the other half: the old loop deleted them.
     $strms = @(Get-ChildItem -Path (Join-Path $DataA 'federated') -Recurse -Filter '*.strm' -ErrorAction SilentlyContinue)
     if ($strms.Count -lt 2) {
         throw "A has $($strms.Count) pointer(s) after a rebuild; it materialized at least two."
@@ -755,17 +805,20 @@ Invoke-Step 'A holder that lost its file is walked past, and the index is correc
     $expected = [IO.File]::ReadAllBytes((Join-Path (Join-Path (Join-Path $DataC 'media') 'Movies') `
         "$($Film.Title) ($($Film.Year))/$($Film.Title) ($($Film.Year)).mkv"))
     $url = "$($NodeA.Url)/stream/$($script:GroupId)/$([uri]::EscapeDataString($Film.ItemKey))/$bId"
-    $bytes = Invoke-Bytes -Uri $url -TimeoutSec 240
-    Test-BytesEqual -Actual $bytes -Expected $expected -What 'the stream that named B'
-    Write-Host ("      {0:N0} bytes arrived byte-exact, from the other holder" -f $bytes.Length)
+    $response = Invoke-Bytes -Uri $url -TimeoutSec 240
+    if ($response.StatusCode -ne 200) {
+        throw "the stream that named B answered HTTP $($response.StatusCode); it should have been walked past."
+    }
+    Test-BytesEqual -Actual $response.Bytes -Expected $expected -What 'the stream that named B'
+    Write-Host ("      {0:N0} bytes arrived byte-exact, from the other holder" -f $response.Bytes.Length)
 
     # And the index was corrected, so the *next* caller is not offered B either.
     Wait-Until -What "A to stop offering B as a holder" -Seconds 120 -PollSeconds 3 -Condition {
-        $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/index?group=$($script:GroupId)" -TimeoutSec 60
+        $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
         $entries = @(Get-Member-Value $index 'Entries')
         -not @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey -and $_.Node -eq $bId })
     } -Describe {
-        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/index?group=$($script:GroupId)" -TimeoutSec 30 } catch { $null }
+        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 30 } catch { $null }
         if ($index) {
             (@(Get-Member-Value $index 'Entries' | Where-Object { $_.ItemKey -eq $Film.ItemKey } |
                 ForEach-Object { $_.Node.Substring(0, 12) })) -join ', '
@@ -805,9 +858,22 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
         if ($g.Count -ge 1) { "$(@(Get-Member-Value $g[0] 'Participants').Count) participant(s)" } else { 'no group' }
     } | Out-Null
 
+    foreach ($s in @($script:SessionA1, $script:SessionA2)) { Set-SyncPlayReady -Session $s }
+
     $g = @(Get-SyncPlayGroups -Session $script:SessionA1)
     $participants = @(Get-Member-Value $g[0] 'Participants')
     Write-Host "      two members of one node in one group on a peer's recording: $($participants -join ', ')"
+
+    # ...and the group really does play, rather than sitting in `Waiting` for a player that does not
+    # exist. Without this the step passes on two sessions doing nothing together.
+    Invoke-AsSession $script:SessionA1 '/SyncPlay/Unpause' -Method POST | Out-Null
+    Start-Sleep -Milliseconds 1500
+    $state = [string](Get-Member-Value (@(Get-SyncPlayGroups -Session $script:SessionA1))[0] 'State')
+    Write-Host "      the group is $state"
+    if ($state -eq 'Waiting' -or $state -eq 'Idle') {
+        throw "the group is $state after an Unpause; it never started, so nothing was synchronised."
+    }
+    Invoke-AsSession $script:SessionA1 '/SyncPlay/Stop' -Method POST | Out-Null
 
     # Leave it clean, so the cross-node step starts from nothing.
     foreach ($s in @($script:SessionA1, $script:SessionA2)) {
@@ -867,6 +933,8 @@ Invoke-Step 'Each node seats the bridge in its own SyncPlay group' {
         }
         $localGroup = [string](Get-Member-Value $groups[0] 'GroupId')
 
+        Set-SyncPlayReady -Session $session
+
         Invoke-Node $node "/stingstream/api/v1/watch/$($script:WatchId)/attach?localGroupId=$localGroup" `
             -Method POST -TimeoutSec 120 | Out-Null
         Write-Host "      $($node.Name): bridge seated in $($localGroup.Substring(0, 8))..."
@@ -900,6 +968,14 @@ Invoke-Step 'Play, pause and seek keep both nodes inside one second' {
 
     Invoke-AsSession $script:LeadSession '/SyncPlay/Unpause' -Method POST | Out-Null
     $worst = [math]::Max($worst, (Measure-Drift -After 'after play'))
+
+    # Two nodes agreeing on zero is not synchronisation, it is two nodes that never started. This
+    # is the assertion that stops the whole step passing vacuously.
+    $moved = Get-WatchPosition -Node $NodeA -SessionId $script:WatchId
+    if ($moved -le 0) {
+        throw ("the session is still at 0 ms after a play, so nothing was relayed and the drift " +
+            'below would be two nodes agreeing about nothing.')
+    }
 
     Invoke-AsSession $script:LeadSession '/SyncPlay/Pause' -Method POST | Out-Null
     $worst = [math]::Max($worst, (Measure-Drift -After 'after pause'))
