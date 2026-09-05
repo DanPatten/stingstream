@@ -136,6 +136,11 @@ impl MeshConfigInput {
         // `stingstream-mesh` and grows as the node does — a `sidedoor` section arrived while this
         // was being written — and a light node has no opinion about anything it does not set here.
         // Spreading the defaults means a new section is inherited rather than breaking this build.
+        //
+        // Clippy calls that needless whenever the struct *happens* to be fully covered, which is
+        // true today and was false an hour ago. The lint is asking for the brittle version, so it
+        // is turned off here rather than obeyed.
+        #[allow(clippy::needless_update)]
         MeshConfig {
             node_name,
             api: ApiConfig {
