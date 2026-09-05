@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tokio::sync::watch;
 
-use stingstream::config::Config;
+use stingstream::config::{self, Config};
 use stingstream::embedded_mesh;
 use stingstream::gateway;
 use stingstream::logging;
@@ -33,7 +33,13 @@ use stingstream::sidedoor::{self, certs::CertStore};
 use stingstream::state::{ChildState, NodeState};
 use stingstream::supervisor::{self, childdef, Mode};
 
-#[derive(Parser, Debug)]
+/// Windows service mode (`--service`). Not `pub`, and not part of the `stingstream` library crate:
+/// it exists only to give `main` a synchronous entry point the Service Control Manager can start,
+/// and it calls back into this binary's own `run` and `Cli`.
+#[cfg(windows)]
+mod service;
+
+#[derive(Parser, Debug, Clone)]
 #[command(
     name = "stingstream",
     about = "StingStream node: supervisor + gateway",
@@ -56,12 +62,22 @@ struct Cli {
     repo_root: Option<PathBuf>,
 
     /// Installation root for production mode: children are found under <DIR>/bin/<child>/.
-    #[arg(long, value_name = "DIR")]
+    /// The env var exists for launchers that can set environment but not append arguments (e.g.
+    /// Homebrew's `write_env_script` in deploy/macos/stingstream.rb); every other launcher in this
+    /// milestone (the Windows service, the systemd unit, the Docker image) passes --install-root
+    /// directly.
+    #[arg(long, value_name = "DIR", env = "STINGSTREAM_INSTALL_ROOT")]
     install_root: Option<PathBuf>,
 
     /// Override the gateway port from config.toml.
     #[arg(long, value_name = "PORT")]
     port: Option<u16>,
+
+    /// Override node_name from config.toml for this run. Useful in a container, where the name
+    /// should come from the environment rather than an edited config.toml -- e.g.
+    /// deploy/node/compose.yml's storage-node profile.
+    #[arg(long, value_name = "NAME", env = "STINGSTREAM_MESH_NODE_NAME")]
+    node_name: Option<String>,
 
     /// Directory holding the built web bundle to serve at `/`.
     ///
@@ -80,12 +96,94 @@ struct Cli {
     /// started by hand.
     #[arg(long)]
     no_children: bool,
+
+    /// Run as a Windows service (M8a). Set only in the binPath the installer registers with the
+    /// Service Control Manager -- starting a process this way from an interactive shell fails,
+    /// because `--service` calls `StartServiceCtrlDispatcher`, which only succeeds when the SCM is
+    /// actually the one that launched the process. See `service.rs` and `docs/INSTALL.md`.
+    #[cfg(windows)]
+    #[arg(long)]
+    service: bool,
+
+    /// Join a group on startup using an invite code, once the mesh is up. Safe to leave set across
+    /// restarts: joining a group already joined just refreshes membership (see
+    /// `MeshNode::join`). Meant for `deploy/node`'s `STINGSTREAM_JOIN_CODE` -- a storage node
+    /// joining a group with no one at the keyboard to run the API call in `docs/RUNNING.md` by
+    /// hand.
+    #[arg(long, value_name = "CODE", env = "STINGSTREAM_JOIN_CODE")]
+    join_code: Option<String>,
+
+    /// Check whether a node at --data-dir (or $STINGSTREAM_DATA) is healthy and exit -- 0 if
+    /// `/healthz` answers 200, non-zero otherwise. Does not start anything. This is
+    /// `deploy/node/Dockerfile`'s `HEALTHCHECK` command: the runtime image ships no curl/wget (see
+    /// its own comments), so the binary checking its own loopback endpoint is the smallest thing
+    /// that works, the same reasoning `stingstream-relay --check` follows.
+    #[arg(long)]
+    healthcheck: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Process entry point. Deliberately not `#[tokio::main]`: a Windows service has to call
+/// `StartServiceCtrlDispatcher` from a plain synchronous `main` *before* anything else touches the
+/// SCM, which is incompatible with tokio's macro building its own runtime and driving `main`'s body
+/// as the async task -- see `service.rs`. The console path below builds the same kind of runtime by
+/// hand and is otherwise identical to what the macro used to expand to.
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.healthcheck {
+        return healthcheck(&cli);
+    }
+
+    #[cfg(windows)]
+    if cli.service {
+        return service::run(cli);
+    }
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("building the tokio runtime")?;
+    rt.block_on(run(cli, Box::pin(wait_for_shutdown_signal())))
+}
+
+/// `--healthcheck`: a synchronous, dependency-free GET of `/healthz` over loopback. No tokio
+/// runtime, no HTTP client crate -- just enough hand-rolled HTTP/1.1 to read a status line, because
+/// this runs once every `HEALTHCHECK` interval inside a container that carries neither curl nor
+/// wget (`deploy/node/Dockerfile`).
+fn healthcheck(cli: &Cli) -> Result<()> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
+    let layout = Layout::new(&data_dir);
+    // --port overrides, same as a real run; otherwise prefer the port runtime.json actually
+    // bound (config.toml's is only a preference -- see docs/RUNNING.md) and fall back to the
+    // documented default so this still says something useful before a node's first run finishes.
+    let port = cli
+        .port
+        .or_else(|| runtime::Runtime::load(&layout.runtime_json()).map(|rt| rt.gateway.port))
+        .unwrap_or(config::DEFAULT_GATEWAY_PORT);
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .with_context(|| format!("connecting to 127.0.0.1:{port} for the health check"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(3)))?;
+    stream
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .context("sending the health check request")?;
+
+    let mut buf = [0u8; 32];
+    let n = stream.read(&mut buf).unwrap_or(0);
+    let status_line = String::from_utf8_lossy(&buf[..n]).into_owned();
+    if status_line.starts_with("HTTP/1.1 200") || status_line.starts_with("HTTP/1.0 200") {
+        Ok(())
+    } else {
+        anyhow::bail!("unhealthy: {status_line}")
+    }
+}
+
+async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) -> Result<()> {
     // rustls needs a process-wide crypto provider before anything touches TLS: the gateway's
     // certificate resolver, the ACME client and every outbound HTTPS call. Installing it here (and
     // ignoring "already installed", which a second call in a test would report) keeps that out of
@@ -102,6 +200,12 @@ async fn main() -> Result<()> {
     }
     if let Some(dir) = &cli.web_dist {
         config.gateway.web_dist = dir.display().to_string();
+    }
+    if let Some(name) = &cli.node_name {
+        let name = name.trim();
+        if !name.is_empty() {
+            config.node_name = name.to_string();
+        }
     }
     config.validate()?;
 
@@ -133,6 +237,13 @@ async fn main() -> Result<()> {
     let node = Arc::new(NodeState::new(config.clone(), rt.clone(), mode.is_dev()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    stingstream::updatecheck::spawn(
+        config.updates.url.clone(),
+        config.updates.enabled,
+        node.updates.clone(),
+        shutdown_rx.clone(),
+    );
 
     // Children first, so they are already coming up while the listener binds.
     let supervisor_task = if cli.no_children {
@@ -227,6 +338,36 @@ async fn main() -> Result<()> {
         None
     };
     let mesh_node_id = mesh.as_ref().map(|m| m.node.node_id());
+
+    // Join a group from an invite code with nobody at the keyboard to run the API call in
+    // docs/RUNNING.md by hand -- what deploy/node's STINGSTREAM_JOIN_CODE needs on first run.
+    // `MeshNode::join` is idempotent (it refreshes membership if this node already belongs to the
+    // group the code names), so leaving the variable set across restarts is fine rather than
+    // something that has to be unset after the first one. Spawned rather than awaited: the mesh's
+    // own join dials the inviter over iroh, which can take longer than this node should make the
+    // gateway wait to bind.
+    if let Some(m) = &mesh {
+        if let Some(code) = cli.join_code.as_deref() {
+            let code = code.trim().to_string();
+            if !code.is_empty() {
+                let node = m.node.clone();
+                tokio::spawn(async move {
+                    match node.join(&code).await {
+                        Ok(outcome) => tracing::info!(
+                            group = %outcome.group.id,
+                            name = %outcome.group.name,
+                            via = ?outcome.via,
+                            "joined group from STINGSTREAM_JOIN_CODE"
+                        ),
+                        Err(e) => tracing::error!(
+                            error = %format!("{e:#}"),
+                            "STINGSTREAM_JOIN_CODE: could not join the group"
+                        ),
+                    }
+                });
+            }
+        }
+    }
 
     let bind: SocketAddr = format!("{}:{}", config.gateway.bind, config.gateway.port)
         .parse()
@@ -333,7 +474,7 @@ async fn main() -> Result<()> {
         None
     };
 
-    wait_for_shutdown_signal().await;
+    shutdown_signal.await;
     tracing::info!("shutting down");
     let _ = shutdown_tx.send(true);
 

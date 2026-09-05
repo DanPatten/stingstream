@@ -25,6 +25,29 @@ pub struct Config {
     pub ports: PortsConfig,
     pub supervisor: SupervisorConfig,
     pub logging: LoggingConfig,
+    pub updates: UpdateCheckConfig,
+}
+
+/// The update check (M8a). See `crate::updatecheck`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdateCheckConfig {
+    /// Off entirely turns off the one outbound call this node makes that nothing else already
+    /// needed -- for an air-gapped node, or an operator who would rather not have it phone home
+    /// even to a static JSON file with no telemetry in it.
+    pub enabled: bool,
+    /// Where to fetch `version.json` from. The default points at whichever GitHub release is
+    /// marked "latest", which is a URL that never needs updating for a new release.
+    pub url: String,
+}
+
+impl Default for UpdateCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            url: crate::updatecheck::DEFAULT_URL.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +257,7 @@ impl Default for Config {
             ports: PortsConfig::default(),
             supervisor: SupervisorConfig::default(),
             logging: LoggingConfig::default(),
+            updates: UpdateCheckConfig::default(),
         }
     }
 }

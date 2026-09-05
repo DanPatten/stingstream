@@ -27,3 +27,4 @@ pub mod secrets;
 pub mod sidedoor;
 pub mod state;
 pub mod supervisor;
+pub mod updatecheck;

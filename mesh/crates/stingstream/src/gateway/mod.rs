@@ -114,6 +114,15 @@ async fn healthz(State(state): State<GatewayState>) -> Response {
     let ok = state.node.all_healthy();
     let body = json!({
         "status": if ok { "ok" } else { "degraded" },
+        // The running binary's own version, and (M8a's update check) the newest version the
+        // release pipeline has published, polled daily -- see crate::updatecheck and
+        // docs/RELEASING.md "The update check". `latest_version` is null until the first
+        // successful poll, and stays null forever on a node with no route out or with
+        // [updates] enabled = false; deciding *whether that means an update is available* (a
+        // semver compare, surfacing a banner, letting it be dismissed) is left to whoever owns
+        // that UI -- StingStream.Core or the web app -- as a TODO, not decided here.
+        "version": env!("CARGO_PKG_VERSION"),
+        "latest_version": state.node.updates.get(),
         "node": {
             "id": state.node.runtime.node_id,
             "name": state.node.runtime.node_name,

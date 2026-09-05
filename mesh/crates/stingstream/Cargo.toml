@@ -50,5 +50,10 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# --service (M8a): a proper Windows service via the SCM, rather than a generic wrapper (NSSM et
+# al.) that can only hard-kill the process it launched. See src/service.rs.
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+
 [dev-dependencies]
 tempfile = "3"

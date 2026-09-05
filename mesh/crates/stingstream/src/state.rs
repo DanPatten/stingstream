@@ -91,6 +91,9 @@ pub struct NodeState {
     /// handle is itself shared: the side-door task writes through a clone of this one, so
     /// `/healthz` sees its state without the two knowing about each other.
     pub side_door: crate::sidedoor::SideDoorHandle,
+    /// The update check's own shared state (M8a) -- see `crate::updatecheck`. Same "created here,
+    /// written through a clone" pattern as `side_door` above.
+    pub updates: crate::updatecheck::UpdateCheckHandle,
     children: RwLock<BTreeMap<String, ChildStatus>>,
 }
 
@@ -108,6 +111,7 @@ impl NodeState {
             runtime,
             dev,
             side_door: crate::sidedoor::SideDoorHandle::disabled(),
+            updates: crate::updatecheck::UpdateCheckHandle::default(),
             children: RwLock::new(children),
         }
     }
