@@ -868,6 +868,9 @@ nodes with their own Jellyfin, Radarr, Sonarr, NZBGet and iroh identity:
 | A group with Dan's Railway coordinator; the invite carries it to B | pass |
 | A rendezvous join with the inviter offline | pass, `via: rendezvous` |
 
+Twenty steps, 808 s end to end on a warm machine, everything above the coordinator rows on loopback
+with nothing hosted by anyone.
+
 Two things the run also settled about *timing*, both worth knowing before reading a slow run as a
 fault. Gossip converges in about a second — both nodes log the snapshot arriving — but the *first*
 materialization pass is slow, because a Jellyfin that has just had two libraries created and is
