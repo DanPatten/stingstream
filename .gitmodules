@@ -2,3 +2,23 @@
     path = mesh/jellyswarrm/ui
     url = https://github.com/jellyfin/jellyfin-web.git
     update = none
+
+# apps/stingstream (Streamyfin) has its own .gitmodules mapping this path, but `git subtree add`
+# never initializes submodules and only the root .gitmodules is consulted by an ordinary
+# `git submodule update --init --recursive` run anywhere in this repo. Without this entry a fresh
+# clone has an empty utils/jellyseerr and cannot build the app on any platform (see
+# docs/M2-web-spike.md section 1). Mapped for real, so it initializes.
+[submodule "apps/stingstream/utils/jellyseerr"]
+    path = apps/stingstream/utils/jellyseerr
+    url = https://github.com/herrrta/jellyseerr
+    branch = models
+
+# server/infinidysk's own .gitmodules maps this path too, but the InfiniDysk build does not need
+# it -- it downloads a prebuilt native rapidyenc lib instead of building from source. Mapped with
+# `update = none` (same treatment as mesh/jellyswarrm/ui above) so a fresh clone's
+# `git submodule update --init --recursive` skips it cleanly instead of failing on a path that
+# isn't really "ours" to manage.
+[submodule "server/infinidysk/libs/rapidyenc"]
+    path = server/infinidysk/libs/rapidyenc
+    url = https://github.com/nzbdav/rapidyenc.git
+    update = none
