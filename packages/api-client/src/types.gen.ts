@@ -3,6 +3,80 @@
 // Source: packages/api-client/openapi.json (StingStream.Core /stingstream/api/v1/openapi.json).
 // Regenerate: bun run fetch-openapi && bun run generate  (see README.md).
 export interface paths {
+    "/stingstream/api/v1/downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every download this node knows about, in one list. */
+        get: operations["Downloads_GetDownloads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/downloads/{engine}/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one download.
+         * @description When an arr is waiting for the download, the removal goes through that arr with
+         *     `removeFromClient=true`, so the queue row goes too — see
+         *     M:StingStream.Core.Downloads.DownloadsService.RemoveAsync(System.String,System.String,System.Boolean,System.Boolean,System.Threading.CancellationToken) for why doing it the other way round produces a
+         *     failed-grab notification a few minutes later.
+         */
+        delete: operations["Downloads_RemoveDownload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/downloads/{engine}/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause one download. */
+        post: operations["Downloads_PauseDownload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/downloads/{engine}/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume one download. */
+        post: operations["Downloads_ResumeDownload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Inventory": {
         parameters: {
             query?: never;
@@ -10,8 +84,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Inventory records, newest first. */
-        get: operations["Inventory_Get"];
+        /**
+         * Inventory records, newest first.
+         * @description The route is named so the OpenAPI document has a unique `operationId`; see
+         *     `SettingsController.Get` for why.
+         */
+        get: operations["Inventory_GetInventory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -54,6 +132,189 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Items/{id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this title needs downloading at all.
+         * @description The state is worked out live rather than read back from the row the add flow wrote, because
+         *     the group moves underneath it: a holder leaves, a pin completes, someone else grabs a better
+         *     encode. The stored row is still returned alongside it as `decision`, because "what this
+         *     node decided, and when" is a different and equally useful question — it is what explains why
+         *     no download started.
+         */
+        get: operations["Items_Availability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Items/{id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far a pin has got. */
+        get: operations["Items_PinStatus"];
+        put?: never;
+        /** Keep a copy of this title on this node. */
+        post: operations["Items_Pin"];
+        /** Stop pinning, and throw away a partial copy. */
+        delete: operations["Items_Unpin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Items/{id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every source this node could play an item from, scored, with the reasons.
+         * @description This is the "Play from…" menu. It is deliberately not the same thing as PlaybackInfo's
+         *     ordering, though it uses the same scorer on the same inputs: PlaybackInfo can only return
+         *     sources Jellyfin has items for, and this can also list a holder whose pointer this node
+         *     never materialized — a title it holds locally, most obviously, whose remote copies are still
+         *     perfectly playable and are what a failover would use.
+         */
+        get: operations["Items_GetItemSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is coming out, across both apps, merged and sorted by date.
+         * @description The default window starts in the past on purpose: "it came out on Tuesday and I still do not
+         *     have it" is the question this screen actually gets asked, and a calendar that begins today
+         *     cannot answer it.
+         */
+        get: operations["Library_GetCalendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Completed grabs and imports, across both apps, newest first.
+         * @description The paging is per app and then merged, which means a page holds up to `pageSize` rows
+         *     from each. That is deliberate rather than exact: the two apps have independent history
+         *     tables with no shared cursor, and a truly merged pager would have to over-fetch both and
+         *     hold a cursor per app. StingStream.Core.Controllers.HistoryPage.Total is the sum of both totals, so a UI
+         *     can still say how much there is.
+         */
+        get: operations["Library_GetHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/library/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a title, unless the group already has it.
+         * @description This is the dedupe rule, and it is the whole reason a group is worth belonging to: the
+         *                 index is consulted before anything is grabbed, and a title an online member already holds at
+         *                 an acceptable quality is <strong>not downloaded again</strong>. It is already in the
+         *                 caller's own Shared library, because the federated materializer put it there.
+         *
+         *     Three things then follow, and each of them is a deliberate choice rather than an obvious
+         *                 one:
+         *     <list type="bullet">
+         *       <item>
+         *         <description>
+         *                     The verdict is <em>persisted</em> (StingStream.Core.Data.LibraryStateStore). Without a stored
+         *                     row, a user who presses Add and sees no download start has no way to tell "the group
+         *                     already has this" from "the button is broken".
+         *                   </description>
+         *       </item>
+         *       <item>
+         *         <description>
+         *                     The title is added to the arr <strong>unmonitored</strong> only if the caller asks
+         *                     (StingStream.Core.Controllers.AddToLibraryRequest.TrackForUpgrades). Adding it monitored would grab a
+         *                     second copy immediately, which is the thing being avoided; adding it unmonitored is
+         *                     still useful, because the title is then in the arr's list and can be monitored later
+         *                     when somebody does want their own copy.
+         *                   </description>
+         *       </item>
+         *       <item>
+         *         <description>
+         *                     Quality is compared against StingStream.Core.Controllers.AddToLibraryRequest.MinimumHeight, not against
+         *                     the arr's quality profile. The profile is a *cutoff and an upgrade policy* expressed in
+         *                     release terms, and the group index holds pixels and a bitrate; mapping one onto the
+         *                     other honestly needs the arr's own parser, which is not reachable from here. A pixel
+         *                     floor is a smaller promise that this code can actually keep.
+         *                   </description>
+         *       </item>
+         *     </list>
+         */
+        post: operations["Library_AddToLibrary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/library/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every recorded add decision, so the UI can show why nothing downloaded. */
+        get: operations["Library_LibraryState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/movies": {
         parameters: {
             query?: never;
@@ -71,6 +332,54 @@ export interface paths {
          *     carrying its own copy of a metadata provider.
          */
         post: operations["Library_AddMovie"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/movies/{tmdbId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a film from the library. */
+        delete: operations["Library_DeleteMovie"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a film's monitoring or quality profile.
+         * @description A read-modify-write, because Radarr's library `PUT` replaces the whole resource. The
+         *     alternative — building a resource from the request — would silently reset every field the
+         *     request did not mention, which for a film that has been in the library a while means its
+         *     tags, its root folder and its availability rule.
+         */
+        patch: operations["Library_UpdateMovie"];
+        trace?: never;
+    };
+    "/stingstream/api/v1/movies/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search for a film by title.
+         * @description Core's own thin shape over Radarr's `movie/lookup`, rather than a pass-through: the add
+         *     form needs a title, a year, an id and a poster, and passing the arr's whole resource through
+         *     would make the app depend on a schema it has no business knowing. `existsInLibrary` is
+         *     the one field the arr's lookup does not answer usefully on its own — it reports its internal
+         *     id as zero for an unknown film, which is not the same question as "have I already added it".
+         */
+        get: operations["Library_LookupMovies"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -106,6 +415,41 @@ export interface paths {
         put?: never;
         /** Add a series by TVDB id and start searching for it. */
         post: operations["Library_AddSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/series/{tvdbId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a series from the library. */
+        delete: operations["Library_DeleteSeries"];
+        options?: never;
+        head?: never;
+        /** Change a series' monitoring or quality profile. */
+        patch: operations["Library_UpdateSeries"];
+        trace?: never;
+    };
+    "/stingstream/api/v1/series/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search for a series by title. */
+        get: operations["Library_LookupSeries"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -169,6 +513,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Mesh/groups/{group}/coordinator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Point a group at a different coordinator.
+         * @description A group's coordinator used to be fixed at creation, which meant a group whose owner's server
+         *                 moved — or one that outgrew the shared fallback — had to be rebuilt and re-joined by every
+         *                 member. This changes it in place.
+         *
+         *     Core does not arbitrate: it hands the change to the mesh, which stamps it, re-seeds its own
+         *                 relay map, announces at the new coordinator's rendezvous and gossips a signed record that
+         *                 every other member applies under a last-writer-wins rule (see `docs/MESH.md`). Invite
+         *                 codes minted afterwards carry the new value automatically, because the mesh reads the group
+         *                 fresh when it mints one.
+         *
+         *     Elevation, like every other operation that changes what a group is: a coordinator is the
+         *                 node's route to its peers, not a per-user preference. The app is expected to have validated
+         *                 the hostname against the candidate's own `/healthz` first (M3c's coordinator picker
+         *                 does), but this endpoint deliberately does not require that — a coordinator that is briefly
+         *                 down is still the right answer, and refusing the change would leave the group pointing at
+         *                 one that is down for good.
+         */
+        put: operations["Mesh_SetCoordinator"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Mesh/groups/{group}/index": {
         parameters: {
             query?: never;
@@ -197,6 +576,29 @@ export interface paths {
         put?: never;
         /** Mint an invite code. */
         post: operations["Mesh_Invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/sources/{itemKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every holder of an item, scored, best first, with the reasons.
+         * @description The <em>mesh's</em> answer, which is the one `?any=1` and mid-stream failover act on.
+         *     `GET /items/{id}/sources` is Core's answer to the same question under the user's stored
+         *     policy, and is what the app should read; this exists so the two can be compared when they
+         *     disagree, which is the failure mode of keeping one formula in two languages.
+         */
+        get: operations["Mesh_GetMeshSources"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -237,6 +639,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Mesh/peers/{node}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One peer's measured link, as the source scorer sees it.
+         * @description Separate from `GET /mesh/peers` because this is the *measurement*, not the membership:
+         *     it is what a scorer weighs, what the Node status screen would show as "12 Mbit/s from loft",
+         *     and the first thing a support question about a slow stream needs.
+         *
+         *     `throughputBps` is null until this node has actually pulled enough bytes from the peer
+         *     for a sample to mean anything — the mesh discards transfers under 256 KiB or 100 ms, because
+         *     a 64 KiB seek that finished in 8 ms is arithmetically 65 Mbit/s and says nothing about
+         *     whether a film will stream.
+         */
+        get: operations["Mesh_PeerStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Mesh/status": {
         parameters: {
             query?: never;
@@ -254,6 +683,318 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/qualityprofiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every quality profile either app has, merged by name. */
+        get: operations["QualityProfiles_GetQualityProfiles"];
+        put?: never;
+        /** Create a profile in both apps. */
+        post: operations["QualityProfiles_CreateQualityProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/qualityprofiles/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One profile by name. */
+        get: operations["QualityProfiles_GetQualityProfile"];
+        /**
+         * Replace a profile in both apps.
+         * @description Renaming is deliberately not supported here: the name is the profile's identity across two
+         *     apps, and a rename that succeeded in one and failed in the other would leave the group with
+         *     two half-profiles and no way to tell which was which. Create the new one and delete the old.
+         */
+        put: operations["QualityProfiles_UpdateQualityProfile"];
+        post?: never;
+        /** Remove a profile from both apps. */
+        delete: operations["QualityProfiles_DeleteQualityProfile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/qualityprofiles/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What qualities each app understands.
+         * @description A profile editor needs this to offer real choices: the names are the app's own, in the app's
+         *     own order (best first), and `shared` is the subset both apps have — the safe set for a
+         *     profile meant to govern films and series alike.
+         */
+        get: operations["QualityProfiles_GetQualityVocabulary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Requests, filtered.
+         * @description A non-administrator always gets their own and nothing else, whatever they pass: the filter
+         *     is a convenience for an administrator, not an access control the caller chooses.
+         */
+        get: operations["Requests_List"];
+        put?: never;
+        /**
+         * Ask for something.
+         * @description Answers 200 rather than 201 even for a new request, because the interesting outcome is the
+         *     <em>state</em> in the body: a request the group can already satisfy comes back
+         *     `available` having downloaded nothing, and a caller that only looked at the status code
+         *     would have no way to tell that from a download starting.
+         */
+        post: operations["Requests_Create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One request, with its trail. */
+        get: operations["Requests_Get"];
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a request.
+         * @description A request already being fulfilled can be withdrawn too. It does not stop the download — the
+         *     grabbing node may be somebody else's and is already committed — but it does take the request
+         *     off the requester's list, which is what "I no longer want this" means from their side.
+         */
+        delete: operations["Requests_Delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending request. */
+        post: operations["Requests_Approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/{id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline a pending request. */
+        post: operations["Requests_Decline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a failed request back in the queue. */
+        post: operations["Requests_Retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Badge counts for the navigation bar. */
+        get: operations["Requests_Counts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's in-app notifications, newest first. */
+        get: operations["Requests_Notifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark notifications read. */
+        post: operations["Requests_MarkRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/pass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one fulfilment pass now, and report what it did.
+         * @description The worker already runs one every ten seconds; this exists so the acceptance harness and an
+         *     impatient administrator do not have to wait for the timer, and so a failure has somewhere to
+         *     report itself synchronously instead of only to a log.
+         */
+        post: operations["Requests_Pass"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The group's request policy.
+         * @description Readable by every member, deliberately. Whether a request needs approval changes what the
+         *     Request button should say, and a member who cannot read the policy would have to guess.
+         */
+        get: operations["Requests_GetPolicy"];
+        /** Set the group's request policy. */
+        put: operations["Requests_SetPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search for something to request, with what the group already has attached. */
+        get: operations["Requests_Search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every member, with their trust, quota and this week's usage. */
+        get: operations["Requests_Users"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set a member's trust flag and personal quota. */
+        put: operations["Requests_SetTrust"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Settings": {
         parameters: {
             query?: never;
@@ -261,11 +1002,76 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The current shared settings. */
-        get: operations["Settings_Get"];
+        /**
+         * The current shared settings.
+         * @description The route is named so the generated OpenAPI document has a unique `operationId`:
+         *     Swashbuckle falls back to the method name, and three controllers here had an action called
+         *     `Get`, which fails OpenAPI 3.1 validation outright (see `docs/UI-API-GAPS.md`,
+         *     "a spec-quality issue"). The same applies to every action added since.
+         */
+        get: operations["Settings_GetSharedSettings"];
         /** Replace the whole shared settings document. */
-        put: operations["Settings_Put"];
+        put: operations["Settings_PutSharedSettings"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Settings/downloadclients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every download client the user has added by hand. */
+        get: operations["Settings_GetExternalDownloadClients"];
+        put?: never;
+        /** Add an external download client, or replace one with the same id. */
+        post: operations["Settings_AddExternalDownloadClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Settings/downloadclients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an external download client, from the settings and from both apps.
+         * @description Unlike indexers, this one <em>does</em> remove the provider from Radarr and Sonarr. Sync
+         *     never deletes, because it cannot tell a provider a user created by hand from one StingStream
+         *     created — but a deletion that came from this UI names the thing to remove, so there is no
+         *     guess to get wrong, and leaving a download client registered in both apps after the user
+         *     deleted it means grabs keep going to a client the UI no longer shows.
+         */
+        delete: operations["Settings_DeleteExternalDownloadClient"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Settings/downloadclients/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask the arrs whether an external download client is reachable. */
+        post: operations["Settings_TestExternalDownloadClient"];
         delete?: never;
         options?: never;
         head?: never;
@@ -302,6 +1108,34 @@ export interface paths {
         post?: never;
         /** Remove an indexer. */
         delete: operations["Settings_DeleteIndexer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Settings/indexers/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the arrs whether an indexer actually works, before storing it.
+         * @description `docs/UI-API-GAPS.md` gap 9. The resource posted to the app's own `indexer/test`
+         *                 is built by the same code that builds the one a save posts
+         *                 (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is the only thing that makes "the
+         *                 test passed" mean "the save will work".
+         *
+         *     The test runs against <em>every</em> configured app rather than one, even though both get
+         *                 the same indexer: the two send different category lists, and a Torznab endpoint that has
+         *                 films but no television is a real thing that would otherwise pass here and fail on the first
+         *                 series search.
+         */
+        post: operations["Settings_TestIndexer"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -353,8 +1187,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Everything about this node's StingStream half, in one call. */
-        get: operations["Status_Get"];
+        /**
+         * Everything about this node's StingStream half, in one call.
+         * @description The route is named so the OpenAPI document has a unique `operationId`; see
+         *     `SettingsController.Get` for why.
+         */
+        get: operations["Status_GetNodeStatus"];
         put?: never;
         post?: never;
         delete?: never;
@@ -373,6 +1211,24 @@ export interface paths {
         /** Whether each arr is answering right now. */
         get: operations["Status_Arrs"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Users/{userId}/playback-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this user would rather have when several nodes hold the same title. */
+        get: operations["Users_GetPlaybackPolicy"];
+        /** Choose speed or quality. */
+        put: operations["Users_SetPlaybackPolicy"];
         post?: never;
         delete?: never;
         options?: never;
@@ -543,6 +1399,53 @@ export interface components {
             /** @description Kick off a search for missing episodes as soon as it is added. */
             SearchOnAdd?: boolean;
         };
+        /** @description Request to add a title, checking the group first. */
+        AddToLibraryRequest: {
+            /**
+             * Format: int32
+             * @description The Movie Database id, for a film.
+             */
+            TmdbId?: number;
+            /**
+             * Format: int32
+             * @description The TheTVDB id, for a series. Give one of these, not both.
+             */
+            TvdbId?: number;
+            /**
+             * Format: int32
+             * @description Ignore a holder whose copy is shorter than this many pixels tall.
+             */
+            MinimumHeight?: number;
+            /** @description When the group already has it, still add it to this node's arr, unmonitored. */
+            TrackForUpgrades?: boolean;
+            /** @description Kick off a search when this node is the one grabbing it. */
+            SearchOnAdd?: boolean;
+            /** @description Sonarr's add-time monitoring choice, when a series is grabbed here. */
+            Monitor?: string;
+            /** @description Quality profile by name. Defaults to the shared setting. */
+            QualityProfileName?: string | null;
+            /** @description Absolute root folder. Defaults to this node's own. */
+            RootFolderPath?: string | null;
+        };
+        /** @description What `POST /library/add` decided. */
+        AddToLibraryResponse: {
+            /** @description The item key, or for a series the prefix its episodes share. */
+            ItemKey?: string;
+            /** @description One of StingStream.Core.Data.LibraryStates. */
+            State?: string;
+            /** @description False when the group already had it. This is the dedupe answer. */
+            Downloading?: boolean;
+            /** @description Who in the group holds it. */
+            Holders?: components["schemas"]["HolderSummary"][];
+            /** @description Whether the title was put into this node's arr at all. */
+            AddedToArr?: boolean;
+            /** @description Whether the arr is monitoring it. */
+            Monitored?: boolean;
+            /** @description A sentence explaining the decision. */
+            Note?: string;
+            /** @description The arr's own response, when one was involved. */
+            Arr?: components["schemas"]["JsonNode"] | null;
+        };
         /** @description A recorded webhook delivery. */
         ArrEvent: {
             /** Format: int64 */
@@ -568,6 +1471,18 @@ export interface components {
             BitRate?: number | null;
             IsDefault?: boolean;
             DisplayTitle?: string;
+        };
+        /** @description The answer to `GET /items/{id}/availability`. */
+        AvailabilityResponse: {
+            ItemKey?: string;
+            /** @description One of StingStream.Core.Data.LibraryStates, worked out live. */
+            State?: string;
+            HeldLocally?: boolean;
+            Holders?: components["schemas"]["HolderSummary"][];
+            /** @description What the add flow decided, and when. Null when it has never been asked. */
+            Decision?: components["schemas"]["LibraryStateRow"] | null;
+            /** @description The pin, if this node is keeping or has kept its own copy. */
+            Pin?: components["schemas"]["PinRow"] | null;
         };
         /**
          * @description This is strictly used as a data transfer object from the api layer.
@@ -1133,6 +2048,31 @@ export interface components {
                 };
             } | null;
         };
+        /** @description One row of the merged calendar. */
+        CalendarEntry: {
+            /** @description `radarr` or `sonarr`. */
+            App?: string;
+            /** @description `movie` or `episode`. */
+            Kind?: string;
+            /** @description The film's title, or the series'. */
+            Title?: string;
+            /** @description The episode's own title, for a series. */
+            EpisodeTitle?: string | null;
+            /** Format: int32 */
+            Year?: number | null;
+            /** Format: int32 */
+            SeasonNumber?: number | null;
+            /** Format: int32 */
+            EpisodeNumber?: number | null;
+            /** @description The date this releases or airs, RFC 3339 or `yyyy-MM-dd` as the app gave it. */
+            Date?: string;
+            HasFile?: boolean;
+            Monitored?: boolean;
+            /** Format: int32 */
+            TmdbId?: number | null;
+            /** Format: int32 */
+            TvdbId?: number | null;
+        };
         /**
          * @description Enum ChannelType.
          * @enum {string}
@@ -1161,6 +2101,8 @@ export interface components {
             BaseUrl?: string;
             /** @description Whether an API key is configured. The key itself stays in runtime.json. */
             HasApiKey?: boolean;
+            /** @description The build this child is running, when it will say. */
+            Version?: string | null;
         };
         /** @description Client capabilities dto. */
         ClientCapabilitiesDto: {
@@ -1207,6 +2149,17 @@ export interface components {
          * @enum {string}
          */
         CollectionType: "unknown" | "movies" | "tvshows" | "music" | "musicvideos" | "trailers" | "homevideos" | "boxsets" | "books" | "photos" | "livetv" | "playlists" | "folders";
+        /** @description The verdict on a provider, from every app it applies to. */
+        ConnectivityTestResult: {
+            /** @description True when every app that was asked accepted it. */
+            Ok?: boolean;
+            /** @description One sentence for a person, folding in every app that refused. */
+            Message?: string;
+            /** @description The per-app verdicts. */
+            Apps?: {
+                [key: string]: components["schemas"]["ProviderTestResult"];
+            };
+        };
         /** @description Defines the MediaBrowser.Model.Dlna.ContainerProfile. */
         ContainerProfile: {
             /**
@@ -1227,6 +2180,32 @@ export interface components {
             Name?: string;
             /** @description Optional coordinator URL, carried in every invite so members auto-configure it. */
             Coordinator?: string | null;
+        };
+        /** @description Request to make a request. */
+        CreateRequestBody: {
+            /**
+             * Format: int32
+             * @description The Movie Database id, for a film.
+             */
+            TmdbId?: number;
+            /**
+             * Format: int32
+             * @description The TheTVDB id, for a series. Give one of these, not both.
+             */
+            TvdbId?: number;
+            /** @description Seasons wanted. Empty or absent means all of them. */
+            Seasons?: number[];
+            /** @description The group to request in. Optional: with one group, which is the common case, it is obvious. */
+            Group?: string | null;
+            /** @description Title and year, when the caller already has them from a search. */
+            Title?: string | null;
+            /**
+             * Format: int32
+             * @description The release year.
+             */
+            Year?: number | null;
+            /** @description A poster URL from the search result, so the request list has artwork immediately. */
+            PosterUrl?: string | null;
         };
         /** @description The custom value option for custom database providers. */
         CustomDatabaseOption: {
@@ -1340,6 +2319,11 @@ export interface components {
          * @enum {string}
          */
         DownMixStereoAlgorithms: "None" | "Dave750" | "NightmodeDialogue" | "Rfc7845" | "Ac4";
+        /** @description What one pause/resume/remove did. */
+        DownloadActionResult: {
+            Ok?: boolean;
+            Message?: string;
+        };
         /**
          * @description The two engines StingStream runs itself. Both are always registered in both apps; there is no
          *     user choice to make, only whether they are enabled.
@@ -1372,6 +2356,81 @@ export interface components {
              * @description Port the torrent engine listens on. 0 asks the OS for an ephemeral one.
              */
             TorrentListenPort?: number;
+        };
+        /** @description One download, whichever engine is really carrying it. */
+        DownloadItem: {
+            /** @description Stable id: `{engine}:{engineId}`. */
+            Id?: string;
+            /** @description One of StingStream.Core.Downloads.DownloadEngines. */
+            Engine?: string;
+            /** @description The engine's own identifier: an info hash, an NZBID, or an arr queue id. */
+            EngineId?: string;
+            /** @description True when StingStream.Core.Downloads.DownloadItem.Id is only meaningful until the owning app restarts. */
+            Ephemeral?: boolean;
+            Title?: string;
+            /** @description The download client's category, which is how the arrs claim their own downloads. */
+            Category?: string;
+            /** Format: int64 */
+            SizeBytes?: number;
+            /** Format: int64 */
+            DownloadedBytes?: number;
+            /**
+             * Format: int64
+             * @description Bytes still to fetch. Zero once the payload is complete, even while importing.
+             */
+            RemainingBytes?: number;
+            /**
+             * Format: double
+             * @description 0 to 1. Null when the engine has not worked out a size yet (a magnet, say).
+             */
+            Progress?: number | null;
+            /**
+             * Format: int64
+             * @description Bytes per second, down.
+             */
+            DownloadRate?: number;
+            /**
+             * Format: int64
+             * @description Bytes per second, up. Always zero for usenet.
+             */
+            UploadRate?: number;
+            /** @description One of StingStream.Core.Downloads.DownloadStates. */
+            State?: string;
+            /** @description The engine's own word for the state, kept because it is often more specific. */
+            StateDetail?: string;
+            /**
+             * Format: int64
+             * @description Seconds remaining at the current rate, or null when that cannot be said.
+             */
+            Eta?: number | null;
+            /** @description Which arr is waiting for this download, when one is. */
+            App?: string | null;
+            /**
+             * Format: int32
+             * @description The arr's queue id, which is what a removal has to go through to be tidy.
+             */
+            ArrQueueId?: number | null;
+            /** @description The arr's own queue status word: `downloading`, `completed`, `warning` and so on. */
+            ArrStatus?: string | null;
+            /** @description What the arr says is wrong, when something is. */
+            ErrorMessage?: string | null;
+            CanPause?: boolean;
+            CanResume?: boolean;
+            CanRemove?: boolean;
+            /** @description When the download was added, RFC 3339, when the engine records it. */
+            AddedAt?: string | null;
+        };
+        /** @description The Downloads screen's whole answer. */
+        DownloadsView: {
+            Items?: components["schemas"]["DownloadItem"][];
+            /** @description Which engines answered, so an empty list can be told from an engine that is down. */
+            Engines?: {
+                [key: string]: string;
+            };
+            /** Format: int64 */
+            TotalDownloadRate?: number;
+            /** Format: int64 */
+            TotalUploadRate?: number;
         };
         /**
          * @description An enum that represents a day of the week, weekdays, weekends, or all days.
@@ -1553,6 +2612,45 @@ export interface components {
              */
             HlsAudioSeekStrategy: "TrimCopiedAudio" | "TranscodeAudio";
         };
+        /** @description A download client running somewhere else, registered in both arrs. */
+        ExternalDownloadClientSettings: {
+            /** @description Stable identifier, generated when the client is added. */
+            Id?: string;
+            /** @description The name it is registered under in both apps. Must be unique. */
+            Name?: string;
+            /**
+             * @description NzbDrone's implementation name, e.g. `QBittorrent`, `Sabnzbd`, `Transmission`,
+             *     `Deluge`, `Nzbget`, `RTorrent`.
+             */
+            Implementation?: string;
+            /** @description `torrent` or `usenet`. Both apps validate this against the implementation. */
+            Protocol?: string;
+            Host?: string;
+            /** Format: int32 */
+            Port?: number;
+            UseSsl?: boolean;
+            /** @description Path prefix, when the client is behind a reverse proxy. Usually empty. */
+            UrlBase?: string;
+            Username?: string;
+            Password?: string;
+            /** @description Category for Radarr's downloads, when this client is used for movies. */
+            MovieCategory?: string;
+            /** @description Category for Sonarr's downloads. */
+            TvCategory?: string;
+            Enabled?: boolean;
+            /**
+             * Format: int32
+             * @description 1 (highest) to 50. The embedded engines register at 1, so 2 is a sensible default.
+             */
+            Priority?: number;
+            /** @description Push this client to Radarr. */
+            ForMovies?: boolean;
+            /** @description Push this client to Sonarr. */
+            ForSeries?: boolean;
+            /** @description Let the apps delete completed downloads once imported. */
+            RemoveCompletedDownloads?: boolean;
+            RemoveFailedDownloads?: boolean;
+        };
         ExternalUrl: {
             /** @description Gets or sets the name. */
             Name?: string | null;
@@ -1612,6 +2710,20 @@ export interface components {
             OfflineGraceDays?: number;
             /** @description Fetch artwork from the holding node over the mesh. */
             FetchImages?: boolean;
+            /** @description Copy every film the group holds into this node's own Movies folder. */
+            MirrorMovies?: boolean;
+            /** @description Copy every episode the group holds into this node's own TV folder. */
+            MirrorTv?: boolean;
+            /**
+             * Format: int32
+             * @description How many pins one pass may copy, mirror or hand-requested.
+             */
+            MirrorConcurrency?: number;
+            /**
+             * Format: int64
+             * @description Stop mirroring when the media volume has less than this much free.
+             */
+            MirrorMinFreeBytes?: number;
         };
         /** @description What first-run wiring did. */
         FirstRunReport: {
@@ -1740,12 +2852,58 @@ export interface components {
             /** Format: int64 */
             LargeFileThresholdBytes?: number;
         };
+        /** @description One page of merged history. */
+        HistoryPage: {
+            /**
+             * Format: int32
+             * @description The sum of both apps' totals.
+             */
+            Total?: number;
+            /** Format: int32 */
+            Page?: number;
+            /** Format: int32 */
+            PageSize?: number;
+            Records?: components["schemas"]["HistoryRecord"][];
+        };
+        /** @description One grab, import, upgrade, failure or deletion, as the app recorded it. */
+        HistoryRecord: {
+            App?: string;
+            /** @description `grabbed`, `downloadFolderImported`, `downloadFailed` and so on. */
+            EventType?: string;
+            /** @description The title as the library knows it. */
+            Title?: string;
+            /** @description The release name, which is what actually got grabbed. */
+            SourceTitle?: string | null;
+            Date?: string;
+            Quality?: string | null;
+            Indexer?: string | null;
+            DownloadClient?: string | null;
+            /** @description Why, for a failure or a deletion. */
+            Reason?: string | null;
+            /** Format: int32 */
+            SeasonNumber?: number | null;
+            /** Format: int32 */
+            EpisodeNumber?: number | null;
+        };
         /**
          * @description An enum representing the options to seek the input audio stream when
          *     transcoding HLS segments.
          * @enum {string}
          */
         HlsAudioSeekStrategy: "TrimCopiedAudio" | "TranscodeAudio";
+        /** @description One holder of a title, as the availability answer reports it. */
+        HolderSummary: {
+            Node?: string;
+            NodeName?: string;
+            Online?: boolean;
+            Group?: string;
+            Resolution?: string | null;
+            FileHash?: string | null;
+            /** Format: int64 */
+            SizeBytes?: number | null;
+            /** Format: int64 */
+            Bitrate?: number | null;
+        };
         /** @description Defines the MediaBrowser.Common.Plugins.IPlugin. */
         IPlugin: {
             /** @description Gets the name of the plugin. */
@@ -1872,6 +3030,15 @@ export interface components {
          * @enum {string}
          */
         IsoType: "Dvd" | "BluRay";
+        /** @description The answer to `GET /items/{id}/sources`. */
+        ItemSourcesResponse: {
+            ItemKey?: string;
+            /** @description The policy the ordering was computed under. */
+            Policy?: string;
+            /** @description True when this node holds the file itself, which always beats a peer's copy. */
+            HeldLocally?: boolean;
+            Sources?: components["schemas"]["ScoredSourceResponse"][];
+        };
         /** @description Body of `POST /mesh/groups/join`. */
         JoinGroupRequest: {
             /** @description The base58 invite code. */
@@ -1899,6 +3066,27 @@ export interface components {
              * @enum {string}
              */
             MessageType: "LibraryChanged";
+        };
+        /** @description What the add/request flow decided about one title. */
+        LibraryStateRow: {
+            ItemKey?: string;
+            /** @description `movie` or `series`. */
+            Kind?: string;
+            /** @description `tmdb` or `tvdb`. */
+            Provider?: string;
+            ProviderId?: string;
+            Title?: string;
+            /** @description One of StingStream.Core.Data.LibraryStates. */
+            State?: string;
+            /** @description Whether the fulfilling arr is monitoring it. */
+            Monitored?: boolean;
+            /** @description Who in the group held it when the decision was made. */
+            Holders?: components["schemas"]["HolderSummary"][];
+            /** @description A sentence a person can read, explaining the decision. */
+            Note?: string;
+            /** @description The Jellyfin user who asked, when there was one. */
+            RequestedBy?: string;
+            UpdatedAt?: string;
         };
         /** @description Class LibraryUpdateInfo. */
         LibraryUpdateInfo: {
@@ -1962,6 +3150,54 @@ export interface components {
         LocationType: "FileSystem" | "Remote" | "Virtual" | "Offline";
         /** @enum {string} */
         LogLevel: "Trace" | "Debug" | "Information" | "Warning" | "Error" | "Critical" | "None";
+        /** @description One candidate from a title search. */
+        LookupResult: {
+            Title?: string;
+            SortTitle?: string | null;
+            /** Format: int32 */
+            Year?: number | null;
+            /**
+             * Format: int32
+             * @description The Movie Database id, for a film. Zero for a series.
+             */
+            TmdbId?: number;
+            /**
+             * Format: int32
+             * @description The TheTVDB id, for a series. Zero for a film.
+             */
+            TvdbId?: number;
+            ImdbId?: string | null;
+            Overview?: string | null;
+            /** @description The provider's own poster URL, reachable from anywhere. */
+            PosterUrl?: string | null;
+            BackdropUrl?: string | null;
+            /**
+             * Format: int32
+             * @description Minutes.
+             */
+            Runtime?: number | null;
+            /** @description The arr's status word: `released`, `continuing`, `ended` and so on. */
+            Status?: string | null;
+            /** @description The broadcaster, for a series. */
+            Network?: string | null;
+            /**
+             * Format: int32
+             * @description How many seasons a series has, when the lookup said.
+             */
+            SeasonCount?: number | null;
+            /** @description True when the arr is already tracking this title. */
+            ExistsInLibrary?: boolean;
+            /**
+             * Format: int32
+             * @description The arr's internal id, when it has one.
+             */
+            ArrId?: number | null;
+        };
+        /** @description Body of `POST /requests/notifications/read`. */
+        MarkNotificationsBody: {
+            /** @description The notification ids, or an empty list for every one of the caller's. */
+            Ids?: number[];
+        };
         /** @description Class MediaAttachment. */
         MediaAttachment: {
             /** @description Gets or sets the codec. */
@@ -2447,6 +3683,25 @@ export interface components {
             ActiveTranscodes?: number | null;
             /** Format: int64 */
             FreeSpace?: number | null;
+            /**
+             * Format: int64
+             * @description Rolling measured throughput <em>from</em> this peer, bits per second.
+             */
+            ThroughputBps?: number | null;
+            /**
+             * Format: int64
+             * @description How many transfers have gone into the average.
+             */
+            ThroughputSamples?: number | null;
+            /** @description When the average was last updated, RFC 3339. */
+            ThroughputAt?: string | null;
+            /**
+             * @description Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
+             *     coordinator's last reachability verdict. Null on a node with no coordinator or no
+             *     certificate, which is the zero-server default. Passed through from the mesh unchanged --
+             *     Core neither builds nor interprets it. See `docs/SIDEDOOR.md`.
+             */
+            SideDoor?: unknown;
         };
         /** @description One cast or crew member. */
         MeshPerson: {
@@ -2454,6 +3709,45 @@ export interface components {
             Role?: string | null;
             /** @description Actor, Director, Writer, ... Named `kind` on the wire. */
             Kind?: string | null;
+        };
+        /** @description One scored candidate from `GET /mesh/v1/sources/{group}/{item_key}`. */
+        MeshScoredSource: {
+            Node?: string;
+            NodeName?: string;
+            Online?: boolean;
+            FileHash?: string | null;
+            /** Format: int64 */
+            Bitrate?: number | null;
+            /** Format: int64 */
+            Size?: number | null;
+            /** Format: int32 */
+            Height?: number | null;
+            /** Format: int32 */
+            Width?: number | null;
+            Resolution?: string | null;
+            Path?: string | null;
+            /** Format: int64 */
+            RttMs?: number | null;
+            /** Format: int64 */
+            ThroughputBps?: number | null;
+            /** Format: double */
+            Score?: number;
+            /**
+             * Format: int64
+             * @description Bits per second this source needs, including the scorer's margin.
+             */
+            NeededBps?: number;
+            Fits?: boolean;
+            Measured?: boolean;
+            Reasons?: string[];
+        };
+        /** @description The body of `GET /mesh/v1/sources/{group}/{item_key}`. */
+        MeshSources: {
+            Group?: string;
+            ItemKey?: string;
+            /** @description `speed_first` or `quality_first`. */
+            Policy?: string;
+            Sources?: components["schemas"]["MeshScoredSource"][];
         };
         /** @description `GET /mesh/v1/status`. */
         MeshStatus: {
@@ -2467,6 +3761,13 @@ export interface components {
             AvailableStreams?: number;
             RelayUrls?: string[];
             DirectAddrs?: string[];
+            /**
+             * @description Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
+             *     coordinator's last reachability verdict. Null on a node with no coordinator or no
+             *     certificate, which is the zero-server default. Passed through from the mesh unchanged --
+             *     Core neither builds nor interprets it. See `docs/SIDEDOOR.md`.
+             */
+            SideDoor?: unknown;
         };
         /** @description One audio or subtitle track. */
         MeshTrack: {
@@ -2641,6 +3942,24 @@ export interface components {
             SyncStatuses?: components["schemas"]["SyncStatus"][];
             RecentArrEvents?: components["schemas"]["ArrEvent"][];
         };
+        /** @description An in-app notification, waiting for the app to poll for it. */
+        NotificationRow: {
+            /** Format: int64 */
+            Id?: number;
+            /** @description The Jellyfin user it is for. */
+            UserId?: string;
+            /**
+             * @description A machine-readable reason: `request_pending`, `request_approved`,
+             *     `request_declined`, `request_available`, `request_failed`.
+             */
+            Kind?: string;
+            Title?: string;
+            Body?: string;
+            /** @description The request it is about, so the app can deep-link to it. */
+            RequestId?: string | null;
+            Read?: boolean;
+            CreatedAt?: string;
+        };
         NotificationSettings: {
             WebhookEnabled?: boolean;
             WebhookName?: string;
@@ -2710,6 +4029,36 @@ export interface components {
             Type?: string;
             /** Format: int32 */
             SortOrder?: number | null;
+        };
+        /** @description One title this node is copying, or has copied, out of the group. */
+        PinRow: {
+            ItemKey?: string;
+            Group?: string;
+            /** @description The holder chosen to copy from. */
+            Node?: string;
+            NodeName?: string;
+            /** @description BLAKE3 of the file being copied, when the holder published one. */
+            FileHash?: string | null;
+            /** @description Where the copy is going, in this node's own root folder. */
+            TargetPath?: string;
+            /** Format: int64 */
+            TotalBytes?: number;
+            /** Format: int64 */
+            CopiedBytes?: number;
+            /** @description One of StingStream.Core.Federated.PinStates. */
+            State?: string;
+            Error?: string | null;
+            /** @description The Jellyfin user who asked, or `mirror` for the background job. */
+            RequestedBy?: string;
+            StartedAt?: string;
+            UpdatedAt?: string;
+            /**
+             * Format: double
+             * @description Progress as a fraction, or null while the size is unknown.
+             */
+            readonly Progress?: number | null;
+            /** @description True while the pin is still going. */
+            readonly Active?: boolean;
         };
         /**
          * @description The play access of an item.
@@ -2815,6 +4164,11 @@ export interface components {
          * @enum {string}
          */
         PlaybackOrder: "Default" | "Shuffle";
+        /** @description Body of `PUT /users/{userId}/playback-policy`. */
+        PlaybackPolicyRequest: {
+            /** @description `speed_first` or `quality_first`. */
+            Policy?: string;
+        };
         /**
          * @description Enum PlaybackRequestType.
          * @enum {string}
@@ -3031,6 +4385,81 @@ export interface components {
         ProfileConditionValue: "AudioChannels" | "AudioBitrate" | "AudioProfile" | "Width" | "Height" | "Has64BitOffsets" | "PacketLength" | "VideoBitDepth" | "VideoBitrate" | "VideoFramerate" | "VideoLevel" | "VideoProfile" | "VideoTimestamp" | "IsAnamorphic" | "RefFrames" | "NumAudioStreams" | "NumVideoStreams" | "IsSecondaryAudio" | "VideoCodecTag" | "IsAvc" | "IsInterlaced" | "AudioSampleRate" | "AudioBitDepth" | "VideoRangeType" | "NumStreams" | "VideoRotation";
         /** @enum {string} */
         ProgramAudio: "Mono" | "Stereo" | "Dolby" | "DolbyDigital" | "Thx" | "Atmos";
+        /** @description What removing a provider from both apps did. */
+        ProviderRemovalResult: {
+            /** @description The provider's name, as both apps knew it. */
+            Name?: string;
+            /** @description One line per app. */
+            Detail?: string[];
+        };
+        /** @description What one of the apps said when asked to test a provider resource. */
+        ProviderTestResult: {
+            /** @description True when the app accepted the configuration. */
+            Ok?: boolean;
+            /** @description A sentence for a person: the app's own validation failures, folded onto one line. */
+            Message?: string;
+            /**
+             * Format: int32
+             * @description The HTTP status the app answered with, when it was not a success.
+             */
+            Status?: number | null;
+        };
+        /** @description One quality, or one group of them, inside a profile. */
+        QualityProfileItemView: {
+            /** @description The quality's name, e.g. `WEBDL-1080p`, or the group's, e.g. `WEB 1080p`. */
+            Name?: string;
+            /** @description Whether releases of this quality are accepted. */
+            Allowed?: boolean;
+            /** @description True when this is a group of interchangeable qualities rather than one quality. */
+            IsGroup?: boolean;
+            /** @description The group's members, empty for a plain quality. */
+            Items?: components["schemas"]["QualityProfileItemView"][];
+        };
+        /** @description One quality profile, as StingStream models it across both arrs. */
+        QualityProfileView: {
+            /** @description The profile's name. This is its identity across both apps. */
+            Name?: string;
+            /** @description Which apps have a profile by this name: `radarr`, `sonarr`, or both. */
+            Apps?: string[];
+            /** @description Each app's own integer id for it, so a caller can cross-check against the arr. */
+            Ids?: {
+                [key: string]: number;
+            };
+            /** @description Whether the profile upgrades an existing file when a better release appears. */
+            UpgradeAllowed?: boolean;
+            /** @description The quality (or quality group) name at which upgrading stops. */
+            Cutoff?: string;
+            /** @description Allowed qualities, best first, exactly as the app orders them. */
+            Items?: components["schemas"]["QualityProfileItemView"][];
+            /** @description The default profile used when a title is added without naming one. */
+            IsDefault?: boolean;
+            /** @description Whether both apps agree about this profile. */
+            InSync?: boolean;
+            /** @description Quality names the profile asked for that an app does not have, keyed by app. */
+            Unsupported?: {
+                [key: string]: string[];
+            };
+        };
+        /** @description What a write did, per app. */
+        QualityProfileWriteResult: {
+            /** @description The profile as it now stands, read back from the apps. */
+            Profile?: components["schemas"]["QualityProfileView"] | null;
+            /** @description One line per app: what was created, updated, deleted or refused. */
+            Detail?: string[];
+            /** @description False when at least one app refused. */
+            Ok?: boolean;
+            /** @description Why, when StingStream.Core.Arr.QualityProfileWriteResult.Ok is false. */
+            Message?: string;
+        };
+        /** @description The quality vocabulary each app has, so an editor can offer real choices. */
+        QualityVocabulary: {
+            /** @description Quality and group names per app, in the app's own order, best first. */
+            Apps?: {
+                [key: string]: string[];
+            };
+            /** @description Names every configured app understands — the safe set for a shared profile. */
+            Shared?: string[];
+        };
         /** @description An item in a play queue. */
         QueueItem: {
             /**
@@ -3063,6 +4492,211 @@ export interface components {
          * @enum {string}
          */
         RepeatMode: "RepeatNone" | "RepeatAll" | "RepeatOne";
+        /** @description Badge counts, so a navigation bar does not have to fetch every list to draw a dot. */
+        RequestCounts: {
+            /**
+             * Format: int32
+             * @description Requests waiting for an administrator on this node.
+             */
+            PendingApproval?: number;
+            /**
+             * Format: int32
+             * @description The caller's own open requests.
+             */
+            MineOpen?: number;
+            /**
+             * Format: int32
+             * @description The caller's unread notifications.
+             */
+            UnreadNotifications?: number;
+            /** @description Whether the caller may see the approvals queue at all. */
+            CanApprove?: boolean;
+        };
+        /** @description Body of an approve or decline. */
+        RequestDecisionBody: {
+            /** @description Optional sentence shown to the requester. */
+            Reason?: string | null;
+        };
+        /** @description One request with its event trail. */
+        RequestDetail: {
+            /** @description The request. */
+            Request?: components["schemas"]["RequestRow"];
+            /** @description Everything that has happened to it, oldest first. */
+            Events?: components["schemas"]["RequestEvent"][];
+        };
+        /** @description One thing that happened to a request, kept so a state change has a trail. */
+        RequestEvent: {
+            /** Format: int64 */
+            Id?: number;
+            RequestId?: string;
+            /** @description The state the request moved into. */
+            State?: string;
+            /** @description Who or what caused it: a user id, a node id, or `system`. */
+            Actor?: string;
+            Note?: string;
+            At?: string;
+        };
+        /** @description What one pass of the request worker did. */
+        RequestPassReport: {
+            /** @description Whether this node advertises that it can grab a film. */
+            CanFulfilMovies?: boolean;
+            /** @description Whether this node advertises that it can grab a series. */
+            CanFulfilTv?: boolean;
+            /**
+             * Format: int64
+             * @description Free bytes on the volume holding this node's media.
+             */
+            FreeSpace?: number;
+            /**
+             * Format: int32
+             * @description Requests gossiped to the group this pass.
+             */
+            Published?: number;
+            /**
+             * Format: int32
+             * @description Requests from other nodes taken into the local store this pass.
+             */
+            Adopted?: number;
+            /**
+             * Format: int32
+             * @description Requests this node started grabbing this pass.
+             */
+            Grabbed?: number;
+            /**
+             * Format: int32
+             * @description Requests that turned out to be satisfied by the group already.
+             */
+            Deduped?: number;
+            /**
+             * Format: int32
+             * @description Requests whose title appeared in the index this pass.
+             */
+            Landed?: number;
+            /**
+             * Format: int32
+             * @description Claims this node stood down from because another node claimed first.
+             */
+            Released?: number;
+            /**
+             * Format: int32
+             * @description Requests that failed this pass.
+             */
+            Failed?: number;
+        };
+        /** @description One group's request policy: who may request without asking, and how often. */
+        RequestPolicy: {
+            /** @description The group id, or an empty string for this node's default. */
+            Group?: string;
+            /** @description One of StingStream.Core.Requests.RequestPolicy.AutoApprove. */
+            AutoApprove?: string;
+            /**
+             * Format: int32
+             * @description How many requests one member may make in a rolling seven days. Zero means no limit.
+             */
+            WeeklyQuota?: number;
+            /**
+             * Format: int32
+             * @description Ignore a group copy shorter than this many pixels when deciding a request is already
+             *     satisfied. Zero means any copy the group has will do.
+             */
+            MinimumHeight?: number;
+            UpdatedAt?: string;
+        };
+        /** @description One member request, as this node holds it. */
+        RequestRow: {
+            /** @description Opaque id, minted here, stable for the life of the request. */
+            Id?: string;
+            /** @description The group the request is made in. */
+            Group?: string;
+            /** @description `movie` or `series`. */
+            Kind?: string;
+            /** @description The film's item key, or the prefix a series' episodes share. */
+            ItemKey?: string;
+            /** @description `tmdb` or `tvdb`. */
+            Provider?: string;
+            /**
+             * Format: int32
+             * @description The provider's id.
+             */
+            ProviderId?: number;
+            Title?: string;
+            /** Format: int32 */
+            Year?: number | null;
+            /** @description Poster URL from the arr's own metadata lookup, so the app has something to draw. */
+            PosterUrl?: string | null;
+            /** @description Season numbers wanted. Empty means every season, which is what Sonarr calls "all". */
+            Seasons?: number[];
+            /** @description One of StingStream.Core.Requests.RequestStates. */
+            State?: string;
+            RequestedBy?: string;
+            RequestedByName?: string;
+            RequestedAt?: string;
+            /** @description The administrator who approved or declined it, when one did. */
+            DecidedBy?: string | null;
+            DecidedByName?: string | null;
+            DecidedAt?: string | null;
+            /** @description The node that claimed it, once one has. */
+            FulfillingNode?: string | null;
+            FulfillingNodeName?: string | null;
+            /** @description A sentence a person can read: why it is where it is. */
+            Note?: string;
+            /** @description Whether this node originated it, as opposed to hearing about it over gossip. */
+            Mine?: boolean;
+            UpdatedAt?: string;
+        };
+        /** @description One search result, with what the group already has attached. */
+        RequestSearchResult: {
+            /** @description `movie` or `series`. */
+            Kind?: string;
+            Title?: string;
+            /** Format: int32 */
+            Year?: number | null;
+            Overview?: string | null;
+            PosterUrl?: string | null;
+            /** Format: int32 */
+            TmdbId?: number;
+            /** Format: int32 */
+            TvdbId?: number;
+            /** @description The item key, or the series prefix. */
+            ItemKey?: string;
+            /** @description True when a member of the group already holds it at an acceptable quality. */
+            AvailableInGroup?: boolean;
+            /** @description Who holds it. */
+            Holders?: string[];
+            /** @description The state of an existing request for the same title, if there is one. */
+            RequestState?: string | null;
+            /** @description The id of that request, so the app can link to it rather than offering a duplicate. */
+            RequestId?: string | null;
+        };
+        /** @description Body of `PUT /requests/users/{userId}`. */
+        RequestTrustBody: {
+            /** @description Whether the member's requests skip approval under `auto_approve: trusted`. */
+            Trusted?: boolean;
+            /**
+             * Format: int32
+             * @description Their own weekly quota, or zero to use the group's.
+             */
+            WeeklyQuota?: number;
+        };
+        /** @description One member, as the request policy sees them. */
+        RequestUser: {
+            UserId?: string;
+            UserName?: string;
+            /** @description Whether Jellyfin considers them an administrator on this node. */
+            IsAdministrator?: boolean;
+            /** @description Whether they are trusted, under `auto_approve: trusted`. Administrators always are. */
+            Trusted?: boolean;
+            /**
+             * Format: int32
+             * @description Their own weekly quota, or zero to use the group's.
+             */
+            WeeklyQuota?: number;
+            /**
+             * Format: int32
+             * @description How many requests they have made in the last seven days.
+             */
+            RequestsThisWeek?: number;
+        };
         /** @description Restart required. */
         RestartRequiredMessage: {
             /**
@@ -3133,6 +4767,50 @@ export interface components {
              * @enum {string}
              */
             MessageType: "ScheduledTasksInfoStop";
+        };
+        /** @description One scored source, as the API presents it. */
+        ScoredSourceResponse: {
+            Node?: string;
+            NodeName?: string;
+            Group?: string;
+            Online?: boolean;
+            Resolution?: string | null;
+            /** Format: int32 */
+            Width?: number | null;
+            /** Format: int32 */
+            Height?: number | null;
+            /** Format: int64 */
+            Bitrate?: number | null;
+            /** Format: int64 */
+            SizeBytes?: number | null;
+            /** @description BLAKE3 of the holder's file: the `stingstream:file_hash` tag. */
+            FileHash?: string | null;
+            /** @description `direct`, `mixed`, `relay`, or null before any connection. */
+            Path?: string | null;
+            /** Format: int64 */
+            RttMs?: number | null;
+            /**
+             * Format: int64
+             * @description Rolling measured throughput from this holder, bits per second.
+             */
+            ThroughputBps?: number | null;
+            /** Format: int32 */
+            MaxDirectStreams?: number | null;
+            /** Format: int32 */
+            ActiveDirectStreams?: number | null;
+            /** Format: double */
+            Score?: number;
+            /**
+             * Format: int64
+             * @description Bits per second this source needs, margin included.
+             */
+            NeededBps?: number;
+            Fits?: boolean;
+            Measured?: boolean;
+            /** @description Why it scored what it scored, in words. */
+            Reasons?: string[];
+            /** @description The URL a client would play this source from. */
+            StreamUrl?: string;
         };
         /** @description Class SendCommand. */
         SendCommand: {
@@ -3361,6 +5039,11 @@ export interface components {
              */
             MessageType: "SessionsStop";
         };
+        /** @description Body of `PUT /mesh/groups/{group}/coordinator`. */
+        SetCoordinatorRequest: {
+            /** @description The new coordinator URL. */
+            Coordinator?: string | null;
+        };
         /**
          * @description "Omniarr": the one settings model StingStream keeps, pushed idempotently into both Radarr and
          *     Sonarr through their v3 APIs.
@@ -3372,6 +5055,8 @@ export interface components {
              *     user choice to make, only whether they are enabled.
              */
             DownloadClients?: components["schemas"]["DownloadClientSettings"];
+            /** @description Download clients somebody else runs, registered in both arrs alongside the embedded ones. */
+            ExternalDownloadClients?: components["schemas"]["ExternalDownloadClientSettings"][];
             /** @description Where imported media lands. These are the arrs' root folders and Jellyfin's libraries. */
             RootFolders?: components["schemas"]["RootFolderSettings"];
             /** @description File and folder naming, pushed to both apps' `/api/v3/config/naming`. */
@@ -3978,6 +5663,19 @@ export interface components {
          * @enum {string}
          */
         UnratedItem: "Movie" | "Trailer" | "Series" | "Music" | "Book" | "LiveTvChannel" | "LiveTvProgram" | "ChannelContent" | "Other";
+        /** @description Change a tracked title. Omitted fields are left as they are. */
+        UpdateLibraryItemRequest: {
+            /** @description Monitor or stop monitoring the title. */
+            Monitored?: boolean | null;
+            /** @description Apply StingStream.Core.Controllers.UpdateLibraryItemRequest.Monitored to every season too. Series only; ignored for a film. */
+            ApplyToSeasons?: boolean;
+            /** @description Move the title onto another quality profile, by name. */
+            QualityProfileName?: string | null;
+            /** @description Change the root folder. Files are not moved. */
+            RootFolderPath?: string | null;
+            /** @description Kick off a search once the change is stored. */
+            SearchNow?: boolean;
+        };
         /** @description Class UserConfiguration. */
         UserConfiguration: {
             /** @description Gets or sets the audio language preference. */
@@ -4149,6 +5847,15 @@ export interface components {
              */
             ItemId?: string;
         };
+        /** @description One user's playback preferences. */
+        UserPlaybackPolicy: {
+            /** @description The Jellyfin user this belongs to, as a 32-character hex GUID. */
+            UserId?: string;
+            /** @description Which of speed and quality to favour when several nodes hold the same title. */
+            Policy?: string;
+            /** @description When it was last changed, RFC 3339. */
+            UpdatedAt?: string;
+        };
         UserPolicy: {
             /** @description Gets or sets a value indicating whether this instance is administrator. */
             IsAdministrator?: boolean;
@@ -4295,7 +6002,242 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    Inventory_Get: {
+    Downloads_GetDownloads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The downloads, plus which engines answered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadsView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Downloads_RemoveDownload: {
+        parameters: {
+            query?: {
+                /** @description Also delete what has been downloaded so far. */
+                deleteFiles?: boolean;
+                /** @description Tell the arr never to grab this release again. */
+                blocklist?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description `torrent`, `usenet`, `radarr` or `sonarr`. */
+                engine: string;
+                /** @description The engine's own id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadActionResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such download, or the engine refused. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Downloads_PauseDownload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `torrent` or `usenet`. */
+                engine: string;
+                /** @description The engine's own id: an info hash, or an NZBID. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paused. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadActionResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This engine cannot pause: it tracks the download rather than holding it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Downloads_ResumeDownload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `torrent` or `usenet`. */
+                engine: string;
+                /** @description The engine's own id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadActionResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This engine cannot resume. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Inventory_GetInventory: {
         parameters: {
             query?: {
                 /** @description Maximum records to return (1-5000). */
@@ -4453,6 +6395,528 @@ export interface operations {
             };
         };
     };
+    Items_Availability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A Jellyfin item id or a StingStream item key. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The availability. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilityResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing on this node can turn that id into a title. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Items_PinStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A Jellyfin item id or a StingStream item key. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pin's state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinRow"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node has never been asked to pin it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Items_Pin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A Jellyfin item id or a StingStream item key. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued, or already running. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing on this node can turn that id into a title. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Nothing online in the group holds it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Items_Unpin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A Jellyfin item id or a StingStream item key. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description There was no pin to forget. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Items_GetItemSources: {
+        parameters: {
+            query?: {
+                /** @description Override the caller's stored policy for this one answer. */
+                policy?: string;
+                /** @description Whose policy to use. Defaults to the authenticated user. */
+                userId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description A Jellyfin item id or a StingStream item key. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scored sources, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemSourcesResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing on this node can turn that id into a title. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Library_GetCalendar: {
+        parameters: {
+            query?: {
+                /** @description First day, `yyyy-MM-dd`. Defaults to a week ago. */
+                start?: string;
+                /** @description Last day, `yyyy-MM-dd`. Defaults to four weeks ahead. */
+                end?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The merged calendar. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEntry"][];
+                };
+            };
+            /** @description The range is backwards or longer than a year. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Library_GetHistory: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number. */
+                page?: number;
+                /** @description Rows per page, per app. Capped at 100. */
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The merged page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Library_AddToLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What to add. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AddToLibraryRequest"];
+                "text/json": components["schemas"]["AddToLibraryRequest"];
+                "application/*+json": components["schemas"]["AddToLibraryRequest"];
+            };
+        };
+        responses: {
+            /** @description The decision, and what the arr was told. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddToLibraryResponse"];
+                };
+            };
+            /** @description Neither a TMDB nor a TVDB id was given. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The fulfilling arr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_LibraryState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The decisions, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryStateRow"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Library_GetMovies: {
         parameters: {
             query?: never;
@@ -4537,6 +7001,171 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+            /** @description Radarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_DeleteMovie: {
+        parameters: {
+            query?: {
+                /** @description Also delete the files on disk. */
+                deleteFiles?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The Movie Database id. */
+                tmdbId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Radarr is not tracking that film. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Radarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_UpdateMovie: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Movie Database id. */
+                tmdbId: number;
+            };
+            cookie?: never;
+        };
+        /** @description What to change. Omitted fields are left alone. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateLibraryItemRequest"];
+                "text/json": components["schemas"]["UpdateLibraryItemRequest"];
+                "application/*+json": components["schemas"]["UpdateLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The film as Radarr now stores it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Radarr is not tracking that film. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Radarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_LookupMovies: {
+        parameters: {
+            query?: {
+                /** @description What the user typed. */
+                term?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The candidates, best match first, as the metadata provider ranked them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupResult"][];
+                };
+            };
+            /** @description No search term. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Radarr is not configured or not answering. */
             503: {
@@ -4682,6 +7311,171 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+            /** @description Sonarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_DeleteSeries: {
+        parameters: {
+            query?: {
+                /** @description Also delete the files on disk. */
+                deleteFiles?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The TheTVDB id. */
+                tvdbId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sonarr is not tracking that series. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Sonarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_UpdateSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The TheTVDB id. */
+                tvdbId: number;
+            };
+            cookie?: never;
+        };
+        /** @description What to change. Omitted fields are left alone. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateLibraryItemRequest"];
+                "text/json": components["schemas"]["UpdateLibraryItemRequest"];
+                "application/*+json": components["schemas"]["UpdateLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The series as Sonarr now stores it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sonarr is not tracking that series. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Sonarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Library_LookupSeries: {
+        parameters: {
+            query?: {
+                /** @description What the user typed. */
+                term?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The candidates, best match first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupResult"][];
+                };
+            };
+            /** @description No search term. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Sonarr is not configured or not answering. */
             503: {
@@ -4891,6 +7685,75 @@ export interface operations {
             };
         };
     };
+    Mesh_SetCoordinator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        /** @description The new coordinator URL, or null/empty to go back to public infrastructure. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SetCoordinatorRequest"];
+                "text/json": components["schemas"]["SetCoordinatorRequest"];
+                "application/*+json": components["schemas"]["SetCoordinatorRequest"];
+            };
+        };
+        responses: {
+            /** @description The group as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshGroup"];
+                };
+            };
+            /** @description The URL will not parse, or a newer change is already stored. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node is not a member of that group. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The mesh is not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Mesh_Index: {
         parameters: {
             query?: never;
@@ -4982,6 +7845,55 @@ export interface operations {
                 content: {
                     "text/html": unknown;
                 };
+            };
+        };
+    };
+    Mesh_GetMeshSources: {
+        parameters: {
+            query?: {
+                /** @description Score under this policy; defaults to Speed first. */
+                policy?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+                /** @description The item key. */
+                itemKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The mesh's own scored candidate list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshSources"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -5083,6 +7995,62 @@ export interface operations {
             };
         };
     };
+    Mesh_PeerStats: {
+        parameters: {
+            query?: {
+                /** @description The group id. */
+                group?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The peer's node id. */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The peer row, including its rolling measured throughput. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshPeer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node has never seen that peer in that group. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Mesh_Status: {
         parameters: {
             query?: never;
@@ -5124,7 +8092,1277 @@ export interface operations {
             };
         };
     };
-    Settings_Get: {
+    QualityProfiles_GetQualityProfiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profiles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileView"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_CreateQualityProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The profile. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["QualityProfileView"];
+                "text/json": components["schemas"]["QualityProfileView"];
+                "application/*+json": components["schemas"]["QualityProfileView"];
+            };
+        };
+        responses: {
+            /** @description The profile as the apps stored it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileWriteResult"];
+                };
+            };
+            /** @description The profile is unnamed, allows nothing, or an app refused it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A profile by that name already exists. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_GetQualityProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The profile's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No app has a profile by that name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_UpdateQualityProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The profile's current name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** @description The profile. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["QualityProfileView"];
+                "text/json": components["schemas"]["QualityProfileView"];
+                "application/*+json": components["schemas"]["QualityProfileView"];
+            };
+        };
+        responses: {
+            /** @description The profile as the apps stored it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileWriteResult"];
+                };
+            };
+            /** @description The profile allows nothing, or an app refused it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No app has a profile by that name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_DeleteQualityProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The profile's name. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What each app did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileWriteResult"];
+                };
+            };
+            /** @description An app refused, usually because the profile is still in use. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No app has a profile by that name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_GetQualityVocabulary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vocabulary, per app and shared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityVocabulary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_List: {
+        parameters: {
+            query?: {
+                /** @description Only the caller's own. Defaults to true for a non-administrator. */
+                mine?: boolean;
+                /** @description Only requests in this state. */
+                state?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requests, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What is wanted. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateRequestBody"];
+                "text/json": components["schemas"]["CreateRequestBody"];
+                "application/*+json": components["schemas"]["CreateRequestBody"];
+            };
+        };
+        responses: {
+            /** @description The request. It may already be `available`, if the group had it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"];
+                };
+            };
+            /** @description Neither a TMDB nor a TVDB id was given. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller is over their weekly quota. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Somebody else's request, and the caller is not an administrator. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such request. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawn. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Somebody else's request, and the caller is not an administrator. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such request. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional reason. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RequestDecisionBody"];
+                "text/json": components["schemas"]["RequestDecisionBody"];
+                "application/*+json": components["schemas"]["RequestDecisionBody"];
+            };
+        };
+        responses: {
+            /** @description The approved request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Decline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional reason, shown to the requester. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RequestDecisionBody"];
+                "text/json": components["schemas"]["RequestDecisionBody"];
+                "application/*+json": components["schemas"]["RequestDecisionBody"];
+            };
+        };
+        responses: {
+            /** @description The declined request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request, approved again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Counts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestCounts"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Notifications: {
+        parameters: {
+            query?: {
+                /** @description Only the unread ones. */
+                unreadOnly?: boolean;
+                /** @description How many at most; 1 to 200. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationRow"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_MarkRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The ids, or an empty list for all of the caller's. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MarkNotificationsBody"];
+                "text/json": components["schemas"]["MarkNotificationsBody"];
+                "application/*+json": components["schemas"]["MarkNotificationsBody"];
+            };
+        };
+        responses: {
+            /** @description Marked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Pass: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPassReport"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_GetPolicy: {
+        parameters: {
+            query?: {
+                /** @description The group id, or omit for this node's default. */
+                group?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPolicy"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_SetPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The policy. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RequestPolicy"];
+                "text/json": components["schemas"]["RequestPolicy"];
+                "application/*+json": components["schemas"]["RequestPolicy"];
+            };
+        };
+        responses: {
+            /** @description The stored policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPolicy"];
+                };
+            };
+            /** @description The body names no known auto-approve mode. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Search: {
+        parameters: {
+            query?: {
+                /** @description What to search for. */
+                q?: string;
+                /** @description `movie`, `series`, or omit for both. */
+                kind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestSearchResult"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Users: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestUser"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_SetTrust: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Jellyfin user id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /** @description Trust and quota. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RequestTrustBody"];
+                "text/json": components["schemas"]["RequestTrustBody"];
+                "application/*+json": components["schemas"]["RequestTrustBody"];
+            };
+        };
+        responses: {
+            /** @description The updated member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestUser"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_GetSharedSettings: {
         parameters: {
             query?: never;
             header?: never;
@@ -5171,7 +9409,7 @@ export interface operations {
             };
         };
     };
-    Settings_Put: {
+    Settings_PutSharedSettings: {
         parameters: {
             query?: {
                 /** @description Push the result into Radarr and Sonarr straight away. */
@@ -5225,6 +9463,235 @@ export interface operations {
                 content: {
                     "text/html": unknown;
                 };
+            };
+        };
+    };
+    Settings_GetExternalDownloadClients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The clients. The embedded engines are not among them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDownloadClientSettings"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_AddExternalDownloadClient: {
+        parameters: {
+            query?: {
+                /** @description Push it into Radarr and Sonarr straight away. */
+                sync?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The client. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "text/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "application/*+json": components["schemas"]["ExternalDownloadClientSettings"];
+            };
+        };
+        responses: {
+            /** @description The stored client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDownloadClientSettings"];
+                };
+            };
+            /** @description The client is missing a name, implementation or host. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_DeleteExternalDownloadClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed, with what each app did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderRemovalResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such client. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_TestExternalDownloadClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same shape as add. Need not be stored first. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "text/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "application/*+json": components["schemas"]["ExternalDownloadClientSettings"];
+            };
+        };
+        responses: {
+            /** @description The verdict. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectivityTestResult"];
+                };
+            };
+            /** @description The client is missing a name, implementation or host. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No arr this client applies to is configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -5398,6 +9865,63 @@ export interface operations {
             };
         };
     };
+    Settings_TestIndexer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same shape as add. Need not be stored first. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["IndexerSettings"];
+                "text/json": components["schemas"]["IndexerSettings"];
+                "application/*+json": components["schemas"]["IndexerSettings"];
+            };
+        };
+        responses: {
+            /** @description The verdict. `ok: false` is a successful call with a bad indexer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectivityTestResult"];
+                };
+            };
+            /** @description The indexer is missing a name or base URL. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No arr is configured or answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Settings_SyncStatus: {
         parameters: {
             query?: never;
@@ -5545,7 +10069,7 @@ export interface operations {
             };
         };
     };
-    Status_Get: {
+    Status_GetNodeStatus: {
         parameters: {
             query?: never;
             header?: never;
@@ -5625,6 +10149,124 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Users_GetPlaybackPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Jellyfin user id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy. A user who has never chosen one gets the default. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPlaybackPolicy"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Users_SetPlaybackPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Jellyfin user id. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /** @description The policy. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlaybackPolicyRequest"];
+                "text/json": components["schemas"]["PlaybackPolicyRequest"];
+                "application/*+json": components["schemas"]["PlaybackPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPlaybackPolicy"];
+                };
+            };
+            /** @description The body names neither policy. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A non-administrator tried to change somebody else's. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
