@@ -2238,6 +2238,54 @@ impl MeshNode {
         Err(last.unwrap_or_else(|| anyhow::anyhow!("could not reach node {node}")))
     }
 
+    /// Fetch one subtitle sidecar from a peer (M7).
+    ///
+    /// The same shape as [`MeshNode::image`], and for the same reasons: no range support, no stream
+    /// permit, one retry on a dead cached connection. A materialising node calls this once per
+    /// sidecar when it writes a peer's title, so a shared film arrives with its subtitles rather
+    /// than without them.
+    pub async fn subtitle(
+        &self,
+        group_id: &GroupId,
+        item_key: &str,
+        node: &str,
+        index: u32,
+    ) -> Result<Response<Incoming>> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let uri = format!("/peer/v1/subtitle/{}/{index}", encode_segment(item_key));
+        let build = || {
+            Request::builder()
+                .method("GET")
+                .uri(&uri)
+                .body(empty_body())
+                .context("building a subtitle request")
+        };
+
+        let mut last: Option<anyhow::Error> = None;
+        for attempt in 0..2u32 {
+            let conn = match self.connect_node(&group, node).await {
+                Ok(c) => c,
+                Err(e) if attempt == 0 => {
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            match conn.request(build()?).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) if attempt == 0 => {
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| anyhow::anyhow!("could not reach node {node}")))
+    }
+
     /// Drop any cached connection to a peer, so the next request re-dials.
     async fn forget_peer(&self, group: &GroupId, node: &str) {
         if let Ok(id) = node.parse::<EndpointId>() {

@@ -60,7 +60,40 @@ public sealed class InventoryRecord
     /// </remarks>
     public Dictionary<string, string> LocalImages { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Subtitle sidecar files this node holds for the item, in a stable order.
+    /// </summary>
+    /// <remarks>
+    /// Never published to peers as *paths*, for the same reason as <see cref="LocalImages"/>. What
+    /// a peer gets is a description of each one and its position in this list, and it fetches by
+    /// position — <c>/peer/v1/subtitle/{itemKey}/{index}</c> — which the mesh resolves back through
+    /// its own index. A filename in a fetch route is a filename a peer gets to choose.
+    ///
+    /// Only *external* subtitles are listed. One muxed into the container travels with the file and
+    /// needs no sidecar; publishing it here would have a peer download something it already has.
+    /// </remarks>
+    public List<SubtitleSidecar> LocalSubtitles { get; set; } = new();
+
     public string UpdatedAt { get; set; } = string.Empty;
+}
+
+/// <summary>One subtitle sidecar file this node holds.</summary>
+public sealed class SubtitleSidecar
+{
+    /// <summary>Absolute path on this node. Never published.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Three-letter ISO language code, as the provider gave it.</summary>
+    public string Language { get; set; } = string.Empty;
+
+    /// <summary>A forced track: only the parts a viewer needs, usually foreign dialogue.</summary>
+    public bool Forced { get; set; }
+
+    /// <summary>SDH: includes sound descriptions.</summary>
+    public bool HearingImpaired { get; set; }
+
+    /// <summary><c>srt</c>, <c>ass</c> or <c>vtt</c>.</summary>
+    public string Format { get; set; } = string.Empty;
 }
 
 /// <summary>Everything a peer needs to show quality badges and score this source.</summary>

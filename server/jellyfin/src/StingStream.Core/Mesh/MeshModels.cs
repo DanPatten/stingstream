@@ -119,6 +119,9 @@ public sealed class MeshIndexEntry
 
     public string? FileHash { get; set; }
 
+    /// <summary>Subtitle sidecars the holder can serve, fetched by index (M7).</summary>
+    public List<MeshSubtitleTrack> Subtitles { get; set; } = new();
+
     public string UpdatedAt { get; set; } = string.Empty;
 }
 
@@ -399,7 +402,48 @@ public sealed class MeshInventoryRecord
     /// <summary>Absolute artwork paths on this node, by kind. Never gossiped.</summary>
     public List<MeshLocalImage> LocalImages { get; set; } = new();
 
+    /// <summary>Absolute subtitle sidecar paths on this node. Never gossiped (M7).</summary>
+    public List<MeshLocalSubtitle> LocalSubtitles { get; set; } = new();
+
     public string UpdatedAt { get; set; } = string.Empty;
+}
+
+/// <summary>One subtitle sidecar this node can serve to peers.</summary>
+public sealed class MeshLocalSubtitle
+{
+    /// <summary>Absolute path on this node.</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Three-letter ISO language code.</summary>
+    public string? Language { get; set; }
+
+    /// <summary>A forced track.</summary>
+    public bool Forced { get; set; }
+
+    /// <summary>SDH.</summary>
+    public bool HearingImpaired { get; set; }
+
+    /// <summary><c>srt</c>, <c>ass</c> or <c>vtt</c>.</summary>
+    public string? Format { get; set; }
+}
+
+/// <summary>A subtitle sidecar as a peer sees it: described, and fetched by index.</summary>
+public sealed class MeshSubtitleTrack
+{
+    /// <summary>Position in the holder's own list, and the segment used to fetch it.</summary>
+    public int Index { get; set; }
+
+    /// <summary>Three-letter ISO language code.</summary>
+    public string? Language { get; set; }
+
+    /// <summary>A forced track.</summary>
+    public bool Forced { get; set; }
+
+    /// <summary>SDH.</summary>
+    public bool HearingImpaired { get; set; }
+
+    /// <summary><c>srt</c>, <c>ass</c> or <c>vtt</c>.</summary>
+    public string? Format { get; set; }
 }
 
 /// <summary>One artwork file this node can serve to peers.</summary>

@@ -522,19 +522,39 @@ public sealed class FederatedLibraryService : BackgroundService
         FederatedSettings settings,
         CancellationToken cancellationToken)
     {
-        var isEpisode = entry.Metadata.Season is not null
+        var isRecording = FederatedLayout.IsRecording(entry.ItemKey);
+        var isEpisode = !isRecording
+            && entry.Metadata.Season is not null
             && entry.Metadata.Episode is not null
             && !string.IsNullOrWhiteSpace(entry.Metadata.SeriesName);
 
         var libraryRoot = Path.Combine(
             root,
-            isEpisode ? FederatedLayout.TvDirectory : FederatedLayout.MoviesDirectory);
+            isRecording
+                ? FederatedLayout.RecordingsDirectory
+                : isEpisode
+                    ? FederatedLayout.TvDirectory
+                    : FederatedLayout.MoviesDirectory);
 
         string folder;
         string fileBase;
         string titleFolder;
 
-        if (isEpisode)
+        if (isRecording)
+        {
+            // Flat: one folder per programme, one file per broadcast per holder. A recording has no
+            // season, often no year, and a name that is the programme rather than the episode, so
+            // neither of the other two layouts applies -- see FederatedLayout.RecordingsLibrary.
+            var folderName = Unique(
+                FederatedLayout.RecordingFolderName(entry),
+                RecordingIdentity(entry),
+                titleOwners,
+                libraryRoot);
+            titleFolder = Path.Combine(libraryRoot, folderName);
+            folder = titleFolder;
+            fileBase = FederatedLayout.RecordingFileBase(folderName, entry, label);
+        }
+        else if (isEpisode)
         {
             var seriesName = Unique(
                 FederatedLayout.SeriesFolderName(entry),
@@ -586,7 +606,14 @@ public sealed class FederatedLibraryService : BackgroundService
 
         FederatedLayout.WriteStrm(strmPath, FederatedLayout.StreamUrl(group, entry.ItemKey, entry.Node));
 
-        if (isEpisode)
+        if (isRecording)
+        {
+            // A `<movie>` NFO, per file. Not `movie.nfo` at the folder level: a recordings folder
+            // holds several *different* broadcasts, so a folder-level NFO would give every one of
+            // them the same title and air date.
+            NfoWriter.WriteMovie(Path.Combine(folder, fileBase + ".nfo"), entry);
+        }
+        else if (isEpisode)
         {
             NfoWriter.WriteEpisode(Path.Combine(folder, fileBase + ".nfo"), entry);
             var seriesNfo = Path.Combine(titleFolder, "tvshow.nfo");
@@ -611,13 +638,19 @@ public sealed class FederatedLibraryService : BackgroundService
                 .ConfigureAwait(false);
         }
 
+        if (Settings2().Subtitles.FetchFromPeers)
+        {
+            await FetchSubtitlesAsync(group, entry, folder, fileBase, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var pointer = new FederatedPointer
         {
             Group = group,
             ItemKey = entry.ItemKey,
             Node = entry.Node,
             NodeName = entry.NodeName ?? string.Empty,
-            Kind = isEpisode ? "episode" : "movie",
+            Kind = isRecording ? "recording" : isEpisode ? "episode" : "movie",
             Quality = entry.Media.Resolution ?? string.Empty,
             Folder = folder,
             StrmPath = strmPath,
@@ -627,7 +660,11 @@ public sealed class FederatedLibraryService : BackgroundService
             OfflineSince = existing?.OfflineSince,
         };
         await _store.SaveAsync(pointer, cancellationToken).ConfigureAwait(false);
-        titleOwners[titleFolder] = isEpisode ? SeriesIdentity(entry) : entry.ItemKey;
+        titleOwners[titleFolder] = isRecording
+            ? RecordingIdentity(entry)
+            : isEpisode
+                ? SeriesIdentity(entry)
+                : entry.ItemKey;
 
         _logger.LogDebug(
             "Materialized {ItemKey} from {Node} at {Path}",
@@ -635,6 +672,22 @@ public sealed class FederatedLibraryService : BackgroundService
             pointer.NodeName,
             strmPath);
         return pointer;
+    }
+
+    /// <summary>
+    /// The identity a recordings folder is keyed on: the programme, not the broadcast.
+    /// </summary>
+    /// <remarks>
+    /// Every recording of one programme shares a folder, so the key has to be the part of the item
+    /// key that every broadcast of it shares -- <c>recording:gardeners-world:20260905T1900</c>
+    /// becomes <c>recording:gardeners-world</c>. Without this, two different programmes that
+    /// sanitise to the same folder name would be given the same folder, which is what
+    /// <see cref="Unique"/> exists to prevent.
+    /// </remarks>
+    private static string RecordingIdentity(MeshIndexEntry entry)
+    {
+        var parts = entry.ItemKey.Split(':');
+        return parts.Length >= 2 ? string.Join(':', parts[0], parts[1]) : entry.ItemKey;
     }
 
     /// <summary>
@@ -681,6 +734,101 @@ public sealed class FederatedLibraryService : BackgroundService
         }
 
         return SafePath.Component($"{preferred} [{SafePath.FromItemKey(identity)}]", preferred);
+    }
+
+    /// <summary>The whole settings document, for the parts that are not <c>Federated</c>.</summary>
+    private SharedSettings Settings2()
+    {
+        try
+        {
+            return _settings.Get();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            _logger.LogDebug(ex, "Could not read the settings; using defaults");
+            return SharedSettings.CreateDefault();
+        }
+    }
+
+    /// <summary>
+    /// Write a peer's subtitle sidecars beside the pointer, so a shared film arrives with them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Jellyfin finds an external subtitle by *name*: a file called <c>{video}.{lang}.srt</c> in the
+    /// same folder becomes a selectable track on that video, with no scan and no database entry of
+    /// its own. So a sidecar written next to a `.strm` is a subtitle on the federated item, exactly
+    /// as it would be next to a real file — which is why this whole feature is a file copy rather
+    /// than anything cleverer.
+    /// </para>
+    /// <para>
+    /// The naming follows Jellyfin's own <c>SubtitleManager.TrySaveSubtitle</c>: language, then
+    /// <c>.forced</c> or <c>.sdh</c> when they apply, then the format. Matching it means a sidecar
+    /// this node fetched and one Jellyfin downloaded itself are indistinguishable, which is what
+    /// stops the same subtitle appearing twice under two names.
+    /// </para>
+    /// <para>
+    /// Skipped when the file is already there. A subtitle does not change, and re-fetching every
+    /// pass would be a request per sidecar per title every fifteen seconds.
+    /// </para>
+    /// </remarks>
+    private async Task FetchSubtitlesAsync(
+        string group,
+        MeshIndexEntry entry,
+        string folder,
+        string fileBase,
+        CancellationToken cancellationToken)
+    {
+        foreach (var track in entry.Subtitles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var language = SafePath.Component(track.Language, "und").ToLowerInvariant();
+            var format = SafePath.Component(
+                string.IsNullOrWhiteSpace(track.Format) ? "srt" : track.Format,
+                "srt").ToLowerInvariant();
+            var name = new System.Text.StringBuilder(fileBase)
+                .Append('.')
+                .Append(language);
+            if (track.Forced)
+            {
+                name.Append(".forced");
+            }
+
+            if (track.HearingImpaired)
+            {
+                name.Append(".sdh");
+            }
+
+            var path = Path.Combine(folder, name.Append('.').Append(format).ToString());
+            if (!SafePath.IsUnder(folder, path))
+            {
+                _logger.LogWarning("Refusing to write a subtitle outside {Folder}", folder);
+                continue;
+            }
+
+            if (File.Exists(path))
+            {
+                continue;
+            }
+
+            var bytes = await _mesh
+                .SubtitleAsync(group, entry.ItemKey, entry.Node, track.Index, cancellationToken)
+                .ConfigureAwait(false);
+            if (bytes is null || bytes.Length == 0)
+            {
+                continue;
+            }
+
+            var tmp = path + ".tmp";
+            await File.WriteAllBytesAsync(tmp, bytes, cancellationToken).ConfigureAwait(false);
+            File.Move(tmp, path, overwrite: true);
+            _logger.LogDebug(
+                "Fetched the {Language} subtitle for {ItemKey} to {Path}",
+                language,
+                entry.ItemKey,
+                path);
+        }
     }
 
     private async Task FetchImagesAsync(
@@ -1220,6 +1368,16 @@ public sealed class FederatedLibraryService : BackgroundService
                 FederatedLayout.TvLibrary,
                 CollectionTypeOptions.tvshows,
                 Path.Combine(root, FederatedLayout.TvDirectory),
+                cancellationToken)
+            .ConfigureAwait(false);
+        // DVR recordings the metadata providers could not identify (M7). `CollectionTypeOptions
+        // .movies` rather than a mixed library: the resolver's multi-version grouping is what makes
+        // two nodes' recordings of one broadcast a single item with two sources, and it only runs
+        // for a typed library.
+        await EnsureLibraryAsync(
+                FederatedLayout.RecordingsLibrary,
+                CollectionTypeOptions.movies,
+                Path.Combine(root, FederatedLayout.RecordingsDirectory),
                 cancellationToken)
             .ConfigureAwait(false);
     }

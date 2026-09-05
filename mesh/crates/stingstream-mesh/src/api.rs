@@ -56,6 +56,10 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
             get(image),
         )
+        .route(
+            "/mesh/v1/subtitle/{group}/{item_key}/{node}/{index}",
+            get(subtitle),
+        )
         .route("/mesh/v1/watch", get(list_watch).post(start_watch))
         .route("/mesh/v1/watch/{session}", get(get_watch))
         .route("/mesh/v1/watch/{session}/join", post(join_watch))
@@ -705,6 +709,22 @@ async fn image(
 ) -> ApiResult<Response> {
     let id = parse_group(&group)?;
     let upstream = node.image(&id, &item_key, &source, &kind).await?;
+    let (parts, body) = upstream.into_parts();
+    let mut out = Response::new(axum::body::Body::new(body));
+    *out.status_mut() = parts.status;
+    for (name, value) in parts.headers.iter() {
+        out.headers_mut().insert(name, value.clone());
+    }
+    Ok(out)
+}
+
+/// `GET /mesh/v1/subtitle/{group}/{item_key}/{node}/{index}` — one subtitle sidecar from a peer.
+async fn subtitle(
+    State(node): State<Arc<MeshNode>>,
+    Path((group, item_key, source, index)): Path<(String, String, String, u32)>,
+) -> ApiResult<Response> {
+    let id = parse_group(&group)?;
+    let upstream = node.subtitle(&id, &item_key, &source, index).await?;
     let (parts, body) = upstream.into_parts();
     let mut out = Response::new(axum::body::Body::new(body));
     *out.status_mut() = parts.status;

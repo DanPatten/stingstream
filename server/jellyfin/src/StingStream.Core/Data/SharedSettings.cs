@@ -47,6 +47,9 @@ public sealed class SharedSettings
     /// <summary>How this node materializes the group's titles into its own Jellyfin.</summary>
     public FederatedSettings Federated { get; set; } = new();
 
+    /// <summary>What subtitles the group wants, and whether to go and get them (M7).</summary>
+    public SubtitleSettings Subtitles { get; set; } = new();
+
     /// <summary>
     /// Quality profile to use when adding titles. Empty means "whatever the app's first profile
     /// is", which is what a fresh Radarr or Sonarr always has at least one of.
@@ -295,6 +298,61 @@ public sealed class NamingSettings
 /// See <c>docs/ARCHITECTURE.md</c>, "Federated library". Every value here is a policy decision a
 /// user might reasonably want to change; the mechanism itself is not configurable.
 /// </remarks>
+/// <summary>
+/// The languages this group wants subtitles in, and whether this node fetches them.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A group setting rather than a per-user one, deliberately. The point of it is that a title
+/// imported on *any* node arrives with subtitles for *everybody* — the holder fetches them once and
+/// publishes them with the inventory record, so every member's materialised copy has them without
+/// each node asking OpenSubtitles for the same file. A per-user preference cannot express that,
+/// because the node doing the fetching may have no user who wants that language at all.
+/// </para>
+/// <para>
+/// It is stored per node and each node acts on its own copy, which means the group agrees only as
+/// far as its members configure the same thing. That is the same shape as every other setting here
+/// and is the honest v1: a shared, gossiped policy needs a writer and a conflict rule, which is
+/// M8's territory alongside revocation.
+/// </para>
+/// </remarks>
+public sealed class SubtitleSettings
+{
+    /// <summary>Go and fetch missing subtitles at all.</summary>
+    /// <remarks>
+    /// On by default, because the alternative is a feature nobody discovers. Off is the right
+    /// answer for a node whose owner curates subtitles by hand, and for one with no internet.
+    /// </remarks>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Three-letter ISO language codes, in preference order. Empty means "this node's UI language".
+    /// </summary>
+    /// <remarks>
+    /// Empty rather than a hard-coded <c>eng</c>: a node set up in German should want German
+    /// subtitles without anybody configuring anything, and the server already knows its own
+    /// <c>UICulture</c>. First-run fills this in from it, so what is stored afterwards is explicit.
+    /// </remarks>
+    public List<string> Languages { get; set; } = new();
+
+    /// <summary>Fetch a peer's subtitle sidecars when materializing its titles.</summary>
+    /// <remarks>
+    /// Separate from <see cref="Enabled"/> because the two cost different things. Fetching a peer's
+    /// existing sidecars is a few kilobytes over a connection that is already open; going out to a
+    /// subtitle provider is an internet round trip and a rate limit.
+    /// </remarks>
+    public bool FetchFromPeers { get; set; } = true;
+
+    /// <summary>How many items one pass may fetch subtitles for.</summary>
+    /// <remarks>
+    /// OpenSubtitles allows a handful of downloads a day for an anonymous account and ten for a
+    /// registered one, so a first scan of a large library must not try to fetch for all of it at
+    /// once. A small batch per pass gets through the backlog over hours instead of being refused
+    /// in the first minute.
+    /// </remarks>
+    public int MaxFetchesPerPass { get; set; } = 5;
+}
+
 public sealed class FederatedSettings
 {
     /// <summary>

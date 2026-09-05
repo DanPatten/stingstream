@@ -13,6 +13,7 @@
 //! | `GET` | `/peer/v1/inventory` | The publisher's full inventory for the group, as JSON. Used on join, before gossip has converged. |
 //! | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | The file itself, with full `Range` support. |
 //! | `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | One artwork file — poster, backdrop, logo, thumb or banner — so a peer can materialize this title with real images and no metadata provider. |
+//! | `GET`/`HEAD` | `/peer/v1/subtitle/{item_key}/{index}` | One subtitle sidecar, so a shared film arrives with its subtitles (M7). |
 //! | `GET` | `/peer/v1/status` | Node name, version and current stream count. |
 //! | `GET` | `/peer/v1/watch` | The watch-together sessions this node leads (M7). |
 //! | `GET` | `/peer/v1/watch/clock` | Two timestamps, for an NTP-style clock offset. |
@@ -236,9 +237,11 @@ pub struct PeerState {
 /// Whether a light node should refuse this peer route outright.
 ///
 /// A light node — the mesh embedded in the phone or TV app — joins a group to dial sources, not to
-/// be one. It still answers `/peer/v1/status` (so members can see it is alive) and
-/// `/peer/v1/inventory` (which is empty, and saying so beats timing out), but never serves
-/// content: neither file bytes nor the artwork a materialising node fetches over `/peer/v1/image`.
+/// be one. It still answers `/peer/v1/status` (so members can see it is alive), `/peer/v1/inventory`
+/// (which is empty, and saying so beats timing out) and the watch-together routes (a phone joining
+/// a watch party is exactly what that feature is for, and costs it no disk at all), but never
+/// serves content: not file bytes, not the artwork a materialising node fetches over
+/// `/peer/v1/image`, and not the subtitle sidecars it fetches over `/peer/v1/subtitle`.
 ///
 /// The rule is "no content route", not "no `file` route", so a route added later is refused by
 /// default rather than quietly opening a phone up as an origin.
@@ -248,7 +251,10 @@ pub struct PeerState {
 /// endpoints to run.
 pub fn light_node_refuses(path: &str) -> bool {
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    matches!(segments.as_slice(), ["peer", "v1", "file" | "image", ..])
+    matches!(
+        segments.as_slice(),
+        ["peer", "v1", "file" | "image" | "subtitle", ..]
+    )
 }
 
 /// The `iroh` protocol handler for `stingstream/http/1`.
@@ -411,6 +417,18 @@ async fn serve(
                 return status(StatusCode::BAD_REQUEST, "malformed item key");
             };
             serve_image(state, group, &item_key, kind).await
+        }
+        ["peer", "v1", "subtitle", item_key, index] => {
+            if method != Method::GET && method != Method::HEAD {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            let Some(item_key) = percent_decode(item_key) else {
+                return status(StatusCode::BAD_REQUEST, "malformed item key");
+            };
+            let Ok(index) = index.parse::<u32>() else {
+                return status(StatusCode::BAD_REQUEST, "the subtitle index is not a number");
+            };
+            serve_subtitle(state, group, &item_key, index).await
         }
         ["peer", "v1", "file", item_key, file_hash] => {
             if method != Method::GET && method != Method::HEAD {
@@ -667,6 +685,66 @@ async fn serve_image(
         .header(header::CACHE_CONTROL, "public, max-age=86400")
         .body(full(bytes))
         .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "could not build a response"))
+}
+
+/// `GET /peer/v1/subtitle/{item_key}/{index}` — one subtitle sidecar, whole.
+///
+/// Resolved through this node's own index exactly as the file and image routes are: a peer names a
+/// *position in the list this node published*, never a path and never a filename. A filename in a
+/// fetch route is a filename a hostile peer gets to choose.
+///
+/// No range support and no stream permit, for the same reason as artwork: a subtitle file is
+/// kilobytes, a materialising peer wants all of a title's at once, and capping them the way films
+/// are capped would stall a node building its library behind whoever happens to be watching
+/// something.
+async fn serve_subtitle(
+    state: Arc<PeerState>,
+    group: GroupId,
+    item_key: &str,
+    index: u32,
+) -> Response<PeerBody> {
+    let me = state.node_key.public().to_string();
+    let found = match state.db.local_subtitle_for(&group, &me, item_key, index) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!(error = %e, "looking up a local subtitle");
+            return status(StatusCode::INTERNAL_SERVER_ERROR, "index unavailable");
+        }
+    };
+    let Some(sub) = found else {
+        return status(
+            StatusCode::NOT_FOUND,
+            "this node holds no such subtitle for that item",
+        );
+    };
+
+    let bytes = match tokio::fs::read(&sub.path).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(path = %sub.path, error = %e, "a published subtitle is missing on disk");
+            return status(StatusCode::NOT_FOUND, "the subtitle is no longer on this node");
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, subtitle_content_type(sub.format.as_deref()))
+        .header(header::CONTENT_LENGTH, bytes.len())
+        // Subtitles change even less often than posters, and a materialising peer re-fetches the
+        // whole set whenever a record's timestamp moves.
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(full(bytes))
+        .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "could not build a response"))
+}
+
+/// Content type from the declared format.
+fn subtitle_content_type(format: Option<&str>) -> &'static str {
+    match format.map(str::to_ascii_lowercase).as_deref() {
+        Some("vtt") => "text/vtt; charset=utf-8",
+        Some("ass") | Some("ssa") => "text/x-ssa; charset=utf-8",
+        Some("sub") => "text/plain; charset=utf-8",
+        // SubRip, and anything unrecognised. A player that got the bytes will parse them.
+        _ => "application/x-subrip; charset=utf-8",
+    }
 }
 
 /// Content type from the extension. Jellyfin only ever writes these.
@@ -990,15 +1068,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_light_node_refuses_file_routes_and_nothing_else() {
+    fn a_light_node_refuses_content_routes_and_nothing_else() {
         assert!(light_node_refuses("/peer/v1/file/movie:tmdb:16205/any"));
         assert!(light_node_refuses("/peer/v1/file/"));
         // M3b's artwork route: a light node holds no images either.
         assert!(light_node_refuses("/peer/v1/image/movie:tmdb:16205/primary"));
+        // M7's subtitle sidecars: content off disk, so a light node refuses them too.
+        assert!(light_node_refuses("/peer/v1/subtitle/movie:tmdb:16205/0"));
         // Status and inventory still answer: a light member is visible and honestly empty.
         assert!(!light_node_refuses("/peer/v1/status"));
         assert!(!light_node_refuses("/peer/v1/inventory"));
         assert!(!light_node_refuses("/peer/v1/files/x/y"));
+        // M7's watch-together routes are *not* content. A phone joining a watch party is exactly
+        // what the feature is for -- it wants to be told when to play, which costs it a few hundred
+        // bytes and no disk -- and refusing them would leave a member of the group that cannot be
+        // in the room.
+        assert!(!light_node_refuses("/peer/v1/watch"));
+        assert!(!light_node_refuses("/peer/v1/watch/clock"));
+        assert!(!light_node_refuses("/peer/v1/watch/join"));
+        assert!(!light_node_refuses("/peer/v1/watch/command"));
+    }
+
+    #[test]
+    fn subtitle_content_types_follow_the_declared_format() {
+        assert_eq!(subtitle_content_type(Some("vtt")), "text/vtt; charset=utf-8");
+        assert_eq!(subtitle_content_type(Some("ASS")), "text/x-ssa; charset=utf-8");
+        assert_eq!(
+            subtitle_content_type(Some("srt")),
+            "application/x-subrip; charset=utf-8"
+        );
+        // Unknown, and absent, both fall back to SubRip -- a player that got the bytes will parse
+        // them, and refusing to serve a subtitle over a content-type quibble helps nobody.
+        assert_eq!(
+            subtitle_content_type(None),
+            "application/x-subrip; charset=utf-8"
+        );
     }
 
     #[test]

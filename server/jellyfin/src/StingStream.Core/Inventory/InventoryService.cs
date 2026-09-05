@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -67,6 +68,7 @@ public sealed class InventoryService : IInventoryService
     private readonly HashingService _hashing;
     private readonly InventoryChangeFeed _changes;
     private readonly INodeRuntimeProvider _runtime;
+    private readonly MediaBrowser.Controller.Configuration.IServerConfigurationManager _serverConfig;
     private readonly ILogger<InventoryService> _logger;
 
     public InventoryService(
@@ -76,6 +78,7 @@ public sealed class InventoryService : IInventoryService
         HashingService hashing,
         InventoryChangeFeed changes,
         INodeRuntimeProvider runtime,
+        MediaBrowser.Controller.Configuration.IServerConfigurationManager serverConfig,
         ILogger<InventoryService> logger)
     {
         _library = library;
@@ -84,6 +87,7 @@ public sealed class InventoryService : IInventoryService
         _hashing = hashing;
         _changes = changes;
         _runtime = runtime;
+        _serverConfig = serverConfig;
         _logger = logger;
     }
 
@@ -116,7 +120,12 @@ public sealed class InventoryService : IInventoryService
     {
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode },
+            // `Video` is here for DVR recordings (M7). Jellyfin's default recordings folder has no
+            // collection type, so a recording resolves as a bare `Video` unless the layout says
+            // otherwise -- and `BaseItemKind.Recording` exists in the enum but is never used by any
+            // of the Live TV code, so it would match nothing. A `Video` that is *not* under a
+            // recording folder is somebody's home movie and is filtered out in BuildAsync.
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode, BaseItemKind.Video },
             Recursive = true,
             // A virtual item is an episode Jellyfin knows about but has no file for; it is not
             // something this node holds, so it is not inventory.
@@ -259,7 +268,16 @@ public sealed class InventoryService : IInventoryService
     /// <summary>Build a record for one item, or <see langword="null"/> when it is not inventory.</summary>
     public async Task<InventoryRecord?> BuildAsync(BaseItem item, CancellationToken cancellationToken)
     {
-        if (item is not Movie and not Episode)
+        var recording = IsRecording(item);
+        if (item is not Movie and not Episode and not Video)
+        {
+            return null;
+        }
+
+        // A bare `Video` earns its place only by living under a Live TV recording folder. Without
+        // this every home movie and every loose file in a mixed library would be published to the
+        // group as a "recording", which is both wrong and a privacy surprise.
+        if (item is not Movie and not Episode && !recording)
         {
             return null;
         }
@@ -279,7 +297,7 @@ public sealed class InventoryService : IInventoryService
             return null;
         }
 
-        var itemKey = BuildItemKey(item);
+        var itemKey = BuildItemKey(item) ?? (recording ? BuildRecordingKey(item) : null);
         if (itemKey is null)
         {
             // Without provider IDs two nodes cannot agree that they hold the same title, so the
@@ -293,9 +311,12 @@ public sealed class InventoryService : IInventoryService
         {
             ItemKey = itemKey,
             JellyfinItemId = item.Id.ToString("N"),
-            Kind = item is Movie ? "movie" : "episode",
+            Kind = Federated.FederatedLayout.IsRecording(itemKey)
+                ? "recording"
+                : item is Movie ? "movie" : "episode",
             LocalPath = item.Path,
             LocalImages = BuildLocalImages(item),
+            LocalSubtitles = BuildLocalSubtitles(item),
             Media = BuildMediaSummary(item),
             Metadata = BuildMetadata(item),
             FileHash = _hashing.HashOf(item.Path),
@@ -488,6 +509,150 @@ public sealed class InventoryService : IInventoryService
         return $"movie:{movieProvider}:{movieId}";
     }
 
+    /// <summary>
+    /// Identity for a DVR recording the metadata providers could not name.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>A key, or <see langword="null"/> when even this cannot be built.</returns>
+    /// <remarks>
+    /// <para>
+    /// **Only reached when <see cref="BuildItemKey"/> found nothing.** A recording whose EPG
+    /// supplied a TMDB or TVDB id is an ordinary <c>movie:</c> or <c>episode:</c> item and
+    /// materialises beside every other copy of that title -- which is what makes dedupe and
+    /// same-hash failover work between a recording and a download, and is worth far more than a
+    /// tidy `recording:` namespace. Schedules Direct usually supplies ids; XMLTV usually does not,
+    /// and that second case is this.
+    /// </para>
+    /// <para>
+    /// The grammar is <c>recording:{programme}:{yyyyMMddTHHmm}</c>, and both halves are chosen so
+    /// that **two nodes recording the same broadcast agree**: the programme name is what the EPG
+    /// gave both of them, and the air date is the broadcast's, not the file's. That agreement is
+    /// the whole point -- it is what turns two copies of one broadcast into one item with two
+    /// sources rather than two items, and what lets a stream fail over from one to the other.
+    /// </para>
+    /// <para>
+    /// The minute, not the second: two tuners starting a second apart recorded the same programme.
+    /// The date alone would be too coarse for a programme broadcast twice in a day.
+    /// </para>
+    /// </remarks>
+    public static string? BuildRecordingKey(BaseItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        // The programme, not the broadcast: a series recording is named for its series so every
+        // episode of it shares a folder, exactly as `SeriesName` does for an ordinary episode.
+        var name = item is Episode episode && !string.IsNullOrWhiteSpace(episode.Series?.Name)
+            ? episode.Series!.Name
+            : item.Name;
+        var programme = Slug(name);
+        if (programme.Length == 0)
+        {
+            return null;
+        }
+
+        // The broadcast. `PremiereDate` is the air date the EPG gave, which both nodes have;
+        // `StartDate` is when *this* tuner started, which they do not agree on to the second but do
+        // to the minute. `DateCreated` is the last resort and is genuinely per-node -- it makes the
+        // recording federate without deduplicating, which is still better than not federating.
+        var when = item.PremiereDate ?? item.DateCreated;
+        var stamp = when == default
+            ? string.Empty
+            : when.ToUniversalTime().ToString("yyyyMMdd'T'HHmm", CultureInfo.InvariantCulture);
+        if (stamp.Length == 0)
+        {
+            return null;
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{Federated.FederatedLayout.RecordingKeyPrefix}{programme}:{stamp}");
+    }
+
+    /// <summary>Lowercase, hyphenated, ASCII. Stable across two nodes given the same name.</summary>
+    private static string Slug(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        var lastWasDash = true;
+        foreach (var c in value)
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+            {
+                builder.Append(char.ToLowerInvariant(c));
+                lastWasDash = false;
+            }
+            else if (!lastWasDash)
+            {
+                builder.Append('-');
+                lastWasDash = true;
+            }
+        }
+
+        return builder.ToString().Trim('-');
+    }
+
+    /// <summary>Whether this item is a DVR recording, i.e. lives under a Live TV recording folder.</summary>
+    private bool IsRecording(BaseItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.Path))
+        {
+            return false;
+        }
+
+        foreach (var root in RecordingRoots())
+        {
+            if (IsUnder(item.Path, root))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Where this node's DVR writes, from Jellyfin's own Live TV configuration.
+    /// </summary>
+    /// <remarks>
+    /// Asked of the configuration rather than of the library, because the answer has to be
+    /// available for an item that has just appeared and has not been resolved into anything yet.
+    /// Jellyfin keeps up to three: a default folder plus optional split ones for films and series
+    /// (<c>RecordingsManager.GetRecordingFolders</c>).
+    /// </remarks>
+    private IReadOnlyList<string> RecordingRoots()
+    {
+        try
+        {
+            var live = _serverConfig.GetConfiguration<MediaBrowser.Model.LiveTv.LiveTvOptions>("livetv");
+            var roots = new List<string>(3);
+            foreach (var path in new[] { live.RecordingPath, live.MovieRecordingPath, live.SeriesRecordingPath })
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    roots.Add(path!);
+                }
+            }
+
+            // The default, which `RecordingsManager` uses when nothing is configured.
+            var data = _serverConfig.ApplicationPaths.DataPath;
+            if (!string.IsNullOrWhiteSpace(data))
+            {
+                roots.Add(Path.Combine(data, "livetv", "recordings"));
+            }
+
+            return roots;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _logger.LogDebug(ex, "Could not read the Live TV recording paths");
+            return Array.Empty<string>();
+        }
+    }
+
     private static (string? Provider, string? Id) PreferredProvider(
         Dictionary<string, string>? providerIds,
         params MetadataProvider[] order)
@@ -547,6 +712,60 @@ public sealed class InventoryService : IInventoryService
         }
 
         return images;
+    }
+
+    /// <summary>
+    /// The subtitle sidecars this node holds for an item, so a peer's copy arrives with them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only *external* streams. A subtitle muxed into the container travels with the file, and
+    /// publishing it here would have a peer download something it is about to receive anyway.
+    /// </para>
+    /// <para>
+    /// The order is the order Jellyfin reports the streams in, and it is load-bearing: a peer
+    /// fetches a sidecar by its position in this list, so the list and the wire record have to be
+    /// built from the same enumeration in the same pass. They are — <see cref="Mesh.InventoryPublisher"/>
+    /// maps this list straight across.
+    /// </para>
+    /// </remarks>
+    private List<SubtitleSidecar> BuildLocalSubtitles(BaseItem item)
+    {
+        var subtitles = new List<SubtitleSidecar>();
+        IReadOnlyList<MediaStream> streams;
+        try
+        {
+            streams = _mediaSources.GetMediaStreams(item.Id);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            _logger.LogDebug(ex, "Could not read subtitle streams for {Name}", item.Name);
+            return subtitles;
+        }
+
+        foreach (var stream in streams)
+        {
+            if (stream.Type != MediaStreamType.Subtitle || !stream.IsExternal)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(stream.Path) || !System.IO.File.Exists(stream.Path))
+            {
+                continue;
+            }
+
+            subtitles.Add(new SubtitleSidecar
+            {
+                Path = stream.Path,
+                Language = stream.Language ?? string.Empty,
+                Forced = stream.IsForced,
+                HearingImpaired = stream.IsHearingImpaired,
+                Format = stream.Codec ?? System.IO.Path.GetExtension(stream.Path).TrimStart('.'),
+            });
+        }
+
+        return subtitles;
     }
 
     private MediaSummary BuildMediaSummary(BaseItem item)

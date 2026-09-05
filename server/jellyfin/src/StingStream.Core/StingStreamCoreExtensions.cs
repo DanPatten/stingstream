@@ -149,6 +149,13 @@ public static class StingStreamCoreExtensions
         // Member requests (M6). One call, defined in Requests/RequestsRegistration.cs.
         services.AddStingStreamRequests();
 
+        // Subtitles the group wants, fetched once by the node that holds the file and published
+        // with its inventory record (M7). Jellyfin's own scheduled task would fetch on every node
+        // independently, each spending a download from a daily quota measured in single digits on
+        // the same file. See Subtitles/SubtitleService.cs.
+        services.AddSingleton<Subtitles.SubtitleService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Subtitles.SubtitleService>());
+
         // Watch together across nodes (M7). Within one node Jellyfin's own SyncPlay already covers
         // federated items -- a peer's `.strm` is an ordinary library item to it -- so this exists
         // only for the case it cannot reach: two friends on two different nodes. Nothing here

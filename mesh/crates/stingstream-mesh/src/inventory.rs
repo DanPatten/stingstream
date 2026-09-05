@@ -51,6 +51,13 @@ pub struct InventoryRecord {
     /// node resolves back to one of these through its own index.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub local_images: Vec<LocalImage>,
+    /// Subtitle sidecar files this node holds for the item. Serving side only, for exactly the same
+    /// reason as [`InventoryRecord::local_images`]: it is this node's directory layout. What a peer
+    /// gets is [`WireRecord::subtitles`], which describes each one and gives its *index* — and the
+    /// serving node resolves that index back to a path through its own index, so a peer can fetch a
+    /// subtitle without ever learning where it is and cannot ask for anything else.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_subtitles: Vec<LocalSubtitle>,
     /// RFC 3339. Later wins on merge.
     pub updated_at: String,
 }
@@ -64,6 +71,18 @@ impl InventoryRecord {
             metadata: self.metadata.clone(),
             image_urls: self.image_urls.clone(),
             file_hash: self.file_hash.clone(),
+            subtitles: self
+                .local_subtitles
+                .iter()
+                .enumerate()
+                .map(|(i, sub)| SubtitleTrack {
+                    index: i as u32,
+                    language: sub.language.clone(),
+                    forced: sub.forced,
+                    hearing_impaired: sub.hearing_impaired,
+                    format: sub.format.clone(),
+                })
+                .collect(),
             updated_at: self.updated_at.clone(),
         }
     }
@@ -80,7 +99,51 @@ pub struct WireRecord {
     pub image_urls: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
+    /// Subtitle sidecars this node can serve, in the order [`InventoryRecord::local_subtitles`]
+    /// holds them (M7). A materialising peer writes each one beside its `.strm`, so a film shared
+    /// from another node arrives with its subtitles rather than without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subtitles: Vec<SubtitleTrack>,
     pub updated_at: String,
+}
+
+/// One subtitle sidecar, as a peer sees it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubtitleTrack {
+    /// Position in the holder's own list, and the segment a peer names to fetch it.
+    ///
+    /// An index rather than a filename, deliberately. A filename in a fetch route is a filename a
+    /// hostile peer gets to choose; an index is resolved through the serving node's own index and
+    /// cannot be anything else. It is stable for as long as the record is, and a record that
+    /// changed brings a new list with it.
+    pub index: u32,
+    /// Three-letter ISO language code, as the provider gave it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// A forced track: only the parts a viewer needs, usually foreign dialogue.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub forced: bool,
+    /// SDH: includes sound descriptions.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hearing_impaired: bool,
+    /// `srt`, `ass`, `vtt`, …
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+}
+
+/// One subtitle sidecar on disk. Never gossiped — see [`InventoryRecord::local_subtitles`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSubtitle {
+    /// Absolute path on this node.
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub forced: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hearing_impaired: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 /// One artwork file this node can serve to peers.
@@ -278,6 +341,12 @@ mod tests {
                 path: "/srv/media/Movies/Sita Sings the Blues (2008)/poster.jpg".into(),
             }],
             image_urls: vec!["/peer/v1/image/movie:tmdb:1/primary".into()],
+            local_subtitles: vec![LocalSubtitle {
+                path: "/srv/media/Movies/Sita Sings the Blues (2008)/x.eng.srt".into(),
+                language: Some("eng".into()),
+                format: Some("srt".into()),
+                ..Default::default()
+            }],
             jellyfin_item_id: Some("abc".into()),
             updated_at: "2026-09-05T00:00:00Z".into(),
             ..Default::default()
@@ -285,11 +354,15 @@ mod tests {
         let json = serde_json::to_string(&r.to_wire()).unwrap();
         assert!(!json.contains("local_path"), "{json}");
         assert!(!json.contains("local_images"), "{json}");
+        assert!(!json.contains("local_subtitles"), "{json}");
         assert!(!json.contains("/srv/media"), "{json}");
         assert!(!json.contains("jellyfin_item_id"), "{json}");
         assert!(json.contains("movie:tmdb:1"));
         // The *route* does travel: it is what tells a peer the image exists at all.
         assert!(json.contains("/peer/v1/image/movie:tmdb:1/primary"), "{json}");
+        // …and so does the subtitle's description, by index rather than by path.
+        assert!(json.contains("\"index\":0"), "{json}");
+        assert!(json.contains("eng"), "{json}");
     }
 
     #[test]

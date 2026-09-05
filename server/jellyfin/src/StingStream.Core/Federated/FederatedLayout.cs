@@ -37,11 +37,27 @@ public static class FederatedLayout
     /// <summary>Subdirectory of the federated root that backs the Shared TV library.</summary>
     public const string TvDirectory = "tv";
 
+    /// <summary>Subdirectory of the federated root that backs the Shared Recordings library.</summary>
+    public const string RecordingsDirectory = "recordings";
+
     /// <summary>Name of the Jellyfin library holding federated movies.</summary>
     public const string MoviesLibrary = "Shared Movies";
 
     /// <summary>Name of the Jellyfin library holding federated series.</summary>
     public const string TvLibrary = "Shared TV";
+
+    /// <summary>Name of the Jellyfin library holding federated DVR recordings.</summary>
+    /// <remarks>
+    /// A third library rather than a corner of the other two, because a recording without provider
+    /// ids fits neither shape. `Shared Movies` needs the year in both the folder and the filename
+    /// and needs every holder to agree on it, which a recording whose `ProductionYear` is absent
+    /// cannot do; `Shared TV` groups on a parsed `SxxEyy`, which a recording named by its air date
+    /// does not have. Forcing either would produce items that silently fail to group -- one film in
+    /// two folders, or an episode that never joins its series. See
+    /// <see cref="Inventory.InventoryService.BuildItemKey"/> for the identity half of the same
+    /// argument.
+    /// </remarks>
+    public const string RecordingsLibrary = "Shared Recordings";
 
     /// <summary>
     /// The label that distinguishes one holder's copy from another's in a filename.
@@ -103,6 +119,83 @@ public static class FederatedLayout
         }
 
         return assigned;
+    }
+
+    /// <summary>Whether an item key names a DVR recording rather than a matched title.</summary>
+    /// <param name="itemKey">The item key.</param>
+    /// <returns>True for the <c>recording:</c> grammar.</returns>
+    /// <remarks>
+    /// Only recordings the metadata providers could not identify carry it. A recording of a film
+    /// whose EPG supplied a TMDB id gets an ordinary <c>movie:</c> key and materialises into Shared
+    /// Movies beside every other copy of that film -- which is the right answer, and is what makes
+    /// dedupe and same-hash failover work between a recording and a download.
+    /// </remarks>
+    public static bool IsRecording(string? itemKey)
+        => itemKey is not null
+           && itemKey.StartsWith(RecordingKeyPrefix, StringComparison.Ordinal);
+
+    /// <summary>The prefix <see cref="IsRecording"/> matches.</summary>
+    public const string RecordingKeyPrefix = "recording:";
+
+    /// <summary>The folder one recording lives in.</summary>
+    /// <param name="entry">The index entry.</param>
+    /// <returns>A safe folder name.</returns>
+    /// <remarks>
+    /// Flat, and named for the programme rather than for the broadcast: every recording of
+    /// "Gardeners' World" shares a folder, the way every version of a film does, so the alternate
+    /// versions of one broadcast group and the library reads as a list of programmes rather than a
+    /// list of timestamps. The broadcast itself is in the *file* name.
+    /// </remarks>
+    public static string RecordingFolderName(MeshIndexEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        var name = entry.Metadata.SeriesName;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = entry.Metadata.Title;
+        }
+
+        return SafePath.Component(name, SafePath.FromItemKey(entry.ItemKey));
+    }
+
+    /// <summary>The filename base for one recording inside its folder.</summary>
+    /// <param name="folderName">The folder name, from <see cref="RecordingFolderName"/>.</param>
+    /// <param name="entry">The index entry.</param>
+    /// <param name="label">The holder's version label.</param>
+    /// <returns>A safe filename base, without an extension.</returns>
+    /// <remarks>
+    /// Starts with the folder name and separates with <c>-</c>, which is what
+    /// <c>VideoListResolver.IsEligibleForMultiVersion</c> requires before it will group two files
+    /// as alternate versions of one item -- the same rule the movie layout follows, and the reason
+    /// two nodes that recorded the same broadcast end up with one item and two sources rather than
+    /// two items.
+    /// </remarks>
+    public static string RecordingFileBase(string folderName, MeshIndexEntry entry, string label)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        var when = BroadcastTag(entry);
+        return string.IsNullOrEmpty(when)
+            ? $"{folderName} - {label}"
+            : $"{folderName} - {when} - {label}";
+    }
+
+    /// <summary>The broadcast a recording is of, as a filename-safe tag.</summary>
+    /// <param name="entry">The index entry.</param>
+    /// <returns>Something like <c>2026-09-05</c>, or empty when nothing says.</returns>
+    private static string BroadcastTag(MeshIndexEntry entry)
+    {
+        // The item key already carries the minute, because that is what makes it unique; the
+        // filename only needs enough to tell two broadcasts apart to a reader.
+        var parts = entry.ItemKey.Split(':');
+        if (parts.Length >= 3 && parts[^1].Length >= 8)
+        {
+            var stamp = parts[^1];
+            return $"{stamp[..4]}-{stamp[4..6]}-{stamp[6..8]}";
+        }
+
+        return string.IsNullOrWhiteSpace(entry.Metadata.PremiereDate)
+            ? string.Empty
+            : SafePath.Component(entry.Metadata.PremiereDate!.Split('T')[0], string.Empty);
     }
 
     /// <summary>The first eight characters of a node id: enough to tell two peers apart in a name.</summary>

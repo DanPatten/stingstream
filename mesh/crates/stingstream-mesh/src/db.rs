@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS inventory (
     file_hash         TEXT,
     local_path        TEXT,
     local_images      TEXT,
+    local_subtitles   TEXT,
     jellyfin_item_id  TEXT,
     updated_at        TEXT NOT NULL,
     PRIMARY KEY (group_id, node_id, item_key)
@@ -166,6 +167,7 @@ impl Db {
         let conn = self.lock();
         for statement in [
             "ALTER TABLE inventory ADD COLUMN local_images TEXT",
+            "ALTER TABLE inventory ADD COLUMN local_subtitles TEXT",
             "ALTER TABLE peers ADD COLUMN throughput_bps INTEGER",
             "ALTER TABLE peers ADD COLUMN throughput_samples INTEGER",
             "ALTER TABLE peers ADD COLUMN throughput_at TEXT",
@@ -838,6 +840,41 @@ impl Db {
         Ok(Some((path, hash)))
     }
 
+    /// The local path of one of this node's own subtitle sidecars, by index.
+    ///
+    /// Same shape as [`Db::local_image_for`] and for the same reason: a peer names an `item_key`
+    /// and a position in the list this node published, never a path or a filename. A filename in a
+    /// fetch route is a filename a hostile peer gets to choose.
+    pub fn local_subtitle_for(
+        &self,
+        group: &GroupId,
+        node: &str,
+        item_key: &str,
+        index: u32,
+    ) -> Result<Option<crate::inventory::LocalSubtitle>> {
+        let json: Option<Option<String>> = self
+            .lock()
+            .query_row(
+                "SELECT local_subtitles FROM inventory
+                 WHERE group_id = ?1 AND node_id = ?2 AND item_key = ?3",
+                params![group.to_string(), node, item_key],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("looking up a local subtitle")?;
+        let Some(Some(json)) = json else {
+            return Ok(None);
+        };
+        let subs: Vec<crate::inventory::LocalSubtitle> = match serde_json::from_str(&json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "skipping an unreadable local_subtitles row");
+                return Ok(None);
+            }
+        };
+        Ok(subs.into_iter().nth(index as usize))
+    }
+
     /// The local path of one of this node's own artwork files, for the peer image route.
     ///
     /// Same shape as [`Db::local_path_for`] and for the same reason: a peer names an `item_key`
@@ -1218,16 +1255,25 @@ fn insert_record(
     } else {
         Some(serde_json::to_string(&rec.local_images).context("encoding a record's local images")?)
     };
+    let subtitles = if rec.local_subtitles.is_empty() {
+        None
+    } else {
+        Some(
+            serde_json::to_string(&rec.local_subtitles)
+                .context("encoding a record's local subtitles")?,
+        )
+    };
     tx.execute(
         "INSERT INTO inventory
              (group_id, node_id, item_key, record, file_hash, local_path, local_images,
-              jellyfin_item_id, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+              local_subtitles, jellyfin_item_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT(group_id, node_id, item_key) DO UPDATE SET
              record = excluded.record,
              file_hash = excluded.file_hash,
              local_path = excluded.local_path,
              local_images = excluded.local_images,
+             local_subtitles = excluded.local_subtitles,
              jellyfin_item_id = excluded.jellyfin_item_id,
              updated_at = excluded.updated_at",
         params![
@@ -1238,6 +1284,7 @@ fn insert_record(
             rec.file_hash,
             rec.local_path,
             images,
+            subtitles,
             rec.jellyfin_item_id,
             if rec.updated_at.is_empty() {
                 now_rfc3339()

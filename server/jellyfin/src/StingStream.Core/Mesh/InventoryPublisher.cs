@@ -467,6 +467,18 @@ public sealed class InventoryPublisher : BackgroundService
             }
         }
 
+        foreach (var sub in record.LocalSubtitles)
+        {
+            mesh.LocalSubtitles.Add(new MeshLocalSubtitle
+            {
+                Path = sub.Path,
+                Language = Blank(sub.Language),
+                Forced = sub.Forced,
+                HearingImpaired = sub.HearingImpaired,
+                Format = Blank(sub.Format),
+            });
+        }
+
         foreach (var kind in record.LocalImages.Keys)
         {
             mesh.LocalImages.Add(new MeshLocalImage

@@ -54,6 +54,8 @@ public sealed class FirstRunService : BackgroundService
     private readonly IInventoryService _inventory;
     private readonly System.Net.Http.IHttpClientFactory _httpFactory;
     private readonly ArrClientFactory _arrs;
+    private readonly MediaBrowser.Common.Updates.IInstallationManager _installs;
+    private readonly MediaBrowser.Common.Plugins.IPluginManager _plugins;
 
     public FirstRunService(
         ILogger<FirstRunService> logger,
@@ -67,7 +69,9 @@ public sealed class FirstRunService : BackgroundService
         IServerConfigurationManager serverConfig,
         IInventoryService inventory,
         System.Net.Http.IHttpClientFactory httpFactory,
-        ArrClientFactory arrs)
+        ArrClientFactory arrs,
+        MediaBrowser.Common.Updates.IInstallationManager installs,
+        MediaBrowser.Common.Plugins.IPluginManager plugins)
     {
         _logger = logger;
         _runtime = runtime;
@@ -81,6 +85,8 @@ public sealed class FirstRunService : BackgroundService
         _inventory = inventory;
         _httpFactory = httpFactory;
         _arrs = arrs;
+        _installs = installs;
+        _plugins = plugins;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -184,6 +190,9 @@ public sealed class FirstRunService : BackgroundService
             runtime.NodeName);
 
         await EnsureSharedSettingsAsync(runtime, report, cancellationToken).ConfigureAwait(false);
+        // Every start, not only the first: it checks whether the plugin is *there* rather than
+        // whether it has run, so an install that failed for want of a network repairs itself.
+        await EnsureSubtitlesAsync(report, cancellationToken).ConfigureAwait(false);
         await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
         await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
 
@@ -316,6 +325,123 @@ public sealed class FirstRunService : BackgroundService
             await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
             report.Steps.Add(
                 $"settings: root folders default to {settings.RootFolders.Movies} and {settings.RootFolders.Tv}");
+        }
+    }
+
+    // --- subtitles ---------------------------------------------------------
+
+    /// <summary>The OpenSubtitles plugin's own id, from its manifest.</summary>
+    /// <remarks>
+    /// Hard-coded because it is what identifies the plugin: names change with translations and
+    /// with whoever writes the manifest entry, and matching on one would install something else the
+    /// day somebody renames it. The value is the plugin's <c>Guid</c> in Jellyfin's own repository
+    /// manifest and has not changed since the plugin was split out of the server.
+    /// </remarks>
+    public static readonly Guid OpenSubtitlesPluginId = new("4b9ed42f-5185-48b5-9803-6ff2989014c4");
+
+    /// <summary>Jellyfin's own plugin repository. Where OpenSubtitles comes from.</summary>
+    public const string JellyfinPluginRepository = "https://repo.jellyfin.org/files/plugin/manifest.json";
+
+    /// <summary>
+    /// Have the OpenSubtitles plugin installed, so subtitles work out of the box.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Jellyfin ships with *no* subtitle provider at all — `ISubtitleManager` is there, and finds
+    /// nothing, and a user's first experience of subtitles is a search that returns an empty list
+    /// with no explanation. Installing the one everybody installs anyway is the difference between
+    /// a feature and a support question.
+    /// </para>
+    /// <para>
+    /// **No credentials are set here, and none are committed.** The plugin works anonymously with a
+    /// small daily download quota; a registered account raises it, and a user adds theirs in the
+    /// app under Server settings → Subtitles. Putting an account in the repository would be putting
+    /// a shared secret in a public one — see `docs/ARCHITECTURE.md`, "Subtitles".
+    /// </para>
+    /// <para>
+    /// Runs on **every** start rather than only the first, and is idempotent: it checks whether the
+    /// plugin is present rather than whether it has run. A plugin the user deliberately removed
+    /// comes back, which is the one wart here — and the alternative, remembering a flag, silently
+    /// stops repairing an install where the download failed the first time.
+    /// </para>
+    /// </remarks>
+    private async Task EnsureSubtitlesAsync(FirstRunReport report, CancellationToken cancellationToken)
+    {
+        var settings = _settings.Get();
+        if (!settings.Subtitles.Enabled)
+        {
+            report.Steps.Add("subtitles: disabled in settings");
+            return;
+        }
+
+        // Wanted languages, written down rather than left implicit, so what the group acts on is
+        // visible in the settings API rather than being a fallback nobody can see.
+        if (settings.Subtitles.Languages.Count == 0)
+        {
+            var language = Subtitles.SubtitleService.DefaultLanguage(_serverConfig.Configuration.UICulture);
+            if (language is not null)
+            {
+                settings.Subtitles.Languages.Add(language);
+                await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+                report.Steps.Add(
+                    $"subtitles: wanted languages default to {language} (this node's UI language)");
+            }
+        }
+
+        // The repository. Present by default on a current Jellyfin, but a node whose configuration
+        // came from somewhere else may not have it, and installing from a repository that is not
+        // there fails in a way that reads as "the plugin does not exist".
+        var config = _serverConfig.Configuration;
+        var repositories = config.PluginRepositories.ToList();
+        if (!repositories.Any(r => string.Equals(r.Url, JellyfinPluginRepository, StringComparison.OrdinalIgnoreCase)))
+        {
+            repositories.Add(new MediaBrowser.Model.Updates.RepositoryInfo
+            {
+                Name = "Jellyfin Stable",
+                Url = JellyfinPluginRepository,
+                Enabled = true,
+            });
+            config.PluginRepositories = repositories.ToArray();
+            _serverConfig.SaveConfiguration();
+            report.Steps.Add("subtitles: added Jellyfin's plugin repository");
+        }
+
+        if (_plugins.GetPlugin(OpenSubtitlesPluginId) is not null)
+        {
+            report.Steps.Add("subtitles: the OpenSubtitles plugin is installed");
+            return;
+        }
+
+        try
+        {
+            var available = await _installs.GetAvailablePackages(cancellationToken).ConfigureAwait(false);
+            var version = _installs
+                .GetCompatibleVersions(available, id: OpenSubtitlesPluginId)
+                .FirstOrDefault();
+            if (version is null)
+            {
+                report.Steps.Add(
+                    "subtitles: no compatible OpenSubtitles build in the repository (this node may "
+                    + "have no route out); subtitles still work if you install it by hand");
+                return;
+            }
+
+            await _installs.InstallPackage(version, cancellationToken).ConfigureAwait(false);
+            report.Steps.Add(
+                $"subtitles: installed OpenSubtitles {version.Version}. It loads on the next restart, "
+                + "and works anonymously; add an account under Server settings -> Subtitles for a "
+                + "larger daily quota.");
+            _logger.LogInformation(
+                "Installed the OpenSubtitles plugin ({Version}). It loads on the next restart.",
+                version.Version);
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or InvalidOperationException
+                                       or TaskCanceledException or IOException)
+        {
+            // A node with no route out is a perfectly good node. Say so and carry on -- this must
+            // never be the reason first-run wiring reports a failure.
+            _logger.LogInformation(ex, "Could not install the OpenSubtitles plugin");
+            report.Steps.Add($"subtitles: could not install OpenSubtitles ({ex.Message})");
         }
     }
 

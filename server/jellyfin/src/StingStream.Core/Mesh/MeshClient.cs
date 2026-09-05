@@ -186,6 +186,20 @@ public interface IMeshClient
         string node,
         string kind,
         CancellationToken cancellationToken);
+
+    /// <summary>Fetch one subtitle sidecar from a peer, by its index in that peer's list (M7).</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="itemKey">The item.</param>
+    /// <param name="node">The holding node.</param>
+    /// <param name="index">Position in the holder's published list.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The bytes, or null when the peer did not answer or holds no such subtitle.</returns>
+    Task<byte[]?> SubtitleAsync(
+        string group,
+        string itemKey,
+        string node,
+        int index,
+        CancellationToken cancellationToken);
 }
 
 /// <inheritdoc />
@@ -576,6 +590,46 @@ public sealed class MeshClient : IMeshClient
         catch (Exception ex) when (IsTransport(ex))
         {
             _logger.LogDebug(ex, "Could not fetch the {Kind} image of {ItemKey} from {Node}", kind, itemKey, node);
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<byte[]?> SubtitleAsync(
+        string group,
+        string itemKey,
+        string node,
+        int index,
+        CancellationToken cancellationToken)
+    {
+        if (BaseUrl is null)
+        {
+            return null;
+        }
+
+        var url = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{BaseUrl}/mesh/v1/subtitle/{Uri.EscapeDataString(group)}/{Uri.EscapeDataString(itemKey)}/{Uri.EscapeDataString(node)}/{index}");
+        try
+        {
+            using var http = Client();
+            using var response = await http.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug(
+                    "The mesh answered {Status} for subtitle {Index} of {ItemKey}",
+                    (int)response.StatusCode,
+                    index,
+                    itemKey);
+                return null;
+            }
+
+            _lastOkUtc = DateTime.UtcNow;
+            return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsTransport(ex))
+        {
+            _logger.LogDebug(ex, "Could not fetch subtitle {Index} of {ItemKey}", index, itemKey);
             return null;
         }
     }
