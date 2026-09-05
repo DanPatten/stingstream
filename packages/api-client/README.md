@@ -41,9 +41,11 @@ Then, from `packages/api-client`:
 bun install
 bun run fetch-openapi   # writes openapi.json from the live node
 bun run generate        # writes src/types.gen.ts from openapi.json
-bun run build           # tsc -> dist/, so apps/stingstream (a file: dependency) picks it up
 git diff openapi.json   # review what changed on the server side before committing
 ```
+
+`bun run build` (tsc → `dist/`, gitignored) is optional — it's a standalone compile check for this
+package, not a step apps/stingstream needs. See "Using it" below for why.
 
 `bun run check` is the CI-friendly version of the same idea: it fetches the live spec and
 fails (exit 1) if either `openapi.json` or `src/types.gen.ts` has drifted from what's
@@ -72,6 +74,16 @@ it memoizes the client on the current `api` atom and is what every StingStream s
 
 `apps/stingstream/package.json` depends on this package as
 `"@stingstream/api-client": "file:../../packages/api-client"` (there is no root workspace
-manifest in this repo, so `file:` is how bun links it — see `docs/APP-DEV.md`). Rebuild this
-package's `dist/` after any change; the app resolves the published `main`/`types`, not
-`src/`.
+manifest in this repo, so `file:` is how bun links it — see `docs/APP-DEV.md`).
+
+**`main`/`types`/`exports` point straight at `src/index.ts`, not a `dist/` build.** The app
+consumes this package through Metro/babel, which transforms any resolved module (including
+TypeScript) regardless of where it sits — it never reads `dist/`. TypeScript's own `bundler`
+module resolution (what `apps/stingstream/tsconfig.json` uses) can likewise resolve a `main`
+field straight to a `.ts` file. So a fresh clone typechecks and bundles correctly with **no
+build step** for this package — `dist/` was tried first and found the hard way: it's
+gitignored, so a clean checkout has no `dist/index.d.ts`, every import from this package
+silently resolved to `any`, and dozens of implicit-`any` errors turned up across the app's
+settings screens in CI while passing fine locally (where `dist/` happened to already exist).
+`bun run build` still exists for anyone who wants a standalone compiled/declared check of this
+package in isolation, but nothing depends on its output.
