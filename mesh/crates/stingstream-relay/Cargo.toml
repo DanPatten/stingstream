@@ -4,8 +4,53 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Relay + discovery + storage-node profile (iroh-relay, iroh-dns-server). See docs/ARCHITECTURE.md."
+description = "The StingStream coordinator: iroh relay, rendezvous, side-door DNS and the SNI router. See docs/MESH.md."
+
+[lib]
+name = "stingstream_relay"
+path = "src/lib.rs"
 
 [[bin]]
 name = "stingstream-relay"
 path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+blake3 = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+data-encoding = "2"
+futures-core = "0.3"
+hickory-proto = "0.26"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
+iroh = "1.1"
+iroh-base = "1.1"
+iroh-dns-server = "1.1"
+iroh-relay = { version = "1.1", features = ["server"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+tokio-rustls-acme = "0.9"
+toml = "0.8"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+# The end-to-end rendezvous test needs real mesh nodes on one side of the coordinator. The
+# dependency is dev-only and one-directional: stingstream-mesh knows nothing about this crate.
+stingstream-mesh = { path = "../stingstream-mesh" }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

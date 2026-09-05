@@ -100,6 +100,12 @@ pub struct PeerConfig {
     /// Advertised capacity, gossiped in the heartbeat. `max_direct_streams` defaults to
     /// `max_concurrent_streams`.
     pub max_transcodes: u32,
+    /// How long to spend dialling one candidate while joining before moving to the next.
+    ///
+    /// Joining tries the inviter first and the coordinator's rendezvous list second, and iroh will
+    /// happily keep trying to reach a node that is switched off for far longer than a person is
+    /// willing to watch a spinner. This bounds each attempt.
+    pub join_dial_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +159,7 @@ impl Default for PeerConfig {
             max_concurrent_streams: 8,
             stream_chunk_bytes: 256 * 1024,
             max_transcodes: 2,
+            join_dial_timeout_secs: 12,
         }
     }
 }

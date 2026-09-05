@@ -262,6 +262,9 @@ impl MeshNode {
             .note_member(&group.id, &self.node_id(), &self.cfg.node_name)?;
         self.db.set_peer_online(&group.id, &self.node_id(), true)?;
         self.start_group(group.clone(), Vec::new()).await?;
+        // The creator is the first member, so it belongs in the rendezvous list from the start:
+        // otherwise a second node could only ever join while the creator happened to be online.
+        self.publish_rendezvous(&group).await;
         tracing::info!(group = %group.id, name, "created a group");
         Ok(group)
     }
@@ -446,6 +449,19 @@ impl MeshNode {
     /// This is what makes a join useful immediately: gossip converges within seconds, but a fresh
     /// joiner would otherwise have an empty index until someone's next snapshot tick.
     async fn sync_from(&self, group: &Group, addr: EndpointAddr) -> Result<usize> {
+        let timeout =
+            std::time::Duration::from_secs(self.cfg.peer.join_dial_timeout_secs.max(1));
+        match tokio::time::timeout(timeout, self.sync_from_inner(group, addr.clone())).await {
+            Ok(r) => r,
+            Err(_) => bail!(
+                "peer {} did not answer within {}s",
+                addr.id.fmt_short(),
+                timeout.as_secs()
+            ),
+        }
+    }
+
+    async fn sync_from_inner(&self, group: &Group, addr: EndpointAddr) -> Result<usize> {
         let peer = addr.id;
         let conn = self.connect_peer(group, addr).await?;
         let req = Request::builder()
