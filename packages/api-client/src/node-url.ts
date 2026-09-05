@@ -20,7 +20,15 @@ export function getNodeBaseUrl(jellyfinBasePath: string): string {
   return trimmed.replace(/\/jellyfin$/i, "");
 }
 
-/** Joins a node base URL with the fixed StingStream API prefix. */
+/**
+ * Joins a node base URL with the fixed StingStream API prefix — for
+ * documentation, scripts, or a manual `fetch()` a caller builds by hand.
+ * `createStingStreamClient` in `client.ts` must NOT use this as its
+ * `baseUrl`: the generated `paths` keys already carry this same prefix
+ * (they're the full path from the OpenAPI document's own root), and
+ * `openapi-fetch` concatenates `baseUrl + path` verbatim, so using this
+ * here would double it.
+ */
 export function getStingStreamApiBaseUrl(jellyfinBasePath: string): string {
   return `${getNodeBaseUrl(jellyfinBasePath)}/stingstream/api/v1`;
 }
