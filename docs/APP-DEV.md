@@ -139,9 +139,11 @@ cmd /c mklink /J E:\g E:\Dan\Documents\Repos\.gradle   # once, no admin needed
 $env:GRADLE_USER_HOME = "E:/g"
 ```
 
-If a build has already failed this way, delete `node_modules/react-native-screens/android/.cxx`
-too: CMake bakes the absolute prefab path into its ninja files, so the old one survives the
-environment change until the configuration is regenerated.
+If a build has already failed this way, delete the stale CMake configurations too — **both**
+`node_modules/react-native-screens/android/.cxx` and `apps/stingstream/android/app/.cxx`. CMake
+bakes the absolute prefab path into its ninja files, so the old one survives the environment
+change until each configuration is regenerated, and missing the second one looks exactly like the
+fix not working.
 
 A debug build takes on the order of 30 minutes cold and produces
 `android/app/build/outputs/apk/debug/app-debug.apk` (~300 MB across three ABIs plus the

@@ -388,6 +388,11 @@ Notes that cost time to find:
   $env:GRADLE_USER_HOME = "E:/g"                            # 261 -> 235 characters
   ```
 
+  After a build has already failed this way, delete the stale CMake configurations as well —
+  **both** `node_modules/react-native-screens/android/.cxx` and `apps/stingstream/android/app/.cxx`.
+  CMake bakes the old absolute path into its ninja files, so it survives the environment change
+  until each is regenerated, and missing one of the two looks exactly like the fix not working.
+
 ---
 
 ## 9. What has been verified
