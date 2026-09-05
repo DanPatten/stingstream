@@ -85,6 +85,15 @@ pub const MAX_GOSSIP_MESSAGE: usize = 256 * 1024;
 /// the budget is measured against the records alone.
 pub const RECORD_BUDGET: usize = 192 * 1024;
 
+/// How a coordinator change learned over gossip reaches the rest of the node.
+///
+/// Carries the group id only; the receiver re-reads the group from the database, which is the
+/// version that has already been through [`crate::db::Db::apply_coordinator`]'s conflict rule. It
+/// is an *unbounded* sender because the alternative — a bounded one — would either block the gossip
+/// receive loop or drop a coordinator change, and a group's coordinator changes about twice in its
+/// life.
+pub type ConfigChangeSender = tokio::sync::mpsc::UnboundedSender<GroupId>;
+
 /// Domain separator for the per-message signature.
 const SIGN_DOMAIN: &[u8] = b"stingstream-gossip-v1";
 /// BLAKE3 `derive_key` context for the sealing key. Changing this rotates every group's key.
@@ -141,6 +150,27 @@ pub enum Body {
     /// winner is a pure function of these and needs no coordinator.
     RequestClaim {
         claim: crate::requests::ClaimRecord,
+    },
+    /// The group's mutable configuration — today, just its coordinator (M4.5).
+    ///
+    /// **Who may send one.** Anybody who can produce a message this node can open: sealing needs
+    /// the group secret, and the Ed25519 signature is verified against a transcript bound to the
+    /// group id. In v1 the secret *is* the membership credential (`docs/MESH.md` — revocation is
+    /// secret rotation until M8), so "sealed and signed" and "written by a member" are the same
+    /// statement. There is deliberately no extra check that the author appears in the `peers`
+    /// table: it would buy nothing against somebody who already holds the secret (they could gossip
+    /// a `Membership` first) while rejecting a legitimate change from a member this node has not
+    /// happened to hear from yet.
+    ///
+    /// **When it is applied.** Only when its stamp beats the one already stored — see
+    /// [`crate::group::CoordinatorStamp`]. `coordinator: None` is a real value meaning "this group
+    /// went back to public infrastructure", not "no opinion".
+    GroupConfig {
+        coordinator: Option<String>,
+        /// Milliseconds since the epoch, from the author's clock.
+        at: u64,
+        /// The node id that made the change. Breaks a tie on `at`.
+        by: String,
     },
 }
 
@@ -248,6 +278,11 @@ impl std::fmt::Debug for GroupGossip {
 /// `bootstrap` is whatever addresses we already know: the inviter from an invite code, the members
 /// the coordinator's rendezvous returned, or the peers the previous run recorded. An empty
 /// bootstrap is fine — the topic simply stays quiet until someone dials in.
+///
+/// `config_changes` is how a coordinator change that arrived over gossip reaches the half of the
+/// node that owns relays and the rendezvous. Deliberately a channel rather than a callback: this
+/// module knows about a database and a topic and should not learn about `iroh::Endpoint` to deliver
+/// one group id.
 #[allow(clippy::too_many_arguments)]
 pub async fn spawn(
     gossip: &Gossip,
@@ -258,6 +293,7 @@ pub async fn spawn(
     node_name: String,
     bootstrap: Vec<EndpointId>,
     cfg: GossipConfig,
+    config_changes: ConfigChangeSender,
 ) -> Result<GroupGossip> {
     let topic = gossip
         .subscribe(group.topic(), bootstrap)
@@ -272,6 +308,7 @@ pub async fn spawn(
         let sender = sender.clone();
         let node_key = node_key.clone();
         let node_name = node_name.clone();
+        let config_changes = config_changes.clone();
         tokio::spawn(async move {
             loop {
                 let next = receiver.next().await;
@@ -297,6 +334,7 @@ pub async fn spawn(
                         // fresh join converge without waiting for the next snapshot tick.
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
+                        publish_group_config(&db, &sender, &group, &secret, &node_key).await;
                         publish(&sender, &group, &secret, &node_key, &Body::RequestSnapshot).await;
                     }
                     Event::NeighborDown(peer) => {
@@ -314,7 +352,7 @@ pub async fn spawn(
                             Ok((author, body)) => {
                                 handle(
                                     &db, &sender, &group, &secret, &node_key, &node_name, author,
-                                    body,
+                                    body, &config_changes,
                                 )
                                 .await;
                             }
@@ -361,6 +399,7 @@ pub async fn spawn(
                     _ = snap.tick() => {
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
+                        publish_group_config(&db, &sender, &group, &secret, &node_key).await;
                     }
                 }
             }
@@ -437,6 +476,46 @@ pub async fn publish_snapshot(
         )
         .await;
     }
+}
+
+/// Broadcast this node's stored view of the group's coordinator, if it is a vouched-for one.
+///
+/// **An unstamped value is never sent.** That is the whole safety property of the design: a node
+/// that joined from an invite code holds the coordinator the code carried, with no author and no
+/// time behind it, and a stale code pasted a month after the group moved would otherwise push the
+/// old coordinator back onto every member. Staying quiet costs nothing — the node adopts the real
+/// value from the first stamped record any neighbour sends, which is on the next `NeighborUp`.
+pub async fn publish_group_config(
+    db: &Db,
+    sender: &GossipSender,
+    group: &GroupId,
+    secret: &GroupSecret,
+    node_key: &SecretKey,
+) {
+    let stored = match db.group(group) {
+        Ok(Some(g)) => g,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(%group, error = %e, "reading the group config to publish");
+            return;
+        }
+    };
+    if !stored.coordinator_stamp.is_stamped() {
+        return;
+    }
+
+    publish(
+        sender,
+        group,
+        secret,
+        node_key,
+        &Body::GroupConfig {
+            coordinator: stored.coordinator.as_ref().map(|u| u.to_string()),
+            at: stored.coordinator_stamp.at,
+            by: stored.coordinator_stamp.by.clone(),
+        },
+    )
+    .await;
 }
 
 /// Re-broadcast every still-open request this node originated, and this node's own claims.
@@ -552,6 +631,7 @@ async fn handle(
     node_name: &str,
     author: EndpointId,
     body: Body,
+    config_changes: &ConfigChangeSender,
 ) {
     let me = node_key.public();
     if author == me {
@@ -619,6 +699,40 @@ async fn handle(
         }
         Body::RequestSnapshot => {
             publish_snapshot(db, sender, group, secret, node_key, node_name).await;
+            // A node asking for a snapshot has just joined or just missed messages; either way it
+            // is exactly the node most likely to be holding a stale coordinator.
+            publish_group_config(db, sender, group, secret, node_key).await;
+        }
+        Body::GroupConfig { coordinator, at, by } => {
+            // The stamp's author is taken from the *body*, not the envelope, and that is
+            // deliberate: a record has to keep its original author and time as it is re-announced
+            // by every member on every snapshot tick. Taking the envelope's author would make the
+            // last node to repeat it look like the one that made the change, and every repeat
+            // would look newer than the original.
+            let stamp = crate::group::CoordinatorStamp {
+                at,
+                by: by.clone(),
+            };
+            match db.apply_coordinator(group, coordinator.as_deref(), &stamp) {
+                Ok(true) => {
+                    tracing::info!(
+                        %group,
+                        from = %author.fmt_short(),
+                        coordinator = coordinator.as_deref().unwrap_or("(none)"),
+                        at,
+                        by = %by,
+                        "adopted a coordinator change"
+                    );
+                    // Tell the half of the node that owns relays and the rendezvous. A closed
+                    // channel means the node is shutting down, which is not worth a warning.
+                    let _ = config_changes.send(*group);
+                }
+                Ok(false) => tracing::debug!(
+                    %group, from = %author.fmt_short(),
+                    "ignoring a coordinator record no newer than ours"
+                ),
+                Err(e) => tracing::warn!(%group, error = %e, "applying a coordinator change"),
+            }
         }
         Body::Request { request } => {
             tracing::debug!(

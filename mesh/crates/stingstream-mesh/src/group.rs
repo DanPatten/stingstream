@@ -118,7 +118,67 @@ pub struct Group {
     pub secret: GroupSecret,
     /// Optional coordinator URL, carried in the invite so every member auto-configures the same one.
     pub coordinator: Option<url::Url>,
+    /// Version stamp of [`Group::coordinator`]. See [`CoordinatorStamp`].
+    pub coordinator_stamp: CoordinatorStamp,
     pub created_at: String,
+}
+
+/// When, and by whom, a group's coordinator was last set.
+///
+/// The coordinator is the one part of a group that is mutable after creation (M4.5), and every
+/// member has to end up agreeing on it without a server to arbitrate. This is the whole conflict
+/// resolution: **last writer wins, by wall-clock millisecond, with the author's node id breaking a
+/// tie.** A tie is not hypothetical — two administrators pressing the button in the same
+/// millisecond is unlikely, but a group whose members disagree *forever* because they each kept
+/// their own value is much worse than one that arbitrarily picks the higher node id, and the node
+/// id is the only value every member already knows and orders identically.
+///
+/// The clock is the *author's*, not the receiver's, and no attempt is made to correct for skew. A
+/// node whose clock is a year fast would win every future change until somebody set it right, which
+/// is the standard cost of last-writer-wins and is accepted here for the same reason it usually is:
+/// the alternative (a vector clock per group, or a leader) buys correctness for a field that
+/// changes perhaps twice in a group's life.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CoordinatorStamp {
+    /// Milliseconds since the epoch, from the clock of the node that made the change.
+    pub at: u64,
+    /// The node id (hex) that made the change. Empty for an unstamped value.
+    pub by: String,
+}
+
+impl CoordinatorStamp {
+    /// A stamp for a change being made right now by `node`.
+    pub fn now(node: &str) -> Self {
+        Self {
+            at: crate::util::now_millis(),
+            by: node.to_string(),
+        }
+    }
+
+    /// A value nobody has vouched for: what an invite code's coordinator arrives as.
+    ///
+    /// An invite carries a coordinator URL but no stamp — the payload shape is fixed by
+    /// [`INVITE_VERSION`], and adding one would make every existing code undecodable. So a joiner
+    /// adopts the invite's coordinator *provisionally*: it is used immediately (which is the whole
+    /// point of carrying it), it loses to any stamped record the group gossips, and it is
+    /// **never broadcast**. That last part is what stops a stale invite code, minted before a
+    /// change and pasted after it, from pushing the old coordinator back onto the whole group.
+    pub fn unstamped() -> Self {
+        Self::default()
+    }
+
+    /// True when this value has an author and a time behind it.
+    pub fn is_stamped(&self) -> bool {
+        self.at > 0 && !self.by.is_empty()
+    }
+
+    /// Does `other` replace this one?
+    ///
+    /// Strictly greater, so a record a node has already applied is idempotent rather than causing
+    /// a re-announcement storm between two members that both hold it.
+    pub fn superseded_by(&self, other: &Self) -> bool {
+        (other.at, other.by.as_str()) > (self.at, self.by.as_str())
+    }
 }
 
 /// The wire form of an invite code, before base58.
@@ -231,6 +291,8 @@ impl Invite {
             name: self.group_name.clone(),
             secret: self.secret,
             coordinator: self.coordinator.clone(),
+            // Provisional: see CoordinatorStamp::unstamped.
+            coordinator_stamp: CoordinatorStamp::unstamped(),
             created_at: crate::util::now_rfc3339(),
         }
     }
@@ -326,6 +388,36 @@ mod tests {
         let future = bs58::encode(raw).with_check().into_string();
         let e = Invite::decode(&future).unwrap_err().to_string();
         assert!(e.contains("unsupported invite version"), "{e}");
+    }
+
+    #[test]
+    fn a_later_stamp_supersedes_an_earlier_one() {
+        let a = CoordinatorStamp { at: 100, by: "aa".into() };
+        let b = CoordinatorStamp { at: 200, by: "aa".into() };
+        assert!(a.superseded_by(&b));
+        assert!(!b.superseded_by(&a));
+    }
+
+    #[test]
+    fn a_tie_is_broken_by_node_id_and_is_idempotent() {
+        let a = CoordinatorStamp { at: 100, by: "aa".into() };
+        let b = CoordinatorStamp { at: 100, by: "bb".into() };
+        assert!(a.superseded_by(&b), "the higher node id wins a tie");
+        assert!(!b.superseded_by(&a));
+        // Applying the record you already hold must be a no-op, or two members holding the same
+        // record would re-announce it to each other forever.
+        assert!(!a.superseded_by(&a.clone()));
+    }
+
+    #[test]
+    fn an_unstamped_value_loses_to_everything_and_is_not_stamped() {
+        let none = CoordinatorStamp::unstamped();
+        assert!(!none.is_stamped());
+        assert!(none.superseded_by(&CoordinatorStamp { at: 1, by: String::new() }));
+        // ...including a stamp from a node whose clock is at the epoch, which is the pathological
+        // case an unstamped invite has to lose to.
+        assert!(none.superseded_by(&CoordinatorStamp { at: 0, by: "aa".into() }));
+        assert!(CoordinatorStamp::now("aa").is_stamped());
     }
 
     #[test]

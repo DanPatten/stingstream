@@ -71,6 +71,15 @@ pub struct MeshNode {
     groups: Mutex<HashMap<GroupId, RunningGroup>>,
     conns: Mutex<HashMap<(GroupId, EndpointId), PeerConnection>>,
     streams: Arc<Semaphore>,
+    /// Handed to every group's gossip loop so a coordinator change it adopted reaches the task
+    /// below, which owns the relay map and the rendezvous. See [`MeshNode::set_coordinator`].
+    config_changes: crate::gossip::ConfigChangeSender,
+    /// Relay URLs this node put in the map *because a coordinator asked for them*.
+    ///
+    /// Tracked separately from the endpoint's own map because that map also holds n0's public
+    /// relays, which are not this code's to remove. Without the distinction, tidying up after a
+    /// coordinator change would eventually strip a node of every relay it has.
+    coordinator_relays: Mutex<Vec<RelayUrl>>,
 }
 
 impl std::fmt::Debug for MeshNode {
@@ -93,7 +102,8 @@ impl MeshNode {
         // be given entries later — so a node with `n0_relays = false` would silently have no way
         // to use its group's coordinator, which is precisely the configuration that depends on it.
         // Seed the map from the config and from every group already in `mesh.db`.
-        let relay_map = seed_relay_map(&cfg, &db.groups().unwrap_or_default()).await;
+        let (relay_map, seeded_coordinator_relays) =
+            seed_relay_map(&cfg, &db.groups().unwrap_or_default()).await;
         let relays_enabled = !relay_map.is_empty();
 
         let addr_book = MemoryLookup::new();
@@ -153,6 +163,8 @@ impl MeshNode {
         }
         let router = router.spawn();
 
+        let (config_tx, mut config_rx) = tokio::sync::mpsc::unbounded_channel::<GroupId>();
+
         let node = Arc::new(Self {
             cfg,
             secret_key,
@@ -165,7 +177,22 @@ impl MeshNode {
             groups: Mutex::new(HashMap::new()),
             conns: Mutex::new(HashMap::new()),
             streams,
+            config_changes: config_tx,
+            coordinator_relays: Mutex::new(seeded_coordinator_relays),
         });
+
+        // React to a coordinator change that arrived over gossip: the database has already applied
+        // it (that is what put the id on this channel), so all that is left is the part gossip
+        // cannot do -- the relay map, the rendezvous, and the copy each running group holds.
+        {
+            let weak = Arc::downgrade(&node);
+            tokio::spawn(async move {
+                while let Some(group) = config_rx.recv().await {
+                    let Some(node) = weak.upgrade() else { break };
+                    node.after_coordinator_change(&group).await;
+                }
+            });
+        }
 
         for group in node.db.groups()? {
             if let Err(e) = node.start_group(group.clone(), Vec::new()).await {
@@ -271,6 +298,12 @@ impl MeshNode {
         let relay = config.url.clone();
         let address_discovery = config.quic.is_some();
         self.endpoint.insert_relay(relay.clone(), config).await;
+        {
+            let mut tracked = self.coordinator_relays.lock().await;
+            if !tracked.contains(&relay) {
+                tracked.push(relay.clone());
+            }
+        }
         tracing::info!(relay = %relay, why, address_discovery, "added a relay to the map");
     }
 
@@ -291,11 +324,16 @@ impl MeshNode {
         name: &str,
         coordinator: Option<url::Url>,
     ) -> Result<Group> {
+        // Stamped with this node and this moment: the creator is the first and only member, so it
+        // is authoritative for the group it has just made, and a stamped value is what every later
+        // change is compared against. An unstamped one would lose to a record from any node whose
+        // clock is at the epoch.
         let group = Group {
             id: GroupId::generate(),
             name: name.to_string(),
             secret: crate::group::GroupSecret::generate(),
             coordinator,
+            coordinator_stamp: crate::group::CoordinatorStamp::now(&self.node_id()),
             created_at: now_rfc3339(),
         };
         self.db.upsert_group(&group)?;
@@ -311,11 +349,147 @@ impl MeshNode {
     }
 
     /// Mint an invite code for a group this node belongs to.
+    ///
+    /// The code carries whatever coordinator the group has **now**, read fresh from the database,
+    /// so a code minted after a coordinator change carries the new value with no separate step —
+    /// which is what "regenerating invite codes" amounts to: the old codes still work as joins,
+    /// they simply arrive with a coordinator the joiner then replaces from the group's own gossip
+    /// (see [`crate::group::CoordinatorStamp::unstamped`]).
     pub async fn invite(&self, id: &GroupId) -> Result<String> {
         let Some(group) = self.db.group(id)? else {
             bail!("this node is not a member of group {id}");
         };
         Invite::new(&group, self.addr()).encode()
+    }
+
+    /// Change a group's coordinator, and tell the group.
+    ///
+    /// The four things that have to happen, in the order they have to happen in:
+    ///
+    /// 1. **Stamp and store.** A change is `(url, now, this node id)`, applied through
+    ///    [`Db::apply_coordinator`] so it goes through exactly the same last-writer-wins rule an
+    ///    incoming gossip record does. A change that loses to a record this node already holds —
+    ///    somebody else changed it a moment ago — is refused rather than silently ignored, because
+    ///    the administrator who pressed the button needs to know the value did not take.
+    /// 2. **Re-seed the relay map**, so this node can actually reach the new coordinator's relay
+    ///    without a restart.
+    /// 3. **Announce to the new coordinator's rendezvous**, so a member joining through it can find
+    ///    this node.
+    /// 4. **Gossip the record**, so every other member does 1–3 for itself.
+    ///
+    /// Returns the group as it now stands.
+    pub async fn set_coordinator(
+        self: &Arc<Self>,
+        id: &GroupId,
+        coordinator: Option<url::Url>,
+    ) -> Result<Group> {
+        let Some(existing) = self.db.group(id)? else {
+            bail!("this node is not a member of group {id}");
+        };
+
+        let stamp = crate::group::CoordinatorStamp::now(&self.node_id());
+        let url = coordinator.as_ref().map(|u| u.to_string());
+        let applied = self.db.apply_coordinator(id, url.as_deref(), &stamp)?;
+        if !applied {
+            // Only reachable when another member's change carries a *later* timestamp than this
+            // node's clock reads, which means the two clocks disagree. Saying so is much more use
+            // than "nothing happened".
+            bail!(
+                "a newer coordinator change from {} is already stored for this group; \
+                 the two nodes' clocks may disagree",
+                if existing.coordinator_stamp.by.is_empty() {
+                    "another member".to_string()
+                } else {
+                    short(&existing.coordinator_stamp.by).to_string()
+                }
+            );
+        }
+
+        tracing::info!(
+            group = %id,
+            coordinator = url.as_deref().unwrap_or("(none)"),
+            was = existing.coordinator.as_ref().map(|u| u.to_string()).unwrap_or_else(|| "(none)".into()),
+            "changed the group's coordinator"
+        );
+
+        self.after_coordinator_change(id).await;
+
+        // Tell the group. Every member applies it under the same rule, and re-announces it on its
+        // own snapshot tick, so a member that is offline right now learns about it when it returns.
+        if let Some(running) = self.groups.lock().await.get(id) {
+            gossip::publish(
+                &running.gossip.sender,
+                id,
+                &running.group.secret,
+                &self.secret_key,
+                &gossip::Body::GroupConfig {
+                    coordinator: url,
+                    at: stamp.at,
+                    by: stamp.by,
+                },
+            )
+            .await;
+        }
+
+        self.db
+            .group(id)?
+            .ok_or_else(|| anyhow::anyhow!("group {id} disappeared while changing its coordinator"))
+    }
+
+    /// The part of a coordinator change that gossip cannot do.
+    ///
+    /// Called both by [`MeshNode::set_coordinator`] (this node made the change) and by the task
+    /// draining the config-change channel (a peer made it). Idempotent: it reads the stored group
+    /// and makes the running node agree with it.
+    async fn after_coordinator_change(self: &Arc<Self>, id: &GroupId) {
+        let Ok(Some(group)) = self.db.group(id) else { return };
+
+        // The old coordinator's relay is dropped only when nothing else wants it: another group may
+        // use the same one, and the build's fallback coordinator is in every node's map by design.
+        // Dropping a relay another group depends on to tidy up after this one would be a much worse
+        // bug than an extra entry in the map.
+        let mut keep: Vec<url::Url> = self.cfg.fallback_coordinator().into_iter().collect();
+        for g in self.db.groups().unwrap_or_default() {
+            if let Some(u) = g.coordinator {
+                keep.push(u);
+            }
+        }
+
+        if let Some(url) = &group.coordinator {
+            self.add_relay(url, "coordinator changed").await;
+        }
+
+        for stale in self.stale_relays(&keep).await {
+            if self.endpoint.remove_relay(&stale).await.is_some() {
+                tracing::info!(relay = %stale, "dropped a relay no group uses any more");
+            }
+        }
+
+        // The running group holds its own copy, which is what `invite()` and the peer paths read.
+        if let Some(running) = self.groups.lock().await.get_mut(id) {
+            running.group = group.clone();
+        }
+
+        // Announce at the new coordinator, so a member joining through its rendezvous finds us.
+        self.publish_rendezvous(&group).await;
+    }
+
+    /// Relays this node added for a coordinator that no group points at any more.
+    ///
+    /// Only relays that came from a coordinator are candidates: n0's public relays are in the map
+    /// because the endpoint was built with them and are not this code's to remove.
+    async fn stale_relays(&self, keep: &[url::Url]) -> Vec<iroh::RelayUrl> {
+        let wanted: Vec<String> = keep
+            .iter()
+            .filter_map(|u| relay_url_for(u).map(|r| r.to_string()))
+            .collect();
+
+        let mut tracked = self.coordinator_relays.lock().await;
+        let (stale, keep_tracked): (Vec<RelayUrl>, Vec<RelayUrl>) = tracked
+            .drain(..)
+            .partition(|r| !wanted.iter().any(|w| w == &r.to_string()));
+        *tracked = keep_tracked;
+        stale
     }
 
     /// Join a group from an invite code.
@@ -448,6 +622,7 @@ impl MeshNode {
             self.cfg.node_name.clone(),
             boot,
             self.cfg.gossip.clone(),
+            self.config_changes.clone(),
         )
         .await?;
 
@@ -685,6 +860,16 @@ impl MeshNode {
                 .side_door
                 .clone()
                 .or_else(|| self.capacity().side_door),
+            // Same reasoning as the side door, one field along: what this node can *fulfil* is
+            // published by M6's own loop through `set_fulfilment`, and Core's capacity push carries
+            // neither flag. Without this, every beat would retract the node's offer to grab
+            // anything and the group would decide nobody could.
+            can_fulfil_movies: capacity
+                .can_fulfil_movies
+                .or_else(|| self.capacity().can_fulfil_movies),
+            can_fulfil_tv: capacity
+                .can_fulfil_tv
+                .or_else(|| self.capacity().can_fulfil_tv),
             ..capacity.clone()
         };
         let json = serde_json::to_string(&merged).context("encoding this node's capacity")?;
@@ -708,6 +893,21 @@ impl MeshNode {
     /// This node's own side-door candidates, if it has published any.
     pub fn side_door(&self) -> Option<crate::sidedoor::SideDoor> {
         self.capacity().side_door
+    }
+
+    /// Publish what this node could grab if the group asked it to (M6).
+    ///
+    /// Written by `StingStream.Core`'s request loop, which is the only thing that knows whether
+    /// this node has a Radarr, a Sonarr, enabled indexers for each, root folders and room. It rides
+    /// the heartbeat, so it converges on the same schedule as liveness and vanishes with the peer --
+    /// and a node that has just lost its last indexer stops being volunteered on the next beat
+    /// rather than being discovered to be useless one claim later.
+    pub fn set_fulfilment(&self, movies: bool, tv: bool) -> Result<()> {
+        let mut hb = self.capacity();
+        hb.can_fulfil_movies = Some(movies);
+        hb.can_fulfil_tv = Some(tv);
+        let json = serde_json::to_string(&hb).context("encoding this node's fulfilment capability")?;
+        self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
     }
 
     /// Group membership and liveness.
@@ -1519,7 +1719,7 @@ pub struct JoinOutcome {
 ///
 /// This runs before `bind` because iroh decides at bind time whether the endpoint has a relay
 /// transport at all, and one that was never created cannot be given entries afterwards.
-async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> iroh::RelayMap {
+async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> (iroh::RelayMap, Vec<RelayUrl>) {
     let map = iroh::RelayMap::empty();
     if cfg.discovery.n0_relays {
         map.extend(&iroh::endpoint::default_relay_mode().relay_map());
@@ -1532,6 +1732,7 @@ async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> iroh::RelayMap {
             }
         }
     }
+    let mut added = Vec::new();
     for url in &coordinators {
         if let Some(config) = relay_config_for(url).await {
             tracing::info!(
@@ -1539,10 +1740,16 @@ async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> iroh::RelayMap {
                 address_discovery = config.quic.is_some(),
                 "seeding a coordinator into the relay map"
             );
+            added.push(config.url.clone());
             map.insert(config.url.clone(), config);
         }
     }
-    map
+    (map, added)
+}
+
+/// The relay URL a coordinator URL names, if it is one at all.
+fn relay_url_for(url: &url::Url) -> Option<RelayUrl> {
+    url.as_str().parse::<RelayUrl>().ok()
 }
 
 /// Build the [`RelayConfig`] for a coordinator URL, asking it whether it does address discovery.

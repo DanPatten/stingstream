@@ -203,14 +203,19 @@ pub struct Heartbeat {
     /// and a node that cannot fulfil says so rather than being discovered to be useless one claim
     /// later.
     ///
-    /// `#[serde(default)]` on both, so a heartbeat from a build that predates M6 reads as "cannot
-    /// fulfil" — which is the safe answer, not a silently-wrong volunteer.
-    #[serde(default)]
-    pub can_fulfil_movies: bool,
+    /// `None` — which is what a build predating M6 sends, and what any beat not built by M6's own
+    /// publisher carries — means "unchanged" on the receiving side, and "cannot fulfil" everywhere a
+    /// decision is made. The safe answer either way, and never a silently-wrong volunteer.
+    ///
+    /// `Option` rather than a plain `bool` for exactly the reason [`Heartbeat::side_door`] is one:
+    /// the capacity push from `StingStream.Core` carries neither field, and a plain `false` in it
+    /// would erase the node's answer on every beat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_fulfil_movies: Option<bool>,
     /// Whether this node could grab a series: a Sonarr with at least one enabled TV indexer, a root
     /// folder, and room. See [`Heartbeat::can_fulfil_movies`].
-    #[serde(default)]
-    pub can_fulfil_tv: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_fulfil_tv: Option<bool>,
     /// Where a *browser* can reach this node over HTTPS — the side door's candidate hostnames and
     /// the coordinator's last reachability verdict. `None` on a node with no coordinator or no
     /// certificate, which is the zero-server default. See [`crate::sidedoor`].

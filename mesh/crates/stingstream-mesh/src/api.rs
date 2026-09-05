@@ -33,6 +33,10 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
+        .route(
+            "/mesh/v1/groups/{group}/coordinator",
+            put(set_coordinator),
+        )
         .route("/mesh/v1/groups/{group}", axum::routing::delete(leave_group))
         .route(
             "/mesh/v1/inventory",
@@ -40,6 +44,7 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         )
         .route("/mesh/v1/capacity", get(get_capacity).put(put_capacity))
         .route("/mesh/v1/sidedoor", get(get_side_door).put(put_side_door))
+        .route("/mesh/v1/fulfilment", get(get_fulfilment).put(put_fulfilment))
         .route("/mesh/v1/index", get(index))
         .route("/mesh/v1/peers", get(peers))
         .route("/mesh/v1/peers/{node}/stats", get(peer_stats))
@@ -234,6 +239,46 @@ async fn make_invite(
     }))
 }
 
+#[derive(Deserialize)]
+struct SetCoordinator {
+    /// The new coordinator URL. Null, absent or empty means "go back to public infrastructure".
+    #[serde(default)]
+    coordinator: Option<String>,
+}
+
+/// `PUT /mesh/v1/groups/{group}/coordinator` — point a group at a different coordinator (M4.5).
+///
+/// A group's coordinator used to be fixed at creation, which meant a group that outgrew the shared
+/// fallback, or whose owner's VPS moved, had to be rebuilt from scratch and re-joined by every
+/// member. This changes it in place: the node stamps the change, re-seeds its own relay map,
+/// announces at the new coordinator's rendezvous and gossips a signed record that every other
+/// member applies under the same last-writer-wins rule. Invite codes minted afterwards carry the
+/// new value, because [`MeshNode::invite`] reads the group fresh.
+///
+/// Idempotent in the useful sense: setting the value it already has still bumps the stamp and
+/// re-announces, which is a reasonable way to repair a member that somehow missed the change.
+async fn set_coordinator(
+    State(node): State<Arc<MeshNode>>,
+    Path(group): Path<String>,
+    Json(body): Json<SetCoordinator>,
+) -> ApiResult<Json<GroupBody>> {
+    let id = parse_group(&group)?;
+    let coordinator = match body.coordinator.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(u) => Some(
+            u.parse::<url::Url>()
+                .map_err(|e| ApiError::bad_request(format!("coordinator is not a url: {e}")))?,
+        ),
+    };
+    let g = node.set_coordinator(&id, coordinator).await?;
+    Ok(Json(GroupBody {
+        group: g.id.to_string(),
+        name: g.name,
+        coordinator: g.coordinator.map(|u| u.to_string()),
+        created_at: g.created_at,
+    }))
+}
+
 async fn leave_group(
     State(node): State<Arc<MeshNode>>,
     Path(group): Path<String>,
@@ -351,6 +396,41 @@ async fn put_side_door(
 
 async fn get_side_door(State(node): State<Arc<MeshNode>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "side_door": node.side_door() }))
+}
+
+#[derive(serde::Serialize, Deserialize)]
+struct Fulfilment {
+    #[serde(default)]
+    can_fulfil_movies: bool,
+    #[serde(default)]
+    can_fulfil_tv: bool,
+}
+
+/// `PUT /mesh/v1/fulfilment` — what this node could grab if the group asked (M6).
+///
+/// Separate from `PUT /mesh/v1/capacity` on purpose. Capacity is about *serving* what this node
+/// already holds and is pushed by the inventory publisher; this is about *acquiring* something it
+/// does not, and only the request loop knows the answer. One endpoint carrying both would mean
+/// whichever publisher wrote last erased the other's field — which is precisely the bug the side
+/// door's own separate endpoint exists to avoid.
+async fn put_fulfilment(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<Fulfilment>,
+) -> ApiResult<Json<Fulfilment>> {
+    node.set_fulfilment(body.can_fulfil_movies, body.can_fulfil_tv)?;
+    Ok(Json(fulfilment_of(&node)))
+}
+
+async fn get_fulfilment(State(node): State<Arc<MeshNode>>) -> Json<Fulfilment> {
+    Json(fulfilment_of(&node))
+}
+
+fn fulfilment_of(node: &MeshNode) -> Fulfilment {
+    let hb = node.capacity();
+    Fulfilment {
+        can_fulfil_movies: hb.can_fulfil_movies.unwrap_or(false),
+        can_fulfil_tv: hb.can_fulfil_tv.unwrap_or(false),
+    }
 }
 
 #[derive(Deserialize)]
