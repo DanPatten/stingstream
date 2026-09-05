@@ -1,9 +1,0 @@
- changelog:
-  exclude:
-    authors:
-      - Weblate
-      - SonarrBot
-  categories:
-    - title: Changes
-      labels:
-        - '*'
