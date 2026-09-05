@@ -392,10 +392,14 @@ create/join). What M5 specifically checked and adds:
   `providers/MeshProvider.tsx`'s `useMeshSourceStatus`, rendered in
   `components/video-player/controls/TechnicalInfoOverlay.tsx`. Nothing to add; verified it reads
   correctly against a federated source (§11).
-- **"Play from…" chooser** for a federated item's multiple `MediaSource`s: also already built,
-  via the existing `MediaSourceButton`/`MediaSourceSelector` components (used pre-play and for
-  downloads) — `MediaSource`s for a federated title are already in PlaybackInfo's scored order
-  (M4), so the existing chooser already reflects it with no changes needed. **TODO, not built**:
+- **"Play from…" chooser** for a federated item's multiple `MediaSource`s: also already built, on
+  both platforms, and independently for each — phone/web via `MediaSourceButton`
+  (`components/ItemContent.tsx`, backed by `PlatformDropdown`) and TV via its own
+  `useTVOptionModal`-based picker (`components/ItemContent.tv.tsx`, gated behind
+  `mediaSources.length > 1` so it only appears when there is something to choose between —
+  exactly the federated multi-holder case). `MediaSource`s for a federated title are already in
+  PlaybackInfo's scored order (M4), so both choosers already reflect it with no changes needed.
+  **TODO, not built**:
   surfacing `stingstream:file_hash` explicitly in that chooser's labels (e.g. a "same file, another
   copy" badge for two sources sharing a hash) — the data is present in PlaybackInfo's per-source
   ETag and in `GET /items/{id}/sources`'s `fileHash` field, but no UI reads it yet. Left as a TODO
