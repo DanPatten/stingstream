@@ -435,8 +435,7 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
   `classes2.dex`).
 
   **And this is where a compiled-but-never-registered module bit.** Launching the app with a JS
-  bundle — which needed a working Metro, and this machine's would not answer HTTP — crashed the
-  whole app at startup:
+  bundle crashed the whole app at startup:
 
   ```
   IllegalArgumentException: You attempted to access the app context before the module was created
@@ -491,6 +490,19 @@ which is why it is not done here.
   it; worth doing before release.
 * **The JNA hop is still untested inside the app.** The startup crash above was one layer
   earlier — module registration — so it says nothing about whether JNA can bind uniffi's symbols
-  once `startMesh()` is called. Repeat the check the first time anyone has a working Metro and the
-  APK installed: log in, and watch for an `UnsatisfiedLinkError` — or its absence, and a node id
-  on the Groups screen.
+  once `startMesh()` is called. The check, with the APK installed and the app on a real screen:
+
+  ```
+  adb shell "run-as com.fredrikburmester.streamyfin cat /proc/<pid>/maps" | grep -c stingstream_mesh_ffi
+  ```
+
+  Non-zero means `isMeshAvailable()` ran and `System.loadLibrary` succeeded. The rest — JNA
+  resolving uniffi's symbols — happens on the first `startMesh()`, which needs a login, and fails
+  loudly with an `UnsatisfiedLinkError` naming the symbol if it fails at all.
+
+* **Metro is unreliable on the M3c build machine**, which is what left the above unverified. It
+  serves one bundle and then stops answering HTTP on either stack — seen three times, including on
+  an instance that had already bundled successfully (`metro:bundling:done … ms=63539`, then a
+  device timeout 36 minutes later). If a fresh instance has not answered within a couple of minutes
+  of `metro:instantiate` in `.expo/dev/logs/start.log`, it is wedged rather than slow; restart it
+  rather than waiting.
