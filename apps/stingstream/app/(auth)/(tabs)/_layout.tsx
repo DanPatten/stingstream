@@ -23,6 +23,7 @@ import {
   useTVHomeBackHandler,
   useTVTabRootBackHandler,
 } from "@/hooks/useTVBackHandler";
+import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
@@ -296,6 +297,13 @@ export default function TabLayout() {
           }}
         />
       </NativeTabs>
+      {/*
+        Watch-together invites, app-wide. An invite is not a screen anybody would think to go and
+        look at -- it arrives while you are doing something else -- so it sits here with the mini
+        player. It renders nothing at all unless somebody on another node has actually started
+        something; see components/stingstream/watch/WatchTogetherBanner.tsx.
+      */}
+      <WatchTogetherBanner />
       <MiniPlayerBar />
       <MusicPlaybackEngine />
     </View>
