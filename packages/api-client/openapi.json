@@ -12137,6 +12137,14 @@
             "description": "When the average was last updated, RFC 3339.",
             "nullable": true
           },
+          "CanFulfilMovies": {
+            "type": "boolean",
+            "description": "Whether this peer advertises that it could <em>grab</em> a film if the group asked it to."
+          },
+          "CanFulfilTv": {
+            "type": "boolean",
+            "description": "Whether this peer advertises that it could grab a series."
+          },
           "SideDoor": {
             "description": "Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the\r\ncoordinator's last reachability verdict. Null on a node with no coordinator or no\r\ncertificate, which is the zero-server default. Passed through from the mesh unchanged --\r\nCore neither builds nor interprets it. See `docs/SIDEDOOR.md`.",
             "nullable": true
@@ -14316,6 +14324,10 @@
       "QualityProfileWriteResult": {
         "type": "object",
         "properties": {
+          "NotFound": {
+            "type": "boolean",
+            "description": "True when the failure was \"no app has that profile\" rather than \"an app refused\"."
+          },
           "Profile": {
             "allOf": [
               {

@@ -3695,6 +3695,10 @@ export interface components {
             ThroughputSamples?: number | null;
             /** @description When the average was last updated, RFC 3339. */
             ThroughputAt?: string | null;
+            /** @description Whether this peer advertises that it could <em>grab</em> a film if the group asked it to. */
+            CanFulfilMovies?: boolean;
+            /** @description Whether this peer advertises that it could grab a series. */
+            CanFulfilTv?: boolean;
             /**
              * @description Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
              *     coordinator's last reachability verdict. Null on a node with no coordinator or no
@@ -4442,6 +4446,8 @@ export interface components {
         };
         /** @description What a write did, per app. */
         QualityProfileWriteResult: {
+            /** @description True when the failure was "no app has that profile" rather than "an app refused". */
+            NotFound?: boolean;
             /** @description The profile as it now stands, read back from the apps. */
             Profile?: components["schemas"]["QualityProfileView"] | null;
             /** @description One line per app: what was created, updated, deleted or refused. */
