@@ -163,23 +163,28 @@ impl CoordinatorClient {
     /// The addresses are inside the signed token, so a man in the middle cannot repoint the node's
     /// hostname at an address it never claimed. The coordinator checks that the token matches the
     /// fields exactly and refuses otherwise.
-    pub async fn register(
-        &self,
-        lan: Option<IpAddr>,
-        public: Option<IpAddr>,
-        mapped_port: Option<u16>,
-    ) -> Result<RegisterResponse> {
-        let token = register_token(lan, public, mapped_port);
+    pub async fn register(&self, claim: &Registration) -> Result<RegisterResponse> {
+        let token = register_token(claim);
         let mut body = serde_json::to_value(self.sign("set", &token))?;
         let obj = body
             .as_object_mut()
             .expect("a signed request serialises to an object");
-        obj.insert("lan".into(), json_ip(lan));
-        obj.insert("pub".into(), json_ip(public));
+        obj.insert("lan".into(), json_ip(claim.lan));
+        obj.insert("pub".into(), json_ip(claim.public));
         obj.insert(
             "mapped_port".into(),
-            mapped_port.map_or(serde_json::Value::Null, |p| serde_json::json!(p)),
+            claim
+                .mapped_port
+                .map_or(serde_json::Value::Null, |p| serde_json::json!(p)),
         );
+        obj.insert(
+            "iroh_relay".into(),
+            match &claim.iroh_relay {
+                Some(r) => serde_json::json!(r),
+                None => serde_json::Value::Null,
+            },
+        );
+        obj.insert("iroh_addrs".into(), serde_json::json!(claim.iroh_addrs));
         self.post("/register/v1", &body).await
     }
 
@@ -261,13 +266,32 @@ fn transcript(node: &str, action: &str, token: &str, ts: u64) -> Vec<u8> {
     t
 }
 
-/// The signed token that covers a registration's addresses.
-fn register_token(lan: Option<IpAddr>, public: Option<IpAddr>, mapped_port: Option<u16>) -> String {
+/// What a node claims about itself when it registers.
+///
+/// Every field is inside the signed token, so a man in the middle can neither repoint the node's
+/// hostname at an address it never claimed nor aim the coordinator's tunnel at another machine.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Registration {
+    pub lan: Option<IpAddr>,
+    pub public: Option<IpAddr>,
+    /// The external port a router mapped to the gateway.
+    pub mapped_port: Option<u16>,
+    /// This node's iroh relay URL, if it has one.
+    pub iroh_relay: Option<String>,
+    /// This node's iroh direct addresses, so the coordinator's SNI passthrough can dial it
+    /// without waiting for pkarr or DNS discovery -- or at all, on a network with neither.
+    pub iroh_addrs: Vec<String>,
+}
+
+/// The signed token that covers a registration.
+fn register_token(claim: &Registration) -> String {
     format!(
-        "register:{}:{}:{}",
-        lan.map(|v| v.to_string()).unwrap_or_default(),
-        public.map(|v| v.to_string()).unwrap_or_default(),
-        mapped_port.map(|p| p.to_string()).unwrap_or_default()
+        "register:{}:{}:{}:{}:{}",
+        claim.lan.map(|v| v.to_string()).unwrap_or_default(),
+        claim.public.map(|v| v.to_string()).unwrap_or_default(),
+        claim.mapped_port.map(|p| p.to_string()).unwrap_or_default(),
+        claim.iroh_relay.clone().unwrap_or_default(),
+        claim.iroh_addrs.join(",")
     )
 }
 
@@ -319,16 +343,19 @@ mod tests {
 
     #[test]
     fn the_signed_tokens_match_what_the_coordinator_recomputes() {
-        // `register:{lan}:{pub}:{port}` with empty fields for the ones that are absent.
+        // `register:{lan}:{pub}:{port}:{relay}:{addrs}`, with empty fields for the absent ones.
         assert_eq!(
-            register_token(
-                Some("192.168.1.5".parse().unwrap()),
-                Some("203.0.113.9".parse().unwrap()),
-                Some(8790)
-            ),
-            "register:192.168.1.5:203.0.113.9:8790"
+            register_token(&Registration {
+                lan: Some("192.168.1.5".parse().unwrap()),
+                public: Some("203.0.113.9".parse().unwrap()),
+                mapped_port: Some(8790),
+                iroh_relay: Some("https://relay.example.org/".into()),
+                iroh_addrs: vec!["192.168.1.5:41234".into(), "203.0.113.9:41234".into()],
+            }),
+            "register:192.168.1.5:203.0.113.9:8790:https://relay.example.org/:\
+192.168.1.5:41234,203.0.113.9:41234"
         );
-        assert_eq!(register_token(None, None, None), "register:::");
+        assert_eq!(register_token(&Registration::default()), "register:::::");
         assert_eq!(probe_token("pub.abc.direct.example.org", 8790), "probe:pub.abc.direct.example.org:8790");
     }
 

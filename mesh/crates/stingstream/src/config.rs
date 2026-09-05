@@ -123,6 +123,20 @@ pub struct SideDoorConfig {
     /// Ask the router for a TCP mapping to the gateway (UPnP IGD, NAT-PMP, PCP).
     pub port_mapping: bool,
 
+    /// The address to publish as this node's public one, overriding what is discovered.
+    ///
+    /// For the case the discovery cannot cover: a router that speaks none of the three mapping
+    /// protocols, a forwarding rule added by hand, and a node whose public address iroh has
+    /// therefore never observed. Given here it is used as-is, private ranges included, because an
+    /// operator who types an address knows something this node does not.
+    pub public_ip: String,
+
+    /// The port the world reaches this node's gateway on, overriding the mapped one.
+    ///
+    /// The other half of a hand-written forwarding rule: a router set up to send TCP 443 to this
+    /// machine's 8790 is reached at 443, and the `pub.` hostname has to say so.
+    pub external_port: u16,
+
     /// The port the coordinator's SNI router listens on, which the `relay.` hostname is dialled at.
     /// 443 in every deployment that has one.
     pub relay_port: u16,
@@ -253,6 +267,8 @@ impl Default for SideDoorConfig {
             acme_root: String::new(),
             acme_propagation_secs: 5,
             port_mapping: true,
+            public_ip: String::new(),
+            external_port: 0,
             relay_port: 443,
             renew_after_days: 60,
             // Five minutes, against the coordinator's fifteen-minute TTL: two refreshes may be

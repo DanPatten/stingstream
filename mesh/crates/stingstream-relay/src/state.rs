@@ -23,6 +23,9 @@ pub struct Inner {
     pub dns: Arc<dyn DnsProvider>,
     /// The coordinator's own iroh endpoint, used to tunnel SNI passthrough to a node.
     pub endpoint: Option<iroh::Endpoint>,
+    /// Addresses learned from `/register/v1`, so the endpoint above can dial a node without
+    /// waiting for pkarr or DNS discovery to converge -- or at all, on a network that has none.
+    pub addr_book: Option<iroh::address_lookup::memory::MemoryLookup>,
     /// Loopback base URL of the embedded `iroh-dns-server`'s HTTP listener, when Full mode started
     /// one. `/pkarr/*` and `/dns-query` are proxied there.
     pub iroh_dns_http: std::sync::RwLock<Option<String>>,
@@ -53,6 +56,15 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     pub fn new(cfg: Config, endpoint: Option<iroh::Endpoint>) -> anyhow::Result<Self> {
+        Self::with_addr_book(cfg, endpoint, None)
+    }
+
+    /// As [`AppState::new`], with the address book the endpoint was built with.
+    pub fn with_addr_book(
+        cfg: Config,
+        endpoint: Option<iroh::Endpoint>,
+        addr_book: Option<iroh::address_lookup::memory::MemoryLookup>,
+    ) -> anyhow::Result<Self> {
         let zone = cfg.dns.origin.as_ref().map(|origin| Zone {
             origin: crate::config::normalise_origin(origin),
             public_ips: cfg.dns.public_ips.clone(),
@@ -97,10 +109,27 @@ impl AppState {
             zone,
             dns,
             endpoint,
+            addr_book,
             iroh_dns_http: std::sync::RwLock::new(None),
             quic_address_discovery: std::sync::atomic::AtomicBool::new(false),
             started: Instant::now(),
         })))
+    }
+
+    /// Remember where a node can be dialled, from what it said in its registration.
+    ///
+    /// Additive and last-writer-wins: a node re-registers every few minutes with whatever
+    /// addresses it currently has, and a stale entry costs one failed dial rather than a wrong
+    /// destination -- the tunnel carries a TLS session the *node* terminates, so a connection to
+    /// the wrong machine cannot be completed by it.
+    pub fn remember_endpoint(&self, addr: iroh::EndpointAddr) {
+        let Some(book) = self.addr_book.as_ref() else {
+            return;
+        };
+        if addr.is_empty() {
+            return;
+        }
+        book.add_endpoint_info(addr);
     }
 
     /// Record where the embedded `iroh-dns-server` is listening, once it is up.

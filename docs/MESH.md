@@ -217,9 +217,12 @@ path type (`direct` / `relay` / `mixed`) and RTT. M3a only records these; M4's s
 
 ### ALPN `stingstream/tcp/1`
 
-Reserved for the HTTPS side door: the coordinator's SNI router opens one bidirectional stream and
-pipes raw TCP to the node's gateway, with TLS terminating on the node. The coordinator half is
-implemented (`stingstream-relay`'s `tunnel` module); the node half is M3b.
+The HTTPS side door's last hop: the coordinator's SNI router opens one bidirectional stream and
+pipes raw TCP to the node's gateway, with TLS terminating on the node. Both halves are implemented
+— `stingstream-relay`'s `tunnel` module dials, `stingstream-mesh`'s [`tunnel`] answers — and the
+node registers the ALPN only when `[sidedoor] gateway_port` in `mesh.toml` names a gateway to pipe
+into, which the supervisor sets for it. A node with no side door refuses the ALPN outright, so a
+dial fails cleanly rather than hanging. See `docs/SIDEDOOR.md`.
 
 ---
 
@@ -410,7 +413,7 @@ exactly one container port host a complete coordinator.
 | `POST` | `/rendezvous/v1/groups/{id}` | bearer | store or refresh one sealed member entry |
 | `GET` | `/rendezvous/v1/groups/{id}` | bearer | the group's live entries |
 | `DELETE` | `/rendezvous/v1/groups/{id}/{slot}` | bearer | a clean leave |
-| `POST` | `/register/v1` | node signature | a node's `lan`/`pub` addresses and mapped port |
+| `POST` | `/register/v1` | node signature | a node's `lan`/`pub` addresses, mapped port and iroh addresses |
 | `POST` | `/probe/v1` | node signature | ask for a TLS handshake against the node's public name |
 | `POST` | `/acme/v1/challenge` | node signature | publish or clear a `_acme-challenge` TXT |
 | `GET` | `/node/v1/{node}` | — | the discovery record: hostnames and `direct_https` |
@@ -468,7 +471,22 @@ DNS-01 token. The request is signed by the node's iroh key over
 `"stingstream-acme-v1" || node_z32 || action || token || ts`, so a node can only write the name it
 owns, and a captured request is useless after ten minutes. `/register/v1` and `/probe/v1` use the
 same signature with the claimed addresses inside the signed field, so they cannot be altered in
-flight.
+flight:
+
+```text
+register:{lan}:{pub}:{mapped_port}:{iroh_relay}:{iroh_addr,iroh_addr,...}
+probe:{host}:{port}
+```
+
+Absent fields are empty, so a node with nothing to claim signs `register:::::`.
+
+**Why the registration carries iroh addresses.** The SNI passthrough has to *dial* the node, and
+`EndpointAddr::new(key)` alone leaves the coordinator waiting on pkarr or DNS discovery to
+converge — or unable to find the node at all on a network that has neither, which is exactly what
+the integration tests and the NAT scenario run. The node already knows its own addresses, so it
+sends them; the coordinator puts them in a `MemoryLookup` its endpoint was built with. A stale
+entry costs one failed dial and nothing worse: the tunnel carries a TLS session the *node*
+terminates, so a connection to the wrong machine cannot complete.
 
 **The reachability probe** does a real TLS handshake, not a TCP connect — a plain listener would
 otherwise read as reachable. It deliberately does not validate the certificate: trust is the
@@ -589,10 +607,9 @@ where the direct path is expected, and that is a manual check rather than a CI o
 * **A Cloudflare token.** The Lite-mode side door needs a zone-scoped `Zone:DNS:Edit` token in
   `STINGSTREAM_DNS_TOKEN`, and a domain whose DNS lives at Cloudflare. Until then the provider stays
   `none` and the side door is Full-mode-only.
-* **The node half of the side door** — ACME client, `portmapper`, rustls on the gateway, the
-  `stingstream/tcp/1` handler, connection racing in the web bundle — is M3b. The coordinator half
-  (SNI router, tunnel, signed TXT endpoint, probe) is here and unit-tested, but nothing has spoken
-  to it end to end yet, because there is no node listening on `stingstream/tcp/1`.
+* **The node half of the side door shipped in M3d** — ACME client, `portmapper`, rustls on the
+  gateway, the `stingstream/tcp/1` handler and connection racing in the web bundle. See
+  `docs/SIDEDOOR.md`, and `tools/e2e-sidedoor.ps1` for the end-to-end run against a local Pebble.
 * **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
   ride iroh's own encryption between two authenticated members. That is the right boundary, but it
   means a member is trusted with everything the group holds. Per-member revocation is M8.

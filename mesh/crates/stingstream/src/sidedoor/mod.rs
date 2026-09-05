@@ -66,7 +66,7 @@ use tokio::sync::watch;
 
 use crate::config::SideDoorConfig;
 use certs::{CertInfo, CertStore};
-use coordinator::{CoordinatorClient, NodeNames};
+use coordinator::{CoordinatorClient, NodeNames, Registration};
 use portmap::{MappingState, PortMapper};
 
 /// How often the supervisor task wakes up. Everything below is expressed in whole ticks.
@@ -352,7 +352,8 @@ impl Cycle {
 
     async fn attempt(&mut self) -> Result<()> {
         let client = self.client().await?;
-        let (lan, public, mapped_port) = self.addresses();
+        let claim = self.registration();
+        let (lan, public, mapped_port) = (claim.lan, claim.public, claim.mapped_port);
 
         // 1. Register. Cheap, and it is what makes the names resolve and the SNI router willing to
         //    route this node, so it happens on every cycle that is due one.
@@ -361,7 +362,7 @@ impl Cycle {
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(self.ctx.cfg.register_interval_secs));
         if due {
             let resp = client
-                .register(lan, public, mapped_port)
+                .register(&claim)
                 .await
                 .context("registering with the coordinator")?;
             self.last_register = Some(std::time::Instant::now());
@@ -482,14 +483,39 @@ impl Cycle {
         (90 - self.ctx.cfg.renew_after_days.min(89)) as i64
     }
 
-    fn addresses(&self) -> (Option<IpAddr>, Option<IpAddr>, Option<u16>) {
-        let observed: Vec<IpAddr> = self.mesh.addr().ip_addrs().map(|a| a.ip()).collect();
+    /// Everything this node claims about itself, ready to be signed and registered.
+    fn registration(&self) -> Registration {
+        let addr = self.mesh.addr();
+        let observed: Vec<IpAddr> = addr.ip_addrs().map(|a| a.ip()).collect();
         let mapped = self.mapper.as_ref().and_then(|m| m.current());
         let lan = addrs::lan_ips(addrs::primary_lan_ip(), &observed)
             .first()
             .copied();
-        let public = addrs::public_ip(mapped.map(|a| *a.ip()), &observed);
-        (lan, public, mapped.map(|a| a.port()))
+        // An operator-supplied address wins outright, private ranges included: somebody who typed
+        // an address into config.toml knows about a forwarding rule this node cannot see.
+        let public = non_empty(&self.ctx.cfg.public_ip)
+            .and_then(|v| v.parse::<IpAddr>().ok())
+            .or_else(|| addrs::public_ip(mapped.map(|a| *a.ip()), &observed));
+        let mapped_port = match self.ctx.cfg.external_port {
+            0 => mapped.map(|a| a.port()),
+            port => Some(port),
+        };
+        // Collected before the struct literal: both iterators borrow `addr`, which the temporary
+        // in a struct expression does not outlive.
+        let iroh_relay = addr.relay_urls().next().map(|u| u.to_string());
+        let iroh_addrs: Vec<String> = addr.ip_addrs().map(|a| a.to_string()).collect();
+        Registration {
+            lan,
+            public,
+            mapped_port,
+            iroh_relay,
+            iroh_addrs,
+        }
+    }
+
+    fn addresses(&self) -> (Option<IpAddr>, Option<IpAddr>, Option<u16>) {
+        let c = self.registration();
+        (c.lan, c.public, c.mapped_port)
     }
 
     /// Publish the current picture into the mesh, so every member's client can race these names.

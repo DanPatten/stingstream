@@ -369,6 +369,17 @@ struct RegisterRequest {
     #[serde(rename = "pub")]
     public: Option<String>,
     mapped_port: Option<u16>,
+    /// The node's iroh relay URL, if it has one.
+    #[serde(default)]
+    iroh_relay: Option<String>,
+    /// The node's iroh direct addresses.
+    ///
+    /// Purely a hint for the SNI passthrough, which otherwise has to wait for pkarr or DNS
+    /// discovery to find the node -- and cannot find it at all on a network with neither. Inside
+    /// the signed token like every other field here, so nothing in the middle can point the
+    /// tunnel somewhere else.
+    #[serde(default)]
+    iroh_addrs: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -385,10 +396,12 @@ async fn register(
     // The signed `token` field carries the addresses, so a man in the middle cannot repoint a
     // node's hostname at an address the node never claimed.
     let claimed = format!(
-        "register:{}:{}:{}",
+        "register:{}:{}:{}:{}:{}",
         body.lan.as_deref().unwrap_or(""),
         body.public.as_deref().unwrap_or(""),
-        body.mapped_port.map(|p| p.to_string()).unwrap_or_default()
+        body.mapped_port.map(|p| p.to_string()).unwrap_or_default(),
+        body.iroh_relay.as_deref().unwrap_or(""),
+        body.iroh_addrs.join(",")
     );
     if body.auth.token != claimed {
         return Err(ApiError::unauthorized("the signed token does not cover these addresses"));
@@ -400,6 +413,7 @@ async fn register(
     let lan = parse_ip(body.lan.as_deref())?;
     let public = parse_ip(body.public.as_deref())?;
     state.registry.register(&node, lan, public, body.mapped_port);
+    state.remember_endpoint(endpoint_addr(&key, &body));
 
     // Full mode answers these names from the zone directly and has nothing to publish. Lite mode
     // is not authoritative, so the same names go out through the provider API.
@@ -435,6 +449,28 @@ async fn register(
         node,
         published,
     }))
+}
+
+/// Build the iroh address a registration claims for itself.
+///
+/// Unparseable entries are dropped rather than refused: an address list is a hint, and one
+/// malformed entry from a node with an unusual interface should not stop the rest of its
+/// registration -- which is what makes its names resolve at all.
+fn endpoint_addr(key: &iroh::PublicKey, body: &RegisterRequest) -> iroh::EndpointAddr {
+    let mut addr = iroh::EndpointAddr::new(*key);
+    if let Some(relay) = body.iroh_relay.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(url) = relay.parse::<url::Url>() {
+            addr = addr.with_relay_url(url.into());
+        }
+    }
+    for direct in body
+        .iroh_addrs
+        .iter()
+        .filter_map(|a| a.trim().parse::<std::net::SocketAddr>().ok())
+    {
+        addr = addr.with_ip_addr(direct);
+    }
+    addr
 }
 
 fn parse_ip(s: Option<&str>) -> ApiResult<Option<std::net::IpAddr>> {

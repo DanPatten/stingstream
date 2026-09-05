@@ -68,6 +68,16 @@ The same applies to anything else exclusive: `apps/stingstream/android/` is rege
 uncommitted work, and a broad add sweeps it into your commit — where it is not lost, but it is
 attributed to you and lands at a moment its author did not choose.
 
+**In a crate someone else is also editing, stage by explicit file path — never by directory** — and
+then **read `git diff --cached --stat` and confirm every staged file is one you changed for this
+commit.** Naming files rather than directories is not enough on its own: a *file* you edited may
+also hold somebody else's half-finished change, and committing it publishes their work at the
+moment they least expected it. This is not hypothetical. M3d's first commit staged
+`stingstream-mesh/src/{lib.rs,db.rs,api.rs}` — three files it really had edited — and carried with
+them M4's in-flight `pub mod score;` for a file that was still untracked, which broke `master` for
+everyone until M4 pushed the other half. If a staged hunk is not yours, take the file out of the
+index (`git restore --staged <file>` is a *write*; ask first) or wait for its author.
+
 The same reasoning rules out every git command that rewrites the working tree — `checkout --`,
 `restore`, `reset`, `stash`, `clean`. To undo your own edits, reverse them by hand.
 

@@ -86,8 +86,17 @@ async fn main() -> Result<()> {
     // The coordinator's own iroh endpoint. It exists only to dial nodes for SNI passthrough, so it
     // is not created when nothing will use it — a Lite coordinator with no side door needs no QUIC
     // socket at all.
+    // The address book is part of the endpoint from the start: a node hands over its iroh
+    // addresses when it registers, and without somewhere to put them the passthrough can only
+    // find a node once pkarr or DNS discovery has converged -- and never on a network with
+    // neither, which is what the integration tests and the NAT scenario run.
+    let addr_book = iroh::address_lookup::memory::MemoryLookup::new();
     let endpoint = if cfg.sni.enabled {
-        match iroh::Endpoint::bind(iroh::endpoint::presets::N0).await {
+        match iroh::Endpoint::builder(iroh::endpoint::presets::N0)
+            .address_lookup(addr_book.clone())
+            .bind()
+            .await
+        {
             Ok(ep) => {
                 tracing::info!(endpoint = %ep.id(), "coordinator iroh endpoint bound (for SNI passthrough)");
                 Some(ep)
@@ -101,7 +110,11 @@ async fn main() -> Result<()> {
         None
     };
 
-    let state = AppState::new(cfg.clone(), endpoint)?;
+    let state = AppState::with_addr_book(
+        cfg.clone(),
+        endpoint,
+        Some(addr_book),
+    )?;
 
     // Housekeeping: expired registrations and rendezvous entries.
     {
@@ -232,13 +245,20 @@ async fn main() -> Result<()> {
                     config: acme_tls(host, &cfg.tls)?,
                 })
             }
-            // A plain-HTTP coordinator behind the SNI router makes no sense: the router only ever
-            // sees TLS. Refuse at startup rather than accepting and failing every handshake.
+            // A coordinator whose own TLS is terminated by something in front of it (a platform
+            // proxy, or a test rig) has nothing to hand a client that asks for its *own*
+            // hostname -- but that is only half the router's job. Passthrough needs no
+            // certificate at all: it forwards ciphertext to a node that terminates TLS itself.
+            // So this runs the router with the local half refusing, and says so once at
+            // start-up rather than failing every handshake in silence.
             TlsMode::None => {
-                anyhow::bail!(
-                    "the SNI router needs tls.mode = \"manual\" or \"acme\"; with \"none\" there \
-                     is nothing to terminate TLS with"
-                )
+                tracing::warn!(
+                    "the SNI router is running in passthrough-only mode: tls.mode is \"none\", so \
+                     there is nothing to terminate TLS for this coordinator's own hostname. \
+                     relay.<nodeid>.<zone> still works; https://<this coordinator> on the router's \
+                     port does not."
+                );
+                Arc::new(PassthroughOnly)
             }
         };
         let state = state.clone();
@@ -373,6 +393,28 @@ async fn serve_acme(
     tls: &stingstream_relay::config::TlsConfig,
 ) -> Result<()> {
     serve_tls(listener, svc, acme_tls(hostname, tls)?).await
+}
+
+/// Refuses connections the SNI router decided are for the coordinator itself.
+///
+/// Installed when `tls.mode = "none"`: there is no certificate for this coordinator's own name, so
+/// the only honest thing to do with such a connection is close it. Passthrough to a registered
+/// node is unaffected, because it never terminates TLS here.
+#[derive(Debug)]
+struct PassthroughOnly;
+
+impl LocalHandler for PassthroughOnly {
+    fn handle(
+        &self,
+        _stream: Replay<tokio::net::TcpStream>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async {
+            tracing::debug!(
+                "refusing a connection for this coordinator's own name: the SNI router is \
+                 passthrough-only (tls.mode = \"none\")"
+            );
+        })
+    }
 }
 
 /// Terminates TLS for connections the SNI router decided are for the coordinator itself.
