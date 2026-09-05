@@ -123,10 +123,10 @@
       "disable": "Disable hero"
     },
     "intro": {
-      "welcome_to_streamyfin": "Welcome to Streamyfin",
+      "welcome_to_streamyfin": "Welcome to StingStream",
       "a_free_and_open_source_client_for_jellyfin": "A free and open-source client for Jellyfin.",
       "features_title": "Features",
-      "features_description": "Streamyfin has a bunch of features and works with other software. You'll find them in the settings menu:",
+      "features_description": "StingStream has a bunch of features and works with other software. You'll find them in the settings menu:",
       "jellyseerr_feature_description": "Connect to your Seerr instance and request movies directly in the app.",
       "downloads_feature_title": "Downloads",
       "downloads_feature_description": "Download movies and series to watch offline.",
@@ -136,8 +136,8 @@
       "done_button": "Done",
       "go_to_settings_button": "Go to Settings",
       "read_more": "Read more",
-      "crash_reports_title": "Help improve Streamyfin",
-      "crash_reports_description": "Streamyfin sends anonymous crash and error reports to the developers. No account data or server addresses are included. You can turn this off here or anytime in settings."
+      "crash_reports_title": "Help improve StingStream",
+      "crash_reports_description": "StingStream sends anonymous crash and error reports to the developers when this is turned on. No account data or server addresses are included. You can turn this off here or anytime in settings."
     },
     "settings": {
       "settings_title": "Settings",
@@ -426,7 +426,7 @@
         "opensubtitles_enabled": "Search OpenSubtitles",
         "opensubtitles_enabled_hint": "Let this device search OpenSubtitles directly when your Jellyfin server has no subtitle provider. Turning this off keeps subtitle searches on your server and leaves any saved API key alone.",
         "crash_reports": "Crash reports",
-        "crash_reports_hint": "Send anonymous crash and error reports to the Streamyfin developers via Sentry. Reports contain no account data; server addresses and tokens are removed before anything is sent.",
+        "crash_reports_hint": "Send anonymous crash and error reports to the StingStream developers via Sentry, when configured. Reports contain no account data; server addresses and tokens are removed before anything is sent.",
         "jellyseerr": {
           "server_url": "Server URL",
           "server_url_hint": "Example: http(s)://your-host.url\n(add port if required)",
@@ -1146,7 +1146,7 @@
     "pair_with_phone": "Pair with phone",
     "pair_with_phone_title": "Log in on TV",
     "waiting_for_phone": "Waiting for phone...",
-    "scan_with_phone": "Scan with the Streamyfin app on your phone",
+    "scan_with_phone": "Scan with the StingStream app on your phone",
     "logging_in": "Logging in...",
     "logging_in_description": "Connecting to your server"
   },

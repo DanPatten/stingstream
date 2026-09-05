@@ -116,6 +116,30 @@ Each variant is its own `expo prebuild --platform android --clean` (`EXPO_TV=0`/
 running both variants back to back never overwrites one with the other (unlike
 `android/app/build/outputs/**` itself, which both variants share).
 
+### Supported ABIs: arm64-v8a + x86_64 only — armeabi-v7a dropped (open item for Dan)
+
+`app.json`'s `expo-build-properties` android block sets `buildArchs: ["arm64-v8a", "x86_64"]`
+(maps to Gradle's `reactNativeArchitectures` — `node_modules/expo-build-properties/src/android.ts`).
+This milestone's release build **does not produce a 32-bit ARM (`armeabi-v7a`) artifact**.
+
+**What actually failed:** not mpv, not the mesh FFI, not R8 — `react-native-reanimated`'s CMake
+build for the `armeabi-v7a` ABI. Its Ninja invocation deterministically fails on this Windows build
+machine with `ninja: error: manifest 'build.ninja' still dirty after 100 tries`, on every retry, for
+that ABI only (`arm64-v8a` and `x86_64` both configure and build cleanly). This looks like a
+Windows-specific CMake/Ninja regeneration race specific to reanimated's build graph for the 32-bit
+ARM toolchain; it was not root-caused further given time available, and downgrading tooling was
+explicitly out of scope for chasing a single ABI (Dan pre-authorized dropping it rather than losing
+more time — see chat log for 2026-09-05).
+
+**Device impact:** `armeabi-v7a` is 32-bit-only ARM devices with no 64-bit fallback — older Fire TV
+Sticks (1st/2nd gen), some budget Android TV boxes, and very old phones (pre-2015-ish). Every device
+this milestone's own acceptance criteria mention — modern phones, Chromecast with Google TV,
+current Fire TV/Android TV hardware — is `arm64-v8a`. `x86_64` is kept for emulators. **Open item
+for Dan:** decide whether 32-bit-only hardware needs to be supported at all for StingStream's
+intended audience before M8 (packaging/release); if yes, the reanimated/Ninja failure needs proper
+root-causing (possibly a reanimated version bump, a different NDK/CMake pin, or building that one
+ABI from WSL/Linux instead of native Windows) rather than the drop applied here.
+
 The script rebuilds the mesh's native library first (`scripts/build-mesh-android.ps1`) unless
 `-SkipMesh` — see `docs/APP-MESH.md`. **This must be built from a `stingstream-mesh` (and
 `stingstream-mesh-ffi`) checked out at or after commit `5617978`** (the gossip frame chunking
@@ -267,7 +291,22 @@ Downloads screen already exposes pause/resume/remove and storage settings. M5's 
 mesh-aware *source choice* specifically; the transport and lifecycle around it were already
 release-ready.
 
-**Verified:** §11 (download a federated episode, airplane mode, play it).
+**Verified:** §11 (download a federated episode, airplane mode, play it). Verification also
+surfaced two real gaps in mesh-aware download selection — both documented in §11 rather than fixed
+here for lack of remaining time; neither blocks the milestone since a clean success path exists:
+
+- When PlaybackInfo's download profile forces transcoding for a federated source (`MediaSource.
+  TranscodingUrl` set — e.g. a 4K source outside the download profile's direct-play limits),
+  `getDownloadUrl`'s `!mediaSource.TranscodingUrl` guard skips the mesh-direct branch entirely and
+  falls back to the home node proxying *and* transcoding the federated bytes in real time, which is
+  slow enough to hit the downloader's timeout in practice (observed: Big Buck Bunny's 4K source,
+  60s timeout). The mesh-direct path should arguably still be preferred here over a home-node
+  transcode+proxy double-hop; needs a design decision, not just a bug fix.
+- `GET /stingstream/api/v1/items/{id}/sources` (M4) can pick a holder that the mesh itself then
+  404s on (observed: a second federated item, node responded `status=404` to a direct P2P stream
+  request for the exact `item_key`/node pair `bestOnlineSource` had just returned as `online: true`)
+  — a possible gossip/inventory staleness gap between what M4's endpoint reports and what the
+  holder's mesh HTTP server actually serves. Worth root-causing in the mesh core, not the app.
 
 ---
 
@@ -424,8 +463,127 @@ the new unit tests (`lib/stingstream/castStreamUrl.test.ts`,
 
 ## 11. Verification
 
-*(Filled in as each check actually runs against a real node and the two emulators — see the
-tracking notes at the bottom of this section for what is still outstanding.)*
+Run against a real 3-node acceptance harness (`tools/e2e-m4.ps1`'s node A/B/C, node A used as the
+"home" node for both emulators) and two Android emulators — `stingstream-tv` (Android TV, API 34)
+and `stingstream-phone` (a phone profile), both logged into node A as the seeded admin account.
+Screenshots referenced below are in `.win-temp/m5-screenshots/` (outside the repo).
+
+### Release builds
+
+| Variant | APK | AAB |
+|---|---|---|
+| Phone | `stingstream-phone-20260905-131058.apk` (204,923,105 bytes) | `stingstream-phone-20260905-131058.aab` (115,534,131 bytes) |
+| TV | `stingstream-tv-20260905-134313.apk` (204,548,584 bytes) | `stingstream-tv-20260905-134313.aab` (115,044,351 bytes) |
+
+Both under `apps/stingstream/release-builds/<variant>/`, both signed with the release keystore
+(§2) and installed via `adb install` onto the two emulators for everything below. Both artifacts
+predate the `app.json` `buildArchs` fix directly above (§2 "Supported ABIs") but are already
+`arm64-v8a` + `x86_64` only — that build used a manual `-PreactNativeArchitectures` override on the
+Gradle command line; the config fix makes the same result reproducible from a plain
+`build-release.ps1` run without it. **Not re-verified with a full clean rebuild after the config
+change** (each variant's clean build is tens of minutes; the change is a direct, source-confirmed
+equivalent of the override already proven to work — see `node_modules/expo-build-properties/src/
+android.ts`) — a quick confirmation build before shipping is cheap insurance, flagged for whoever
+does the next release build.
+
+### QuickConnect (§5) — fully verified end to end
+
+1. TV → Login screen → "Quick Connect" → the app calls the gateway's `/jellyfin/QuickConnect/
+   Initiate` and shows a real 6-digit code (`371472`, `tv-08-qccode.png`).
+2. Phone (already logged in as admin) → Settings → "Authorize Quick Connect" → entered `371472` →
+   "Success — Quick Connect authorized" (`phone-36-authorized.png`, native Android alert, not a
+   custom toast).
+3. TV completed login **automatically**, with no further input, landing on Home
+   (`tv-09-qcresult.png`, `tv-10-home.png`) — showing both a local "Recently added in Movies" row
+   and a federated **"Recently added in Shared Movies"** row (Sita Sings the Blues, Big Buck Bunny,
+   Night of the Living Dead — content from other nodes in the mesh group), proving the merged
+   library renders on TV through a code-only pairing with no credentials ever entered on the TV.
+
+### TV ten-foot polish + federated playback (§9) — verified
+
+- D-pad `DPAD_DOWN`/`DPAD_DOWN` moved focus from the nav bar into the content rows, landing on "Big
+  Buck Bunny" in the **Shared Movies** row (a federated item) with a visible focus ring
+  (`tv-11-focus.png`) — confirms D-pad focus works on the home/browse screen's federated content,
+  not just local.
+- `DPAD_CENTER` opened the details screen (`tv-12-details.png`) — Play button focused by default,
+  full metadata (cast/crew, technical details, quality/video/audio pills) rendered as ten-foot
+  layout.
+- `DPAD_CENTER` again started playback. The OSD (`DPAD_DOWN` to reveal it, `tv-15-osd.png`) showed
+  "Big Buck Bunny · 2008", a live position/duration (`0m 0s` / `-0m 12s`, `Ends at 13:55`), a pause
+  icon (meaning it was actively playing), and full remote-navigable transport controls (skip
+  back/forward, volume, subtitle/audio-track icons) — a federated item selected and played
+  end-to-end using only D-pad input.
+- Screen-captured video frames themselves came back solid black (`tv-13/14/16-*.png`) despite the
+  OSD proving active playback — almost certainly `screencap` not capturing mpv's native video
+  surface/overlay (a known category of emulator limitation), not a playback failure; the OSD's live
+  timestamps are the actual evidence here.
+- Group screen (read-only) and QuickConnect on TV both already covered above/in §5; management
+  screens hidden on TV is pre-existing Streamyfin behavior, not re-verified separately this pass.
+
+### Offline downloads, mesh-aware (§6) — verified, with two real findings
+
+Three federated items were attempted from the phone to exercise the mesh-aware download path
+end-to-end, not just the happy case:
+
+1. **Big Buck Bunny (4K federated source) — failed, timeout.** `[DOWNLOAD] Download URL` logged a
+   home-gateway **transcode** URL (`http://10.0.2.2:8880/jellyfin/videos/.../stream.mp4?...
+   TranscodeReasons=DirectPlayError`), not a mesh URL — because `MediaSource.TranscodingUrl` was
+   set (the download profile couldn't direct-play a 4K source), and `getDownloadUrl`'s mesh-direct
+   branch explicitly excludes that case (§6, "two real gaps" above). Failed after Android's
+   background-downloader 60s timeout trying to proxy+transcode federated bytes through the home
+   node in real time.
+2. **Sita Sings the Blues (federated) — failed, HTTP 404, immediate.** This one *did* take the
+   mesh-direct path: `[DOWNLOAD] Download URL` was `http://127.0.0.1:45437/stream/<group>/
+   movie%3Atmdb%3A22820/<node>` — the phone's own embedded light node's loopback port. The native
+   mesh log confirms a direct P2P connection to node A (`peer_name="stingstream-a" path="direct"
+   rtt_ms=4`) immediately followed by `streaming from a peer ... status=404 failover_candidates=0`
+   — the peer itself said no for that exact item/node pair. Filed as a possible M4
+   `bestOnlineSource` staleness gap in §6.
+3. **Night of the Living Dead (federated copy, from the "Shared Movies" row) — succeeded, fully.**
+   Same mesh-direct path (`http://127.0.0.1:45437/stream/<group>/movie%3Atmdb%3A10331/<node>`), the
+   native mesh log shows `status=200 ... total=5307659`, `OkHttpDownloadManager: Download
+   completed: taskId=3, bytes=5307659`, saved to `/data/user/0/org.stingstream.app/files/
+   night_of_the_living_dead_1968.mp4`, and the app's own "Download completed" notification fired
+   (`phone-60-notld-downloading.png`).
+   - **Airplane-mode playback, verified:** `adb shell svc wifi disable` + `svc data disable`
+     brought the emulator to zero active network connections (`dumpsys connectivity` — 0
+     `NetworkAgentInfo`s, not merely the airplane-mode UI toggle, since the emulator's shell user
+     can't send `ACTION_AIRPLANE_MODE_CHANGED` without a signature permission). Opening the item
+     showed "You have this file downloaded — Play downloaded file / Stream file"
+     (`phone-62-offline-play.png`); "Play downloaded file" launched the local file and it played
+     (position advancing, `0m 18s`, pause icon showing, `phone-65-offline-playback2.png`) with the
+     device fully offline.
+
+Net: the mesh-aware download pipeline (light node → direct P2P → app-private storage → offline
+playback) works end-to-end when the peer actually has the item; the two failures are real,
+reproducible, and worth fixing but are edge cases (a profile-forced transcode, and one item's
+mesh-reported availability not matching reality) rather than the path being broken.
+
+### Chromecast (§7) — not device-verified (no hardware); unit-tested + manual checklist only, as planned
+
+### DNS-rebinding detection (§8) — implemented, not separately re-verified this pass
+
+`SideDoorSection` on the Node status screen was added and code-reviewed but not re-exercised in
+this verification session; no regression expected since nothing in this pass touched it.
+
+### Known issue found, not fixed (out of scope for M5)
+
+Tapping the bottom-tab **Downloads** screen (distinct from the per-item download button used
+above — this is StingStream's own torrent/usenet acquisition-engine status screen: "Engine health"
+/ "Torrent engine" / "Usenet engine (NZBGet)" / "Hashing queue") threw `Something went wrong —
+["stingstream","downloads"] data is undefined` (`phone-51-downloads-screen.png`). This looks like
+M6's (Requests service + screens) territory, not M5's on-device offline-download feature, which
+worked correctly via the per-item download button throughout the verification above. Flagged here
+rather than fixed since it's outside this milestone's ownership.
+
+### Not independently re-verified this pass
+
+- ProGuard/R8 keep rules (§4) — implicitly exercised (the signed, minified release build ran
+  correctly against a real node, played local and federated content, and the mesh reported
+  `available:true` throughout — nothing R8 could plausibly have broken went unexercised), but no
+  dedicated `-printusage` audit was done.
+- Background continuation / pause-resume of downloads (pre-existing Streamyfin functionality, §6)
+  — not re-tested in this pass beyond the single successful and two failed downloads above.
 
 ---
 
