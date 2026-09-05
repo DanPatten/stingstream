@@ -203,6 +203,21 @@ jobs:
           dotnet build tools/seeder/Seeder.csproj -c Release
           dotnet build tools/torznab-stub/TorznabStub.csproj -c Release
 
+      # Where the arrs actually put their entry points on this runner. They set a per-platform
+      # RuntimeIdentifier, so the layout is not necessarily the one a Windows build produces, and
+      # "no build output found" from the supervisor is otherwise a dead end.
+      - name: Show where the builds landed
+        if: always()
+        run: |
+          echo "--- radarr ---"
+          find server/radarr -maxdepth 5 -name 'Radarr.Console*' -not -path '*/obj/*' | sort
+          echo "--- sonarr ---"
+          find server/sonarr -maxdepth 5 -name 'Sonarr.Console*' -not -path '*/obj/*' | sort
+          echo "--- jellyfin ---"
+          find server/jellyfin/Jellyfin.Server/bin -maxdepth 3 -name 'jellyfin*' | sort
+          echo "--- nzbget ---"
+          find third_party/nzbget/bin -maxdepth 4 \( -name 'nzbget' -o -name 'nzbget.conf.template' \) | sort
+
       # -WorkDir inside the workspace: the harness defaults to a directory beside the repository,
       # which keeps a whole node's data out of git status locally, but actions/upload-artifact
       # refuses any path outside $GITHUB_WORKSPACE.

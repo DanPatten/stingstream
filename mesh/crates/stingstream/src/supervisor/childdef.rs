@@ -148,17 +148,32 @@ pub fn dev_output_dirs(repo_root: &Path, child: &str) -> Vec<PathBuf> {
 /// anticipated. Searching the output root is cheap and does not need updating every time an
 /// upstream build changes shape.
 pub fn dev_search_roots(repo_root: &Path, child: &str) -> Vec<PathBuf> {
+    let server = repo_root.join("server");
     match child {
-        "jellyfin" => vec![repo_root
-            .join("server")
-            .join("jellyfin")
-            .join("Jellyfin.Server")
-            .join("bin")],
-        "radarr" => vec![repo_root.join("server").join("radarr").join("_output")],
-        "sonarr" => vec![repo_root.join("server").join("sonarr").join("_output")],
+        "jellyfin" => vec![
+            server.join("jellyfin").join("Jellyfin.Server").join("bin"),
+            server.join("jellyfin").join("Jellyfin.Server"),
+        ],
+        "radarr" => vec![
+            server.join("radarr").join("_output"),
+            server.join("radarr"),
+        ],
+        "sonarr" => vec![
+            server.join("sonarr").join("_output"),
+            server.join("sonarr"),
+        ],
         _ => Vec::new(),
     }
 }
+
+/// Directory names the search never descends into.
+///
+/// `obj` and `_temp` hold intermediate assemblies: an entry point found in one would start and
+/// then fail on the first dependency that is not beside it, which is a far worse failure than not
+/// finding it at all. The rest are just large and cannot contain a build output.
+const SEARCH_SKIP: &[&str] = &[
+    "obj", "_temp", "_tests", ".git", "node_modules", "frontend", "packages", ".vs",
+];
 
 /// Find a .NET entry point anywhere under `root`, descending at most `depth` levels.
 ///
@@ -176,6 +191,12 @@ pub fn find_dotnet_entry_deep(root: &Path, stem: &str, depth: usize) -> Option<D
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.is_dir())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| !SEARCH_SKIP.contains(&n))
+                .unwrap_or(false)
+        })
         .collect();
     subdirs.sort();
     for sub in subdirs {
@@ -211,7 +232,7 @@ pub fn resolve_dev_dotnet(repo_root: &Path, child: &str) -> Result<DotnetEntry> 
     // does on Windows.
     let roots = dev_search_roots(repo_root, child);
     for root in &roots {
-        if let Some(entry) = find_dotnet_entry_deep(root, stem, 3) {
+        if let Some(entry) = find_dotnet_entry_deep(root, stem, 4) {
             tracing::debug!(
                 child,
                 path = %entry.program().display(),
@@ -403,6 +424,18 @@ mod tests {
 
         let entry = resolve_dev_dotnet(root, "radarr").unwrap();
         assert_eq!(entry.dir().unwrap(), deep);
+    }
+
+    #[test]
+    fn find_dotnet_entry_deep_never_returns_an_intermediate_assembly() {
+        // obj/ holds the compiler's intermediate output: that assembly runs right up until the
+        // first dependency it cannot find, which is a much worse failure than not finding it.
+        let td = tempfile::tempdir().unwrap();
+        touch(&td.path().join("obj").join("Debug").join("Radarr.Console.dll"));
+        assert!(find_dotnet_entry_deep(td.path(), "Radarr.Console", 4).is_none());
+
+        touch(&td.path().join("net8.0").join("Radarr.Console.dll"));
+        assert!(find_dotnet_entry_deep(td.path(), "Radarr.Console", 4).is_some());
     }
 
     #[test]
