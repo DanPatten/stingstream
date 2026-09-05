@@ -31,6 +31,7 @@ import {
   type MeshStatus,
   type MeshStreamStats,
   startMesh,
+  stopMesh,
 } from "@/modules/stingstream-mesh";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
@@ -259,14 +260,19 @@ export function MeshProvider({ children }: { children: ReactNode }) {
     };
   }, [available, loggedIn, syncGroups]);
 
-  // Logging out stops the node. Group membership survives in `mesh.db`, so the next login is a
+  // Logging out stops the node — there is no home node to follow, and leaving a QUIC socket and
+  // two worker threads up on a phone for nobody is exactly the sort of thing that shows up in a
+  // battery report a week later. Group membership survives in `mesh.db`, so the next login is a
   // no-op sync rather than a re-join of everything.
+  //
+  // Also runs once before the first login, where `stopMesh()` is a no-op.
   useEffect(() => {
     if (available && !loggedIn) {
       setRunning(false);
       setGroups([]);
       setPeers([]);
       clearMeshRewriteContext();
+      void stopMesh();
     }
   }, [available, loggedIn]);
 
