@@ -21,6 +21,10 @@ web-build/
 /ios
 /android
 
+# scripts/build-release.ps1's output (the *.apk/*.aab patterns below already cover the files
+# themselves; this also covers the directory so it doesn't show up as untracked-but-empty).
+/release-builds
+
 # Gradle caches (top-level + per-module native projects)
 **/.gradle/
 

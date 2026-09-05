@@ -158,7 +158,7 @@ Radarr's/Sonarr's JSON straight through, so their real shape is hand-typed (loos
 | Server settings → Quality profiles | default-profile-name field | listing/creating/editing actual profiles |
 | Server settings → Root folders / Naming / Notifications (incl. extra webhooks) | full CRUD | — |
 | Admin → Users / Libraries / Transcoding / Logs | all of it (Jellyfin's own API) | — |
-| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count) | per-child version numbers |
+| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count); side door candidates + a live per-candidate reachability/DNS-rebinding test (M5, `components/stingstream/node/SideDoorSection.tsx`, `docs/APP-RELEASE.md` §8) | per-child version numbers |
 
 A stubbed feature never shows fabricated rows presented as real data — it shows `GapNotice` with a
 one-line reason and a pointer to `docs/UI-API-GAPS.md`. The one partial exception is Manage's add

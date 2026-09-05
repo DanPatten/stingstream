@@ -564,3 +564,41 @@ which is why it is not done here.
   device timeout 36 minutes later). If a fresh instance has not answered within a couple of minutes
   of `metro:instantiate` in `.expo/dev/logs/start.log`, it is wedged rather than slow; restart it
   rather than waiting.
+
+---
+
+## 11. M5: the client half of Chromecast, and a bug found on the way
+
+Chromecast over the HTTPS side door (`docs/SIDEDOOR.md`, `docs/APP-RELEASE.md` §7) needed a piece
+that turned out not to exist here yet: a way to go from a federated `MediaSource.Path`
+(`https://stingstream.local/stream/<group>/<item_key>/<node>`) to a URL a *different device* — a
+cast receiver — can actually load. Neither the raw `stingstream.local` form nor the loopback
+rewrite this document's §5 describes can ever reach a receiver; both name an address only this
+device can resolve. `lib/stingstream/castStreamUrl.ts` is the answer: parse the path, find the
+named node's `SideDoor` record (the home node's own mesh peers/status, then the coordinator's
+public discovery record as a fallback), race its candidates with `lib/stingstream/sidedoor.ts`
+(reused exactly as M3d built it), and fall back to the home node's own unauthenticated
+`/stream/*` proxy when there is nothing to race. Wired into `components/PlayButton.tsx`'s existing
+Chromecast branch.
+
+**The bug it found:** `lib/stingstream/mesh.ts`'s `MeshNodePeer` interface has carried a
+`sideDoor` field since M3d/M4 wired `SideDoor` through `MeshController`, but the decoder
+(`toPeer`) never actually read it — the field was simply always `undefined` on every peer. A cast
+sender racing a peer's side door therefore always fell straight through to the slower
+coordinator-discovery-record fallback, silently, with no error anywhere. `toStatus`'s equivalent
+decoder had the same gap disguised as a `field<never>(...)` call, which happened to still work
+(the generic parameter doesn't affect runtime behavior) but documented the wrong thing. Both are
+fixed. The general lesson matches one this document already knows well (§9, "Both sides worked;
+the documented contract between them was wrong"): a field declared on both sides of a contract but
+never exercised by either is exactly the kind of gap a green test suite on either side cannot see.
+
+**Also split** `lib/stingstream/mesh.ts` in two: `meshApi.ts` (types, PascalCase-tolerant
+decoding, the plain-fetch `fetchMeshGroups`/`Peers`/`Status`/`Invite` functions — zero React
+dependency) and `mesh.ts` itself (now just the React Query hooks, re-exporting `meshApi.ts`'s
+surface unchanged, so nothing that already imported from `mesh.ts` needed to change).
+`castStreamUrl.ts` needs `fetchMeshPeers`/`fetchMeshStatus` from a non-component context — cast
+resolution happens inside an action-sheet callback, not a render — and the old `mesh.ts` reached
+`apiAtom` from `providers/JellyfinProvider` at module scope for its hooks, whose import graph
+`bun:test` cannot load at all (a native `codegenNativeComponent` a few layers down breaks the
+whole chain). Importing only `meshApi.ts` sidesteps that entirely, for `castStreamUrl.ts` and for
+its own unit tests.
