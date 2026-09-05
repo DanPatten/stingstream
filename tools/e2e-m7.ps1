@@ -358,16 +358,30 @@ function Get-JellyfinItemByName {
 function New-JellyfinSession {
     <#
     .SYNOPSIS
-        A second authenticated session on one node, with its own device id.
+        An authenticated session on one node, with its own device id and optionally its own user.
     .DESCRIPTION
-        `SessionInfo.Id` is `MD5(appName|deviceId|userId)`, so two sessions on one node are two
-        different *device ids* -- which is what makes a SyncPlay group with two members possible
-        from a script at all. Everything else about the two is identical.
+        `SessionInfo.Id` is `MD5(appName|deviceId|userId)`, so a distinct device id is what makes a
+        second session on one node possible from a script at all.
+
+        `-Username`/`-Password` are for the *two members on one node* case, and they are not
+        optional there: `GroupInfoDto.Participants` is the group's distinct **user names**, so two
+        sessions signed in as the same account are one participant however many devices they are on.
+        That is the right shape for Jellyfin -- a watch party is people, not screens -- and it means
+        the only honest way to assert "two members" is with two accounts.
     #>
-    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$DeviceId)
+    param(
+        [Parameter(Mandatory)]$Node,
+        [Parameter(Mandatory)][string]$DeviceId,
+        [string]$Username,
+        [string]$Password
+    )
     $auth = "MediaBrowser Client=`"e2e-m7`", Device=`"$DeviceId`", DeviceId=`"$DeviceId`", Version=`"1`""
     $runtime = $Node.Runtime
-    $body = @{ Username = $runtime.jellyfin_admin.username; Pw = $runtime.jellyfin_admin.password }
+    $body = if ($Username) {
+        @{ Username = $Username; Pw = $Password }
+    } else {
+        @{ Username = $runtime.jellyfin_admin.username; Pw = $runtime.jellyfin_admin.password }
+    }
     $result = Invoke-Json -Uri "$($Node.Url)/jellyfin/Users/AuthenticateByName" -Method POST -Body $body `
         -Headers @{ Authorization = $auth } -TimeoutSec 60
     return [pscustomobject]@{
@@ -377,6 +391,28 @@ function New-JellyfinSession {
         UserId   = $result.User.Id
         Headers  = @{ Authorization = "MediaBrowser Token=`"$($result.AccessToken)`"" }
     }
+}
+
+function New-JellyfinUser {
+    <#
+    .SYNOPSIS
+        A second ordinary account on a node, so a SyncPlay group can have two members.
+    #>
+    param(
+        [Parameter(Mandatory)]$Node,
+        [Parameter(Mandatory)][string]$Username,
+        [Parameter(Mandatory)][string]$Password
+    )
+    $existing = Invoke-Jellyfin $Node '/Users' -TimeoutSec 60
+    $user = $existing | Where-Object { $_.Name -eq $Username } | Select-Object -First 1
+    if (-not $user) {
+        $user = Invoke-Jellyfin $Node '/Users/New' -Method POST -TimeoutSec 60 -Body @{
+            Name     = $Username
+            Password = $Password
+        }
+        Write-Host "      created the $Username account on node $($Node.Name)"
+    }
+    return $user
 }
 
 function Invoke-AsSession {
@@ -835,8 +871,13 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
         mesh exists.
     #>
     $item = Get-JellyfinItemByName -Node $NodeA -Like "*$($Recording.Programme)*"
+    # Two *accounts*, not two devices: a group's participants are its distinct user names, so one
+    # account on two phones is one member of the watch party -- which is the right answer, and means
+    # this assertion needs a second person.
+    New-JellyfinUser -Node $NodeA -Username 'viewer' -Password 'e2e-m7-viewer' | Out-Null
     $script:SessionA1 = New-JellyfinSession -Node $NodeA -DeviceId 'e2e-m7-a1'
-    $script:SessionA2 = New-JellyfinSession -Node $NodeA -DeviceId 'e2e-m7-a2'
+    $script:SessionA2 = New-JellyfinSession -Node $NodeA -DeviceId 'e2e-m7-a2' `
+        -Username 'viewer' -Password 'e2e-m7-viewer'
 
     Set-NowPlaying -Session $script:SessionA1 -ItemId $item.Id
     Set-NowPlaying -Session $script:SessionA2 -ItemId $item.Id
@@ -953,8 +994,30 @@ Invoke-Step 'Play, pause and seek keep both nodes inside one second' {
     $worst = 0
     $report = [System.Collections.Generic.List[string]]::new()
 
+    function Confirm-Ready {
+        <#
+        .SYNOPSIS
+            Stand in for two real players finishing their buffering.
+        .DESCRIPTION
+            Every seek calls `SetAllBuffering(true)`, which is Jellyfin doing exactly the right
+            thing: a group must not run ahead of a member still filling its buffer. A real client
+            answers with `Ready` once it has; a harness session has no buffer to fill and no player
+            to fill it, so without this the group sits in `Waiting` after the first seek and every
+            later command is absorbed into a state that never resolves.
+
+            `SetIgnoreWait` rather than `Ready` because `Ready` carries a `PlaylistItemId` that is
+            minted per node and would have to be fetched first, and because it is the same request
+            the bridge's own seat sends for itself -- for the same reason, in its case permanently:
+            a seat with no player must never be the thing a room is waiting for.
+        #>
+        foreach ($s in @($script:LeadSession, $script:FollowSession)) {
+            try { Set-SyncPlayReady -Session $s } catch { }
+        }
+    }
+
     function Measure-Drift {
         param([string]$After, [int]$SettleMs = 1500)
+        Confirm-Ready
         Start-Sleep -Milliseconds $SettleMs
         # Read both as close together as possible: the two positions advance in real time, so the
         # gap between the two reads is error in the measurement, not drift in the bridge.
@@ -985,8 +1048,21 @@ Invoke-Step 'Play, pause and seek keep both nodes inside one second' {
     } | Out-Null
     $worst = [math]::Max($worst, (Measure-Drift -After 'after seek'))
 
+    # Resuming *from a seek* is its own case, and a subtle one: Jellyfin answers an Unpause on a
+    # group that is already playing to the asking session **only**, so the bridge's seat never hears
+    # it. Both nodes then agree perfectly on a position that has stopped moving, which is the
+    # failure a synchronisation feature is least likely to notice. The leader reconciles its group's
+    # state once a pass to close that, and this is what proves it: the film has to have *moved*.
+    Confirm-Ready
+    $before = Get-WatchPosition -Node $NodeA -SessionId $script:WatchId
     Invoke-AsSession $script:LeadSession '/SyncPlay/Unpause' -Method POST | Out-Null
-    $worst = [math]::Max($worst, (Measure-Drift -After 'after resuming from the seek' -SettleMs 3000))
+    $worst = [math]::Max($worst, (Measure-Drift -After 'after resuming from the seek' -SettleMs 5000))
+    $after = Get-WatchPosition -Node $NodeA -SessionId $script:WatchId
+    if ($after -le $before) {
+        throw ("the session is still at $after ms five seconds after resuming from a seek; both " +
+            'nodes agree, and both are frozen.')
+    }
+    Write-Host "      the film moved from $before ms to $after ms after resuming from the seek"
 
     Add-HarnessNote ("watch-together drift: " + ($report -join '; '))
     if ($worst -gt $DriftBudgetMs) {

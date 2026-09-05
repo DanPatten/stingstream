@@ -245,8 +245,7 @@ public sealed class WatchBridge : BackgroundService
 
             if (bridged.IsLeader)
             {
-                // The leader's own position *is* the session's, so there is nothing to correct --
-                // only to report, so the participant list shows this node too.
+                await ReconcileLeaderAsync(bridged, view, cancellationToken).ConfigureAwait(false);
                 await ReportAsync(bridged, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -295,12 +294,16 @@ public sealed class WatchBridge : BackgroundService
     {
         var item = _library.GetItemById(itemId)
             ?? throw new InvalidOperationException($"No item {itemId} on this node.");
-        var itemKey = InventoryService.BuildItemKey(item)
-            ?? throw new InvalidOperationException(
-                $"{item.Name} has no provider ids, so the other nodes cannot agree on what it is. "
-                + "Watch-together needs a title both sides can name.");
+        var (itemKey, pointerGroup) = ResolveItemKey(item);
+        if (itemKey is null)
+        {
+            throw new InvalidOperationException(
+                $"{item.Name} has no provider ids and no air date, so the other nodes cannot agree "
+                + "on what it is. Watch-together needs a title both sides can name.");
+        }
 
-        var groupId = group ?? await OnlyGroupAsync(cancellationToken).ConfigureAwait(false);
+        var groupId = group ?? pointerGroup
+            ?? await OnlyGroupAsync(cancellationToken).ConfigureAwait(false);
         var session = await _watch
             .StartAsync(groupId, itemKey, item.Name ?? itemKey, LocalViewers(), cancellationToken)
             .ConfigureAwait(false);
@@ -522,6 +525,82 @@ public sealed class WatchBridge : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Push the leader's own group state onto the session when the two have drifted apart.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **There is one thing a session seat cannot see, and this is the answer to it.** Jellyfin
+    /// sends most of what a group decides to every member, but not all of it: when a group that is
+    /// already `Playing` is told to unpause -- which is exactly what happens when somebody seeks and
+    /// then resumes -- `PlayingGroupState` treats it as "client got lost" and answers the *asking
+    /// session only* (`SyncPlayBroadcastType.CurrentSession`). The bridge's seat is not that
+    /// session, so it never hears, and the mesh record stays paused while two rooms full of people
+    /// watch the film.
+    /// </para>
+    /// <para>
+    /// The harness found it: after a seek and a resume, both nodes agreed perfectly on a position
+    /// that had stopped moving. Agreeing about the wrong thing is the failure mode a synchronisation
+    /// feature is most likely to have and least likely to notice.
+    /// </para>
+    /// <para>
+    /// The fix needs no patch either. `ISyncPlayManager.GetGroup` is public and answers a
+    /// `GroupInfoDto` carrying the group's `State`, so the leader can simply *ask* once a pass and
+    /// relay the difference. Only the state, not the position: a position the seat has not been
+    /// told about is a position it should not invent, and every position change does reach it.
+    /// </para>
+    /// </remarks>
+    private async Task ReconcileLeaderAsync(
+        BridgedSession bridged, WatchSessionView view, CancellationToken cancellationToken)
+    {
+        var seat = bridged.Seat;
+        if (seat is null || bridged.LocalGroupId.Equals(Guid.Empty) || view.Session is null)
+        {
+            return;
+        }
+
+        GroupStateType local;
+        try
+        {
+            local = _syncPlay.GetGroup(seat, bridged.LocalGroupId).State;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException
+                                       or MediaBrowser.Common.Extensions.ResourceNotFoundException)
+        {
+            // The group has gone. The session's own lifecycle handles that; nothing to reconcile.
+            return;
+        }
+
+        // `Waiting` is a group mid-transition -- somebody is buffering -- and is neither playing nor
+        // paused yet. Relaying it would be relaying a moment rather than a decision.
+        var wanted = local switch
+        {
+            GroupStateType.Playing => WatchState.Playing,
+            GroupStateType.Paused => WatchState.Paused,
+            GroupStateType.Idle => WatchState.Idle,
+            _ => view.Session.State,
+        };
+        if (wanted == view.Session.State)
+        {
+            return;
+        }
+
+        var kind = wanted switch
+        {
+            WatchState.Playing => WatchCommandKind.Play,
+            WatchState.Paused => WatchCommandKind.Pause,
+            _ => WatchCommandKind.Stop,
+        };
+        _logger.LogInformation(
+            "Watch session {Session}: this node's group is {Local} but the session says {Session2}; "
+            + "relaying a {Kind}",
+            bridged.SessionId,
+            local,
+            view.Session.State,
+            kind);
+        await RelayAsync(bridged, kind, view.PositionMs).ConfigureAwait(false);
+    }
+
     private async Task ReportAsync(BridgedSession bridged, CancellationToken cancellationToken)
     {
         try
@@ -612,6 +691,50 @@ public sealed class WatchBridge : BackgroundService
     }
 
     // --- odds and ends -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The name every node in the group knows this item by, and the group it came from.
+    /// </summary>
+    /// <param name="item">The Jellyfin item somebody wants to watch together.</param>
+    /// <returns>The item key and, for a federated pointer, the group its `.strm` names.</returns>
+    /// <remarks>
+    /// <para>
+    /// Three sources, in order, and the first is the one that matters most in practice: **a
+    /// federated pointer already carries the answer**. Its `.strm` holds
+    /// <c>https://stingstream.local/stream/{group}/{item_key}/{node}</c> — the group and the key
+    /// that every member of the group agreed on when the holder published it. Deriving a key from
+    /// the pointer's own metadata instead would be re-deriving something already written down, and
+    /// getting it wrong for exactly the items whose metadata is thin.
+    /// </para>
+    /// <para>
+    /// For a title this node holds itself: provider ids, then the recording grammar. A DVR
+    /// recording whose EPG gave no ids is the case that has neither, and it is a case a watch party
+    /// should still work for -- it is somebody's own recording of a programme they want to watch
+    /// with a friend.
+    /// </para>
+    /// </remarks>
+    private static (string? Key, string? Group) ResolveItemKey(BaseItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.Path)
+            && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var url = System.IO.File.ReadAllText(item.Path).Trim();
+                if (Federated.FederatedLayout.TryParseStreamUrl(url, out var group, out var key, out _))
+                {
+                    return (key, group);
+                }
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            {
+                // Unreadable pointer: fall through to the metadata, which is no worse than what a
+                // node with no pointer at all would do.
+            }
+        }
+
+        return (InventoryService.BuildItemKey(item) ?? InventoryService.BuildRecordingKey(item), null);
+    }
 
     /// <summary>How many of this node's own users are watching. Display only.</summary>
     private int LocalViewers()
