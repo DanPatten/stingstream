@@ -83,12 +83,19 @@ pub fn network_xml(s: &NetworkSettings) -> String {
 /// Only the handful of settings the supervisor cares about are written; every other property keeps
 /// its C# default, because `XmlSerializer` leaves absent elements alone. Jellyfin rewrites this
 /// file with the full property set the first time anything changes.
+///
+/// **`IsStartupWizardCompleted` is deliberately not written here**, even though a StingStream node
+/// never runs Jellyfin's setup wizard. That flag is how
+/// `Jellyfin.Server/Migrations/JellyfinMigrationService.cs` decides whether it is looking at a
+/// fresh install: when it is false the service creates the database, creates
+/// `__EFMigrationsHistory` and seeds the migration rows; when it is true it takes the
+/// existing-install path and does none of that. Pre-seeding it true on an empty data directory
+/// therefore makes Jellyfin crash on its first migration with
+/// `SQLite Error 1: 'no such table: __EFMigrationsHistory'`, in a loop the supervisor cannot fix.
+/// `StingStream.Core`'s first-run wiring sets the flag *after* the database exists and the
+/// administrator has been created, which is the only ordering that works.
 pub fn system_xml(node_name: &str) -> String {
     let mut body = String::new();
-    // StingStream.Core creates the admin in-process on first run, so the wizard never needs to
-    // run — and more importantly the FirstTimeSetupOrElevated policy never leaves the API open to
-    // anonymous callers on a fresh node.
-    body.push_str(&xml::element("IsStartupWizardCompleted", "true"));
     body.push_str(&xml::element("ServerName", node_name));
     body.push_str(&xml::element("UICulture", "en-US"));
     body.push_str(&xml::element("EnableMetrics", "false"));
@@ -161,10 +168,19 @@ mod tests {
     }
 
     #[test]
-    fn system_xml_skips_the_wizard_and_escapes_the_node_name() {
+    fn system_xml_names_the_node_and_escapes_it() {
         let x = system_xml("Dan's <attic>");
-        assert!(x.contains("<IsStartupWizardCompleted>true</IsStartupWizardCompleted>"));
         assert!(x.contains("<ServerName>Dan&apos;s &lt;attic&gt;</ServerName>"));
+    }
+
+    #[test]
+    fn system_xml_never_claims_the_startup_wizard_is_done() {
+        // Setting this on an empty data directory sends Jellyfin's migration service down its
+        // existing-install path, so it never creates the database or __EFMigrationsHistory and
+        // then crashes on its first migration. StingStream.Core sets it after the database
+        // exists. See the doc comment on `system_xml`.
+        let x = system_xml("node");
+        assert!(!x.contains("IsStartupWizardCompleted"));
     }
 
     #[test]
