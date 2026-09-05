@@ -1,0 +1,696 @@
+// Must stay above every other import: it runs the storage migrations.
+import "@/utils/bootstrap";
+import "@/augmentations";
+import { ActionSheetProvider } from "@expo/react-native-action-sheet";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import NetInfo from "@react-native-community/netinfo";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+import {
+  MutationCache,
+  onlineManager,
+  QueryCache,
+  QueryClient,
+} from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { isAxiosError } from "axios";
+import * as BackgroundTask from "expo-background-task";
+import * as Device from "expo-device";
+import { Image } from "expo-image";
+import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
+import { Platform } from "react-native";
+import { GlobalModal } from "@/components/GlobalModal";
+import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin";
+import { PendingAccountSaveModal } from "@/components/PendingAccountSaveModal";
+import { enableTVMenuKeyInterception } from "@/hooks/useTVBackHandler";
+import i18n from "@/i18n";
+import { DownloadProvider } from "@/providers/DownloadProvider";
+import { GlobalModalProvider } from "@/providers/GlobalModalProvider";
+import { InactivityProvider } from "@/providers/InactivityProvider";
+import { IntroSheetProvider } from "@/providers/IntroSheetProvider";
+import { apiAtom, JellyfinProvider } from "@/providers/JellyfinProvider";
+import { MusicPlayerProvider } from "@/providers/MusicPlayerProvider";
+import { NativePlayerProvider } from "@/providers/NativePlayerProvider";
+import { NetworkStatusProvider } from "@/providers/NetworkStatusProvider";
+import { PlaySettingsProvider } from "@/providers/PlaySettingsProvider";
+import { ServerUrlProvider } from "@/providers/ServerUrlProvider";
+import { WebSocketProvider } from "@/providers/WebSocketProvider";
+import { WifiSsidProvider } from "@/providers/WifiSsidProvider";
+import { useSettings } from "@/utils/atoms/settings";
+import {
+  BACKGROUND_FETCH_TASK,
+  BACKGROUND_FETCH_TASK_SESSIONS,
+  registerBackgroundFetchAsyncSessions,
+} from "@/utils/background-tasks";
+import { getOrSetDeviceId } from "@/utils/device";
+import {
+  describeHttpError,
+  isAbortLikeError,
+  isConnectivityError,
+  isErrorReported,
+  isExpectedError,
+} from "@/utils/errors";
+import {
+  LogProvider,
+  writeErrorLog,
+  writeInfoLog,
+  writeToLog,
+} from "@/utils/log";
+import { storage } from "@/utils/mmkv";
+
+const Notifications = !Platform.isTV ? require("expo-notifications") : null;
+
+import { getSessionApi } from "@jellyfin/sdk/lib/utils/api/session-api";
+import { getLocales } from "expo-localization";
+import type { EventSubscription } from "expo-modules-core";
+import type {
+  Notification,
+  NotificationResponse,
+} from "expo-notifications/build/Notifications.types";
+import type { ExpoPushToken } from "expo-notifications/build/Tokens.types";
+import { Stack, useSegments } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import * as TaskManager from "expo-task-manager";
+import { Provider as JotaiProvider, useAtom } from "jotai";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { I18nextProvider } from "react-i18next";
+import { Appearance, LogBox } from "react-native";
+import { SystemBars } from "react-native-edge-to-edge";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+
+// Suppress harmless tvOS warning from react-native-gesture-handler
+if (Platform.isTV) {
+  LogBox.ignoreLogs(["HoverGestureHandler is not supported on tvOS"]);
+}
+
+import * as Sentry from "@sentry/react-native";
+import useRouter from "@/hooks/useAppRouter";
+import { useNativePlayerLogBridge } from "@/hooks/useNativePlayerLogBridge";
+import { userAtom } from "@/providers/JellyfinProvider";
+import { effectiveSettingsAtom, settingsAtom } from "@/utils/atoms/settings";
+import {
+  applySentryConsent,
+  initializeSentryIfConsented,
+} from "@/utils/sentry";
+import { store as jotaiStore, store } from "@/utils/store";
+import "react-native-reanimated";
+import {
+  configureReanimatedLogger,
+  ReanimatedLogLevel,
+} from "react-native-reanimated";
+import { Toaster } from "sonner-native";
+
+// Disable strict mode warnings for reading shared values during render
+configureReanimatedLogger({
+  level: ReanimatedLogLevel.warn,
+  strict: false,
+});
+
+// Crash reporting is on by default; this is a no-op if the user opted out
+// (or a server admin locked it off). After startup, consent tracks the
+// effective settings, so the switch, plugin-pushed defaults, and admin locks
+// all take effect immediately.
+initializeSentryIfConsented();
+jotaiStore.sub(effectiveSettingsAtom, () => {
+  // Ignore changes until the persisted settings hydrate; before that the
+  // effective value is just defaults and would override a stored opt-out.
+  if (jotaiStore.get(settingsAtom) === null) return;
+  applySentryConsent(
+    jotaiStore.get(effectiveSettingsAtom).sentryEnabled !== false,
+  );
+});
+
+if (!Platform.isTV) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
+
+// Set the animation options. This is optional.
+SplashScreen.setOptions({
+  duration: 500,
+  fade: true,
+});
+
+// Cap expo-image's in-memory cache. Default is unbounded (maxMemoryCost=0),
+// which on a 2GB Android TV box leads to ~200MB of decoded backdrops/posters
+// pinned in RAM after browsing. Caps are intentionally tighter on TV (which
+// has less RAM and runs alongside libmpv/MediaCodec) than on mobile.
+// Cost is measured in bytes of decoded bitmap (ARGB8888 = 4 bytes/pixel).
+try {
+  Image.configureCache({
+    maxMemoryCost: Platform.isTV
+      ? 8 * 1024 * 1024 // ~8 MB on TV
+      : 128 * 1024 * 1024, // ~128 MB on mobile
+    maxDiskSize: 200 * 1024 * 1024, // 200 MB disk cache on all platforms
+  });
+} catch {
+  // configureCache is a no-op on some platforms/versions; safe to ignore.
+}
+
+function useNotificationObserver() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (Platform.isTV) return;
+
+    let isMounted = true;
+
+    Notifications.getLastNotificationResponseAsync().then(
+      (response: { notification: any }) => {
+        if (!isMounted || !response?.notification) {
+          return;
+        }
+        const url = response?.notification.request.content.data?.url;
+        if (url) {
+          router.push(url);
+        }
+      },
+    );
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+}
+
+if (!Platform.isTV) {
+  TaskManager.defineTask(BACKGROUND_FETCH_TASK_SESSIONS, async () => {
+    console.log("TaskManager ~ sessions trigger");
+
+    const api = store.get(apiAtom);
+    if (api === null || api === undefined) return;
+
+    const response = await getSessionApi(api).getSessions({
+      activeWithinSeconds: 360,
+    });
+
+    const result = response.data.filter((s) => s.NowPlayingItem);
+    Notifications.setBadgeCountAsync(result.length);
+
+    return BackgroundTask.BackgroundTaskResult.Success;
+  });
+
+  TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
+    console.log("TaskManager ~ trigger");
+    // Background fetch task placeholder - currently unused
+    return BackgroundTask.BackgroundTaskResult.Success;
+  });
+}
+
+const checkAndRequestPermissions = async () => {
+  try {
+    const hasAskedBefore = storage.getString(
+      "hasAskedForNotificationPermission",
+    );
+    let granted = false;
+    if (hasAskedBefore !== "true") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      granted = status === "granted";
+      if (granted) {
+        writeToLog("INFO", "Notification permissions granted.");
+        console.log("Notification permissions granted.");
+      } else {
+        writeToLog("ERROR", "Notification permissions denied.");
+        console.log("Notification permissions denied.");
+      }
+      storage.set("hasAskedForNotificationPermission", "true");
+    } else {
+      // Already asked before, check current status
+      const { status } = await Notifications.getPermissionsAsync();
+      granted = status === "granted";
+      if (!granted) {
+        writeToLog(
+          "ERROR",
+          "Notification permissions denied (already asked before).",
+        );
+        console.log("Notification permissions denied (already asked before).");
+      }
+    }
+    return granted;
+  } catch (error) {
+    writeToLog(
+      "ERROR",
+      "Error checking/requesting notification permissions:",
+      error,
+    );
+    console.error("Error checking/requesting notification permissions:", error);
+    return false;
+  }
+};
+
+function RootLayout() {
+  Appearance.setColorScheme("dark");
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <JotaiProvider store={jotaiStore}>
+        <ActionSheetProvider>
+          <I18nextProvider i18n={i18n}>
+            <Layout />
+          </I18nextProvider>
+        </ActionSheetProvider>
+      </JotaiProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+// Sentry.wrap is inert while the SDK is not initialized (crash reporting off).
+export default Sentry.wrap(RootLayout);
+
+// Render-phase crashes anywhere in the tree get a retry screen instead of a
+// blank app, and the error reaches Sentry with its component stack.
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/RouteErrorBoundary";
+
+// Set up online manager for network-aware query behavior
+onlineManager.setEventListener((setOnline) => {
+  return NetInfo.addEventListener((state) => {
+    setOnline(!!state.isConnected);
+  });
+});
+
+// Every React Query failure funnels through here instead of needing per-call
+// handlers. Skipped: anything while offline, aborted requests, connectivity
+// failures — no HTTP response or a gateway error, axios or fetch — (an
+// unreachable server is the user's environment, not an app bug), and 401s
+// (session expiry has its own interceptor in JellyfinProvider).
+const shouldReportDataError = (error: unknown): boolean => {
+  if (!onlineManager.isOnline()) return false;
+  if (isExpectedError(error) || isErrorReported(error)) return false;
+  if (isAbortLikeError(error) || isConnectivityError(error)) return false;
+  if (isAxiosError(error) && error.response?.status === 401) return false;
+  return true;
+};
+
+// A persistently failing query refetches on every mount (staleTime 0), and
+// Sentry's Dedupe integration only drops an event identical to the
+// immediately-previous one — two alternating failing queries defeat it. One
+// report per (source, key, route, status) per session is enough.
+const reportedDataErrors = new Set<string>();
+
+const reportDataError = (
+  source: "query" | "mutation",
+  key: readonly unknown[] | undefined,
+  error: unknown,
+) => {
+  if (!shouldReportDataError(error)) return;
+  // Only the key's first element (the query's name) is used — later
+  // elements can carry search text or item titles, and the name alone
+  // already says which data path failed.
+  const name = typeof key?.[0] === "string" ? key[0] : undefined;
+  const http = describeHttpError(error);
+  // A 404 from a Streamystats endpoint is a server that predates the route
+  // (recommendations, watchlists) — feature-unsupported, not an app bug, and
+  // the UI already renders nothing for it.
+  if (name === "streamystats" && http?.status === 404) return;
+  const dedupeKey = [
+    source,
+    name ?? "?",
+    http ? `${http.method} ${http.path} ${http.status}` : "no-http",
+    error instanceof Error ? error.name : typeof error,
+  ].join("|");
+  if (reportedDataErrors.has(dedupeKey)) return;
+  if (reportedDataErrors.size < 200) reportedDataErrors.add(dedupeKey);
+  Sentry.withScope((scope) => {
+    scope.setContext("data_layer", {
+      source,
+      key: name,
+      keyLength: key?.length,
+    });
+    if (http) {
+      // An AxiosError's stack has no app frames (it is built inside axios),
+      // so left to Sentry every HTTP failure in the app lands in ONE issue.
+      // Group by the query that failed, its route and the status instead.
+      scope.setContext("http", http);
+      scope.setFingerprint([
+        "data-layer",
+        source,
+        name ?? "?",
+        http.method,
+        http.path,
+        String(http.status),
+      ]);
+    }
+    Sentry.captureException(error);
+  });
+};
+
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => reportDataError("query", query.queryKey, error),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) =>
+      reportDataError("mutation", mutation.options.mutationKey, error),
+  }),
+  defaultOptions: {
+    queries: {
+      staleTime: 0, // Always stale - triggers background refetch on mount
+      gcTime: 1000 * 60 * 60 * 24, // 24 hours - keep in cache for offline
+      networkMode: "offlineFirst", // Return cache first, refetch if online
+      refetchOnMount: true, // Refetch when component mounts
+      refetchOnReconnect: true, // Refetch when network reconnects
+      refetchOnWindowFocus: false, // Not needed for mobile
+      retry: (failureCount) => {
+        if (!onlineManager.isOnline()) return false;
+        return failureCount < 3;
+      },
+    },
+    mutations: {
+      networkMode: "online", // Only run mutations when online
+    },
+  },
+});
+
+// Create MMKV-based persister for offline support
+const mmkvPersister = createSyncStoragePersister({
+  storage: {
+    getItem: (key) => storage.getString(key) ?? null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: (key) => storage.remove(key),
+  },
+});
+
+function Layout() {
+  const { settings } = useSettings();
+  const [user] = useAtom(userAtom);
+  const [api] = useAtom(apiAtom);
+  const _segments = useSegments();
+  const router = useRouter();
+
+  // Enable TV menu key interception so React Native handles it instead of tvOS
+  useEffect(() => {
+    enableTVMenuKeyInterception();
+  }, []);
+
+  useEffect(() => {
+    i18n.changeLanguage(
+      settings?.preferedLanguage ?? getLocales()[0].languageCode ?? "en",
+    );
+  }, [settings?.preferedLanguage, i18n]);
+
+  useNotificationObserver();
+  useNativePlayerLogBridge();
+
+  const [expoPushToken, setExpoPushToken] = useState<ExpoPushToken>();
+  const notificationListener = useRef<EventSubscription>(null);
+  const responseListener = useRef<EventSubscription>(null);
+
+  useEffect(() => {
+    if (!Platform.isTV && expoPushToken && api && user) {
+      api
+        ?.post("/Streamyfin/device", {
+          token: expoPushToken.data,
+          deviceId: getOrSetDeviceId(),
+          userId: user.Id,
+        })
+        .catch((_) =>
+          writeErrorLog("Failed to push expo push token to plugin"),
+        );
+    }
+  }, [api, expoPushToken, user]);
+
+  const registerNotifications = useCallback(async () => {
+    if (Platform.OS === "android") {
+      await Notifications?.setNotificationChannelAsync("default", {
+        name: "default",
+      });
+
+      // Create dedicated channel for download notifications
+      await Notifications?.setNotificationChannelAsync("downloads", {
+        name: "Downloads",
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#FF231F7C",
+      });
+    }
+
+    const granted = await checkAndRequestPermissions();
+    if (!granted) {
+      console.log(
+        "Notification permissions not granted, skipping background fetch and push token registration.",
+      );
+      return;
+    }
+
+    if (!Platform.isTV && user && user.Policy?.IsAdministrator) {
+      await registerBackgroundFetchAsyncSessions();
+    }
+
+    // only create push token for real devices (pointless for emulators)
+    if (Device.isDevice) {
+      Notifications?.getExpoPushTokenAsync({
+        projectId: "e79219d1-797f-4fbe-9fa1-cfd360690a68",
+      })
+        .then((token: ExpoPushToken) => {
+          if (token) {
+            console.log("Expo push token obtained:", token.data);
+            setExpoPushToken(token);
+          }
+        })
+        .catch((reason: any) => {
+          console.error("Failed to get push token:", reason);
+          writeErrorLog("Failed to get Expo push token", reason);
+        });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!Platform.isTV) {
+      void registerNotifications();
+
+      notificationListener.current =
+        Notifications?.addNotificationReceivedListener(
+          (notification: Notification) => {
+            // Log only the title — serializing the whole notification touches
+            // the deprecated dataString getter (deprecation warning) and dumps
+            // noisy payloads into the console.
+            console.log(
+              "Notification received while app running:",
+              notification.request.content.title,
+            );
+          },
+        );
+
+      responseListener.current =
+        Notifications?.addNotificationResponseReceivedListener(
+          (response: NotificationResponse) => {
+            // Currently the notifications supported by the plugin will send data for deep links.
+            const { title, data } = response.notification.request.content;
+            writeInfoLog(`Notification ${title} opened`, data);
+
+            let url: any;
+            const type = (data?.type ?? "").toString().toLowerCase();
+            const itemId = data?.id;
+
+            switch (type) {
+              case "movie":
+                url = `/(auth)/(tabs)/home/items/page?id=${itemId}`;
+                break;
+              case "episode":
+                // `/(auth)/(tabs)/${from}/items/page?id=${item.Id}`;
+                // We just clicked a notification for an individual episode.
+                if (itemId) {
+                  url = `/(auth)/(tabs)/home/items/page?id=${itemId}`;
+                  // summarized season notification for multiple episodes. Bring them to series season
+                } else {
+                  const seriesId = data?.seriesId;
+                  const seasonIndex = data?.seasonIndex;
+                  if (seasonIndex) {
+                    url = `/(auth)/(tabs)/home/series/${seriesId}?seasonIndex=${seasonIndex}`;
+                  } else {
+                    url = `/(auth)/(tabs)/home/series/${seriesId}`;
+                  }
+                }
+                break;
+            }
+
+            writeInfoLog(`Notification attempting to redirect to ${url}`);
+            if (url) {
+              router.push(url);
+            }
+          },
+        );
+
+      return () => {
+        notificationListener.current?.remove();
+        responseListener.current?.remove();
+      };
+    }
+  }, [user]);
+
+  return (
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister: mmkvPersister,
+        maxAge: 1000 * 60 * 60 * 24, // 24 hours max cache age
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) => {
+            return (
+              query.state.status === "success" && query.options.gcTime !== 0
+            );
+          },
+        },
+      }}
+    >
+      <JellyfinProvider>
+        <InactivityProvider>
+          <WifiSsidProvider>
+            <ServerUrlProvider>
+              <NetworkStatusProvider>
+                <PlaySettingsProvider>
+                  <LogProvider>
+                    <WebSocketProvider>
+                      <DownloadProvider>
+                        <NativePlayerProvider>
+                          <MusicPlayerProvider>
+                            <GlobalModalProvider>
+                              <BottomSheetModalProvider>
+                                <IntroSheetProvider>
+                                  <ThemeProvider value={DarkTheme}>
+                                    <SystemBars style='light' hidden={false} />
+                                    <Stack initialRouteName='(auth)/(tabs)'>
+                                      <Stack.Screen
+                                        name='(auth)/(tabs)'
+                                        options={{
+                                          headerShown: false,
+                                          title: "",
+                                          header: () => null,
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/player'
+                                        options={{
+                                          headerShown: false,
+                                          title: "",
+                                          header: () => null,
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/now-playing'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "modal",
+                                          gestureEnabled: true,
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='login'
+                                        options={{
+                                          headerShown: true,
+                                          title: "",
+                                          headerTransparent:
+                                            Platform.OS === "ios",
+                                        }}
+                                      />
+                                      <Stack.Screen name='+not-found' />
+                                      <Stack.Screen
+                                        name='(auth)/tv-option-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/tv-subtitle-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/tv-request-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/tv-season-select-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/tv-series-season-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='tv-account-action-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='tv-account-select-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                      <Stack.Screen
+                                        name='(auth)/tv-user-switch-modal'
+                                        options={{
+                                          headerShown: false,
+                                          presentation: "transparentModal",
+                                          animation: "fade",
+                                        }}
+                                      />
+                                    </Stack>
+                                    <Toaster
+                                      duration={4000}
+                                      toastOptions={{
+                                        style: {
+                                          backgroundColor: "#262626",
+                                          borderColor: "#363639",
+                                          borderWidth: 1,
+                                        },
+                                        titleStyle: {
+                                          color: "white",
+                                        },
+                                      }}
+                                      closeButton
+                                    />
+                                    {!Platform.isTV && <GlobalModal />}
+                                    {!Platform.isTV && (
+                                      <PendingAccountSaveModal />
+                                    )}
+                                    <JellyseerrAutoLogin />
+                                  </ThemeProvider>
+                                </IntroSheetProvider>
+                              </BottomSheetModalProvider>
+                            </GlobalModalProvider>
+                          </MusicPlayerProvider>
+                        </NativePlayerProvider>
+                      </DownloadProvider>
+                    </WebSocketProvider>
+                  </LogProvider>
+                </PlaySettingsProvider>
+              </NetworkStatusProvider>
+            </ServerUrlProvider>
+          </WifiSsidProvider>
+        </InactivityProvider>
+      </JellyfinProvider>
+    </PersistQueryClientProvider>
+  );
+}

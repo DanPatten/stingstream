@@ -1,0 +1,117 @@
+name: "🐛 Bug Report"
+description: Create a report to help Streamyfin improve
+title: "[Bug]: "
+labels:
+  - "🐛 bug"
+projects:
+  - "streamyfin/3"
+
+body:
+  - type: markdown
+    id: introduction
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Please keep in mind that Streamyfin is a [free and open-source](https://github.com/streamyfin/streamyfin) project maintained entirely by **volunteers** who donate their free time.
+
+  - type: checkboxes
+    id: before-posting
+    attributes:
+      label: "This issue respects the following points:"
+      description: All conditions are **required**. Failure to comply with any of these conditions may cause your issue to be closed without comment.
+      options:
+        - label: This is a **bug**, not a question or configuration issue; please consult our community channels before filing a report. [Discord](https://discord.streamyfin.app).
+          required: true
+        - label: This issue is **not** already reported on [GitHub](https://github.com/streamyfin/streamyfin/issues?q=is%3Aissue+is%3Aopen+label%3A"🐛%20bug") *(I've searched it)*.
+          required: true
+        - label: I'm using an up-to-date version of Streamyfin. We generally do not support older versions. If possible, please update to the latest version before opening an issue.
+          required: true
+        - label:  I agree to follow Streamyfin's [Contribution rules](https://github.com/streamyfin/streamyfin/blob/develop/.github/CONTRIBUTING.md).
+          required: true
+        - label: This report addresses only a single issue; If you encounter multiple issues, please create separate reports for each one.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what happened in detail, the more precise the better.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What did you expect to happen?
+      description: Tell us what you expected to happen instead.
+      placeholder: Describe the expected behavior clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: "How do you trigger this bug? Please walk us through it step by step."
+      placeholder: |
+        1. Open Streamyfin app
+        2. Navigate to [specific section]
+        3. Tap on [specific item]
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: device
+    attributes:
+      label: Which device and operating system are you using?
+      description: Please provide your device model and OS version
+      placeholder: e.g. iPhone 17 Pro / iOS 26.5.1, Samsung Galaxy S25 / Android 16, Apple TV / tvOS 26.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: Streamyfin Version
+      description: What version of Streamyfin are you running? On a TestFlight or development build, choose "TestFlight/Development build" and include the exact version string shown in the app's Settings.
+      options:
+        - 0.54.1
+        - 0.51.0
+        - 0.47.1
+        - 0.30.2
+        - 0.28.0
+        - Older
+        - TestFlight/Development build
+    validations:
+      required: true
+
+  - type: textarea
+    id: jellyfin-info
+    attributes:
+      label: Jellyfin Server Information
+      description: Please provide details about your Jellyfin server
+      placeholder: |
+        - Jellyfin Server Version: e.g. 10.11.10
+        - Server OS: e.g. Ubuntu 26.04, Windows 11, Docker, Proxmox
+        - Connection: e.g. Local network, remote via domain, VPN
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or Videos
+      description: If applicable, please add screenshots or videos to help explain your problem. You can drag and drop images here or paste them directly into the comment box.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (if available)
+      description: If you have access to app logs or crash reports, please include them here. **Remember to remove any personal information like server URL, API keys or usernames.**
+      render: shell
+
+  - type: textarea
+    id: additional-info
+    attributes:
+      label: Additional information
+      description: Any additional context that might help us understand and reproduce the issue.

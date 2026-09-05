@@ -1,0 +1,74 @@
+import { getSessionApi } from "@jellyfin/sdk/lib/utils/api/session-api";
+import { useQuery } from "@tanstack/react-query";
+import { useAtom } from "jotai";
+import { Platform } from "react-native";
+import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
+
+const _Notifications = !Platform.isTV ? require("expo-notifications") : null;
+
+export interface useSessionsProps {
+  refetchInterval: number;
+  activeWithinSeconds: number;
+}
+
+export const useSessions = ({
+  refetchInterval = 5 * 1000,
+  activeWithinSeconds = 360,
+}: useSessionsProps) => {
+  const [api] = useAtom(apiAtom);
+  const [user] = useAtom(userAtom);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["sessions"],
+    queryFn: async () => {
+      if (!api || !user?.Policy?.IsAdministrator) {
+        return [];
+      }
+      const response = await getSessionApi(api).getSessions({
+        activeWithinSeconds: activeWithinSeconds,
+      });
+
+      // A reverse proxy can answer this route with a non-array body (an HTML
+      // error page, an error object) that axios passes through as-is.
+      const sessions = Array.isArray(response.data) ? response.data : [];
+      const result = sessions
+        .filter((s) => s.NowPlayingItem)
+        .sort((a, b) =>
+          (b.NowPlayingItem?.Name ?? "").localeCompare(
+            a.NowPlayingItem?.Name ?? "",
+          ),
+        );
+
+      // Notifications.setBadgeCountAsync(result.length);
+      return result;
+    },
+    refetchInterval: refetchInterval,
+  });
+
+  return { sessions: data, isLoading };
+};
+
+export const useAllSessions = ({
+  refetchInterval = 5 * 1000,
+  activeWithinSeconds = 360,
+}: useSessionsProps) => {
+  const [api] = useAtom(apiAtom);
+  const [user] = useAtom(userAtom);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["allSessions"],
+    queryFn: async () => {
+      if (!api || !user?.Policy?.IsAdministrator) {
+        return [];
+      }
+      const response = await getSessionApi(api).getSessions({
+        activeWithinSeconds: activeWithinSeconds,
+      });
+      // Same proxy caveat as useSessions above.
+      return Array.isArray(response.data) ? response.data : [];
+    },
+    refetchInterval: refetchInterval,
+  });
+
+  return { sessions: data, isLoading };
+};

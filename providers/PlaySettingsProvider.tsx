@@ -1,0 +1,169 @@
+import type {
+  BaseItemDto,
+  MediaSourceInfo,
+} from "@jellyfin/sdk/lib/generated-client";
+import { useAtomValue } from "jotai";
+import type React from "react";
+import { createContext, useCallback, useContext, useState } from "react";
+import { Platform } from "react-native";
+import type { Bitrate } from "@/components/BitrateSelector";
+import { getActivePlayerType, settingsAtom } from "@/utils/atoms/settings";
+import { getStreamUrl } from "@/utils/jellyfin/media/getStreamUrl";
+import { logAndCaptureError } from "@/utils/log";
+import { generateDeviceProfile } from "../utils/profiles/native";
+import { apiAtom, userAtom } from "./JellyfinProvider";
+
+export type PlaybackType = {
+  item?: BaseItemDto | null;
+  mediaSource?: MediaSourceInfo | null;
+  subtitleIndex?: number | null;
+  audioIndex?: number | null;
+  bitrate?: Bitrate | null;
+};
+
+type PlaySettingsContextType = {
+  playSettings: PlaybackType | null;
+  mediaSource: MediaSourceInfo | null;
+  setPlaySettings: (
+    dataOrUpdater:
+      | PlaybackType
+      | null
+      | ((prev: PlaybackType | null) => PlaybackType | null),
+  ) => Promise<{ url: string | null; sessionId: string | null } | null>;
+  playUrl?: string | null;
+  setPlayUrl: React.Dispatch<React.SetStateAction<string | null>>;
+  playSessionId?: string | null;
+  setOfflineSettings: (data: PlaybackType) => void;
+};
+
+const PlaySettingsContext = createContext<PlaySettingsContextType | undefined>(
+  undefined,
+);
+
+export const PlaySettingsProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  const [playSettings, _setPlaySettings] = useState<PlaybackType | null>(null);
+  const [mediaSource, setMediaSource] = useState<MediaSourceInfo | null>(null);
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null);
+
+  const api = useAtomValue(apiAtom);
+  const settings = useAtomValue(settingsAtom);
+  const user = useAtomValue(userAtom);
+
+  const setOfflineSettings = useCallback((data: PlaybackType) => {
+    _setPlaySettings(data);
+  }, []);
+
+  const setPlaySettings = useCallback(
+    async (
+      dataOrUpdater:
+        | PlaybackType
+        | null
+        | ((prev: PlaybackType | null) => PlaybackType | null),
+    ): Promise<{ url: string | null; sessionId: string | null } | null> => {
+      if (!api || !user || !settings) {
+        _setPlaySettings(null);
+        return null;
+      }
+
+      const newSettings =
+        typeof dataOrUpdater === "function"
+          ? dataOrUpdater(playSettings)
+          : dataOrUpdater;
+
+      if (newSettings === null) {
+        _setPlaySettings(null);
+        return null;
+      }
+
+      try {
+        // Match the device profile to the actually-active player so the
+        // server picks codecs/containers the player can decode.
+        const native = generateDeviceProfile({
+          platform: Platform.OS as "ios" | "android",
+          player: getActivePlayerType(settings),
+          audioMode: settings.audioTranscodeMode,
+        });
+        const data = await getStreamUrl({
+          api,
+          deviceProfile: native,
+          item: newSettings?.item,
+          mediaSourceId: newSettings?.mediaSource?.Id,
+          startTimeTicks: 0,
+          maxStreamingBitrate: newSettings?.bitrate?.value,
+          audioStreamIndex: newSettings?.audioIndex ?? 0,
+          subtitleStreamIndex: newSettings?.subtitleIndex ?? -1,
+          userId: user.Id,
+        });
+
+        console.log("getStreamUrl ~");
+        console.log(`${data?.url?.slice(0, 100)}...${data?.url?.slice(-50)}`);
+
+        _setPlaySettings(newSettings);
+        if (data?.url) setPlayUrl(data.url);
+        if (data?.sessionId) setPlaySessionId(data.sessionId);
+        if (data?.mediaSource) setMediaSource(data.mediaSource);
+
+        return data;
+      } catch (error) {
+        // Callers treat null as "playback can't start" — without a report
+        // this is a Play button that silently does nothing.
+        logAndCaptureError("Getting stream URL failed", error, {
+          itemType: newSettings?.item?.Type,
+          player: getActivePlayerType(settings),
+          bitrate: newSettings?.bitrate?.value,
+        });
+        return null;
+      }
+    },
+    [api, user, settings, playSettings],
+  );
+
+  // useEffect(() => {
+  //   const postCaps = async () => {
+  //     if (!api) return;
+  //     await getSessionApi(api).postFullCapabilities({
+  //       clientCapabilitiesDto: {
+  //         AppStoreUrl: "https://apps.apple.com/us/app/streamyfin/id6593660679",
+  //         DeviceProfile: native as any,
+  //         IconUrl:
+  //           "https://raw.githubusercontent.com/retardgerman/streamyfinweb/refs/heads/main/public/assets/images/icon_new_withoutBackground.png",
+  //         PlayableMediaTypes: ["Audio", "Video"],
+  //         SupportedCommands: ["Play"],
+  //         SupportsMediaControl: true,
+  //         SupportsPersistentIdentifier: true,
+  //       },
+  //     });
+  //   };
+
+  //   postCaps();
+  // }, [settings, api]);
+
+  return (
+    <PlaySettingsContext.Provider
+      value={{
+        playSettings,
+        setPlaySettings,
+        playUrl,
+        setPlayUrl,
+        setOfflineSettings,
+        playSessionId,
+        mediaSource,
+      }}
+    >
+      {children}
+    </PlaySettingsContext.Provider>
+  );
+};
+
+export const usePlaySettings = () => {
+  const context = useContext(PlaySettingsContext);
+  if (context === undefined) {
+    throw new Error(
+      "usePlaySettings must be used within a PlaySettingsProvider",
+    );
+  }
+  return context;
+};
