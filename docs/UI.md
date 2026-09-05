@@ -188,29 +188,43 @@ under `<DIR>/bin/<child>/` instead of the repo's own `target`/`bin` directories,
 what a production install does — so this is also good practice for verification, not just a
 workaround.
 
+**Confirmed working layout** (verified against `mesh/crates/stingstream/src/supervisor/childdef.rs`
+and by actually running a node this way during M2's own verification — `resolve_prod_dotnet` looks
+for a child's entry point *directly* inside `<install>/bin/<child>/`, not one directory level
+deeper, and `Mode::Prod` has no repo-root fallback at all, so ffmpeg/nzbget need copying too, not
+just jellyfin/radarr/sonarr):
+
 ```powershell
 # One-time (or after a fresh server-side change lands): stage a private copy.
 $bin = "E:\Dan\Documents\Repos\.win-temp\stingstream-m2-bin"
-New-Item -ItemType Directory -Force "$bin\jellyfin","$bin\radarr","$bin\sonarr" | Out-Null
-Copy-Item "mesh\target\debug\stingstream.exe" "$bin\" -Force
-Copy-Item "mesh\target\debug\stingstream-mesh.exe" "$bin\" -Force
-Copy-Item "server\jellyfin\Jellyfin.Server\bin\Debug\net10.0\*" "$bin\jellyfin\" -Recurse -Force
-Copy-Item "server\radarr\_output\net8.0\*" "$bin\radarr\" -Recurse -Force
-Copy-Item "server\sonarr\_output\net10.0\*" "$bin\sonarr\" -Recurse -Force
-# nzbget is a fetched binary, not a repo build output, so third_party/nzbget/bin is already safe to
-# read from directly and needs no copy.
+New-Item -ItemType Directory -Force `
+  "$bin\bin\jellyfin", "$bin\bin\radarr", "$bin\bin\sonarr", `
+  "$bin\bin\ffmpeg\win64", "$bin\bin\nzbget\win64", "$bin\bin\mesh" | Out-Null
 
-# Run from the copy — no locks on anything under mesh/ or server/.
-& "$bin\stingstream.exe" --install-root $bin --data-dir "E:\Dan\Documents\Repos\.win-temp\stingstream-m2-dev"
+Copy-Item "mesh\target\debug\stingstream.exe" "$bin\stingstream.exe" -Force
+# Optional: only read if [mesh] embedded = false is set. Default is embedded (M3b), so a node
+# normally needs no separate mesh binary at all.
+Copy-Item "mesh\target\debug\stingstream-mesh.exe" "$bin\bin\mesh\" -Force -ErrorAction SilentlyContinue
+
+Copy-Item "server\jellyfin\Jellyfin.Server\bin\Debug\net10.0\*" "$bin\bin\jellyfin\" -Recurse -Force
+Copy-Item "server\radarr\_output\net8.0\*" "$bin\bin\radarr\" -Recurse -Force
+Copy-Item "server\sonarr\_output\net10.0\*" "$bin\bin\sonarr\" -Recurse -Force
+Copy-Item "third_party\ffmpeg\bin\win64\*" "$bin\bin\ffmpeg\win64\" -Recurse -Force
+Copy-Item "third_party\nzbget\bin\win64\*" "$bin\bin\nzbget\win64\" -Recurse -Force
+
+# Run from the copy — no locks on anything under mesh/ or server/. --web-dist is needed here
+# because the "look in apps/stingstream/dist automatically" default only applies in --dev; Prod
+# mode (which --install-root selects) has no repo root to derive it from.
+& "$bin\stingstream.exe" --install-root $bin `
+  --data-dir "E:\Dan\Documents\Repos\.win-temp\stingstream-m2-dev" `
+  --web-dist "apps\stingstream\dist"
 ```
 
-Check the exact layout `--install-root` expects against `mesh/crates/stingstream/src/supervisor/
-childdef.rs` before relying on this — it may want a slightly different subfolder shape than guessed
-above (this doc was written from the outside, verifying the shape wasn't this milestone's job).
-Either way, **stop your node** (Ctrl+C, or find-and-kill `stingstream.exe` and its children by PID —
-see "Known limitations" in `docs/RUNNING.md` re: Windows having no graceful child stop) before
-anyone else needs to rebuild `mesh/**` or `server/**`, and say so out loud (a one-line message to
-whoever's waiting) rather than assuming they'll notice.
+Re-run the `Copy-Item` block after any fresh server-side rebuild you want to pick up (each run is a
+few seconds — copying, not rebuilding). **Stop your node** (Ctrl+C, or find-and-kill
+`stingstream.exe` and its children by PID — see "Known limitations" in `docs/RUNNING.md` re: Windows
+having no graceful child stop) before anyone else needs to rebuild `mesh/**` or `server/**`, and say
+so out loud (a one-line message to whoever's waiting) rather than assuming they'll notice.
 
 ---
 
