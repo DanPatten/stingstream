@@ -55,6 +55,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
+# `/stream` hands back an `axum::body::Body` since M4 wrapped it for failover, so the integration
+# test needs the type to drain it.
+axum = "0.8"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"

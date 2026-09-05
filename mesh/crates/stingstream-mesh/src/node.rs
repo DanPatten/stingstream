@@ -920,9 +920,26 @@ impl MeshNode {
             let mut holder_bytes: u64 = 0;
             let mut holder_started = std::time::Instant::now();
             let expected = end.map(|e| e.saturating_sub(start) + 1);
+            let stall = self.cfg.peer.stream_stall_secs;
 
             loop {
-                let frame = current.frame().await;
+                // A holder that was *killed* closes nothing: its socket stops answering and QUIC
+                // will not call that a failure until its own idle timeout, tens of seconds later.
+                // The stall clock is what turns "gone" into "failed over" while a player is still
+                // buffering rather than after it has given up.
+                let (frame, stalled) = if stall == 0 {
+                    (current.frame().await, false)
+                } else {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(stall),
+                        current.frame(),
+                    )
+                    .await
+                    {
+                        Ok(f) => (f, false),
+                        Err(_) => (None, true),
+                    }
+                };
                 match frame {
                     Some(Ok(f)) => {
                         if let Ok(data) = f.into_data() {
@@ -936,6 +953,12 @@ impl MeshNode {
                         tracing::warn!(
                             group = %group.id, item_key, node = %short(&holder), error = %e,
                             sent, "a peer's stream failed mid-body"
+                        );
+                    }
+                    None if stalled => {
+                        tracing::warn!(
+                            group = %group.id, item_key, node = %short(&holder), sent, stall,
+                            "a peer's stream produced nothing for the stall timeout"
                         );
                     }
                     None => {

@@ -17,6 +17,7 @@ use anyhow::{bail, Context, Result};
 use stingstream_mesh::config::MeshConfig;
 use stingstream_mesh::inventory::{InventoryRecord, MediaSummary, MetadataBlob};
 use stingstream_mesh::node::{JoinRoute, MeshNode};
+use stingstream_mesh::score::Policy;
 
 /// 50 MB, as the milestone asks for.
 const FILE_BYTES: u64 = 50 * 1024 * 1024;
@@ -195,7 +196,9 @@ async fn two_nodes_join_gossip_and_stream_with_no_coordinator() -> Result<()> {
         http::HeaderValue::from_str(&format!("bytes={start}-{end}"))?,
     );
 
-    let resp = a.stream(&group.id, item_key, &b.node_id(), &headers).await?;
+    let resp = a
+        .stream(&group.id, item_key, &b.node_id(), &headers, Policy::default())
+        .await?;
     assert_eq!(resp.status(), http::StatusCode::PARTIAL_CONTENT);
     assert_eq!(
         resp.headers()
@@ -270,7 +273,7 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
 
     // No Range at all: 200 and the whole file.
     let resp = a
-        .stream(&group.id, item_key, &b.node_id(), &http::HeaderMap::new())
+        .stream(&group.id, item_key, &b.node_id(), &http::HeaderMap::new(), Policy::default())
         .await?;
     assert_eq!(resp.status(), http::StatusCode::OK);
     assert_eq!(collect(resp.into_body()).await?.len() as u64, size);
@@ -278,7 +281,9 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
     // A suffix range.
     let mut h = http::HeaderMap::new();
     h.insert(http::header::RANGE, http::HeaderValue::from_static("bytes=-16"));
-    let resp = a.stream(&group.id, item_key, &b.node_id(), &h).await?;
+    let resp = a
+        .stream(&group.id, item_key, &b.node_id(), &h, Policy::default())
+        .await?;
     assert_eq!(resp.status(), http::StatusCode::PARTIAL_CONTENT);
     let body = collect(resp.into_body()).await?;
     assert_eq!(body.len(), 16);
@@ -290,7 +295,9 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
         http::header::RANGE,
         http::HeaderValue::from_static("bytes=99999-"),
     );
-    let resp = a.stream(&group.id, item_key, &b.node_id(), &h).await?;
+    let resp = a
+        .stream(&group.id, item_key, &b.node_id(), &h, Policy::default())
+        .await?;
     assert_eq!(resp.status(), http::StatusCode::RANGE_NOT_SATISFIABLE);
     assert_eq!(
         resp.headers()
@@ -301,7 +308,13 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
 
     // An item this node does not hold.
     let resp = a
-        .stream(&group.id, "movie:tmdb:does-not-exist", &b.node_id(), &http::HeaderMap::new())
+        .stream(
+            &group.id,
+            "movie:tmdb:does-not-exist",
+            &b.node_id(),
+            &http::HeaderMap::new(),
+            Policy::default(),
+        )
         .await?;
     assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
 
@@ -385,7 +398,12 @@ async fn a_delta_reaches_the_other_node() -> Result<()> {
     Ok(())
 }
 
-async fn collect(body: hyper::body::Incoming) -> Result<bytes::Bytes> {
+/// Drain a `/stream` response body.
+///
+/// `axum::body::Body`, not `hyper::body::Incoming`: since M4 the mesh wraps a peer's body so it can
+/// continue from another holder of the same file if the first one dies, and the wrapper is what
+/// comes back.
+async fn collect(body: axum::body::Body) -> Result<bytes::Bytes> {
     use http_body_util::BodyExt;
     Ok(body.collect().await.context("reading a stream body")?.to_bytes())
 }

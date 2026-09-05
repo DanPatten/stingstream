@@ -131,6 +131,19 @@ pub struct PeerConfig {
     /// that is where the bytes are produced, and it is the only place a cap cannot be talked out of
     /// by the reader.
     pub throttle_bytes_per_sec: u64,
+
+    /// How long a stream may go without producing a byte before it is treated as failed and
+    /// another holder of the same file is asked to continue it.
+    ///
+    /// This is what makes failover *prompt*. A holder that closes cleanly, or whose connection
+    /// errors, is noticed at once — but a holder whose process is killed outright does not close
+    /// anything: its socket simply stops answering, and QUIC will not call that a failure until its
+    /// own idle timeout expires, which is tens of seconds later. A player has given up long before
+    /// then. Fifteen seconds is generous enough that a legitimately slow peer is not abandoned
+    /// mid-transfer and short enough that a killed one is.
+    ///
+    /// `0` disables the stall check and leaves failover to QUIC's own timeouts.
+    pub stream_stall_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +220,7 @@ impl Default for PeerConfig {
             join_dial_timeout_secs: 12,
             light: false,
             throttle_bytes_per_sec: 0,
+            stream_stall_secs: 15,
         }
     }
 }

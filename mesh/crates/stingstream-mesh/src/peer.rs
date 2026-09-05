@@ -177,6 +177,9 @@ pub struct PeerState {
     /// This node is a light member: it holds no library and serves no files. See
     /// [`crate::config::PeerConfig::light`] and [`light_node_refuses`].
     pub light: bool,
+    /// Bytes per second this node will write onto one peer stream, `0` for no cap. See
+    /// [`crate::config::PeerConfig::throttle_bytes_per_sec`].
+    pub throttle_bytes_per_sec: u64,
 }
 
 /// Whether a light node should refuse this peer route outright.
@@ -608,6 +611,7 @@ async fn serve_file(
     };
 
     let chunk = state.chunk_bytes.max(16 * 1024);
+    let throttle = state.throttle_bytes_per_sec;
     let started = std::time::Instant::now();
     let stream = async_stream::stream! {
         let mut file = file;
@@ -618,6 +622,7 @@ async fn serve_file(
             }
         }
         let mut remaining = length;
+        let mut written = 0u64;
         let mut buf = vec![0u8; chunk];
         while remaining > 0 {
             let want = remaining.min(chunk as u64) as usize;
@@ -625,7 +630,13 @@ async fn serve_file(
                 Ok(0) => break,
                 Ok(n) => {
                     remaining -= n as u64;
+                    written += n as u64;
                     yield Ok(Frame::data(Bytes::copy_from_slice(&buf[..n])));
+                    // Pace against the elapsed time rather than sleeping a fixed amount per chunk,
+                    // so the cap is a *rate* and a slow disk does not make it slower still.
+                    if let Some(wait) = throttle_delay(throttle, written, started.elapsed()) {
+                        tokio::time::sleep(wait).await;
+                    }
                 }
                 Err(e) => {
                     yield Err(e);
@@ -647,6 +658,27 @@ async fn serve_file(
     builder
         .body(StreamBody::new(stream).boxed())
         .expect("a file response always builds")
+}
+
+/// How long to wait before writing more, to hold a stream to `limit` bytes per second.
+///
+/// `None` when there is no cap or the stream is already behind it. Compares against the time the
+/// whole transfer has taken rather than sleeping a fixed slice per chunk, so a slow read does not
+/// compound into a slower rate than asked for.
+pub fn throttle_delay(
+    limit: u64,
+    written: u64,
+    elapsed: std::time::Duration,
+) -> Option<std::time::Duration> {
+    if limit == 0 {
+        return None;
+    }
+    let should_take = written as f64 / limit as f64;
+    let taken = elapsed.as_secs_f64();
+    if should_take <= taken {
+        return None;
+    }
+    Some(std::time::Duration::from_secs_f64(should_take - taken))
 }
 
 fn content_type_for(path: &std::path::Path) -> &'static str {
@@ -851,6 +883,23 @@ mod tests {
         assert!(percent_decode("a%2Fb").is_none());
         assert!(percent_decode("%zz").is_none());
         assert!(percent_decode("%4").is_none());
+    }
+
+    #[test]
+    fn a_throttle_of_zero_never_waits() {
+        assert!(throttle_delay(0, 1 << 30, std::time::Duration::from_millis(1)).is_none());
+    }
+
+    #[test]
+    fn a_throttle_waits_only_when_the_stream_is_ahead_of_its_rate() {
+        let secs = std::time::Duration::from_secs_f64;
+        // 1 MB/s. A megabyte written in a second is exactly on rate.
+        assert!(throttle_delay(1_000_000, 1_000_000, secs(1.0)).is_none());
+        // A megabyte written in a tenth of a second is 0.9 s ahead.
+        let wait = throttle_delay(1_000_000, 1_000_000, secs(0.1)).unwrap();
+        assert!((wait.as_secs_f64() - 0.9).abs() < 1e-6, "{wait:?}");
+        // Behind the rate: never sleep to catch up in the wrong direction.
+        assert!(throttle_delay(1_000_000, 1_000_000, secs(5.0)).is_none());
     }
 
     #[test]
