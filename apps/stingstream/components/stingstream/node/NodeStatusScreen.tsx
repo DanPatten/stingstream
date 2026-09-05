@@ -6,6 +6,7 @@ import { useMeshStatus, useNodeStatus } from "@/lib/stingstream/hooks";
 import { useHealthz } from "@/lib/stingstream/status";
 import { GapNotice } from "../shared/GapNotice";
 import { QueryState } from "../shared/ScreenState";
+import { SideDoorSection } from "./SideDoorSection";
 
 function stateColor(state: string): "default" | "red" {
   return state === "healthy" ? "default" : "red";
@@ -127,6 +128,10 @@ export function NodeStatusScreen() {
               detail="This node's mesh isn't answering — see docs/ARCHITECTURE.md for M3's mesh status."
             />
           )}
+
+          <View className='h-4' />
+
+          <SideDoorSection />
         </>
       )}
     </QueryState>
