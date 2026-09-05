@@ -1,0 +1,24 @@
+# Multi-provider
+
+Add multiple NNTP accounts under **Settings → Usenet**.
+
+## Routing
+
+- **Pool (default)** — connections shared across enabled providers.
+- **Cascade** — prefer providers in drag order; fail over down the list. Among providers that still have spare capacity, a thinly-spared primary (at most 25% of its pool free) can yield to an idle same-tier peer. Fully saturated providers are still skipped. Absolute pool width does not outrank configured priority while both providers are healthy.
+
+Optional **Re-probe primary after article miss** (`usenet.cascade.retry-primary-on-miss`, default on) retries the primary once after a clean 430/451 before cascading — useful when providers route across spool nodes. Turn it off to go straight to backups after the first miss.
+
+Each provider has type (pool / backup-only / disabled), SSL, connection limits, optional pipeline depth, and optional **data caps** (auto-pause near the limit).
+
+## Circuit breakers and storage groups
+
+Failing providers are skipped temporarily, for a cooldown that doubles on each consecutive trip up to a ceiling. Both bounds default to 60s and 5 minutes and are set with the `usenet.circuit-breaker.*` config keys. See [Usenet configuration](../configuration/usenet.md). **Storage group** labels mark resellers that share the same upstream storage — after a clean article miss on one, siblings in the group are skipped for that request (connection errors never trigger this).
+
+Across requests, a bounded TTL **article-miss negative cache** [since 0.9.0](https://github.com/infinidysk/infinidysk/releases/tag/v0.9.0){ .nzbdav-since } remembers definitive misses per provider or storage group so streaming retries are not spent re-probing known-missing articles. Tune TTL and max entries under **Settings → Usenet → Global settings**.
+
+Only group providers that truly share storage and retention policy.
+
+## Related
+
+[Usenet settings](../configuration/usenet.md) · [Multi-provider use case](../use-cases/multi-provider-failover.md)

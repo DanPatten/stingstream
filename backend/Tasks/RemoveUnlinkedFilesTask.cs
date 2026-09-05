@@ -1,0 +1,836 @@
+﻿using System.Diagnostics;
+using System.Data.Common;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using NzbWebDAV.Config;
+using NzbWebDAV.Database;
+using NzbWebDAV.Database.Models;
+using NzbWebDAV.Extensions;
+using NzbWebDAV.Queue.PostProcessors;
+using NzbWebDAV.Services;
+using NzbWebDAV.Utils;
+using NzbWebDAV.Websocket;
+using Npgsql;
+using NpgsqlTypes;
+using Serilog;
+
+namespace NzbWebDAV.Tasks;
+
+public class RemoveUnlinkedFilesTask : BaseTask
+{
+    private static readonly TimeSpan DefaultProgressHeartbeatInterval = TimeSpan.FromSeconds(2);
+    private static List<string> _allRemovedPaths = [];
+    private readonly ConfigManager _configManager;
+    private readonly WebsocketManager _websocketManager;
+    private readonly bool _isDryRun;
+    private readonly Func<DavDatabaseContext>? _createContext;
+    private readonly TimeSpan _progressHeartbeatInterval;
+    private readonly Action<string>? _progressObserver;
+    private ProgressHeartbeat? _progressHeartbeat;
+
+    internal record UnlinkedItemInfo(string Id, int Type, string Path);
+
+    /// <summary>
+    /// An unlinked usenet file plus the generated-sidecar columns needed to remove its
+    /// strm output from disk before the owning row is deleted. After deletion
+    /// the Generated* metadata would be unrecoverable and the sidecar stranded.
+    /// </summary>
+    internal record UnlinkedFileInfo(
+        string Id,
+        int Type,
+        string Path,
+        string Name,
+        string? GeneratedStrmOutputRoot,
+        string? GeneratedStrmPath,
+        string? GeneratedStrmTarget);
+
+    internal static DbParameter CreateWallClockParameter(
+        DavDatabaseContext dbContext,
+        DateTime value) =>
+        dbContext.Database.IsNpgsql()
+            ? new NpgsqlParameter
+            {
+                NpgsqlDbType = NpgsqlDbType.Timestamp,
+                Value = DavDatabaseContext.ToPostgresWallClock(value),
+            }
+            : new SqliteParameter { Value = value };
+
+    public RemoveUnlinkedFilesTask(
+        ConfigManager configManager,
+        WebsocketManager websocketManager,
+        bool isDryRun)
+        : this(configManager, websocketManager, isDryRun, null)
+    {
+    }
+
+    internal RemoveUnlinkedFilesTask(
+        ConfigManager configManager,
+        WebsocketManager websocketManager,
+        bool isDryRun,
+        Func<DavDatabaseContext>? createContext,
+        TimeSpan? progressHeartbeatInterval = null,
+        Action<string>? progressObserver = null)
+    {
+        _configManager = configManager;
+        _websocketManager = websocketManager;
+        _isDryRun = isDryRun;
+        _createContext = createContext;
+        _progressHeartbeatInterval = progressHeartbeatInterval ?? DefaultProgressHeartbeatInterval;
+        _progressObserver = progressObserver;
+    }
+
+    private DavDatabaseContext CreateContext() => DavDatabaseContexts.Create(_createContext);
+
+    protected override async Task ExecuteInternal()
+    {
+        await using var progressHeartbeat = new ProgressHeartbeat(
+            Report,
+            _progressHeartbeatInterval,
+            ProgressHeartbeatOperation.RemoveUnlinkedFiles);
+        _progressHeartbeat = progressHeartbeat;
+        try
+        {
+            await RemoveUnlinkedFiles().ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Complete($"Failed: {e.Message}");
+            if (TryGetKnownFailureReason(e, out var reason))
+            {
+                Log.Warning("Could not remove unlinked files. Reason: {Reason}", reason);
+                Log.Debug(e, "Remove unlinked files known failure stack");
+            }
+            else
+            {
+                Log.Error(e, "Failed to remove unlinked files.");
+            }
+        }
+        finally
+        {
+            _progressHeartbeat = null;
+        }
+    }
+
+    /// <summary>
+    /// Environmental failures an operator can act on from a single log line: a database that is
+    /// busy, locked, read-only or full, and shutdown mid-run. Everything else keeps its stack so
+    /// genuine bugs and corruption stay diagnosable.
+    /// </summary>
+    private bool TryGetKnownFailureReason(Exception exception, out string reason)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current.IsCancellationException(CancellationToken))
+            {
+                reason = "nzbdav is shutting down";
+                return true;
+            }
+
+            // SQLITE_BUSY/LOCKED/READONLY/FULL or PostgreSQL serialization failure /
+            // deadlock / lock timeout — transient contention the next run retries.
+            if (current.IsTransientDatabaseException())
+            {
+                reason = current.Message;
+                return true;
+            }
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private async Task RemoveUnlinkedFiles()
+    {
+        if (IsLibraryDirInsideRcloneMount(
+                _configManager.GetLibraryDir(),
+                _configManager.GetRcloneMountDir(),
+                out var libraryDir,
+                out var mountDir))
+        {
+            _allRemovedPaths.Clear();
+            var detail =
+                $"Library Directory '{libraryDir}' is inside the rclone mount '{mountDir}'. " +
+                "That path is InfiniDysk's virtual filesystem (completed-symlinks, content, .ids), " +
+                "not your organized library. Point Library Directory at the folder that contains " +
+                "your Arr root folders — outside the rclone mount — then retry.";
+            Log.Warning("Remove Orphaned Files aborted. Reason: {Reason}", detail);
+            Complete($"Aborted: {detail} Cancelling to prevent a misleading orphan report.");
+            return;
+        }
+
+        // get linked file paths
+        StartPhase("Scanning all linked files...");
+        var startTime = DateTime.Now;
+        var linkedIdCount = await WriteLinkedIdsToTable().ConfigureAwait(false);
+        if (linkedIdCount < 5)
+        {
+            _allRemovedPaths.Clear();
+            Complete(
+                $"Aborted: Library Directory scan found {linkedIdCount} WebDAV files referenced by imported " +
+                "symlinks or .strm files; at least five are required before cleanup. Verify Library Directory " +
+                "points to the parent of your Radarr/Sonarr root folders containing imported symlinks or .strm " +
+                "files, not the rclone mount or a folder of regular media files. " +
+                "Cancelling operation to prevent accidental bulk deletion.");
+            return;
+        }
+
+        StartPhase("Searching for unlinked webdav items...");
+        var unlinkedItems = await CountUnlinkedItems(startTime).ConfigureAwait(false);
+        UpdatePhase(
+            $"Searching for unlinked webdav items...\nFound {unlinkedItems} webdav items to remove.");
+
+        // The `linkedIdCount < 5` check above only catches a COMPLETELY empty scan. A library
+        // dir that is partially mounted, or pointed at the wrong path, can still expose a
+        // handful of symlinks and sail past it -- and then nearly every webdav item looks
+        // unlinked. Refuse to delete an implausible share of the deletable population.
+        // A healthy library here sits around 31% unlinked (samples, nfos, unimported extras),
+        // so 90% leaves wide headroom while still catching a broken scan.
+        var deletableItems = await CountDeletableItems(startTime).ConfigureAwait(false);
+        var extremeUnlinkedRatio = deletableItems > 0 && unlinkedItems > deletableItems * 0.9;
+        if (extremeUnlinkedRatio)
+        {
+            var percent = 100.0 * unlinkedItems / deletableItems;
+            var detail =
+                $"{unlinkedItems} of {deletableItems} webdav items appear unlinked ({percent:F0}%). " +
+                $"That usually means the library directory is missing, unmounted, or misconfigured " +
+                $"rather than that the items are orphaned.";
+
+            if (!_isDryRun)
+            {
+                _allRemovedPaths.Clear();
+                Complete($"Aborted: {detail} Cancelling to prevent accidental bulk deletion. " +
+                         "Run a dry-run to inspect if this is genuinely expected.");
+                return;
+            }
+
+            UpdatePhase($"Warning: {detail} A non-dry-run would abort.");
+        }
+
+        if (_isDryRun)
+        {
+            StartPhase("Identifying unlinked files...");
+            var identified = await DryRunIdentifyUnlinkedFiles(startTime).ConfigureAwait(false);
+            Complete($"Done. Identified {identified} unlinked files.");
+        }
+        else
+        {
+            var removed = await RemoveUnlinkedItems(startTime, unlinkedItems).ConfigureAwait(false);
+            await RemoveEmptyDirectories(startTime).ConfigureAwait(false);
+            Complete($"Done. Removed {removed} unlinked files.");
+        }
+    }
+
+    private async Task<int> WriteLinkedIdsToTable()
+    {
+        await using var dbContext = CreateContext();
+        var isPostgres = dbContext.Database.IsNpgsql();
+
+        // Create a new table "TMP_LINKED_FILES", dropping old one if it already exists.
+        // No index initially for fast writes.
+        // TMP_LINKED_FILES_UNIQUE is dropped too: the indexing step below commits each
+        // statement separately, so a failure between its CREATE and RENAME strands the
+        // unique table and every later run would fail on "table already exists".
+#pragma warning disable EF1003 // Provider-specific DDL is a fixed local string.
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            DROP TABLE IF EXISTS TMP_LINKED_FILES;
+            DROP TABLE IF EXISTS TMP_LINKED_FILES_UNIQUE;
+            """ + (isPostgres
+                ? "CREATE TABLE TMP_LINKED_FILES (Id UUID NOT NULL);"
+                : "CREATE TABLE TMP_LINKED_FILES (Id TEXT NOT NULL);"))
+            .ConfigureAwait(false);
+#pragma warning restore EF1003
+
+        var scannedCount = 0;
+        var batches = GetLinkedIds().ToBatches(100);
+        foreach (var batch in batches)
+        {
+            await InsertLinkedIdBatchAsync(dbContext, batch).ConfigureAwait(false);
+            scannedCount += batch.Count;
+        }
+
+        // Remove duplicates and add primary key index.
+        // SQLite needs NOCASE to match migration-seeded lowercase ids. PostgreSQL stores
+        // native UUIDs, so equality is casing-independent without a collation.
+        StartPhase($"Indexing {scannedCount} linked files...");
+        await dbContext.Database.ExecuteSqlRawAsync(
+            isPostgres
+                ? """
+                  CREATE TABLE TMP_LINKED_FILES_UNIQUE (Id UUID NOT NULL PRIMARY KEY);
+                  INSERT INTO TMP_LINKED_FILES_UNIQUE (Id) SELECT Id FROM TMP_LINKED_FILES ON CONFLICT DO NOTHING;
+                  DROP TABLE TMP_LINKED_FILES;
+                  ALTER TABLE TMP_LINKED_FILES_UNIQUE RENAME TO TMP_LINKED_FILES;
+                  """
+                : """
+                  CREATE TABLE TMP_LINKED_FILES_UNIQUE (Id TEXT NOT NULL COLLATE NOCASE PRIMARY KEY);
+                  INSERT OR IGNORE INTO TMP_LINKED_FILES_UNIQUE (Id) SELECT Id FROM TMP_LINKED_FILES;
+                  DROP TABLE TMP_LINKED_FILES;
+                  ALTER TABLE TMP_LINKED_FILES_UNIQUE RENAME TO TMP_LINKED_FILES;
+                  """).ConfigureAwait(false);
+
+        // Guard uses distinct dav-item ids, not raw symlink/strm count (many links can
+        // point at the same item and otherwise sail past the < 5 safety check).
+        // The alias stays quoted: EF wraps SqlQuery in a subselect and references
+        // s."Value" case-sensitively on PostgreSQL. COUNT is cast to int because
+        // PostgreSQL returns bigint, which Npgsql will not read as int.
+        return await dbContext.Database
+            .SqlQueryRaw<int>("SELECT CAST(COUNT(*) AS INT) AS \"Value\" FROM TMP_LINKED_FILES")
+            .SingleAsync()
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Parameterized multi-row INSERT so large libraries do not pay one round-trip per id.
+    /// </summary>
+    internal static async Task InsertLinkedIdBatchAsync(
+        DavDatabaseContext dbContext,
+        IReadOnlyList<Guid> batch,
+        CancellationToken cancellationToken = default)
+    {
+        if (batch.Count == 0)
+            return;
+
+        var parameters = new DbParameter[batch.Count];
+        var valueSql = new string[batch.Count];
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var name = $"@p{i}";
+            valueSql[i] = $"({name})";
+            parameters[i] = dbContext.Database.IsNpgsql()
+                ? new NpgsqlParameter(name, batch[i])
+                : new SqliteParameter(name, batch[i].ToString().ToUpperInvariant());
+        }
+
+        // Parameter names are generated locally (@p0..@pN); values are bound via
+        // provider-specific parameters (NpgsqlParameter or SqliteParameter).
+#pragma warning disable EF1002
+        await dbContext.Database.ExecuteSqlRawAsync(
+            $"INSERT INTO TMP_LINKED_FILES (Id) VALUES {string.Join(",", valueSql)}",
+            parameters.AsEnumerable(),
+            cancellationToken).ConfigureAwait(false);
+#pragma warning restore EF1002
+    }
+
+    /// <summary>
+    /// Deletes DavItems by the exact Id text returned from a raw SELECT. Going through
+    /// Guid.Parse + ExecuteDelete re-serializes Ids as uppercase, which silently misses
+    /// rows stored lowercase (e.g. the folder seeded by the Fix-Empty-Categories migration).
+    /// </summary>
+    private static async Task<int> DeleteItemsByIdTextAsync(
+        DavDatabaseContext dbContext,
+        List<UnlinkedFileInfo> items,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new DbParameter[items.Count];
+        var placeholders = new string[items.Count];
+        for (var i = 0; i < items.Count; i++)
+        {
+            var name = $"@p{i}";
+            placeholders[i] = name;
+            parameters[i] = dbContext.Database.IsNpgsql()
+                ? new NpgsqlParameter(name, items[i].Id)
+                : new SqliteParameter(name, items[i].Id);
+        }
+
+        // Placeholder names are generated locally (@p0..@pN); values are bound via
+        // provider-specific parameters (NpgsqlParameter or SqliteParameter).
+#pragma warning disable EF1002
+        return await dbContext.Database.ExecuteSqlRawAsync(
+            dbContext.Database.IsNpgsql()
+                ? $"DELETE FROM \"DavItems\" WHERE CAST(\"Id\" AS TEXT) IN ({string.Join(",", placeholders)})"
+                : $"DELETE FROM DavItems WHERE Id IN ({string.Join(",", placeholders)})",
+            parameters.AsEnumerable(),
+            cancellationToken).ConfigureAwait(false);
+#pragma warning restore EF1002
+    }
+
+    /// <summary>
+    /// Deletes empty directories by Id, re-checking emptiness in the same statement so a
+    /// concurrent insert under a selected folder cannot race into a cascade delete.
+    /// </summary>
+    internal static async Task<int> DeleteEmptyDirectoriesByIdTextAsync(
+        DavDatabaseContext dbContext,
+        IReadOnlyList<UnlinkedItemInfo> items,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new DbParameter[items.Count];
+        var placeholders = new string[items.Count];
+        for (var i = 0; i < items.Count; i++)
+        {
+            var name = $"@p{i}";
+            placeholders[i] = name;
+            parameters[i] = dbContext.Database.IsNpgsql()
+                ? new NpgsqlParameter(name, items[i].Id)
+                : new SqliteParameter(name, items[i].Id);
+        }
+
+        // Placeholder names are generated locally (@p0..@pN); values are bound via
+        // provider-specific parameters (NpgsqlParameter or SqliteParameter).
+#pragma warning disable EF1002
+        return await dbContext.Database.ExecuteSqlRawAsync(
+            $"""
+             DELETE FROM "DavItems"
+             WHERE {(dbContext.Database.IsNpgsql() ? "CAST(\"Id\" AS TEXT)" : "Id")} IN ({string.Join(",", placeholders)})
+               AND NOT EXISTS (
+                   SELECT 1 FROM "DavItems" c WHERE c."ParentId" = "DavItems"."Id"
+               )
+             """,
+            parameters.AsEnumerable(),
+            cancellationToken).ConfigureAwait(false);
+#pragma warning restore EF1002
+    }
+
+    private IEnumerable<Guid> GetLinkedIds()
+    {
+        var linkedIds = OrganizedLinksUtil
+            .GetLibraryDavItemLinks(_configManager)
+            .Where(x => !IsGeneratedOutputPath(x.LinkPath))
+            .Select(x => x.DavItemId);
+
+        var count = 0;
+        var lastProgressAt = Stopwatch.GetTimestamp();
+        foreach (var linkedId in linkedIds)
+        {
+            count++;
+            if (Stopwatch.GetElapsedTime(lastProgressAt) >= TimeSpan.FromMilliseconds(500))
+            {
+                UpdatePhase($"Scanning all linked files...\nFound {count}...");
+                lastProgressAt = Stopwatch.GetTimestamp();
+            }
+            yield return linkedId;
+        }
+
+        UpdatePhase($"Scanning all linked files...\nFound {count}...");
+    }
+
+    /// <summary>
+    /// Generated strm outputs are written by InfiniDysk itself and are removed together
+    /// with their owning dav-item. When an output directory is nested inside the Library
+    /// Directory, counting those sidecars as library links would let an item self-protect:
+    /// the link scan would keep finding its own leftover sidecar and the item would never
+    /// be orphaned. Links an Arr has imported into the library proper still count.
+    /// </summary>
+    private bool IsGeneratedOutputPath(string linkPath)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(linkPath);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        // Only STRM mode writes generated sidecars under completed-downloads-dir.
+        // In symlink mode that directory is not InfiniDysk's output, so links there
+        // are real library links and must keep their dav-items from being orphaned.
+        if (_configManager.GetImportStrategy() != "strm")
+            return false;
+
+        var strmRoot = _configManager.GetStrmCompletedDownloadDir();
+        return !string.IsNullOrWhiteSpace(strmRoot)
+               && CreateStrmFilesPostProcessor.IsPathWithinRoot(fullPath, Path.GetFullPath(strmRoot));
+    }
+
+    /// <summary>
+    /// The population CountUnlinkedItems draws from: every item this task is allowed to delete,
+    /// linked or not. Must mirror CountUnlinkedItems' predicates exactly (minus the link join),
+    /// otherwise the safety ratio compares two different populations.
+    /// </summary>
+    private async Task<int> CountDeletableItems(DateTime createdBefore)
+    {
+        await using var dbContext = CreateContext();
+        var usenetFileType = (int)DavItem.ItemType.UsenetFile;
+
+        // COUNT is cast to int because PostgreSQL returns bigint, which Npgsql
+        // will not read as int.
+        return await dbContext.Database
+            .SqlQuery<int>(
+                $"""
+                 SELECT CAST(COUNT(i."Id") AS INT) AS "Value" FROM "DavItems" i
+                 WHERE i."Type" = {usenetFileType}
+                   AND i."HistoryItemId" IS NULL
+                   AND i."CreatedAt" < {CreateWallClockParameter(dbContext, createdBefore)}
+                 """)
+            .SingleAsync()
+            .ConfigureAwait(false);
+    }
+
+    private async Task<int> CountUnlinkedItems(DateTime createdBefore)
+    {
+        await using var dbContext = CreateContext();
+        var usenetFileType = (int)DavItem.ItemType.UsenetFile;
+
+        // LEFT JOIN is equivalent to the NOT EXISTS used by RemoveUnlinkedItems /
+        // DryRunIdentifyUnlinkedFiles; CountDeletableItems mirrors these predicates without
+        // the link join so the safety ratio compares the same population.
+        // Join as t.Id = i.Id so SQLite inherits NOCASE from TMP_LINKED_FILES (left operand)
+        // and can seek the PK; i.Id = t.Id would use BINARY and miss both index and casing.
+        // COUNT is cast to int because PostgreSQL returns bigint, which Npgsql
+        // will not read as int.
+        var count = await dbContext.Database
+            .SqlQuery<int>(
+                $"""
+                 SELECT CAST(COUNT(i."Id") AS INT) AS "Value" FROM "DavItems" i
+                 LEFT JOIN TMP_LINKED_FILES t ON t.Id = i."Id"
+                 WHERE i."Type" = {usenetFileType}
+                   AND i."HistoryItemId" IS NULL
+                   AND i."CreatedAt" < {CreateWallClockParameter(dbContext, createdBefore)}
+                   AND t.Id IS NULL
+                 """)
+            .SingleAsync()
+            .ConfigureAwait(false);
+
+        return count;
+    }
+
+    private async Task<int> RemoveUnlinkedItems(DateTime createdBefore, int totalCount)
+    {
+        StartPhase("Removing unlinked items...");
+        _allRemovedPaths.Clear();
+        await using var dbContext = CreateContext();
+        var removed = 0;
+        var usenetFileType = (int)DavItem.ItemType.UsenetFile;
+
+        while (true)
+        {
+            // Select items to delete (batch of 100). t.Id on the left inherits NOCASE from
+            // the TMP_LINKED_FILES PK so lowercase DavItems.Id still match uppercase links.
+            var itemsToDelete = await dbContext.Database
+                .SqlQuery<UnlinkedFileInfo>(
+                    $"""
+                     SELECT CAST("Id" AS TEXT) AS "Id", "Type", "Path", "Name",
+                            "GeneratedStrmOutputRoot", "GeneratedStrmPath", "GeneratedStrmTarget"
+                     FROM "DavItems"
+                     WHERE "Type" = {usenetFileType}
+                       AND "HistoryItemId" IS NULL
+                       AND "CreatedAt" < {CreateWallClockParameter(dbContext, createdBefore)}
+                       AND NOT EXISTS (
+                           SELECT 1 FROM TMP_LINKED_FILES t
+                           WHERE t.Id = "DavItems"."Id"
+                       )
+                     LIMIT 100
+                     """)
+                .ToListAsync()
+                .ConfigureAwait(false);
+
+            // If there are no more items to delete, we're done.
+            if (itemsToDelete.Count == 0)
+                break;
+
+            // Delete by the exact Id text from the select so stored casing never matters.
+            // Sidecars go first: once the row is gone, the Generated* ownership metadata
+            // needed to safely delete them is gone with it.
+            foreach (var item in itemsToDelete)
+            {
+                DeletionAuditLog.Record(
+                    "remove-orphaned",
+                    new DavItem { Id = Guid.Parse(item.Id), Path = item.Path },
+                    "no library symlink/strm link");
+                DeleteGeneratedSidecarFiles(item);
+            }
+
+            var deleted = await DeleteItemsByIdTextAsync(dbContext, itemsToDelete)
+                .ConfigureAwait(false);
+
+            // A batch that selects rows but deletes none would loop forever with a climbing
+            // counter. Throw so ExecuteInternal reports a terminal "Failed:" status.
+            if (deleted == 0)
+            {
+                throw new InvalidOperationException(
+                    $"selected {itemsToDelete.Count} unlinked items but deleted 0; " +
+                    $"aborting to avoid an infinite loop.");
+            }
+
+            // Trigger rclone vfs/forget for deleted items
+            _ = DavDatabaseContext.RcloneVfsForget(itemsToDelete.Select(x => new DavItem
+            {
+                Id = Guid.Parse(x.Id),
+                Type = (DavItem.ItemType)x.Type,
+                Path = x.Path
+            }).ToList(), CancellationToken);
+
+            // Track removed paths
+            _allRemovedPaths.AddRange(itemsToDelete.Select(x => x.Path));
+            removed += deleted;
+
+            UpdatePhase($"Removing unlinked items...\nRemoved {removed}/{totalCount}...");
+        }
+
+        UpdatePhase($"Removing unlinked items...\nRemoved {removed} of {removed}...");
+        return removed;
+    }
+
+    /// <summary>
+    /// Removes the generated strm output belonging to an orphaned item from disk.
+    /// The deleter verifies on-disk ownership (recorded root, no symlinked ancestor, matching
+    /// target) before deleting, so files an Arr import has already moved or replaced are left
+    /// alone. A filesystem failure must not block removal of the webdav item itself.
+    /// </summary>
+    private static void DeleteGeneratedSidecarFiles(UnlinkedFileInfo item)
+    {
+        var davItem = new DavItem
+        {
+            Id = Guid.Parse(item.Id),
+            Name = item.Name,
+            Type = (DavItem.ItemType)item.Type,
+            Path = item.Path,
+            GeneratedStrmOutputRoot = item.GeneratedStrmOutputRoot,
+            GeneratedStrmPath = item.GeneratedStrmPath,
+            GeneratedStrmTarget = item.GeneratedStrmTarget,
+        };
+
+        try
+        {
+            if (CreateStrmFilesPostProcessor.DeleteStrmFile(davItem))
+            {
+                DeletionAuditLog.Record("remove-orphaned", davItem, "generated strm sidecar of orphaned file");
+                _allRemovedPaths.Add($"{item.GeneratedStrmPath} (strm sidecar of {item.Path})");
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Log.Warning(
+                e,
+                "Could not remove the generated strm sidecar for {Path}. The webdav item is still being removed; the sidecar file may need manual cleanup.",
+                item.Path);
+        }
+    }
+
+    private async Task RemoveEmptyDirectories(DateTime createdBefore)
+    {
+        StartPhase("Removing empty directories...");
+        await using var dbContext = CreateContext();
+        await RemoveEmptyDirectoriesAsync(
+            dbContext,
+            createdBefore,
+            removedSoFar => UpdatePhase($"Removing empty directories...\nRemoved {removedSoFar}..."),
+            dirs => DavDatabaseContext.RcloneVfsForget(dirs, CancellationToken),
+            CancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes empty regular directories in batches and returns the number removed.
+    /// Category folders under /content and /nzbs are excluded (WebDAV synthesizes them;
+    /// deleting them races with in-flight queue processing via DavCleanupService cascade).
+    /// Mount folders still linked to SAB history are also excluded. The DELETE re-checks
+    /// emptiness so a concurrent child insert cannot race into a cascade delete.
+    /// </summary>
+    internal static async Task<int> RemoveEmptyDirectoriesAsync(
+        DavDatabaseContext dbContext,
+        DateTime createdBefore,
+        Action<int>? onProgress = null,
+        Func<List<DavItem>, Task>? onDeleted = null,
+        CancellationToken cancellationToken = default)
+    {
+        var removed = 0;
+        var directorySubType = (int)DavItem.ItemSubType.Directory;
+        var isPostgres = dbContext.Database.IsNpgsql();
+        object contentFolderId = isPostgres ? DavItem.ContentFolder.Id : DavItem.ContentFolder.Id.ToString();
+        object nzbFolderId = isPostgres ? DavItem.NzbFolder.Id : DavItem.NzbFolder.Id.ToString();
+        // When a selected batch deletes fewer rows than selected (child appeared mid-flight),
+        // retry. Only abort if the same batch ids keep making no progress.
+        string? lastStuckBatchKey = null;
+
+        while (true)
+        {
+            // NOT EXISTS uses IX_DavItems_ParentId_Name's ParentId prefix; avoid the
+            // previous LEFT JOIN anti-join which rescanned poorly at large scale.
+            var emptyDirs = await dbContext.Database
+                .SqlQuery<UnlinkedItemInfo>(
+                    $"""
+                     SELECT CAST(d."Id" AS TEXT) AS "Id", d."Type" AS "Type", d."Path" AS "Path" FROM "DavItems" d
+                     WHERE d."SubType" = {directorySubType}
+                       AND d."HistoryItemId" IS NULL
+                       AND d."CreatedAt" < {CreateWallClockParameter(dbContext, createdBefore)}
+                       AND d."ParentId" NOT IN ({contentFolderId}, {nzbFolderId})
+                       AND NOT EXISTS (
+                           SELECT 1 FROM "DavItems" c WHERE c."ParentId" = d."Id"
+                       )
+                     LIMIT 100
+                     """)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (emptyDirs.Count == 0)
+                break;
+
+            // Delete by the exact Id text from the select so stored casing never matters
+            // (the Fix-Empty-Categories migration seeds a lowercase-Id folder). Re-check
+            // emptiness in the DELETE so a concurrent insert under a selected folder
+            // cannot race into TR_DavItems_DeleteDirectory + DavCleanupService cascade.
+            var deleted = await DeleteEmptyDirectoriesByIdTextAsync(
+                    dbContext, emptyDirs, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (deleted == 0)
+            {
+                var batchKey = string.Join(",", emptyDirs.Select(x => x.Id));
+                if (batchKey == lastStuckBatchKey)
+                {
+                    throw new InvalidOperationException(
+                        $"selected {emptyDirs.Count} empty directories but deleted 0 twice; " +
+                        $"aborting to avoid an infinite loop.");
+                }
+
+                lastStuckBatchKey = batchKey;
+                continue;
+            }
+
+            lastStuckBatchKey = null;
+
+            // Prefer auditing the full selected batch when every row deleted. On a partial
+            // delete the survivors remain for the next iteration; over-auditing the rare
+            // race case is preferable to missing deleted paths.
+            foreach (var dir in emptyDirs)
+            {
+                DeletionAuditLog.Record(
+                    "remove-orphaned",
+                    new DavItem { Id = Guid.Parse(dir.Id), Path = dir.Path },
+                    "empty directory after orphaned-file cleanup");
+            }
+
+            if (onDeleted is not null)
+            {
+                _ = onDeleted(emptyDirs.Select(x => new DavItem
+                {
+                    Id = Guid.Parse(x.Id),
+                    Type = (DavItem.ItemType)x.Type,
+                    Path = x.Path
+                }).ToList());
+            }
+
+            removed += deleted;
+            onProgress?.Invoke(removed);
+        }
+
+        return removed;
+    }
+
+    private async Task<int> DryRunIdentifyUnlinkedFiles(DateTime createdBefore)
+    {
+        _allRemovedPaths.Clear();
+        await using var dbContext = CreateContext();
+        var usenetFileType = (int)DavItem.ItemType.UsenetFile;
+        // Keyset pagination: LIMIT/OFFSET without ORDER BY has no stable order in SQLite,
+        // which can duplicate or skip rows across batches.
+        var lastId = string.Empty;
+        var identified = 0;
+
+        while (true)
+        {
+            var batch = await dbContext.Database
+                .SqlQuery<UnlinkedFileInfo>(
+                    $"""
+                     SELECT CAST("Id" AS TEXT) AS "Id", "Type", "Path", "Name",
+                            "GeneratedStrmOutputRoot", "GeneratedStrmPath", "GeneratedStrmTarget"
+                     FROM "DavItems"
+                     WHERE "Type" = {usenetFileType}
+                       AND "HistoryItemId" IS NULL
+                       AND "CreatedAt" < {CreateWallClockParameter(dbContext, createdBefore)}
+                       AND CAST("Id" AS TEXT) > {lastId}
+                       AND NOT EXISTS (
+                           SELECT 1 FROM TMP_LINKED_FILES t
+                           WHERE t.Id = "DavItems"."Id"
+                       )
+                     ORDER BY CAST("Id" AS TEXT)
+                     LIMIT 100
+                     """)
+                .ToListAsync()
+                .ConfigureAwait(false);
+
+            if (batch.Count == 0)
+                break;
+
+            foreach (var item in batch)
+            {
+                identified++;
+                _allRemovedPaths.Add(item.Path);
+                if (!string.IsNullOrWhiteSpace(item.GeneratedStrmPath))
+                    _allRemovedPaths.Add($"{item.GeneratedStrmPath} (strm sidecar of {item.Path})");
+            }
+
+            lastId = batch[^1].Id;
+            UpdatePhase($"Identifying unlinked files...\nFound {identified}...");
+        }
+
+        return identified;
+    }
+
+    private void StartPhase(string message) => _progressHeartbeat?.StartPhase(message);
+
+    private void UpdatePhase(string message) => _progressHeartbeat?.UpdatePhase(message);
+
+    private void Complete(string message)
+    {
+        if (_progressHeartbeat is not null)
+            _progressHeartbeat.Complete(message);
+        else
+            Report(message);
+    }
+
+    private void Report(string message)
+    {
+        var dryRun = _isDryRun ? "Dry Run - " : string.Empty;
+        var progress = $"{dryRun}{message}";
+        _progressObserver?.Invoke(progress);
+        _ = _websocketManager.SendMessage(WebsocketTopic.CleanupTaskProgress, progress);
+    }
+
+    public static string GetAuditReport()
+    {
+        return _allRemovedPaths.Count > 0
+            ? string.Join("\n", _allRemovedPaths)
+            : "This list is Empty.\nYou must first run the task.";
+    }
+
+    /// <summary>
+    /// Virtual mount paths (completed-symlinks, content, .ids) are generated from current
+    /// history rows, so they cannot protect files after history is cleared. Scanning them as
+    /// the organized library produces a circular, misleading orphan report.
+    /// </summary>
+    internal static bool IsLibraryDirInsideRcloneMount(
+        string? libraryDir,
+        string? mountDir,
+        out string normalizedLibraryDir,
+        out string normalizedMountDir)
+    {
+        normalizedLibraryDir = NormalizeConfiguredPath(libraryDir);
+        normalizedMountDir = NormalizeConfiguredPath(mountDir);
+        if (normalizedLibraryDir.Length == 0 || normalizedMountDir.Length == 0)
+            return false;
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (string.Equals(normalizedLibraryDir, normalizedMountDir, comparison))
+            return true;
+
+        var prefix = normalizedMountDir + Path.DirectorySeparatorChar;
+        return normalizedLibraryDir.StartsWith(prefix, comparison);
+    }
+
+    private static string NormalizeConfiguredPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        var trimmed = path.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (trimmed.Length == 0)
+            return string.Empty;
+
+        try
+        {
+            return Path.GetFullPath(trimmed)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return trimmed;
+        }
+    }
+
+    internal static void ClearAuditPathsForTests() => _allRemovedPaths = [];
+}
