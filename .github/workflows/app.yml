@@ -1,0 +1,175 @@
+# The app's half of M3c: the mesh light node inside `apps/stingstream`.
+#
+# Deliberately separate from ci.yml, which builds the .NET subtrees and takes the best part of an
+# hour, and from coordinator.yml, which is the node half of the mesh. This one is what an app or
+# FFI change waits on.
+#
+#   * `checks` — the app's TypeScript, unit tests and formatter. Minutes.
+#   * `ffi`    — the Rust FFI on the host (clippy + tests, including the light-node integration
+#                test), then cross-compiled for the three Android ABIs with the Kotlin bindings
+#                regenerated and checked for drift against the committed copy.
+#
+# What this does NOT do is run Gradle. An Android build pulls ~1.5 GB of Gradle and AGP artifacts
+# and takes half an hour on a hosted runner for a signal — "the Kotlin compiles" — that the drift
+# check below already gives in two minutes. The APK is built locally (docs/APP-MESH.md) until M5
+# needs a signed one.
+name: app
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/stingstream/**"
+      - "mesh/crates/stingstream-mesh-ffi/**"
+      - "mesh/crates/stingstream-mesh/**"
+      - "mesh/Cargo.toml"
+      - "mesh/Cargo.lock"
+      - ".github/workflows/app.yml"
+  pull_request:
+    paths:
+      - "apps/stingstream/**"
+      - "mesh/crates/stingstream-mesh-ffi/**"
+      - "mesh/crates/stingstream-mesh/**"
+      - "mesh/Cargo.toml"
+      - "mesh/Cargo.lock"
+      - ".github/workflows/app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: stingstream_mesh=info,stingstream_mesh_ffi=info,warn
+
+jobs:
+  checks:
+    name: typescript and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # submodules: true — apps/stingstream/utils/jellyseerr is a real submodule and its imports
+      # must resolve for the app to typecheck at all. Same reasoning as ci.yml's `node` job.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+
+      - name: Install dependencies
+        working-directory: apps/stingstream
+        run: bun install --frozen-lockfile
+
+      # Covers the URL rewrite's own suite (utils/mesh/streamUrl.test.ts) along with everything
+      # else. The rewrite is the one piece of M3c that runs on every playback, and it is pure, so
+      # it is worth having a real test rather than a device to try it on.
+      - name: TypeScript
+        working-directory: apps/stingstream
+        run: bun run typecheck
+
+      - name: Unit tests
+        working-directory: apps/stingstream
+        run: bun run test:unit
+
+      # `bun run check` is `biome check .` — the whole directory, including `dist/`. That is
+      # deliberate locally and fine here because this job never runs `expo export`, so there is no
+      # build output for it to walk. Do not add an export step to this job without narrowing it.
+      - name: Formatter and lint
+        working-directory: apps/stingstream
+        run: bun run check
+
+  ffi:
+    name: mesh FFI (host + Android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # No `lfs: true`: mesh/jellyswarrm/dev/media/** is vendored as LFS pointer text whose objects
+      # were never pushed, so an LFS checkout fails. Same reason as ci.yml and coordinator.yml.
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      - name: Clippy
+        run: >
+          cargo clippy --manifest-path mesh/Cargo.toml
+          -p stingstream-mesh-ffi --all-targets -- -D warnings
+
+      # 24 unit tests plus `tests/light_node.rs`, which runs a light handle and a full node in one
+      # process with every discovery service off: joins by invite, streams a verified mid-file
+      # range through the light node's loopback port, and asserts the reverse direction is refused
+      # with 403. Needs no network beyond loopback.
+      - name: Test on the host
+        run: cargo test --manifest-path mesh/Cargo.toml -p stingstream-mesh-ffi
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # The runner image ships an NDK; take whichever it has rather than pinning a version this
+      # workflow would then have to chase.
+      - name: Locate the NDK
+        run: |
+          set -euo pipefail
+          ndk="${ANDROID_NDK_LATEST_HOME:-}"
+          if [ -z "$ndk" ]; then
+            ndk=$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -1)
+          fi
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "Using NDK at $ndk"
+
+      # `-P`, not `-p`: in cargo-ndk 4.x `-p` is passed through to cargo as `--package`, so `-p 26`
+      # fails with "unknown package: 26". API 26 matches the app's minSdkVersion.
+      - name: Cross-compile for the three Android ABIs
+        working-directory: mesh
+        run: >
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 26
+          build -p stingstream-mesh-ffi --release
+
+      # The committed Kotlin bindings are what let the Expo module compile without a Rust
+      # toolchain (docs/APP-MESH.md §4). They are generated from the library's own symbol table, so
+      # a change to the FFI surface that was not regenerated shows up here rather than as an
+      # UnsatisfiedLinkError on somebody's phone.
+      #
+      # Read the unstripped library out of cargo's target directory: uniffi's library mode finds
+      # its metadata in the symbol table, and a stripped .so has none.
+      - name: Check the generated bindings are in step
+        working-directory: mesh
+        run: |
+          set -euo pipefail
+          out=$(mktemp -d)
+          cargo run -q -p stingstream-mesh-ffi --bin uniffi-bindgen -- \
+            generate --language kotlin --no-format --out-dir "$out" \
+            target/x86_64-linux-android/release/libstingstream_mesh_ffi.so
+          committed=../apps/stingstream/modules/stingstream-mesh/android/src/main/java/uniffi
+          if ! diff -ru "$committed" "$out/uniffi"; then
+            echo "::error::The committed uniffi bindings are out of date. Run apps/stingstream/scripts/build-mesh-android.ps1 and commit the result."
+            exit 1
+          fi
+          echo "The committed bindings match the library."
+
+      - name: Report the library sizes
+        working-directory: mesh
+        run: |
+          set -euo pipefail
+          strip=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip
+          for triple in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
+            so=target/$triple/release/libstingstream_mesh_ffi.so
+            "$strip" -o "$so.stripped" "$so"
+            printf '%-28s %s\n' "$triple" "$(du -h "$so.stripped" | cut -f1)"
+          done
+
+      - name: Upload the Android libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: stingstream-mesh-ffi-android
+          path: mesh/target/*-linux-android*/release/libstingstream_mesh_ffi.so.stripped
+          if-no-files-found: error
+          retention-days: 7
