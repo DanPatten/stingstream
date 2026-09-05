@@ -1,0 +1,88 @@
+<article id="user-{{ uwm.user.id }}" data-username="{{ uwm.user.original_username }}">
+    <header style="display:flex; align-items:center; justify-content:space-between; gap:1rem;">
+        <h3 style="margin:0;">{{ uwm.user.original_username }} <span class="badge" title="Total sessions">{{ uwm.total_sessions }}</span></h3>
+        <small>Mappings: {{ uwm.mappings.len() }}</small>
+    </header>
+
+    {% if !uwm.mappings.is_empty() %}
+    <section>
+        <h4 style="margin-bottom:.5rem;">Server mappings</h4>
+        {% for (mapping, server, scount) in uwm.mappings %}
+        <div class="mapping-card">
+            <div>
+                <strong title="{{ server.url }}">{{ server.name }}</strong>
+                <div><small>{{ server.url }}</small></div>
+                <div><small>Mapped user: {{ mapping.mapped_username }}</small></div>
+                <div><small>Sessions: {{ scount }}</small></div>
+            </div>
+            <button
+                class="outline"
+                hx-delete="/{{ ui_route }}/users/{{ uwm.user.id }}/mappings/{{ mapping.id }}"
+                hx-target="#user-{{ uwm.user.id }}"
+                hx-swap="outerHTML settle:300ms"
+                hx-confirm="Delete mapping '{{ server.name }}' for user '{{ uwm.user.original_username }}'?"
+                style="margin-bottom:0;"
+            >Remove</button>
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if !uwm.available_servers.is_empty() %}
+    <section>
+        <h4 style="margin-bottom:.5rem;">Add server mapping</h4>
+        <form hx-post="/{{ ui_route }}/users/mappings" hx-target="#user-{{ uwm.user.id }}" hx-swap="outerHTML settle:300ms" hx-disabled-elt="this">
+            <input type="hidden" name="user_id" value="{{ uwm.user.id }}">
+            <div class="grid" style="--pico-grid-gap:1rem; align-items:end;">
+                <label>Server
+                    <select id="server-{{ uwm.user.id }}" name="server_id" required style="margin-bottom:0;">
+                        <option value="" disabled selected>Select server</option>
+                        {% for server in uwm.available_servers %}
+                        <option value="{{ server.id }}">{{ server.name }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label>Mapped username
+                    <input id="mu-{{ uwm.user.id }}" type="text" name="mapped_username" placeholder="Mapped username" required style="margin-bottom:0;">
+                </label>
+                <label>Mapped password
+                    {% let pw_input_name = "mapped_password" %}
+                    {% let pw_input_placeholder = "Mapped password" %}
+                    {% let pw_input_autocomplete = "new-password" %}
+                    {% let pw_input_required = false %}
+                    {% include "components/password_input.html" %}
+                </label>
+                <label>&nbsp;
+                    <button type="submit" style="margin-bottom:0;">Add</button>
+                </label>
+            </div>
+            <small style="display:block; margin-top:0.35rem;">Credentials are validated on the selected server before this mapping is saved. Leave password empty for passwordless users.</small>
+        </form>
+    </section>
+    {% endif %}
+
+    <footer style="display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;">
+        <button
+            class="outline"
+            hx-delete="/{{ ui_route }}/users/{{ uwm.user.id }}/sessions"
+            hx-target="#user-{{ uwm.user.id }}"
+            hx-swap="outerHTML settle:300ms"
+            hx-confirm="Reset all sessions for user '{{ uwm.user.original_username }}'?"
+            style="margin-bottom:0;"
+        >Reset Sessions</button>
+
+        <form
+            hx-post="/{{ ui_route }}/users/{{ uwm.user.id }}/delete"
+            hx-target="#user-list"
+            hx-swap="innerHTML"
+            hx-confirm="Delete user '{{ uwm.user.original_username }}'?"
+            style="margin:0;"
+        >
+            <label style="margin-bottom:.5rem;">
+                <input type="checkbox" name="delete_federated" value="true" checked>
+                Also delete on connected Jellyfin servers
+            </label>
+            <button type="submit" class="secondary" style="margin-bottom:0;">Delete User</button>
+        </form>
+    </footer>
+</article>

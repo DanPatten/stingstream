@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Jellyswarrm{% endblock %}
+
+{% block body %}
+    <!-- Navigation -->
+    <header class="container dashboard-header">
+        <nav class="dashboard-nav">
+            <ul class="dashboard-brand-list">
+                <li>
+                    <a href="/{{ ui_route }}" class="dashboard-brand">
+                        <img src="/{{ ui_route }}/resources/icon.svg" alt="Jellyswarrm Logo">
+                        <strong>Jellyswarrm</strong>
+                    </a>
+                </li>
+            </ul>
+            <ul class="dashboard-nav-links">
+
+                {% block tabs %}{% endblock %}
+                <li>
+                    {% match root %}{% when Some with (r) %}<a href="/{{ r }}" target="_blank" class="dashboard-web-link">{% when None %}<a href="/" target="_blank" class="dashboard-web-link">{% endmatch %}
+                        <i class="fas fa-film" style="margin-right: 0.25rem;"></i>
+                        Web UI
+                    </a>
+                </li>
+                <li>
+                    <button onclick="location.href='/{{ ui_route }}/logout';" class="outline dashboard-logout" title="Sign out" aria-label="Sign out">
+                        <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+                    </button>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Main content -->
+    <main class="container">
+        <!-- Flash messages -->
+        <div id="messages" style="margin-bottom: 1rem;">
+            <!-- Messages will be dynamically loaded here via HTMX -->
+        </div>
+
+        <!-- Main content area -->
+        {% block main_content %} {% endblock %}
+        
+    </main>
+
+    <!-- Footer -->
+    <footer class="container" style="margin-top: 3rem;">
+        <hr>
+        <div style="text-align: center; padding: 1rem 0;">
+            <p style="margin: 0; color: var(--pico-muted-color); font-size: 0.85rem;">
+                <i class="fas fa-server" style="margin-right: 0.5rem;"></i>
+                <a href="https://github.com/LLukas22/Jellyswarrm">Jellyswarrm Proxy Server
+                {% match version %}{% when Some with (v) %} v{{ v }}{% when None %}{% endmatch %}
+                </a>
+                {% match version %}{% when Some with (v) %}
+                    <span
+                        id="jellyswarrm-release-status"
+                        class="release-status release-status--checking"
+                        aria-live="polite"
+                        title="Checking latest Jellyswarrm release"
+                        hx-get="/{{ ui_route }}/release-status"
+                        hx-trigger="load"
+                        hx-swap="outerHTML"
+                    >
+                        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                        <span class="release-status__text">Checking</span>
+                    </span>
+                {% when None %}{% endmatch %}
+            </p>
+            <p style="margin: 0.5rem 0 0 0; color: var(--pico-muted-color); font-size: 0.75rem;">
+                <i class="fas fa-film" style="margin-right: 0.5rem;"></i>
+                {% match jellyfin_ui_version %}{% when Some with (ui) %}<a href="https://github.com/jellyfin/jellyfin-web/releases/tag/v{{ ui.version }}" target="_blank" rel="noopener noreferrer">Jellyfin Web UI {{ ui.version }}</a>{% when None %}Jellyfin Web UI: UNKNOWN{% endmatch %}
+            </p>
+            <p style="margin: 0.5rem 0 0 0; color: var(--pico-muted-color); font-size: 0.75rem;">
+                <i class="fas fa-heart" style="margin-right: 0.25rem; color: var(--pico-del-color);"></i>
+                Built with Rust &amp; HTMX
+            </p>
+        </div>
+    </footer>
+{% endblock %}
