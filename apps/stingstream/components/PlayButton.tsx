@@ -30,6 +30,7 @@ import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import type { ThemeColors } from "@/hooks/useImageColorsReturn";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
+import { resolveCastStreamUrl } from "@/lib/stingstream/castStreamUrl";
 import { getDownloadedItemById } from "@/providers/Downloads/database";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -184,6 +185,48 @@ export const PlayButton: React.FC<Props> = ({
                       return;
                     }
 
+                    // A federated item's mediaSource.Path is a stingstream.local mesh URL that no
+                    // Chromecast receiver can ever resolve — not the raw form, and not the
+                    // loopback rewrite the native player uses (utils/mesh/streamUrl.ts), since a
+                    // receiver is a different device and can never reach this phone's 127.0.0.1.
+                    // Race the source node's HTTPS side door for a URL the receiver actually can
+                    // load; fall back to the home node's own gateway, which proxies the same path
+                    // unauthenticated by design for exactly this case (docs/MESH.md §5, "This path
+                    // shape is load-bearing"; docs/SIDEDOOR.md; M5 deliverable 4).
+                    let castContentUrl = data.url;
+                    if (
+                      data.mediaSource?.IsRemote &&
+                      data.mediaSource?.Protocol === "Http" &&
+                      data.mediaSource?.Path &&
+                      !data.mediaSource?.TranscodingUrl
+                    ) {
+                      try {
+                        const resolved = await resolveCastStreamUrl({
+                          jellyfinBasePath: api.basePath,
+                          accessToken: api.accessToken,
+                          federatedPath: data.mediaSource.Path,
+                        });
+                        if (resolved) {
+                          castContentUrl = resolved.url;
+                          if (resolved.warning) {
+                            console.warn(
+                              "[Chromecast] side-door fallback:",
+                              resolved.warning,
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        // Keep whatever getStreamUrl returned (the unrewritten stingstream.local
+                        // URL for this branch) rather than fail the cast outright — a receiver
+                        // that cannot resolve it fails loudly through loadMedia's own error path
+                        // below, which is more informative than aborting here.
+                        logAndCaptureError(
+                          "Chromecast side-door resolution failed",
+                          e,
+                        );
+                      }
+                    }
+
                     // Text subtitles ride along as sidecar VTT tracks the
                     // receiver renders itself (see the chromecast subtitle
                     // profile). The receiver fetches them without auth
@@ -230,17 +273,23 @@ export const PlayButton: React.FC<Props> = ({
 
                     // HLS transcodes must be declared as HLS, otherwise the
                     // receiver tries to parse the m3u8 playlist as an MP4 file
-                    // and the cast session dies immediately.
-                    const isHls = data.url.includes(".m3u8");
+                    // and the cast session dies immediately. Checked against
+                    // castContentUrl, not data.url: a federated item whose URL
+                    // was replaced by the side-door resolution above is never
+                    // HLS (it is a direct file, not a transcode), and using
+                    // data.url here would just be reading the wrong string.
+                    const isHls = castContentUrl.includes(".m3u8");
                     // Jellyfin puts the HLS segment container in the URL; the
                     // receiver needs the matching hint (HEVC only works in fMP4).
-                    const isFmp4 = data.url.includes("SegmentContainer=mp4");
+                    const isFmp4 = castContentUrl.includes(
+                      "SegmentContainer=mp4",
+                    );
 
                     client
                       .loadMedia({
                         mediaInfo: {
                           contentId: item.Id,
-                          contentUrl: data?.url,
+                          contentUrl: castContentUrl,
                           contentType: isHls
                             ? "application/x-mpegURL"
                             : "video/mp4",

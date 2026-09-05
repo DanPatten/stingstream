@@ -5,6 +5,8 @@ import type {
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { BaseItemKind } from "@jellyfin/sdk/lib/generated-client/models/base-item-kind";
 import { getMediaInfoApi } from "@jellyfin/sdk/lib/utils/api";
+import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
+import { bestOnlineSource, fetchItemSources } from "@/lib/stingstream/sources";
 import { markExpectedError } from "../../errors";
 import { rewriteStreamUrlForMesh } from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
@@ -98,11 +100,12 @@ const getPlaybackUrl = (
   return directPlayUrl;
 };
 
-const getDownloadUrl = (
+const getDownloadUrl = async (
   api: Api,
+  itemId: string,
   mediaSource: MediaSourceInfo,
   sessionId: string | null | undefined,
-): StreamResult => {
+): Promise<StreamResult> => {
   // A federated item has no file on this node to download from, so `/Items/{id}/Download` would
   // make the home node fetch it over the mesh and re-serve it — two hops for the same bytes.
   // Take the mesh path directly when this device can.
@@ -112,8 +115,23 @@ const getDownloadUrl = (
     mediaSource.Path &&
     !mediaSource.TranscodingUrl
   ) {
+    // Pick the source with `GET /stingstream/api/v1/items/{id}/sources` (M4) rather than settling
+    // for whichever holder this PlaybackInfo call happened to return. It sees the whole group,
+    // including a holder whose pointer this node never materialized because the title is held
+    // locally elsewhere on this same node's Jellyfin — candidates PlaybackInfo cannot return at
+    // all — so for a *download*, which cares about the fastest holder rather than "the one file
+    // Jellyfin already has an item for," it is strictly the fuller answer. Best-effort: any
+    // failure (an older node, the mesh unreachable, nothing online) keeps the path PlaybackInfo
+    // already gave us, which is why fetchItemSources/bestOnlineSource never throw.
+    const sources = await fetchItemSources(
+      getStingStreamApiBaseUrl(api.basePath),
+      itemId,
+      { accessToken: api.accessToken },
+    );
+    const best = bestOnlineSource(sources);
+    const path = best?.streamUrl || mediaSource.Path;
     return {
-      url: rewriteStreamUrlForMesh(mediaSource.Path),
+      url: rewriteStreamUrlForMesh(path),
       sessionId: sessionId || null,
       mediaSource,
     };
@@ -347,5 +365,5 @@ export const getDownloadStreamUrl = async ({
     return null;
   }
 
-  return getDownloadUrl(api, mediaSource, sessionId);
+  return getDownloadUrl(api, item.Id!, mediaSource, sessionId);
 };

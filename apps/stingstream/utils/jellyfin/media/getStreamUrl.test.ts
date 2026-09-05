@@ -228,4 +228,122 @@ describe("getDownloadStreamUrl", () => {
       );
     });
   });
+
+  describe("a federated item (IsRemote, Protocol Http, no TranscodingUrl)", () => {
+    // `fetchItemSources`/`bestOnlineSource` (lib/stingstream/sources.ts) call the global `fetch`
+    // directly rather than the axios instance `api.mock` stubs, since StingStream.Core's own API
+    // is not part of the Jellyfin SDK's request pipeline. `rewriteStreamUrlForMesh` never rewrites
+    // in this test environment (no MeshProvider mounted, so the module's rewrite context stays its
+    // "not running" default) — every assertion below is therefore on the untouched URL string.
+    const federatedMediaSource = {
+      Id: "media-1",
+      IsRemote: true,
+      Protocol: "Http",
+      Path: "https://stingstream.local/stream/g1/movie:tmdb:1/holder-from-playbackinfo",
+    };
+
+    const withStubbedFetch = async (
+      handler: (url: string) => Response | null,
+      run: () => Promise<unknown>,
+    ) => {
+      const original = globalThis.fetch;
+      globalThis.fetch = mock((url: string) => {
+        const res = handler(String(url));
+        if (!res) return Promise.reject(new Error(`unexpected fetch: ${url}`));
+        return Promise.resolve(res);
+      }) as unknown as typeof fetch;
+      try {
+        return await run();
+      } finally {
+        globalThis.fetch = original;
+      }
+    };
+
+    test("downloads from the best-scored online source, not just whatever PlaybackInfo returned", async () => {
+      const api = makeApi();
+      api.mock
+        .onPost(
+          "https://jellyfin.example.com/Items/item-1/PlaybackInfo",
+          bodyContaining({ deviceProfile: { Name: "1. MPV Download" } }),
+        )
+        .reply(200, {
+          PlaySessionId: "session-1",
+          MediaSources: [federatedMediaSource],
+        });
+
+      const result = await withStubbedFetch(
+        (url) =>
+          url ===
+          "https://jellyfin.example.com/stingstream/api/v1/items/item-1/sources"
+            ? new Response(
+                JSON.stringify({
+                  ItemKey: "movie:tmdb:1",
+                  Policy: "speed_first",
+                  HeldLocally: false,
+                  Sources: [
+                    {
+                      Node: "offline-but-top-scored",
+                      Online: false,
+                      StreamUrl:
+                        "https://stingstream.local/stream/g1/movie:tmdb:1/offline-but-top-scored",
+                    },
+                    {
+                      Node: "best-online",
+                      Online: true,
+                      StreamUrl:
+                        "https://stingstream.local/stream/g1/movie:tmdb:1/best-online",
+                    },
+                  ],
+                }),
+                { status: 200 },
+              )
+            : null,
+        () =>
+          getDownloadStreamUrl({
+            api,
+            item: { Id: "item-1", Type: "Movie" },
+            userId: "user-1",
+            mediaSourceId: "media-1",
+            audioStreamIndex: 0,
+            subtitleStreamIndex: 0,
+          }),
+      );
+
+      expect((result as { url: string }).url).toBe(
+        "https://stingstream.local/stream/g1/movie:tmdb:1/best-online",
+      );
+    });
+
+    test("falls back to PlaybackInfo's own source when /items/{id}/sources is unreachable", async () => {
+      const api = makeApi();
+      api.mock
+        .onPost(
+          "https://jellyfin.example.com/Items/item-1/PlaybackInfo",
+          bodyContaining({ deviceProfile: { Name: "1. MPV Download" } }),
+        )
+        .reply(200, {
+          PlaySessionId: "session-1",
+          MediaSources: [federatedMediaSource],
+        });
+
+      const result = await withStubbedFetch(
+        (url) =>
+          url ===
+          "https://jellyfin.example.com/stingstream/api/v1/items/item-1/sources"
+            ? new Response("", { status: 503 })
+            : null,
+        () =>
+          getDownloadStreamUrl({
+            api,
+            item: { Id: "item-1", Type: "Movie" },
+            userId: "user-1",
+            mediaSourceId: "media-1",
+            audioStreamIndex: 0,
+            subtitleStreamIndex: 0,
+          }),
+      );
+
+      expect((result as { url: string }).url).toBe(federatedMediaSource.Path);
+    });
+  });
 });
