@@ -30,6 +30,7 @@ yarn-error.log*
 
 # === Vendored binaries fetched at build time, not committed ===
 third_party/nzbget/bin/
+third_party/ffmpeg/bin/
 
 # === Editors / OS ===
 .idea/
