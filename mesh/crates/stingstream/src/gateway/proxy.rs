@@ -248,15 +248,13 @@ pub fn rewrite_path(path: &str, gateway_prefix: &str, upstream_prefix: &str) -> 
 
     let rest = if gateway_prefix.is_empty() {
         path
-    } else if let Some(r) = path.strip_prefix(gateway_prefix) {
+    } else {
+        let r = path.strip_prefix(gateway_prefix)?;
         // Only a boundary match counts: `/radarrx` is not under `/radarr`.
-        if r.is_empty() || r.starts_with('/') || r.starts_with('?') {
-            r
-        } else {
+        if !(r.is_empty() || r.starts_with('/') || r.starts_with('?')) {
             return None;
         }
-    } else {
-        return None;
+        r
     };
 
     let rest = if rest.is_empty() {
