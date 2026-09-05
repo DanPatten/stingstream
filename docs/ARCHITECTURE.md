@@ -467,9 +467,94 @@ command-by-command results are in the M0 build report delivered alongside this m
   arrs, Jellyfin libraries created, webhooks installed.
 
 **Accept:** fresh machine → one command → add a movie via `/stingstream/api/v1` → grabbed from a
-Torznab stub (CI: MonoTorrent tracker seeding a Blender open movie) → downloaded by embedded
-engine → imported → appears in Jellyfin → plays in stock jellyfin-web at `/jellyfin`. Same for a
-series via Sonarr v5. Restart the machine: everything comes back on its own.
+Torznab stub (CI: a MonoTorrent tracker seeding a generated test file) → downloaded by the embedded
+engine → imported → appears in Jellyfin → **streams from Jellyfin's own API** at
+`/jellyfin/Videos/{id}/stream`. Same for a series via Sonarr v5. Restart: everything comes back on
+its own.
+
+> The original wording said "plays in stock jellyfin-web at `/jellyfin`". That is not what M1
+> builds: a node runs Jellyfin with `--nowebclient` because StingStream serves its own UI from the
+> gateway (M2), and `jellyfin-web` is a separate repository that is not vendored here at all. The
+> acceptance criterion is therefore the API-level equivalent — the item exists and its bytes come
+> back over HTTP — which is what `tools/e2e-m1.ps1` asserts. Playing in a browser arrives with the
+> M2 UI.
+
+#### What M1 settled
+
+**Ports and routing.** The gateway is the node's only exposed listener, `0.0.0.0:8790` by default.
+Children bind `127.0.0.1` on supervisor-assigned ports: `[ports]` in `config.toml` holds
+*preferences* (8096 / 7878 / 8989 / 6789, matching upstream defaults), a taken port falls back to an
+ephemeral one, and `0` always means "pick one". The real values land in `runtime.json`.
+
+Jellyfin runs with `BaseUrl=/jellyfin`, and ASP.NET maps its entire pipeline underneath that — so
+`StingStream.Core`'s routes really live at `/jellyfin/stingstream/...`, and the gateway rewrites
+`/stingstream/...` onto them. Gateway routes, in match order:
+
+| Path | Goes to |
+|---|---|
+| `/healthz` | the gateway: JSON child states, 200 when healthy and 503 when not |
+| `/stingstream/*` | Jellyfin, rewritten to `/jellyfin/stingstream/*` |
+| `/jellyfin/*` | Jellyfin, including the `/jellyfin/socket` WebSocket |
+| `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children — **`--dev` only** |
+| `/` | placeholder page until M2's web bundle |
+
+**Data directory.** One tree per node under `$STINGSTREAM_DATA` (`%LOCALAPPDATA%\StingStream` on
+Windows, `~/.local/share/stingstream` elsewhere): `config.toml` (written once with defaults, never
+rewritten), `runtime.json` (rewritten every start), `core.db`, `logs/*.jsonl` (one per child plus
+the supervisor, JSON lines), `jellyfin/{config,data,cache,log}/`, `radarr/`, `sonarr/`, `nzbget/`,
+`downloads/{torrents,usenet}/`, `media/{Movies,TV}/`, and `federated/` reserved for M3. See
+`docs/RUNNING.md`.
+
+**`runtime.json` is the contract** between the Rust supervisor, `StingStream.Core` inside Jellyfin,
+and the acceptance harness: assigned ports, generated arr API keys, NZBGet and qBittorrent-shim
+credentials, the Jellyfin bootstrap administrator, resolved paths, and a `first_run` flag Core
+clears once wiring succeeds. Generated secrets are carried forward across restarts, so a restart
+never invalidates configuration already pushed into a child. Owner-only where the OS supports it.
+
+**StingStream API** at `/stingstream/api/v1`, authenticated with Jellyfin's own tokens and
+policies, self-described at `/stingstream/api/v1/openapi.json`:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /status`, `GET /status/arrs` | node, engine, hashing, children, sync results, recent arr events |
+| `POST /setup/run` | re-run first-run wiring (idempotent) |
+| `GET/PUT /settings` | the Omniarr shared settings document |
+| `GET/POST /settings/indexers`, `DELETE /settings/indexers/{id}` | indexer CRUD |
+| `POST /sync`, `GET /sync` | push into both arrs; last result per app |
+| `GET/POST /movies`, `GET/POST /series`, `GET /queue` | add and watch titles, routed to the right arr |
+| `GET /inventory`, `GET /inventory/{itemKey}`, `POST /inventory/rebuild` | the records M3 will publish |
+| `POST /webhooks/arr` | the arrs' event receiver (anonymous, loopback callers only) |
+| `/stingstream/qbt/api/v2/*` | the qBittorrent-compatible subset the arrs use |
+
+**Storage.** `core.db` is plain SQLite through `Microsoft.Data.Sqlite`, not EF Core. StingStream's
+data is a handful of small tables; adding entities to Jellyfin's `DbContext` would hand its
+migrations ownership of them, and a second EF model would have to be kept in step with whatever EF
+version Jellyfin pins.
+
+**Item key grammar** (the content identity M3's group index is keyed on):
+`movie:tmdb:603`, `movie:imdb:tt0133093`, `episode:tvdb:73739:s01e01`. Providers are tried in a
+fixed order so two nodes with different metadata coverage still agree.
+
+**Deviations worth knowing.**
+
+- **DHT is off by default** in the torrent engine, and the qBittorrent shim reports that honestly.
+  A headless media server should not quietly join a global peer-to-peer network without being
+  asked, and every release an indexer hands the arrs carries its own trackers. The cost is that a
+  *trackerless* magnet is refused up front rather than stalling — which is the better failure.
+  `[downloadClients].torrentDhtEnabled` turns it on.
+- **Windows has no graceful child stop.** Ctrl+C sends `SIGTERM` and waits on Unix; on Windows the
+  children are terminated, because `GenerateConsoleCtrlEvent` needs a shared console group and
+  attaching to a child's console would signal the supervisor too. A hard kill of the *supervisor*
+  on Windows also orphans the children. Revisit in M8 with a Job Object.
+- **`IsStartupWizardCompleted` must not be pre-seeded** into Jellyfin's `system.xml`; see
+  `docs/PATCHES.md` for why it crash-loops a fresh node.
+
+**M1 status (2026-09-05): complete.** Verified on a fresh data directory: all four children healthy;
+first-run wiring created the Jellyfin administrator, the Movies and TV Shows libraries and the
+torrent categories, and pushed root folders, both download clients, the naming rules and the import
+webhook into both arrs; both apps delivered their webhook Test through the receiver; and all four
+download-client tests (the qBittorrent shim and NZBGet, in Radarr and Sonarr) pass from the apps'
+own Test button. `tools/e2e-m1.ps1` runs the whole acceptance path end to end.
 
 ### M2 — Unified UI v1 on one node (Sonnet 5; web-target spike by Opus 5 first)
 

@@ -2,9 +2,11 @@
 
 StingStream's rule is config-over-patch: prefer supervisor-driven configuration over touching
 vendored source, and when a patch is unavoidable, list it here so upstream pulls
-(`tools/upstream-pull.ps1`) can be reviewed against this list. This file starts during M0 with
-build/vendoring-level deviations (no application source has been patched yet — M1 is where
-`StingStream.Core` and any unavoidable Radarr/Sonarr code patches will start landing).
+(`tools/upstream-pull.ps1`) can be reviewed against this list. It started during M0 with
+build/vendoring-level deviations; M1 added the first application-source patches, all of them in
+`server/jellyfin` and all of them in service of hosting `StingStream.Core` inside Jellyfin's own
+process. Radarr and Sonarr remain **completely unpatched** — everything StingStream needs from them
+is done through their own configuration file and their own v3 API.
 
 ## apps/stingstream (Streamyfin)
 
@@ -23,6 +25,121 @@ build/vendoring-level deviations (no application source has been patched yet —
   (`git rm -r server/sonarr`) and re-added from `v5-develop` in a follow-up M0 pass. No content
   patch — a vendoring-source correction, recorded here, in `NOTICE.md`, and in
   `tools/upstream-pull.ps1`.
+
+## server/jellyfin (Jellyfin)
+
+M1 adds `server/jellyfin/src/StingStream.Core`, a new .NET 10 project that runs inside Jellyfin's
+process. It lives there rather than beside it because it needs `ILibraryManager` for targeted
+refreshes and library creation, `IUserManager` for the bootstrap administrator,
+`IMediaSourceManager` for the inventory record's media summary, and Jellyfin's own authorization
+policies for its API. None of that is reachable over HTTP.
+
+Four edits to vendored files attach it. They are deliberately as small as they can be: the project
+itself is new code in a new directory, and these are only the seams.
+
+### 1. `Jellyfin.Server/Jellyfin.Server.csproj` — a project reference
+
+```xml
+<ProjectReference Include="..\src\StingStream.Core\StingStream.Core.csproj" />
+```
+
+### 2. `Jellyfin.Server/CoreAppHost.cs` — one line in `GetAssembliesWithPartsInternal()`
+
+```csharp
+yield return StingStreamCoreMarker.Assembly;
+```
+
+**This is the load-bearing one, and it is not obvious.** A project reference alone does *not* make a
+referenced assembly's controllers routable. `AddJellyfinApi` calls `ApplicationParts.Clear()` on the
+MVC part manager, wiping every part the SDK auto-discovered, and then re-adds only `Jellyfin.Api`
+plus whatever `ApplicationHost.GetApiPluginAssemblies()` reports. That list is derived from the
+types contributed by `GetComposablePartAssemblies()`, whose abstract tail is this method. Adding the
+assembly here is the extension point upstream already provides — `TestAppHost` in
+`tests/Jellyfin.Server.Integration.Tests` overrides the same method for the same reason — and it
+also makes StingStream's types visible to `GetExports<T>()` for free.
+
+### 3. `Jellyfin.Server/Startup.cs` — two call sites
+
+`services.AddStingStreamCore();` immediately after `services.AddJellyfinApiAuthorization()`, and
+`mainApp.UseStingStreamCore();` immediately after `mainApp.UseJellyfinApiSwagger(...)`, inside the
+`app.Map(config.BaseUrl, ...)` lambda.
+
+The ordering is deliberate. The service registration has to come after `AddJellyfinApi` (so MVC
+exists and `SwaggerGenOptions` can be extended) and after `AddJellyfinApiAuthorization` (so Core's
+controllers can use Jellyfin's own policies). The middleware has to be *inside* the `Map` lambda,
+because Jellyfin maps its entire pipeline under its configured `BaseUrl` — which is why, on a
+supervisor-run node with `BaseUrl=/jellyfin`, StingStream's routes really live at
+`/jellyfin/stingstream/...` and the gateway rewrites `/stingstream/...` onto them.
+
+### 4. `Jellyfin.Server/Filters/CachingOpenApiProvider.cs` — key the cache on the document name
+
+```diff
+-    private const string CacheKey = "openapi.json";
++    private const string CacheKeyPrefix = "openapi.json:";
+...
+-        if (_memoryCache.TryGetValue(CacheKey, out OpenApiDocument? openApiDocument) ...
++        var cacheKey = CacheKeyPrefix + documentName;
++        if (_memoryCache.TryGetValue(cacheKey, out OpenApiDocument? openApiDocument) ...
+```
+
+Upstream caches on a bare constant while `GetSwagger` takes a `documentName`. With one document that
+is harmless; StingStream registers a second (named `openapi`, served at
+`/stingstream/api/v1/openapi.json`) alongside Jellyfin's `api-docs`, and without this whichever
+document is requested first is cached and then returned at *both* URLs. This is an upstream bug
+rather than a StingStream-specific need, and a good candidate to send upstream.
+
+### 5. `Directory.Packages.props` — two package versions
+
+`MonoTorrent` 3.0.2 (the in-process torrent engine) and `Blake3` 3.0.2 (file hashing for the
+inventory record). Central package management means a new dependency has to be declared there; both
+entries carry a comment marking them as StingStream's.
+
+### Not a patch, but a deliberate deviation: analyzer settings
+
+`server/jellyfin/Directory.Build.props` sets `TreatWarningsAsErrors=true` and, in Debug,
+`AnalysisMode=AllEnabledByDefault`; `src/Directory.Build.props` adds StyleCop and four more
+analyzers to every project under `src/`. `StingStream.Core.csproj` opts out of warnings-as-errors and
+back down to the default analysis mode, with a `NoWarn` list for the StyleCop rules that encode
+Jellyfin's house style. Those settings describe how Jellyfin's own code is written; StingStream's
+code is new and follows its own conventions, and inheriting them would mean either rewriting it to a
+different project's style or scattering suppressions through it. Warnings still surface — they just
+do not fail the build. The 50 diagnostics that `server/jellyfin/.editorconfig` elevates to *error*
+still apply, and are satisfied.
+
+### A trap worth recording: `IsStartupWizardCompleted` must not be pre-seeded
+
+The supervisor writes Jellyfin's `network.xml` and `system.xml` before first start. It deliberately
+does **not** write `IsStartupWizardCompleted`, even though a StingStream node never runs Jellyfin's
+setup wizard.
+
+`Jellyfin.Server/Migrations/JellyfinMigrationService.cs` uses that flag to decide whether it is
+looking at a fresh install: when false it creates the database, creates `__EFMigrationsHistory` and
+seeds the migration rows; when true it takes the existing-install path and does none of that.
+Setting it true on an empty data directory therefore makes Jellyfin die on its first
+`PreInitialisation` migration with `SQLite Error 1: 'no such table: __EFMigrationsHistory'` —
+observed as an indefinite crash-loop while every other child came up healthy in seconds.
+`StingStream.Core`'s first-run wiring sets the flag *after* the database exists and the
+administrator has been created, which is the only ordering that works.
+
+## server/radarr, server/sonarr — no patches
+
+Both apps are used entirely unmodified. StingStream drives them through:
+
+- **`config.xml`, pre-seeded by the supervisor** — generated `ApiKey`, assigned `Port`,
+  `BindAddress=127.0.0.1`, `UrlBase`, `LaunchBrowser=False`, `UpdateMechanism=External`, and
+  `AuthenticationMethod=External` with `AuthenticationRequired=DisabledForLocalAddresses`.
+  `External` is NzbDrone's own "a reverse proxy is doing the authentication" mode — it registers the
+  same `NoAuthenticationHandler` as `None` — which is exactly StingStream's shape: the gateway is
+  the only door and the children are loopback-only. On a restart only the elements the supervisor
+  owns are rewritten, so anything the app has written since survives. The legacy
+  `AuthenticationEnabled` element is actively removed if present: when true it forces
+  `AuthenticationMethod` back to `Forms` and rewrites the file, which would lock the gateway out.
+- **Their v3 API**, for everything else — root folders, download clients, indexers, naming,
+  notifications, and adding titles. Provider resources are built from each app's own
+  `/api/v3/<resource>/schema` response rather than from a copy of its settings classes, so field
+  names, types and defaults come from the running app and survive upstream churn.
+- **Their stock qBittorrent and NZBGet download clients**, pointed at StingStream's own
+  qBittorrent-compatible API subset and at the supervisor-run NZBGet.
 
 ## mesh/jellyswarrm (Jellyswarrm)
 
