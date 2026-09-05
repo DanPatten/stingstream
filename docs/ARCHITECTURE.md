@@ -549,9 +549,10 @@ fixed order so two nodes with different metadata coverage still agree.
 - **`IsStartupWizardCompleted` must not be pre-seeded** into Jellyfin's `system.xml`; see
   `docs/PATCHES.md` for why it crash-loops a fresh node.
 
-**M1 status (2026-09-05): complete, acceptance passing.** `tools/e2e-m1.ps1` runs the whole path
-end to end on a throwaway data directory and passes all 21 steps in 109 seconds on the build
-machine: node up and every child healthy in 15 s; first-run wiring; the Jellyfin WebSocket proxied
+**M1 status (2026-09-05): complete, acceptance passing on Windows and in CI.**
+`tools/e2e-m1.ps1` runs the whole path end to end on a throwaway data directory and passes all 21
+steps -- 109 seconds on the build machine, 8 minutes on the Linux runner including the four builds
+(CI run 33955784834, every job green): node up and every child healthy in 15 s; first-run wiring; the Jellyfin WebSocket proxied
 through the gateway (101 plus a real frame); the indexer added and synced into both apps; the movie
 (TMDB 10378) grabbed, downloaded over the qBittorrent-compatible API, imported and streamed back as
 2,197,380 bytes; the episode (TVDB 71471 S01E01) the same at 6,040,395 bytes; inventory records
@@ -560,7 +561,7 @@ every child healthy again, both items still present and both torrents restored f
 four download-client tests — the qBittorrent shim and NZBGet, in Radarr and Sonarr — pass from the
 apps' own Test button.
 
-Three things the acceptance runs taught the implementation, each worth knowing before touching this
+Six things the acceptance runs taught the implementation, each worth knowing before touching this
 code:
 
 - **The Omniarr sync has to run on every start, not just the first.** Ports are assigned at
@@ -575,6 +576,18 @@ code:
 - **The arrs' sample check is a table keyed on the title's runtime**, not a flat threshold: 90 s
   for a 10-minute title, 300 s for a 30-minute one. A file below it downloads perfectly and then
   sits in the queue forever as `importPending / Sample`.
+- **Wiring has to wait for this server's own listener.** Hosted services start before Kestrel
+  accepts connections, and the first thing first-run wiring does is register a download client
+  pointing at the qBittorrent shim *in this process*. A fixed delay was long enough on the build
+  machine and not on a CI runner. Provider resources are also created with `forceSave`, so the
+  configuration lands whether or not the target answers at that instant.
+- **The arrs' console assembly is named differently per platform.** `src/NzbDrone.Console`
+  produces `Radarr.Console` on Windows, because the name `Radarr` belongs to the tray application,
+  and plain `Radarr` on Linux where there is no tray application. The supervisor tries both, and
+  searches the output tree if neither is where it expected.
+- **The gateway needs a dedicated connection for protocol upgrades.** `hyper_util`'s pooled client
+  never calls `Connection::with_upgrades()`, so `hyper::upgrade::on` on one of its responses never
+  resolves and a WebSocket handshake dies at the transport with nothing in any log.
 
 ### M2 — Unified UI v1 on one node (Sonnet 5; web-target spike by Opus 5 first)
 
