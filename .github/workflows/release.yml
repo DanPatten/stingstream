@@ -275,9 +275,13 @@ jobs:
         if: matrix.rid == 'linux-x64'
         run: |
           set -euo pipefail
-          deb=$(ls dist/installers/*_amd64.deb | head -1)
+          deb=$(readlink -f "$(ls dist/installers/*_amd64.deb | head -1)")
           echo "Installing $deb"
           sudo apt-get update
+          # A bare relative path with no leading "./" is parsed by apt-get as a *package name*
+          # lookup, not a local file, regardless of whether it contains slashes -- found for real:
+          # "E: Unable to locate package dist/installers" (apt truncating at the first slash it
+          # did not expect). An absolute path (readlink -f above) sidesteps the ambiguity entirely.
           sudo apt-get install -y "$deb"
 
           echo "-- systemctl status --"

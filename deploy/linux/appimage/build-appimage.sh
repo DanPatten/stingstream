@@ -24,10 +24,20 @@ done
 }
 
 case "$RID" in
-    linux-x64)   APPIMAGE_ARCH=x86_64; TOOL_ARCH=x86_64 ;;
-    linux-arm64) APPIMAGE_ARCH=aarch64; TOOL_ARCH=aarch64 ;;
+    linux-x64)   APPIMAGE_ARCH=x86_64 ;;
+    linux-arm64) APPIMAGE_ARCH=aarch64 ;;
     *) echo "AppImage only makes sense for linux-x64 or linux-arm64, not $RID" >&2; exit 1 ;;
 esac
+
+# appimagetool has to actually RUN on this machine -- its own architecture, not the target RID's.
+# Found for real: fetching and executing the aarch64 appimagetool on an x86_64 CI runner produced
+# "cannot execute binary file: Exec format error", the plain consequence of that being a foreign
+# architecture's ELF binary with no emulation set up for this script (unlike the Docker-based
+# builds, which get QEMU from docker/setup-qemu-action). appimagetool's own `ARCH=` environment
+# variable is what controls which architecture's runtime stub gets embedded in the *output* --
+# that is independent of which architecture appimagetool itself was built for, and is the whole
+# reason this variable is set separately from the tool's own binary below.
+TOOL_ARCH=$(uname -m)
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 NODE_DIR="$REPO_ROOT/dist/node/$RID"
