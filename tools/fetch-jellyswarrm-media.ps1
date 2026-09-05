@@ -3,10 +3,15 @@
     Fetches Jellyswarrm's dev/demo fixture media (Git LFS objects) on demand.
 
 .DESCRIPTION
-    mesh/jellyswarrm/dev/media/** is committed in this repo as Git LFS *pointer* files only (see
-    .lfsconfig, which excludes that path from ordinary `git lfs fetch`/`git lfs pull` in this repo
-    -- these are large test fixtures, not something every clone needs). This script fetches the
-    real media content on demand, without touching this repo's own git history:
+    mesh/jellyswarrm/dev/media/** is committed in this repo as plain text files that happen to
+    contain Git LFS *pointers* -- the real objects live in upstream Jellyfin's LFS store and were
+    never pushed to this repository's. StingStream deliberately does not declare them as LFS-
+    tracked: mesh/jellyswarrm/.gitattributes has its `filter=lfs` attributes removed (see
+    docs/PATCHES.md), so no clone of this repository ever needs git-lfs installed, and the root
+    .lfsconfig additionally excludes the path from any ordinary `git lfs fetch`/`git lfs pull`.
+
+    This script fetches the real media content on demand, without touching this repo's own git
+    history:
 
       1. Checks `git lfs version`; if git-lfs isn't installed, tells the user to
          `winget install GitHub.GitLFS` and stops (read-only; does not install anything).
@@ -114,8 +119,9 @@ try {
 
 Write-Host ""
 Write-Host "Done. mesh/jellyswarrm/dev/media/ now holds real fixture media (git will show these as"
-Write-Host "modified working-tree files vs. the committed LFS pointers -- do not commit them; that's"
-Write-Host "expected and is why .lfsconfig excludes this path from ordinary LFS fetch/pull)."
+Write-Host "modified working-tree files vs. the committed pointer text -- do not commit them; the"
+Write-Host "pointers are what belongs in this repository, and .gitattributes no longer declares an"
+Write-Host "LFS filter for them so a plain clone never needs git-lfs)."
 Write-Host ""
 if (Test-Path $LicensesFile) {
     Write-Host "ATTRIBUTION REMINDER (from $LicensesFile):"

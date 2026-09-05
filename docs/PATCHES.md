@@ -153,6 +153,25 @@ Both apps are used entirely unmodified. StingStream drives them through:
   `docs/ARCHITECTURE.md` ("Pivot", "Federated library") for the design and `NOTICE.md` for the
   license finding. M8 will decide whether to drop the subtree entirely once (if ever) nothing
   imports `jellyfin-api` from it.
+- **`.gitattributes` no longer declares an LFS filter for `dev/media/**`.** The two lines
+
+  ```
+  dev/media/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+  dev/media/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+  ```
+
+  are now just `-text`. This is a real content patch to the subtree, and it exists because those
+  files are committed here as plain pointer *text* whose objects were never pushed to this
+  repository's LFS endpoint (see the next entry). Leaving `filter=lfs` on them meant a plain
+  `git clone` failed outright on any machine whose git config has `filter.lfs.required = true`
+  without a `git-lfs` binary installed — the checkout aborts on a smudge filter it cannot run, for
+  files nobody wanted anyway. Dropping the filter attributes makes them what they actually are in
+  this repository: ordinary text. `-text` is kept so git does not rewrite their line endings.
+
+  The root `.lfsconfig` fetch-exclude stays as a second layer, and
+  `tools/fetch-jellyswarrm-media.ps1` is unaffected — it still clones upstream separately and
+  overwrites the working-tree pointers with the real media on demand.
+
 - **Dev/demo fixture media kept as Git LFS pointer files, not fetched.**
   `mesh/jellyswarrm/dev/media/**` (18 files, `.mp4`/`.ogg`, per Jellyswarrm's own `.gitattributes`)
   is committed here as plain LFS pointer text, exactly as `git subtree add` would normally produce

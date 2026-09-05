@@ -1,2 +1,2 @@
-dev/media/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
-dev/media/**/*.ogg filter=lfs diff=lfs merge=lfs -text
+dev/media/**/*.mp4 -text
+dev/media/**/*.ogg -text
