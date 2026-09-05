@@ -26,6 +26,16 @@ build/vendoring-level deviations (no application source has been patched yet —
 
 ## mesh/jellyswarrm (Jellyswarrm)
 
+- **Reference only — not in the request path.** M0 vendored this subtree when the plan called for
+  forking Jellyswarrm as a reverse proxy. On 2026-09-04, after M0's build/vendoring work landed,
+  the merge mechanism was redesigned around a federated library built inside each node's own
+  Jellyfin (`.strm`/`.nfo` materialization from the group index), which replaces the Jellyswarrm
+  proxy entirely. This subtree stays vendored — kept in place per Dan's instruction, not
+  removed — as reference and as a possible source for its Rust `jellyfin-api` client crate only.
+  No StingStream code calls into Jellyswarrm today and no other crate depends on it. See
+  `docs/ARCHITECTURE.md` ("Pivot", "Federated library") for the design and `NOTICE.md` for the
+  license finding. M8 will decide whether to drop the subtree entirely once (if ever) nothing
+  imports `jellyfin-api` from it.
 - **Dev/demo fixture media kept as Git LFS pointer files, not fetched.**
   `mesh/jellyswarrm/dev/media/**` (18 files, `.mp4`/`.ogg`, per Jellyswarrm's own `.gitattributes`)
   is committed here as plain LFS pointer text, exactly as `git subtree add` would normally produce

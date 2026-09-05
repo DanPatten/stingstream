@@ -52,6 +52,14 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 
 ### mesh/jellyswarrm — Jellyswarrm
 
+- **Role: reference only, not in the request path.** After M0 landed this subtree, the "merge many
+  servers" mechanism was redesigned (2026-09-04) around a federated library built inside each
+  node's own Jellyfin, replacing the Jellyswarrm reverse-proxy approach. Jellyswarrm remains
+  vendored here as a git subtree for reference and as a possible source for its Rust
+  `jellyfin-api` client crate only — no StingStream request ever passes through Jellyswarrm code
+  today, and no other crate depends on it. See `docs/ARCHITECTURE.md` ("Pivot", "Federated
+  library") and `docs/PATCHES.md`. Kept in place per Dan's instruction; M8 will decide whether to
+  drop the subtree entirely once (if ever) nothing imports `jellyfin-api` from it.
 - **Upstream:** https://github.com/LLukas22/Jellyswarrm
 - **Branch:** `main` (matches both the plan and the repository's default branch/`HEAD`).
 - **Commit vendored:** `e210972dc76dc53ac7316e8a1f6d80ebee362e04`
