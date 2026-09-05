@@ -65,6 +65,26 @@ pub fn stored_capacity(db: &Db) -> Heartbeat {
 }
 use crate::util::{err, now_millis};
 
+/// The largest gossip frame this node will send or accept, in bytes.
+///
+/// `iroh-gossip`'s own default is 4 KiB, which is far too small for an inventory snapshot and fails
+/// in the worst possible way: an oversized frame is refused on the *send* side of live connections,
+/// so the publisher goes silent to the whole group while still receiving normally, and nothing in
+/// any log says why. [`chunk_records`] is what keeps messages under this; the raised ceiling is
+/// what gives a single record room to be a real record.
+///
+/// **Every member of a group must agree on this number.** A receiver rejects a frame above its own
+/// limit, so a mixed-version group would see exactly the silence described above. It is a constant
+/// rather than a setting for that reason.
+pub const MAX_GOSSIP_MESSAGE: usize = 256 * 1024;
+
+/// How many bytes of records one snapshot or delta chunk may carry.
+///
+/// Comfortably under [`MAX_GOSSIP_MESSAGE`]: the JSON body is signed into a postcard envelope and
+/// then sealed, which adds a nonce, a signature, an AEAD tag and the envelope's own framing, and
+/// the budget is measured against the records alone.
+pub const RECORD_BUDGET: usize = 192 * 1024;
+
 /// Domain separator for the per-message signature.
 const SIGN_DOMAIN: &[u8] = b"stingstream-gossip-v1";
 /// BLAKE3 `derive_key` context for the sealing key. Changing this rotates every group's key.
@@ -75,12 +95,22 @@ const SEAL_CONTEXT: &str = "stingstream gossip v1 seal key";
 pub enum Body {
     /// The publisher's complete inventory for the group. Sent on join, when a peer asks, and every
     /// `snapshot_interval_secs` so a missed delta repairs itself.
+    ///
+    /// **Chunked.** A library of any size does not fit in one gossip message — see
+    /// [`chunk_records`] — so a snapshot is a numbered run of them. `chunk == 0` replaces
+    /// everything known about the author; every chunk after it merges. Both fields default to zero,
+    /// so a message from a build that predates chunking still reads as "one chunk, replace".
     Snapshot {
         node_name: String,
         seq: u64,
+        #[serde(default)]
+        chunk: u32,
+        #[serde(default)]
+        chunks: u32,
         records: Vec<WireRecord>,
     },
-    /// Incremental changes since the last snapshot or delta.
+    /// Incremental changes since the last snapshot or delta. Chunked for the same reason, but with
+    /// no replace semantics to preserve, so each chunk stands alone.
     Delta {
         node_name: String,
         seq: u64,
@@ -324,6 +354,12 @@ pub async fn spawn(
 }
 
 /// Broadcast one body, logging rather than propagating a send failure.
+///
+/// The failure is logged at **warn**, not debug. It used to be debug, on the reasonable-sounding
+/// grounds that a broadcast with no neighbours is normal — but a *refused* broadcast is the one
+/// failure in this crate that takes a node off the air without any other symptom, and burying it
+/// under a level nobody runs in production cost an afternoon. The size is included because that is
+/// almost always the reason.
 pub async fn publish(
     sender: &GossipSender,
     group: &GroupId,
@@ -333,15 +369,22 @@ pub async fn publish(
 ) {
     match seal(group, secret, node_key, body) {
         Ok(bytes) => {
+            let size = bytes.len();
             if let Err(e) = sender.broadcast(bytes).await {
-                tracing::debug!(%group, error = %e, "gossip broadcast failed");
+                tracing::warn!(
+                    %group,
+                    error = %e,
+                    size,
+                    limit = MAX_GOSSIP_MESSAGE,
+                    "gossip broadcast failed"
+                );
             }
         }
         Err(e) => tracing::warn!(%group, error = %e, "sealing a gossip message failed"),
     }
 }
 
-/// Broadcast this node's full inventory for the group.
+/// Broadcast this node's full inventory for the group, in as many chunks as it takes.
 pub async fn publish_snapshot(
     db: &Db,
     sender: &GossipSender,
@@ -359,18 +402,70 @@ pub async fn publish_snapshot(
         }
     };
     let seq = db.next_seq(group).unwrap_or(0);
-    publish(
-        sender,
-        group,
-        secret,
-        node_key,
-        &Body::Snapshot {
-            node_name: node_name.to_string(),
-            seq,
-            records,
-        },
-    )
-    .await;
+    let batches = chunk_records(records);
+    let chunks = batches.len() as u32;
+    for (i, batch) in batches.into_iter().enumerate() {
+        publish(
+            sender,
+            group,
+            secret,
+            node_key,
+            &Body::Snapshot {
+                node_name: node_name.to_string(),
+                seq,
+                chunk: i as u32,
+                chunks,
+                records: batch,
+            },
+        )
+        .await;
+    }
+}
+
+/// Split records into runs that each fit inside one gossip message.
+///
+/// **This is not an optimisation; it is the difference between working and not.** `iroh-gossip`
+/// refuses a frame larger than the topic's `max_message_size`, and the refusal lands on the *send*
+/// side of connections that are already up — so a node that broadcasts one oversized snapshot stops
+/// being able to send anything at all, to anyone, while still receiving normally. The symptom is a
+/// peer that goes quiet and is declared offline by every other member, with nothing in any log to
+/// say why. Three ordinary inventory records were enough to trigger it, which is what
+/// `tools/e2e-m4.ps1` found the first time it ran with three nodes.
+///
+/// Always returns at least one batch, so a node with an empty library still says so — which is how
+/// the group learns that a title somebody used to hold is gone.
+///
+/// A single record too large to fit on its own is dropped with a warning rather than poisoning the
+/// batch. Nothing this node publishes should ever be that big — a [`WireRecord`] is metadata, not
+/// media — so one is a bug or a hostile edit, and losing that one title is a much better answer
+/// than losing the group's whole view of this node.
+pub fn chunk_records(records: Vec<WireRecord>) -> Vec<Vec<WireRecord>> {
+    let mut batches: Vec<Vec<WireRecord>> = Vec::new();
+    let mut current: Vec<WireRecord> = Vec::new();
+    let mut current_bytes = 0usize;
+
+    for record in records {
+        let size = serde_json::to_vec(&record)
+            .map(|v| v.len())
+            .unwrap_or(usize::MAX);
+        if size > RECORD_BUDGET {
+            tracing::warn!(
+                item_key = %record.item_key,
+                size,
+                budget = RECORD_BUDGET,
+                "skipping an inventory record too large to gossip"
+            );
+            continue;
+        }
+        if !current.is_empty() && current_bytes + size > RECORD_BUDGET {
+            batches.push(std::mem::take(&mut current));
+            current_bytes = 0;
+        }
+        current_bytes += size;
+        current.push(record);
+    }
+    batches.push(current);
+    batches
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -394,12 +489,25 @@ async fn handle(
         Body::Snapshot {
             node_name: peer_name,
             seq,
+            chunk,
+            chunks,
             records,
         } => {
-            tracing::debug!(%group, peer = %author.fmt_short(), seq, records = records.len(), "snapshot");
+            tracing::debug!(
+                %group, peer = %author.fmt_short(), seq, chunk, chunks,
+                records = records.len(), "snapshot"
+            );
             let _ = db.note_member(group, &author_s, &peer_name);
             let _ = db.set_peer_online(group, &author_s, true);
-            if let Err(e) = db.replace_peer_records(group, &author_s, &records) {
+            // The first chunk is the one that means "forget what you knew about me"; the rest add
+            // to it. A chunk lost in transit therefore costs those records until the next snapshot
+            // rather than corrupting the ones that did arrive.
+            let applied = if chunk == 0 {
+                db.replace_peer_records(group, &author_s, &records)
+            } else {
+                db.merge_peer_records(group, &author_s, &records).map(|_| ())
+            };
+            if let Err(e) = applied {
                 tracing::warn!(error = %e, "applying a peer snapshot");
             }
         }
@@ -453,6 +561,118 @@ mod tests {
                 free_space: 12345,
                 ..Default::default()
             },
+        }
+    }
+
+    /// A record roughly the size a real one is: a metadata blob with an overview and some people.
+    fn fat_record(key: &str, overview_bytes: usize) -> WireRecord {
+        WireRecord {
+            item_key: key.to_string(),
+            metadata: crate::inventory::MetadataBlob {
+                title: "Big Buck Bunny".into(),
+                overview: Some("x".repeat(overview_bytes)),
+                ..Default::default()
+            },
+            updated_at: "2026-09-05T00:00:00Z".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_empty_inventory_still_produces_one_chunk() {
+        // Which is how the group learns a node no longer holds anything: a snapshot with no records
+        // is the message that clears it, so "send nothing" would leave stale rows forever.
+        let batches = chunk_records(Vec::new());
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].is_empty());
+    }
+
+    #[test]
+    fn records_are_split_into_chunks_that_each_fit() {
+        // Twenty records of ~20 KB each: far past the budget in one message, comfortably inside it
+        // in several.
+        let records: Vec<WireRecord> = (0..20)
+            .map(|i| fat_record(&format!("movie:tmdb:{i}"), 20_000))
+            .collect();
+        let batches = chunk_records(records);
+        assert!(batches.len() > 1, "20 x 20 KB should not be one chunk");
+        for batch in &batches {
+            let size: usize = batch
+                .iter()
+                .map(|r| serde_json::to_vec(r).unwrap().len())
+                .sum();
+            assert!(size <= RECORD_BUDGET, "a chunk is {size} bytes");
+        }
+        // Nothing is lost on the way.
+        assert_eq!(batches.iter().map(|b| b.len()).sum::<usize>(), 20);
+    }
+
+    #[test]
+    fn a_small_library_is_still_one_chunk() {
+        // The common case has to stay one message, or every join pays for the pathological one.
+        let records: Vec<WireRecord> = (0..3)
+            .map(|i| fat_record(&format!("movie:tmdb:{i}"), 2_000))
+            .collect();
+        assert_eq!(chunk_records(records).len(), 1);
+    }
+
+    #[test]
+    fn one_impossible_record_is_dropped_rather_than_taking_the_rest_with_it() {
+        let records = vec![
+            fat_record("movie:tmdb:1", 1_000),
+            fat_record("movie:tmdb:impossible", RECORD_BUDGET * 2),
+            fat_record("movie:tmdb:2", 1_000),
+        ];
+        let batches = chunk_records(records);
+        let keys: Vec<String> = batches
+            .iter()
+            .flatten()
+            .map(|r| r.item_key.clone())
+            .collect();
+        assert_eq!(keys, vec!["movie:tmdb:1", "movie:tmdb:2"]);
+    }
+
+    #[test]
+    fn a_chunked_snapshot_round_trips_through_the_seal() {
+        // The whole point of the budget is that what comes out of `chunk_records` fits in a frame
+        // once it has been signed and sealed, and the envelope is not free.
+        let group = GroupId::generate();
+        let secret = GroupSecret::generate();
+        let key = SecretKey::generate();
+        let records: Vec<WireRecord> = (0..40)
+            .map(|i| fat_record(&format!("movie:tmdb:{i}"), 20_000))
+            .collect();
+
+        for (i, batch) in chunk_records(records).into_iter().enumerate() {
+            let body = Body::Snapshot {
+                node_name: "attic".into(),
+                seq: 1,
+                chunk: i as u32,
+                chunks: 3,
+                records: batch,
+            };
+            let wire = seal(&group, &secret, &key, &body).unwrap();
+            assert!(
+                wire.len() <= MAX_GOSSIP_MESSAGE,
+                "a sealed chunk is {} bytes, over the {MAX_GOSSIP_MESSAGE}-byte frame limit",
+                wire.len()
+            );
+            let (_, back) = open(&group, &secret, &wire).unwrap();
+            assert_eq!(back, body);
+        }
+    }
+
+    #[test]
+    fn a_snapshot_from_a_build_that_did_not_chunk_reads_as_chunk_zero() {
+        // `chunk` and `chunks` are `#[serde(default)]`, so an older message means "one chunk,
+        // replace" -- which is exactly what it used to mean.
+        let json = r#"{"Snapshot":{"node_name":"attic","seq":7,"records":[]}}"#;
+        let body: Body = serde_json::from_str(json).unwrap();
+        match body {
+            Body::Snapshot { chunk, chunks, seq, .. } => {
+                assert_eq!((chunk, chunks, seq), (0, 0, 7));
+            }
+            other => panic!("expected a snapshot, got {other:?}"),
         }
     }
 

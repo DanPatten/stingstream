@@ -123,7 +123,12 @@ impl MeshNode {
             .map_err(err)
             .context("binding the iroh endpoint")?;
 
-        let gossip = Gossip::builder().spawn(endpoint.clone());
+        // `iroh-gossip`'s default frame limit is 4 KiB, which an inventory snapshot exceeds at
+        // about three records -- and it fails silently in the send direction, so the publisher goes
+        // quiet to the entire group while still receiving. See `gossip::MAX_GOSSIP_MESSAGE`.
+        let gossip = Gossip::builder()
+            .max_message_size(gossip::MAX_GOSSIP_MESSAGE)
+            .spawn(endpoint.clone());
         let streams = Arc::new(Semaphore::new(cfg.peer.max_concurrent_streams.max(1)));
 
         let peer_state = Arc::new(PeerState {
@@ -608,19 +613,26 @@ impl MeshNode {
             .apply_local_delta(group_id, &self.node_id(), upserts, removals)?;
         if let Some(rg) = self.groups.lock().await.get(group_id) {
             let seq = self.db.next_seq(group_id).unwrap_or(0);
-            gossip::publish(
-                &rg.gossip.sender,
-                group_id,
-                &group.secret,
-                &self.secret_key,
-                &Body::Delta {
-                    node_name: self.cfg.node_name.clone(),
-                    seq,
-                    upserts: upserts.iter().map(|r| r.to_wire()).collect(),
-                    removals: removals.to_vec(),
-                },
-            )
-            .await;
+            // Chunked for the same reason a snapshot is: a season import is one delta with forty
+            // records in it, and one frame too large silences this node to the whole group. The
+            // removals ride the first chunk, which is always sent even when there is nothing to
+            // upsert.
+            let batches = gossip::chunk_records(upserts.iter().map(|r| r.to_wire()).collect());
+            for (i, batch) in batches.into_iter().enumerate() {
+                gossip::publish(
+                    &rg.gossip.sender,
+                    group_id,
+                    &group.secret,
+                    &self.secret_key,
+                    &Body::Delta {
+                        node_name: self.cfg.node_name.clone(),
+                        seq,
+                        upserts: batch,
+                        removals: if i == 0 { removals.to_vec() } else { Vec::new() },
+                    },
+                )
+                .await;
+            }
         }
         Ok(())
     }

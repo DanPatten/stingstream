@@ -163,6 +163,74 @@ public sealed class MeshController : StingStreamControllerBase
     }
 
     /// <summary>
+    /// One peer's measured link, as the source scorer sees it.
+    /// </summary>
+    /// <param name="node">The peer's node id.</param>
+    /// <param name="group">The group id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The peer row, including its rolling measured throughput.</response>
+    /// <response code="404">This node has never seen that peer in that group.</response>
+    /// <returns>The peer row.</returns>
+    /// <remarks>
+    /// Separate from <c>GET /mesh/peers</c> because this is the *measurement*, not the membership:
+    /// it is what a scorer weighs, what the Node status screen would show as "12 Mbit/s from loft",
+    /// and the first thing a support question about a slow stream needs.
+    ///
+    /// <c>throughputBps</c> is null until this node has actually pulled enough bytes from the peer
+    /// for a sample to mean anything — the mesh discards transfers under 256 KiB or 100 ms, because
+    /// a 64 KiB seek that finished in 8 ms is arithmetically 65 Mbit/s and says nothing about
+    /// whether a film will stream.
+    /// </remarks>
+    [HttpGet("peers/{node}/stats")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshPeer>> PeerStats(
+        string node,
+        [FromQuery] string group,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(group))
+        {
+            return BadRequest(new { error = "?group= is required" });
+        }
+
+        var stats = await _mesh.PeerStatsAsync(group, node, cancellationToken).ConfigureAwait(false);
+        return stats is null
+            ? NotFound(new { error = $"this node has never seen {node} in that group" })
+            : Ok(stats);
+    }
+
+    /// <summary>
+    /// Every holder of an item, scored, best first, with the reasons.
+    /// </summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="policy">Score under this policy; defaults to Speed first.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The mesh's own scored candidate list.</response>
+    /// <returns>The scored sources.</returns>
+    /// <remarks>
+    /// The <em>mesh's</em> answer, which is the one <c>?any=1</c> and mid-stream failover act on.
+    /// <c>GET /items/{id}/sources</c> is Core's answer to the same question under the user's stored
+    /// policy, and is what the app should read; this exists so the two can be compared when they
+    /// disagree, which is the failure mode of keeping one formula in two languages.
+    /// </remarks>
+    [HttpGet("groups/{group}/sources/{itemKey}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshSources>> Sources(
+        string group,
+        string itemKey,
+        [FromQuery] string? policy,
+        CancellationToken cancellationToken)
+    {
+        var chosen = Playback.PolicyNames.Parse(policy) ?? Playback.PlaybackPolicy.SpeedFirst;
+        var sources = await _mesh.SourcesAsync(group, itemKey, chosen, cancellationToken).ConfigureAwait(false);
+        return sources is null ? MeshUnavailable() : Ok(sources);
+    }
+
+    /// <summary>
     /// Run one federated-library materialization pass now.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

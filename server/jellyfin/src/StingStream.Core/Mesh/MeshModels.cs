@@ -47,6 +47,14 @@ public sealed class MeshStatus
     public List<string> RelayUrls { get; set; } = new();
 
     public List<string> DirectAddrs { get; set; } = new();
+
+    /// <summary>
+    /// Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
+    /// coordinator's last reachability verdict. Null on a node with no coordinator or no
+    /// certificate, which is the zero-server default. Passed through from the mesh unchanged --
+    /// Core neither builds nor interprets it. See <c>docs/SIDEDOOR.md</c>.
+    /// </summary>
+    public System.Text.Json.JsonElement? SideDoor { get; set; }
 }
 
 /// <summary>One group this node belongs to.</summary>
@@ -168,6 +176,14 @@ public sealed class MeshPeer
 
     /// <summary>When the average was last updated, RFC 3339.</summary>
     public string? ThroughputAt { get; set; }
+
+    /// <summary>
+    /// Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
+    /// coordinator's last reachability verdict. Null on a node with no coordinator or no
+    /// certificate, which is the zero-server default. Passed through from the mesh unchanged --
+    /// Core neither builds nor interprets it. See <c>docs/SIDEDOOR.md</c>.
+    /// </summary>
+    public System.Text.Json.JsonElement? SideDoor { get; set; }
 }
 
 /// <summary>One scored candidate from <c>GET /mesh/v1/sources/{group}/{item_key}</c>.</summary>
