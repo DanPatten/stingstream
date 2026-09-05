@@ -128,14 +128,13 @@ export function JoinGroupScreen() {
         Join group
       </Button>
 
-      {!Platform.isTV && (
-        <>
-          <View className='h-3' />
-          <Button color='black' onPress={paste}>
-            Paste from clipboard
-          </Button>
-        </>
-      )}
+      {/* Offered on a TV too. A remote has no keyboard worth typing 250 base58 characters on,
+          and a code that arrived by a companion app or a browser on the same box is already in
+          the clipboard — so this is the difference between a minute and five. */}
+      <View className='h-3' />
+      <Button color='black' onPress={paste}>
+        Paste from clipboard
+      </Button>
 
       {ExpoCamera && (
         <>
@@ -148,10 +147,10 @@ export function JoinGroupScreen() {
 
       {Platform.isTV && (
         <Text className='text-[#9899A1] text-xs mt-4'>
-          There is no camera here, so the code has to be typed. Invite codes use
-          base58, which has no look-alike characters — no 0/O and no 1/l/I — and
-          carries a checksum, so a mistyped code is refused rather than
-          half-joining.
+          There is no camera here, so the code has to be pasted or typed. Invite
+          codes use base58, which has no look-alike characters — no 0/O and no
+          1/l/I — and carries a checksum, so a mistyped code is refused rather
+          than half-joining.
         </Text>
       )}
     </View>
