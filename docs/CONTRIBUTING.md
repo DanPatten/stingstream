@@ -78,6 +78,19 @@ them M4's in-flight `pub mod score;` for a file that was still untracked, which 
 everyone until M4 pushed the other half. If a staged hunk is not yours, take the file out of the
 index (`git restore --staged <file>` is a *write*; ask first) or wait for its author.
 
+**Best of all, do not rely on the index.** The pathspec form commits exactly what you name and
+leaves everything else staged where it was, whoever put it there:
+
+```
+git commit --only <paths> -m "..."      # or: git commit -m "..." -- <paths>
+```
+
+One invocation (below) closes the window between *your* add and *your* commit. It does not close
+the one where somebody else staged files **before** your invocation began — those are already in
+the index, and a plain `git commit` takes them however tightly you pair the two. That is how
+commit 5da2090 carried four of M3d's files despite a single `git add … && git commit`. `--only`
+does not depend on timing at all.
+
 **Stage and commit in a single shell invocation** — `git add <explicit paths> && git commit -F -`
 — never as two calls with thinking in between. The index is shared, so a separate add and commit is
 not atomic *in either direction*: another agent's `git add` can put its files in your commit, and
