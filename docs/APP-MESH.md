@@ -398,7 +398,12 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
   runs the real library on the emulator: 24 unit tests, plus `tests/light_node.rs`, which starts a
   light handle and a full node in one process, joins by invite, streams a byte-verified mid-file
   range through the light node's loopback port, and is refused `403` in the reverse direction. All
-  25 pass. This is the same crate the `.so` is built from, on the same ABI.
+  25 pass. This is the same crate the `.so` is built from, on the same ABI. Its log lines land in
+  logcat under the `stingstream-mesh` tag, which is the `tracing-android` layer doing its job:
+
+  ```
+  I stingstream-mesh: stingstream_mesh_ffi: embedded mesh started node=b5ac4c8c… port=41405 light=true
+  ```
 
 * **A light node on the emulator joined a group on this machine and streamed from it.** A
   `stingstream-mesh` node on the desktop created a group, published one 4 MB file, and minted an
