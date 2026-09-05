@@ -424,14 +424,24 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
   the emulator; the generated uniffi bindings are in the app's dex (97 references in
   `classes2.dex`).
 
-  **Not** yet exercised in-app: JNA's `Native.register` binding the uniffi symbols at runtime.
-  That needs the JS bundle, and Metro would not answer HTTP on this machine — the same pathology
-  that left a twelve-hour-old instance listening and unresponsive on port 8081. The library itself
-  is already proven on this emulator by the `cargo ndk-test` run above, which drove
-  `MeshHandle::start`, `join_group`, `/stream` and the `403` through the real `.so` on the same
-  ABI, so what is untested is the Kotlin-to-Rust hop rather than anything about the mesh. It fails
-  loudly and immediately when it fails — an `UnsatisfiedLinkError` naming the missing symbol on
-  the first `startMesh()` — so it is a check to repeat rather than a risk to carry quietly.
+  **And this is where a compiled-but-never-registered module bit.** Launching the app with a JS
+  bundle — which needed a working Metro, and this machine's would not answer HTTP — crashed the
+  whole app at startup:
+
+  ```
+  IllegalArgumentException: You attempted to access the app context before the module was created
+      at StingstreamMeshModule.isTelevision(StingstreamMeshModule.kt:98)
+      at StingstreamMeshModule.<init>(StingstreamMeshModule.kt:55)
+  ```
+
+  A property initialiser was reading `appContext`, which Expo attaches only *after* the module is
+  constructed. Not a mesh failure: `ModuleRegistry.register` throws, no module registers, no JS
+  runs, and every screen in the app is unreachable. Fixed by resolving the default on use, plus a
+  `runCatching` around `isTelevision` so a too-early read can never take the app down again.
+
+  The lesson is worth keeping: **nothing in an Expo module's constructor may touch `appContext`**,
+  and a native module that has only ever been *compiled* has not been tested. The Rust half was
+  proven on the device; the Kotlin around it was not, and that is exactly where the bug was.
 
 The transcript is in the M3c scratch directory.
 
@@ -469,6 +479,8 @@ which is why it is not done here.
 * **Android DNS through `ndk_context`** (see §9): the node falls back to Google's resolvers instead
   of the device's. A `JNI_OnLoad` in this crate plus a Kotlin call to hand over the `Context` fixes
   it; worth doing before release.
-* **The JNA hop is untested inside the app** (see §9). Repeat the check the first time anyone has
-  a working Metro on a machine with the TV APK installed: launch, log in, and watch for
-  `UnsatisfiedLinkError` — or its absence, and a node id on the Groups screen.
+* **The JNA hop is still untested inside the app.** The startup crash above was one layer
+  earlier — module registration — so it says nothing about whether JNA can bind uniffi's symbols
+  once `startMesh()` is called. Repeat the check the first time anyone has a working Metro and the
+  APK installed: log in, and watch for an `UnsatisfiedLinkError` — or its absence, and a node id
+  on the Groups screen.
