@@ -10,7 +10,7 @@ FROM ubuntu:24.04
 # and dnsutils for diagnosing a failure.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      iptables iproute2 ca-certificates curl jq dnsutils procps \
+      iptables iproute2 iputils-ping ca-certificates curl jq dnsutils procps \
  && rm -rf /var/lib/apt/lists/*
 
 CMD ["sleep", "infinity"]
