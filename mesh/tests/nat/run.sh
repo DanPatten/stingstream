@@ -286,10 +286,19 @@ peer_path() {
 
 stream_check() { # label
   log "streaming a range from node-b to node-a ($1)"
-  docker exec ss-node-a curl -fsS --max-time 180 -o /tmp/range.bin -D /tmp/range.head \
-    -H 'Range: bytes=1048576-2097151' \
-    "http://127.0.0.1:8791/stream/$GROUP/movie:tmdb:1/$NODE_B_ID" \
-    || fail "the stream request failed ($1)"
+  # A few attempts: right after a restart the peer may still be re-establishing its relay path,
+  # and a player would retry too rather than giving up on the first refusal.
+  local ok=0
+  for _ in $(seq 1 10); do
+    if docker exec ss-node-a curl -fsS --max-time 120 -o /tmp/range.bin -D /tmp/range.head \
+        -H 'Range: bytes=1048576-2097151' \
+        "http://127.0.0.1:8791/stream/$GROUP/movie:tmdb:1/$NODE_B_ID"; then
+      ok=1
+      break
+    fi
+    sleep 3
+  done
+  [ "$ok" = 1 ] || fail "the stream request failed ($1)"
 
   local status size want got
   status=$(docker exec ss-node-a head -n1 /tmp/range.head | tr -d '\r')
@@ -340,13 +349,19 @@ wait_http ss-node-b http://127.0.0.1:8791/healthz 60 \
   || fail "node-b's mesh API did not come back with UDP blocked"
 
 log "waiting for node-b to re-establish over the relay"
+# Its own endpoint has to reconnect to the coordinator first. Node-a's view of "online" is no use
+# here: it is still holding the pre-restart heartbeat, so it answers yes immediately.
 for _ in $(seq 1 120); do
-  if api_a "http://127.0.0.1:8791/mesh/v1/peers?group=$GROUP" \
-     | jq -e ".[] | select(.node == \"$NODE_B_ID\" and .online == true)" >/dev/null 2>&1; then
+  if [ "$(api_b http://127.0.0.1:8791/mesh/v1/status | jq -r '.relay_urls | length')" != "0" ]; then
     break
   fi
   sleep 1
 done
+api_b http://127.0.0.1:8791/mesh/v1/status | jq -c '{node, relay_urls, direct_addrs}'
+[ "$(api_b http://127.0.0.1:8791/mesh/v1/status | jq -r '.relay_urls | length')" != "0" ] \
+  || fail "node-b did not get back onto the relay with UDP blocked"
+# Give the gossip a moment to re-form on the new connection before asking for bytes.
+sleep 5
 
 stream_check "with UDP blocked on node-b"
 RELAYED_PATH=$(peer_path)

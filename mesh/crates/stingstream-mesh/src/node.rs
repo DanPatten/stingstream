@@ -650,43 +650,86 @@ impl MeshNode {
             .and_then(|(_, h)| h)
             .unwrap_or_else(|| "any".to_string());
 
-        let conn = self.connect_node(&group, node).await?;
-        let mut req = Request::builder()
-            .method("GET")
-            .uri(format!(
-                "/peer/v1/file/{}/{}",
-                encode_segment(item_key),
-                encode_segment(&hash)
-            ))
-            .body(empty_body())
-            .context("building a file request")?;
-        // Forward exactly the headers that make range playback work, and nothing else: the peer
-        // does not need our cookies, our user agent or anything else the player attached.
-        for name in [
-            header::RANGE,
-            header::IF_RANGE,
-            header::IF_NONE_MATCH,
-            header::ACCEPT,
-        ] {
-            if let Some(v) = headers.get(&name) {
-                req.headers_mut().insert(name, v.clone());
+        let uri = format!(
+            "/peer/v1/file/{}/{}",
+            encode_segment(item_key),
+            encode_segment(&hash)
+        );
+        let build = || {
+            let mut req = Request::builder()
+                .method("GET")
+                .uri(&uri)
+                .body(empty_body())
+                .context("building a file request")?;
+            // Forward exactly the headers that make range playback work, and nothing else: the
+            // peer does not need our cookies, our user agent or anything the player attached.
+            for name in [
+                header::RANGE,
+                header::IF_RANGE,
+                header::IF_NONE_MATCH,
+                header::ACCEPT,
+            ] {
+                if let Some(v) = headers.get(&name) {
+                    req.headers_mut().insert(name, v.clone());
+                }
+            }
+            anyhow::Ok(req)
+        };
+
+        // Two attempts, because a cached connection can be dead without knowing it yet: a peer
+        // that restarted, or a relay path whose far end vanished, stays "open" until QUIC's idle
+        // timeout notices. The first failure evicts it and re-dials, which is what a player would
+        // otherwise have to do by giving up and being restarted by a person.
+        let mut last: Option<anyhow::Error> = None;
+        for attempt in 0..2u32 {
+            let conn = match self.connect_node(&group, node).await {
+                Ok(c) => c,
+                Err(e) if attempt == 0 => {
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let started = std::time::Instant::now();
+            match conn.request(build()?).await {
+                Ok(resp) => {
+                    let (path, rtt) = peer::path_summary(&conn.conn);
+                    let _ = self.db.set_peer_path(group_id, node, &path, rtt);
+                    tracing::info!(
+                        group = %group_id,
+                        item_key,
+                        node = %&node[..node.len().min(12)],
+                        status = resp.status().as_u16(),
+                        path,
+                        rtt_ms = rtt,
+                        ttfb_ms = started.elapsed().as_millis() as u64,
+                        attempt,
+                        "streaming from a peer"
+                    );
+                    return Ok(resp);
+                }
+                Err(e) if attempt == 0 => {
+                    tracing::warn!(
+                        group = %group_id,
+                        node = %&node[..node.len().min(12)],
+                        error = %e,
+                        "the peer connection failed; dropping it and re-dialling once"
+                    );
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                }
+                Err(e) => return Err(e),
             }
         }
-        let started = std::time::Instant::now();
-        let resp = conn.request(req).await?;
-        let (path, rtt) = peer::path_summary(&conn.conn);
-        let _ = self.db.set_peer_path(group_id, node, &path, rtt);
-        tracing::info!(
-            group = %group_id,
-            item_key,
-            node = %&node[..node.len().min(12)],
-            status = resp.status().as_u16(),
-            path,
-            rtt_ms = rtt,
-            ttfb_ms = started.elapsed().as_millis() as u64,
-            "streaming from a peer"
-        );
-        Ok(resp)
+        Err(last.unwrap_or_else(|| anyhow::anyhow!("could not reach node {node}")))
+    }
+
+    /// Drop any cached connection to a peer, so the next request re-dials.
+    async fn forget_peer(&self, group: &GroupId, node: &str) {
+        if let Ok(id) = node.parse::<EndpointId>() {
+            self.conns.lock().await.remove(&(*group, id));
+        }
     }
 
     // --- coordinator ---------------------------------------------------------------------------
