@@ -5997,6 +5997,488 @@
         ]
       }
     },
+    "/stingstream/api/v1/watch": {
+      "get": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "Every open watch session this node can see.",
+        "operationId": "GetWatchSessions",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "query",
+            "description": "The mesh group; omit when this node belongs to exactly one.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sessions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WatchSession"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "Start a session for an item, with this node leading it.",
+        "operationId": "StartWatchSession",
+        "requestBody": {
+          "description": "What to watch, and where.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartWatchRequest"
+                  }
+                ],
+                "description": "What the app posts to start a session."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartWatchRequest"
+                  }
+                ],
+                "description": "What the app posts to start a session."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartWatchRequest"
+                  }
+                ],
+                "description": "What the app posts to start a session."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "The item has no provider ids, or this node has no group.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/watch/{sessionId}": {
+      "get": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "One session, and where it is right now.",
+        "operationId": "GetWatchSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "The session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchSessionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/watch/{sessionId}/attach": {
+      "post": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "Seat the bridge in a local SyncPlay group, so this node's own users are carried with it.",
+        "description": "Separate from joining because the two happen at different moments: a member joins the\r\nsession as soon as they accept the invite, and a *local* SyncPlay group exists only once\r\nsomebody on this node actually opens the film. Between the two the bridge still follows the\r\nleader's positions — it simply has nothing local to drive yet.",
+        "operationId": "AttachWatchSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "The mesh session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "localGroupId",
+            "in": "query",
+            "description": "The Jellyfin SyncPlay group on this node.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Seated."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "This node is not in that session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/watch/{sessionId}/join": {
+      "post": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "Join a session another node leads.",
+        "operationId": "JoinWatchSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "The session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "description": "The mesh group; omit when this node belongs to exactly one.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session as the leader holds it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "The session has gone, or this node cannot reach its leader.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/watch/{sessionId}/leave": {
+      "post": {
+        "tags": [
+          "Watch"
+        ],
+        "summary": "Leave a session; if this node leads it, end it for everybody.",
+        "operationId": "LeaveWatchSession",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "description": "The session id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Left."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/webhooks/arr": {
       "post": {
         "tags": [
@@ -9463,8 +9945,7 @@
             "format": "int64"
           }
         },
-        "additionalProperties": false,
-        "description": "The webhook StingStream installs in both apps so an import reaches Jellyfin without a full\r\nlibrary scan."
+        "additionalProperties": false
       },
       "FirstRunReport": {
         "type": "object",
@@ -10405,6 +10886,13 @@
               "type": "string"
             },
             "description": "Absolute paths of this item's artwork on this node, keyed by lowercase image kind\r\n(`primary`, `backdrop`, `logo`, `thumb`, `banner`)."
+          },
+          "LocalSubtitles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubtitleSidecar"
+            },
+            "description": "Subtitle sidecar files this node holds for the item, in a stable order."
           },
           "UpdatedAt": {
             "type": "string"
@@ -11883,6 +12371,13 @@
             "type": "string",
             "nullable": true
           },
+          "Subtitles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MeshSubtitleTrack"
+            },
+            "description": "Subtitle sidecars the holder can serve, fetched by index (M7)."
+          },
           "UpdatedAt": {
             "type": "string"
           }
@@ -12314,6 +12809,36 @@
         },
         "additionalProperties": false,
         "description": "`GET /mesh/v1/status`."
+      },
+      "MeshSubtitleTrack": {
+        "type": "object",
+        "properties": {
+          "Index": {
+            "type": "integer",
+            "description": "Position in the holder's own list, and the segment used to fetch it.",
+            "format": "int32"
+          },
+          "Language": {
+            "type": "string",
+            "description": "Three-letter ISO language code.",
+            "nullable": true
+          },
+          "Forced": {
+            "type": "boolean",
+            "description": "A forced track."
+          },
+          "HearingImpaired": {
+            "type": "boolean",
+            "description": "SDH."
+          },
+          "Format": {
+            "type": "string",
+            "description": "`srt`, `ass` or `vtt`.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A subtitle sidecar as a peer sees it: described, and fetched by index."
       },
       "MeshTrack": {
         "type": "object",
@@ -16073,6 +16598,14 @@
             ],
             "description": "How this node materializes the group's titles into its own Jellyfin."
           },
+          "Subtitles": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubtitleSettings"
+              }
+            ],
+            "description": "What subtitles the group wants, and whether to go and get them (M7)."
+          },
           "DefaultQualityProfileName": {
             "type": "string",
             "description": "Quality profile to use when adding titles. Empty means \"whatever the app's first profile\r\nis\", which is what a fresh Radarr or Sonarr always has at least one of."
@@ -16088,6 +16621,22 @@
         },
         "additionalProperties": false,
         "description": "\"Omniarr\": the one settings model StingStream keeps, pushed idempotently into both Radarr and\r\nSonarr through their v3 APIs."
+      },
+      "StartWatchRequest": {
+        "type": "object",
+        "properties": {
+          "ItemId": {
+            "type": "string",
+            "description": "The Jellyfin item to watch. Its item key is resolved on the server."
+          },
+          "Group": {
+            "type": "string",
+            "description": "The group to invite. Omit when the node belongs to exactly one.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "What the app posts to start a session."
       },
       "SubtitleDeliveryMethod": {
         "enum": [
@@ -16152,6 +16701,60 @@
         },
         "additionalProperties": false,
         "description": "A class for subtitle profile information."
+      },
+      "SubtitleSettings": {
+        "type": "object",
+        "properties": {
+          "Enabled": {
+            "type": "boolean",
+            "description": "Go and fetch missing subtitles at all."
+          },
+          "Languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Three-letter ISO language codes, in preference order. Empty means \"this node's UI language\"."
+          },
+          "FetchFromPeers": {
+            "type": "boolean",
+            "description": "Fetch a peer's subtitle sidecars when materializing its titles."
+          },
+          "MaxFetchesPerPass": {
+            "type": "integer",
+            "description": "How many items one pass may fetch subtitles for.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "The webhook StingStream installs in both apps so an import reaches Jellyfin without a full\r\nlibrary scan."
+      },
+      "SubtitleSidecar": {
+        "type": "object",
+        "properties": {
+          "Path": {
+            "type": "string",
+            "description": "Absolute path on this node. Never published."
+          },
+          "Language": {
+            "type": "string",
+            "description": "Three-letter ISO language code, as the provider gave it."
+          },
+          "Forced": {
+            "type": "boolean",
+            "description": "A forced track: only the parts a viewer needs, usually foreign dialogue."
+          },
+          "HearingImpaired": {
+            "type": "boolean",
+            "description": "SDH: includes sound descriptions."
+          },
+          "Format": {
+            "type": "string",
+            "description": "`srt`, `ass` or `vtt`."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One subtitle sidecar file this node holds."
       },
       "SubtitleTrackSummary": {
         "type": "object",
@@ -18361,6 +18964,153 @@
         "type": "string",
         "description": "Enum VideoType."
       },
+      "WatchParticipant": {
+        "type": "object",
+        "properties": {
+          "Node": {
+            "type": "string",
+            "description": "The node's mesh id."
+          },
+          "NodeName": {
+            "type": "string",
+            "description": "Its human name."
+          },
+          "Viewers": {
+            "type": "integer",
+            "description": "How many of that node's own users are in its local SyncPlay group.",
+            "format": "int32"
+          },
+          "RttMs": {
+            "type": "integer",
+            "description": "Round-trip time the leader measured to it, milliseconds.",
+            "format": "int64",
+            "nullable": true
+          },
+          "DriftMs": {
+            "type": "integer",
+            "description": "How far this node's local group was from the leader's when it last reported, in\r\nmilliseconds, signed. **This is the number the milestone's \"under 1 s\" bar is about**.",
+            "format": "int64",
+            "nullable": true
+          },
+          "Buffering": {
+            "type": "boolean",
+            "description": "Its local group is buffering."
+          },
+          "LastSeenMs": {
+            "type": "integer",
+            "description": "When it last reported, milliseconds since the epoch.",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "description": "One node taking part in a session."
+      },
+      "WatchSession": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "Session id, minted by the leader."
+          },
+          "ItemKey": {
+            "type": "string",
+            "description": "The title everybody is watching, in the group index's own terms."
+          },
+          "Title": {
+            "type": "string",
+            "description": "Display title."
+          },
+          "Leader": {
+            "type": "string",
+            "description": "The node that owns this session's positions."
+          },
+          "LeaderName": {
+            "type": "string",
+            "description": "The leader's human name."
+          },
+          "Participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WatchParticipant"
+            },
+            "description": "Every node taking part."
+          },
+          "State": {
+            "enum": [
+              "Idle",
+              "Paused",
+              "Playing"
+            ],
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WatchState"
+              }
+            ],
+            "description": "What the session is doing."
+          },
+          "PositionMs": {
+            "type": "integer",
+            "description": "Position in the film, milliseconds.",
+            "format": "int64"
+          },
+          "AtMs": {
+            "type": "integer",
+            "description": "The instant StingStream.Core.SyncPlay.WatchSession.PositionMs was true, on the leader's clock.",
+            "format": "int64"
+          },
+          "Seq": {
+            "type": "integer",
+            "description": "The leader's monotonic sequence number.",
+            "format": "int64"
+          },
+          "Closed": {
+            "type": "boolean",
+            "description": "Whether the leader has ended it."
+          },
+          "UpdatedAtMs": {
+            "type": "integer",
+            "description": "When the record last changed, milliseconds since the epoch.",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A watch-together session as the mesh holds it."
+      },
+      "WatchSessionView": {
+        "type": "object",
+        "properties": {
+          "Session": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WatchSession"
+              }
+            ],
+            "description": "The session.",
+            "nullable": true
+          },
+          "PositionMs": {
+            "type": "integer",
+            "description": "Where every member should be right now, milliseconds.",
+            "format": "int64"
+          },
+          "NowMs": {
+            "type": "integer",
+            "description": "The instant the position was computed at, on this node's clock.",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "description": "A session plus the position it is at right now, as the mesh answers it."
+      },
+      "WatchState": {
+        "enum": [
+          "Idle",
+          "Paused",
+          "Playing"
+        ],
+        "type": "string",
+        "description": "What a watch-together session is doing. Mirrors the mesh's own `WatchState`."
+      },
       "WebSocketMessage": {
         "type": "object",
         "oneOf": [
@@ -18435,6 +19185,9 @@
     },
     {
       "name": "Users"
+    },
+    {
+      "name": "Watch"
     },
     {
       "name": "Webhooks"

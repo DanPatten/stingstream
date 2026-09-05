@@ -1236,6 +1236,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every open watch session this node can see. */
+        get: operations["Watch_GetWatchSessions"];
+        put?: never;
+        /** Start a session for an item, with this node leading it. */
+        post: operations["Watch_StartWatchSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/watch/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One session, and where it is right now. */
+        get: operations["Watch_GetWatchSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/watch/{sessionId}/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seat the bridge in a local SyncPlay group, so this node's own users are carried with it.
+         * @description Separate from joining because the two happen at different moments: a member joins the
+         *     session as soon as they accept the invite, and a *local* SyncPlay group exists only once
+         *     somebody on this node actually opens the film. Between the two the bridge still follows the
+         *     leader's positions — it simply has nothing local to drive yet.
+         */
+        post: operations["Watch_AttachWatchSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/watch/{sessionId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join a session another node leads. */
+        post: operations["Watch_JoinWatchSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/watch/{sessionId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Leave a session; if this node leads it, end it for everybody. */
+        post: operations["Watch_LeaveWatchSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/webhooks/arr": {
         parameters: {
             query?: never;
@@ -2691,10 +2783,6 @@ export interface components {
             readonly Pointers?: string[];
             readonly Errors?: string[];
         };
-        /**
-         * @description The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
-         *     library scan.
-         */
         FederatedSettings: {
             /** @description Materialize the group index at all. */
             Enabled?: boolean;
@@ -3023,6 +3111,8 @@ export interface components {
             LocalImages?: {
                 [key: string]: string;
             };
+            /** @description Subtitle sidecar files this node holds for the item, in a stable order. */
+            LocalSubtitles?: components["schemas"]["SubtitleSidecar"][];
             UpdatedAt?: string;
         };
         /**
@@ -3593,6 +3683,8 @@ export interface components {
             /** @description Peer-relative image routes, e.g. `/peer/v1/image/movie:tmdb:1/primary`. */
             ImageUrls?: string[];
             FileHash?: string | null;
+            /** @description Subtitle sidecars the holder can serve, fetched by index (M7). */
+            Subtitles?: components["schemas"]["MeshSubtitleTrack"][];
             UpdatedAt?: string;
         };
         /** @description The answer to `POST /mesh/v1/groups/{group}/invite`. */
@@ -3772,6 +3864,22 @@ export interface components {
              *     Core neither builds nor interprets it. See `docs/SIDEDOOR.md`.
              */
             SideDoor?: unknown;
+        };
+        /** @description A subtitle sidecar as a peer sees it: described, and fetched by index. */
+        MeshSubtitleTrack: {
+            /**
+             * Format: int32
+             * @description Position in the holder's own list, and the segment used to fetch it.
+             */
+            Index?: number;
+            /** @description Three-letter ISO language code. */
+            Language?: string | null;
+            /** @description A forced track. */
+            Forced?: boolean;
+            /** @description SDH. */
+            HearingImpaired?: boolean;
+            /** @description `srt`, `ass` or `vtt`. */
+            Format?: string | null;
         };
         /** @description One audio or subtitle track. */
         MeshTrack: {
@@ -5070,6 +5178,8 @@ export interface components {
             Notifications?: components["schemas"]["NotificationSettings"];
             /** @description How this node materializes the group's titles into its own Jellyfin. */
             Federated?: components["schemas"]["FederatedSettings"];
+            /** @description What subtitles the group wants, and whether to go and get them (M7). */
+            Subtitles?: components["schemas"]["SubtitleSettings"];
             /**
              * @description Quality profile to use when adding titles. Empty means "whatever the app's first profile
              *     is", which is what a fresh Radarr or Sonarr always has at least one of.
@@ -5081,6 +5191,13 @@ export interface components {
              */
             Revision?: number;
             UpdatedAt?: string;
+        };
+        /** @description What the app posts to start a session. */
+        StartWatchRequest: {
+            /** @description The Jellyfin item to watch. Its item key is resolved on the server. */
+            ItemId?: string;
+            /** @description The group to invite. Omit when the node belongs to exactly one. */
+            Group?: string | null;
         };
         /**
          * @description Delivery method to use during playback of a specific subtitle format.
@@ -5107,6 +5224,36 @@ export interface components {
             Language?: string | null;
             /** @description Gets or sets the container. */
             Container?: string | null;
+        };
+        /**
+         * @description The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
+         *     library scan.
+         */
+        SubtitleSettings: {
+            /** @description Go and fetch missing subtitles at all. */
+            Enabled?: boolean;
+            /** @description Three-letter ISO language codes, in preference order. Empty means "this node's UI language". */
+            Languages?: string[];
+            /** @description Fetch a peer's subtitle sidecars when materializing its titles. */
+            FetchFromPeers?: boolean;
+            /**
+             * Format: int32
+             * @description How many items one pass may fetch subtitles for.
+             */
+            MaxFetchesPerPass?: number;
+        };
+        /** @description One subtitle sidecar file this node holds. */
+        SubtitleSidecar: {
+            /** @description Absolute path on this node. Never published. */
+            Path?: string;
+            /** @description Three-letter ISO language code, as the provider gave it. */
+            Language?: string;
+            /** @description A forced track: only the parts a viewer needs, usually foreign dialogue. */
+            Forced?: boolean;
+            /** @description SDH: includes sound descriptions. */
+            HearingImpaired?: boolean;
+            /** @description `srt`, `ass` or `vtt`. */
+            Format?: string;
         };
         /** @description One subtitle track. */
         SubtitleTrackSummary: {
@@ -5990,6 +6137,98 @@ export interface components {
          * @enum {string}
          */
         VideoType: "VideoFile" | "Iso" | "Dvd" | "BluRay";
+        /** @description One node taking part in a session. */
+        WatchParticipant: {
+            /** @description The node's mesh id. */
+            Node?: string;
+            /** @description Its human name. */
+            NodeName?: string;
+            /**
+             * Format: int32
+             * @description How many of that node's own users are in its local SyncPlay group.
+             */
+            Viewers?: number;
+            /**
+             * Format: int64
+             * @description Round-trip time the leader measured to it, milliseconds.
+             */
+            RttMs?: number | null;
+            /**
+             * Format: int64
+             * @description How far this node's local group was from the leader's when it last reported, in
+             *     milliseconds, signed. **This is the number the milestone's "under 1 s" bar is about**.
+             */
+            DriftMs?: number | null;
+            /** @description Its local group is buffering. */
+            Buffering?: boolean;
+            /**
+             * Format: int64
+             * @description When it last reported, milliseconds since the epoch.
+             */
+            LastSeenMs?: number;
+        };
+        /** @description A watch-together session as the mesh holds it. */
+        WatchSession: {
+            /** @description Session id, minted by the leader. */
+            Id?: string;
+            /** @description The title everybody is watching, in the group index's own terms. */
+            ItemKey?: string;
+            /** @description Display title. */
+            Title?: string;
+            /** @description The node that owns this session's positions. */
+            Leader?: string;
+            /** @description The leader's human name. */
+            LeaderName?: string;
+            /** @description Every node taking part. */
+            Participants?: components["schemas"]["WatchParticipant"][];
+            /**
+             * @description What the session is doing.
+             * @enum {unknown}
+             */
+            State?: "Idle" | "Paused" | "Playing";
+            /**
+             * Format: int64
+             * @description Position in the film, milliseconds.
+             */
+            PositionMs?: number;
+            /**
+             * Format: int64
+             * @description The instant StingStream.Core.SyncPlay.WatchSession.PositionMs was true, on the leader's clock.
+             */
+            AtMs?: number;
+            /**
+             * Format: int64
+             * @description The leader's monotonic sequence number.
+             */
+            Seq?: number;
+            /** @description Whether the leader has ended it. */
+            Closed?: boolean;
+            /**
+             * Format: int64
+             * @description When the record last changed, milliseconds since the epoch.
+             */
+            UpdatedAtMs?: number;
+        };
+        /** @description A session plus the position it is at right now, as the mesh answers it. */
+        WatchSessionView: {
+            /** @description The session. */
+            Session?: components["schemas"]["WatchSession"] | null;
+            /**
+             * Format: int64
+             * @description Where every member should be right now, milliseconds.
+             */
+            PositionMs?: number;
+            /**
+             * Format: int64
+             * @description The instant the position was computed at, on this node's clock.
+             */
+            NowMs?: number;
+        };
+        /**
+         * @description What a watch-together session is doing. Mirrors the mesh's own `WatchState`.
+         * @enum {string}
+         */
+        WatchState: "Idle" | "Paused" | "Playing";
         /** @description Represents the possible websocket types */
         WebSocketMessage: components["schemas"]["InboundWebSocketMessage"] | components["schemas"]["OutboundWebSocketMessage"];
         XbmcMetadataOptions: {
@@ -10273,6 +10512,348 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_GetWatchSessions: {
+        parameters: {
+            query?: {
+                /** @description The mesh group; omit when this node belongs to exactly one. */
+                group?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchSession"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_StartWatchSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What to watch, and where. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartWatchRequest"];
+                "text/json": components["schemas"]["StartWatchRequest"];
+                "application/*+json": components["schemas"]["StartWatchRequest"];
+            };
+        };
+        responses: {
+            /** @description The session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchSession"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item has no provider ids, or this node has no group. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_GetWatchSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchSessionView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such session. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_AttachWatchSession: {
+        parameters: {
+            query?: {
+                /** @description The Jellyfin SyncPlay group on this node. */
+                localGroupId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The mesh session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Seated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node is not in that session. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_JoinWatchSession: {
+        parameters: {
+            query?: {
+                /** @description The mesh group; omit when this node belongs to exactly one. */
+                group?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session as the leader holds it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchSession"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The session has gone, or this node cannot reach its leader. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Watch_LeaveWatchSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Left. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {

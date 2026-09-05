@@ -32,8 +32,17 @@ namespace StingStream.Core.Controllers;
 /// still behind Jellyfin's authentication, and a member can only see sessions in groups this node
 /// belongs to.
 /// </para>
+/// <para>
+/// The route is spelled out rather than inherited from the base's <c>[controller]</c> token, which
+/// every other controller here does too. Routing is case-insensitive, so both spellings always
+/// worked — but the *OpenAPI document* is not, and the token had been putting <c>/Watch</c> into it
+/// while the app, the harness and `docs/MESH.md` all said <c>/watch</c>. A generated client pins
+/// the document's spelling, so the one that ends up in `packages/api-client` should be the one
+/// everybody writes.
+/// </para>
 /// </remarks>
 [Authorize]
+[Route("stingstream/api/v1/watch")]
 public class WatchController : StingStreamControllerBase
 {
     private readonly WatchBridge _bridge;
