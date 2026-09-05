@@ -117,6 +117,10 @@ $UnavailableDeadlineSeconds = 60
 
 # --- bookkeeping --------------------------------------------------------------------------
 
+# Computed once, up here, because Get-ProcessTable needs it and $IsWindows does not exist at all
+# under Windows PowerShell 5.1 (which is the only edition installed on Dan's machine).
+$script:IsWindowsHostCached = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
+
 $script:Steps = [System.Collections.Generic.List[object]]::new()
 $script:Processes = [System.Collections.Generic.List[object]]::new()
 $script:Failed = $false
@@ -186,6 +190,16 @@ function Wait-Until {
 }
 
 function Get-Member-Value {
+    <#
+    .SYNOPSIS
+        Read a property from an object that may be $null or may not have it.
+    .DESCRIPTION
+        Set-StrictMode -Version Latest turns "property that does not exist" into a terminating
+        error, and both APIs this harness talks to omit properties whose value is null -- ASP.NET
+        with DefaultIgnoreCondition.WhenWritingNull, serde with skip_serializing_if. So a group
+        with no coordinator has no `coordinator` key at all, and reading it directly is fatal
+        rather than $null. Every optional field goes through here.
+    #>
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
     if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
@@ -231,14 +245,75 @@ function Wait-ForLine {
     throw "$($Tool.Name) did not print '$Pattern' within ${Seconds}s."
 }
 
+# Executables this harness is allowed to kill. Anything else that happens to mention the work
+# directory on its command line is left alone -- including this very script, whose own -WorkDir
+# argument matches every sweep and which killed itself the first time round.
+$script:OwnedExecutables = @(
+    'stingstream.exe', 'stingstream',
+    'stingstream-mesh.exe', 'stingstream-mesh',
+    'jellyfin.exe', 'jellyfin',
+    'Radarr.Console.exe', 'Radarr.Console',
+    'Sonarr.Console.exe', 'Sonarr.Console',
+    'nzbget.exe', 'nzbget',
+    'dotnet.exe', 'dotnet'
+)
+
+function Get-ProcessTable {
+    <#
+    .SYNOPSIS
+        Every process as {ProcessId, Name, CommandLine}, on Windows and on Linux.
+    .DESCRIPTION
+        Win32_Process is the only way to read another process's command line on Windows and does
+        not exist anywhere else, so the Linux path shells out to ps. Both are needed: this harness
+        runs on Dan's Windows machine and in CI on ubuntu.
+    #>
+    if ($script:IsWindowsHostCached) {
+        return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                [pscustomobject]@{ ProcessId = $_.ProcessId; Name = $_.Name; CommandLine = $_.CommandLine }
+            }
+    }
+
+    # -ww so a long command line is not truncated at the terminal width, which is exactly where the
+    # data directory lives.
+    $lines = & ps -ww -eo 'pid=,comm=,args=' 2>$null
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed) { continue }
+        $parts = $trimmed -split '\s+', 3
+        if ($parts.Count -lt 3) { continue }
+        [pscustomobject]@{ ProcessId = [int]$parts[0]; Name = $parts[1]; CommandLine = $parts[2] }
+    }
+}
+
+function Stop-Owned {
+    <#
+    .SYNOPSIS
+        Kill every node process whose command line names a path, and nothing else.
+    .DESCRIPTION
+        Killing a supervisor hard orphans its children -- there is no portable equivalent of
+        SIGTERM for another process on Windows, and a graceful stop is M8's work -- so they have to
+        be cleaned up by hand. By *path*, never by name alone: another agent's development node is
+        very likely running on this machine and must survive. And by executable name as well as
+        path, because this script's own command line contains the work directory too, and the first
+        version of this function killed the harness.
+    #>
+    param([Parameter(Mandatory)][string]$PathFragment)
+    Get-ProcessTable |
+        Where-Object {
+            $_.ProcessId -ne $PID -and
+            $_.CommandLine -and $_.CommandLine.Contains($PathFragment) -and
+            ($script:OwnedExecutables -contains $_.Name)
+        } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
+        }
+}
+
 function Stop-Tool {
     <#
     .SYNOPSIS
         Stop one node and the children it spawned, and wait for the ports to come free.
-    .DESCRIPTION
-        Killing a supervisor hard on Windows orphans its children (M8 adds a graceful stop; see
-        docs/ARCHITECTURE.md), so they are cleaned up by data directory -- never by name alone,
-        because another agent's development node may well be running on this machine.
     #>
     param([Parameter(Mandatory)][object]$Tool, [string]$DataDir)
     try {
@@ -248,11 +323,7 @@ function Stop-Tool {
     } catch { }
     if ($DataDir) {
         Start-Sleep -Seconds 1
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine.Contains($DataDir) } |
-            ForEach-Object {
-                try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
-            }
+        Stop-Owned -PathFragment $DataDir
     }
     Start-Sleep -Seconds 2
 }
@@ -266,15 +337,11 @@ function Stop-Tools {
             }
         } catch { }
     }
-    # Only processes whose command line names this run's work directory: another agent's
-    # development node must survive this harness.
+    # Only node processes whose command line names this run's work directory: another agent's
+    # development node must survive this harness, and so must this script.
     if ($script:WorkDirFull) {
         Start-Sleep -Seconds 1
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine.Contains($script:WorkDirFull) } |
-            ForEach-Object {
-                try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
-            }
+        Stop-Owned -PathFragment $script:WorkDirFull
     }
 }
 
@@ -302,6 +369,47 @@ function Invoke-Json {
     $response = Invoke-WebRequest @args
     if ($response.Content) { return $response.Content | ConvertFrom-Json }
     return $null
+}
+
+function Invoke-Bytes {
+    <#
+    .SYNOPSIS
+        GET a URL and return the raw bytes, with optional extra headers.
+    .DESCRIPTION
+        Not Invoke-WebRequest. Windows PowerShell 5.1 refuses to put `Range` in a plain header
+        hashtable ("the 'Range' header must be modified using the appropriate property or method"),
+        and its handling of a binary body differs from pwsh's. HttpClient behaves the same on both
+        editions and is the only thing here that has to be exactly right, because these steps
+        assert byte-for-byte equality with a file on the other node.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [hashtable]$Headers = @{},
+        [string]$Range,
+        [int]$TimeoutSec = 300
+    )
+    Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    try {
+        $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
+        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $Uri)
+        foreach ($k in $Headers.Keys) { $request.Headers.TryAddWithoutValidation($k, [string]$Headers[$k]) | Out-Null }
+        if ($Range) { $request.Headers.TryAddWithoutValidation('Range', $Range) | Out-Null }
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        $contentRange = ''
+        if ($response.Content.Headers.ContentRange) { $contentRange = $response.Content.Headers.ContentRange.ToString() }
+        return [pscustomobject]@{
+            StatusCode   = [int]$response.StatusCode
+            Bytes        = $bytes
+            ContentRange = $contentRange
+            ContentType  = if ($response.Content.Headers.ContentType) { $response.Content.Headers.ContentType.ToString() } else { '' }
+        }
+    } finally {
+        $client.Dispose()
+        $handler.Dispose()
+    }
 }
 
 # One node, everything the harness needs to drive it.
@@ -361,8 +469,7 @@ if (-not $WorkDir) {
     $WorkDir = Join-Path (Split-Path -Parent $RepoRoot) '.stingstream-e2e-m3'
 }
 
-$IsWindowsHost = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
-$ExeSuffix = if ($IsWindowsHost) { '.exe' } else { '' }
+$ExeSuffix = if ($script:IsWindowsHostCached) { '.exe' } else { '' }
 
 Write-Host ''
 Write-Host 'StingStream M3 acceptance harness' -ForegroundColor White
@@ -371,12 +478,21 @@ Write-Host "  work      $WorkDir"
 Write-Host "  node A    http://127.0.0.1:$GatewayPortA   (watches)"
 Write-Host "  node B    http://127.0.0.1:$GatewayPortB   (holds the files)"
 
+$script:WorkDirFull = [System.IO.Path]::GetFullPath($WorkDir)
+
 if ((Test-Path $WorkDir) -and -not $KeepData) {
     Write-Host '  wiping the work directory'
-    $script:WorkDirFull = (Resolve-Path $WorkDir).Path
     Stop-Tools
     Start-Sleep -Seconds 2
     Remove-Item -Recurse -Force $WorkDir -ErrorAction SilentlyContinue
+    if (Test-Path $WorkDir) {
+        # Something still holds a handle. Say which, rather than failing three steps later with a
+        # database that is half of the previous run's.
+        $holders = Get-ProcessTable |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains($script:WorkDirFull) -and $_.ProcessId -ne $PID }
+        $names = @($holders | ForEach-Object { "$($_.Name) ($($_.ProcessId))" })
+        throw "could not wipe $WorkDir. Still running: $(if ($names) { $names -join ', ' } else { 'nothing this harness recognises' })."
+    }
 }
 
 $DataA = Join-Path $WorkDir 'node-a'
@@ -385,7 +501,6 @@ $SeedDir = Join-Path $WorkDir 'seed'
 $LogDir = Join-Path $WorkDir 'logs'
 New-Item -ItemType Directory -Force -Path $DataA, $DataB, $SeedDir, $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $SeedDir 'movie'), (Join-Path $SeedDir 'tv') | Out-Null
-$script:WorkDirFull = (Resolve-Path $WorkDir).Path
 
 $NodeA = New-Node -Name 'A' -DataDir $DataA -Port $GatewayPortA
 $NodeB = New-Node -Name 'B' -DataDir $DataB -Port $GatewayPortB
@@ -501,9 +616,12 @@ function Start-Node {
     $Node.Token = $auth.AccessToken
     $Node.UserId = $auth.User.Id
 
+    # The StingStream API is camelCase (see StingStreamControllerBase); the mesh's own loopback
+    # API is snake_case because it is Rust. Both appear in this harness, and mixing them up is the
+    # obvious way to write an assertion that quietly never fires.
     $status = Invoke-Node $Node '/stingstream/api/v1/mesh/status'
     $Node.MeshId = $status.node
-    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.node_name)'"
+    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.nodeName)'"
 }
 
 trap {
@@ -681,7 +799,9 @@ Invoke-Step 'Start node A (the watcher)' {
 $Group = Invoke-Step 'A creates a group with no coordinator, B joins by invite' {
     $group = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{ name = 'E2E Attic' }
     if (-not $group.group) { throw 'A did not create a group.' }
-    if ($group.coordinator) { throw "the group must have no coordinator; it has $($group.coordinator)" }
+    # Absent, not null: a group with no coordinator has no such key at all.
+    $coordinator = Get-Member-Value $group 'coordinator'
+    if ($coordinator) { throw "the group must have no coordinator; it has $coordinator" }
     Write-Host "      group $($group.group) '$($group.name)', coordinator: none"
 
     $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
@@ -689,7 +809,7 @@ $Group = Invoke-Step 'A creates a group with no coordinator, B joins by invite' 
     Write-Host "      invite $($invite.code.Substring(0, [Math]::Min(40, $invite.code.Length)))..."
 
     $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST -Body @{ code = $invite.code } -TimeoutSec 240
-    Write-Host "      B joined via '$($joined.via)', contacted: $($joined.contacted -join ', ')"
+    Write-Host "      B joined via '$($joined.via)', contacted: $(@(Get-Member-Value $joined 'contacted') -join ', ')"
     if ($joined.group -ne $group.group) { throw "B joined the wrong group: $($joined.group)" }
     if ($joined.via -eq 'none') { throw 'B joined but reached nobody, so nothing would ever sync.' }
     return $group
@@ -697,7 +817,13 @@ $Group = Invoke-Step 'A creates a group with no coordinator, B joins by invite' 
 
 # ============================================================================================
 Invoke-Step "B's inventory appears in A's group index" {
-    $entries = Wait-Until -What "A's index to carry both of B's titles" -Seconds 180 -PollSeconds 3 -Condition {
+    # Five minutes, not one. Gossip converges in about a second -- both nodes log the snapshot
+    # arriving -- but the node is answering this through Jellyfin, and a Jellyfin that has just
+    # created two libraries and started materialising into them is busy enough that a request can
+    # take tens of seconds. Measured at 4.5 minutes on Dan's machine for the *first* pass; every
+    # pass after it is instant. The thing being tested is convergence, not latency under a cold
+    # library scan, so the budget is generous on purpose.
+    $entries = Wait-Until -What "A's index to carry both of B's titles" -Seconds 300 -PollSeconds 5 -Condition {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30 } catch { $null }
         if (-not $index) { return $null }
         $fromB = @($index.entries | Where-Object { $_.node -eq $NodeB.MeshId })
@@ -708,14 +834,15 @@ Invoke-Step "B's inventory appears in A's group index" {
         if ($index) { "index has $(@($index.entries).Count) entr(ies)" } else { 'no answer' }
     }
     foreach ($e in $entries) {
-        Write-Host "      $($e.item_key) from $($e.node_name) -- $($e.metadata.title) ($($e.media.resolution)), online=$($e.online)"
-        if (-not $e.metadata.title) { throw "$($e.item_key) arrived with no title." }
+        Write-Host "      $($e.itemKey) from $($e.nodeName) -- $($e.metadata.title) ($(Get-Member-Value $e.media 'resolution')), online=$($e.online)"
+        if (-not $e.metadata.title) { throw "$($e.itemKey) arrived with no title." }
     }
     # local_path must never travel. This is the assertion that keeps that true end to end, not
     # only in the mesh crate's own unit test.
     $raw = (Invoke-WebRequest -Uri "$($NodeA.Url)/stingstream/api/v1/mesh/groups/$($Group.group)/index" `
         -Headers (Get-AuthHeaders $NodeA) -UseBasicParsing -TimeoutSec 30).Content
     if ($raw -match 'local_path' -or $raw -match 'localPath') { throw "A's index contains a local_path; it must never be gossiped." }
+    if ($raw -match 'local_images' -or $raw -match 'localImages') { throw "A's index contains local_images; those are serving-side only." }
     if ($raw -match [regex]::Escape($DataB)) { throw "A's index leaks B's data directory." }
 }
 
@@ -723,7 +850,7 @@ Invoke-Step "B's inventory appears in A's group index" {
 $Federated = Invoke-Step 'A materializes Shared Movies and Shared TV' {
     $report = Invoke-Node $NodeA '/stingstream/api/v1/mesh/federated/refresh' -Method POST -TimeoutSec 300
     Write-Host "      pass: $($report.written) written, $($report.removed) removed"
-    foreach ($e in @($report.errors)) { Write-Host "      error: $e" -ForegroundColor Yellow }
+    foreach ($e in @(Get-Member-Value $report 'errors')) { Write-Host "      error: $e" -ForegroundColor Yellow }
 
     $libraries = Invoke-Jellyfin $NodeA '/Library/VirtualFolders'
     $names = @($libraries | ForEach-Object { $_.Name })
@@ -790,12 +917,11 @@ Invoke-Step 'The federated movie has a poster, an overview and a resolution badg
     if ($video.Width -lt 1000) { throw "the resolution badge would be wrong: width $($video.Width)." }
 
     # The image really has to be fetchable, not merely tagged.
-    $image = Invoke-WebRequest -Uri "$($NodeA.Url)/jellyfin/Items/$($Federated.Movie.Id)/Images/Primary" `
-        -Headers (Get-AuthHeaders $NodeA) -UseBasicParsing -TimeoutSec 60
+    $image = Invoke-Bytes -Uri "$($NodeA.Url)/jellyfin/Items/$($Federated.Movie.Id)/Images/Primary" `
+        -Headers (Get-AuthHeaders $NodeA) -TimeoutSec 120
     if ($image.StatusCode -ne 200) { throw "the poster returned HTTP $($image.StatusCode)." }
-    $bytes = if ($image.RawContentLength -gt 0) { $image.RawContentLength } else { $image.Content.Length }
-    if ($bytes -lt 512) { throw "the poster is only $bytes byte(s)." }
-    Write-Host ("      poster: HTTP 200, {0:N0} bytes" -f $bytes)
+    if ($image.Bytes.Length -lt 512) { throw "the poster is only $($image.Bytes.Length) byte(s)." }
+    Write-Host ("      poster: HTTP 200, {0:N0} bytes, {1}" -f $image.Bytes.Length, $image.ContentType)
 
     if (@($movie.Tags) -notcontains 'stingstream:federated') {
         throw "the federated movie is not tagged stingstream:federated; tags: $(@($movie.Tags) -join ', ')"
@@ -810,15 +936,29 @@ Invoke-Step "PlaybackInfo on A returns a stingstream.local MediaSource" {
     $sources = @($info.MediaSources)
     if ($sources.Count -lt 1) { throw 'PlaybackInfo returned no MediaSources.' }
     foreach ($s in $sources) {
-        Write-Host "      source '$($s.Name)' protocol=$($s.Protocol) remote=$($s.IsRemote) directPlay=$($s.SupportsDirectPlay)"
-        Write-Host "        path: $($s.Path)"
+        $line = '      source ''{0}'' protocol={1} remote={2} directPlay={3}' -f `
+            (Get-Member-Value $s 'Name'), (Get-Member-Value $s 'Protocol'), `
+            (Get-Member-Value $s 'IsRemote'), (Get-Member-Value $s 'SupportsDirectPlay')
+        Write-Host $line
+        Write-Host "        path: $(Get-Member-Value $s 'Path')"
     }
-    $mesh = @($sources | Where-Object { $_.Path -like 'https://stingstream.local/stream/*' })
-    if ($mesh.Count -lt 1) { throw "no MediaSource carries a stingstream.local URL. Paths: $((@($sources) | ForEach-Object { $_.Path }) -join ' | ')" }
+    $mesh = @($sources | Where-Object { (Get-Member-Value $_ 'Path') -like 'https://stingstream.local/stream/*' })
+    if ($mesh.Count -lt 1) {
+        $paths = @($sources | ForEach-Object { Get-Member-Value $_ 'Path' })
+        throw "no MediaSource carries a stingstream.local URL. Paths: $($paths -join ' | ')"
+    }
     $first = $mesh[0]
-    if ($first.Protocol -ne 'Http') { throw "the federated source's protocol is $($first.Protocol), expected Http." }
-    if ($first.Path -notlike "*/$($NodeB.MeshId)") { throw "the source URL does not name node B: $($first.Path)" }
-    if (-not $first.Name) { throw 'the federated source has no Name, so the app cannot label it.' }
+    $protocol = Get-Member-Value $first 'Protocol'
+    if ($protocol -ne 'Http') { throw "the federated source's protocol is $protocol, expected Http." }
+    if ((Get-Member-Value $first 'Path') -notlike "*/$($NodeB.MeshId)") {
+        throw "the source URL does not name node B: $(Get-Member-Value $first 'Path')"
+    }
+    if (-not (Get-Member-Value $first 'Name')) { throw 'the federated source has no Name, so the app cannot label it.' }
+    # SupportsDirectPlay is decided by Jellyfin's StreamBuilder against the device profile, from the
+    # streams the materializer stamped. If it says no, the play button transcodes a remote file.
+    if ((Get-Member-Value $first 'SupportsDirectPlay') -ne $true) {
+        throw 'the federated source is not direct-playable; the stamped media streams did not convince StreamBuilder.'
+    }
 }
 
 # ============================================================================================
@@ -826,16 +966,21 @@ Invoke-Step "Jellyfin on A streams the federated movie through A's mesh" {
     # The client-facing path: Jellyfin resolves stingstream.local to A's own gateway, which proxies
     # the range request over iroh to B. Nothing about this request knows a mesh exists.
     $url = "$($NodeA.Url)/jellyfin/Videos/$($Federated.Movie.Id)/stream?static=true"
-    $response = Invoke-WebRequest -Uri $url -Headers (Get-AuthHeaders $NodeA) -UseBasicParsing -TimeoutSec 300
+    $response = Invoke-Bytes -Uri $url -Headers (Get-AuthHeaders $NodeA) -TimeoutSec 600
     if ($response.StatusCode -ne 200) { throw "Stream returned HTTP $($response.StatusCode)." }
-    $bytes = if ($response.RawContentLength -gt 0) { $response.RawContentLength } else { $response.Content.Length }
-    Write-Host ("      HTTP 200, {0:N0} bytes" -f $bytes)
+    Write-Host ("      HTTP 200, {0:N0} bytes" -f $response.Bytes.Length)
 
-    $source = (Get-Item (Join-Path $SeedDir "movie/$MovieFileName")).Length
-    if ($bytes -ne $source) {
-        throw "Jellyfin returned $bytes byte(s); B's file is $source byte(s)."
+    $file = Join-Path $SeedDir "movie/$MovieFileName"
+    $expected = [System.IO.File]::ReadAllBytes($file)
+    if ($response.Bytes.Length -ne $expected.Length) {
+        throw "Jellyfin returned $($response.Bytes.Length) byte(s); B's file is $($expected.Length) byte(s)."
     }
-    Write-Host "      byte count matches B's file exactly"
+    # Not just the length: this is the assertion that the bytes came from B's disk and arrived
+    # intact, which is the whole claim the federated library makes.
+    for ($i = 0; $i -lt $expected.Length; $i++) {
+        if ($response.Bytes[$i] -ne $expected[$i]) { throw "byte $i differs from B's file." }
+    }
+    Write-Host "      every byte matches B's file"
 }
 
 # ============================================================================================
@@ -847,26 +992,26 @@ Invoke-Step "A's /stream endpoint serves a byte-exact range over the mesh" {
     $end = $start + $length - 1
 
     $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($script:MovieKey))/$($NodeB.MeshId)"
-    $response = Invoke-WebRequest -Uri $url -Headers @{ Range = "bytes=$start-$end" } -UseBasicParsing -TimeoutSec 300
+    $response = Invoke-Bytes -Uri $url -Range "bytes=$start-$end" -TimeoutSec 300
     if ($response.StatusCode -ne 206) { throw "expected 206 Partial Content, got $($response.StatusCode)." }
 
-    $got = if ($response.Content -is [byte[]]) { $response.Content } else { [Text.Encoding]::UTF8.GetBytes([string]$response.Content) }
+    $got = $response.Bytes
     if ($got.Length -ne $length) { throw "expected $length byte(s), got $($got.Length)." }
     for ($i = 0; $i -lt $length; $i++) {
         if ($got[$i] -ne $expected[$start + $i]) { throw "byte $i of the range differs from B's file." }
     }
     Write-Host ("      206 Partial Content, {0:N0} byte(s), every byte matches" -f $length)
-    Write-Host "      Content-Range: $($response.Headers['Content-Range'])"
+    Write-Host "      Content-Range: $($response.ContentRange)"
 
     # ...and the mesh must say how it got there.
     $peers = Wait-Until -What 'the mesh to report the path it used' -Seconds 60 -PollSeconds 2 -Condition {
         $rows = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers?group=$($Group.group)" -TimeoutSec 20 } catch { $null }
         $b = @($rows | Where-Object { $_.node -eq $NodeB.MeshId })
-        if ($b.Count -ge 1 -and $b[0].path) { return $b }
+        if ($b.Count -ge 1 -and (Get-Member-Value $b[0] 'path')) { return $b }
         return $null
     }
-    $path = $peers[0].path
-    Write-Host "      mesh path to B: $path (rtt $($peers[0].rtt_ms) ms)"
+    $path = Get-Member-Value $peers[0] 'path'
+    Write-Host "      mesh path to B: $path (rtt $(Get-Member-Value $peers[0] 'rttMs') ms)"
     if ($path -ne 'direct' -and $path -ne 'mixed') {
         throw "two nodes on one machine must reach each other directly; the mesh reports '$path'."
     }
@@ -991,7 +1136,8 @@ Invoke-Step 'B goes offline: A tags its versions unavailable within a minute' {
         return (@(Get-Member-Value $item 'Tags') -contains 'stingstream:unavailable')
     } -Describe {
         $peers = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers?group=$($Group.group)" -TimeoutSec 20 } catch { $null }
-        if ($peers) { "B online=$((@($peers | Where-Object { $_.node -eq $NodeB.MeshId })[0]).online)" } else { 'no answer' }
+        $b = if ($peers) { @($peers | Where-Object { $_.node -eq $NodeB.MeshId }) } else { @() }
+        if ($b.Count -gt 0) { "B online=$($b[0].online)" } else { 'no answer' }
     } | Out-Null
 
     $took = ((Get-Date) - $stoppedAt).TotalSeconds
@@ -1017,7 +1163,8 @@ Invoke-Step 'B comes back: the unavailable tag clears' {
         return -not (@(Get-Member-Value $item 'Tags') -contains 'stingstream:unavailable')
     } -Describe {
         $peers = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers?group=$($Group.group)" -TimeoutSec 20 } catch { $null }
-        if ($peers) { "B online=$((@($peers | Where-Object { $_.node -eq $NodeB.MeshId })[0]).online)" } else { 'no answer' }
+        $b = if ($peers) { @($peers | Where-Object { $_.node -eq $NodeB.MeshId }) } else { @() }
+        if ($b.Count -gt 0) { "B online=$($b[0].online)" } else { 'no answer' }
     } | Out-Null
     Write-Host '      tag cleared'
 }
@@ -1034,14 +1181,16 @@ if ($SkipCoordinator) {
         $group = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{
             name = 'E2E Coordinated'; coordinator = $FallbackCoordinator
         }
-        if ($group.coordinator -ne $FallbackCoordinator) { throw "the group did not keep its coordinator: $($group.coordinator)" }
+        $kept = Get-Member-Value $group 'coordinator'
+        if ($kept -ne $FallbackCoordinator) { throw "the group did not keep its coordinator: $kept" }
 
         $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
         $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
         Write-Host "      B joined via '$($joined.via)'"
         if ($joined.via -eq 'none') { throw 'B reached nobody in the coordinated group.' }
-        if ($joined.coordinator -ne $FallbackCoordinator) {
-            throw "the invite did not carry the coordinator to B: $($joined.coordinator)"
+        $carried = Get-Member-Value $joined 'coordinator'
+        if ($carried -ne $FallbackCoordinator) {
+            throw "the invite did not carry the coordinator to B: $carried"
         }
         Write-Host '      the coordinator travelled in the invite, as a property of the group'
     }
@@ -1087,7 +1236,7 @@ if ($SkipCoordinator) {
         Stop-Tool -Tool $nodes['x'] -DataDir (Join-Path $WorkDir 'mesh-x')
 
         $zJoin = Invoke-Json -Uri "http://127.0.0.1:$($ports['z'])/mesh/v1/groups/join" -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
-        Write-Host "      Z joined via '$($zJoin.via)', contacted: $($zJoin.contacted -join ', ')"
+        Write-Host "      Z joined via '$($zJoin.via)', contacted: $(@(Get-Member-Value $zJoin 'contacted') -join ', ')"
         if ($zJoin.via -ne 'rendezvous') {
             throw "Z was expected to reach the group through the coordinator's rendezvous; it reports '$($zJoin.via)'."
         }

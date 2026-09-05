@@ -34,6 +34,17 @@ jobs:
       - name: Build server/jellyfin (Jellyfin.Server)
         run: dotnet build server/jellyfin/Jellyfin.sln --configuration Release
 
+      # Only StingStream's own tests. Jellyfin's suite is upstream's and takes far longer than the
+      # value it adds to a fork that does not touch most of what it covers; the four places
+      # StingStream *does* patch are covered by the acceptance harnesses instead. These are the pure
+      # functions where a mistake is silent: the path sanitiser (a security boundary -- peer titles
+      # become folder names), the pointer-file naming Jellyfin's resolvers depend on, and the .nfo
+      # dialect its parser reads.
+      - name: Test StingStream.Core
+        run: >
+          dotnet test server/jellyfin/tests/StingStream.Core.Tests/StingStream.Core.Tests.csproj
+          --configuration Release --no-build --logger "console;verbosity=normal"
+
       - name: Build server/radarr
         run: dotnet build server/radarr/src/Radarr.sln --configuration Release
 
@@ -239,4 +250,113 @@ jobs:
             .e2e-work/data/runtime.json
             .e2e-work/data/radarr/logs/
             .e2e-work/data/sonarr/logs/
+          if-no-files-found: warn
+
+  # The M3 acceptance harness: two complete nodes on one runner, a group with nothing hosted behind
+  # it, and a peer's film playing out of the other node's own Jellyfin. Everything M1 does, plus the
+  # invite, the gossiped index, the materialized Shared libraries, three playback paths and the
+  # offline/online tagging. See tools/e2e-m3.ps1 and docs/RUNNING.md.
+  #
+  # -SkipCoordinator drops the two steps that talk to Dan's Railway coordinator. They work -- and
+  # they are run by hand before a milestone is called done -- but they need the public internet and
+  # they cost metered egress on his personal bill, which is not something every push should spend.
+  # The zero-server steps are the ones that have to pass everywhere, and they need nothing but
+  # loopback. The coordinator's own rendezvous-with-the-inviter-offline case is covered headlessly
+  # by mesh/crates/stingstream-relay/tests/rendezvous_join.rs against a coordinator the test starts
+  # itself, which runs in coordinator.yml.
+  e2e-m3:
+    name: e2e (M3 acceptance)
+    runs-on: ubuntu-latest
+    # Two nodes means two Jellyfins, two pairs of arrs and the whole download path once.
+    timeout-minutes: 90
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDKs (8.0, 10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Fetch NZBGet
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # The mesh binary as well as the supervisor: the supervisor embeds the mesh library, but the
+      # harness's rendezvous scenario drives three standalone mesh nodes.
+      - name: Build the supervisor and the mesh
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream -p stingstream-mesh
+
+      - name: Build Jellyfin (with StingStream.Core)
+        run: dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Debug
+
+      - name: Build Radarr
+        run: dotnet build server/radarr/src/Radarr.sln -c Debug
+
+      - name: Build Sonarr
+        run: dotnet build server/sonarr/src/Sonarr.sln -c Debug
+
+      - name: Build the harness support tools
+        run: |
+          dotnet build tools/seeder/Seeder.csproj -c Release
+          dotnet build tools/torznab-stub/TorznabStub.csproj -c Release
+
+      - name: Run the M3 acceptance harness
+        run: >
+          pwsh tools/e2e-m3.ps1 -SkipBuild -SkipCoordinator
+          -WorkDir "${{ github.workspace }}/.e2e-m3-work"
+
+      # Both nodes' logs. Which node failed is usually obvious from the step name, but which node
+      # *caused* it is not: a materialization that produced nothing is as likely to be B publishing
+      # nothing as A reading nothing.
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m3-logs
+          path: |
+            .e2e-m3-work/logs/
+            .e2e-m3-work/node-a/logs/
+            .e2e-m3-work/node-b/logs/
+            .e2e-m3-work/node-a/runtime.json
+            .e2e-m3-work/node-b/runtime.json
+            .e2e-m3-work/node-a/radarr/logs/
+            .e2e-m3-work/node-b/radarr/logs/
+            .e2e-m3-work/node-a/sonarr/logs/
+            .e2e-m3-work/node-b/sonarr/logs/
+          if-no-files-found: warn
+
+      - name: Collect node A's federated tree
+        if: always()
+        run: |
+          mkdir -p .e2e-m3-artifacts
+          if [ -d .e2e-m3-work/node-a/federated ]; then
+            find .e2e-m3-work/node-a/federated -type f -exec ls -l {} + > .e2e-m3-artifacts/federated-listing.txt
+            for f in $(find .e2e-m3-work/node-a/federated -name '*.strm' -o -name '*.nfo'); do
+              echo "===== $f" >> .e2e-m3-artifacts/federated-pointers.txt
+              cat "$f" >> .e2e-m3-artifacts/federated-pointers.txt
+            done
+          fi
+
+
+      - name: Upload the federated listing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m3-federated
+          path: .e2e-m3-artifacts/
           if-no-files-found: warn

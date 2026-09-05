@@ -66,6 +66,18 @@ public sealed class FederatedLibraryService : BackgroundService
     private readonly SettingsStore _settings;
     private readonly ILogger<FederatedLibraryService> _logger;
 
+    /// <summary>
+    /// One pass at a time.
+    /// </summary>
+    /// <remarks>
+    /// Two callers can start a pass: the timer in <see cref="ExecuteAsync"/> and
+    /// <c>POST /stingstream/api/v1/mesh/federated/refresh</c>. A pass writes and deletes files and
+    /// then asks Jellyfin to re-read the folders it touched, so two of them interleaving would have
+    /// one deleting what the other had just written. Observed on M3b's first two-node run as the
+    /// same library being created twice within a second.
+    /// </remarks>
+    private readonly SemaphoreSlim _pass = new(1, 1);
+
     private bool _librariesEnsured;
 
     public FederatedLibraryService(
@@ -173,6 +185,19 @@ public sealed class FederatedLibraryService : BackgroundService
     /// <returns>A short report.</returns>
     public async Task<FederatedReport> RunPassAsync(CancellationToken cancellationToken)
     {
+        await _pass.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RunPassCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _pass.Release();
+        }
+    }
+
+    private async Task<FederatedReport> RunPassCoreAsync(CancellationToken cancellationToken)
+    {
         var report = new FederatedReport();
         var root = FederatedRoot();
         if (root is null)
@@ -204,7 +229,7 @@ public sealed class FederatedLibraryService : BackgroundService
         var localKeys = new HashSet<string>(_inventory.Keys, StringComparer.Ordinal);
         var settings = Settings();
 
-        var desired = new Dictionary<(string, string, string), MeshIndexEntry>();
+        var desired = new Dictionary<(string Group, string ItemKey, string Node), MeshIndexEntry>();
         var online = new Dictionary<(string Group, string Node), bool>();
         var groupIds = new HashSet<string>(StringComparer.Ordinal);
 
@@ -319,12 +344,27 @@ public sealed class FederatedLibraryService : BackgroundService
         }
 
         // --- writes.
-        var folderOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        //
+        // Which title already owns which folder, so two different titles that sanitise to the same
+        // name do not end up merged into one Jellyfin item. Keyed on the *title* folder -- the movie
+        // folder, or the series folder -- not the season folder a pointer records, because that is
+        // the level at which a name collision happens.
+        var titleOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var pointer in known)
         {
-            if (desired.ContainsKey(pointer.Key))
+            if (!desired.TryGetValue(pointer.Key, out var entry))
             {
-                folderOwners[pointer.Folder] = pointer.ItemKey;
+                continue;
+            }
+
+            var titleFolder = string.Equals(pointer.Kind, "episode", StringComparison.Ordinal)
+                ? Path.GetDirectoryName(pointer.Folder)
+                : pointer.Folder;
+            if (!string.IsNullOrEmpty(titleFolder))
+            {
+                titleOwners[titleFolder] = string.Equals(pointer.Kind, "episode", StringComparison.Ordinal)
+                    ? SeriesIdentity(entry)
+                    : pointer.ItemKey;
             }
         }
 
@@ -351,13 +391,14 @@ public sealed class FederatedLibraryService : BackgroundService
                         group,
                         entry,
                         existing,
-                        folderOwners,
+                        titleOwners,
                         settings,
                         cancellationToken)
                     .ConfigureAwait(false);
                 if (pointer is not null)
                 {
                     touched.Add(pointer.Folder);
+                    report.Pointers.Add(pointer.StrmPath);
                     report.Written++;
                 }
             }
@@ -375,7 +416,7 @@ public sealed class FederatedLibraryService : BackgroundService
 
         report.Folders.AddRange(touched);
         await RefreshAsync(report, cancellationToken).ConfigureAwait(false);
-        await EnrichAsync(online, cancellationToken).ConfigureAwait(false);
+        await EnrichAsync(desired, online, cancellationToken).ConfigureAwait(false);
         Record(report);
         return report;
     }
@@ -404,7 +445,7 @@ public sealed class FederatedLibraryService : BackgroundService
         string group,
         MeshIndexEntry entry,
         FederatedPointer? existing,
-        Dictionary<string, string> folderOwners,
+        Dictionary<string, string> titleOwners,
         FederatedSettings settings,
         CancellationToken cancellationToken)
     {
@@ -426,7 +467,7 @@ public sealed class FederatedLibraryService : BackgroundService
             var seriesName = Unique(
                 FederatedLayout.SeriesFolderName(entry),
                 SeriesIdentity(entry),
-                folderOwners,
+                titleOwners,
                 libraryRoot);
             titleFolder = Path.Combine(libraryRoot, seriesName);
             folder = Path.Combine(titleFolder, SafePath.SeasonFolder(entry.Metadata.Season!.Value));
@@ -441,7 +482,7 @@ public sealed class FederatedLibraryService : BackgroundService
             var folderName = Unique(
                 FederatedLayout.MovieFolderName(entry),
                 entry.ItemKey,
-                folderOwners,
+                titleOwners,
                 libraryRoot);
             titleFolder = Path.Combine(libraryRoot, folderName);
             folder = titleFolder;
@@ -514,7 +555,7 @@ public sealed class FederatedLibraryService : BackgroundService
             OfflineSince = existing?.OfflineSince,
         };
         await _store.SaveAsync(pointer, cancellationToken).ConfigureAwait(false);
-        folderOwners[folder] = isEpisode ? SeriesIdentity(entry) : entry.ItemKey;
+        titleOwners[titleFolder] = isEpisode ? SeriesIdentity(entry) : entry.ItemKey;
 
         _logger.LogDebug(
             "Materialized {ItemKey} from {Node} at {Path}",
@@ -557,11 +598,11 @@ public sealed class FederatedLibraryService : BackgroundService
     private static string Unique(
         string preferred,
         string identity,
-        Dictionary<string, string> folderOwners,
+        Dictionary<string, string> titleOwners,
         string libraryRoot)
     {
         var candidate = Path.Combine(libraryRoot, preferred);
-        if (!folderOwners.TryGetValue(candidate, out var owner)
+        if (!titleOwners.TryGetValue(candidate, out var owner)
             || string.Equals(owner, identity, StringComparison.Ordinal))
         {
             return preferred;
@@ -808,34 +849,37 @@ public sealed class FederatedLibraryService : BackgroundService
 
     private async Task RefreshAsync(FederatedReport report, CancellationToken cancellationToken)
     {
-        // Deepest first. Refreshing a season folder before its series exists costs an extra
-        // resolve round; the other order costs nothing.
-        var folders = report.Folders
+        // Shallowest first. A season folder cannot resolve before its series does, and resolving a
+        // series makes the season one directory listing away instead of three.
+        var targets = report.Folders
+            .Concat(report.Pointers)
             .Where(f => !string.IsNullOrEmpty(f))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(f => f.Length)
+            .OrderBy(f => f.Length)
             .ToList();
 
-        foreach (var folder in folders)
+        foreach (var target in targets)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                // A folder that has just been deleted still needs its *parent* refreshed, or the
+                // A path that has just been deleted still needs its *parent* refreshed, or the
                 // item stays in the library pointing at nothing.
-                var target = Directory.Exists(folder) ? folder : Path.GetDirectoryName(folder);
-                if (string.IsNullOrEmpty(target))
+                var actual = File.Exists(target) || Directory.Exists(target)
+                    ? target
+                    : Path.GetDirectoryName(target);
+                if (string.IsNullOrEmpty(actual))
                 {
                     continue;
                 }
 
-                await _refresher.RefreshAsync(target, cancellationToken).ConfigureAwait(false);
+                await _refresher.RefreshAsync(actual, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException
                                           or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Could not refresh {Folder}", folder);
-                report.Errors.Add($"{folder}: {ex.Message}");
+                _logger.LogWarning(ex, "Could not refresh {Target}", target);
+                report.Errors.Add($"{target}: {ex.Message}");
             }
         }
     }
@@ -854,6 +898,7 @@ public sealed class FederatedLibraryService : BackgroundService
     /// an item exist and because the unavailable tag has to follow a peer going up and down.
     /// </remarks>
     private async Task EnrichAsync(
+        Dictionary<(string Group, string ItemKey, string Node), MeshIndexEntry> desired,
         Dictionary<(string Group, string Node), bool> online,
         CancellationToken cancellationToken)
     {
@@ -871,7 +916,10 @@ public sealed class FederatedLibraryService : BackgroundService
                 continue;
             }
 
-            var record = await FindRecordAsync(pointer, cancellationToken).ConfigureAwait(false);
+            // From the index this pass already read. Looking each one up over HTTP would be one
+            // request per pointer per pass, which on a real library is thousands of round trips a
+            // minute to answer a question that was answered once at the top.
+            desired.TryGetValue(pointer.Key, out var record);
             var isOnline = online.TryGetValue((pointer.Group, pointer.Node), out var value) && value;
 
             try
@@ -894,14 +942,6 @@ public sealed class FederatedLibraryService : BackgroundService
                 _logger.LogWarning(ex, "Could not enrich {Path}", pointer.StrmPath);
             }
         }
-    }
-
-    private async Task<MeshIndexEntry?> FindRecordAsync(FederatedPointer pointer, CancellationToken cancellationToken)
-    {
-        var index = await _mesh.IndexAsync(pointer.Group, cancellationToken).ConfigureAwait(false);
-        return index.Entries.FirstOrDefault(e =>
-            string.Equals(e.ItemKey, pointer.ItemKey, StringComparison.Ordinal)
-            && string.Equals(e.Node, pointer.Node, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Write the index record's media summary onto the Jellyfin item.</summary>
@@ -1202,6 +1242,16 @@ public sealed class FederatedReport
 
     /// <summary>Folders that changed and therefore need refreshing.</summary>
     public List<string> Folders { get; } = new();
+
+    /// <summary>
+    /// The pointer files themselves, refreshed after their folders.
+    /// </summary>
+    /// <remarks>
+    /// Refreshing the folder is what makes Jellyfin discover a *new* file in it. Refreshing the
+    /// file is what makes it re-read one that already existed and has changed — a peer that
+    /// re-encoded a title, say, so the `.nfo` next to the pointer now says something different.
+    /// </remarks>
+    public List<string> Pointers { get; } = new();
 
     public List<string> Errors { get; } = new();
 }

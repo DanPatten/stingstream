@@ -34,8 +34,9 @@ refreshes and library creation, `IUserManager` for the bootstrap administrator,
 `IMediaSourceManager` for the inventory record's media summary, and Jellyfin's own authorization
 policies for its API. None of that is reachable over HTTP.
 
-Four edits to vendored files attach it. They are deliberately as small as they can be: the project
-itself is new code in a new directory, and these are only the seams.
+Four edits to vendored files attach it, plus one behaviour change that M3b needed. They are
+deliberately as small as they can be: the project itself is new code in a new directory, and these
+are only the seams.
 
 ### 1. `Jellyfin.Server/Jellyfin.Server.csproj` — a project reference
 
@@ -94,13 +95,54 @@ rather than a StingStream-specific need, and a good candidate to send upstream.
 inventory record). Central package management means a new dependency has to be declared there; both
 entries carry a comment marking them as StingStream's.
 
+### 6. `Emby.Server.Implementations/Library/MediaSourceManager.cs` — stop probing every `.strm`
+
+One condition in `GetPlaybackMediaSources`. It used to read:
+
+```csharp
+if (allowMediaProbe && mediaSources[0].Type != MediaSourceType.Placeholder
+    && (item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
+        || (item.MediaType == MediaType.Video && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Video))
+        || (item.MediaType == MediaType.Audio && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Audio))))
+{
+    await item.RefreshMetadata(new MetadataRefreshOptions(_directoryService)
+    {
+        EnableRemoteContentProbe = true,
+        MetadataRefreshMode = MetadataRefreshMode.FullRefresh
+    }, cancellationToken).ConfigureAwait(false);
+    ...
+}
+```
+
+The `.strm` clause is gone; the other two remain.
+
+**Why.** That clause forced a full remote ffprobe of *every* `.strm` on *every* PlaybackInfo call,
+regardless of what was already known about the item. A StingStream federated pointer is a `.strm`
+whose media streams were stamped from the group index the moment it was materialized, so the clause
+meant pulling a peer's film across the mesh through ffmpeg, from someone else's disk and someone
+else's uplink, on every single play — to rediscover exactly what the holder had already published.
+It would also fail: the pointer's host is `stingstream.local`, a marker name that only resolves
+inside Jellyfin's own HTTP clients (see `StingStreamLocalHandler`), and ffmpeg does its own DNS.
+
+The two remaining clauses cover the case the `.strm` clause existed for — a pointer nothing has read
+yet, which has no video stream and so still probes — without re-probing one that has been read.
+Debrid users get the same improvement for free.
+
+**Upstream-pull risk:** low but real. If the surrounding method is rewritten, re-apply by deleting
+the `.strm` clause again. `tools/e2e-m3.ps1`'s "Jellyfin on A streams the federated movie" step is
+what catches a regression: without the patch the request stalls on a doomed probe.
+
 ### Not a patch, but a deliberate deviation: analyzer settings
 
 `server/jellyfin/Directory.Build.props` sets `TreatWarningsAsErrors=true` and, in Debug,
 `AnalysisMode=AllEnabledByDefault`; `src/Directory.Build.props` adds StyleCop and four more
 analyzers to every project under `src/`. `StingStream.Core.csproj` opts out of warnings-as-errors and
 back down to the default analysis mode, with a `NoWarn` list for the StyleCop rules that encode
-Jellyfin's house style. Those settings describe how Jellyfin's own code is written; StingStream's
+Jellyfin's house style. M3b extended that list to the documentation rules (SA1611/SA1615/SA1618/
+SA1623/SA1625, CS1573) and SA1402 ("one type per file"), so that `dotnet build StingStream.Core`
+is **0 warnings, 0 errors** and a new warning is therefore visible rather than lost in seven hundred
+existing ones. `GenerateDocumentationFile` stays on, because Swashbuckle reads the XML comments the
+project does write into the OpenAPI document. Those settings describe how Jellyfin's own code is written; StingStream's
 code is new and follows its own conventions, and inheriting them would mean either rewriting it to a
 different project's style or scattering suppressions through it. Warnings still surface — they just
 do not fail the build. The 50 diagnostics that `server/jellyfin/.editorconfig` elevates to *error*

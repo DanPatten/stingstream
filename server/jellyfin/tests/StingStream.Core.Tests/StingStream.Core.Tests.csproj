@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ProjectGuid is only included as a requirement for SonarQube analysis, matching every other
+       project in this tree. -->
+  <PropertyGroup>
+    <ProjectGuid>{8B2C4D19-7F3A-4E62-9C10-5D8E1A4F7B33}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>StingStream.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Same opt-out as StingStream.Core itself: this is StingStream's code, not Jellyfin's, and it is
+    not written to Jellyfin's house style. See docs/PATCHES.md.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisMode>Default</AnalysisMode>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <NoWarn>$(NoWarn);SA0001;SA1101;SA1200;SA1201;SA1202;SA1203;SA1204;SA1309;SA1311;SA1402;SA1413;SA1600;SA1601;SA1602;SA1611;SA1615;SA1618;SA1623;SA1625;SA1633;SA1649;CS1573;CS1591;CA1002;CA1031;CA1054;CA1056;CA1062;CA1707;CA1848;CA2007;CA1812;CA1861;IDE0058;NU1510</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\StingStream.Core\StingStream.Core.csproj" />
+  </ItemGroup>
+
+</Project>

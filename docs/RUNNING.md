@@ -91,9 +91,115 @@ Useful flags:
 | `--print-runtime` | resolve config, write `runtime.json`, print it, start nothing |
 | `--no-children` | run the gateway alone, so you can start a child under a debugger |
 | `--install-root <DIR>` | production mode: children live under `<DIR>/bin/<child>/` |
+| `--web-dist <DIR>` | serve a built web bundle at `/` (default: `apps/stingstream/dist` in `--dev`, `<install>/web` otherwise) |
 
 Ctrl+C stops the node. On Unix the children get a `SIGTERM` and a grace period first; on Windows
 they are terminated (see "Known limitations").
+
+### The web UI
+
+Once `apps/stingstream` has been exported, the gateway serves it at `/` with no configuration:
+
+```powershell
+cd apps/stingstream
+bun install
+npx expo export --platform web        # writes apps/stingstream/dist
+```
+
+In `--dev` the node finds `apps/stingstream/dist` on its own. `--web-dist <DIR>` or
+`gateway.web_dist` points somewhere else. A directory with no `index.html` in it is treated as
+absent and the node serves its placeholder page, which is what a half-finished export leaves
+behind. `index.html` is served with `no-cache` and content-hashed assets with `immutable`, and any
+path that is not a file falls back to `index.html` so the app's own routing works — except a path
+that looks like an asset, which gets a real 404 (a missing `.js` answered with HTML fails as
+"Unexpected token '<'" somewhere unrelated, and that is a bad afternoon).
+
+### The mesh
+
+The mesh runs **inside the supervisor's process** by default. There is no `stingstream-mesh`
+child, but the mesh still binds its loopback API port — `StingStream.Core` and the app both talk to
+it over HTTP — and `/healthz` reports it as a child called `mesh` so a node's state is one document.
+
+```powershell
+# From this machine only: the raw mesh API, unauthenticated.
+curl http://127.0.0.1:8790/stingstream/mesh/v1/status
+
+# From anywhere, behind Jellyfin's own auth: the same operations.
+curl -H "Authorization: MediaBrowser Token=\"$token\"" `
+     http://127.0.0.1:8790/stingstream/api/v1/mesh/status
+```
+
+`[mesh] embedded = false` in `config.toml` goes back to supervising the `stingstream-mesh` binary,
+which is how you attach a debugger to just the mesh. `[children] mesh = false` turns the mesh off
+entirely; the node is then a complete single-node server with no group.
+
+---
+
+## Running two nodes on one machine
+
+Which is what you want for anything to do with groups, and what `tools/e2e-m3.ps1` automates. Two
+nodes need three things kept apart: a data directory, a gateway port, and every child port.
+
+```powershell
+$repo = "E:\Dan\Documents\Repos\StingStream"
+
+foreach ($n in @(
+    @{ Name = "a"; Port = 8890 },
+    @{ Name = "b"; Port = 8990 }
+)) {
+    $dir = "E:\Dan\Documents\Repos\.win-temp\stingstream-$($n.Name)"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    @"
+node_name = "node-$($n.Name)"
+
+[gateway]
+bind = "127.0.0.1"
+port = $($n.Port)
+
+[ports]
+jellyfin = 0
+radarr = 0
+sonarr = 0
+nzbget = 0
+mesh = 0
+"@ | Set-Content -Path "$dir\config.toml" -Encoding utf8
+
+    Start-Process -FilePath "$repo\mesh\target\debug\stingstream.exe" `
+        -ArgumentList '--dev', '--repo-root', $repo, '--data-dir', $dir
+}
+```
+
+`0` means "pick a free port", so nothing collides — with the other node or with a node someone else
+on the machine already has running. Each node's real ports land in its own `runtime.json`.
+
+Then, with a Jellyfin token from each node (`POST /jellyfin/Users/AuthenticateByName`):
+
+```powershell
+# A creates a group with no coordinator at all.
+$g = irm -Method POST http://127.0.0.1:8890/stingstream/api/v1/mesh/groups `
+      -Headers $authA -ContentType application/json -Body '{"name":"Attic"}'
+
+# A mints an invite; B joins with it.
+$i = irm -Method POST "http://127.0.0.1:8890/stingstream/api/v1/mesh/groups/$($g.group)/invite" -Headers $authA
+irm -Method POST http://127.0.0.1:8990/stingstream/api/v1/mesh/groups/join `
+    -Headers $authB -ContentType application/json -Body (@{ code = $i.code } | ConvertTo-Json)
+
+# What each node can now see.
+irm "http://127.0.0.1:8890/stingstream/api/v1/mesh/groups/$($g.group)/index" -Headers $authA
+irm "http://127.0.0.1:8890/stingstream/api/v1/mesh/peers?group=$($g.group)" -Headers $authA
+
+# Force a materialization pass rather than waiting for the fifteen-second timer.
+irm -Method POST http://127.0.0.1:8890/stingstream/api/v1/mesh/federated/refresh -Headers $authA
+```
+
+Add `"coordinator": "https://…"` to the create body for a group that uses one; the invite carries
+it to every member, so nobody else has to type it.
+
+> **Run from a private copy of the build outputs.** A running node holds `mesh/target/debug/` and
+> `server/*/bin/` open, which means nobody can rebuild while it is up — including you, and
+> including whoever else is working in the repository. Copy the outputs somewhere else and use
+> `--install-root`, or accept that your node has to stop for every build. On a machine where
+> several people (or several agents) share one checkout, this is not a nicety.
 
 ---
 
@@ -228,6 +334,42 @@ fails, the first place to look is `<work>/logs/` (the harness's own processes) a
 `<work>/data/logs/` (the node's), plus the arr's own file log at `<work>/data/<app>/logs/`, which
 is where the import decisions live.
 
+### `tools/e2e-m3.ps1` — the federated library
+
+The M3 test: two complete nodes, a group with nothing behind it, and a peer's film playing out of
+your own Jellyfin. It reuses the M1 pipeline to populate node B, then starts node A empty, has A
+create a group with **no coordinator**, has B join with A's invite code, and asserts the whole
+chain — index, materialization, poster, badges, three separate playback paths, the unavailable tag
+when B goes away and its removal when B comes back.
+
+```powershell
+powershell tools\e2e-m3.ps1                                  # the whole thing
+powershell tools\e2e-m3.ps1 -SkipBuild -SkipCoordinator      # when iterating
+powershell tools\e2e-m3.ps1 -KeepRunning                     # leave both nodes up
+```
+
+`-SkipCoordinator` drops the two steps that talk to Dan's Railway coordinator. They need the
+internet and they cost metered egress on his bill, so CI skips them; everything else runs on
+loopback and needs nothing hosted by anyone.
+
+Gateway ports default to 8890 (A, the watcher) and 8990 (B, the holder), with ephemeral child
+ports, so the harness does not collide with a development node. It also turns the mesh's gossip
+timings down in each node's `mesh.toml` — five-second heartbeats and a fifteen-second peer timeout
+rather than the shipped 20/60 — so the "B went offline" assertion measures the same behaviour
+without the run spending a minute on it. The assertion itself is still against the sixty seconds
+the milestone asks for.
+
+**Use `powershell`, not `pwsh`, on Dan's machine**: only Windows PowerShell 5.1 is installed there.
+Both harnesses run under either, and CI uses `pwsh` on Linux. The two binary steps — the byte-exact
+range read and the full-file comparison — go through `System.Net.Http.HttpClient` rather than
+`Invoke-WebRequest`, because 5.1 refuses to put `Range` in a plain header hashtable and handles a
+binary body differently from `pwsh`.
+
+One step is a *finding* rather than a pass/fail: "Episode multi-version support on this Jellyfin"
+writes two versions of one episode into one Season folder and reports whether they became one item
+with two MediaSources. The answer is printed under **Findings** at the end of the run and recorded
+in `docs/ARCHITECTURE.md`.
+
 ---
 
 ## When something is wrong
@@ -262,7 +404,23 @@ has the truth, and every child was configured from it.
   attaching to a child's console would signal the supervisor too. Unix gets `SIGTERM` and a grace
   period. In practice .NET's SQLite WAL survives termination; a hard kill of the *supervisor*
   (rather than Ctrl+C) does orphan the children on Windows, and they have to be stopped by name.
-- **No mesh.** Groups, peers and the federated library arrive in M3. The inventory records are
-  built and stored now so that M3 has something real to publish.
 - **InfiniDysk is not wired in.** `children.infinidysk` is off; enabling it fails with a clear
   message.
+
+---
+
+## Known limitations after M3b
+
+- **No HTTPS side door on the node yet.** The coordinator half shipped in M3a and is deployed; the
+  node half — its own ACME certificate, rustls on the gateway, `portmapper`, and publishing the
+  candidate hostnames — has not. So a browser away from home cannot reach a node yet, and
+  `stingstream.local` resolves only inside this node's own Jellyfin.
+- **A transcode of a federated source will not work.** Direct play does: Jellyfin fetches the
+  pointer's URL with an `HttpClient`, and `StingStreamLocalHandler` points that at this node's own
+  gateway. ffmpeg does its own DNS and never sees that handler, so the transcode fallback needs the
+  URL rewritten where the encoder input is built. That is M4's work, alongside source scoring.
+- **`/stream/*` on the gateway is unauthenticated.** It has to be — a browser or a cast receiver
+  reaching the side door has no Jellyfin token — and a request needs a 32-byte group id, an item
+  key and a node id to fetch anything, so it is not enumerable. Tightening it is on M8's list.
+- **One version per title.** M3b materializes one `.strm` per holding node, which with two nodes is
+  one version. Several holders of the same title, and the scoring that picks between them, are M4.

@@ -139,10 +139,17 @@ async fn main() -> Result<()> {
             // child-mode plumbing intact for `[mesh] embedded = false`.
             defs.retain(|d| d.name != "mesh");
         }
-        // A child that is enabled but has no definition was skipped deliberately (today only a
-        // mesh whose binary has not been built). Mark it disabled, or it would sit at `Stopped`
-        // forever and hold `/healthz` at "degraded" for a node that is otherwise perfectly well.
+        // A child that is enabled but has no definition was skipped deliberately: either its
+        // binary was not found, or -- for the mesh -- it runs in this process instead. Mark the
+        // first kind disabled, or it would sit at `Stopped` forever and hold `/healthz` at
+        // "degraded" for a node that is otherwise perfectly well. Leave the mesh alone: the
+        // embedded start below sets its real state, and saying "its binary was not found" about a
+        // mesh that is running here would be a lie in the one place an operator looks first.
+        let embedded_mesh_running = config.children.mesh && config.mesh.embedded;
         for name in supervisor::CHILD_ORDER {
+            if *name == "mesh" && embedded_mesh_running {
+                continue;
+            }
             let enabled = node.status_of(name).is_some_and(|s| s.enabled);
             if enabled && !defs.iter().any(|d| d.name == *name) {
                 node.update(name, |c| {
@@ -178,6 +185,7 @@ async fn main() -> Result<()> {
                     c.port = m.api_port;
                     c.base_url = format!("http://127.0.0.1:{}", m.api_port);
                     c.healthy_since = Some(runtime::now_rfc3339());
+                    c.last_error = None;
                 });
                 Some(m)
             }

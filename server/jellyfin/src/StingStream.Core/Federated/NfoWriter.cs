@@ -260,7 +260,16 @@ public static class NfoWriter
         }
     }
 
-    /// <summary>The date half of an RFC 3339 timestamp, which is what an NFO date element wants.</summary>
+    /// <summary>
+    /// The date half of an RFC 3339 timestamp, in the one format Jellyfin's NFO parser accepts.
+    /// </summary>
+    /// <remarks>
+    /// Jellyfin reads date elements with <c>DateTime.TryParseExact</c> against
+    /// <c>XbmcMetadataOptions.ReleaseDateFormat</c>, which is <c>yyyy-MM-dd</c>. Anything else —
+    /// a full timestamp, `2024-3-5`, slashes — parses as nothing and the item silently has no
+    /// release date. So this validates rather than trusting the length: "not a date" happens to be
+    /// exactly ten characters, which is how this was found.
+    /// </remarks>
     private static string? DatePart(string? timestamp)
     {
         if (string.IsNullOrWhiteSpace(timestamp))
@@ -269,8 +278,15 @@ public static class NfoWriter
         }
 
         var t = timestamp.IndexOf('T', StringComparison.Ordinal);
-        var date = t > 0 ? timestamp[..t] : timestamp;
-        return date.Length == 10 ? date : null;
+        var date = t > 0 ? timestamp[..t] : timestamp.Trim();
+        return DateTime.TryParseExact(
+            date,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out _)
+            ? date
+            : null;
     }
 
     private static void Element(XmlWriter writer, string name, string? value)

@@ -5,6 +5,19 @@ started as the approved M0-through-M8 plan and is updated in place as decisions 
 milestones land, and facts change; treat it as the source of truth for *why* things are built the
 way they are, not just *what* exists today.
 
+**Companion documents.** This file is the wide view. Where a subsystem has grown its own reference,
+that reference is the newer document and wins on detail:
+
+| Document | Owns |
+|---|---|
+| [`docs/MESH.md`](MESH.md) | The mesh and the coordinator: wire protocol, invite format, gossip, the index schema, the local and peer APIs, the side door's coordinator half. |
+| [`docs/APP-MESH.md`](APP-MESH.md) | The mesh embedded in the app: the FFI crate, the light-node rules, and the `stingstream.local` rewrite on native. |
+| [`docs/M2-web-spike.md`](M2-web-spike.md) | Why the Expo web target works, what had to change to make it, and the traps (bun only, no yarn). |
+| [`docs/APP-DEV.md`](APP-DEV.md) | Building and running the app: toolchains, bun, the TV variant, the emulator. |
+| [`docs/UI.md`](UI.md) | The screens, their information architecture, and what each one calls. |
+| [`docs/RUNNING.md`](RUNNING.md) | Running a node, running two, and the acceptance harnesses. |
+| [`docs/PATCHES.md`](PATCHES.md) | Every line StingStream changes inside a vendored upstream, and why. |
+
 ## Context
 
 Dan wants a single self-hosted media app, **StingStream**, that replaces the usual five-tool stack
@@ -45,7 +58,8 @@ subtree — reference only, and at most a source for its Rust `jellyfin-api` cli
 | Arr merge | One service from the user's view, shared config, separate Radarr and Sonarr cores. Sonarr from `v5-develop` (.NET 10), Radarr from `develop` (.NET 8). |
 | Identity | Username + password on your **home node only**. No accounts on other nodes and no cross-server mapping: group membership is node-to-node trust, and remote titles appear in your own server's library. |
 | Replication | Single copy, stream from wherever it lives. Grabbers check the group index first. Any node can pin a library to mirror it. |
-| Remote web and cast | An **HTTPS side door** next to the mesh, adapted from Plex's remote-access design (Dan, 2026-09-04): relay-hosted IP-reflecting DNS, a per-node Let's Encrypt wildcard certificate whose private key never leaves the node, UPnP/NAT-PMP/PCP port mapping, a relay reachability probe, SNI passthrough through the relay when direct fails, and connection racing in the web client and cast sender. |
+| Central server | **Zero-server by default** (Dan, 2026-09-04): a new group needs nothing anyone hosts — iroh's public relays and DNS discovery plus mainline-DHT discovery. **Fallback: a StingStream coordinator Dan hosts on Railway** (TCP-only: relay protocol over 443, rendezvous, side-door DNS and ACME via a DNS-provider API, reachability probe, SNI passthrough). **Anyone can override with their own server:** the Group screen has a coordinator picker — Default (public infrastructure + Dan's fallback) or a custom hostname — and the invite code carries the choice to every member. Their own server can be the same coordinator binary in Lite mode (one-click Railway template) or Full mode (VPS with UDP address discovery and an authoritative DNS zone). GitHub cannot relay traffic and only distributes images, releases and docs. |
+| Remote web and cast | An **HTTPS side door** next to the mesh, adapted from Plex's remote-access design (Dan, 2026-09-04): coordinator-managed per-node hostnames (an IP-reflecting zone on a VPS, or provider-API records via Cloudflare on Railway), a per-node Let's Encrypt wildcard certificate whose private key never leaves the node, UPnP/NAT-PMP/PCP port mapping, a coordinator reachability probe, SNI passthrough through the coordinator when direct fails, and connection racing in the web client and cast sender. Requires a coordinator; not available in pure zero-server mode. |
 | Roadmap features | Requests (Seerr-style), watch-together across the mesh, offline downloads, automatic subtitles, relay doubling as a storage node, Live TV/DVR passthrough. **Not** music/books, **not** a public directory. |
 
 ---
@@ -68,8 +82,9 @@ Verified 2026-09-04 unless marked otherwise.
   pointing at an HTTP URL, with `.nfo` sidecars for metadata. Jellyfin groups same-folder files
   named `Title (Year) - Label.ext` as **alternate versions** of one movie, which is how one title
   held by several nodes becomes one item with several MediaSources. Multi-version support for
-  *episodes* on the vendored Jellyfin must be verified in M3 (fallback: one best version per
-  episode). **JellyfinFederationPlugin** (C#, MIT, 71 stars, 8 commits) is a proof of concept of
+  *episodes* **was verified in M3b and works**: two `.strm` files for one episode in one season
+  folder become one Episode with two MediaSources. See "What M3b settled". The fallback the plan
+  reserved (one best version per episode) is not needed. **JellyfinFederationPlugin** (C#, MIT, 71 stars, 8 commits) is a proof of concept of
   the same in-Jellyfin approach; useful as reference, too thin to fork.
 - **Radarr / Sonarr**: .NET backends, React/TypeScript frontends, GPL-3.0. Both descend from
   NzbDrone and share identical `NzbDrone.*` namespaces and heavy static state, so they cannot
@@ -245,7 +260,8 @@ source selection.
 ### Federated library (the merge mechanism)
 
 Each node turns the group index into real items in its **own** Jellyfin, so every native feature
-works unchanged. Proven pattern from the debrid ecosystem; implemented in `StingStream.Core`.
+works unchanged. Proven pattern from the debrid ecosystem; implemented in `StingStream.Core`
+(`src/StingStream.Core/Federated/`, landed in M3b).
 
 1. **Shared libraries.** Two Jellyfin libraries per node, `Shared Movies` and `Shared TV`, backed
    by `$STINGSTREAM_DATA/federated/{movies,tv}`. Internet metadata fetchers are off for them and
@@ -301,13 +317,38 @@ works unchanged. Proven pattern from the debrid ecosystem; implemented in `Sting
 5. **Pin/mirror**: node fetches the file over iroh (resumable HTTP range) into its own root folder,
    imports it, removes its pointer entry, and the index now shows two copies.
 
-### Relay server (`stingstream-relay`)
+### Coordinator (`stingstream-relay`) — one binary, three deployment modes
 
-Docker image + single binary bundling `iroh-relay`, `iroh-dns-server` (pkarr discovery), the
-IP-reflecting `direct.<relay-host>` DNS zone with its ACME challenge endpoint, and an SNI router on
-443 in front of iroh-relay (all described under the HTTPS side door below). Runs on a small VPS
-behind one hostname with NS delegation for its subdomain. Compose profile `storage-node` adds a
-full StingStream node joined to the group so the relay host is also an always-on seedbox/cache.
+The coordinator is **optional infrastructure**. A group created with none works: iroh's public
+relays carry the traffic, n0's DNS and the mainline DHT carry the discovery, and the invite code
+carries the inviter's address so a join needs no lookup at all. One Rust binary (Docker image on
+GHCR) covers the rest, with feature flags chosen by what the host can offer:
+
+| Mode | Where | Provides | Cannot provide |
+|---|---|---|---|
+| **None (default)** | nobody | iroh public relays + n0 DNS discovery + mainline DHT | side door, rendezvous when the inviter is offline |
+| **Lite (Dan's fallback)** | Railway, TCP only | relay protocol on 443 (HTTPS→WebSocket, so it works through Railway's proxy), rendezvous, reachability probe, SNI passthrough, side-door DNS records and ACME challenges published through a **DNS-provider API** (Cloudflare first, provider trait for others) | UDP address discovery (nodes get it from n0's relays), authoritative DNS |
+| **Full** | a VPS with UDP | everything in Lite plus `iroh-dns-server` discovery, UDP 7842 address discovery, and the authoritative IP-reflecting `direct.<host>` zone with no provider dependency | — |
+
+Dan's Railway instance is baked into the build as the default fallback coordinator:
+
+```
+https://stingstream-coordinator-production.up.railway.app
+```
+
+Deployed 2026-09-05 in M3a from `ghcr.io/danpatten/stingstream-coordinator:latest`. It is
+`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs`, appended to every
+group's relay map regardless of the group's own choice, and deliberately registered *without* QUIC
+address discovery so iroh never picks it as a home relay — its jobs are rendezvous and the side
+door, not carrying video. Relaying media through it is metered egress on Dan's bill, so it is
+ranked below n0's public relays and a per-group bandwidth cap is configurable. Override it per
+install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR`; an explicitly empty value means "no
+fallback", which is what the integration tests use.
+
+Compose profile `storage-node` (Full mode) adds a StingStream node joined to the group, so the host
+is also an always-on seedbox and cache. `docs/MESH.md` section 6 is the reference for the wire
+protocol, the API and the hosting configuration; `deploy/coordinator/README.md` is the hosting
+guide.
 
 ### HTTPS side door (browsers, Chromecast, TV web views, 443-only networks)
 
@@ -316,16 +357,23 @@ certificate — a browser away from home, a Chromecast receiver, a TV web view, 
 network that only passes TCP 443 — uses a second door that ends in the same gateway. Adapted from
 the Plex remote-access design with one change: private keys never leave the node.
 
-1. **IP-reflecting DNS.** The relay is authoritative for `direct.<relay-host>` and decodes the
-   leftmost label: `192-168-1-5.<nodeid>.direct.<relay-host>` answers `192.168.1.5` (IPv6 with
-   dashes likewise). There are no records to maintain. The literal label `relay` answers with the
-   relay's own public IP. Long TTLs, since the mapping is immutable.
+1. **Per-node hostnames.** Every node gets `lan.<nodeid>.direct.<host>`,
+   `pub.<nodeid>.direct.<host>` and `relay.<nodeid>.direct.<host>`, where `<nodeid>` is the node id
+   in z-base-32 (52 characters — the 64-character hex form does not fit in a DNS label). In **Full**
+   mode the coordinator is authoritative for `direct.<host>` and answers IP-reflecting labels
+   arithmetically (`192-168-1-5.<nodeid>.direct.<host>` → `192.168.1.5`, IPv6 with dashes likewise)
+   with nothing to maintain and long TTLs. In **Lite** mode (Railway, no UDP, not authoritative) the
+   coordinator publishes real A/AAAA records for the same three names through a `DnsProvider` —
+   Cloudflare first, behind a trait — whenever a node reports an address change, using a
+   zone-scoped token. **The hostnames are identical either way**, which is the point: a node, a
+   browser and a cast receiver never need to know which kind of coordinator is behind them.
 2. **Per-node wildcard certificate.** Each node generates its own key and a CSR for
-   `*.<nodeid>.direct.<relay-host>`, runs the ACME client itself (Let's Encrypt, DNS-01, Rust
-   `instant-acme`), and asks the relay to publish the `_acme-challenge` TXT record through an
+   `*.<nodeid>.direct.<host>`, runs the ACME client itself (Let's Encrypt, DNS-01, Rust
+   `instant-acme`), and asks the coordinator to publish the `_acme-challenge` TXT record through an
    endpoint only that node can write, with the request signed by its iroh key (the acme-dns
-   pattern). Renewal at 60 days. The gateway serves the certificate with rustls on 8790 and,
-   optionally, 443. The relay never holds a node's key.
+   pattern). The coordinator writes the record itself (Full) or through the provider API (Lite).
+   Renewal at 60 days. The gateway serves the certificate with rustls on 8790 and, optionally, 443.
+   The coordinator never holds a node's key.
 3. **Port mapping.** The supervisor asks the router for a TCP mapping to the gateway via UPnP IGD,
    NAT-PMP or PCP, reusing iroh's `portmapper`. The result is shown on the Node status screen, with
    manual-rule instructions if all three fail.
@@ -351,12 +399,18 @@ the Plex remote-access design with one change: private keys never leave the node
    is reachable), shows the one-line fix — whitelist `direct.<relay-host>` — and falls back to plain
    `http://<lan-ip>:8790` for LAN browsers with a visible warning.
 
-Relay hosting therefore needs: a domain or subdomain with NS delegation to the relay host, UDP and
-TCP 53, TCP 443 (the SNI router fronting iroh-relay), iroh's UDP address-discovery port, and a
-Let's Encrypt account for the relay's own names. Still one box; the hosting guide walks through it.
-Let's Encrypt allows 50 new certificates per registered domain per week and exempts renewals, so a
-friend-group relay is comfortable; a large shared relay would request a rate-limit increase or add
-ZeroSSL as a second CA.
+Hosting needs, by mode. **Lite (Railway):** a service with the TCP proxy on 443, a domain whose
+DNS lives at a supported provider (Cloudflare first) and a zone-scoped API token, and a Let's
+Encrypt account for the coordinator's own name. **Full (VPS):** NS delegation of `direct.<host>` to
+the box, UDP+TCP 53, TCP 443, UDP 7842, and the same Let's Encrypt account. The hosting guide covers
+both. Let's Encrypt allows 50 new certificates per registered domain per week and exempts renewals,
+so a friend-group coordinator is comfortable; Dan's shared fallback would request a rate-limit
+increase or add ZeroSSL as a second CA once it passes that.
+
+**Status.** The coordinator half of the side door shipped in M3a and is deployed. The node half —
+the ACME client, rustls on the gateway, `portmapper`, and publishing the candidate hostnames — has
+**not** shipped: M3b spent its budget on the federated library and the two-node acceptance instead.
+It is the largest single piece of M3 still outstanding.
 
 ### The app (`apps/stingstream`)
 
@@ -472,12 +526,30 @@ engine → imported → appears in Jellyfin → **streams from Jellyfin's own AP
 `/jellyfin/Videos/{id}/stream`. Same for a series via Sonarr v5. Restart: everything comes back on
 its own.
 
-> The original wording said "plays in stock jellyfin-web at `/jellyfin`". That is not what M1
-> builds: a node runs Jellyfin with `--nowebclient` because StingStream serves its own UI from the
-> gateway (M2), and `jellyfin-web` is a separate repository that is not vendored here at all. The
-> acceptance criterion is therefore the API-level equivalent — the item exists and its bytes come
-> back over HTTP — which is what `tools/e2e-m1.ps1` asserts. Playing in a browser arrives with the
-> M2 UI.
+#### Where M1 deviated from the plan
+
+Three things came out differently from the milestone as written. All three are deliberate and all
+three still stand.
+
+1. **Acceptance is the API equivalent, not stock jellyfin-web.** The plan said "plays in stock
+   jellyfin-web at `/jellyfin`". That is not what a node runs: Jellyfin is started with
+   `--nowebclient` because StingStream serves its own UI from the gateway (M2), and `jellyfin-web`
+   is a separate repository that is not vendored here at all. The criterion is therefore the
+   API-level equivalent — the item exists and its bytes come back over HTTP — which is what
+   `tools/e2e-m1.ps1` asserts. Playing in a browser arrived with the M2 UI.
+2. **The torrent engine's DHT is off by default**, with a settings toggle
+   (`downloadClients.torrentDhtEnabled`, plus `torrentLocalPeerDiscovery` and
+   `torrentListenPort`). Joining the public BitTorrent DHT announces the node to strangers, which
+   is not something a media server should do the first time it starts because someone installed
+   it. Private trackers forbid it outright. Local peer discovery stays on, because it is
+   LAN-scoped.
+3. **Windows children get no graceful stop until M8.** Killing the supervisor on Windows orphans
+   its children: there is no portable equivalent of SIGTERM for another process, and the console
+   control events that come closest cannot be sent to a process in a different console group.
+   Ctrl+C on an attached supervisor stops everything cleanly, and so does SIGTERM on Unix; a hard
+   kill leaves Jellyfin, the arrs and NZBGet running, and the next start finds their ports taken.
+   Both acceptance harnesses therefore clean up by data directory rather than by name. Proper job
+   objects are M8's packaging work.
 
 #### What M1 settled
 
@@ -493,17 +565,26 @@ Jellyfin runs with `BaseUrl=/jellyfin`, and ASP.NET maps its entire pipeline und
 | Path | Goes to |
 |---|---|
 | `/healthz` | the gateway: JSON child states, 200 when healthy and 503 when not |
+| `/stingstream/mesh/*` | the mesh's loopback API, minus the `/stingstream` half — **from 127.0.0.1 only** (M3b) |
 | `/stingstream/*` | Jellyfin, rewritten to `/jellyfin/stingstream/*` |
+| `/stream/*` | the mesh: ranged reads of a peer's file, proxied byte for byte (M3b) |
 | `/jellyfin/*` | Jellyfin, including the `/jellyfin/socket` WebSocket |
 | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children — **`--dev` only** |
-| `/` | placeholder page until M2's web bundle |
+| everything else | the web bundle, with SPA fallback; the placeholder page when there is no bundle (M3b) |
+
+`/stingstream/mesh/*` is restricted to loopback on purpose. The mesh API is unauthenticated because
+it binds `127.0.0.1` and anything that can reach it is already on the machine — but the gateway
+binds `0.0.0.0` so phones and TVs can reach the node, and proxying an API that creates groups and
+mints invite codes onto that address would hand the group to anyone on the same Wi-Fi. The app uses
+`/stingstream/api/v1/mesh/*` instead: the same operations behind Jellyfin's own authentication.
 
 **Data directory.** One tree per node under `$STINGSTREAM_DATA` (`%LOCALAPPDATA%\StingStream` on
 Windows, `~/.local/share/stingstream` elsewhere): `config.toml` (written once with defaults, never
 rewritten), `runtime.json` (rewritten every start), `core.db`, `logs/*.jsonl` (one per child plus
 the supervisor, JSON lines), `jellyfin/{config,data,cache,log}/`, `radarr/`, `sonarr/`, `nzbget/`,
-`downloads/{torrents,usenet}/`, `media/{Movies,TV}/`, and `federated/` reserved for M3. See
-`docs/RUNNING.md`.
+`downloads/{torrents,usenet}/`, `media/{Movies,TV}/`, and `federated/{movies,tv}/` — the two
+Shared libraries M3b materializes into. M3 adds `node.key` (the iroh identity), `mesh.toml` and
+`mesh.db` alongside them. See `docs/RUNNING.md`.
 
 **`runtime.json` is the contract** between the Rust supervisor, `StingStream.Core` inside Jellyfin,
 and the acceptance harness: assigned ports, generated arr API keys, NZBGet and qBittorrent-shim
@@ -607,7 +688,11 @@ code:
 Android device, without ever opening a Jellyfin, Radarr, Sonarr or NZBGet page. Browse and play
 works on an Android TV emulator with a remote.
 
-### M3 — Mesh v1: groups, relay, federated library, side door (Opus 5)
+### M3 — Mesh v1: groups, coordinator, federated library, side door (Opus 5)
+
+Run as three packages: **M3a** the mesh and the coordinator, **M3b** the federated library, the
+mesh embedded in the node and the two-node acceptance, **M3c** the app's embedded mesh and the
+Group screen.
 
 - `stingstream-mesh`: persisted node key; iroh endpoint with per-group relay; HTTP/1.1-over-QUIC
   server exposing the local gateway to authenticated peers (ALPN `stingstream/http/1`); peer
@@ -615,24 +700,34 @@ works on an Android TV emulator with a remote.
   deltas plus heartbeats; SQLite `group_index`; `/stream/<group>/<item_key>/<node>` endpoint that
   proxies HTTP range requests to the named source node over iroh (single fixed source in M3;
   scoring and failover come in M4).
-- Group lifecycle: create (ID, secret, relay URL), invite code, join via online member, leave,
-  membership gossip, connection auth (group-secret proof + node signature).
+- Group lifecycle: create (ID, secret, optional coordinator URL), invite code, join via an online
+  member or the coordinator's rendezvous, leave, membership gossip, connection auth (group-secret
+  proof + node signature).
+- **Zero-server default:** a group created with no coordinator works on iroh's public relays, n0
+  DNS discovery and mainline-DHT discovery, with the inviter's address carried in the invite so a
+  join needs no lookup. Dan's Railway coordinator is appended to every relay map as the
+  lowest-priority fallback.
 - **Federated library v1 in `StingStream.Core`:** inventory publisher; Shared Movies / Shared TV
   libraries with NFO-only metadata; materialization of `.strm` + `.nfo` + images for titles not
   held locally, one version per holding node; MediaStream enrichment after refresh; offline-peer
   unavailable tagging with grace-period removal; PlaybackInfo hook returning `stingstream.local`
   MediaSources (unscored order in M3). Verify episode multi-version support on the vendored
-  Jellyfin; record the result and fallback in this document.
+  Jellyfin; record the result and fallback in this document. **Done — it works; see "What M3b
+  settled".**
 - App: embedded iroh endpoint (Kotlin bindings; no Swift/iOS work) with the `stingstream.local` URL
-  rewrite so MPV streams from the app's own mesh; Group screen (create/join/invite/members/relay);
-  Settings → relay hostname field.
-- `stingstream-relay`: Docker image + binary (iroh-relay + iroh-dns-server), `storage-node`
-  compose profile, one-page hosting guide including the DNS delegation steps.
-- **HTTPS side door, relay half:** authoritative IP-reflecting zone for `direct.<relay-host>`
-  (including the `relay` label → own IP); signed-request TXT endpoint for ACME DNS-01; SNI router on
-  443 fronting iroh-relay with per-node TCP passthrough over iroh, restricted to registered nodes;
-  reachability probe writing `direct_https` into discovery records; the relay's own Let's Encrypt
-  certificate.
+  rewrite so MPV streams from the app's own mesh; Group screen (create/join/invite/members) with a
+  **coordinator picker** — "Default" (public infrastructure plus Dan's fallback) or "My own server"
+  taking a hostname, validated live against `/healthz`, stored on the group and carried in invite
+  codes so every member follows it. A "Host your own" link opens the guide.
+- `stingstream-relay` **coordinator**: one binary, Lite and Full feature flags, Docker image
+  published to GHCR by CI, Dan's Lite instance deployed to Railway, a Railway template so anyone
+  can deploy their own in one click, and the `storage-node` compose profile plus the VPS hosting
+  guide for Full mode.
+- **HTTPS side door, coordinator half:** per-node hostnames via the IP-reflecting zone (Full) or
+  provider-API records (Lite, Cloudflare behind a provider trait); signed-request TXT endpoint for
+  ACME DNS-01; SNI router on 443 fronting iroh-relay with per-node TCP passthrough over iroh,
+  restricted to registered nodes; reachability probe writing `direct_https` into discovery records;
+  the coordinator's own Let's Encrypt certificate. Both modes pass the same side-door tests.
 - **HTTPS side door, node half:** ACME client (`instant-acme`) with the key generated and kept on
   the node; rustls on the gateway (8790, optional 443); `portmapper` TCP mapping for the gateway
   with the result and manual-rule fallback surfaced on Node status; side-door candidate hostnames
@@ -641,16 +736,124 @@ works on an Android TV emulator with a remote.
 - Install Docker Desktop and a JDK 17 + Android SDK on the build machine (not yet installed as of
   M0) as this milestone needs them.
 
-**Accept:** two nodes behind different NATs (Dan's LAN + a VPS relay) join a group by invite. A
-user on node A opens A's own Jellyfin through the app and sees B's titles in Shared Movies and
-Shared TV with correct posters, overviews and resolution badges, and plays B's file direct while
-A's mesh traffic counters show the bytes did not pass through A. Stop the relay after connection →
+**Accept:** two nodes behind different NATs (Dan's LAN + a second network, with Docker-simulated
+NAT in CI) join a group by invite **with no coordinator configured** and stream each other's files
+using only public infrastructure. Then the same with Dan's Railway coordinator selected. A user on
+node A opens A's own Jellyfin through the app and sees B's titles in Shared Movies and Shared TV
+with correct posters, overviews and resolution badges, and plays B's file direct while A's mesh
+traffic counters show the bytes did not pass through A. Stop the coordinator after connection →
 playback continues on the direct path. Block UDP hole-punching → playback still works via relay.
-Block *all* UDP on a node → mesh traffic still flows through the relay on TCP 443. Take B offline →
-its titles grey out on A within a minute and return when B does. From a phone on cellular, a
-browser opens `https://<public-ip>.<nodeid>.direct.<relay-host>:8790` with a valid padlock and no
-warning; firewall inbound on that node so it looks like CGNAT → the client races to the `relay.`
-hostname and still gets a padlock, and the node's `direct_https` flips to `blocked` within a minute.
+Block *all* UDP on a node → mesh traffic still flows through a relay on TCP 443. Take B offline →
+its titles grey out on A within a minute and return when B does. Side door via the Railway
+coordinator: from a phone on cellular, a browser opens `https://pub.<nodeid>.direct.<host>:8790`
+with a valid padlock and no warning; firewall inbound on that node so it looks like CGNAT → the
+client races to the `relay.` hostname and still gets a padlock, and the node's `direct_https` flips
+to `blocked` within a minute.
+
+
+#### What M3b settled
+
+**The mesh runs inside the node's process.** `stingstream` links `stingstream-mesh` and calls
+`MeshNode::spawn` in its own process rather than spawning the binary as a child. One fewer process
+to find, supervise, restart and kill; the mesh's `tracing` output joins the supervisor's structured
+log instead of being scraped off a pipe; and shutdown is an `await` rather than a signal Windows
+cannot deliver to another process. It still binds its documented loopback API port, because
+`StingStream.Core` and the app both talk to it over HTTP, so the gateway keeps proxying
+`/stingstream/mesh/*` and `/stream/*` over loopback — one code path whether the mesh is embedded or
+supervised, and the extra hop is a copy through the kernel's loopback next to a QUIC transfer.
+`[mesh] embedded = false` restores the child, which is how you attach a debugger to just the mesh.
+
+**The federated library, end to end.** `StingStream.Core/Federated/` compares the group index
+against what has been materialized, writes or removes pointer files, refreshes only the folders
+that changed, and stamps what the index already said onto the resulting items:
+
+* `Shared Movies` and `Shared TV` are created with an empty `TypeOptions` entry per item type —
+  which is what actually disables the internet fetchers, because those lists are *allow*-lists and
+  only apply to a type that has an entry at all — `LocalMetadataReaderOrder = ["Nfo"]`, and
+  `MetadataSavers = []`. That last one is not cosmetic: Jellyfin runs its metadata savers on every
+  item update, and a saver would rewrite the `.nfo` the materializer had just written.
+* Layout is `Title (Year)/Title (Year) - <node> <quality>.strm` for films and
+  `Series/Season 01/Series - S01E01 - <node> <quality>.strm` for episodes, with a `.nfo` beside each
+  (plus `movie.nfo` and `tvshow.nfo`, which are the names Jellyfin's NFO providers look for first),
+  folder-level `poster.jpg`/`fanart.jpg` for films and series, and `<episode>-thumb.jpg` for
+  episodes — because episodes are served by a *different* local image provider that recognises
+  exactly two names and no backdrop at all.
+* Artwork comes from the holder over the mesh (`/peer/v1/image/{item_key}/{kind}`), so no node in a
+  group asks a metadata provider anything.
+* MediaStreams, runtime, container, size and dimensions are written straight into Jellyfin's own
+  tables from the index record, so the resolution and codec badges are right the moment the item
+  appears and nothing is ever probed.
+
+**Peer titles are untrusted input, and they become folder names.** `Federated/SafePath.cs` rebuilds
+each component from an allow-list of characters rather than stripping dangerous ones out, refuses
+components that are only dots, prefixes reserved Windows device names, trims the trailing dots and
+spaces Windows silently drops, caps each component at 96 characters (a *path* limit, not a
+filesystem one — the deepest federated path is root + library + series + season + filename), and
+falls back to a token derived from the item key when nothing survives. The assembled path is then
+checked to be inside the federated root, with both paths fully resolved, before a byte is written.
+Two different titles that sanitise to the same folder name get a stable disambiguator from their
+item keys rather than being merged into one item.
+
+**PlaybackInfo needed less interception than expected, and one patch.** Jellyfin already turns a
+`.strm` into a `MediaSourceInfo` with `Path` = the URL inside the file, `Protocol = Http`,
+`IsRemote = true` and a `Name` derived from the filename — which, given the naming above, *is* the
+node-and-quality label. So the hook the plan asked for is mostly already there;
+`SupportsDirectPlay` is then decided by Jellyfin's `StreamBuilder` from the streams the materializer
+stamped, which is the right answer rather than an asserted one. What did need changing is one
+condition in `MediaSourceManager.GetPlaybackMediaSources`, which force-probed *every* `.strm` on
+*every* PlaybackInfo call — pulling a peer's film across the mesh through ffmpeg on every play to
+rediscover what the holder had already published. See `docs/PATCHES.md`.
+
+**Non-mesh clients work through a message handler, not DNS.** `stingstream.local` resolves nowhere
+on purpose: the native app rewrites it to its own embedded mesh. For a browser or a stock client,
+Jellyfin fetches the URL itself with an ordinary `HttpClient`
+(`FileStreamResponseHelpers.GetStaticRemoteStreamResult`, which forwards `Range` and passes back
+`206`/`Content-Range`/`Accept-Ranges` — exactly what a seeking player needs), and
+`StingStreamLocalHandler` rewrites that one hostname to this node's own gateway on the way out. A
+`DelegatingHandler` rather than a DNS-level `ConnectCallback`, because the URL is `https` and the
+gateway speaks plain HTTP on loopback; rewriting the whole URI changes the scheme too. **ffmpeg does
+its own DNS and never sees the handler**, so a *transcode* of a federated source does not work yet —
+direct play does, and the transcode fallback is M4's.
+
+**Episode multi-version support: yes, on this vendored Jellyfin.** The plan flagged this as the one
+thing M3 had to *verify* rather than assume, with "one best version per episode" as the fallback.
+`tools/e2e-m3.ps1` answers it directly rather than by inference: it writes two `.strm` files for one
+episode into a single `Season 01` folder, differing only in the node-and-quality label, each with
+its own `.nfo`, refreshes, and asks Jellyfin what it made of them. **Two versions became one Episode
+item with two MediaSources**, with a control pair of movie versions behaving the same way, so the
+answer is about episodes specifically and not about grouping in general.
+
+The mechanism is `Emby.Naming/Video/VideoListResolver.cs`, which dispatches on collection type:
+`GetVideosGroupedByVersion` for films (every filename must start with the folder name, and all files
+must agree on the year) and `GetEpisodesGroupedByVersion` for TV, which keys on the parsed `SxxEyy`
+and ignores the folder name entirely. `MovieResolver` is what passes `supportMultiEditions: true`
+for a `tvshows` library, and it acts as the `IMultiItemResolver` for the season folder;
+`EpisodeResolver` does no grouping of its own. That is a newer arrangement than the one the plan was
+written against, which is exactly why it was worth checking rather than assuming either way.
+
+**The fallback is therefore not needed**, and M4 can materialise one `.strm` per holding node and
+quality for episodes as well as films. The verification step stays in the harness: it is cheap, and
+it is the thing that will notice if an upstream pull takes the behaviour away again.
+
+**The gateway restricts `/stingstream/mesh/*` to loopback.** The mesh API is unauthenticated because
+it binds `127.0.0.1`; the gateway binds `0.0.0.0`. Proxying an API that creates groups and mints
+invite codes onto a LAN address would have handed the group to anyone on the same Wi-Fi. The app
+uses `/stingstream/api/v1/mesh/*` instead — the same operations behind Jellyfin's own auth.
+
+**Two bugs the two-node run found that no unit test would have.**
+
+1. `IPathRefresher` refreshed a folder that was already a known item without validating its
+   children, and `RefreshMetadata` on a `Folder` does not descend. So a season folder that already
+   existed got re-read and the new episode inside it was never noticed — a Series and a Season with
+   nothing in them. The arr-import path never hit it because that path names a *file*.
+2. The materialization pass could run twice concurrently — once from the timer, once from
+   `POST /mesh/federated/refresh` — with one deleting what the other had just written. Now
+   serialized on a semaphore.
+
+**Still outstanding from M3.** The HTTPS side door's *node* half (ACME, rustls on the gateway,
+`portmapper`, publishing the candidate hostnames) has not shipped, and is the largest single piece
+of M3 left. Multi-version materialization with more than one holder, and the scoring that picks
+between them, are M4 as planned.
 
 ### M4 — Source selection, shared downloads, failover (Opus 5)
 
@@ -760,9 +963,9 @@ join a group with one code; `/security-review` findings triaged.
   PlaybackInfo). Mitigated by using the standard `.strm`/`.nfo` resolver path for the items
   themselves, which has been stable for years and is exercised by the debrid ecosystem; only
   enrichment and MediaSource ordering touch internals, and both are listed in `docs/PATCHES.md`.
-- **Episode multi-version support** may be missing or partial on the vendored Jellyfin. M3
-  verifies; fallback is one best version per episode with failover handled inside the mesh
-  `/stream` endpoint.
+- ~~**Episode multi-version support** may be missing or partial on the vendored Jellyfin.~~
+  **Closed in M3b:** verified working, with the check kept in `tools/e2e-m3.ps1` so an upstream pull
+  that takes it away is noticed. See "What M3b settled".
 - **Titles held both locally and remotely** show only the local copy in v1. Remote alternates are
   still used for dedupe, pin and same-hash failover; exposing them as extra versions of a local
   arr-managed file is deferred because arr treats `.strm` as video.

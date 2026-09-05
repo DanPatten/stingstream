@@ -138,6 +138,25 @@ public sealed class PathRefresher : IPathRefresher
             if (SamePath(item.Path, path))
             {
                 await item.RefreshMetadata(options, cancellationToken).ConfigureAwait(false);
+
+                // A *folder* also has to have its children validated, and RefreshMetadata does not
+                // do that -- it refreshes the folder's own metadata and nothing below it. So a
+                // caller pointing at a season folder that already exists as an item would get the
+                // season re-read and the new episode inside it never noticed. That is not
+                // hypothetical: it is exactly what the federated materializer does, and it is why
+                // M3b's first two-node run produced a Series and a Season with no Episode in it.
+                //
+                // Non-recursive: the caller named this folder, not the tree under it.
+                if (item is Folder known)
+                {
+                    await known.ValidateChildren(
+                            new Progress<double>(),
+                            options,
+                            recursive: false,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 _logger.LogDebug("Refreshed {Item} for {Path}", item.Name, path);
                 return item.Path ?? item.Name ?? path;
             }

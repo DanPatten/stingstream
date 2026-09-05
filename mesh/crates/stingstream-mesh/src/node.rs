@@ -663,8 +663,21 @@ impl MeshNode {
         self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
     }
 
+    /// Group membership and liveness.
+    ///
+    /// This node's own row is marked online for the same reason its index rows are: it is a member
+    /// of every group it belongs to, nothing ever heartbeats on its behalf, and a Group screen that
+    /// showed the user's own node greyed out would be reporting a fault that does not exist.
     pub fn peers(&self, group_id: Option<&GroupId>) -> Result<Vec<PeerRow>> {
-        self.db.peers(group_id)
+        let me = self.node_id();
+        let mut rows = self.db.peers(group_id)?;
+        for row in &mut rows {
+            if row.node == me {
+                row.node_name.clone_from(&self.cfg.node_name);
+                row.online = true;
+            }
+        }
+        Ok(rows)
     }
 
     // --- streaming ----------------------------------------------------------------------------

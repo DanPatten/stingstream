@@ -204,15 +204,27 @@ public sealed class FederatedStore
     /// <returns>The current time.</returns>
     public static string Now() => DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
 
-    /// <summary>Parse a stored timestamp, tolerating one that has been hand-edited into nonsense.</summary>
+    /// <summary>
+    /// Parse a stored timestamp as UTC, tolerating one that has been hand-edited into nonsense.
+    /// </summary>
     /// <param name="value">The stored value.</param>
-    /// <returns>The time, or null.</returns>
+    /// <returns>The time in UTC, or null.</returns>
+    /// <remarks>
+    /// <c>RoundtripKind</c> alone, then <c>ToUniversalTime</c>. Combining it with
+    /// <c>AdjustToUniversal</c> is not merely redundant — .NET throws
+    /// <c>ArgumentException: "The DateTimeStyles value RoundtripKind cannot be used with the values
+    /// AssumeLocal, AssumeUniversal or AdjustToUniversal"</c>. It threw on the first pass after a
+    /// peer went offline, which is the only pass that reaches this, so the failure looked like
+    /// "the unavailable tag never appears" rather than like a date-parsing bug. Everything written
+    /// by <see cref="Now"/> is round-trip format with a Z, so RoundtripKind reads it as UTC and the
+    /// conversion is a no-op; a value with a local offset is converted rather than mis-compared.
+    /// </remarks>
     public static DateTime? Parse(string? value)
         => DateTime.TryParse(
             value,
             CultureInfo.InvariantCulture,
-            DateTimeStyles.RoundtripKind | DateTimeStyles.AdjustToUniversal,
+            DateTimeStyles.RoundtripKind,
             out var parsed)
-            ? parsed
+            ? parsed.ToUniversalTime()
             : null;
 }

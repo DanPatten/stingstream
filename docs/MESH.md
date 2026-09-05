@@ -12,9 +12,34 @@ This document is the reference for both: the wire protocol, the invite format, t
 every API. `docs/ARCHITECTURE.md` is the wider system picture and is owned by M1; where the two
 disagree about the mesh, this file is the newer one.
 
-**Status: M3a.** Groups, discovery, the index, peer streaming and the coordinator are implemented
-and tested. M3b adds the federated-library half inside `StingStream.Core` and the app's URL rewrite;
-M4 adds source scoring and same-hash failover. Both are called out where they touch something here.
+**Status: M3b.** Groups, discovery, the index, peer streaming and the coordinator are implemented
+and tested; the mesh now also runs **inside the supervisor's process** rather than as a child, and
+serves artwork and a capacity heartbeat for the federated library. M3c adds the app's embedded node
+and the URL rewrite; M4 adds source scoring and same-hash failover. Both are called out where they
+touch something here.
+
+### Where the mesh runs
+
+`stingstream` links this crate and calls `MeshNode::spawn` + `api::serve` in its own process
+(`mesh/crates/stingstream/src/embedded_mesh.rs`), which is one fewer process to find, supervise and
+kill, joins the mesh's `tracing` output to the supervisor's structured log, and makes shutdown an
+`await` rather than a signal Windows cannot deliver to another process.
+
+**It still binds the loopback API port.** In-process does not mean "no socket": the local API has
+two other consumers — `StingStream.Core` inside Jellyfin, and the app through the gateway — so it
+has to be listening either way. Given that, the gateway keeps proxying `/stingstream/mesh/*` and
+`/stream/*` over loopback, which is one code path for both modes.
+
+`[mesh] embedded = false` in the node's `config.toml` goes back to supervising the
+`stingstream-mesh` binary; `[children] mesh = false` turns the mesh off entirely. The standalone
+binary is also what the tests and the NAT scenario drive.
+
+**The gateway restricts `/stingstream/mesh/*` to loopback clients.** This API is unauthenticated
+because it binds `127.0.0.1` and anything that can reach it is already on the machine — but the
+gateway binds `0.0.0.0`, and proxying an API that creates groups and mints invite codes onto a LAN
+address would hand the group to anyone on the same Wi-Fi. Everything else goes through
+`/stingstream/api/v1/mesh/*` in `StingStream.Core`, which is the same operations behind Jellyfin's
+own authentication.
 
 ---
 
@@ -153,8 +178,19 @@ Frames are `u32` length-prefixed postcard, capped at 64 KiB.
 | `GET` | `/peer/v1/status` | node name, version, remaining stream capacity |
 | `GET` | `/peer/v1/inventory` | this node's full inventory for the group, as JSON. Used on join, before gossip converges. |
 | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | the file, with full `Range` support |
+| `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | one artwork file, whole |
 
 `file_hash` may be the literal `any` when the caller has not learned the hash yet.
+
+`kind` is one of `primary`, `backdrop`, `logo`, `thumb`, `banner` — an allow-list, so a peer cannot
+name something the serving node would not know where to find. The image route has **no range
+support and takes no stream permit**: artwork is small, a materialising peer wants all of one
+title's at once, and capping posters the way films are capped would stall a node building its
+library behind whoever happens to be watching something. `Cache-Control: public, max-age=86400`,
+because a poster does not change.
+
+Both routes resolve through the serving node's own index, so a peer names an `item_key` and a
+`kind` and never a path — see [`local_images`](#the-inventory-record).
 
 **There is deliberately no path that takes a filesystem path.** A peer names an `item_key` and a
 `file_hash`; the serving node resolves that to a path through its own index. A hostile peer cannot
@@ -243,6 +279,9 @@ heartbeat. Nothing is deleted on going offline; the federated library's grace pe
   "image_urls": ["/peer/v1/image/movie:tmdb:16205/primary"],
   "file_hash": "…",                    // BLAKE3, lowercase hex, computed on import
   "local_path": "/srv/media/…",        // serving side ONLY — see below
+  "local_images": [                    // serving side ONLY — see below
+    { "kind": "primary", "path": "/srv/media/…/poster.jpg" }
+  ],
   "updated_at": "2026-09-05T00:00:00Z"
 }
 ```
@@ -251,9 +290,15 @@ heartbeat. Nothing is deleted on going offline; the federated library's grace pe
 (`movie:tmdb:1234`, `episode:tvdb:73739:s02e05`). The mesh only requires that it is non-empty and
 free of path separators.
 
-**`local_path` cannot be gossiped by accident.** It is not a field of the wire record at all: the
-conversion is `InventoryRecord::to_wire()`, and `WireRecord` simply has no such field. A test
-asserts the serialised wire form contains neither the key nor the path.
+**`local_path` and `local_images` cannot be gossiped by accident.** Neither is a field of the wire
+record at all: the conversion is `InventoryRecord::to_wire()`, and `WireRecord` simply has no such
+fields. A test asserts the serialised wire form contains neither the keys nor the paths, and
+`tools/e2e-m3.ps1` asserts the same thing about a real index that has crossed a real connection.
+
+What *does* travel is `image_urls` — peer *routes*, not paths. `StingStream.Core` publishes one per
+kind it actually holds on disk, and the serving node resolves the kind back to a file through its
+own index when a peer asks. So a peer can fetch a poster without ever learning where it is, and
+cannot ask for anything else.
 
 `updated_at` is RFC 3339 in UTC, which sorts lexicographically in time order — so merging is a
 string comparison and needs no parsing. A record with an unparseable or empty timestamp still merges;
@@ -292,12 +337,32 @@ member's index.
 | `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret |
 | `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
+| `GET`/`PUT` | `/mesh/v1/capacity` | this node's advertised capacity, which rides the heartbeat |
+| `GET` | `/mesh/v1/image/{group}/{item_key}/{node}/{kind}` | one artwork file from a peer |
 | `GET` | `/mesh/v1/index?group=` | the merged index: every node's records with name and liveness |
 | `GET` | `/mesh/v1/peers?group=` | membership, liveness, last observed path and RTT, advertised capacity |
 | `GET` | `/stream/{group}/{item_key}/{node}` | **the playback endpoint** |
 
 Errors are JSON (`{"error": "…"}`) with the full context chain, because the caller is a program and
 the message is the whole point.
+
+### `/mesh/v1/capacity`
+
+`StingStream.Core` pushes `{max_transcodes, active_transcodes, free_space}` on its heartbeat
+interval; the mesh overwrites `max_direct_streams` and `active_direct_streams` from the peer
+server's own semaphore, because that is the number that actually refuses a request and advertising
+anything else would be a figure M4's scorer acts on and is wrong about. The merged value is stored
+in `mesh.db`'s `meta` table rather than in memory: the heartbeat is published by a task that owns
+the database and nothing else, so a row is the smallest thing that connects the two without
+threading a channel through every running group — and it survives a restart, so a node that has
+just come back advertises the truth on its first beat rather than zeroes.
+
+### `/mesh/v1/index`
+
+One thing worth knowing: **this node's own rows come back marked online, with its own name.** The
+database has no `peers` row for the local node — a node is not its own peer — so the raw join would
+report an empty name and `online: false`, which reads as "an offline stranger holds this" to
+anything that does not already know its own node id. `MeshNode::index` fills them in.
 
 ### `/stream/{group}/{item_key}/{node}`
 
@@ -479,6 +544,7 @@ plan.
 | `mesh/crates/stingstream-mesh/tests/two_nodes.rs` | two nodes, one process, **every discovery service off**: create, invite, join, gossip, and a 1 MiB mid-file range out of a 50 MB file with every byte checked against its offset and the iroh path asserted `direct`. Also the range grammar's edges, and a node with the right group id but the wrong secret being refused. |
 | `mesh/crates/stingstream-relay/tests/rendezvous_join.rs` | three real nodes against a live coordinator: **B joins after the inviter has shut down**, via the rendezvous. Plus a check that the raw stored entry carries neither the group id nor the member's name. |
 | `mesh/tests/nat/run.sh` | two nodes on separate `--internal` Docker networks, each behind its own MASQUERADE router, with a Full-mode coordinator on the WAN between them. Asserts there is no route between the LANs, then that the group converges and a 1 MiB range arrives byte-for-byte. Repeats with **all UDP dropped** on one node and asserts the path is `relay`. Linux + Docker; runs in CI. |
+| `tools/e2e-m3.ps1` | the milestone's own acceptance: two *complete* nodes — Jellyfin, both arrs, NZBGet, the mesh — a group with no coordinator, a real invite, and a peer's film materialised into the other node's Jellyfin and played three ways. Runs on Windows and in CI on ubuntu; `docs/RUNNING.md` has the detail. |
 
 CI is `.github/workflows/coordinator.yml`: tests and clippy on Linux and Windows, the NAT scenario,
 and the coordinator image built on every change and pushed to
