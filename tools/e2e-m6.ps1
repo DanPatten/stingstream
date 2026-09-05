@@ -103,12 +103,23 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 # Real provider ids, so the item keys are the ones a real node would build and the dedupe check
 # compares the same strings a real group would.
 
-$SeriesTvdb = 73739           # Lost, as a TVDB id the stub answers for
-$SeriesTitle = 'Lost'
-$SeriesYear = 2004
-$EpisodeRelease = 'Lost.S01E01.1080p.WEB-DL.x264-E2E'
-$EpisodeFileName = 'lost-s01e01.mkv'
+# The Beverly Hillbillies (1962), exactly as M1 and M3 use it, and for the reasons M1 wrote down
+# after finding them the hard way: its first-season episodes are public domain, and TVDB numbers it
+# conventionally as seasons 1..9 rather than by year -- "Popeye the Sailor" has year-numbered
+# seasons, so an S01E01 release matches no episode and Sonarr grabs nothing. Reusing the proven
+# fixture rather than picking a new series keeps this harness's failures about M6.
+$SeriesTvdb = 71471
+$SeriesTitle = 'The Beverly Hillbillies'
+$SeriesYear = 1962
+$EpisodeRelease = 'The.Beverly.Hillbillies.S01E01.1080p.WEB.x264-TEST'
+$EpisodeFileName = "$EpisodeRelease.mkv"
 $EpisodeSeconds = 8
+
+# The size the *release* declares, which is not the size of the file. It has to sit inside the
+# quality definition's MB-per-minute window for WEBDL-1080p or Sonarr rejects the release before it
+# ever downloads -- which is precisely what happened when this harness declared the real 140 KB, and
+# the only symptom was "Season search completed. 0 reports downloaded."
+$EpisodeDeclaredSize = 500MB
 
 $MovieTmdb = 10378            # Big Buck Bunny
 $MovieTitle = 'Big Buck Bunny'
@@ -436,7 +447,7 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
         '--tv-tvdb', $SeriesTvdb,
         '--tv-season', 1,
         '--tv-episode', 1,
-        '--tv-size', (Get-Item (Join-Path $SeedDir $EpisodeFileName)).Length
+        '--tv-size', $EpisodeDeclaredSize
     )
     Wait-ForToolLine -Tool $tool -Pattern '(?m)^ready\s*$' -Seconds 120
 
@@ -550,16 +561,22 @@ Invoke-Step 'Each node advertises what it can fulfil, and they disagree' {
     }
     Write-Host "      A: movies=$($passA.canFulfilMovies) tv=$($passA.canFulfilTv);  B: movies=$($passB.canFulfilMovies) tv=$($passB.canFulfilTv)"
 
-    $peers = Wait-Until -What "A's peer table to carry B's fulfilment flags" -Seconds 120 -PollSeconds 5 -Condition {
+    # And the same answer again through the *other* node's peer table, which is where the routing
+    # decision actually reads it from. The two have to agree, or the router is deciding on something
+    # nobody publishes.
+    $peers = Wait-Until -What "A's peer table to carry B's fulfilment flags" -Seconds 180 -PollSeconds 5 -Condition {
         $rows = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers?group=$($Group.group)" -TimeoutSec 30 } catch { $null }
         if (-not $rows) { return $null }
         $b = $rows | Where-Object { $_.node -eq $NodeB.MeshId } | Select-Object -First 1
-        if ($b -and (Get-Member-Value $b 'canFulfilTv')) { return $b }
+        if ($b -and $b.canFulfilTv) { return $b }
         return $null
+    }
+    if ($peers.canFulfilMovies) {
+        throw "A sees B advertising that it can grab a film, but B has no movie indexer."
     }
     Write-Host ("      A sees B advertising tv={0} movies={1}, {2:N0} bytes free" -f `
         $peers.canFulfilTv, $peers.canFulfilMovies, (Get-Member-Value $peers 'freeSpace'))
-    Add-HarnessNote 'The heartbeat carries can_fulfil_movies / can_fulfil_tv across the group.'
+    Add-HarnessNote 'The heartbeat carries can_fulfil_movies / can_fulfil_tv across the group, per kind.'
 }
 
 # ============================================================================================

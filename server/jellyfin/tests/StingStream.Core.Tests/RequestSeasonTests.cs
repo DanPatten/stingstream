@@ -84,6 +84,82 @@ public class RequestSeasonTests
         Assert.Null(notASeries["seasons"]);
     }
 
+    private static JsonObject Episode(int id, int season, int number, bool monitored, bool hasFile)
+        => new()
+        {
+            ["id"] = id,
+            ["seasonNumber"] = season,
+            ["episodeNumber"] = number,
+            ["monitored"] = monitored,
+            ["hasFile"] = hasFile,
+        };
+
+    [Fact]
+    public void Only_the_monitored_missing_episodes_of_the_wanted_seasons_are_searched_for()
+    {
+        var episodes = new List<JsonObject>
+        {
+            Episode(1, 1, 1, monitored: true, hasFile: false),
+            Episode(2, 1, 2, monitored: true, hasFile: true),   // already here
+            Episode(3, 1, 3, monitored: false, hasFile: false), // not asked for
+            Episode(4, 2, 1, monitored: true, hasFile: false),  // another season
+        };
+
+        Assert.Equal(new[] { 1 }, RequestWorker.MissingEpisodeIds(episodes, new[] { 1 }));
+    }
+
+    [Fact]
+    public void No_seasons_named_means_every_season_but_the_specials()
+    {
+        var episodes = new List<JsonObject>
+        {
+            Episode(10, 0, 1, monitored: true, hasFile: false),
+            Episode(11, 1, 1, monitored: true, hasFile: false),
+            Episode(12, 2, 1, monitored: true, hasFile: false),
+        };
+
+        Assert.Equal(new[] { 11, 12 }, RequestWorker.MissingEpisodeIds(episodes, Array.Empty<int>()));
+    }
+
+    [Fact]
+    public void Episodes_come_back_in_season_then_episode_order()
+    {
+        // Sonarr returns them in whatever order it likes. A search that asks for S02E05 before
+        // S01E01 gets the same releases, but the log reads as though the request were random.
+        var episodes = new List<JsonObject>
+        {
+            Episode(5, 2, 5, monitored: true, hasFile: false),
+            Episode(6, 1, 2, monitored: true, hasFile: false),
+            Episode(7, 1, 1, monitored: true, hasFile: false),
+        };
+
+        Assert.Equal(new[] { 7, 6, 5 }, RequestWorker.MissingEpisodeIds(episodes, new[] { 1, 2 }));
+    }
+
+    [Fact]
+    public void An_episode_with_no_id_is_skipped_rather_than_searched_for_as_zero()
+    {
+        var episodes = new List<JsonObject>
+        {
+            new() { ["seasonNumber"] = 1, ["episodeNumber"] = 1, ["monitored"] = true, ["hasFile"] = false },
+            Episode(9, 1, 2, monitored: true, hasFile: false),
+        };
+
+        Assert.Equal(new[] { 9 }, RequestWorker.MissingEpisodeIds(episodes, new[] { 1 }));
+    }
+
+    [Fact]
+    public void Nothing_missing_is_an_empty_list_rather_than_a_search_for_everything()
+    {
+        // The difference between "we are done" and "ask the indexer about the whole show".
+        var episodes = new List<JsonObject>
+        {
+            Episode(1, 1, 1, monitored: true, hasFile: true),
+        };
+
+        Assert.Empty(RequestWorker.MissingEpisodeIds(episodes, new[] { 1 }));
+    }
+
     [Theory]
     [InlineData("episode:tvdb:73739:s02e05", 2)]
     [InlineData("episode:tvdb:73739:s01e01", 1)]

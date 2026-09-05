@@ -87,6 +87,26 @@ public sealed class RequestWorker : BackgroundService
     /// </remarks>
     public static readonly TimeSpan FulfilDeadline = TimeSpan.FromHours(6);
 
+    /// <summary>
+    /// How often this node will re-ask an indexer about a request it has not yet filled.
+    /// </summary>
+    /// <remarks>
+    /// A fulfilment loop that keeps trying is right — a release that was not on the tracker at 3am
+    /// may be there at 4 — but one that asks every ten seconds for six hours is a denial-of-service
+    /// on somebody's indexer, and the sort of thing that gets a group's account closed.
+    /// </remarks>
+    public static readonly TimeSpan SearchInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How many episodes one search command may name.
+    /// </summary>
+    /// <remarks>
+    /// A request for a whole long-running series is hundreds of episodes, and asking an indexer
+    /// about all of them in one breath is how a group loses its tracker account. The rest are
+    /// picked up on later passes, because the list is recomputed from what is still missing.
+    /// </remarks>
+    public const int MaxEpisodesPerSearch = 100;
+
     private readonly RequestStore _store;
     private readonly RequestNotifier _notifier;
     private readonly IRequestMesh _requestMesh;
@@ -97,6 +117,23 @@ public sealed class RequestWorker : BackgroundService
     private readonly FederatedSourceService _sources;
     private readonly Webhooks.ArrWebhookService _webhooks;
     private readonly ILogger<RequestWorker> _logger;
+
+    /// <summary>
+    /// One pass at a time, whoever asked for it.
+    /// </summary>
+    /// <remarks>
+    /// The timer and <c>POST /requests/pass</c> drive the same instance, and without this they
+    /// overlap: the acceptance harness caught two passes a second apart both reading a request as
+    /// <c>approved</c> and both calling <see cref="GrabAsync"/> for it. Sonarr absorbed the
+    /// duplicate add, so the visible damage was two identical log lines — but the same race on the
+    /// claim path would have this node publish two claims, and "exactly one node grabs it" is the
+    /// property the whole protocol exists to provide. A pass is seconds of loopback HTTP, so
+    /// serializing it costs nothing.
+    /// </remarks>
+    private readonly SemaphoreSlim _pass = new(1, 1);
+
+    /// <summary>When this node last asked an indexer about each request it is fulfilling.</summary>
+    private readonly Dictionary<string, DateTime> _lastSearch = new(StringComparer.Ordinal);
 
     private string _nodeId = string.Empty;
     private string _nodeName = string.Empty;
@@ -161,6 +198,19 @@ public sealed class RequestWorker : BackgroundService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A short report, for the API and the harness.</returns>
     public async Task<RequestPassReport> RunPassAsync(CancellationToken cancellationToken)
+    {
+        await _pass.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await PassAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _pass.Release();
+        }
+    }
+
+    private async Task<RequestPassReport> PassAsync(CancellationToken cancellationToken)
     {
         var report = new RequestPassReport();
         var capability = await CapabilityAsync(cancellationToken).ConfigureAwait(false);
@@ -455,6 +505,10 @@ public sealed class RequestWorker : BackgroundService
             {
                 await GrabAsync(group, row, home, report, cancellationToken).ConfigureAwait(false);
             }
+            else
+            {
+                await KeepFulfillingAsync(row, cancellationToken).ConfigureAwait(false);
+            }
 
             return;
         }
@@ -492,6 +546,7 @@ public sealed class RequestWorker : BackgroundService
                 && c.State is not (ClaimStates.Released or ClaimStates.Failed)) ?? false;
             if (stillClaimed)
             {
+                await KeepFulfillingAsync(row, cancellationToken).ConfigureAwait(false);
                 await CheckDeadlineAsync(group, row, view!, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -576,6 +631,18 @@ public sealed class RequestWorker : BackgroundService
                DateTimeStyles.RoundtripKind,
                out var made)
            || DateTime.UtcNow - made.ToUniversalTime() >= VolunteerDelay;
+
+    /// <summary>
+    /// Keep a grab this node owns moving: monitor the seasons that were asked for, and search.
+    /// </summary>
+    /// <remarks>
+    /// Only series need this. A film is one item: Radarr's add-time search has something to search
+    /// for the moment the movie exists, so there is nothing to come back for.
+    /// </remarks>
+    private Task KeepFulfillingAsync(RequestRow row, CancellationToken cancellationToken)
+        => string.Equals(row.Kind, "series", StringComparison.Ordinal)
+            ? EnsureSeriesSearchAsync(row, cancellationToken)
+            : Task.CompletedTask;
 
     /// <summary>Add the title to this node's arr, monitored, and start a search.</summary>
     private async Task GrabAsync(
@@ -707,23 +774,27 @@ public sealed class RequestWorker : BackgroundService
         await client.PostAsync("movie", body, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Put the series into Sonarr. Monitoring the right seasons, and searching, come later.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <em>not</em> search. Sonarr populates a series' episodes asynchronously
+    /// from its own metadata refresh, so a search issued in the same breath as the add runs over
+    /// zero episodes and finds nothing — with no error anywhere, only
+    /// <c>"Completed search for 0 episodes"</c> in Sonarr's log. The acceptance run found that
+    /// twice before this was split. <see cref="EnsureSeriesSearchAsync"/> does the rest on a later
+    /// pass, once the episodes exist.
+    /// </remarks>
     private async Task AddSeriesAsync(ArrClient client, RequestRow row, CancellationToken cancellationToken)
     {
         var settings = _settings.Get();
         var existing = await client.FindSeriesByTvdbAsync(row.ProviderId, cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
-            ApplySeasons(existing, row.Seasons);
+            // Already tracked, probably unmonitored from a previous "available via group" add.
+            // Monitoring it is enough here; the seasons and the search follow.
             existing["monitored"] = true;
             await client.PutAsync("series/" + existing["id"], existing, cancellationToken).ConfigureAwait(false);
-            await client.CommandAsync(
-                    new JsonObject
-                    {
-                        ["name"] = "SeriesSearch",
-                        ["seriesId"] = existing["id"]!.DeepClone(),
-                    },
-                    cancellationToken)
-                .ConfigureAwait(false);
             return;
         }
 
@@ -751,7 +822,8 @@ public sealed class RequestWorker : BackgroundService
             // Sonarr applies addOptions.monitor *after* the season list, so naming seasons and
             // asking for "all" would quietly monitor everything.
             ["monitor"] = row.Seasons.Count == 0 ? "all" : "none",
-            ["searchForMissingEpisodes"] = true,
+            // No search here. See the remarks above: at this instant the series has no episodes.
+            ["searchForMissingEpisodes"] = false,
             ["searchForCutoffUnmetEpisodes"] = false,
         };
         body["id"] = 0;
@@ -759,28 +831,191 @@ public sealed class RequestWorker : BackgroundService
         // on the resource, so posting one back is rejected.
         body.Remove("languageProfileId");
         await client.PostAsync("series", body, cancellationToken).ConfigureAwait(false);
+    }
 
-        if (row.Seasons.Count > 0)
+    /// <summary>
+    /// Once Sonarr has the episodes, monitor the seasons that were asked for and search for them.
+    /// </summary>
+    /// <param name="row">The request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// Runs on every pass while this node is fulfilling a series request, and does nothing until
+    /// Sonarr reports episodes — which is the whole reason it exists rather than being three lines
+    /// at the end of the add.
+    /// </para>
+    /// <para>
+    /// Re-searching is bounded two ways: nothing is searched while Sonarr already has something
+    /// queued for the series, and even when it does not, a search goes out at most every
+    /// <see cref="SearchInterval"/>. A fulfilment loop that keeps trying is right — a release that
+    /// was not on the indexer at 3am may be there at 4 — but one that asks every ten seconds for
+    /// six hours is a denial-of-service on somebody's tracker.
+    /// </para>
+    /// </remarks>
+    private async Task EnsureSeriesSearchAsync(RequestRow row, CancellationToken cancellationToken)
+    {
+        var client = _arrs.Create(ArrKind.Sonarr);
+        if (client is null)
         {
-            // addOptions.monitor = "none" leaves every episode unmonitored, so the seasons the
-            // request actually named have to be searched explicitly. Sonarr's own UI does the same
-            // thing when you add a series with a subset of seasons ticked.
-            var created = await client.FindSeriesByTvdbAsync(row.ProviderId, cancellationToken).ConfigureAwait(false);
-            if (created?["id"] is not null)
+            return;
+        }
+
+        try
+        {
+            var series = await client.FindSeriesByTvdbAsync(row.ProviderId, cancellationToken).ConfigureAwait(false);
+            if (series?["id"] is null)
             {
-                ApplySeasons(created, row.Seasons);
-                await client.PutAsync("series/" + created["id"], created, cancellationToken).ConfigureAwait(false);
-                await client.CommandAsync(
-                        new JsonObject
-                        {
-                            ["name"] = "SeasonSearch",
-                            ["seriesId"] = created["id"]!.DeepClone(),
-                            ["seasonNumber"] = row.Seasons[0],
-                        },
-                        cancellationToken)
+                return;
+            }
+
+            var seriesId = series["id"]!.GetValue<int>();
+            var episodes = await client
+                .ListAsync($"episode?seriesId={seriesId.ToString(CultureInfo.InvariantCulture)}", cancellationToken)
+                .ConfigureAwait(false);
+            if (episodes.Count == 0)
+            {
+                // Sonarr is still refreshing the series from its metadata provider. Nothing to
+                // monitor and nothing to search; the next pass is ten seconds away.
+                return;
+            }
+
+            var before = MonitoredSeasons(series);
+            ApplySeasons(series, row.Seasons);
+            var after = MonitoredSeasons(series);
+            if (!before.SetEquals(after))
+            {
+                await client
+                    .PutAsync("series/" + seriesId.ToString(CultureInfo.InvariantCulture), series, cancellationToken)
                     .ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Monitoring season(s) {Seasons} of {Title} for request {Id}",
+                    after.Count == 0 ? "none" : string.Join(", ", after),
+                    row.Describe(),
+                    row.Id);
+            }
+
+            // Anything already queued for this series means a release was found and is coming.
+            var queued = await client.QueueAsync(cancellationToken).ConfigureAwait(false);
+            if (queued.Any(q => q["seriesId"]?.GetValue<int?>() == seriesId))
+            {
+                return;
+            }
+
+            if (_lastSearch.TryGetValue(row.Id, out var last) && DateTime.UtcNow - last < SearchInterval)
+            {
+                return;
+            }
+
+            var wanted = MissingEpisodeIds(episodes, row.Seasons);
+            if (wanted.Count == 0)
+            {
+                // Everything asked for is already on disk. The watch step will notice on this same
+                // pass or the next one.
+                return;
+            }
+
+            _lastSearch[row.Id] = DateTime.UtcNow;
+            var ids = new JsonArray();
+            foreach (var id in wanted.Take(MaxEpisodesPerSearch))
+            {
+                ids.Add(id);
+            }
+
+            await client
+                .CommandAsync(
+                    new JsonObject { ["name"] = "EpisodeSearch", ["episodeIds"] = ids },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Searching for {Count} missing episode(s) of {Title} ({Seasons}) for request {Id}",
+                Math.Min(wanted.Count, MaxEpisodesPerSearch),
+                row.Describe(),
+                row.Seasons.Count == 0 ? "every season" : "season " + string.Join(", ", row.Seasons),
+                row.Id);
+        }
+        catch (ArrApiException ex)
+        {
+            // Sonarr may be busy or restarting. The next pass tries again; the deadline is what
+            // eventually gives up.
+            _logger.LogDebug(ex, "Could not set up the search for request {Id}", row.Id);
+        }
+    }
+
+    /// <summary>
+    /// The ids of the monitored episodes that have no file, in the seasons the request named.
+    /// </summary>
+    /// <param name="episodes">Sonarr's episode list for the series.</param>
+    /// <param name="seasons">Seasons wanted; empty means every season except specials.</param>
+    /// <returns>The episode ids, in season and episode order.</returns>
+    /// <remarks>
+    /// <b>Episodes, not a season.</b> Sonarr's <c>SeasonSearch</c> asks an indexer for a season
+    /// *pack*, and its decision maker then rejects a single-episode release for a season with
+    /// thirty-five other episodes missing — correctly, but it means a tracker that carries episodes
+    /// and not packs yields "Processing 1 releases" followed by "0 reports downloaded", with the
+    /// rejection only at Sonarr's debug level. The acceptance run sat on exactly that for two full
+    /// fifteen-minute waits. <c>EpisodeSearch</c> over the missing episodes is what a person
+    /// pressing search on an episode does, and it is what the request actually wants: the episodes
+    /// that are not here yet.
+    /// </remarks>
+    public static List<int> MissingEpisodeIds(IReadOnlyList<JsonObject> episodes, IReadOnlyList<int> seasons)
+    {
+        ArgumentNullException.ThrowIfNull(episodes);
+        ArgumentNullException.ThrowIfNull(seasons);
+        var wanted = new List<(int Season, int Number, int Id)>();
+        foreach (var episode in episodes)
+        {
+            var season = episode["seasonNumber"]?.GetValue<int?>() ?? -1;
+            var id = episode["id"]?.GetValue<int?>() ?? 0;
+            if (id <= 0 || season < 0)
+            {
+                continue;
+            }
+
+            // Season 0 is the specials folder, and "the whole show" does not include it.
+            if (seasons.Count == 0 ? season == 0 : !seasons.Contains(season))
+            {
+                continue;
+            }
+
+            if (episode["monitored"]?.GetValue<bool?>() != true)
+            {
+                continue;
+            }
+
+            if (episode["hasFile"]?.GetValue<bool?>() == true)
+            {
+                continue;
+            }
+
+            wanted.Add((season, episode["episodeNumber"]?.GetValue<int?>() ?? 0, id));
+        }
+
+        return wanted
+            .OrderBy(e => e.Season)
+            .ThenBy(e => e.Number)
+            .Select(e => e.Id)
+            .ToList();
+    }
+
+    /// <summary>The season numbers currently monitored on a Sonarr series resource.</summary>
+    private static HashSet<int> MonitoredSeasons(JsonObject series)
+    {
+        var monitored = new HashSet<int>();
+        if (series["seasons"] is JsonArray list)
+        {
+            foreach (var season in list.OfType<JsonObject>())
+            {
+                if (season["monitored"]?.GetValue<bool?>() == true
+                    && season["seasonNumber"]?.GetValue<int?>() is int number)
+                {
+                    monitored.Add(number);
+                }
             }
         }
+
+        return monitored;
     }
 
     /// <summary>
@@ -970,6 +1205,13 @@ public sealed class RequestWorker : BackgroundService
         }
 
         _logger.LogWarning("Request {Id} ({Title}) failed: {Note}", row.Id, row.Describe(), note);
+    }
+
+    /// <inheritdoc />
+    public override void Dispose()
+    {
+        _pass.Dispose();
+        base.Dispose();
     }
 
     private async Task<List<string>> HoldersAsync(RequestRow row, CancellationToken cancellationToken)
