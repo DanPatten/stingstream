@@ -207,45 +207,63 @@ pub fn find_dotnet_entry_deep(root: &Path, stem: &str, depth: usize) -> Option<D
     None
 }
 
-/// The assembly stem each child's entry point uses.
-pub fn dotnet_stem(child: &str) -> &'static str {
+/// The assembly names a child's entry point may have, most-likely first.
+///
+/// More than one, because the arrs' console project does not emit the same assembly name
+/// everywhere: on Windows `src/NzbDrone.Console` produces `Radarr.Console`, because the name
+/// `Radarr` belongs to the tray application; on Linux there is no tray application and the same
+/// project produces plain `Radarr`. Sonarr is identical.
+pub fn dotnet_stems(child: &str) -> &'static [&'static str] {
     match child {
-        "jellyfin" => "jellyfin",
-        "radarr" => "Radarr.Console",
-        "sonarr" => "Sonarr.Console",
-        _ => "",
+        "jellyfin" => &["jellyfin"],
+        "radarr" => &["Radarr.Console", "Radarr"],
+        "sonarr" => &["Sonarr.Console", "Sonarr"],
+        _ => &[],
     }
+}
+
+/// The most likely assembly name for a child, for messages and tests.
+pub fn dotnet_stem(child: &str) -> &'static str {
+    dotnet_stems(child).first().copied().unwrap_or("")
 }
 
 /// Resolve a .NET child's entry point in `--dev`.
 pub fn resolve_dev_dotnet(repo_root: &Path, child: &str) -> Result<DotnetEntry> {
-    let stem = dotnet_stem(child);
+    let stems = dotnet_stems(child);
     let dirs = dev_output_dirs(repo_root, child);
     for dir in &dirs {
-        if let Some(entry) = find_dotnet_entry(dir, stem) {
-            return Ok(entry);
+        for stem in stems {
+            if let Some(entry) = find_dotnet_entry(dir, stem) {
+                return Ok(entry);
+            }
         }
     }
 
-    // The expected paths missed. Search the output root before giving up: Radarr and Sonarr set a
-    // per-platform RuntimeIdentifier, so on Linux their entry point sits a level deeper than it
-    // does on Windows.
+    // The expected paths missed. Search before giving up: a build can land somewhere the list
+    // above does not anticipate, and chasing that down from "no build output found" alone costs a
+    // full CI cycle.
     let roots = dev_search_roots(repo_root, child);
     for root in &roots {
-        if let Some(entry) = find_dotnet_entry_deep(root, stem, 4) {
-            tracing::debug!(
-                child,
-                path = %entry.program().display(),
-                "found the build output by searching rather than at the expected path"
-            );
-            return Ok(entry);
+        for stem in stems {
+            if let Some(entry) = find_dotnet_entry_deep(root, stem, 4) {
+                tracing::debug!(
+                    child,
+                    path = %entry.program().display(),
+                    "found the build output by searching rather than at the expected path"
+                );
+                return Ok(entry);
+            }
         }
     }
 
     anyhow::bail!(
-        "{child}: no build output found. Looked for {stem}{exe} or {stem}.dll in [{expected}], \
-         and searched [{searched}]. Build it first -- see docs/RUNNING.md.",
-        exe = std::env::consts::EXE_SUFFIX,
+        "{child}: no build output found. Looked for [{names}] in [{expected}], and searched \
+         [{searched}]. Build it first -- see docs/RUNNING.md.",
+        names = stems
+            .iter()
+            .map(|s| format!("{s}{}/{s}.dll", std::env::consts::EXE_SUFFIX))
+            .collect::<Vec<_>>()
+            .join(", "),
         expected = dirs
             .iter()
             .map(|d| d.display().to_string())
@@ -262,7 +280,9 @@ pub fn resolve_dev_dotnet(repo_root: &Path, child: &str) -> Result<DotnetEntry> 
 /// Resolve a .NET child's entry point in an installed node: `<install>/bin/<child>/`.
 pub fn resolve_prod_dotnet(install_root: &Path, child: &str) -> Result<DotnetEntry> {
     let dir = install_root.join("bin").join(child);
-    find_dotnet_entry(&dir, dotnet_stem(child))
+    dotnet_stems(child)
+        .iter()
+        .find_map(|stem| find_dotnet_entry(&dir, stem))
         .with_context(|| format!("{child}: no executable in {}", dir.display()))
 }
 
@@ -508,5 +528,25 @@ mod tests {
         assert_eq!(dotnet_stem("jellyfin"), "jellyfin");
         assert_eq!(dotnet_stem("radarr"), "Radarr.Console");
         assert_eq!(dotnet_stem("sonarr"), "Sonarr.Console");
+        // The Linux name, which the Windows one hides: no tray application there, so the console
+        // project takes the plain name.
+        assert!(dotnet_stems("radarr").contains(&"Radarr"));
+        assert!(dotnet_stems("sonarr").contains(&"Sonarr"));
+    }
+
+    #[test]
+    fn resolve_dev_dotnet_accepts_the_linux_assembly_name() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        // What a Linux build produces: _output/net8.0/Radarr.dll, not Radarr.Console.dll.
+        touch(&root
+            .join("server")
+            .join("radarr")
+            .join("_output")
+            .join("net8.0")
+            .join("Radarr.dll"));
+
+        let entry = resolve_dev_dotnet(root, "radarr").unwrap();
+        assert!(entry.leading_args()[0].ends_with("Radarr.dll"), "{entry:?}");
     }
 }
