@@ -52,7 +52,19 @@ class StingstreamMeshModule : Module() {
   private var handle: MeshHandle? = null
   private var lastDataDir: String? = null
   private var lastConfigJson: String = ""
-  private var idleTimeoutMs: Long = defaultIdleTimeoutMs()
+  /**
+   * `null` until something sets it, at which point [effectiveIdleTimeoutMs] stops asking for the
+   * default.
+   *
+   * Deliberately **not** initialised to `defaultIdleTimeoutMs()`. A property initialiser runs in
+   * the constructor, the default depends on whether this is a television, and asking that means
+   * reading `appContext` — which Expo does not attach until after the module is constructed. Doing
+   * it eagerly threw `IllegalArgumentException: You attempted to access the app context before the
+   * module was created` out of `ModuleRegistry.register`, which is not a mesh failure but a
+   * **whole-app startup crash**: no module registers, no JS runs, every screen is gone. Nothing in
+   * a module's constructor may touch `appContext`.
+   */
+  private var idleTimeoutMs: Long? = null
 
   /** Set while a player is using the node, which suspends the idle timeout entirely. */
   private val keepAwake = AtomicBoolean(false)
@@ -95,9 +107,14 @@ class StingstreamMeshModule : Module() {
    * running a TV image does too, which is what the acceptance run depends on.
    */
   private val isTelevision: Boolean
-    get() = appContext.reactContext
-      ?.packageManager
-      ?.hasSystemFeature("android.software.leanback") == true
+    get() = runCatching {
+      // `appContext` throws rather than returning null before the module is attached, so this is
+      // wrapped: a caller that asks too early gets "not a television" instead of taking the app
+      // down. Every real caller runs after OnCreate, where the answer is correct.
+      appContext.reactContext
+        ?.packageManager
+        ?.hasSystemFeature("android.software.leanback") == true
+    }.getOrDefault(false)
 
   override fun definition() = ModuleDefinition {
     Name("StingstreamMesh")
@@ -245,11 +262,19 @@ class StingstreamMeshModule : Module() {
   @Volatile
   private var backgrounded = false
 
-  private fun defaultIdleTimeoutMs(): Long = if (isTelevision) -1L else DEFAULT_PHONE_IDLE_MS
+  /**
+   * How long the node may stay up in the background with nothing playing.
+   *
+   * Resolved on use rather than at construction: a television is mains-powered and is the member
+   * the rest of the group most wants to find online, so it never idles out — but "is this a
+   * television" is a question only the app context can answer.
+   */
+  private fun effectiveIdleTimeoutMs(): Long =
+    idleTimeoutMs ?: if (isTelevision) NEVER_IDLE else DEFAULT_PHONE_IDLE_MS
 
   private fun scheduleIdleTimerIfBackgrounded() {
     if (!backgrounded || keepAwake.get() || handle == null) return
-    val timeout = idleTimeoutMs
+    val timeout = effectiveIdleTimeoutMs()
     if (timeout < 0) return // "never" — the TV default
     cancelIdleTimer()
     idleJob = scope.launch {
@@ -417,6 +442,9 @@ class StingstreamMeshModule : Module() {
      * a pocket is not holding a QUIC socket open all afternoon.
      */
     const val DEFAULT_PHONE_IDLE_MS = 5 * 60 * 1000L
+
+    /** Any negative value means "never stop"; this one names it. */
+    const val NEVER_IDLE = -1L
   }
 }
 
