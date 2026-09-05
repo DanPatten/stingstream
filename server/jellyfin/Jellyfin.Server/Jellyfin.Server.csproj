@@ -66,6 +66,9 @@
     <ProjectReference Include="..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
     <ProjectReference Include="..\src\Jellyfin.MediaEncoding.Hls\Jellyfin.MediaEncoding.Hls.csproj" />
     <ProjectReference Include="..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
+    <!-- StingStream: the StingStream API, torrent engine, Omniarr sync and inventory,
+         hosted inside Jellyfin's process. See docs/PATCHES.md. -->
+    <ProjectReference Include="..\src\StingStream.Core\StingStream.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

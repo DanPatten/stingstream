@@ -32,6 +32,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Primitives;
 using Prometheus;
+using StingStream.Core;
 
 namespace Jellyfin.Server
 {
@@ -77,6 +78,14 @@ namespace Jellyfin.Server
             services.AddCustomAuthentication();
 
             services.AddJellyfinApiAuthorization();
+
+            // StingStream patch: register StingStream.Core.
+            //
+            // Placed here deliberately -- after AddJellyfinApi (so MVC and its ApplicationParts
+            // exist and SwaggerGenOptions can be extended with a second document) and after
+            // AddJellyfinApiAuthorization (so Core's controllers can use Jellyfin's own policies).
+            // Everything else about Core lives in src/StingStream.Core. See docs/PATCHES.md.
+            services.AddStingStreamCore();
 
             var productHeader = new ProductInfoHeaderValue(
                 _serverApplicationHost.Name.Replace(' ', '-'),
@@ -229,6 +238,11 @@ namespace Jellyfin.Server
                 mainApp.UseStaticFiles();
                 mainApp.UseAuthentication();
                 mainApp.UseJellyfinApiSwagger(_serverConfigurationManager);
+
+                // StingStream patch: serve the StingStream OpenAPI document alongside Jellyfin's.
+                // Inside the app.Map(BaseUrl, ...) lambda like everything else, so the spec is
+                // reachable at {BaseUrl}/stingstream/api/v1/openapi.json. See docs/PATCHES.md.
+                mainApp.UseStingStreamCore();
                 mainApp.UseQueryStringDecoding();
                 mainApp.UseRouting();
                 mainApp.UseAuthorization();

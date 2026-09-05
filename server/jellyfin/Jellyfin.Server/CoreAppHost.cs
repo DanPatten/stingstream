@@ -31,6 +31,7 @@ using MediaBrowser.Providers.Lyric;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using StingStream.Core;
 
 namespace Jellyfin.Server
 {
@@ -125,6 +126,15 @@ namespace Jellyfin.Server
 
             // Jellyfin.LiveTv
             yield return typeof(LiveTvManager).Assembly;
+
+            // StingStream patch: StingStream.Core.
+            //
+            // AddJellyfinApi clears every auto-discovered ApplicationPart and re-adds only
+            // Jellyfin.Api plus the assemblies GetApiPluginAssemblies() reports, and that list is
+            // derived from the types this method's output contributes. So a plain ProjectReference
+            // is not enough to make Core's controllers routable -- this line is. See
+            // docs/PATCHES.md.
+            yield return StingStreamCoreMarker.Assembly;
         }
     }
 }

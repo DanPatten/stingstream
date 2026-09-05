@@ -15,7 +15,14 @@ namespace Jellyfin.Server.Filters;
 /// </summary>
 internal sealed class CachingOpenApiProvider : ISwaggerProvider
 {
-    private const string CacheKey = "openapi.json";
+    // StingStream patch: the cache key must include the document name.
+    //
+    // Upstream keys this cache on a bare constant while GetSwagger() takes a documentName, so with
+    // more than one Swagger document registered whichever one is requested first is cached and
+    // then returned for *every* document URL. StingStream registers a second document
+    // ("openapi", served at /stingstream/api/v1/openapi.json) alongside Jellyfin's own
+    // "api-docs", so without this the two specs collide. See docs/PATCHES.md.
+    private const string CacheKeyPrefix = "openapi.json:";
 
     private static readonly MemoryCacheEntryOptions _cacheOptions = new() { SlidingExpiration = TimeSpan.FromMinutes(5) };
     private static readonly AsyncNonKeyedLocker _lock = new(1);
@@ -50,13 +57,14 @@ internal sealed class CachingOpenApiProvider : ISwaggerProvider
     /// <inheritdoc />
     public OpenApiDocument GetSwagger(string documentName, string host, string basePath)
     {
-        if (_memoryCache.TryGetValue(CacheKey, out OpenApiDocument? openApiDocument) && openApiDocument is not null)
+        var cacheKey = CacheKeyPrefix + documentName;
+        if (_memoryCache.TryGetValue(cacheKey, out OpenApiDocument? openApiDocument) && openApiDocument is not null)
         {
             return AdjustDocument(openApiDocument, host, basePath);
         }
 
         using var acquired = _lock.LockOrNull(_lockTimeout);
-        if (_memoryCache.TryGetValue(CacheKey, out openApiDocument) && openApiDocument is not null)
+        if (_memoryCache.TryGetValue(cacheKey, out openApiDocument) && openApiDocument is not null)
         {
             return AdjustDocument(openApiDocument, host, basePath);
         }
@@ -76,7 +84,7 @@ internal sealed class CachingOpenApiProvider : ISwaggerProvider
             throw;
         }
 
-        _memoryCache.Set(CacheKey, openApiDocument, _cacheOptions);
+        _memoryCache.Set(cacheKey, openApiDocument, _cacheOptions);
         return AdjustDocument(openApiDocument, host, basePath);
     }
 
