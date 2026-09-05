@@ -107,6 +107,15 @@ pub struct PeerConfig {
     /// happily keep trying to reach a node that is switched off for far longer than a person is
     /// willing to watch a spinner. This bounds each attempt.
     pub join_dial_timeout_secs: u64,
+
+    /// **Light node.** A phone or a TV joins a group to *dial* sources, not to be one: it holds no
+    /// library, publishes no inventory and serves no files. Setting this makes that a property of
+    /// the node rather than a convention — the peer server refuses `/peer/v1/file` outright
+    /// (`403`), so a stale pointer on someone else's node cannot turn a phone into an origin.
+    ///
+    /// Set by `stingstream-mesh-ffi` for the embedded node inside the app; a full node leaves it
+    /// `false`. See `docs/APP-MESH.md`.
+    pub light: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +170,7 @@ impl Default for PeerConfig {
             stream_chunk_bytes: 256 * 1024,
             max_transcodes: 2,
             join_dial_timeout_secs: 12,
+            light: false,
         }
     }
 }

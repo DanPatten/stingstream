@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -31,6 +32,15 @@ public interface IInventoryService
     /// <summary>One record by item key.</summary>
     InventoryRecord? ByKey(string itemKey);
 
+    /// <summary>Drop the record for one item key, e.g. when its file has gone.</summary>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when a record was removed.</returns>
+    Task<bool> RemoveAsync(string itemKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Every item key this node holds.</summary>
+    IReadOnlyCollection<string> Keys { get; }
+
     /// <summary>How many records are stored.</summary>
     long Count { get; }
 }
@@ -54,6 +64,7 @@ public sealed class InventoryService : IInventoryService
     private readonly IMediaSourceManager _mediaSources;
     private readonly CoreDatabase _db;
     private readonly HashingService _hashing;
+    private readonly InventoryChangeFeed _changes;
     private readonly ILogger<InventoryService> _logger;
 
     public InventoryService(
@@ -61,17 +72,25 @@ public sealed class InventoryService : IInventoryService
         IMediaSourceManager mediaSources,
         CoreDatabase db,
         HashingService hashing,
+        InventoryChangeFeed changes,
         ILogger<InventoryService> logger)
     {
         _library = library;
         _mediaSources = mediaSources;
         _db = db;
         _hashing = hashing;
+        _changes = changes;
         _logger = logger;
     }
 
     /// <inheritdoc />
     public long Count => _db.Read(c => CoreDatabase.ScalarLong(c, "SELECT COUNT(*) FROM inventory;")) ?? 0;
+
+    /// <inheritdoc />
+    public IReadOnlyCollection<string> Keys => _db.Read(c => CoreDatabase.Query(
+        c,
+        "SELECT item_key FROM inventory;",
+        r => r.GetString(0)));
 
     /// <inheritdoc />
     public async Task<int> RebuildAllAsync(CancellationToken cancellationToken = default)
@@ -87,6 +106,7 @@ public sealed class InventoryService : IInventoryService
 
         var items = _library.GetItemList(query);
         var built = 0;
+        var alive = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -94,11 +114,36 @@ public sealed class InventoryService : IInventoryService
             if (record is not null)
             {
                 await StoreAsync(record, cancellationToken).ConfigureAwait(false);
+                alive.Add(record.ItemKey);
                 built++;
             }
         }
 
-        _logger.LogInformation("Rebuilt {Built} inventory record(s) from {Total} local item(s)", built, items.Count);
+        // A rebuild is also the only reconciliation this node gets. Without it a title whose file
+        // was deleted stays in the inventory -- and therefore in every other node's federated
+        // library -- until somebody notices. The arrs' delete webhooks cover the common case; this
+        // covers a file removed by hand, a library unmounted, or a delete webhook that never
+        // arrived.
+        var pruned = 0;
+        foreach (var stale in Keys)
+        {
+            if (alive.Contains(stale))
+            {
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await RemoveAsync(stale, cancellationToken).ConfigureAwait(false))
+            {
+                pruned++;
+            }
+        }
+
+        _logger.LogInformation(
+            "Rebuilt {Built} inventory record(s) from {Total} local item(s); pruned {Pruned}",
+            built,
+            items.Count,
+            pruned);
         return built;
     }
 
@@ -166,6 +211,30 @@ public sealed class InventoryService : IInventoryService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<bool> RemoveAsync(string itemKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(itemKey))
+        {
+            return false;
+        }
+
+        var removed = 0;
+        await _db.WriteAsync(
+            c => removed = CoreDatabase.Execute(
+                c,
+                "DELETE FROM inventory WHERE item_key = $k;",
+                ("$k", itemKey)),
+            cancellationToken).ConfigureAwait(false);
+
+        if (removed > 0)
+        {
+            _changes.Removed(itemKey);
+        }
+
+        return removed > 0;
+    }
+
     // --- building ----------------------------------------------------------
 
     /// <summary>Build a record for one item, or <see langword="null"/> when it is not inventory.</summary>
@@ -198,6 +267,7 @@ public sealed class InventoryService : IInventoryService
             JellyfinItemId = item.Id.ToString("N"),
             Kind = item is Movie ? "movie" : "episode",
             LocalPath = item.Path,
+            LocalImages = BuildLocalImages(item),
             Media = BuildMediaSummary(item),
             Metadata = BuildMetadata(item),
             FileHash = _hashing.HashOf(item.Path),
@@ -213,7 +283,15 @@ public sealed class InventoryService : IInventoryService
         return record;
     }
 
-    private Task StoreAsync(InventoryRecord record, CancellationToken cancellationToken)
+    private async Task StoreAsync(InventoryRecord record, CancellationToken cancellationToken)
+    {
+        await StoreOnlyAsync(record, cancellationToken).ConfigureAwait(false);
+        // Whoever publishes to the mesh drains this on a short timer, so an import storm becomes
+        // one delta rather than one per file.
+        _changes.Upserted(record.ItemKey);
+    }
+
+    private Task StoreOnlyAsync(InventoryRecord record, CancellationToken cancellationToken)
         => _db.WriteAsync(
             c => CoreDatabase.Execute(
                 c,
@@ -304,6 +382,46 @@ public sealed class InventoryService : IInventoryService
         }
 
         return (null, null);
+    }
+
+    /// <summary>
+    /// Where this item's artwork actually is on disk, so the mesh can serve it to a peer.
+    /// </summary>
+    /// <remarks>
+    /// A peer materialising this title needs real image *files*, not a Jellyfin URL it would have
+    /// to authenticate against. The mesh's <c>/peer/v1/image/{item_key}/{kind}</c> route resolves
+    /// a kind back to one of these paths through the mesh's own index — the same shape as the file
+    /// route, and for the same reason: the caller names what it wants, never where it is.
+    ///
+    /// Only images Jellyfin has *locally* are listed. An item whose poster is still a remote URL
+    /// Jellyfin has not downloaded yet simply has no entry until it does; the next refresh picks
+    /// it up.
+    /// </remarks>
+    private Dictionary<string, string> BuildLocalImages(BaseItem item)
+    {
+        var images = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var type in _publishedImages)
+        {
+            try
+            {
+                var info = item.GetImageInfo(type, 0);
+                if (info is null || info.IsLocalFile is false || string.IsNullOrWhiteSpace(info.Path))
+                {
+                    continue;
+                }
+
+                if (System.IO.File.Exists(info.Path))
+                {
+                    images[type.ToString().ToLowerInvariant()] = info.Path;
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException)
+            {
+                _logger.LogDebug(ex, "Could not read the {Type} image path for {Name}", type, item.Name);
+            }
+        }
+
+        return images;
     }
 
     private MediaSummary BuildMediaSummary(BaseItem item)

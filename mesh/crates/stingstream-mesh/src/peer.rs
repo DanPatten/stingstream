@@ -12,6 +12,7 @@
 //! |---|---|---|
 //! | `GET` | `/peer/v1/inventory` | The publisher's full inventory for the group, as JSON. Used on join, before gossip has converged. |
 //! | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | The file itself, with full `Range` support. |
+//! | `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | One artwork file — poster, backdrop, logo, thumb or banner — so a peer can materialize this title with real images and no metadata provider. |
 //! | `GET` | `/peer/v1/status` | Node name, version and current stream count. |
 //!
 //! Everything else is a 404. There is deliberately no path that takes a filesystem path: a peer
@@ -173,6 +174,27 @@ pub struct PeerState {
     /// Caps concurrent file streams, so one peer cannot starve the rest.
     pub streams: Arc<Semaphore>,
     pub chunk_bytes: usize,
+    /// This node is a light member: it holds no library and serves no files. See
+    /// [`crate::config::PeerConfig::light`] and [`light_node_refuses`].
+    pub light: bool,
+}
+
+/// Whether a light node should refuse this peer route outright.
+///
+/// A light node — the mesh embedded in the phone or TV app — joins a group to dial sources, not to
+/// be one. It still answers `/peer/v1/status` (so members can see it is alive) and
+/// `/peer/v1/inventory` (which is empty, and saying so beats timing out), but never serves
+/// content: neither file bytes nor the artwork a materialising node fetches over `/peer/v1/image`.
+///
+/// The rule is "no content route", not "no `file` route", so a route added later is refused by
+/// default rather than quietly opening a phone up as an origin.
+///
+/// Split out from [`serve`] because the request type it dispatches on cannot be constructed
+/// outside `hyper`, and a rule this load-bearing deserves a test that does not need two live QUIC
+/// endpoints to run.
+pub fn light_node_refuses(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    matches!(segments.as_slice(), ["peer", "v1", "file" | "image", ..])
 }
 
 /// The `iroh` protocol handler for `stingstream/http/1`.
@@ -290,6 +312,14 @@ async fn serve(
     let method = req.method().clone();
     tracing::debug!(%group, peer = %peer.fmt_short(), %method, path, "peer request");
 
+    if state.light && light_node_refuses(&path) {
+        tracing::debug!(%group, peer = %peer.fmt_short(), path, "refusing a file request: this node is a light member");
+        return status(
+            StatusCode::FORBIDDEN,
+            "this node is a light member of the group and serves no files",
+        );
+    }
+
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match segments.as_slice() {
         ["peer", "v1", "status"] => {
@@ -318,6 +348,15 @@ async fn serve(
                     status(StatusCode::INTERNAL_SERVER_ERROR, "inventory unavailable")
                 }
             }
+        }
+        ["peer", "v1", "image", item_key, kind] => {
+            if method != Method::GET && method != Method::HEAD {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            let Some(item_key) = percent_decode(item_key) else {
+                return status(StatusCode::BAD_REQUEST, "malformed item key");
+            };
+            serve_image(state, group, &item_key, kind).await
         }
         ["peer", "v1", "file", item_key, file_hash] => {
             if method != Method::GET && method != Method::HEAD {
@@ -379,6 +418,77 @@ fn percent_decode(s: &str) -> Option<String> {
         return None;
     }
     Some(decoded)
+}
+
+/// `GET /peer/v1/image/{item_key}/{kind}` — one artwork file, whole.
+///
+/// Images are small and a materializing peer wants all of one title's at once, so there is no
+/// range support here and no stream permit: capping posters the way films are capped would stall a
+/// node building its library behind whoever happens to be watching something.
+///
+/// The path is resolved through this node's own index exactly as the file route is, so a peer
+/// names a *kind*, never a path. A kind this node does not hold is a 404, which is the honest
+/// answer and tells the materializer to move on rather than retry.
+async fn serve_image(
+    state: Arc<PeerState>,
+    group: GroupId,
+    item_key: &str,
+    kind: &str,
+) -> Response<PeerBody> {
+    // An allow-list, not validation: it keeps a peer from asking for something this node would not
+    // know where to put, and keeps arbitrary text out of anything built from the kind.
+    if !matches!(kind, "primary" | "backdrop" | "logo" | "thumb" | "banner") {
+        return status(StatusCode::NOT_FOUND, "no such image kind");
+    }
+
+    let me = state.node_key.public().to_string();
+    let found = match state.db.local_image_for(&group, &me, item_key, kind) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!(error = %e, "looking up a local image");
+            return status(StatusCode::INTERNAL_SERVER_ERROR, "index unavailable");
+        }
+    };
+    let Some(path) = found else {
+        return status(
+            StatusCode::NOT_FOUND,
+            "this node holds no such image for that item",
+        );
+    };
+
+    // Artwork is at most a couple of megabytes, so reading it whole is simpler than streaming it
+    // and cannot leave a half-written file on the far end.
+    let bytes = match tokio::fs::read(&path).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(path, error = %e, "a published image is missing on disk");
+            return status(StatusCode::NOT_FOUND, "the image is no longer on this node");
+        }
+    };
+    let content_type = image_content_type(&path);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, bytes.len())
+        .header(header::CACHE_CONTROL, "public, max-age=86400")
+        .body(full(bytes))
+        .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR, "could not build a response"))
+}
+
+/// Content type from the extension. Jellyfin only ever writes these.
+fn image_content_type(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "image/jpeg"
+    }
 }
 
 async fn serve_file(
@@ -631,6 +741,27 @@ pub async fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_light_node_refuses_file_routes_and_nothing_else() {
+        assert!(light_node_refuses("/peer/v1/file/movie:tmdb:16205/any"));
+        assert!(light_node_refuses("/peer/v1/file/"));
+        // M3b's artwork route: a light node holds no images either.
+        assert!(light_node_refuses("/peer/v1/image/movie:tmdb:16205/primary"));
+        // Status and inventory still answer: a light member is visible and honestly empty.
+        assert!(!light_node_refuses("/peer/v1/status"));
+        assert!(!light_node_refuses("/peer/v1/inventory"));
+        assert!(!light_node_refuses("/peer/v1/files/x/y"));
+    }
+
+    #[test]
+    fn image_content_types_follow_the_extension() {
+        assert_eq!(image_content_type("/a/poster.png"), "image/png");
+        assert_eq!(image_content_type("/a/POSTER.PNG"), "image/png");
+        assert_eq!(image_content_type("/a/fanart.webp"), "image/webp");
+        assert_eq!(image_content_type("/a/poster.jpg"), "image/jpeg");
+        assert_eq!(image_content_type("/a/poster"), "image/jpeg");
+    }
 
     #[test]
     fn no_range_header_means_the_whole_file() {

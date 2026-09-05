@@ -179,10 +179,19 @@ namespace Emby.Server.Implementations.Library
             var mediaSources = GetStaticMediaSources(item, enablePathSubstitution, user);
             ResolveSymlinkPaths(mediaSources, enablePathSubstitution);
 
-            // If file is strm or main media stream is missing, force a metadata refresh with remote probing
+            // If the main media stream is missing, force a metadata refresh with remote probing.
+            //
+            // StingStream patch: the condition used to start with `item.Path.EndsWith(".strm")`,
+            // which probed *every* .strm on *every* PlaybackInfo regardless of what was already
+            // known about it. A StingStream federated pointer is a .strm whose media streams were
+            // stamped from the group index, so that clause meant pulling a peer's file across the
+            // mesh through ffmpeg, on every single play, to rediscover facts the holder had already
+            // published -- and failing, because the pointer's host is a marker name that only
+            // resolves inside this process. The two clauses that remain cover the case the .strm
+            // clause existed for (a pointer nothing has read yet) without re-probing one that has
+            // been read. See docs/PATCHES.md.
             if (allowMediaProbe && mediaSources[0].Type != MediaSourceType.Placeholder
-                && (item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
-                    || (item.MediaType == MediaType.Video && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Video))
+                && ((item.MediaType == MediaType.Video && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Video))
                     || (item.MediaType == MediaType.Audio && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Audio))))
             {
                 await item.RefreshMetadata(

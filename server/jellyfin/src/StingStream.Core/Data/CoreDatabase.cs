@@ -25,7 +25,8 @@ namespace StingStream.Core.Data;
 public sealed class CoreDatabase : IDisposable
 {
     /// <summary>Bumped whenever <see cref="ApplySchema"/> gains a migration step.</summary>
-    public const int SchemaVersion = 1;
+    /// <remarks>2 added the federated-pointer table in M3b.</remarks>
+    public const int SchemaVersion = 2;
 
     private readonly ILogger<CoreDatabase> _logger;
     private readonly INodeRuntimeProvider _runtime;
@@ -209,6 +210,33 @@ public sealed class CoreDatabase : IDisposable
                 note        TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_arr_events_received ON arr_events (received_at);
+
+            -- One row per federated pointer written into a Shared library: (group, item_key,
+            -- holding node). This is the materializer's memory. Deriving it from the filesystem
+            -- instead would mean parsing folder names a peer chose, which is exactly the input
+            -- that cannot be trusted; and the two timestamps below have nowhere else to live.
+            --
+            -- offline_since is when the holder stopped heartbeating. The pointer stays, tagged
+            -- unavailable, until the grace period elapses -- a laptop that is off for a weekend
+            -- should not cost its owner's group the whole library.
+            CREATE TABLE IF NOT EXISTS federated (
+                group_id      TEXT NOT NULL,
+                item_key      TEXT NOT NULL,
+                node_id       TEXT NOT NULL,
+                node_name     TEXT NOT NULL DEFAULT '',
+                kind          TEXT NOT NULL,
+                quality       TEXT NOT NULL DEFAULT '',
+                folder        TEXT NOT NULL,
+                strm_path     TEXT NOT NULL,
+                file_hash     TEXT,
+                record_json   TEXT NOT NULL DEFAULT '{}',
+                updated_at    TEXT NOT NULL,
+                written_at    TEXT NOT NULL,
+                offline_since TEXT,
+                PRIMARY KEY (group_id, item_key, node_id)
+            );
+            CREATE INDEX IF NOT EXISTS ix_federated_group ON federated (group_id);
+            CREATE INDEX IF NOT EXISTS ix_federated_folder ON federated (folder);
             """);
 
         var existing = ScalarLong(connection, "SELECT version FROM schema_version LIMIT 1;");
@@ -218,8 +246,10 @@ public sealed class CoreDatabase : IDisposable
         }
         else if (existing.Value != SchemaVersion)
         {
-            // Nothing to migrate yet -- SchemaVersion has only ever been 1. When it moves, the
-            // steps go here, and this branch stops being a bare stamp.
+            // Every statement above is CREATE TABLE/INDEX IF NOT EXISTS, so upgrading from 1 to 2
+            // is exactly "run the schema again", which has already happened by the time this runs.
+            // A real migration -- one that alters or backfills an existing table -- goes here and
+            // switches on the version it found.
             _logger.LogInformation(
                 "core.db schema version {Found} -> {Target}",
                 existing.Value,

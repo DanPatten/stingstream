@@ -31,6 +31,9 @@ public sealed class SharedSettings
 
     public NotificationSettings Notifications { get; set; } = new();
 
+    /// <summary>How this node materializes the group's titles into its own Jellyfin.</summary>
+    public FederatedSettings Federated { get; set; } = new();
+
     /// <summary>
     /// Quality profile to use when adding titles. Empty means "whatever the app's first profile
     /// is", which is what a fresh Radarr or Sonarr always has at least one of.
@@ -197,6 +200,46 @@ public sealed class NamingSettings
 /// The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
 /// library scan.
 /// </summary>
+/// <summary>
+/// The federated library: how the group index becomes items in this node's own Jellyfin.
+/// </summary>
+/// <remarks>
+/// See <c>docs/ARCHITECTURE.md</c>, "Federated library". Every value here is a policy decision a
+/// user might reasonably want to change; the mechanism itself is not configurable.
+/// </remarks>
+public sealed class FederatedSettings
+{
+    /// <summary>
+    /// Materialize the group index at all.
+    /// </summary>
+    /// <remarks>
+    /// Turning this off leaves the node in the group -- it still publishes its own inventory and
+    /// still serves files to peers -- but its own Jellyfin shows only what it holds locally. That
+    /// is what someone with a curated library and a shared seedbox wants.
+    /// </remarks>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>How often to compare the group index against what has been materialized.</summary>
+    /// <remarks>
+    /// The mesh has no change notification of its own, so this is a poll. It is a local SQLite
+    /// read over loopback and the diff is a set comparison, so fifteen seconds costs nothing and
+    /// makes a peer's new import appear about as fast as a local one.
+    /// </remarks>
+    public int PollIntervalSeconds { get; set; } = 15;
+
+    /// <summary>
+    /// How long a holder may stay offline before its pointers are deleted rather than greyed out.
+    /// </summary>
+    /// <remarks>
+    /// A laptop that is off for a weekend should not cost its owner's group the whole library, so
+    /// the default is a week. Set it to 0 to remove a peer's titles as soon as it goes offline.
+    /// </remarks>
+    public int OfflineGraceDays { get; set; } = 7;
+
+    /// <summary>Fetch artwork from the holding node over the mesh.</summary>
+    public bool FetchImages { get; set; } = true;
+}
+
 public sealed class NotificationSettings
 {
     public bool WebhookEnabled { get; set; } = true;

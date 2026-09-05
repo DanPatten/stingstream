@@ -38,8 +38,13 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             "/mesh/v1/inventory",
             put(put_inventory).patch(patch_inventory),
         )
+        .route("/mesh/v1/capacity", get(get_capacity).put(put_capacity))
         .route("/mesh/v1/index", get(index))
         .route("/mesh/v1/peers", get(peers))
+        .route(
+            "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
+            get(image),
+        )
         .route("/stream/{group}/{item_key}/{node}", get(stream))
         .with_state(node)
 }
@@ -300,6 +305,25 @@ fn validate(records: &[InventoryRecord]) -> ApiResult<()> {
     Ok(())
 }
 
+// --- capacity -----------------------------------------------------------------------------------
+
+/// `PUT /mesh/v1/capacity` — what this node is willing and able to serve.
+///
+/// `StingStream.Core` pushes this on its heartbeat interval; the mesh gossips it. The direct-stream
+/// numbers in the body are ignored and replaced with the peer server's own, because that semaphore
+/// is what actually refuses a request.
+async fn put_capacity(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<crate::inventory::Heartbeat>,
+) -> ApiResult<Json<crate::inventory::Heartbeat>> {
+    node.set_capacity(&body)?;
+    Ok(Json(node.capacity()))
+}
+
+async fn get_capacity(State(node): State<Arc<MeshNode>>) -> Json<crate::inventory::Heartbeat> {
+    Json(node.capacity())
+}
+
 #[derive(Deserialize)]
 struct GroupQuery {
     group: Option<String>,
@@ -343,6 +367,29 @@ async fn stream(
 ) -> ApiResult<Response> {
     let id = parse_group(&group)?;
     let upstream = node.stream(&id, &item_key, &source, &headers).await?;
+    let (parts, body) = upstream.into_parts();
+    let mut out = Response::new(axum::body::Body::new(body));
+    *out.status_mut() = parts.status;
+    for (name, value) in parts.headers.iter() {
+        out.headers_mut().insert(name, value.clone());
+    }
+    Ok(out)
+}
+
+/// `GET /mesh/v1/image/{group}/{item_key}/{node}/{kind}` — one artwork file from a peer.
+///
+/// The federated materializer's way of getting real poster and backdrop files onto disk without
+/// asking a metadata provider: the holder already looked the title up, and its images come back
+/// over the same authenticated QUIC connection as its bytes.
+///
+/// The peer's status and content type are passed through, so a 404 from a node that has no such
+/// image stays a 404 here rather than becoming a 500.
+async fn image(
+    State(node): State<Arc<MeshNode>>,
+    Path((group, item_key, source, kind)): Path<(String, String, String, String)>,
+) -> ApiResult<Response> {
+    let id = parse_group(&group)?;
+    let upstream = node.image(&id, &item_key, &source, &kind).await?;
     let (parts, body) = upstream.into_parts();
     let mut out = Response::new(axum::body::Body::new(body));
     *out.status_mut() = parts.status;

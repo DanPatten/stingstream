@@ -132,6 +132,7 @@ impl MeshNode {
             node_name: cfg.node_name.clone(),
             streams: streams.clone(),
             chunk_bytes: cfg.peer.stream_chunk_bytes,
+            light: cfg.peer.light,
         });
         let router = Router::builder(endpoint.clone())
             .accept(GOSSIP_ALPN, gossip.clone())
@@ -615,8 +616,51 @@ impl MeshNode {
         Ok(())
     }
 
+    /// The merged index for a group: every member's records, with liveness.
+    ///
+    /// The database has no `peers` row for *this* node — a node is not its own peer — so its own
+    /// records would come back with an empty name and `online: false`, which reads as "an offline
+    /// stranger holds this" to anything that does not already know our node id. Filling them in
+    /// here is what lets the federated materializer, the app and M4's scorer all treat the index
+    /// uniformly.
     pub fn index(&self, group_id: &GroupId) -> Result<Vec<IndexEntry>> {
-        self.db.index(group_id)
+        let me = self.node_id();
+        let mut entries = self.db.index(group_id)?;
+        for entry in &mut entries {
+            if entry.node == me {
+                entry.node_name.clone_from(&self.cfg.node_name);
+                entry.online = true;
+            }
+        }
+        Ok(entries)
+    }
+
+    /// This node's advertised capacity, as the gossip heartbeat carries it.
+    ///
+    /// Stored in `mesh.db`'s `meta` table rather than in memory: the heartbeat is published by a
+    /// task that owns the database and nothing else, so a `meta` row is the smallest thing that
+    /// connects it to the local API without threading a channel through every running group — and
+    /// it survives a restart, so a node that has just come back advertises the truth on its first
+    /// beat rather than zeroes until Core's next push.
+    pub fn capacity(&self) -> crate::inventory::Heartbeat {
+        crate::gossip::stored_capacity(&self.db)
+    }
+
+    /// Publish this node's capacity. `StingStream.Core` calls this on its heartbeat interval.
+    ///
+    /// Core supplies the free space and the transcode numbers, which only it knows. The direct
+    /// stream limits are overwritten from the peer server's own semaphore, because that is the
+    /// number that actually gates a file request — advertising anything else would be a figure
+    /// M4's scorer would act on and be wrong about.
+    pub fn set_capacity(&self, capacity: &crate::inventory::Heartbeat) -> Result<()> {
+        let max = self.cfg.peer.max_concurrent_streams.max(1);
+        let merged = crate::inventory::Heartbeat {
+            max_direct_streams: max as u32,
+            active_direct_streams: max.saturating_sub(self.available_streams()) as u32,
+            ..capacity.clone()
+        };
+        let json = serde_json::to_string(&merged).context("encoding this node's capacity")?;
+        self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
     }
 
     pub fn peers(&self, group_id: Option<&GroupId>) -> Result<Vec<PeerRow>> {
@@ -716,6 +760,59 @@ impl MeshNode {
                         error = %e,
                         "the peer connection failed; dropping it and re-dialling once"
                     );
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| anyhow::anyhow!("could not reach node {node}")))
+    }
+
+    /// Fetch one artwork file for `item_key` from `node` over iroh.
+    ///
+    /// The materializer's side of `/peer/v1/image/{item_key}/{kind}`. Unlike [`MeshNode::stream`]
+    /// this forwards no request headers and expects the whole file: artwork is small, and a
+    /// conditional fetch would only save bytes on a file the caller has already decided it does
+    /// not have.
+    pub async fn image(
+        &self,
+        group_id: &GroupId,
+        item_key: &str,
+        node: &str,
+        kind: &str,
+    ) -> Result<Response<Incoming>> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let uri = format!(
+            "/peer/v1/image/{}/{}",
+            encode_segment(item_key),
+            encode_segment(kind)
+        );
+        let build = || {
+            Request::builder()
+                .method("GET")
+                .uri(&uri)
+                .body(empty_body())
+                .context("building an image request")
+        };
+
+        // Same one-retry rule as `stream`: a cached connection can be dead without knowing it.
+        let mut last: Option<anyhow::Error> = None;
+        for attempt in 0..2u32 {
+            let conn = match self.connect_node(&group, node).await {
+                Ok(c) => c,
+                Err(e) if attempt == 0 => {
+                    last = Some(e);
+                    self.forget_peer(&group.id, node).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            match conn.request(build()?).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) if attempt == 0 => {
                     last = Some(e);
                     self.forget_peer(&group.id, node).await;
                 }

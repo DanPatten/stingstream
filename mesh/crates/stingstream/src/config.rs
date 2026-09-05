@@ -20,6 +20,7 @@ pub struct Config {
     pub node_name: String,
     pub gateway: GatewayConfig,
     pub children: ChildrenConfig,
+    pub mesh: MeshSection,
     pub ports: PortsConfig,
     pub supervisor: SupervisorConfig,
     pub logging: LoggingConfig,
@@ -34,6 +35,30 @@ pub struct GatewayConfig {
     /// Proxy `/radarr/*`, `/sonarr/*` and `/nzbget/*` through the gateway. Forced off outside
     /// `--dev`: those UIs are never the front door (see `docs/ARCHITECTURE.md`).
     pub expose_child_uis_in_dev: bool,
+    /// Directory holding the built web bundle, served at `/`.
+    ///
+    /// Empty means "look in the usual places": `<install>/web` for an installed node and
+    /// `apps/stingstream/dist` in `--dev`. A directory with no `index.html` in it is treated as
+    /// absent and the node serves its placeholder page instead — which is what a half-finished
+    /// `expo export` leaves behind, and is a better answer than a wall of 404s. `--web-dist`
+    /// overrides this for one run.
+    pub web_dist: String,
+}
+
+/// The mesh half of a node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MeshSection {
+    /// Run the mesh inside this process rather than as a supervised child.
+    ///
+    /// The default, and what a node should do: one fewer process to find, supervise and kill, its
+    /// logs join the supervisor's, and shutdown is an await rather than a signal Windows cannot
+    /// deliver. Either way the mesh binds its documented loopback API port, because
+    /// `StingStream.Core` and the app both talk to it over HTTP.
+    ///
+    /// Setting this false goes back to supervising the `stingstream-mesh` binary, which is how you
+    /// attach a debugger to just the mesh. `[children] mesh = false` turns the mesh off entirely.
+    pub embedded: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +129,7 @@ impl Default for Config {
             node_name: default_node_name(),
             gateway: GatewayConfig::default(),
             children: ChildrenConfig::default(),
+            mesh: MeshSection::default(),
             ports: PortsConfig::default(),
             supervisor: SupervisorConfig::default(),
             logging: LoggingConfig::default(),
@@ -117,7 +143,14 @@ impl Default for GatewayConfig {
             bind: "0.0.0.0".to_string(),
             port: DEFAULT_GATEWAY_PORT,
             expose_child_uis_in_dev: true,
+            web_dist: String::new(),
         }
+    }
+}
+
+impl Default for MeshSection {
+    fn default() -> Self {
+        Self { embedded: true }
     }
 }
 
@@ -286,6 +319,17 @@ mod tests {
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn the_mesh_is_embedded_by_default() {
+        assert!(Config::default().mesh.embedded);
+        let cfg: Config = toml::from_str("[mesh]
+embedded = false
+").unwrap();
+        assert!(!cfg.mesh.embedded);
+        // Turning embedding off does not turn the mesh off.
+        assert!(cfg.children.mesh);
     }
 
     #[test]

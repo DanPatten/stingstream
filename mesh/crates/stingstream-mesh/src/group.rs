@@ -303,9 +303,17 @@ mod tests {
         let code = sample_invite().encode().unwrap();
         let mut bad: Vec<char> = code.chars().collect();
         // Swap two adjacent characters: a transposition the checksum must catch.
-        let n = bad.len();
-        bad.swap(n - 3, n - 4);
+        //
+        // They have to *differ*, or the "typo" is a no-op and the code still decodes. The invite
+        // is built from random bytes, so a fixed pair of positions is a one-in-fifty-eight flake
+        // -- which is exactly how this was found. Search from the end for a pair that differs.
+        let i = (1..bad.len())
+            .rev()
+            .find(|&i| bad[i] != bad[i - 1])
+            .expect("an invite code is never a run of one repeated character");
+        bad.swap(i, i - 1);
         let bad: String = bad.into_iter().collect();
+        assert_ne!(bad, code);
         assert!(Invite::decode(&bad).is_err());
     }
 

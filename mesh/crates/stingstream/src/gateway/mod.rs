@@ -5,12 +5,12 @@
 //! | Path | Goes to | Notes |
 //! |---|---|---|
 //! | `/healthz` | the gateway itself | JSON child states, for humans and for `tools/e2e-m1.ps1` |
-//! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half |
+//! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half. **Loopback clients only** — see [`proxy_to_mesh`]. |
 //! | `/stream/*` | the mesh node | ranged reads of a peer's file, proxied byte for byte |
 //! | `/stingstream/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
 //! | `/jellyfin/*` | Jellyfin | includes the `/jellyfin/socket` WebSocket |
 //! | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children | **`--dev` only** |
-//! | `/` | the gateway itself | placeholder page until M2 ships the web bundle |
+//! | everything else | the web bundle | `apps/stingstream/dist`, with SPA fallback; the placeholder page when there is no bundle |
 //!
 //! Jellyfin is started with `BaseUrl=/jellyfin`, and ASP.NET's `app.Map(BaseUrl, ...)` puts
 //! *every* Jellyfin route — `StingStream.Core`'s included — underneath it. So `/stingstream/...`
@@ -18,6 +18,7 @@
 //! [`proxy::Upstream::upstream_prefix`] exists.
 
 pub mod proxy;
+pub mod web;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -47,14 +48,22 @@ pub const STREAM_PREFIX: &str = "/stream";
 pub struct GatewayState {
     pub node: Arc<NodeState>,
     pub client: ProxyClient,
+    /// The built web bundle, when there is one. `None` serves the placeholder page.
+    pub web: Option<Arc<web::WebBundle>>,
 }
 
 pub fn router(node: Arc<NodeState>) -> Router {
+    router_with_web(node, None)
+}
+
+/// Build the gateway router, serving `bundle` at `/` when one was found.
+pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> Router {
     let dev = node.dev;
     let expose_child_uis = dev && node.config.gateway.expose_child_uis_in_dev;
     let state = GatewayState {
         node,
         client: proxy::client(),
+        web: bundle.map(Arc::new),
     };
 
     let mut app = Router::new()
@@ -75,7 +84,11 @@ pub fn router(node: Arc<NodeState>) -> Router {
         .route("/stream/{*rest}", any(proxy_to_stream))
         .route("/stream", any(proxy_to_stream))
         .route("/jellyfin/{*rest}", any(proxy_to_jellyfin))
-        .route("/jellyfin", any(proxy_to_jellyfin));
+        .route("/jellyfin", any(proxy_to_jellyfin))
+        // The app owns every path the routes above do not claim, because it does its own routing:
+        // /manage/movies is not a file, it is index.html plus a client-side route. See
+        // `gateway::web`.
+        .fallback(get(web_asset));
 
     if expose_child_uis {
         // Debug convenience only. An installed node never routes these: Radarr's, Sonarr's and
@@ -120,11 +133,25 @@ async fn healthz(State(state): State<GatewayState>) -> Response {
     (code, Json(body)).into_response()
 }
 
-async fn index(State(state): State<GatewayState>) -> Html<String> {
-    Html(placeholder_page(
-        &state.node.runtime.node_name,
-        state.node.dev,
-    ))
+async fn index(State(state): State<GatewayState>) -> Response {
+    match &state.web {
+        Some(bundle) => web::serve(bundle, "/index.html").await,
+        None => Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response(),
+    }
+}
+
+/// Anything the routed prefixes did not claim: the web bundle, or a 404.
+async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response {
+    let path = req.uri().path().to_string();
+    match &state.web {
+        Some(bundle) => web::serve(bundle, &path).await,
+        // No bundle: the placeholder page is the honest answer for a page request, and a missing
+        // asset is still a 404 rather than HTML.
+        None if !web::looks_like_an_asset(&path) => {
+            Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "no web bundle is installed on this node").into_response(),
+    }
 }
 
 /// The `/` placeholder until M2's web bundle replaces it.
@@ -221,12 +248,46 @@ async fn proxy_to_jellyfin(State(state): State<GatewayState>, req: Request) -> R
     forward(state, req, "jellyfin", JELLYFIN_PREFIX, JELLYFIN_PREFIX.to_string()).await
 }
 
-/// The mesh node's own HTTP API.
+/// The mesh node's own HTTP API — **from this machine only**.
 ///
-/// Runs as a supervised child until M3b embeds the library in this process; when that lands only
-/// this function changes, not the URL its callers use.
+/// The mesh API is unauthenticated by design: it binds `127.0.0.1` precisely because anything that
+/// can reach it is already on the machine. The gateway, though, binds `0.0.0.0` so phones and TVs
+/// on the LAN can reach the node — and proxying an unauthenticated API that can create groups,
+/// mint invite codes and read every member's index onto that address would hand the whole group to
+/// anyone on the same Wi-Fi.
+///
+/// So this route exists for convenience on the node itself (curl, a script, a developer) and
+/// refuses everything else. The app's Group screen goes through
+/// `/stingstream/api/v1/mesh/*` instead, which is the same operations behind Jellyfin's own
+/// authentication.
+///
+/// A request with no connection info at all is refused too: that only happens if the server was
+/// built without `into_make_service_with_connect_info`, and failing closed is the right way round.
 async fn proxy_to_mesh(State(state): State<GatewayState>, req: Request) -> Response {
+    if !is_local(peer_addr(&req)) {
+        return (
+            StatusCode::FORBIDDEN,
+            "the mesh API is reachable from this machine only; use /stingstream/api/v1/mesh/              with a Jellyfin token from anywhere else",
+        )
+            .into_response();
+    }
     forward(state, req, "mesh", MESH_PREFIX, MESH_UPSTREAM_PREFIX.to_string()).await
+}
+
+/// Whether a request came from this machine.
+///
+/// IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is what a dual-stack listener reports for a loopback IPv4
+/// client, so unmapping first is not optional — without it every local request over IPv6 would be
+/// refused.
+pub fn is_local(addr: Option<SocketAddr>) -> bool {
+    match addr.map(|a| a.ip()) {
+        Some(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
+        Some(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.is_loopback(),
+            None => v6.is_loopback(),
+        },
+        None => false,
+    }
 }
 
 /// Ranged reads of a peer's file. Same child, same prefix on both sides.
@@ -401,6 +462,21 @@ mod tests {
             .route("/stream/{*rest}", any(noop))
             .route("/stream", any(noop))
             .route("/jellyfin/{*rest}", any(noop));
+    }
+
+    #[test]
+    fn only_this_machine_reaches_the_mesh_api() {
+        let local = |s: &str| is_local(Some(s.parse().unwrap()));
+        assert!(local("127.0.0.1:5000"));
+        assert!(local("127.9.9.9:5000"));
+        assert!(local("[::1]:5000"));
+        // What a dual-stack listener reports for a loopback IPv4 client.
+        assert!(local("[::ffff:127.0.0.1]:5000"));
+        assert!(!local("192.168.1.20:5000"));
+        assert!(!local("[::ffff:192.168.1.20]:5000"));
+        assert!(!local("[2001:db8::1]:5000"));
+        // No connect info at all fails closed.
+        assert!(!is_local(None));
     }
 
     #[test]

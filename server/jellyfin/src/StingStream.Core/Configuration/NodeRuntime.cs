@@ -49,6 +49,9 @@ public sealed class NodeRuntime
 
     public QbtRuntime Qbittorrent { get; set; } = new();
 
+    /// <summary>Where the mesh node's loopback API is.</summary>
+    public MeshRuntime Mesh { get; set; } = new();
+
     public AdminRuntime? JellyfinAdmin { get; set; }
 
     public string? FfmpegPath { get; set; }
@@ -132,6 +135,18 @@ public sealed class QbtRuntime
     /// This is what the arrs are configured with as their download client's <c>urlBase</c>.
     /// </summary>
     public string UrlBase { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// The mesh node's loopback API, as the supervisor assigned it this run.
+/// </summary>
+/// <remarks>
+/// Published by the supervisor whether the mesh runs in its process or as a child, so
+/// <see cref="Mesh.MeshClient"/> never has to know which. Zero means "this node has no mesh".
+/// </remarks>
+public sealed class MeshRuntime
+{
+    public int ApiPort { get; set; }
 }
 
 public sealed class AdminRuntime

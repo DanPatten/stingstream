@@ -14,6 +14,7 @@
 //! See `docs/ARCHITECTURE.md` for the design and `docs/RUNNING.md` for how to run one.
 
 pub mod config;
+pub mod embedded_mesh;
 pub mod gateway;
 pub mod logging;
 pub mod paths;

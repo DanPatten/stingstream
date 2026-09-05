@@ -18,6 +18,7 @@ use clap::Parser;
 use tokio::sync::watch;
 
 use stingstream::config::Config;
+use stingstream::embedded_mesh;
 use stingstream::gateway;
 use stingstream::logging;
 use stingstream::paths::{self, Layout};
@@ -61,6 +62,14 @@ struct Cli {
     #[arg(long, value_name = "PORT")]
     port: Option<u16>,
 
+    /// Directory holding the built web bundle to serve at `/`.
+    ///
+    /// Overrides `gateway.web_dist`. With neither set the node looks in `<install>/web`, and in
+    /// `--dev` in `apps/stingstream/dist`. A directory with no `index.html` is treated as absent
+    /// and the placeholder page is served instead.
+    #[arg(long, value_name = "DIR")]
+    web_dist: Option<PathBuf>,
+
     /// Resolve everything, write config.toml and runtime.json, print runtime.json, and exit
     /// without starting any child. Used by tools/e2e-m1.ps1 and for diagnosing a node.
     #[arg(long)]
@@ -83,6 +92,9 @@ async fn main() -> Result<()> {
     let mut config = Config::load_or_create(&layout.config_toml())?;
     if let Some(p) = cli.port {
         config.gateway.port = p;
+    }
+    if let Some(dir) = &cli.web_dist {
+        config.gateway.web_dist = dir.display().to_string();
     }
     config.validate()?;
 
@@ -120,7 +132,13 @@ async fn main() -> Result<()> {
         tracing::warn!("--no-children: not starting any child process");
         None
     } else {
-        let defs = supervisor::build_children(&config, &rt, &layout, &mode)?;
+        let mut defs = supervisor::build_children(&config, &rt, &layout, &mode)?;
+        if config.mesh.embedded {
+            // The mesh runs in this process; see `embedded_mesh`. Dropping the definition here
+            // rather than inside `build_children` keeps that decision in one place and leaves the
+            // child-mode plumbing intact for `[mesh] embedded = false`.
+            defs.retain(|d| d.name != "mesh");
+        }
         // A child that is enabled but has no definition was skipped deliberately (today only a
         // mesh whose binary has not been built). Mark it disabled, or it would sit at `Stopped`
         // forever and hold `/healthz` at "degraded" for a node that is otherwise perfectly well.
@@ -147,6 +165,38 @@ async fn main() -> Result<()> {
         ))
     };
 
+    // The mesh, in this process, before the gateway binds: /stream/* and /stingstream/mesh/* are
+    // proxied to its loopback port, and a gateway that accepted those before the mesh was
+    // listening would answer a player with a connection error rather than a 503.
+    let mesh = if config.children.mesh && config.mesh.embedded {
+        let port = rt.mesh.api_port;
+        match embedded_mesh::start(&data_dir, port, &config.node_name, shutdown_rx.clone()).await {
+            Ok(m) => {
+                node.update("mesh", |c| {
+                    c.enabled = true;
+                    c.state = ChildState::Healthy;
+                    c.port = m.api_port;
+                    c.base_url = format!("http://127.0.0.1:{}", m.api_port);
+                    c.healthy_since = Some(runtime::now_rfc3339());
+                });
+                Some(m)
+            }
+            Err(e) => {
+                // Not fatal: a node whose mesh could not start is still a complete single-node
+                // server, and the gateway answers its mesh routes with a 503 that says so.
+                tracing::error!(error = %format!("{e:#}"), "the mesh could not start");
+                node.update("mesh", |c| {
+                    c.state = ChildState::Failed;
+                    c.last_error = Some(format!("{e:#}"));
+                });
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mesh_node_id = mesh.as_ref().map(|m| m.node.node_id());
+
     let bind: SocketAddr = format!("{}:{}", config.gateway.bind, config.gateway.port)
         .parse()
         .with_context(|| {
@@ -159,9 +209,18 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("binding the gateway to {bind}"))?;
     tracing::info!(%bind, "gateway listening");
-    print_banner(&rt, mode.is_dev());
 
-    let app = gateway::router(node.clone());
+    let web = resolve_web_dist(&config, &mode);
+    match &web {
+        Some(b) => tracing::info!(dir = %b.root.display(), "serving the web bundle at /"),
+        None => tracing::info!(
+            "no web bundle found; serving the placeholder page at /. Build one with `npx expo \
+             export --platform web` in apps/stingstream, or pass --web-dist."
+        ),
+    }
+    print_banner(&rt, mode.is_dev(), web.is_some(), mesh_node_id.as_deref());
+
+    let app = gateway::router_with_web(node.clone(), web);
     let mut server_shutdown = shutdown_rx.clone();
     let server = tokio::spawn(async move {
         axum::serve(
@@ -182,6 +241,9 @@ async fn main() -> Result<()> {
         let _ = t.await;
     }
     let _ = server.await;
+    // The mesh's own task shuts its endpoint down on the same signal; holding the handle until
+    // here is what keeps it alive for exactly as long as the gateway it serves.
+    drop(mesh);
     tracing::info!("stopped");
     Ok(())
 }
@@ -327,8 +389,40 @@ fn build_runtime(
     })
 }
 
+/// Where to find the built web bundle, if anywhere.
+///
+/// `gateway.web_dist` (or `--web-dist`) wins. Otherwise the conventional place for the mode:
+/// `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` -- which is exactly
+/// where `npx expo export --platform web` puts it, so a developer who has built the app once gets
+/// it served with no configuration at all.
+fn resolve_web_dist(config: &Config, mode: &Mode) -> Option<gateway::web::WebBundle> {
+    let configured = config.gateway.web_dist.trim();
+    if !configured.is_empty() {
+        let dir = PathBuf::from(configured);
+        let found = gateway::web::WebBundle::open(&dir);
+        if found.is_none() {
+            tracing::warn!(
+                dir = %dir.display(),
+                "gateway.web_dist has no index.html in it; serving the placeholder page instead"
+            );
+        }
+        return found;
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(root) = mode.install_root() {
+        candidates.push(root.join("web"));
+    }
+    if let Some(root) = mode.repo_root() {
+        candidates.push(root.join("apps").join("stingstream").join("dist"));
+    }
+    candidates
+        .iter()
+        .find_map(|dir| gateway::web::WebBundle::open(dir))
+}
+
 /// One human-readable block on stderr so someone starting a node by hand knows where to go.
-fn print_banner(rt: &Runtime, dev: bool) {
+fn print_banner(rt: &Runtime, dev: bool, web: bool, mesh_node: Option<&str>) {
     let mut lines = vec![
         format!("StingStream node \"{}\" is up.", rt.node_name),
         format!("  Gateway      {}", rt.gateway.local_url),
@@ -338,6 +432,12 @@ fn print_banner(rt: &Runtime, dev: bool) {
         format!("  Mesh         {}/stingstream/mesh/v1/status", rt.gateway.local_url),
         format!("  Data         {}", rt.data_dir.display()),
     ];
+    if let Some(node) = mesh_node {
+        lines.push(format!("  Node id      {node}"));
+    }
+    if !web {
+        lines.push("  Web          no bundle found; serving the placeholder page".into());
+    }
     if dev {
         lines.push("  Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)".into());
     }

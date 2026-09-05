@@ -44,6 +44,13 @@ pub struct InventoryRecord {
     /// Absolute path on **this** node. Serving side only — see the module docs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_path: Option<String>,
+    /// Absolute paths of this item's artwork on **this** node. Serving side only, for exactly the
+    /// same reason as [`InventoryRecord::local_path`]: it is this node's directory layout, and it
+    /// is not a field of [`WireRecord`] at all. What a peer gets is the *route*
+    /// `/peer/v1/image/{item_key}/{kind}` in [`InventoryRecord::image_urls`], which the serving
+    /// node resolves back to one of these through its own index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_images: Vec<LocalImage>,
     /// RFC 3339. Later wins on merge.
     pub updated_at: String,
 }
@@ -74,6 +81,18 @@ pub struct WireRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
     pub updated_at: String,
+}
+
+/// One artwork file this node can serve to peers.
+///
+/// Never gossiped. The `kind` is what a peer names in `/peer/v1/image/{item_key}/{kind}`;
+/// `StingStream.Core` publishes the kinds it actually has on disk.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LocalImage {
+    /// Lowercase: `primary`, `backdrop`, `logo`, `thumb`, `banner`.
+    pub kind: String,
+    /// Absolute path on this node.
+    pub path: String,
 }
 
 /// What the app needs to draw a quality badge and what M4 needs to score a source.
@@ -227,15 +246,23 @@ mod tests {
         let r = InventoryRecord {
             item_key: "movie:tmdb:1".into(),
             local_path: Some("/srv/media/Movies/Sita Sings the Blues (2008)/x.mkv".into()),
+            local_images: vec![LocalImage {
+                kind: "primary".into(),
+                path: "/srv/media/Movies/Sita Sings the Blues (2008)/poster.jpg".into(),
+            }],
+            image_urls: vec!["/peer/v1/image/movie:tmdb:1/primary".into()],
             jellyfin_item_id: Some("abc".into()),
             updated_at: "2026-09-05T00:00:00Z".into(),
             ..Default::default()
         };
         let json = serde_json::to_string(&r.to_wire()).unwrap();
         assert!(!json.contains("local_path"), "{json}");
+        assert!(!json.contains("local_images"), "{json}");
         assert!(!json.contains("/srv/media"), "{json}");
         assert!(!json.contains("jellyfin_item_id"), "{json}");
         assert!(json.contains("movie:tmdb:1"));
+        // The *route* does travel: it is what tells a peer the image exists at all.
+        assert!(json.contains("/peer/v1/image/movie:tmdb:1/primary"), "{json}");
     }
 
     #[test]

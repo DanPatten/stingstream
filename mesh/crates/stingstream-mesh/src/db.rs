@@ -27,7 +27,12 @@ use crate::inventory::{Heartbeat, IndexEntry, InventoryRecord, WireRecord};
 use crate::util::{now_rfc3339, restrict_to_owner};
 
 /// Bumped whenever the schema changes in a way an older binary could not read.
-pub const SCHEMA_VERSION: i64 = 1;
+/// Schema version.
+///
+/// 2 added `inventory.local_images`, which is how the peer image route resolves a kind to a file
+/// this node holds. Every statement in [`SCHEMA`] is `IF NOT EXISTS`, so a new database is correct
+/// by construction; [`Db::migrate`] is what brings an existing one forward.
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -67,6 +72,7 @@ CREATE TABLE IF NOT EXISTS inventory (
     record            TEXT NOT NULL,
     file_hash         TEXT,
     local_path        TEXT,
+    local_images      TEXT,
     jellyfin_item_id  TEXT,
     updated_at        TEXT NOT NULL,
     PRIMARY KEY (group_id, node_id, item_key)
@@ -100,17 +106,42 @@ impl Db {
         let db = Self {
             conn: Mutex::new(conn),
         };
+        db.migrate()?;
         db.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         Ok(db)
+    }
+
+    /// Bring an existing database forward to [`SCHEMA_VERSION`].
+    ///
+    /// Adding a column is the only kind of change so far, and SQLite has no
+    /// `ADD COLUMN IF NOT EXISTS`, so each step runs unconditionally and treats "duplicate column
+    /// name" as success. That is deliberately idempotent rather than keyed on the stored version:
+    /// a database written by a build that crashed between the `ALTER` and the version stamp still
+    /// converges, and a fresh one created by [`SCHEMA`] is a no-op.
+    fn migrate(&self) -> Result<()> {
+        let conn = self.lock();
+        for statement in ["ALTER TABLE inventory ADD COLUMN local_images TEXT"] {
+            match conn.execute(statement, []) {
+                Ok(_) => tracing::info!(statement, "migrated mesh.db"),
+                Err(e) if e.to_string().contains("duplicate column name") => {}
+                Err(e) => {
+                    return Err(anyhow::Error::new(e))
+                        .with_context(|| format!("migrating mesh.db: {statement}"))
+                }
+            }
+        }
+        Ok(())
     }
 
     /// An in-memory database, for tests.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory().context("opening an in-memory mesh.db")?;
         conn.execute_batch(SCHEMA).context("applying the mesh schema")?;
-        Ok(Self {
+        let db = Self {
             conn: Mutex::new(conn),
-        })
+        };
+        db.migrate()?;
+        Ok(db)
     }
 
     /// The guard is intentionally short-lived: never hold it across an `.await`.
@@ -574,6 +605,44 @@ impl Db {
         Ok(Some((path, hash)))
     }
 
+    /// The local path of one of this node's own artwork files, for the peer image route.
+    ///
+    /// Same shape as [`Db::local_path_for`] and for the same reason: a peer names an `item_key`
+    /// and a `kind`, never a path, and this node resolves that through its own index. A kind it
+    /// does not hold is `None`, which the caller answers with a 404.
+    pub fn local_image_for(
+        &self,
+        group: &GroupId,
+        node: &str,
+        item_key: &str,
+        kind: &str,
+    ) -> Result<Option<String>> {
+        let json: Option<Option<String>> = self
+            .lock()
+            .query_row(
+                "SELECT local_images FROM inventory
+                 WHERE group_id = ?1 AND node_id = ?2 AND item_key = ?3",
+                params![group.to_string(), node, item_key],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("looking up a local image")?;
+        let Some(Some(json)) = json else {
+            return Ok(None);
+        };
+        let images: Vec<crate::inventory::LocalImage> = match serde_json::from_str(&json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "skipping an unreadable local_images row");
+                return Ok(None);
+            }
+        };
+        Ok(images
+            .into_iter()
+            .find(|i| i.kind.eq_ignore_ascii_case(kind))
+            .map(|i| i.path))
+    }
+
     /// The merged index for a group: every node's records, with the peer's name and liveness.
     pub fn index(&self, group: &GroupId) -> Result<Vec<IndexEntry>> {
         let conn = self.lock();
@@ -641,14 +710,21 @@ fn insert_record(
 ) -> Result<()> {
     let wire = rec.to_wire();
     let json = serde_json::to_string(&wire).context("encoding a local record")?;
+    let images = if rec.local_images.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&rec.local_images).context("encoding a record's local images")?)
+    };
     tx.execute(
         "INSERT INTO inventory
-             (group_id, node_id, item_key, record, file_hash, local_path, jellyfin_item_id, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             (group_id, node_id, item_key, record, file_hash, local_path, local_images,
+              jellyfin_item_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(group_id, node_id, item_key) DO UPDATE SET
              record = excluded.record,
              file_hash = excluded.file_hash,
              local_path = excluded.local_path,
+             local_images = excluded.local_images,
              jellyfin_item_id = excluded.jellyfin_item_id,
              updated_at = excluded.updated_at",
         params![
@@ -658,6 +734,7 @@ fn insert_record(
             json,
             rec.file_hash,
             rec.local_path,
+            images,
             rec.jellyfin_item_id,
             if rec.updated_at.is_empty() {
                 now_rfc3339()

@@ -41,6 +41,28 @@ use crate::config::GossipConfig;
 use crate::db::Db;
 use crate::group::{GroupId, GroupSecret};
 use crate::inventory::{Heartbeat, WireRecord};
+
+/// `meta` key holding this node's advertised capacity, as JSON.
+///
+/// The heartbeat is published by a task that owns the database and nothing else, and the value is
+/// written by `StingStream.Core` through the local API. A `meta` row is the smallest thing that
+/// connects the two without threading a channel through every running group — and it survives a
+/// restart, so a node that has just come back advertises the truth on its first beat rather than
+/// zeroes until Core's next push.
+pub const CAPACITY_META_KEY: &str = "capacity";
+
+/// Read the stored capacity, or all zeroes if nothing has published one yet.
+///
+/// Written by [`crate::node::MeshNode::set_capacity`], which merges what only Core knows (free
+/// space, transcode limits) with what only the mesh knows (its own stream semaphore) — so this
+/// side simply reads a row and never has to reach for either.
+pub fn stored_capacity(db: &Db) -> Heartbeat {
+    db.meta(CAPACITY_META_KEY)
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str::<Heartbeat>(&json).ok())
+        .unwrap_or_default()
+}
 use crate::util::{err, now_millis};
 
 /// Domain separator for the per-message signature.
@@ -284,7 +306,7 @@ pub async fn spawn(
             loop {
                 tokio::select! {
                     _ = beat.tick() => {
-                        let hb = Heartbeat::default();
+                        let hb = stored_capacity(&db);
                         publish(
                             &sender, &group, &secret, &node_key,
                             &Body::Heartbeat { node_name: node_name.clone(), heartbeat: hb },

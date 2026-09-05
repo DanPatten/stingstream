@@ -10,8 +10,11 @@ using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Controllers;
 using StingStream.Core.Data;
+using StingStream.Core.Federated;
 using StingStream.Core.FirstRun;
 using StingStream.Core.Inventory;
+using StingStream.Core.Library;
+using StingStream.Core.Mesh;
 using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -76,10 +79,33 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<IIdleSignal, SessionIdleSignal>();
         services.AddSingleton<HashingService>();
         services.AddHostedService(sp => sp.GetRequiredService<HashingService>());
+        services.AddSingleton<InventoryChangeFeed>();
         services.AddSingleton<IInventoryService, InventoryService>();
+
+        // Making Jellyfin notice a file that has just appeared, without a library scan. Shared by
+        // the arr import webhooks and the federated materializer, which have the same problem.
+        services.AddSingleton<IPathRefresher, PathRefresher>();
 
         // Webhooks.
         services.AddSingleton<ArrWebhookService>();
+
+        // The mesh, and the federated library it feeds.
+        //
+        // The named client gets a generous timeout: a join dials the inviter and then every
+        // rendezvous entry in turn, and a file range can be a large read over someone else's
+        // uplink. Individual calls tighten it where they know better.
+        services.AddHttpClient(MeshClient.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddSingleton<IMeshClient, MeshClient>();
+        services.AddSingleton<FederatedStore>();
+        services.AddSingleton<InventoryPublisher>();
+        services.AddHostedService(sp => sp.GetRequiredService<InventoryPublisher>());
+        services.AddSingleton<FederatedLibraryService>();
+        services.AddHostedService(sp => sp.GetRequiredService<FederatedLibraryService>());
+
+        AddStingStreamLocalResolution(services);
 
         // First-run wiring, last so everything it needs already exists.
         services.AddSingleton<FirstRunService>();
@@ -88,6 +114,35 @@ public static class StingStreamCoreExtensions
         AddStingStreamSwagger(services);
 
         return services;
+    }
+
+    /// <summary>
+    /// Teach Jellyfin's own HTTP clients how to reach <c>stingstream.local</c>.
+    /// </summary>
+    /// <remarks>
+    /// A federated <c>.strm</c> holds a URL on that marker host. The native app rewrites it to its
+    /// own embedded mesh; a browser or a stock client instead has this node's Jellyfin fetch it,
+    /// and Jellyfin does that with an ordinary <see cref="System.Net.Http.HttpClient"/>
+    /// (<c>FileStreamResponseHelpers.GetStaticRemoteStreamResult</c>) whose <c>Range</c> handling
+    /// is exactly what a seeking player needs. All that is missing is resolution, which
+    /// <see cref="StingStreamLocalHandler"/> supplies by pointing the request at this node's own
+    /// gateway.
+    ///
+    /// Named-client configuration is additive, so calling <c>AddHttpClient</c> again here composes
+    /// with Jellyfin's own registration in <c>Jellyfin.Server/Startup.cs</c> rather than replacing
+    /// it -- which matters, because this method runs *before* that one.
+    /// </remarks>
+    private static void AddStingStreamLocalResolution(IServiceCollection services)
+    {
+        services.AddTransient<StingStreamLocalHandler>();
+        foreach (var name in new[]
+                 {
+                     MediaBrowser.Common.Net.NamedClient.Default,
+                     MediaBrowser.Common.Net.NamedClient.DirectIp,
+                 })
+        {
+            services.AddHttpClient(name).AddHttpMessageHandler<StingStreamLocalHandler>();
+        }
     }
 
     /// <summary>

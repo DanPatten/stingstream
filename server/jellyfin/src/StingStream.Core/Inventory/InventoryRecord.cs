@@ -48,6 +48,18 @@ public sealed class InventoryRecord
     /// <summary>Absolute path on this node. Never published to peers; kept for local bookkeeping.</summary>
     public string? LocalPath { get; set; }
 
+    /// <summary>
+    /// Absolute paths of this item's artwork on this node, keyed by lowercase image kind
+    /// (<c>primary</c>, <c>backdrop</c>, <c>logo</c>, <c>thumb</c>, <c>banner</c>).
+    /// </summary>
+    /// <remarks>
+    /// Never published to peers, for the same reason as <see cref="LocalPath"/>: it is this node's
+    /// directory layout. What a peer gets is the *route* <c>/peer/v1/image/{itemKey}/{kind}</c>,
+    /// which the mesh resolves back to one of these paths through its own index. So a peer can ask
+    /// for a poster without ever learning where it is, and cannot ask for anything else.
+    /// </remarks>
+    public Dictionary<string, string> LocalImages { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public string UpdatedAt { get; set; } = string.Empty;
 }
 
