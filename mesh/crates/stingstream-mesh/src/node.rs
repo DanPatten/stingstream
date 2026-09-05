@@ -226,11 +226,22 @@ impl MeshNode {
             tracing::warn!(url = %url, "ignoring an unparseable relay url");
             return;
         };
-        // `quic: None` deliberately: a Lite-mode coordinator is TCP-only, so asking it for QUIC
-        // address discovery would only produce timeouts. n0's relays keep that job.
-        let config = Arc::new(RelayConfig::new(relay.clone(), None));
+        // A Lite coordinator is TCP-only, so asking it for QUIC address discovery produces nothing
+        // but timeouts; a Full one has UDP and is the only address-discovery source a group with
+        // `n0_relays = false` has at all. The coordinator says which it is on `/healthz`, and an
+        // unreachable or unreadable answer falls back to the safe assumption.
+        let quic = match coordinator_mode(url).await {
+            Some(mode) if mode == "full" => Some(iroh_relay::RelayQuicConfig::default()),
+            _ => None,
+        };
+        let config = Arc::new(RelayConfig::new(relay.clone(), quic.clone()));
         self.endpoint.insert_relay(relay.clone(), config).await;
-        tracing::info!(relay = %relay, why, "added a relay to the map");
+        tracing::info!(
+            relay = %relay,
+            why,
+            address_discovery = quic.is_some(),
+            "added a relay to the map"
+        );
     }
 
     // --- groups -------------------------------------------------------------------------------
@@ -714,6 +725,25 @@ pub struct JoinOutcome {
     pub group: Group,
     pub via: JoinRoute,
     pub contacted: Vec<String>,
+}
+
+/// Ask a coordinator which mode it is running in, so the relay map knows whether it can do QUIC
+/// address discovery. `None` for anything that does not answer in time or does not look like a
+/// coordinator; the caller then assumes TCP-only, which is always safe.
+async fn coordinator_mode(url: &url::Url) -> Option<String> {
+    let health = url.join("/healthz").ok()?;
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        reqwest::Client::new().get(health).send(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body.get("mode")?.as_str().map(str::to_string)
 }
 
 fn empty_body() -> PeerBody {

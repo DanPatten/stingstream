@@ -1,0 +1,506 @@
+# The StingStream mesh
+
+The mesh is how a StingStream node reaches other people's nodes: groups, the shared index of what
+everyone holds, and the byte pipe that plays a film off someone else's disk. Two crates:
+
+| Crate | What it is |
+|---|---|
+| `mesh/crates/stingstream-mesh` | the node half. iroh endpoint, groups, gossip, SQLite group index, peer HTTP, the `/stream` endpoint. Embedded by the supervisor; also a standalone binary for tests. |
+| `mesh/crates/stingstream-relay` | the **coordinator**. Optional infrastructure: iroh relay, rendezvous, side-door DNS, SNI router. One binary, `--mode lite` or `--mode full`. |
+
+This document is the reference for both: the wire protocol, the invite format, the index schema and
+every API. `docs/ARCHITECTURE.md` is the wider system picture and is owned by M1; where the two
+disagree about the mesh, this file is the newer one.
+
+**Status: M3a.** Groups, discovery, the index, peer streaming and the coordinator are implemented
+and tested. M3b adds the federated-library half inside `StingStream.Core` and the app's URL rewrite;
+M4 adds source scoring and same-hash failover. Both are called out where they touch something here.
+
+---
+
+## 1. Zero-server by default
+
+A new group needs nothing anyone hosts. A node's iroh endpoint is built with:
+
+* **n0's public relays** — traffic relay and hole-punch assistance, over TLS on TCP 443, so a
+  UDP-hostile network still works.
+* **n0 DNS + pkarr** — the node publishes a signed record of its addresses and resolves peers by
+  node id.
+* **mainline DHT** — the same pkarr record, published to and resolved from the BitTorrent DHT. No
+  server at all; slower to converge, so it complements DNS rather than replacing it.
+* **an in-memory address book** — addresses learned out of band, from an invite code or a
+  coordinator's rendezvous list. This is what lets a group work with every one of the above turned
+  off, which is the LAN case and what the integration tests run.
+
+A group may additionally carry a **coordinator URL**, which is *added to* the relay map rather than
+replacing anything. Two consequences worth being explicit about:
+
+* The map always keeps at least one UDP-capable relay, so address discovery works even when the
+  group's coordinator is TCP-only.
+* iroh picks its home relay by measured latency. A Lite coordinator is registered **without** QUIC
+  address discovery (the mesh asks its `/healthz` which mode it is in), so it is never chosen for
+  that job and mostly carries rendezvous and side-door duty rather than media.
+
+Switch any of it off in `mesh.toml`:
+
+```toml
+[discovery]
+n0_dns = true
+mainline_dht = true
+n0_relays = true
+fallback_coordinator = ""   # a shared coordinator baked into the build; empty means none
+```
+
+---
+
+## 2. Identity and groups
+
+**Node identity** is an iroh keypair, persisted at `$STINGSTREAM_DATA/node.key` as lowercase hex
+with a trailing newline, `0600` on Unix. The public half is the node id. It appears in two
+encodings, and the difference matters:
+
+| Encoding | Where | Why |
+|---|---|---|
+| 64-character hex | iroh's `Display`, the local API, the `/stream` URL, gossip | what iroh prints |
+| 52-character z-base-32 | every side-door hostname | a DNS label holds 63 characters; hex does not fit |
+
+**A group** is `(group_id, group_secret, coordinator?)`:
+
+* `group_id` — 32 random bytes, and also the `iroh-gossip` topic id. Semi-public: it travels in
+  invite codes and is visible to any relay carrying the topic. It authorises nothing.
+* `group_secret` — 32 random bytes, never sent in the clear. It gates peer connections, seals gossip
+  and derives every rendezvous credential.
+* `coordinator` — optional URL. A property of the *group*, so members auto-configure from the invite.
+
+Revocation in v1 is secret rotation. Per-member revocation is M8.
+
+### Invite codes
+
+```
+invite = base58check( version_byte(1) || postcard(InvitePayload) )
+
+InvitePayload {
+  group_id:      [u8; 32],
+  secret:        [u8; 32],
+  group_name:    String,
+  inviter:       [u8; 32],        // node id
+  inviter_relay: Option<String>,  // relay hint, so a join needs no lookup
+  inviter_ips:   Vec<String>,     // direct addresses, for a LAN join with no infrastructure
+  coordinator:   Option<String>,
+}
+```
+
+base58 has no look-alike characters, so a code survives being read aloud; base58check's checksum
+catches a transposition before it becomes a confusing join failure. An unknown version byte is
+reported as "unsupported invite version N" rather than failing somewhere inside postcard.
+
+### Joining
+
+1. Dial the address in the code, complete the handshake, `GET /peer/v1/inventory`, merge.
+2. If that fails and the group has a coordinator: fetch the rendezvous list, try each member.
+3. Subscribe to the gossip topic with whoever answered as the bootstrap set, and publish this
+   node's own address to the rendezvous.
+
+Each dial is bounded by `peer.join_dial_timeout_secs` (12 by default), so an inviter that is
+switched off costs seconds rather than a minute. A join with nobody reachable still *succeeds* —
+the group exists locally and syncs when a member appears — but the API says
+`"via": "none"` so the caller can say so.
+
+---
+
+## 3. Peer protocol — ALPN `stingstream/http/1`
+
+One QUIC connection per (group, peer). The **first** bidirectional stream is the handshake; every
+stream after that carries exactly one HTTP/1.1 request and response, served by `hyper` over the
+stream's halves. QUIC streams are cheap and do not head-of-line block, so a 4K film and a poster
+fetch share one connection happily.
+
+### Handshake
+
+QUIC/TLS already proves *which* node is on the other end — the node id is the TLS identity. It says
+nothing about whether that node is in the group, which is what this adds:
+
+```
+client -> server   Hello     { version, group_id, client_nonce, node_name }
+server -> client   Challenge { server_nonce, node_name }
+client -> server   Proof     { mac, sig }
+server -> client   Outcome   Ok { mac } | Denied { reason }
+
+transcript = "stingstream-auth-v1" || group_id || client_id || server_id
+             || client_nonce || server_nonce
+client mac = HMAC-SHA256(group_secret, "client" || transcript)
+server mac = HMAC-SHA256(group_secret, "server" || transcript)
+sig        = Ed25519(client_node_key, transcript)
+```
+
+Frames are `u32` length-prefixed postcard, capped at 64 KiB.
+
+* Both nonces are 32 random bytes, so a recorded proof cannot be replayed against another
+  connection, another peer or another group.
+* The server's `mac` proves to the **client** that the server also holds the secret, so a node
+  cannot be lured into streaming to an impostor that merely knows the group id.
+* `Denied` says "unknown group or bad group secret" for both "not a member of that group" and
+  "wrong secret", so the handshake is not a membership oracle.
+* Verification is constant-time. A failure closes the connection with application code `401` —
+  after waiting for the peer to read the refusal, because a QUIC close can discard un-acknowledged
+  stream data and "connection lost" tells the operator nothing.
+
+### Routes
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/peer/v1/status` | node name, version, remaining stream capacity |
+| `GET` | `/peer/v1/inventory` | this node's full inventory for the group, as JSON. Used on join, before gossip converges. |
+| `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | the file, with full `Range` support |
+
+`file_hash` may be the literal `any` when the caller has not learned the hash yet.
+
+**There is deliberately no path that takes a filesystem path.** A peer names an `item_key` and a
+`file_hash`; the serving node resolves that to a path through its own index. A hostile peer cannot
+ask for `../../etc/passwd`, and a stale pointer on another node cannot serve whatever file has since
+taken that key — the hash has to match.
+
+**Range handling** is the part a player depends on:
+
+* `bytes=a-b`, `bytes=a-`, `bytes=-n`, with clamping to the file length.
+* `206` with `Content-Range` and `Content-Length`; `416` with `Content-Range: bytes */len` for a
+  range that starts past the end; `Accept-Ranges: bytes` always.
+* A multi-range request is answered with the whole file. RFC 9110 permits it and no media player
+  asks for one.
+* `ETag` is `W/"b3-<file_hash>"` when a hash is known, so **two nodes holding the same file produce
+  the same tag** — which is what makes M4's same-hash failover resumable across holders. It falls
+  back to size and mtime otherwise.
+* `If-None-Match` gives `304`; `If-Range` that does not match the tag serves the whole file rather
+  than a range, as the RFC asks.
+* `peer.max_concurrent_streams` caps concurrent file streams; over it, `503` with `Retry-After`,
+  which is honest about load rather than letting every stream stutter.
+
+Each completed range logs bytes, seconds and the achieved rate, and each connection logs its iroh
+path type (`direct` / `relay` / `mixed`) and RTT. M3a only records these; M4's scorer reads them.
+
+### ALPN `stingstream/tcp/1`
+
+Reserved for the HTTPS side door: the coordinator's SNI router opens one bidirectional stream and
+pipes raw TCP to the node's gateway, with TLS terminating on the node. The coordinator half is
+implemented (`stingstream-relay`'s `tunnel` module); the node half is M3b.
+
+---
+
+## 4. Gossip and the group index
+
+One `iroh-gossip` topic per group, and the topic id *is* the group id.
+
+```
+key       = BLAKE3-derive_key("stingstream gossip v1 seal key", group_secret)
+body      = JSON(Body)
+sig       = Ed25519(node_key, "stingstream-gossip-v1" || group_id || ts_le || body)
+plaintext = postcard(Signed { author, ts, body, sig })
+wire      = nonce(24) || XChaCha20Poly1305(key, nonce, plaintext)
+```
+
+Every message is signed by its author *and* sealed under the group secret. The seal matters because
+a topic is only as private as its 32-byte id, and that id travels in invite codes: sealing means a
+node that stumbles onto the topic sees ciphertext, and the AEAD tag doubles as proof that the author
+holds the secret. The body is JSON rather than postcard because the record types use
+`skip_serializing_if` to stay compact, and a non-self-describing format cannot round-trip a struct
+whose fields disappear on the way out.
+
+`Body` is one of:
+
+| | |
+|---|---|
+| `Snapshot { node_name, seq, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. |
+| `Delta { node_name, seq, upserts, removals }` | incremental changes |
+| `Heartbeat { node_name, heartbeat }` | liveness plus advertised capacity |
+| `Membership { members }` | the author's view of the member list; the union is what each node stores |
+| `RequestSnapshot` | "I just joined, please re-send" |
+
+A neighbour appearing triggers both a snapshot and a `RequestSnapshot`, so a fresh join converges in
+seconds rather than waiting for the next tick. A peer with no heartbeat for `peer_timeout_secs` is
+marked offline — which is what greys its titles out in the app — and comes back on its next
+heartbeat. Nothing is deleted on going offline; the federated library's grace period handles that.
+
+### The inventory record
+
+```jsonc
+{
+  "item_key": "movie:tmdb:16205",      // provider-derived title identity
+  "jellyfin_item_id": "…",             // local bookkeeping; not gossiped
+  "media": {
+    "container": "mkv", "width": 1920, "height": 1080, "resolution": "1080p",
+    "video_codec": "h264", "audio_codec": "eac3",
+    "bitrate": 8000000, "size": 5242880, "duration_ms": 5400000,
+    "audio_tracks": [ { "language": "eng", "codec": "eac3", "channels": 6, "default": true } ],
+    "subtitle_tracks": [ { "language": "eng", "forced": false } ]
+  },
+  "metadata": {
+    "title": "…", "year": 2008, "overview": "…", "genres": [], "people": [],
+    "community_rating": 7.8, "official_rating": "PG",
+    "provider_ids": [["tmdb", "16205"]],
+    "series_name": null, "season": null, "episode": null
+  },
+  "image_urls": ["/peer/v1/image/movie:tmdb:16205/primary"],
+  "file_hash": "…",                    // BLAKE3, lowercase hex, computed on import
+  "local_path": "/srv/media/…",        // serving side ONLY — see below
+  "updated_at": "2026-09-05T00:00:00Z"
+}
+```
+
+`item_key` is a stable, opaque string built by `StingStream.Core` from provider ids
+(`movie:tmdb:1234`, `episode:tvdb:73739:s02e05`). The mesh only requires that it is non-empty and
+free of path separators.
+
+**`local_path` cannot be gossiped by accident.** It is not a field of the wire record at all: the
+conversion is `InventoryRecord::to_wire()`, and `WireRecord` simply has no such field. A test
+asserts the serialised wire form contains neither the key nor the path.
+
+`updated_at` is RFC 3339 in UTC, which sorts lexicographically in time order — so merging is a
+string comparison and needs no parsing. A record with an unparseable or empty timestamp still merges;
+it just loses every tie, so a badly-behaved peer degrades rather than poisons.
+
+### `mesh.db`
+
+SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
+
+| Table | |
+|---|---|
+| `groups` | `group_id, name, secret, coordinator, created_at` |
+| `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space` — both the membership list and the liveness state |
+| `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, jellyfin_item_id, updated_at` |
+| `meta` | schema version and the per-group gossip sequence number |
+
+`local_path` is populated only for this node's own rows. Indexes on `(group_id, item_key)` — what
+M4's scorer will read — and `(group_id, file_hash)` — what same-hash failover will.
+
+---
+
+## 5. Local API
+
+On `127.0.0.1`, port from `runtime.json` (`mesh.api_port`, then `children.mesh.port`) or
+`mesh.toml`, default `8791`. Loopback because it can create groups, mint invites and read every
+member's index.
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/healthz` | `ok` |
+| `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses |
+| `GET` | `/mesh/v1/groups` | groups this node belongs to |
+| `POST` | `/mesh/v1/groups` | `{name, coordinator?}` → create |
+| `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, coordinator, via, contacted}` |
+| `POST` | `/mesh/v1/groups/{group}/invite` | → `{code}` |
+| `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret |
+| `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
+| `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
+| `GET` | `/mesh/v1/index?group=` | the merged index: every node's records with name and liveness |
+| `GET` | `/mesh/v1/peers?group=` | membership, liveness, last observed path and RTT, advertised capacity |
+| `GET` | `/stream/{group}/{item_key}/{node}` | **the playback endpoint** |
+
+Errors are JSON (`{"error": "…"}`) with the full context chain, because the caller is a program and
+the message is the whole point.
+
+### `/stream/{group}/{item_key}/{node}`
+
+**This path shape is load-bearing.** A federated `.strm` file contains
+`https://stingstream.local/stream/{group}/{item_key}/{node}`; the native app rewrites the host to its
+own embedded mesh listener (M3b) and a browser gets the same path proxied by the node's gateway.
+
+The handler looks the node's `file_hash` up in its own index — so a peer serving a *different* file
+under the same key is caught rather than played — dials the peer, and forwards `Range`, `If-Range`,
+`If-None-Match` and `Accept` and nothing else. The peer's status, `Content-Range`, `Content-Length`,
+`ETag` and `Accept-Ranges` are passed back verbatim, because a player's seek behaviour depends on
+all of them.
+
+M3a always uses the node named in the URL. M4 replaces that with the scored candidate list and adds
+same-hash failover by byte offset.
+
+---
+
+## 6. The coordinator
+
+Optional. One binary, two modes; see `deploy/coordinator/README.md` for hosting.
+
+| | Lite | Full |
+|---|---|---|
+| Where | Railway, or any single-routed-port host | a VPS with UDP |
+| Relay protocol | on the same port as the API | same |
+| Rendezvous, probe, SNI router | yes | yes |
+| Side-door DNS | published through a provider API | served authoritatively |
+| pkarr discovery | no | `iroh-dns-server`, proxied from the same port |
+| UDP address discovery | no | 7842 |
+
+### One port, two protocols
+
+`GET /relay` (and the legacy `/derp`) goes to an embedded `iroh_relay::server::http_server::RelayService`;
+everything else goes to the coordinator's axum router. The connection is served with upgrades
+enabled so the relay's WebSocket handshake completes. That is what lets a platform which routes
+exactly one container port host a complete coordinator.
+
+### API
+
+| Method | Path | Auth | |
+|---|---|---|---|
+| `GET` | `/healthz` | — | mode, what is enabled, counts |
+| `GET` | `/` | — | a human page |
+| `POST` | `/rendezvous/v1/groups/{id}` | bearer | store or refresh one sealed member entry |
+| `GET` | `/rendezvous/v1/groups/{id}` | bearer | the group's live entries |
+| `DELETE` | `/rendezvous/v1/groups/{id}/{slot}` | bearer | a clean leave |
+| `POST` | `/register/v1` | node signature | a node's `lan`/`pub` addresses and mapped port |
+| `POST` | `/probe/v1` | node signature | ask for a TLS handshake against the node's public name |
+| `POST` | `/acme/v1/challenge` | node signature | publish or clear a `_acme-challenge` TXT |
+| `GET` | `/node/v1/{node}` | — | the discovery record: hostnames and `direct_https` |
+| `GET`/`PUT` | `/pkarr/{key}` | — | proxied to the embedded `iroh-dns-server` (Full) |
+| `GET`/`POST` | `/dns-query` | — | DNS-over-HTTPS, same (Full) |
+
+### Rendezvous, and why the coordinator learns nothing
+
+Three values, all derived from the group secret, none of them the group id:
+
+```
+rendezvous_id    = BLAKE3-derive_key("stingstream rendezvous id v1",    group_secret)  // the path segment
+rendezvous_token = BLAKE3-derive_key("stingstream rendezvous token v1", group_secret)  // the bearer credential
+rendezvous_key   = BLAKE3-derive_key("stingstream rendezvous data v1",  group_secret)  // seals each entry
+```
+
+The coordinator stores only `SHA-256(token)` and compares in constant time, so a leaked database
+yields no write access. Each entry is `hex(nonce || XChaCha20Poly1305(rendezvous_key, …))` of a
+`MemberAddr` — node id, name, relay hint, direct addresses — so the operator sees opaque hex and
+cannot tell who is in the group or where they are. The first write to an unknown id establishes its
+token; later writes must present the same one. An unknown id and a wrong token give the **same**
+refusal, so the endpoint is not an enumeration oracle. Entries expire after 15 minutes and members
+refresh every 5, so a coordinator needs no volume and a restart heals in one cycle.
+
+Limits: 64 entries per group and 10 000 groups by default, so an open coordinator cannot be filled.
+
+### The HTTPS side door
+
+Every node gets four names under the coordinator's zone. `<nodeid>` is z-base-32.
+
+```
+lan.<nodeid>.direct.<host>              the node's LAN address
+pub.<nodeid>.direct.<host>              the node's public address
+relay.<nodeid>.direct.<host>            the coordinator, which tunnels to the node by SNI
+192-168-1-5.<nodeid>.direct.<host>      192.168.1.5, computed, nothing stored
+2001-db8--1.<nodeid>.direct.<host>      2001:db8::1
+_acme-challenge.<nodeid>.direct.<host>  that node's DNS-01 token
+```
+
+**Full mode** serves these authoritatively: dashed labels are decoded arithmetically, `lan`/`pub`
+come from the node registry, `relay` answers with the coordinator's own address, and everything
+outside the zone is forwarded to the embedded `iroh-dns-server`. A wrong record type at a real name
+is NODATA-with-SOA, not NXDOMAIN, so a resolver does not poison the other address family.
+
+**Lite mode** is not authoritative, so the same names are published as real records through a
+`DnsProvider` — Cloudflare first, behind a trait, with a recording mock for tests and dry runs. The
+token comes from `STINGSTREAM_DNS_TOKEN` and should be **zone-scoped** with `Zone:DNS:Edit` on the
+one zone.
+
+Either way the hostnames are identical, which is the point: a node, a browser and a cast receiver
+never need to know which kind of coordinator is behind them.
+
+**ACME.** A node runs its own client and generates its own key; the coordinator only publishes the
+DNS-01 token. The request is signed by the node's iroh key over
+`"stingstream-acme-v1" || node_z32 || action || token || ts`, so a node can only write the name it
+owns, and a captured request is useless after ten minutes. `/register/v1` and `/probe/v1` use the
+same signature with the claimed addresses inside the signed field, so they cannot be altered in
+flight.
+
+**The reachability probe** does a real TLS handshake, not a TCP connect — a plain listener would
+otherwise read as reachable. It deliberately does not validate the certificate: trust is the
+browser's job, and a node mid-renewal should not read as unreachable. A node may only ask about a
+hostname containing its own id, or its own registered address, so the endpoint is not a port scanner
+with someone else's source address.
+
+**The SNI router** on 443 reads the ClientHello by hand — the bytes have to be replayed afterwards —
+and dispatches:
+
+| SNI | |
+|---|---|
+| the coordinator's own hostname, or none | terminate TLS here, serve the relay and API |
+| `relay.<nodeid>.direct.<host>`, registered | raw TCP passthrough over iroh to that node |
+| anything else | closed |
+
+TLS terminates on the **node**, with the node's own certificate, so the coordinator sees an SNI
+string and ciphertext. Only registered nodes are routable, and an unregistered id is refused
+identically to a stranger's name.
+
+### Configuration
+
+TOML plus environment; environment wins, because a container platform hands you nothing else. On
+Railway, `PORT` alone is enough.
+
+| Variable | |
+|---|---|
+| `PORT` / `STINGSTREAM_COORDINATOR_BIND` | the single HTTP port |
+| `STINGSTREAM_COORDINATOR_MODE` | `lite` \| `full` |
+| `STINGSTREAM_COORDINATOR_HOSTNAME` | this coordinator's public name |
+| `STINGSTREAM_COORDINATOR_TLS` | `none` (behind a proxy) \| `manual` \| `acme` |
+| `STINGSTREAM_COORDINATOR_TLS_CERT` / `_KEY` | for `manual` |
+| `STINGSTREAM_COORDINATOR_ACME_CONTACT` / `_ACME_STAGING` | for `acme` |
+| `STINGSTREAM_COORDINATOR_RELAY` | serve the relay protocol at all |
+| `STINGSTREAM_COORDINATOR_SNI` / `_SNI_BIND` | the SNI router |
+| `STINGSTREAM_COORDINATOR_DNS_ORIGIN` / `_DNS_BIND` / `_PUBLIC_IPS` / `_NS` | the zone |
+| `STINGSTREAM_COORDINATOR_IROH_DNS` / `_IROH_DNS_PORT` / `_IROH_DNS_HTTP_PORT` | the embedded pkarr server |
+| `STINGSTREAM_COORDINATOR_DNS_PROVIDER` / `_CLOUDFLARE_ZONE` | Lite-mode publishing |
+| `STINGSTREAM_DNS_TOKEN` | the provider's API token |
+| `STINGSTREAM_COORDINATOR_DATA_DIR` | ACME cache and the pkarr store |
+
+`--check` validates a configuration, prints it as TOML and exits without binding anything.
+
+### Dan's shared fallback coordinator
+
+`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs` is the coordinator
+appended to every group's relay map regardless of the group's own choice. It is currently `None` —
+see "Open items" — and is overridable per install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR` (an
+explicitly empty value means "no fallback").
+
+---
+
+## 7. Testing
+
+| | |
+|---|---|
+| `cargo test -p stingstream-mesh -p stingstream-relay` | 141 unit tests plus the integration suites |
+| `mesh/crates/stingstream-mesh/tests/two_nodes.rs` | two nodes, one process, **every discovery service off**: create, invite, join, gossip, and a 1 MiB mid-file range out of a 50 MB file with every byte checked against its offset and the iroh path asserted `direct`. Also the range grammar's edges, and a node with the right group id but the wrong secret being refused. |
+| `mesh/crates/stingstream-relay/tests/rendezvous_join.rs` | three real nodes against a live coordinator: **B joins after the inviter has shut down**, via the rendezvous. Plus a check that the raw stored entry carries neither the group id nor the member's name. |
+| `mesh/tests/nat/run.sh` | two nodes behind two separate NATted Docker networks with a Full-mode coordinator between them: join, converge, stream. Then again with **all UDP blocked** on one node, asserting the path is `relay`. Linux + Docker; runs in CI. |
+
+CI is `.github/workflows/coordinator.yml`: tests and clippy on Linux and Windows, the NAT scenario,
+and the coordinator image built on every change and pushed to
+`ghcr.io/danpatten/stingstream-coordinator` on `master`.
+
+The integration tests deliberately run with n0's relays, n0 DNS and the mainline DHT all disabled.
+They therefore need no network beyond loopback and cannot be made flaky by someone else's
+infrastructure — and if they pass, the relay map is an optimisation rather than a dependency.
+
+---
+
+## 8. Notes for whoever works here next
+
+* **`src/main.rs`, not `src/bin/`.** The repository's root `.gitignore` carries a bare `bin/` rule
+  for the .NET subtrees, which silently untracks anything under a Rust crate's `src/bin/` too. A
+  crate here gets one binary at `src/main.rs`.
+* **iroh 1.x renamed things.** `NodeId` → `EndpointId`, `NodeAddr` → `EndpointAddr`,
+  `Endpoint::builder(presets::N0)`, `Connection::remote_id()`, `conn.paths()` with `is_ip()` /
+  `is_relay()` / `rtt()`. Errors are `n0_error` types; `crate::util::err` converts them to `anyhow`.
+* **postcard cannot round-trip `skip_serializing_if`.** It bit the gossip body once; that is why the
+  body is JSON and the envelope around it is postcard.
+* **`rusqlite` is synchronous.** Every `Db` method is synchronous and short, the connection lives
+  behind a `std::sync::Mutex`, and the guard is never held across an `.await`.
+* **`iroh_relay`'s `QuicServer` is `pub(crate)`.** The only way to get UDP address discovery is a
+  relay `Server` configured with the QUIC half and nothing else, which needs a real certificate —
+  hence Full-mode-with-TLS only.
+
+---
+
+## 9. Open items
+
+* **The shared fallback coordinator is not set.** `DEFAULT_FALLBACK_COORDINATOR` is `None` until
+  Dan's Railway deployment has a stable hostname; set it there and record the hostname above.
+* **A Cloudflare token.** The Lite-mode side door needs a zone-scoped `Zone:DNS:Edit` token in
+  `STINGSTREAM_DNS_TOKEN`, and a domain whose DNS lives at Cloudflare. Until then the provider stays
+  `none` and the side door is Full-mode-only.
+* **The node half of the side door** — ACME client, `portmapper`, rustls on the gateway, the
+  `stingstream/tcp/1` handler, connection racing in the web bundle — is M3b.
+* **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
+  ride iroh's own encryption between two authenticated members. That is the right boundary, but it
+  means a member is trusted with everything the group holds. Per-member revocation is M8.

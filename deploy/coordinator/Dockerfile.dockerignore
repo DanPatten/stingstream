@@ -1,0 +1,21 @@
+# Build context for deploy/coordinator/Dockerfile.
+#
+# BuildKit reads `<dockerfile>.dockerignore` in preference to the context root's `.dockerignore`,
+# which is what lets the coordinator have its own without touching the repository's.
+#
+# The context is the repository root because the coordinator lives in the `mesh/` Cargo workspace
+# and needs the workspace manifest. Everything else in this monorepo — five vendored upstreams and
+# an Expo app — is irrelevant to it and would otherwise make the context several gigabytes.
+
+*
+!mesh/Cargo.toml
+!mesh/Cargo.lock
+!mesh/crates/**
+
+# ...but not the build output, which is the largest thing in the tree and is rebuilt anyway.
+mesh/target/
+**/target/
+
+# Jellyswarrm is a separate workspace and is not a member of mesh/Cargo.toml, so nothing here
+# needs it. (It is excluded by the `*` above; listed for the reader.)
+mesh/jellyswarrm/

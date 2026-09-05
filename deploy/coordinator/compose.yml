@@ -1,0 +1,91 @@
+# The StingStream coordinator on a VPS, in Full mode.
+#
+#   docker compose -f deploy/coordinator/compose.yml up -d
+#   docker compose -f deploy/coordinator/compose.yml --profile storage-node up -d
+#
+# Full mode needs a real delegation: point `direct.<your-domain>` at this host with NS records
+# before starting, or the certificates will never validate. See README.md in this directory.
+#
+# Everything is set through the environment, so this file is also a complete reference for what a
+# coordinator can be told. Copy `.env.example` to `.env` and edit that rather than this file.
+
+name: stingstream-coordinator
+
+services:
+  coordinator:
+    image: ghcr.io/danpatten/stingstream-coordinator:latest
+    # To build from a checkout instead:
+    #   build:
+    #     context: ../..
+    #     dockerfile: deploy/coordinator/Dockerfile
+    restart: unless-stopped
+    environment:
+      STINGSTREAM_COORDINATOR_MODE: full
+      # The coordinator's own name. Must resolve to this host and is the SNI value that terminates
+      # locally rather than being tunnelled to a node.
+      STINGSTREAM_COORDINATOR_HOSTNAME: ${COORDINATOR_HOSTNAME:?set COORDINATOR_HOSTNAME in .env}
+      # The zone delegated to this host. Every node's side-door names live under it.
+      STINGSTREAM_COORDINATOR_DNS_ORIGIN: direct.${BASE_DOMAIN:?set BASE_DOMAIN in .env}
+      # Answered for the zone apex, for `relay.<origin>` and for every `relay.<nodeid>.<origin>` —
+      # the last of which is where SNI passthrough lands, so it must be this host's real address.
+      STINGSTREAM_COORDINATOR_PUBLIC_IPS: ${PUBLIC_IPS:?set PUBLIC_IPS in .env}
+      # The NS names in the delegation, so the zone's own NS and SOA answers are consistent.
+      STINGSTREAM_COORDINATOR_NS: ${NS_NAMES:-ns1.${BASE_DOMAIN}}
+      # Terminate TLS here (Full mode is not behind a platform proxy). `acme` gets a Let's Encrypt
+      # certificate for the hostname above over TLS-ALPN-01 on 443.
+      STINGSTREAM_COORDINATOR_TLS: acme
+      STINGSTREAM_COORDINATOR_ACME_CONTACT: mailto:${ACME_CONTACT:?set ACME_CONTACT in .env}
+      # Start at staging. Flip to `false` once a staging certificate has been issued successfully:
+      # Let's Encrypt's production rate limits are unforgiving of a misconfigured first attempt.
+      STINGSTREAM_COORDINATOR_ACME_STAGING: ${ACME_STAGING:-true}
+      # The SNI router on 443: the coordinator's own name terminates here, `relay.<nodeid>` is
+      # tunnelled to that node over iroh, everything else is closed.
+      STINGSTREAM_COORDINATOR_SNI: "true"
+      STINGSTREAM_COORDINATOR_SNI_BIND: 0.0.0.0:443
+      # The relay protocol and the coordinator API share this port. Behind the SNI router in Full
+      # mode, so it does not need to be published.
+      STINGSTREAM_COORDINATOR_BIND: 0.0.0.0:8080
+      STINGSTREAM_COORDINATOR_DNS_BIND: 0.0.0.0:53
+      RUST_LOG: ${RUST_LOG:-stingstream_relay=info,iroh_relay=info,warn}
+    ports:
+      - "443:443/tcp"     # SNI router: the relay protocol, the API and node passthrough
+      - "53:53/udp"       # authoritative DNS for direct.<domain>
+      - "53:53/tcp"       # ...and its TCP half, for answers that do not fit in a datagram
+      - "7842:7842/udp"   # iroh QUIC address discovery
+    volumes:
+      # The ACME account and certificate cache, and the pkarr signed-packet store. Rendezvous
+      # entries and node registrations are deliberately in memory: members refresh well inside the
+      # entry TTL, so a restart heals on its own and needs nothing durable.
+      - coordinator-data:/data
+    healthcheck:
+      # `wget` is not in the runtime image; the binary answering its own health endpoint is the
+      # check that matters, and compose's default `CMD-SHELL` has no HTTP client either, so this
+      # uses the one thing guaranteed to be present.
+      test: ["CMD", "/usr/local/bin/stingstream-relay", "--check", "--mode", "full"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # A full StingStream node joined to a group, so the coordinator host doubles as an always-on
+  # seedbox and cache. The node image is published by M8; until then this profile is a placeholder
+  # that documents the shape rather than something that will start.
+  storage-node:
+    profiles: ["storage-node"]
+    image: ghcr.io/danpatten/stingstream:latest
+    restart: unless-stopped
+    depends_on:
+      - coordinator
+    environment:
+      STINGSTREAM_DATA: /data
+      # Join a group by putting its invite code here. The node will publish itself to the
+      # coordinator's rendezvous and pin whatever the group asks it to.
+      STINGSTREAM_JOIN_CODE: ${STORAGE_NODE_JOIN_CODE:-}
+      STINGSTREAM_MESH_NODE_NAME: ${STORAGE_NODE_NAME:-seedbox}
+    volumes:
+      - storage-node-data:/data
+      - ${STORAGE_NODE_MEDIA:-./media}:/data/media
+
+volumes:
+  coordinator-data:
+  storage-node-data:

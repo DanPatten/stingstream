@@ -1,0 +1,60 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "_comment": [
+    "Railway template definition for a Lite-mode StingStream coordinator.",
+    "",
+    "Deploy from the published image rather than building from source: the repository is a",
+    "monorepo with five vendored upstreams, and Railway would otherwise upload and build all of",
+    "it. The image is published by .github/workflows/coordinator.yml on every push to master.",
+    "",
+    "TLS is deliberately `none`: Railway's proxy terminates TLS in front of the container, and the",
+    "coordinator serves plain HTTP on $PORT. Everything else defaults to a working relay plus",
+    "rendezvous; the DNS variables are only needed for the HTTPS side door."
+  ],
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "deploy/coordinator/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "/usr/local/bin/stingstream-relay --mode lite",
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "numReplicas": 1
+  },
+  "variables": {
+    "STINGSTREAM_COORDINATOR_MODE": {
+      "description": "lite (this template) or full (needs a VPS with UDP and a delegated DNS zone)",
+      "default": "lite"
+    },
+    "STINGSTREAM_COORDINATOR_TLS": {
+      "description": "Railway terminates TLS in front of the container, so the coordinator serves plain HTTP",
+      "default": "none"
+    },
+    "STINGSTREAM_COORDINATOR_HOSTNAME": {
+      "description": "This service's public hostname, without a scheme. Set it to the generated Railway domain.",
+      "default": ""
+    },
+    "STINGSTREAM_COORDINATOR_DNS_ORIGIN": {
+      "description": "Optional. The zone the HTTPS side door lives under, e.g. direct.example.org.",
+      "default": ""
+    },
+    "STINGSTREAM_COORDINATOR_DNS_PROVIDER": {
+      "description": "Optional. none | cloudflare | mock. Lite mode is not authoritative, so side-door records are published through a provider API.",
+      "default": "none"
+    },
+    "STINGSTREAM_COORDINATOR_CLOUDFLARE_ZONE": {
+      "description": "Optional. Cloudflare zone id for the domain above.",
+      "default": ""
+    },
+    "STINGSTREAM_DNS_TOKEN": {
+      "description": "Optional. A zone-scoped Cloudflare API token with Zone:DNS:Edit on that one zone, and nothing else.",
+      "default": ""
+    },
+    "RUST_LOG": {
+      "description": "Log filter",
+      "default": "stingstream_relay=info,iroh_relay=info,warn"
+    }
+  }
+}

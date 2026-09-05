@@ -153,6 +153,45 @@ async fn main() -> Result<()> {
         }));
     }
 
+    // --- Full mode: QUIC address discovery ------------------------------------------------------
+    // The embedded `RelayService` carries relayed *traffic* but has no UDP side, and iroh's
+    // address discovery is a QUIC handshake against the relay on 7842. `iroh-relay`'s QUIC server
+    // is not public on its own, so this spawns a relay `Server` configured with nothing but the
+    // QUIC half. It needs a real certificate — a client validates it — so it only runs when this
+    // coordinator terminates TLS itself, which is exactly the Full-mode-on-a-VPS case. Without it
+    // (Lite, or Full behind a proxy) nodes fall back to observing each other's addresses over the
+    // relay path, which is slower to hole-punch but not broken.
+    if cfg.mode == Mode::Full {
+        match cfg.tls.mode {
+            TlsMode::None => tracing::info!(
+                "QUIC address discovery is off: it needs a certificate, and tls.mode is \"none\""
+            ),
+            _ => {
+                let tls = match cfg.tls.mode {
+                    TlsMode::Manual => manual_tls(&cfg.tls),
+                    _ => acme_tls(
+                        cfg.hostname.clone().context("ACME needs a hostname")?,
+                        &cfg.tls,
+                    ),
+                };
+                match tls.and_then(|c| spawn_quic_discovery(&cfg, c)) {
+                    Ok(server) => {
+                        // Held for the process's lifetime: dropping the handle stops the service.
+                        std::mem::forget(server);
+                        tracing::info!(
+                            port = cfg.relay.quic_port,
+                            "QUIC address discovery listening"
+                        );
+                    }
+                    Err(e) => tracing::warn!(
+                        error = format!("{e:#}"),
+                        "could not start QUIC address discovery; hole punching will be slower"
+                    ),
+                }
+            }
+        }
+    }
+
     // --- the one HTTP port: relay protocol plus the coordinator API ---------------------------
     let svc = Coordinator::new(state.clone());
     {
@@ -357,6 +396,38 @@ impl LocalHandler for TlsLocalHandler {
             }
         })
     }
+}
+
+/// Start a relay `Server` that does nothing but QUIC address discovery on `relay.quic_port`.
+fn spawn_quic_discovery(
+    cfg: &Config,
+    tls: Arc<rustls::ServerConfig>,
+) -> Result<iroh_relay::server::Server> {
+    use iroh_relay::server::{QuicConfig, ServerConfig};
+
+    let mut quic = QuicConfig::new(std::net::SocketAddr::from((
+        std::net::Ipv6Addr::UNSPECIFIED,
+        cfg.relay.quic_port,
+    )));
+    // The QUIC server needs an owned config, and the ALPN set for address discovery is chosen by
+    // iroh-relay itself, so hand it a clone of the certificate resolver we already built.
+    quic.server_config = Some((*tls).clone());
+
+    // `ServerConfig` is `#[non_exhaustive]`, so fill in its default rather than constructing it.
+    let mut server_config = ServerConfig::default();
+    server_config.relay = None;
+    server_config.quic = Some(quic);
+    // `Server::spawn` is async; this is called from an async context, so block on it through the
+    // current runtime handle rather than making every caller await.
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::block_in_place(|| {
+        handle.block_on(async {
+            iroh_relay::server::Server::spawn(server_config)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e:?}"))
+                .context("spawning the QUIC address-discovery server")
+        })
+    })
 }
 
 // --- the embedded iroh-dns-server ---------------------------------------------------------------
