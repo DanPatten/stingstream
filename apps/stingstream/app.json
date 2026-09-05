@@ -186,6 +186,7 @@
       ["./plugins/withAndroidManifest.ts"],
       ["./plugins/withTrustLocalCerts.ts"],
       ["./plugins/withGradleProperties.ts"],
+      ["./plugins/withGradleWrapperVersion.ts"],
       ["./plugins/withReleaseSigning.ts"],
       ["./plugins/withTVOSAppIcon.ts"],
       ["./plugins/withTVOSTopShelf.ts"],

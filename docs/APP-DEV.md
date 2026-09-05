@@ -189,3 +189,58 @@ Two different failure classes need two different techniques — see `M2-web-spik
 - **Native, crash at startup after an install**: check for a duplicate `react-native-screens`
   first (`node_modules/expo-router/node_modules/react-native-screens` existing at all is the tell).
   `rm -rf node_modules && bun install --frozen-lockfile` — see "Why bun, not yarn or npm" above.
+
+---
+
+## Gradle wrapper pinned to 8.14.3 (M5)
+
+`plugins/withGradleWrapperVersion.ts` rewrites `android/gradle/wrapper/gradle-wrapper.properties`
+after every `expo prebuild` to Gradle **8.14.3**, overriding whatever `expo prebuild` copied in
+from `@react-native/gradle-plugin`'s own wrapper file. Do not "fix" this by deleting the plugin or
+regenerating the wrapper — read the rest of this section first, because the default is broken on
+this exact dependency set, not merely different.
+
+**The failure signature, so nobody re-diagnoses this from scratch.** As of this fork's locked
+dependencies (`bun.lock` — unchanged since M2, so this is not a dependency bump), both
+`@react-native/gradle-plugin` and `react-native-reanimated` independently bundle a wrapper pinned
+to Gradle **9.3.1** — genuinely, not a stray/corrupted download; it is what upstream ships for
+these exact package versions, confirmed by two unrelated packages agreeing. But Gradle 9.3.1
+cannot evaluate this project's settings scripts at all. A completely bare `expo prebuild --clean` +
+`gradlew help` — no StingStream release config, no signing, no minification, confirmed on a plain
+`assembleDebug` too — fails compiling `node_modules/@react-native/gradle-plugin/settings.gradle.kts`
+(an `includeBuild()`-ed composite build) with roughly 128 "Unresolved reference" errors for
+essentially *every* Gradle/Kotlin-DSL symbol in that file — `plugins`, `id`, `mavenCentral`,
+`google`, all of it — which is a much stranger failure than an error about the one plugin
+(`org.gradle.toolchains.foojay-resolver-convention`) it happens to be declaring. Removing that one
+plugin request gets past that file, but immediately hits a second failure one level up, resolving
+`com.facebook.react.settings` in the app's own `android/settings.gradle`:
+
+```
+java.lang.NoSuchMethodError: 'void Settings_gradle.<init>(org.gradle.kotlin.dsl.support.KotlinScriptHost,
+org.gradle.plugin.use.PluginDependenciesSpec, org.gradle.api.initialization.Settings)'
+```
+
+— Gradle's *own* generated glue class for a Groovy settings script with a `plugins{}` block, not
+project code. None of the usual suspects fixed either failure: clearing Gradle's
+`kotlin-dsl`/`groovy-dsl`/`generated-gradle-jars` caches and the project-local `android/.gradle`,
+stripping the machine's old bundled Java 8 off `PATH` so nothing could resolve it ahead of JDK 17,
+forcing `-Dfile.encoding=UTF-8`, running with and without the Gradle daemon, and bumping the
+included build's own Kotlin Gradle Plugin version from 2.1.20 to Gradle 9.3.1's embedded 2.2.21 (to
+rule out an ABI mismatch) — every one of those left the identical failure. Confirmed network
+connectivity and artifact existence too (the plugin's exact version resolves fine over plain
+HTTPS), so it is not a resolution failure in the ordinary sense either.
+
+Pinning the wrapper to Gradle **8.14.3** — paired with AGP 8.12.0, which the included build's own
+version catalog already declares — gets past both failures immediately, with the *original,
+unpatched* `foojay-resolver-convention` plugin request: `gradlew help` configures every project
+correctly and starts executing tasks, confirmed with a clean `BUILD SUCCESSFUL`. Whatever changed
+in Gradle 9.x's settings-level plugin resolution for a composite build with a Groovy `plugins{}`
+block, this exact dependency combination trips it, and 8.14.3 does not. A `bun patch` removing the
+`foojay-resolver-convention` line was tried as part of isolating the first failure and is
+deliberately **not** kept — once the wrapper is pinned, the original line needs no changes at all,
+so keeping a patch around would only be extra surface with no benefit.
+
+If a future dependency bump moves `@react-native/gradle-plugin`/`react-native-reanimated` off
+Gradle 9.3.1 (or fixes whatever this is), re-test with `withGradleWrapperVersion.ts` disabled
+before assuming the pin is still needed — this is a workaround for a specific broken combination,
+not a permanent policy pin.
