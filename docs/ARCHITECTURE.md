@@ -55,12 +55,13 @@ Verified 2026-09-04 unless marked otherwise.
   NzbDrone and share identical `NzbDrone.*` namespaces and heavy static state, so they cannot
   share one process without AssemblyLoadContext isolation that would wreck upstream tracking.
   They run as child processes; the "one process" the user sees is the supervisor. **M0 finding:**
-  Radarr pins SDK `8.0.421`, Sonarr pins SDK `6.0.405` (both via `global.json`); neither is
-  installed on the M0 build machine (only 9.0.310), so both builds failed on SDK resolution.
-  **M0 finding:** Sonarr's repository default branch (`HEAD`) is `v5-develop` (a newer major
-  version in active development), not `develop` — the plan named `develop`, which does exist as a
-  separate, older branch and was vendored literally as authorized. This is flagged for Dan; see
-  "Milestones" → M0 below.
+  Radarr pins SDK `8.0.421` via `global.json`; not installed on the M0 build machine (only
+  9.0.310), so its build failed on SDK resolution. **M0 finding, resolved:** Sonarr's repository
+  default branch (`HEAD`) is `v5-develop` (a newer major version in active development, pinning
+  SDK `10.0.400`), not `develop` (the plan's named branch, which does exist but is the older v4
+  line pinning SDK `6.0.405`). M0 first vendored `develop` literally as authorized, then Dan
+  decided to re-vendor from `v5-develop` instead — done; see `docs/PATCHES.md` and "Milestones" →
+  M0 below. Only Radarr now pins an SDK band (8.0) that nothing else in the repo needs.
 - **nzb360**: proprietary, and removed from Google Play on 2026-08-13. Cannot be forked; UX
   reference only. LunaSea (open-source equivalent) archived April 2025.
 - **Jellyswarrm**: Rust, Axum 0.8, SQLx/SQLite, reqwest, ships a `jellyfin-api` crate. Early-stage:
@@ -73,14 +74,21 @@ Verified 2026-09-04 unless marked otherwise.
   the three actual Rust crates that make up the buildable project
   (`jellyswarrm-proxy`, `jellyswarrm-macros`, `jellyfin-api`) each declare
   `license = "MIT OR Apache-2.0"` in their own `Cargo.toml` and ship real, filled-in
-  `LICENSE-MIT`/`LICENSE-APACHE` files. The code we are actually forking is MIT/Apache-2.0, not
-  GPL. Full detail and exact quotes in `NOTICE.md`.
-  **M0 finding — vendoring is blocked:** the repo tracks its dev/demo fixture media
-  (`dev/media/**/*.mp4`, `*.ogg`) via Git LFS, and `git-lfs` isn't installed on the M0 build
-  machine, so `git subtree add` aborted before its merge commit (see "Milestones" → M0 below for
-  the recovery options this needs Dan to pick between). All 174 non-media files — everything that
-  actually matters for the fork — fetched and checked out cleanly, and the license/build findings
-  above were read from that content directly.
+  `LICENSE-MIT`/`LICENSE-APACHE` files. **Dan's decision:** treat Jellyswarrm conservatively as
+  GPL-2.0 (the top-level LICENSE/README reading) rather than relying on the more permissive
+  crate-level MIT/Apache-2.0 declaration; StingStream's own mesh crates stay GPL-2.0-or-later,
+  compatible either way. Recommended follow-up: ask upstream to clarify which license actually
+  governs the project. Full detail and exact quotes in `NOTICE.md`.
+  **M0 finding, resolved — dev-fixture media vs. Git LFS:** the repo tracks its dev/demo fixture
+  media (`dev/media/**/*.mp4`, `*.ogg`, 18 files) via Git LFS, and `git-lfs` isn't installed on the
+  M0 build machine. Vendored anyway by disabling the LFS smudge/clean/process filters for the
+  `git subtree add`, so those 18 files land as plain LFS pointer text (not the real media) instead
+  of failing the checkout. `.lfsconfig` excludes this path from ordinary LFS fetch so a clone never
+  needs `git-lfs`; `tools/fetch-jellyswarrm-media.ps1` fetches the real content on demand for
+  anyone who wants Jellyswarrm's own dev/demo environment (attribution required for two of the
+  fixtures if used beyond local dev — see `docs/PATCHES.md`). All other files — everything that
+  actually matters for the fork — checked out normally, and the license/build findings above were
+  read from that content directly.
   **M0 finding — mesh workspace split:** Jellyswarrm's three crates use Cargo workspace-inheritance
   (`field.workspace = true`) for `version`/`authors`/`repository` and for a ~40-entry
   `[workspace.dependencies]` table (axum, sqlx, tokio, reqwest, etc., all pinned in its own
@@ -104,12 +112,13 @@ Verified 2026-09-04 unless marked otherwise.
   compile, because `#[derive(RustEmbed)] #[folder = "static/"] struct Asset;` in
   `crates/jellyswarrm-proxy/src/main.rs` needs that folder to exist at compile time for the derive
   macro to implement the `Embed` trait (missing folder → `Asset` compiles but is missing `get()`).
-  Creating an empty `static/` directory alongside `JELLYSWARRM_SKIP_UI=1` gets past this. Not
-  committed as a patch during M0 (no source file was changed, only an untracked empty directory
-  used to validate the build) — worth turning into a documented, tracked accommodation
-  (`docs/PATCHES.md`, once it exists) whenever CI or a contributor needs this crate to build
-  without running the embedded UI's own build step. We do not need Jellyswarrm's bundled admin UI
-  at all — StingStream's own UI comes from `apps/stingstream` (Streamyfin).
+  Creating an empty `static/` directory alongside `JELLYSWARRM_SKIP_UI=1` gets past this; CI does
+  this as an explicit step. Not committed as a patch (no source file was changed, only an
+  untracked empty directory) — both accommodations are documented in `docs/PATCHES.md`, along with
+  the root `.gitmodules` entry that pins the `ui` submodule to `update = none` so an ordinary
+  `git submodule update --init --recursive` skips it cleanly instead of failing on a gitlink
+  `git subtree add` never initializes. We do not need Jellyswarrm's bundled admin UI at all —
+  StingStream's own UI comes from `apps/stingstream` (Streamyfin).
 - **iroh 1.0** (June 2026): Rust, QUIC, ~90% direct hole-punch rate, encrypted stateless relays,
   relay binary open source and self-hostable, MIT/Apache. FFI for Swift, Kotlin, Node, Python.
   `iroh-gossip` (topic pubsub) and `iroh-blobs` (BLAKE3-verified range transfer) are companion
@@ -356,26 +365,22 @@ parallel where noted.
 
 **Accept:** clean clone → documented commands build every component on Windows and Linux CI.
 
-**M0 status (2026-09-04):** repo skeleton, tools, CI and docs committed; five of six subtrees
-landed clean (streamyfin, jellyfin, radarr, sonarr, infinidysk); the sixth (jellyswarrm) fetched
-successfully but is blocked mid-`git subtree add` on a missing `git-lfs` binary needed for its
-dev-fixture media (see "Facts" above and `NOTICE.md`) — needs Dan to choose a recovery path.
-Two open items need Dan's decision:
-1. **Sonarr branch** — vendored `develop` exactly as authorized, but the repo's actual default
-   branch (`HEAD`) is `v5-develop`, a newer major-version line. Keep `develop`, or re-vendor from
-   `v5-develop`?
-2. **Jellyswarrm subtree recovery** — install `git-lfs` and retry the `git subtree add` cleanly
-   (cleanest), or authorize a specific one-off recovery command against the current partial state
-   (e.g. finalizing the currently-staged tree, which already excludes only the irrelevant
-   dev-fixture media)?
+**M0 status (2026-09-04):** repo skeleton, tools, CI and docs committed; all six subtrees now
+landed. Both items that needed Dan's decision are resolved:
+1. **Sonarr branch** — re-vendored from `v5-develop` (the repository's actual default branch,
+   pinning SDK `10.0.400`), replacing the originally-vendored `develop` (the older v4 line, SDK
+   `6.0.405`). See `docs/PATCHES.md`.
+2. **Jellyswarrm subtree** — landed via `git subtree add` with Git LFS smudge/clean/process/required
+   disabled, so its 18 dev-fixture media files land as plain LFS pointer text instead of failing
+   the checkout; `.lfsconfig` excludes them from ordinary LFS fetch, and
+   `tools/fetch-jellyswarrm-media.ps1` fetches the real content on demand for anyone who wants
+   Jellyswarrm's own dev/demo environment. Dan's license decision: treat Jellyswarrm conservatively
+   as GPL-2.0 despite its crates individually declaring MIT OR Apache-2.0 — see `NOTICE.md`.
 
-No component's `dotnet build` succeeded on this machine — all four fail purely on missing SDK
-versions (`global.json` pins jellyfin to `10.0.0`, radarr to `8.0.421`, sonarr to `6.0.405`;
-infinidysk targets `net10.0` with no `global.json`), and only SDK `9.0.310` (plus ancient
-`1.0.4`/`2.1.100`) is installed. `cargo build` for the three new `stingstream*` crates and (once
-unblocked, plus `JELLYSWARRM_SKIP_UI=1` and an empty `static/` dir — see "Facts" above) Jellyswarrm
-both succeed independently as two workspaces. See the M0 build report for exact command output and
-the Expo web export findings.
+`cargo build` for the three new `stingstream*` crates and (with `JELLYSWARRM_SKIP_UI=1` and an
+empty `static/` dir — see "Facts" above) Jellyswarrm both succeed independently as two workspaces.
+See the M0 build report for exact `dotnet build`/`cargo build`/Expo export results and the
+toolchain versions installed to get the .NET builds passing.
 
 ### M1 — One-node "one app" server (Opus 5)
 
@@ -549,14 +554,16 @@ join a group with one code; `/security-review` findings triaged.
   child processes because of identical NzbDrone namespaces and static state. Revisit only if a
   concrete need appears.
 - **Six upstream subtrees drifting** — monthly pull cadence, config-over-patch rule, and every
-  patch listed in `docs/PATCHES.md` (create this file when the first patch lands).
+  patch listed in `docs/PATCHES.md`.
 - **Mesh workspace split** — building `mesh/crates/*` and `mesh/jellyswarrm` as two Cargo
   workspaces (confirmed necessary during M0, see "Facts" above) means CI and `tools/` scripts must
   always address both explicitly; there is no single `cargo build` at `mesh/` that covers both.
-- **.NET SDK version spread** — jellyfin/radarr/sonarr/infinidysk each pin a different SDK feature
-  band (10.0.0 / 8.0.421 / 6.0.405 / net10.0 respectively) via their own `global.json`/TFM. A
-  contributor or CI machine needs all of them side-by-side (the .NET SDK supports this natively);
-  M0 found only one SDK installed on the reference machine, so no component builds there yet.
+- **.NET SDK version spread** — Radarr pins SDK `8.0.421` via its own `global.json`; jellyfin,
+  sonarr (since its `v5-develop` re-vendor) and infinidysk all now sit on .NET 10 (`10.0.0`,
+  `10.0.400`, and bare `net10.0` TFM respectively). A contributor or CI machine needs 8.0 and 10.0
+  side-by-side (the .NET SDK supports this natively) — M0 initially found only 9.0.310 installed
+  on the reference machine, so no component built there until 8.0 and 10.0 were installed
+  alongside it.
 - **iOS and TV constraints** — background networking and MPVKit acceptance are proven by
   Streamyfin being on the App Store and shipping TV builds; light-node re-sharing on iOS and TV is
   best-effort only.

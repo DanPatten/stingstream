@@ -35,14 +35,12 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 ### server/sonarr — Sonarr
 
 - **Upstream:** https://github.com/Sonarr/Sonarr
-- **Branch vendored:** `develop`, exactly as authorized. **Note:** `develop` is *not* this
-  repository's default branch/`HEAD` — `git ls-remote --symref` resolves `HEAD` to `v5-develop`
-  (a newer, actively-developed major-version line; `git ls-remote ... Sonarr/Sonarr develop`
-  resolves to a different, older commit than `v5-develop`'s `HEAD`). `develop` does exist as a
-  named branch, so per the M0 rule ("if the branch named above does not exist, use HEAD instead")
-  no substitution was made — `develop` was vendored literally as authorized. **This needs Dan's
-  decision**: keep `develop`, or re-vendor from `v5-develop`. See the main report for detail.
-- **Commit vendored:** `980a6fc09f808a07bee8913f00f408d248b3a269`
+- **Branch vendored:** `v5-develop` — this is the repository's actual default branch/`HEAD`. M0
+  originally vendored `develop` exactly as literally authorized by the plan, but `develop` turned
+  out to be Sonarr's older v4 line (pinning .NET 6), not its default branch — `v5-develop` is the
+  newer, actively-developed major-version line (pinning .NET 10). Dan decided to re-vendor from
+  `v5-develop`; the `develop` subtree was removed and replaced with this one. See `docs/PATCHES.md`.
+- **Commit vendored:** `b84a621e991747360b63e074d06fc7d8b534ef63`
 - **License:** GPL-3.0, per `server/sonarr/LICENSE.md` ("Version 3, 29 June 2007" text).
 
 ### server/infinidysk — nzbdav (InfiniDysk)

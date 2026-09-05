@@ -46,7 +46,7 @@ $Subtrees = @(
     [pscustomobject]@{ Name = 'stingstream';  Prefix = 'apps/stingstream';    Url = 'https://github.com/streamyfin/streamyfin'; Branch = 'develop' }
     [pscustomobject]@{ Name = 'jellyfin';     Prefix = 'server/jellyfin';     Url = 'https://github.com/jellyfin/jellyfin';     Branch = 'master' }
     [pscustomobject]@{ Name = 'radarr';       Prefix = 'server/radarr';       Url = 'https://github.com/Radarr/Radarr';         Branch = 'develop' }
-    [pscustomobject]@{ Name = 'sonarr';       Prefix = 'server/sonarr';       Url = 'https://github.com/Sonarr/Sonarr';         Branch = 'develop' }
+    [pscustomobject]@{ Name = 'sonarr';       Prefix = 'server/sonarr';       Url = 'https://github.com/Sonarr/Sonarr';         Branch = 'v5-develop' }
     [pscustomobject]@{ Name = 'infinidysk';   Prefix = 'server/infinidysk';   Url = 'https://github.com/nzbdav/nzbdav';         Branch = 'main' }
     [pscustomobject]@{ Name = 'jellyswarrm';  Prefix = 'mesh/jellyswarrm';    Url = 'https://github.com/LLukas22/Jellyswarrm';  Branch = 'main' }
 )
