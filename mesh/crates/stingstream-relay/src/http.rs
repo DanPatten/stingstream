@@ -26,6 +26,14 @@ use crate::registry::Reachability;
 use crate::rendezvous::{Entry, EntryList, RejectReason};
 use crate::state::AppState;
 
+/// The path an iroh client GETs to measure a relay's HTTPS latency. Must match
+/// `iroh_relay::http::RELAY_PROBE_PATH`, which is not re-exported.
+const RELAY_PROBE_PATH: &str = "/ping";
+/// Sent by a client's captive-portal check, and echoed back so it can tell a real relay from a
+/// hotel's login page.
+const CHALLENGE_HEADER: &str = "X-Iroh-Challenge";
+const CHALLENGE_RESPONSE_HEADER: &str = "X-Iroh-Response";
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
@@ -43,6 +51,13 @@ pub fn router(state: AppState) -> Router {
         // Full-mode coordinator needs only its one public port.
         .route("/pkarr/{key}", get(pkarr).put(pkarr))
         .route("/dns-query", get(doh).post(doh))
+        // The three plain-HTTP endpoints an iroh relay is expected to serve alongside `/relay`.
+        // The embedded `RelayService` is constructed with an empty handler table (its own are
+        // `pub(crate)`), so without these a client's latency probe 404s and the relay is never
+        // chosen as anyone's home — which looks exactly like "the relay does not work".
+        .route(RELAY_PROBE_PATH, get(relay_probe))
+        .route("/generate_204", get(generate_204))
+        .route("/robots.txt", get(robots))
         .with_state(state)
 }
 
@@ -189,6 +204,45 @@ async fn doh(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
     proxy_to_iroh_dns(&state, "/dns-query", method, uri.query(), body, ct).await
+}
+
+/// `GET /ping` — the relay latency probe. Empty 200, CORS-open because a browser client makes it.
+async fn relay_probe() -> Response {
+    (
+        StatusCode::OK,
+        [(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
+    )
+        .into_response()
+}
+
+/// `GET /generate_204` — the captive-portal check.
+///
+/// A network that intercepts HTTP will answer this with its own page; echoing the challenge back
+/// is how the client knows it reached the real relay. The challenge is bounded and restricted to a
+/// small character set before it goes into a response header.
+async fn generate_204(headers: HeaderMap) -> Response {
+    let echo = headers.get(CHALLENGE_HEADER).and_then(|c| c.to_str().ok()).filter(|c| {
+        !c.is_empty()
+            && c.len() < 64
+            && c.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    });
+    match echo {
+        Some(challenge) => {
+            let value = format!("response {challenge}");
+            match axum::http::HeaderValue::from_str(&value) {
+                Ok(v) => (StatusCode::NO_CONTENT, [(CHALLENGE_RESPONSE_HEADER, v)]).into_response(),
+                Err(_) => StatusCode::NO_CONTENT.into_response(),
+            }
+        }
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+async fn robots() -> &'static str {
+    "User-agent: *
+Disallow: /
+"
 }
 
 // --- routes ---------------------------------------------------------------------------------
