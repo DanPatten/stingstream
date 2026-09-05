@@ -45,7 +45,8 @@ pub const DEFAULT_API_PORT: u16 = 8791;
 ///
 /// Set to `None` to build a node with no fallback at all. Overridable per install with
 /// `STINGSTREAM_MESH_FALLBACK_COORDINATOR` or `[discovery] fallback_coordinator` in `mesh.toml`.
-pub const DEFAULT_FALLBACK_COORDINATOR: Option<&str> = None;
+pub const DEFAULT_FALLBACK_COORDINATOR: Option<&str> =
+    Some("https://stingstream-coordinator-production.up.railway.app");
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

@@ -37,9 +37,10 @@ replacing anything. Two consequences worth being explicit about:
 
 * The map always keeps at least one UDP-capable relay, so address discovery works even when the
   group's coordinator is TCP-only.
-* iroh picks its home relay by measured latency. A Lite coordinator is registered **without** QUIC
-  address discovery (the mesh asks its `/healthz` which mode it is in), so it is never chosen for
-  that job and mostly carries rendezvous and side-door duty rather than media.
+* iroh picks its home relay by measured latency. A coordinator is registered with QUIC address
+  discovery only if its `/healthz` says the listener is actually running — a Lite one is TCP-only
+  and never has it — so it is not chosen for that job and mostly carries rendezvous and side-door
+  duty rather than media. Asking a coordinator that has none would cost a timeout per connection.
 
 Switch any of it off in `mesh.toml`:
 
@@ -448,10 +449,25 @@ Railway, `PORT` alone is enough.
 
 ### Dan's shared fallback coordinator
 
-`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs` is the coordinator
-appended to every group's relay map regardless of the group's own choice. It is currently `None` —
-see "Open items" — and is overridable per install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR` (an
-explicitly empty value means "no fallback").
+```
+https://stingstream-coordinator-production.up.railway.app
+```
+
+Deployed 2026-09-05 in Lite mode on Dan's Railway account (project `stingstream`, service
+`stingstream-coordinator`), running `ghcr.io/danpatten/stingstream-coordinator:latest`. Railway
+terminates TLS in front of the container, so `STINGSTREAM_COORDINATOR_TLS=none` and the coordinator
+serves plain HTTP on `$PORT`.
+
+`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs` holds it, and every
+node appends it to the relay map regardless of the group's own choice. It is registered without
+QUIC address discovery — Lite mode is TCP-only, and the coordinator says so on `/healthz` — so iroh
+never picks it for address discovery and it carries traffic only when nothing else can. Override it
+per install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR`; an explicitly empty value means "no
+fallback", which is what the integration tests use.
+
+Relaying media through it is metered egress on Dan's bill. Watch Railway's metrics once real groups
+exist; if it starts carrying video, the answer is a VPS in Full mode rather than a bigger Railway
+plan.
 
 ---
 
@@ -494,8 +510,6 @@ infrastructure — and if they pass, the relay map is an optimisation rather tha
 
 ## 9. Open items
 
-* **The shared fallback coordinator is not set.** `DEFAULT_FALLBACK_COORDINATOR` is `None` until
-  Dan's Railway deployment has a stable hostname; set it there and record the hostname above.
 * **A Cloudflare token.** The Lite-mode side door needs a zone-scoped `Zone:DNS:Edit` token in
   `STINGSTREAM_DNS_TOKEN`, and a domain whose DNS lives at Cloudflare. Until then the provider stays
   `none` and the side door is Full-mode-only.

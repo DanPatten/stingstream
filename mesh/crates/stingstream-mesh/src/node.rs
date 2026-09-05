@@ -226,14 +226,13 @@ impl MeshNode {
             tracing::warn!(url = %url, "ignoring an unparseable relay url");
             return;
         };
-        // A Lite coordinator is TCP-only, so asking it for QUIC address discovery produces nothing
-        // but timeouts; a Full one has UDP and is the only address-discovery source a group with
-        // `n0_relays = false` has at all. The coordinator says which it is on `/healthz`, and an
-        // unreachable or unreadable answer falls back to the safe assumption.
-        let quic = match coordinator_mode(url).await {
-            Some(mode) if mode == "full" => Some(iroh_relay::RelayQuicConfig::default()),
-            _ => None,
-        };
+        // Asking a coordinator for QUIC address discovery when it has none costs a timeout on
+        // every connection attempt, and a Lite coordinator never has it — it is TCP-only. So the
+        // coordinator says on `/healthz` whether its listener is actually up, and an unreachable
+        // or unreadable answer falls back to the safe assumption of "no".
+        let quic = coordinator_has_address_discovery(url)
+            .await
+            .then(iroh_relay::RelayQuicConfig::default);
         let config = Arc::new(RelayConfig::new(relay.clone(), quic.clone()));
         self.endpoint.insert_relay(relay.clone(), config).await;
         tracing::info!(
@@ -727,23 +726,27 @@ pub struct JoinOutcome {
     pub contacted: Vec<String>,
 }
 
-/// Ask a coordinator which mode it is running in, so the relay map knows whether it can do QUIC
-/// address discovery. `None` for anything that does not answer in time or does not look like a
-/// coordinator; the caller then assumes TCP-only, which is always safe.
-async fn coordinator_mode(url: &url::Url) -> Option<String> {
-    let health = url.join("/healthz").ok()?;
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        reqwest::Client::new().get(health).send(),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    if !resp.status().is_success() {
-        return None;
+/// Ask a coordinator whether it answers iroh's QUIC address-discovery probes.
+///
+/// `false` for anything that does not answer in time, does not look like a coordinator, or says
+/// no — all of which mean "do not spend a timeout finding out the hard way".
+async fn coordinator_has_address_discovery(url: &url::Url) -> bool {
+    async fn ask(url: &url::Url) -> Option<bool> {
+        let health = url.join("/healthz").ok()?;
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reqwest::Client::new().get(health).send(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let body: serde_json::Value = resp.json().await.ok()?;
+        body.get("quic_address_discovery")?.as_bool()
     }
-    let body: serde_json::Value = resp.json().await.ok()?;
-    body.get("mode")?.as_str().map(str::to_string)
+    ask(url).await.unwrap_or(false)
 }
 
 fn empty_body() -> PeerBody {

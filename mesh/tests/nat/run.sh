@@ -188,7 +188,7 @@ n0_relays = false
 max_concurrent_streams = 8
 stream_chunk_bytes = 262144
 max_transcodes = 2
-join_dial_timeout_secs = 30
+join_dial_timeout_secs = 15
 
 [gossip]
 heartbeat_secs = 2
@@ -204,8 +204,10 @@ start_node() { # container name
     "$1" sh -c "/opt/bin/stingstream-mesh serve --node-name $2 --api-port 8791 >> /data/mesh.log 2>&1"
 }
 
-api_a() { docker exec ss-node-a curl -fsS --max-time 60 "$@"; }
-api_b() { docker exec ss-node-b curl -fsS --max-time 60 "$@"; }
+# Generous: a join walks the invite address and then every rendezvous member, each with
+# `join_dial_timeout_secs` to answer.
+api_a() { docker exec ss-node-a curl -fsS --max-time 180 "$@"; }
+api_b() { docker exec ss-node-b curl -fsS --max-time 180 "$@"; }
 
 log "starting the mesh on both nodes"
 configure_offline_discovery ss-node-a
@@ -222,12 +224,21 @@ GROUP=$(api_a -X POST http://127.0.0.1:8791/mesh/v1/groups \
 [ -n "$GROUP" ] && [ "$GROUP" != null ] || fail "could not create a group"
 echo "group $GROUP"
 
-# Let the endpoint register with the coordinator's relay, so the invite carries a usable relay hint
-# rather than only a LAN address the other side can never reach.
-sleep 8
+# The invite has to carry a relay hint. Node-a's LAN address is useless to node-b — that is the
+# whole point of the topology — so without a home relay on the coordinator there is no route at all
+# and the join would fail for an uninteresting reason. Wait for one, and say so if it never comes.
+log "waiting for node-a to pick up a home relay from the coordinator"
+for _ in $(seq 1 60); do
+  if [ "$(api_a http://127.0.0.1:8791/mesh/v1/status | jq -r '.relay_urls | length')" != "0" ]; then
+    break
+  fi
+  sleep 1
+done
+api_a http://127.0.0.1:8791/mesh/v1/status | jq -c '{node, relay_urls, direct_addrs}'
+[ "$(api_a http://127.0.0.1:8791/mesh/v1/status | jq -r '.relay_urls | length')" != "0" ]   || fail "node-a never established a home relay on the coordinator"
+
 CODE=$(api_a -X POST "http://127.0.0.1:8791/mesh/v1/groups/$GROUP/invite" -d '{}' | jq -r .code)
 [ -n "$CODE" ] && [ "$CODE" != null ] || fail "could not mint an invite"
-api_a http://127.0.0.1:8791/mesh/v1/status | jq -c '{node, relay_urls, direct_addrs}'
 
 log "joining from node-b"
 JOIN=$(api_b -X POST http://127.0.0.1:8791/mesh/v1/groups/join \

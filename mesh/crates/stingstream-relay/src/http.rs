@@ -215,6 +215,10 @@ struct Health {
     version: String,
     uptime_secs: u64,
     relay: bool,
+    /// Whether this coordinator answers iroh's QUIC address-discovery probes. Lite mode never
+    /// does; Full mode does only when it terminates TLS itself, because the probe validates a
+    /// certificate. A node reads this to decide whether to ask, and skips a timeout when it says no.
+    quic_address_discovery: bool,
     rendezvous: bool,
     sni_router: bool,
     dns_zone: Option<String>,
@@ -232,6 +236,7 @@ async fn healthz(State(state): State<AppState>) -> Json<Health> {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_secs: state.started.elapsed().as_secs(),
         relay: state.cfg.relay.enabled,
+        quic_address_discovery: state.has_quic_address_discovery(),
         rendezvous: state.cfg.rendezvous.enabled,
         sni_router: state.cfg.sni.enabled,
         dns_zone: state.zone.as_ref().map(|z| z.origin.clone()),

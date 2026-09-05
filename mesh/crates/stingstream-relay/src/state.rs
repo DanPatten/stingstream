@@ -26,6 +26,10 @@ pub struct Inner {
     /// Loopback base URL of the embedded `iroh-dns-server`'s HTTP listener, when Full mode started
     /// one. `/pkarr/*` and `/dns-query` are proxied there.
     pub iroh_dns_http: std::sync::RwLock<Option<String>>,
+    /// Whether the QUIC address-discovery listener actually started. Published on `/healthz`
+    /// because a node reads it to decide whether to ask this coordinator for address discovery at
+    /// all — asking one that has none costs a timeout on every connection attempt.
+    pub quic_address_discovery: std::sync::atomic::AtomicBool,
     pub started: Instant,
 }
 
@@ -94,6 +98,7 @@ impl AppState {
             dns,
             endpoint,
             iroh_dns_http: std::sync::RwLock::new(None),
+            quic_address_discovery: std::sync::atomic::AtomicBool::new(false),
             started: Instant::now(),
         })))
     }
@@ -112,6 +117,16 @@ impl AppState {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    pub fn set_quic_address_discovery(&self, on: bool) {
+        self.quic_address_discovery
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn has_quic_address_discovery(&self) -> bool {
+        self.quic_address_discovery
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Drop expired registrations and rendezvous entries. Runs on a timer.

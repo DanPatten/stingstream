@@ -178,6 +178,7 @@ async fn main() -> Result<()> {
                     Ok(server) => {
                         // Held for the process's lifetime: dropping the handle stops the service.
                         std::mem::forget(server);
+                        state.set_quic_address_discovery(true);
                         tracing::info!(
                             port = cfg.relay.quic_port,
                             "QUIC address discovery listening"

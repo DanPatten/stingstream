@@ -264,6 +264,15 @@ impl Config {
     ///
     /// Split out from [`Config::load`] so it is testable without touching the filesystem.
     pub fn apply_env(&mut self) -> Result<()> {
+        // `STINGSTREAM_COORDINATOR_BIND` chooses the address and the platform's `PORT` then
+        // refines the port on it, in that order — so a container image can pin `[::]` (Railway and
+        // Fly reach a container over an IPv6-only private network) while the platform still
+        // decides which port it routes.
+        if let Some(v) = env("STINGSTREAM_COORDINATOR_BIND") {
+            self.http.bind = v
+                .parse()
+                .with_context(|| format!("STINGSTREAM_COORDINATOR_BIND={v} is not an address"))?;
+        }
         // Railway, Fly, Heroku and friends all set PORT and route exactly that one port.
         if let Some(p) = env_u16("PORT")? {
             self.http.bind = SocketAddr::new(self.http.bind.ip(), p);
@@ -277,11 +286,6 @@ impl Config {
         }
         if let Some(v) = env("STINGSTREAM_COORDINATOR_HOSTNAME") {
             self.hostname = Some(v.trim_end_matches('.').to_ascii_lowercase());
-        }
-        if let Some(v) = env("STINGSTREAM_COORDINATOR_BIND") {
-            self.http.bind = v
-                .parse()
-                .with_context(|| format!("STINGSTREAM_COORDINATOR_BIND={v} is not an address"))?;
         }
         if let Some(v) = env("STINGSTREAM_COORDINATOR_TLS") {
             self.tls.mode = match v.to_ascii_lowercase().as_str() {
@@ -473,8 +477,24 @@ mod tests {
         let mut cfg = Config::default();
         cfg.apply_env().unwrap();
         assert_eq!(cfg.http.bind.port(), 4321);
-        // ...and keeps the configured bind address, so a container still listens on 0.0.0.0.
+        // ...and keeps the configured bind address, so a container still listens on every address.
         assert!(cfg.http.bind.ip().is_unspecified());
+    }
+
+    #[test]
+    fn bind_chooses_the_address_and_port_then_refines_it() {
+        // The container image pins `[::]` — Railway's private network, which its edge proxy uses
+        // to reach the container, is IPv6-only — while the platform still picks the port. Getting
+        // this order wrong makes the service invisible to the proxy with no error anywhere.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = EnvGuard::set(&[
+            ("STINGSTREAM_COORDINATOR_BIND", "[::]:8080"),
+            ("PORT", "4321"),
+        ]);
+        let mut cfg = Config::default();
+        cfg.apply_env().unwrap();
+        assert!(cfg.http.bind.is_ipv6(), "the image's choice of address survives");
+        assert_eq!(cfg.http.bind.port(), 4321, "the platform's choice of port wins");
     }
 
     #[test]

@@ -23,7 +23,24 @@ use stingstream_relay::config::{Config, HttpConfig, Mode};
 use stingstream_relay::AppState;
 
 /// Start a Lite coordinator on an ephemeral loopback port and return its base URL.
-async fn start_coordinator() -> Result<(url::Url, tokio::task::JoinHandle<()>)> {
+///
+/// `STINGSTREAM_TEST_COORDINATOR` points the whole suite at an already-running coordinator
+/// instead — which is how the same tests are run against the deployed Railway one:
+///
+/// ```text
+/// STINGSTREAM_TEST_COORDINATOR=https://stingstream-coordinator-production.up.railway.app ///   cargo test -p stingstream-relay --test rendezvous_join
+/// ```
+async fn start_coordinator() -> Result<(url::Url, Option<tokio::task::JoinHandle<()>>)> {
+    if let Ok(external) = std::env::var("STINGSTREAM_TEST_COORDINATOR") {
+        let base: url::Url = external.trim().parse()?;
+        let health: serde_json::Value = reqwest::get(base.join("/healthz")?).await?.json().await?;
+        eprintln!("using the coordinator at {base}: {health}");
+        anyhow::ensure!(
+            health.get("rendezvous").and_then(|v| v.as_bool()) == Some(true),
+            "{base} does not offer rendezvous"
+        );
+        return Ok((base, None));
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let cfg = Config {
@@ -43,7 +60,7 @@ async fn start_coordinator() -> Result<(url::Url, tokio::task::JoinHandle<()>)> 
     // Wait for it to answer before handing the URL out.
     for _ in 0..50 {
         if reqwest::get(base.join("/healthz")?).await.is_ok() {
-            return Ok((base, handle));
+            return Ok((base, Some(handle)));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
