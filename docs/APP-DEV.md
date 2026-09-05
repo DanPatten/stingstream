@@ -96,12 +96,13 @@ Two gotchas that cost real time during the spike:
 ```powershell
 cd apps/stingstream
 bun install --frozen-lockfile
-npx expo export --platform web
+bun run build:web   # thin wrapper around: npx expo export --platform web
 ```
 
 Output lands in `dist/` (gitignored; `output: "single"` in `app.json`, so it's one big SPA bundle,
 not statically rendered routes — see `M2-web-spike.md` section 7 for why). Serve it with any static
-file server to try it in a browser; there is no dev-server step required to validate an export.
+file server to try it in a browser; there is no dev-server step required to validate an export. See
+`docs/UI.md` for how the M2 screens are organized and how this bundle is served by a node's gateway.
 
 For iterative work, `npx expo start --web` runs Metro's own dev server instead of a static export.
 
