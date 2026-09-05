@@ -172,6 +172,21 @@ pub enum Body {
         /// The node id that made the change. Breaks a tie on `at`.
         by: String,
     },
+    /// An open watch-together session, announced by the node leading it (M7).
+    ///
+    /// **Discovery only.** Play, pause and seek do *not* ride gossip -- they go point to point over
+    /// the peer HTTP API, on a connection that is already open and whose round trip the bridge
+    /// measures. Gossip is a broadcast tree with a signing and sealing pass per message and no
+    /// delivery guarantee, which is right for "there is a session for this film, led by that node"
+    /// and quite wrong for "be at 00:41:33 at this instant". See [`crate::watch`].
+    ///
+    /// Re-announced on every snapshot tick and on `NeighborUp`, like every other record here, so a
+    /// member that joins mid-film is offered the invite without anything having to remember that it
+    /// was not there. A closed session is announced once more before it is swept, so the invite
+    /// comes down rather than lingering until a timeout.
+    Watch {
+        session: crate::watch::WatchSession,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,6 +309,7 @@ pub async fn spawn(
     bootstrap: Vec<EndpointId>,
     cfg: GossipConfig,
     config_changes: ConfigChangeSender,
+    watch: crate::watch::Registry,
 ) -> Result<GroupGossip> {
     let topic = gossip
         .subscribe(group.topic(), bootstrap)
@@ -309,6 +325,7 @@ pub async fn spawn(
         let node_key = node_key.clone();
         let node_name = node_name.clone();
         let config_changes = config_changes.clone();
+        let watch = watch.clone();
         tokio::spawn(async move {
             loop {
                 let next = receiver.next().await;
@@ -335,6 +352,7 @@ pub async fn spawn(
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_group_config(&db, &sender, &group, &secret, &node_key).await;
+                        publish_watch_sessions(&watch, &sender, &group, &secret, &node_key).await;
                         publish(&sender, &group, &secret, &node_key, &Body::RequestSnapshot).await;
                     }
                     Event::NeighborDown(peer) => {
@@ -352,7 +370,7 @@ pub async fn spawn(
                             Ok((author, body)) => {
                                 handle(
                                     &db, &sender, &group, &secret, &node_key, &node_name, author,
-                                    body, &config_changes,
+                                    body, &config_changes, &watch,
                                 )
                                 .await;
                             }
@@ -379,6 +397,7 @@ pub async fn spawn(
         let sender = sender.clone();
         let node_key = node_key.clone();
         let node_name = node_name.clone();
+        let watch = watch.clone();
         let heartbeat_secs = cfg.heartbeat_secs.max(1);
         let snapshot_secs = cfg.snapshot_interval_secs.max(heartbeat_secs);
         tokio::spawn(async move {
@@ -400,6 +419,8 @@ pub async fn spawn(
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_group_config(&db, &sender, &group, &secret, &node_key).await;
+                        watch.sweep(crate::watch::now_ms());
+                        publish_watch_sessions(&watch, &sender, &group, &secret, &node_key).await;
                     }
                 }
             }
@@ -621,6 +642,24 @@ pub fn chunk_records(records: Vec<WireRecord>) -> Vec<Vec<WireRecord>> {
     batches
 }
 
+/// Announce every watch session this node *leads*.
+///
+/// Only the ones it leads: a follower re-broadcasting somebody else's record would make a stale
+/// copy look like a fresh announcement, and the leader is the only node whose view of its own
+/// session is by definition current.
+pub async fn publish_watch_sessions(
+    watch: &crate::watch::Registry,
+    sender: &GossipSender,
+    group: &GroupId,
+    secret: &GroupSecret,
+    node_key: &SecretKey,
+) {
+    let me = node_key.public().to_string();
+    for session in watch.all().into_iter().filter(|s| s.leader == me) {
+        publish(sender, group, secret, node_key, &Body::Watch { session }).await;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle(
     db: &Db,
@@ -632,6 +671,7 @@ async fn handle(
     author: EndpointId,
     body: Body,
     config_changes: &ConfigChangeSender,
+    watch: &crate::watch::Registry,
 ) {
     let me = node_key.public();
     if author == me {
@@ -744,6 +784,29 @@ async fn handle(
                 tracing::warn!(error = %e, "recording a member request");
             }
         }
+        Body::Watch { mut session } => {
+            // The leader is the *author*, never whatever the body says -- the same rule
+            // `RequestClaim` follows below, and for the same reason. The signature proves who wrote
+            // the message, not who it is about, so taking the leader from the payload would let any
+            // member announce a session in somebody else's name and point every follower's commands
+            // at a node that is not running one.
+            if session.leader != author_s {
+                tracing::debug!(
+                    %group, peer = %author.fmt_short(), claimed = %session.leader,
+                    "ignoring a watch session announced by a node that does not lead it"
+                );
+                return;
+            }
+            session.leader_name.clone_from(&node_name_of(db, group, &author_s));
+            let id = session.id.clone();
+            let item_key = session.item_key.clone();
+            if watch.merge(session) {
+                tracing::info!(
+                    %group, peer = %author.fmt_short(), session = %id, item_key,
+                    "a watch-together session was announced"
+                );
+            }
+        }
         Body::RequestClaim { mut claim } => {
             // The claiming node is the *author*, never whatever the body says. Taking the node id
             // from the payload would let any member write a claim in somebody else's name and take
@@ -760,6 +823,20 @@ async fn handle(
             }
         }
     }
+}
+
+/// A peer's human name from the membership table, or its short id when it has never said.
+///
+/// The announcement itself does not carry it: the leader's own `node_name` in the record is what it
+/// calls *itself*, and every member already has the peers table, which is the one place a name is
+/// kept up to date.
+fn node_name_of(db: &Db, group: &GroupId, node: &str) -> String {
+    db.peer(group, node)
+        .ok()
+        .flatten()
+        .map(|p| p.node_name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| node.chars().take(12).collect())
 }
 
 #[cfg(test)]

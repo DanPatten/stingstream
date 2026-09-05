@@ -83,6 +83,12 @@ pub struct MeshNode {
     /// relays, which are not this code's to remove. Without the distinction, tidying up after a
     /// coordinator change would eventually strip a node of every relay it has.
     coordinator_relays: Mutex<Vec<RelayUrl>>,
+    /// Watch-together sessions this node leads or follows (M7). In memory: a watch party is a
+    /// conversation, not a library, and a node that restarts mid-film has left it. See
+    /// [`crate::watch`].
+    pub watch: crate::watch::Registry,
+    /// Measured clock offset and round trip to each peer, per group, for the watch bridge.
+    watch_clocks: Mutex<HashMap<(GroupId, String), crate::watch::Clock>>,
 }
 
 impl std::fmt::Debug for MeshNode {
@@ -145,6 +151,7 @@ impl MeshNode {
             .spawn(endpoint.clone());
         let streams = Arc::new(Semaphore::new(cfg.peer.max_concurrent_streams.max(1)));
 
+        let watch = crate::watch::Registry::new();
         let peer_state = Arc::new(PeerState {
             db: db.clone(),
             node_key: secret_key.clone(),
@@ -153,10 +160,12 @@ impl MeshNode {
             chunk_bytes: cfg.peer.stream_chunk_bytes,
             light: cfg.peer.light,
             throttle_bytes_per_sec: cfg.peer.throttle_bytes_per_sec,
+            watch: watch.clone(),
+            node: std::sync::OnceLock::new(),
         });
         let mut router = Router::builder(endpoint.clone())
             .accept(GOSSIP_ALPN, gossip.clone())
-            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state));
+            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state.clone()));
         // The node half of the coordinator's SNI passthrough. Registered only when there is a
         // gateway to pipe into: a node with no side door refuses the ALPN outright, which is a
         // clean answer rather than a connection that opens and then goes nowhere.
@@ -196,8 +205,15 @@ impl MeshNode {
             streams,
             config_changes: config_tx,
             coordinator_relays: Mutex::new(seeded_coordinator_relays),
+            watch,
+            watch_clocks: Mutex::new(HashMap::new()),
             dht: dht_state,
         });
+
+        // Close the loop the construction order forced open: the peer server was registered with
+        // the router before the node existed, and the watch routes need to reach back into it. Weak,
+        // so this is not a cycle. See `PeerState::node`.
+        let _ = peer_state.node.set(Arc::downgrade(&node));
 
         // React to a coordinator change that arrived over gossip: the database has already applied
         // it (that is what put the id on this channel), so all that is left is the part gossip
@@ -646,6 +662,7 @@ impl MeshNode {
             boot,
             self.cfg.gossip.clone(),
             self.config_changes.clone(),
+            self.watch.clone(),
         )
         .await?;
 
@@ -1396,6 +1413,533 @@ impl MeshNode {
         }
     }
 
+    // --- watch together -----------------------------------------------------------------------
+
+    /// Start a session, with this node as its leader.
+    ///
+    /// The caller is `StingStream.Core`, which has just seen one of its own users create a native
+    /// SyncPlay group for a federated item. Everything the group does from here is mirrored to the
+    /// other nodes through [`MeshNode::watch_command`]; this only creates the record and puts it
+    /// where the group can find it.
+    pub async fn watch_start(
+        &self,
+        group_id: &GroupId,
+        item_key: &str,
+        title: &str,
+        viewers: u32,
+    ) -> Result<crate::watch::WatchSession> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let now = crate::watch::now_ms();
+        let session = crate::watch::WatchSession {
+            id: crate::watch::new_session_id(),
+            item_key: item_key.to_string(),
+            title: title.to_string(),
+            leader: self.node_id(),
+            leader_name: self.cfg.node_name.clone(),
+            participants: vec![crate::watch::WatchParticipant {
+                node: self.node_id(),
+                node_name: self.cfg.node_name.clone(),
+                viewers,
+                last_seen_ms: now,
+                rtt_ms: Some(0),
+                drift_ms: Some(0),
+                buffering: false,
+            }],
+            state: crate::watch::WatchState::Idle,
+            position_ms: 0,
+            at_ms: now,
+            seq: 1,
+            closed: false,
+            updated_at_ms: now,
+        };
+        self.watch.put(session.clone());
+        tracing::info!(
+            group = %group_id, session = %session.id, item_key,
+            "started a watch-together session"
+        );
+        self.announce_watch(&group).await;
+        Ok(session)
+    }
+
+    /// Every open session this node knows about in a group.
+    pub fn watch_sessions(&self, group_id: &GroupId) -> Result<Vec<crate::watch::WatchSession>> {
+        if self.db.group(group_id)?.is_none() {
+            bail!("this node is not a member of group {group_id}");
+        }
+        // The registry is not keyed by group -- a node in two groups running two watch parties is
+        // a case that does not exist yet -- so this filters by "is the leader a member of this
+        // group", which is the same answer with one fewer field to keep in step.
+        let members: std::collections::HashSet<String> = self
+            .db
+            .peers(Some(group_id))?
+            .into_iter()
+            .map(|p| p.node)
+            .chain(std::iter::once(self.node_id()))
+            .collect();
+        Ok(self
+            .watch
+            .open()
+            .into_iter()
+            .filter(|s| members.contains(&s.leader))
+            .collect())
+    }
+
+    /// Join a session led by another node.
+    ///
+    /// Asks the leader directly rather than announcing over gossip, for the same reason commands
+    /// go point to point: the joiner wants the *current* position now, not whenever the next
+    /// snapshot tick comes round, and the leader is the only node that has it.
+    pub async fn watch_join(
+        &self,
+        group_id: &GroupId,
+        session_id: &str,
+        viewers: u32,
+    ) -> Result<crate::watch::WatchSession> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let Some(known) = self.watch.get(session_id) else {
+            bail!("no watch session {session_id} in group {group_id}");
+        };
+        if known.leader == self.node_id() {
+            bail!("this node already leads {session_id}");
+        }
+
+        let report = crate::watch::Report {
+            session: session_id.to_string(),
+            node: self.node_id(),
+            node_name: self.cfg.node_name.clone(),
+            state: crate::watch::WatchState::Idle,
+            position_ms: 0,
+            at_ms: crate::watch::now_ms(),
+            viewers,
+            buffering: true,
+        };
+        let session: crate::watch::WatchSession = self
+            .peer_json(&group, &known.leader, "/peer/v1/watch/join", &report)
+            .await
+            .with_context(|| format!("joining watch session {session_id}"))?;
+        self.watch.merge(session.clone());
+        // Measure the link straight away: the leader's very next resume is scheduled off the worst
+        // round trip it knows, and an unmeasured follower would make it guess.
+        let _ = self.watch_probe_clock(&group, &known.leader).await;
+        tracing::info!(
+            group = %group_id, session = %session_id, leader = %short(&known.leader),
+            "joined a watch-together session"
+        );
+        Ok(session)
+    }
+
+    /// Leave a session, or -- if this node leads it -- end it for everybody.
+    pub async fn watch_leave(&self, group_id: &GroupId, session_id: &str) -> Result<()> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let Some(session) = self.watch.get(session_id) else {
+            return Ok(());
+        };
+        let me = self.node_id();
+        if session.leader == me {
+            // Ending it is the leader's prerogative and the leader's alone. There is no election:
+            // a watch party is over when the person who started it stops, and inventing a
+            // succession protocol for that would be inventing a way for two nodes to each think
+            // they are in charge.
+            self.watch.update(session_id, |s| {
+                s.closed = true;
+                s.seq += 1;
+            });
+            self.broadcast_command(&group, session_id, crate::watch::CommandKind::Stop, 0)
+                .await;
+            self.announce_watch(&group).await;
+        } else {
+            let report = crate::watch::Report {
+                session: session_id.to_string(),
+                node: me,
+                node_name: self.cfg.node_name.clone(),
+                state: crate::watch::WatchState::Idle,
+                position_ms: 0,
+                at_ms: crate::watch::now_ms(),
+                viewers: 0,
+                buffering: false,
+            };
+            let _: serde_json::Value = self
+                .peer_json(&group, &session.leader, "/peer/v1/watch/leave", &report)
+                .await
+                .unwrap_or_default();
+            self.watch.remove(session_id);
+        }
+        Ok(())
+    }
+
+    /// The leader publishes a command to every follower.
+    ///
+    /// `position_ms` is where the film should be; the instant to be there is computed here, from
+    /// the worst round trip among the followers, so the caller does not have to know about the
+    /// network. Returns the command as sent, so `StingStream.Core` can apply the same one to its
+    /// *own* local group and both nodes work from one number.
+    pub async fn watch_command(
+        &self,
+        group_id: &GroupId,
+        session_id: &str,
+        kind: crate::watch::CommandKind,
+        position_ms: u64,
+    ) -> Result<crate::watch::Command> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let Some(session) = self.watch.get(session_id) else {
+            bail!("no watch session {session_id}");
+        };
+        if session.leader != self.node_id() {
+            bail!("only the leader of {session_id} may issue commands");
+        }
+        Ok(self
+            .broadcast_command(&group, session_id, kind, position_ms)
+            .await)
+    }
+
+    /// Apply a command that arrived from the leader, and say where this node's own group should be.
+    ///
+    /// Converts the leader's instants onto this node's clock with the measured offset. A command
+    /// whose sequence is not ahead of what has already been applied is ignored -- which is what
+    /// makes a duplicated or reordered delivery harmless rather than a seek backwards.
+    pub fn watch_apply(&self, command: &crate::watch::Command, leader_clock: crate::watch::Clock) -> bool {
+        let Some(existing) = self.watch.get(&command.session) else {
+            return false;
+        };
+        if command.seq <= existing.seq && existing.seq != 0 {
+            tracing::debug!(
+                session = %command.session, seq = command.seq, have = existing.seq,
+                "ignoring a watch command no newer than the one already applied"
+            );
+            return false;
+        }
+        let local_at = leader_clock.from_peer(command.at_ms);
+        self.watch.update(&command.session, |s| {
+            s.seq = command.seq;
+            s.position_ms = command.position_ms;
+            s.at_ms = local_at;
+            s.state = match command.kind {
+                crate::watch::CommandKind::Play => crate::watch::WatchState::Playing,
+                crate::watch::CommandKind::Pause | crate::watch::CommandKind::Seek => {
+                    // A seek does not change whether it is playing, so keep what we had -- except
+                    // from Idle, where there is nothing to keep and Paused is the honest answer.
+                    if s.state == crate::watch::WatchState::Playing
+                        && command.kind == crate::watch::CommandKind::Seek
+                    {
+                        crate::watch::WatchState::Playing
+                    } else {
+                        crate::watch::WatchState::Paused
+                    }
+                }
+                crate::watch::CommandKind::Stop => crate::watch::WatchState::Idle,
+            };
+            s.closed = command.kind == crate::watch::CommandKind::Stop;
+        });
+        true
+    }
+
+    /// The clock offset and round trip this node has measured to `node`.
+    pub async fn watch_clock(&self, group_id: &GroupId, node: &str) -> crate::watch::Clock {
+        self.watch_clocks
+            .lock()
+            .await
+            .get(&(*group_id, node.to_string()))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Probe a peer's clock: NTP's four timestamps over one peer HTTP request.
+    pub async fn watch_probe_clock(
+        &self,
+        group: &Group,
+        node: &str,
+    ) -> Result<crate::watch::Clock> {
+        #[derive(serde::Deserialize)]
+        struct ClockReply {
+            received_ms: u64,
+            sent_ms: u64,
+        }
+        let t0 = crate::watch::now_ms();
+        let reply: ClockReply = self
+            .peer_get_json(group, node, "/peer/v1/watch/clock")
+            .await?;
+        let t3 = crate::watch::now_ms();
+        let mut clocks = self.watch_clocks.lock().await;
+        let clock = clocks.entry((group.id, node.to_string())).or_default();
+        clock.observe(t0, reply.received_ms, reply.sent_ms, t3);
+        Ok(*clock)
+    }
+
+    /// A follower tells the leader where its own group has got to.
+    pub async fn watch_report(&self, group_id: &GroupId, report: &crate::watch::Report) -> Result<()> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        let Some(session) = self.watch.get(&report.session) else {
+            bail!("no watch session {}", report.session);
+        };
+        if session.leader == self.node_id() {
+            // Our own group's position. Fold it in locally rather than posting to ourselves.
+            self.record_report(group_id, report, 0);
+            return Ok(());
+        }
+        let _: serde_json::Value = self
+            .peer_json(&group, &session.leader, "/peer/v1/watch/report", report)
+            .await?;
+        Ok(())
+    }
+
+    /// Fold a follower's report into the session, computing its drift from the leader's own clock.
+    ///
+    /// `offset_ms` converts the reporter's instants onto this node's clock; zero for a report this
+    /// node made about itself.
+    pub(crate) fn record_report(
+        &self,
+        group_id: &GroupId,
+        report: &crate::watch::Report,
+        offset_ms: i64,
+    ) {
+        let now = crate::watch::now_ms();
+        let Some(session) = self.watch.get(&report.session) else {
+            return;
+        };
+        // Where the reporter said it was, expressed on our clock, then advanced to now if it was
+        // playing -- the same arithmetic the session itself does, applied to their number.
+        let their_at = (report.at_ms as i64 - offset_ms).max(0) as u64;
+        let theirs = match report.state {
+            crate::watch::WatchState::Playing => {
+                report.position_ms + now.saturating_sub(their_at)
+            }
+            _ => report.position_ms,
+        };
+        let ours = session.position_at(now);
+        let drift = theirs as i64 - ours as i64;
+        let rtt = self
+            .watch_clocks
+            .try_lock()
+            .ok()
+            .and_then(|c| c.get(&(*group_id, report.node.clone())).map(|c| c.rtt_ms));
+        self.watch.update(&report.session, |s| {
+            match s.participants.iter_mut().find(|p| p.node == report.node) {
+                Some(p) => {
+                    p.node_name = report.node_name.clone();
+                    p.viewers = report.viewers;
+                    p.last_seen_ms = now;
+                    p.buffering = report.buffering;
+                    p.drift_ms = Some(drift);
+                    if let Some(r) = rtt {
+                        p.rtt_ms = Some(r);
+                    }
+                }
+                None => s.participants.push(crate::watch::WatchParticipant {
+                    node: report.node.clone(),
+                    node_name: report.node_name.clone(),
+                    viewers: report.viewers,
+                    last_seen_ms: now,
+                    rtt_ms: rtt,
+                    drift_ms: Some(drift),
+                    buffering: report.buffering,
+                }),
+            }
+        });
+    }
+
+    /// Send a command to every follower, and record it locally.
+    async fn broadcast_command(
+        &self,
+        group: &Group,
+        session_id: &str,
+        kind: crate::watch::CommandKind,
+        position_ms: u64,
+    ) -> crate::watch::Command {
+        let me = self.node_id();
+        let session = self.watch.get(session_id);
+        let followers: Vec<String> = session
+            .as_ref()
+            .map(|s| {
+                s.participants
+                    .iter()
+                    .map(|p| p.node.clone())
+                    .filter(|n| *n != me)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // The head start: two of the worst round trip among the followers, floored and capped.
+        // One trip for the command to arrive, one for that node's own SyncPlay group to reach its
+        // members -- the same doubling Jellyfin applies inside a single server, over the hop this
+        // is actually compensating for.
+        let mut worst: Option<u64> = None;
+        {
+            let clocks = self.watch_clocks.lock().await;
+            for node in &followers {
+                if let Some(c) = clocks.get(&(group.id, node.clone())) {
+                    if c.samples > 0 {
+                        worst = Some(worst.map_or(c.rtt_ms, |w: u64| w.max(c.rtt_ms)));
+                    }
+                }
+            }
+        }
+
+        let now = crate::watch::now_ms();
+        let at = match kind {
+            // Only a resume is scheduled ahead: a pause has to be obeyed as soon as it lands, and
+            // scheduling one would leave everybody watching a second of film the person who
+            // pressed pause has already stopped seeing.
+            crate::watch::CommandKind::Play => crate::watch::play_at(now, worst),
+            _ => now,
+        };
+
+        let seq = self
+            .watch
+            .update(session_id, |s| {
+                s.seq += 1;
+                s.position_ms = position_ms;
+                s.at_ms = at;
+                s.state = match kind {
+                    crate::watch::CommandKind::Play => crate::watch::WatchState::Playing,
+                    crate::watch::CommandKind::Pause => crate::watch::WatchState::Paused,
+                    crate::watch::CommandKind::Seek => s.state,
+                    crate::watch::CommandKind::Stop => crate::watch::WatchState::Idle,
+                };
+            })
+            .map(|s| s.seq)
+            .unwrap_or(1);
+
+        let command = crate::watch::Command {
+            session: session_id.to_string(),
+            seq,
+            kind,
+            position_ms,
+            at_ms: at,
+            emitted_ms: now,
+        };
+
+        tracing::info!(
+            group = %group.id, session = session_id, seq, ?kind, position_ms,
+            lead_ms = at.saturating_sub(now), followers = followers.len(),
+            "sending a watch command"
+        );
+
+        // Sent one at a time, each bounded, and that is deliberate rather than lazy. The command
+        // carries the instant to be at its position, so a send that took two hundred milliseconds
+        // does not make that follower two hundred milliseconds late -- it just eats into the head
+        // start. The bound is what stops one unreachable follower from holding up the rest past
+        // that head start; a peer that has genuinely gone is dropped from the session by
+        // `Registry::sweep` when it stops reporting.
+        for node in followers {
+            let send = self.peer_json::<_, serde_json::Value>(
+                group,
+                &node,
+                "/peer/v1/watch/command",
+                &command,
+            );
+            match tokio::time::timeout(COMMAND_TIMEOUT, send).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => tracing::warn!(
+                    group = %group.id, session = session_id, node = %short(&node),
+                    error = %e, "a follower did not take a watch command"
+                ),
+                Err(_) => tracing::warn!(
+                    group = %group.id, session = session_id, node = %short(&node),
+                    timeout_ms = COMMAND_TIMEOUT.as_millis() as u64,
+                    "a follower did not answer a watch command in time"
+                ),
+            }
+        }
+
+        command
+    }
+
+    /// Re-announce this node's own sessions over gossip, so members learn the invite.
+    async fn announce_watch(&self, group: &Group) {
+        if let Some(rg) = self.groups.lock().await.get(&group.id) {
+            gossip::publish_watch_sessions(
+                &self.watch,
+                &rg.gossip.sender,
+                &group.id,
+                &group.secret,
+                &self.secret_key,
+            )
+            .await;
+        }
+    }
+
+    /// `POST` a JSON body to a peer route and decode the reply.
+    async fn peer_json<B: serde::Serialize, R: serde::de::DeserializeOwned>(
+        &self,
+        group: &Group,
+        node: &str,
+        path: &str,
+        body: &B,
+    ) -> Result<R> {
+        let bytes = serde_json::to_vec(body).context("encoding a peer request body")?;
+        let req = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(
+                http_body_util::Full::new(bytes::Bytes::from(bytes))
+                    .map_err(|never| match never {})
+                    .boxed(),
+            )
+            .context("building a peer request")?;
+        let conn = self.connect_node(group, node).await?;
+        let resp = conn.request(req).await?;
+        let status = resp.status();
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .context("reading a peer reply")?
+            .to_bytes();
+        if !status.is_success() {
+            bail!(
+                "node {} answered {} for {path}: {}",
+                short(node),
+                status,
+                String::from_utf8_lossy(&body).trim()
+            );
+        }
+        // An empty 2xx body decodes as `null`, which is what a caller expecting
+        // `serde_json::Value` wants and an honest error for a caller expecting a session.
+        if body.is_empty() {
+            return serde_json::from_str("null").context("decoding an empty peer reply");
+        }
+        serde_json::from_slice(&body).context("decoding a peer reply")
+    }
+
+    /// `GET` a peer route and decode the reply.
+    async fn peer_get_json<R: serde::de::DeserializeOwned>(
+        &self,
+        group: &Group,
+        node: &str,
+        path: &str,
+    ) -> Result<R> {
+        let req = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header(header::ACCEPT, "application/json")
+            .body(empty_body())
+            .context("building a peer request")?;
+        let conn = self.connect_node(group, node).await?;
+        let resp = conn.request(req).await?;
+        let status = resp.status();
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .context("reading a peer reply")?
+            .to_bytes();
+        if !status.is_success() {
+            bail!("node {} answered {status} for {path}", short(node));
+        }
+        serde_json::from_slice(&body).context("decoding a peer reply")
+    }
+
     /// Wrap a peer's body so a holder dying mid-stream is a re-dial rather than a broken player.
     ///
     /// The generator owns the whole transfer: it counts the bytes it has emitted, so it always
@@ -1801,6 +2345,14 @@ impl Drop for Meter {
 /// `?any=1` from Jellyfin's own proxying path, a cast receiver, or a client recovering from a
 /// pointer whose holder has left the group.
 pub const ANY_SOURCE: &str = "any";
+
+/// How long the leader waits for a follower to acknowledge one watch command.
+///
+/// Short on purpose. The command carries the instant to be at its position, so a slow
+/// acknowledgement costs head start rather than accuracy -- and a follower that cannot answer in
+/// two seconds is one whose own players are not going to be in time either. It is dropped from the
+/// session by [`crate::watch::Registry::sweep`] once it stops reporting.
+const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The `file_hash` segment that means "whatever you hold under this key".
 ///

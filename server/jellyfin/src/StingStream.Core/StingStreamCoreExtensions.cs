@@ -17,6 +17,7 @@ using StingStream.Core.Library;
 using StingStream.Core.Mesh;
 using StingStream.Core.Playback;
 using StingStream.Core.Requests;
+using StingStream.Core.SyncPlay;
 using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -147,6 +148,15 @@ public static class StingStreamCoreExtensions
 
         // Member requests (M6). One call, defined in Requests/RequestsRegistration.cs.
         services.AddStingStreamRequests();
+
+        // Watch together across nodes (M7). Within one node Jellyfin's own SyncPlay already covers
+        // federated items -- a peer's `.strm` is an ordinary library item to it -- so this exists
+        // only for the case it cannot reach: two friends on two different nodes. Nothing here
+        // decorates or replaces `ISyncPlayManager`; the bridge holds an ordinary session seat in
+        // the local group and drives it through the public API. See SyncPlay/WatchBridge.cs.
+        services.AddSingleton<IWatchMeshClient, WatchMeshClient>();
+        services.AddSingleton<WatchBridge>();
+        services.AddHostedService(sp => sp.GetRequiredService<WatchBridge>());
 
         AddStingStreamLocalResolution(services);
 

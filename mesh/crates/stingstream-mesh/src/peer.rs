@@ -14,6 +14,9 @@
 //! | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | The file itself, with full `Range` support. |
 //! | `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | One artwork file — poster, backdrop, logo, thumb or banner — so a peer can materialize this title with real images and no metadata provider. |
 //! | `GET` | `/peer/v1/status` | Node name, version and current stream count. |
+//! | `GET` | `/peer/v1/watch` | The watch-together sessions this node leads (M7). |
+//! | `GET` | `/peer/v1/watch/clock` | Two timestamps, for an NTP-style clock offset. |
+//! | `POST` | `/peer/v1/watch/{join,leave,report,command}` | The bridge itself — see [`crate::watch`]. |
 //!
 //! Everything else is a 404. There is deliberately no path that takes a filesystem path: a peer
 //! names an `item_key` and a `file_hash`, and the *serving* node resolves that to a path through
@@ -210,6 +213,24 @@ pub struct PeerState {
     /// Bytes per second this node will write onto one peer stream, `0` for no cap. See
     /// [`crate::config::PeerConfig::throttle_bytes_per_sec`].
     pub throttle_bytes_per_sec: u64,
+    /// Watch-together sessions (M7), shared with the node so `GET /peer/v1/watch` can be answered
+    /// without reaching back into it.
+    pub watch: crate::watch::Registry,
+    /// The node this peer server belongs to, for the watch routes that have to reach into it.
+    ///
+    /// **Weak, and behind a `OnceLock`**, and both halves of that are forced. Weak because
+    /// `MeshNode` owns the router that owns this state, so a strong reference is a cycle and a node
+    /// that never drops. `OnceLock` because the ordering is unavoidable: the protocol handler has
+    /// to be registered with the router *before* `MeshNode` is constructed, and the node cannot be
+    /// referenced before it exists. So it is filled in immediately afterwards, by
+    /// `MeshNode::spawn`, and every reader treats "not set yet" the same as "no node" -- a 503,
+    /// which is also the honest answer for the tests, which build a peer server with no node at
+    /// all.
+    ///
+    /// Everything else in `PeerState` is data the peer server answers from on its own. The watch
+    /// bridge is the one part that needs the node's clocks and group table, so it is the one part
+    /// that pays for an upgrade per request.
+    pub node: std::sync::OnceLock<std::sync::Weak<crate::node::MeshNode>>,
 }
 
 /// Whether a light node should refuse this peer route outright.
@@ -405,6 +426,146 @@ async fn serve(
                 Some((*file_hash).to_string())
             };
             serve_file(state, group, &item_key, hash.as_deref(), req).await
+        }
+        // --- watch together (M7) --------------------------------------------------------------
+        //
+        // These are **not** content routes, and a light node answers them like any other member.
+        // A phone joining a watch party is exactly the case the feature is for -- it wants to be
+        // told when to play, which costs it a few hundred bytes and no disk -- and refusing it
+        // would leave a member of the group that cannot be in the room. `light_node_refuses` still
+        // covers `file` and `image` and nothing else, and there is a test that says so.
+        ["peer", "v1", "watch", "clock"] => {
+            if method != Method::GET && method != Method::HEAD {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            // Both timestamps, taken as close to the edges of this handler as they can be: the
+            // difference between them is the processing time the caller subtracts out of its
+            // round trip, so anything done between them is error in somebody's clock offset.
+            let received_ms = crate::watch::now_ms();
+            let body = serde_json::json!({
+                "received_ms": received_ms,
+                "sent_ms": crate::watch::now_ms(),
+            });
+            json_response(&body)
+        }
+        ["peer", "v1", "watch"] => {
+            if method != Method::GET && method != Method::HEAD {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            let me = state.node_key.public().to_string();
+            let sessions: Vec<_> = state
+                .watch
+                .open()
+                .into_iter()
+                .filter(|s| s.leader == me)
+                .collect();
+            json_response(&serde_json::json!({ "sessions": sessions }))
+        }
+        ["peer", "v1", "watch", action] if matches!(*action, "join" | "leave" | "report" | "command") => {
+            if method != Method::POST {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            serve_watch(state, group, peer, action, req).await
+        }
+        _ => status(StatusCode::NOT_FOUND, "no such peer route"),
+    }
+}
+
+/// The four watch routes that take a body.
+///
+/// Split out of [`serve`] because they share the "read the body, decode it, hand it to the node"
+/// preamble, and because the dispatch above is easier to read as a table.
+async fn serve_watch(
+    state: Arc<PeerState>,
+    group: GroupId,
+    peer: EndpointId,
+    action: &str,
+    req: Request<Incoming>,
+) -> Response<PeerBody> {
+    let Some(node) = state.node.get().and_then(|w| w.upgrade()) else {
+        // The peer server can be built without a node behind it -- the tests do -- and a watch
+        // route with nowhere to put its answer is honestly a 503 rather than a silent success.
+        return status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this node is not running the watch bridge",
+        );
+    };
+    let bytes = match req.into_body().collect().await {
+        Ok(b) => b.to_bytes(),
+        Err(e) => {
+            tracing::warn!(error = %e, "reading a watch request body");
+            return status(StatusCode::BAD_REQUEST, "could not read the request body");
+        }
+    };
+    let author = peer.to_string();
+
+    match action {
+        "command" => {
+            let command: crate::watch::Command = match serde_json::from_slice(&bytes) {
+                Ok(c) => c,
+                Err(e) => {
+                    return status(StatusCode::BAD_REQUEST, &format!("malformed command: {e}"))
+                }
+            };
+            // Only the leader may command, and the leader is the *authenticated* peer -- never
+            // whatever the body says. The QUIC/TLS identity is the node id, so this check is free,
+            // and without it any member could seek everybody else's film.
+            match node.watch.get(&command.session) {
+                Some(s) if s.leader == author => {}
+                Some(_) => {
+                    return status(
+                        StatusCode::FORBIDDEN,
+                        "only the leader of that session may command it",
+                    )
+                }
+                None => return status(StatusCode::NOT_FOUND, "no such watch session"),
+            }
+            let clock = node.watch_clock(&group, &author).await;
+            let applied = node.watch_apply(&command, clock);
+            json_response(&serde_json::json!({ "applied": applied }))
+        }
+        "join" | "report" | "leave" => {
+            let mut report: crate::watch::Report = match serde_json::from_slice(&bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    return status(StatusCode::BAD_REQUEST, &format!("malformed report: {e}"))
+                }
+            };
+            // Same rule: the node a report is *about* is the peer that sent it.
+            report.node.clone_from(&author);
+
+            let Some(session) = node.watch.get(&report.session) else {
+                return status(StatusCode::NOT_FOUND, "no such watch session");
+            };
+            if session.leader != state.node_key.public().to_string() {
+                return status(
+                    StatusCode::CONFLICT,
+                    "this node does not lead that session; ask its leader",
+                );
+            }
+
+            if action == "leave" {
+                node.watch.update(&report.session, |s| {
+                    s.participants.retain(|p| p.node != author);
+                });
+                return json_response(&serde_json::json!({ "left": true }));
+            }
+
+            // The reporter's clock, so its position lands on ours. Measured from the leader's side
+            // only: the leader is the node that has to compare positions, so it is the node that
+            // needs the offset. The first report pays for the probe; the rest are free.
+            if node.watch_clock(&group, &author).await.samples == 0 {
+                if let Ok(Some(g)) = node.db.group(&group) {
+                    let _ = node.watch_probe_clock(&g, &author).await;
+                }
+            }
+            let offset = node.watch_clock(&group, &author).await.offset_ms;
+            node.record_report(&group, &report, offset);
+
+            match node.watch.get(&report.session) {
+                Some(s) => json_response(&serde_json::json!(s)),
+                None => status(StatusCode::NOT_FOUND, "no such watch session"),
+            }
         }
         _ => status(StatusCode::NOT_FOUND, "no such peer route"),
     }

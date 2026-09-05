@@ -56,6 +56,12 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
             get(image),
         )
+        .route("/mesh/v1/watch", get(list_watch).post(start_watch))
+        .route("/mesh/v1/watch/{session}", get(get_watch))
+        .route("/mesh/v1/watch/{session}/join", post(join_watch))
+        .route("/mesh/v1/watch/{session}/leave", post(leave_watch))
+        .route("/mesh/v1/watch/{session}/command", post(command_watch))
+        .route("/mesh/v1/watch/{session}/report", post(report_watch))
         .route("/stream/{group}/{item_key}/{node}", get(stream))
         .with_state(node)
 }
@@ -720,6 +726,163 @@ pub async fn serve(node: Arc<MeshNode>) -> anyhow::Result<()> {
     axum::serve(listener, router(node))
         .await
         .context("serving the mesh API")
+}
+
+
+// --- watch together (M7) ----------------------------------------------------------------------
+//
+// `StingStream.Core` drives all of this: it is the half of the node that can see Jellyfin's own
+// SyncPlay groups, and this is the half that can reach the other nodes. Nothing here knows what a
+// `SessionInfo` is, and nothing in Core knows what a QUIC connection is. See `crate::watch`.
+
+#[derive(Deserialize)]
+struct WatchQuery {
+    group: String,
+}
+
+#[derive(Deserialize)]
+struct StartWatchBody {
+    group: String,
+    item_key: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    viewers: u32,
+}
+
+#[derive(Deserialize)]
+struct JoinWatchBody {
+    group: String,
+    #[serde(default)]
+    viewers: u32,
+}
+
+#[derive(Deserialize)]
+struct CommandBody {
+    group: String,
+    kind: crate::watch::CommandKind,
+    #[serde(default)]
+    position_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct ReportBody {
+    group: String,
+    state: crate::watch::WatchState,
+    #[serde(default)]
+    position_ms: u64,
+    #[serde(default)]
+    viewers: u32,
+    #[serde(default)]
+    buffering: bool,
+}
+
+/// `GET /mesh/v1/watch?group=` — every open session in a group, this node's own included.
+async fn list_watch(
+    State(node): State<Arc<MeshNode>>,
+    Query(q): Query<WatchQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let group = parse_group(&q.group)?;
+    let sessions = node.watch_sessions(&group)?;
+    Ok(Json(serde_json::json!({
+        "group": group.to_string(),
+        "node": node.node_id(),
+        "sessions": sessions,
+    })))
+}
+
+/// `GET /mesh/v1/watch/{session}` — one session, with every participant's measured drift.
+///
+/// This is what the acceptance harness reads, and what the app's "watch together" panel shows: the
+/// leader's position now, and how far each node's own group is from it.
+async fn get_watch(
+    State(node): State<Arc<MeshNode>>,
+    Path(session): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let Some(s) = node.watch.get(&session) else {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "no such watch session"));
+    };
+    let now = crate::watch::now_ms();
+    Ok(Json(serde_json::json!({
+        "session": s,
+        // The position every member should be at *right now*, which is the number a caller wanting
+        // to compare two nodes needs and cannot compute itself without knowing the clock rule.
+        "position_ms": s.position_at(now),
+        "now_ms": now,
+    })))
+}
+
+/// `POST /mesh/v1/watch` — start a session with this node as its leader.
+async fn start_watch(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<StartWatchBody>,
+) -> ApiResult<Json<crate::watch::WatchSession>> {
+    let group = parse_group(&body.group)?;
+    if body.item_key.trim().is_empty() {
+        return Err(ApiError::bad_request("item_key is required"));
+    }
+    Ok(Json(
+        node.watch_start(&group, &body.item_key, &body.title, body.viewers)
+            .await?,
+    ))
+}
+
+/// `POST /mesh/v1/watch/{session}/join` — join a session another node leads.
+async fn join_watch(
+    State(node): State<Arc<MeshNode>>,
+    Path(session): Path<String>,
+    Json(body): Json<JoinWatchBody>,
+) -> ApiResult<Json<crate::watch::WatchSession>> {
+    let group = parse_group(&body.group)?;
+    Ok(Json(node.watch_join(&group, &session, body.viewers).await?))
+}
+
+/// `POST /mesh/v1/watch/{session}/leave` — leave, or end it if this node leads it.
+async fn leave_watch(
+    State(node): State<Arc<MeshNode>>,
+    Path(session): Path<String>,
+    Json(body): Json<JoinWatchBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let group = parse_group(&body.group)?;
+    node.watch_leave(&group, &session).await?;
+    Ok(Json(serde_json::json!({ "left": true })))
+}
+
+/// `POST /mesh/v1/watch/{session}/command` — the leader tells everybody what to do.
+///
+/// Returns the command as sent, including the instant it scheduled, so the caller can apply the
+/// *same* numbers to its own local SyncPlay group rather than computing a second set.
+async fn command_watch(
+    State(node): State<Arc<MeshNode>>,
+    Path(session): Path<String>,
+    Json(body): Json<CommandBody>,
+) -> ApiResult<Json<crate::watch::Command>> {
+    let group = parse_group(&body.group)?;
+    Ok(Json(
+        node.watch_command(&group, &session, body.kind, body.position_ms)
+            .await?,
+    ))
+}
+
+/// `POST /mesh/v1/watch/{session}/report` — where this node's own group has got to.
+async fn report_watch(
+    State(node): State<Arc<MeshNode>>,
+    Path(session): Path<String>,
+    Json(body): Json<ReportBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let group = parse_group(&body.group)?;
+    let report = crate::watch::Report {
+        session: session.clone(),
+        node: node.node_id(),
+        node_name: node.cfg.node_name.clone(),
+        state: body.state,
+        position_ms: body.position_ms,
+        at_ms: crate::watch::now_ms(),
+        viewers: body.viewers,
+        buffering: body.buffering,
+    };
+    node.watch_report(&group, &report).await?;
+    Ok(Json(serde_json::json!({ "reported": true })))
 }
 
 #[cfg(test)]

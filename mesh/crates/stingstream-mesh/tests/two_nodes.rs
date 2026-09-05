@@ -717,6 +717,196 @@ async fn a_pointer_to_a_node_that_never_held_it_falls_back_to_a_different_encode
     Ok(())
 }
 
+/// Two nodes watch the same film in sync through the bridge (M7).
+///
+/// The milestone's bar is "under 1 s drift between two members on different nodes". This is the
+/// mesh half of it: A leads, B follows, and after every kind of command both nodes' idea of where
+/// the film is has to agree. The `StingStream.Core` half — turning that into a native SyncPlay
+/// group on each node — is `tools/e2e-m7.ps1`, with two real Jellyfins and two real sessions.
+///
+/// What this can and cannot show. Both nodes are in one process, so their wall clocks are the same
+/// clock and the measured offset is zero: [`Clock`]'s arithmetic is covered by its own unit tests,
+/// not here. What *is* real is everything else — a QUIC connection, a group handshake, the leader
+/// scheduling a resume off a measured round trip, the follower applying it, and the two positions
+/// being compared the way the app compares them. The budget below is deliberately much tighter
+/// than a second: on loopback anything approaching it would mean something is wrong.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_nodes_watch_the_same_film_in_sync() -> Result<()> {
+    use stingstream_mesh::watch::{CommandKind, WatchState};
+
+    /// Loopback has no excuse for more than this. The milestone's own bar is 1000.
+    const BUDGET_MS: i64 = 250;
+
+    let (_root, a, b) = spawn_pair().await?;
+    let group = a.create_group("film club", None).await?;
+    b.join(&a.invite(&group.id).await?).await?;
+
+    let item_key = "movie:tmdb:16205";
+    let session = a
+        .watch_start(&group.id, item_key, "Sita Sings the Blues", 1)
+        .await?;
+    assert_eq!(session.state, WatchState::Idle, "nothing is playing yet");
+    assert_eq!(session.leader, a.node_id());
+
+    // B learns the invite over gossip, which is the only thing gossip carries here.
+    let seen = wait_for("B to hear about the session", Duration::from_secs(30), || async {
+        b.watch_sessions(&group.id)
+            .ok()?
+            .into_iter()
+            .find(|s| s.id == session.id)
+    })
+    .await?;
+    assert_eq!(seen.item_key, item_key);
+    assert_eq!(seen.title, "Sita Sings the Blues");
+
+    // …and joins, which goes straight to the leader.
+    let joined = b.watch_join(&group.id, &session.id, 1).await?;
+    assert!(
+        joined.participants.iter().any(|p| p.node == b.node_id()),
+        "the leader's record must list the node that joined"
+    );
+
+    // How far apart the two nodes think the film is, right now.
+    let drift = |a: &Arc<MeshNode>, b: &Arc<MeshNode>, id: &str| -> i64 {
+        let now = stingstream_mesh::watch::now_ms();
+        let mine = a.watch.get(id).map(|s| s.position_at(now)).unwrap_or(0) as i64;
+        let theirs = b.watch.get(id).map(|s| s.position_at(now)).unwrap_or(0) as i64;
+        (mine - theirs).abs()
+    };
+
+    // --- play ---------------------------------------------------------------------------------
+    let command = a
+        .watch_command(&group.id, &session.id, CommandKind::Play, 0)
+        .await?;
+    assert!(
+        command.at_ms > command.emitted_ms,
+        "a resume is scheduled slightly ahead so both nodes reach it at the same instant"
+    );
+    assert_eq!(
+        b.watch.get(&session.id).map(|s| s.state),
+        Some(WatchState::Playing),
+        "the follower applied the command"
+    );
+
+    // Let it actually run, so the two are advancing rather than merely agreeing on a constant.
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    let playing = drift(&a, &b, &session.id);
+    assert!(playing <= BUDGET_MS, "drift while playing was {playing} ms");
+    assert!(
+        a.watch.get(&session.id).unwrap().position_at(stingstream_mesh::watch::now_ms()) > 0,
+        "the film is supposed to be moving"
+    );
+
+    // --- pause --------------------------------------------------------------------------------
+    a.watch_command(&group.id, &session.id, CommandKind::Pause, 30_000)
+        .await?;
+    assert_eq!(
+        b.watch.get(&session.id).map(|s| s.state),
+        Some(WatchState::Paused)
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let paused = drift(&a, &b, &session.id);
+    assert_eq!(paused, 0, "a paused film cannot drift at all");
+    assert_eq!(b.watch.get(&session.id).unwrap().position_ms, 30_000);
+
+    // --- seek ---------------------------------------------------------------------------------
+    a.watch_command(&group.id, &session.id, CommandKind::Seek, 600_000)
+        .await?;
+    assert_eq!(b.watch.get(&session.id).unwrap().position_ms, 600_000);
+    let sought = drift(&a, &b, &session.id);
+    assert!(sought <= BUDGET_MS, "drift after a seek was {sought} ms");
+
+    // --- and the leader knows how far off its follower is --------------------------------------
+    a.watch_command(&group.id, &session.id, CommandKind::Play, 600_000)
+        .await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let now = stingstream_mesh::watch::now_ms();
+    let theirs = b.watch.get(&session.id).unwrap();
+    b.watch_report(
+        &group.id,
+        &stingstream_mesh::watch::Report {
+            session: session.id.clone(),
+            node: b.node_id(),
+            node_name: "loft".into(),
+            state: theirs.state,
+            position_ms: theirs.position_at(now),
+            at_ms: now,
+            viewers: 1,
+            buffering: false,
+        },
+    )
+    .await?;
+
+    let participant = a
+        .watch
+        .get(&session.id)
+        .and_then(|s| s.participants.into_iter().find(|p| p.node == b.node_id()))
+        .context("the leader should have a participant row for B")?;
+    let reported = participant.drift_ms.context("B reported, so drift is known")?;
+    assert!(
+        reported.abs() <= BUDGET_MS,
+        "the leader measured B at {reported} ms of drift"
+    );
+    assert!(
+        participant.rtt_ms.is_some(),
+        "the leader probes a follower's clock on its first report, and needs the round trip to \
+         schedule the next resume"
+    );
+
+    // --- ending it takes the invite down everywhere ---------------------------------------------
+    a.watch_leave(&group.id, &session.id).await?;
+    assert!(
+        a.watch_sessions(&group.id)?.is_empty(),
+        "a session the leader ended is not on offer any more"
+    );
+    assert!(
+        b.watch.get(&session.id).map(|s| s.closed).unwrap_or(false),
+        "and the follower was told"
+    );
+
+    a.shutdown().await;
+    b.shutdown().await;
+    Ok(())
+}
+
+/// A member cannot drive somebody else's watch party (M7).
+///
+/// The leader of a session is the *authenticated peer*, never what a message says it is. Without
+/// that, any member of the group could seek everybody else's film — the signature on a peer request
+/// proves who sent it, not who it is about.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_leader_may_command_a_watch_session() -> Result<()> {
+    use stingstream_mesh::watch::{CommandKind, WatchState};
+
+    let (_root, a, b) = spawn_pair().await?;
+    let group = a.create_group("film club", None).await?;
+    b.join(&a.invite(&group.id).await?).await?;
+
+    let session = a
+        .watch_start(&group.id, "movie:tmdb:1", "A Film", 1)
+        .await?;
+    wait_for("B to hear about the session", Duration::from_secs(30), || async {
+        b.watch.get(&session.id)
+    })
+    .await?;
+    b.watch_join(&group.id, &session.id, 1).await?;
+
+    // B is a follower, and says so.
+    let err = b
+        .watch_command(&group.id, &session.id, CommandKind::Seek, 999_000)
+        .await
+        .expect_err("a follower must not be able to command");
+    assert!(format!("{err:#}").contains("only the leader"), "{err:#}");
+
+    // And the leader's own record is untouched.
+    assert_eq!(a.watch.get(&session.id).unwrap().position_ms, 0);
+    assert_eq!(a.watch.get(&session.id).unwrap().state, WatchState::Idle);
+
+    a.shutdown().await;
+    b.shutdown().await;
+    Ok(())
+}
+
 /// Drain a `/stream` response body.
 ///
 /// `axum::body::Body`, not `hyper::body::Incoming`: since M4 the mesh wraps a peer's body so it can

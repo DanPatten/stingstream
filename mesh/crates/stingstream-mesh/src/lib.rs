@@ -34,6 +34,7 @@ pub mod score;
 pub mod sidedoor;
 pub mod tunnel;
 pub mod util;
+pub mod watch;
 
 pub use config::MeshConfig;
 pub use group::{Group, GroupId, GroupSecret, Invite};
