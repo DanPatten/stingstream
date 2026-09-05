@@ -167,6 +167,33 @@ Drive it over ADB without a physical remote: `adb shell input keyevent <code>` �
 Regular (phone/tablet) Android is the same shape without `EXPO_TV=1` — `bun run prebuild` /
 `bun run android` per the existing `package.json` scripts.
 
+### Switching between TV and phone builds is safe now, and was not
+
+`react-native.config.js` links `react-native-track-player`, `react-native-pager-view` and
+`react-native-volume-manager` **out** when `EXPO_TV=1`. React Native's autolinking caches its
+module list in `android/build/generated/autolinking/` and decides whether to re-run by hashing
+`yarn.lock`, `package-lock.json`, `package.json` and `react-native.config.js` — and `EXPO_TV` is an
+environment variable, so none of those hashes move when it changes. A TV build therefore left
+behind a cache that the next **phone** build reused, and the phone APK compiled, packaged,
+installed and then died on launch:
+
+```
+[runtime not ready]: Invariant Violation: TurboModuleRegistry.getEnforcing(...):
+'TrackPlayer' could not be found. Verify that a module by this name is registered
+in the native binary.
+```
+
+Nothing in the build said anything was wrong; M7 lost a full rebuild cycle to it. If you ever see
+that, check `android/build/generated/autolinking/autolinking.json` — 17 modules means it is the TV
+list, 20 means the phone one.
+
+`plugins/withAutolinkingCacheKey.ts` fixes it at the source: `settings.gradle` now writes `EXPO_TV`
+into a file and passes that file — plus bun's lockfiles, which were missing from the default list
+too — to the `lockFiles` parameter `autolinkLibrariesFromCommand` already exposes. Changing
+`EXPO_TV` changes a hash, which is all the cache ever needed. Nothing is patched, and the plugin
+throws rather than silently doing nothing if a future Expo or React Native changes the block it
+rewrites.
+
 ### Emulator note
 
 Only `system-images;android-36;android-tv;x86_64` and up ship an `x86_64` Android TV image;

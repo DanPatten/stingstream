@@ -187,6 +187,7 @@
       ["./plugins/withTrustLocalCerts.ts"],
       ["./plugins/withGradleProperties.ts"],
       ["./plugins/withGradleWrapperVersion.ts"],
+      ["./plugins/withAutolinkingCacheKey.ts"],
       ["./plugins/withReleaseSigning.ts"],
       ["./plugins/withTVOSAppIcon.ts"],
       ["./plugins/withTVOSTopShelf.ts"],
