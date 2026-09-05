@@ -1,0 +1,20 @@
+:80 {
+	handle_path /movies/* {
+		reverse_proxy jellyfin-movies:8096
+	}
+	handle_path /shows/* {
+		reverse_proxy jellyfin-tvshows:8096
+	}
+	handle_path /music/* {
+		reverse_proxy jellyfin-music:8096
+	}
+	handle_path /movies-2/* {
+		reverse_proxy jellyfin-movies-2:8096
+	}
+	handle_path /shows-2/* {
+		reverse_proxy jellyfin-tvshows-2:8096
+	}
+	handle_path /music-2/* {
+		reverse_proxy jellyfin-music-2:8096
+	}
+}

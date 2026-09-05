@@ -1,0 +1,35 @@
+# Rust build artifacts
+/target
+
+# Node modules (reinstalled inside image)
+/ui/node_modules
+/ui/dist
+
+# Git
+.gitignore
+.gitattributes
+
+# Local data & logs
+/logs
+/data
+*.log
+*.db
+
+# Editor/OS noise
+.DS_Store
+.vscode
+.idea
+
+# Documentation
+*.md
+!README.md
+
+# Docker files
+docker-compose.yml
+Dockerfile.alpine
+
+# Static assets (will be rebuilt)
+/crates/jellyswarrm-proxy/static
+
+# Development files
+/scripts
