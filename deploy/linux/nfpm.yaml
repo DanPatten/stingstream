@@ -52,7 +52,15 @@ depends:
   # Self-contained .NET publishes still need these system libraries (see
   # deploy/node/Dockerfile's own runtime stage, which installs the same set for the same reason):
   # ICU for globalization, fontconfig/freetype for Jellyfin's SkiaSharp-based image processing.
-  - libicu72
+  #
+  # ICU's package name carries its SONAME version, which differs across distros and releases --
+  # found for real: this .deb failed to install on Ubuntu 24.04 (noble, the CI runner installing
+  # it) with "Depends: libicu72 but it is not installable", because noble ships libicu74, not the
+  # libicu72 Debian 12 (bookworm) has -- Dockerfile's own libicu72 is fine as a hardcoded apt-get
+  # target because it controls its own bookworm-slim base image, but a .deb has to satisfy
+  # whatever distro and release actually installs it. A single dependency entry containing `|`
+  # alternatives is dpkg's own OR-dependency syntax -- apt only needs ONE of these installable.
+  - "libicu72 | libicu74 | libicu76 | libicu73 | libicu71 | libicu70"
   - libfontconfig1
   - libfreetype6
 recommends:
