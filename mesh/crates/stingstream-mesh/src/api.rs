@@ -38,6 +38,12 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             put(set_coordinator),
         )
         .route("/mesh/v1/groups/{group}", axum::routing::delete(leave_group))
+        .route("/mesh/v1/groups/{group}/members", get(list_members))
+        .route(
+            "/mesh/v1/groups/{group}/members/{node}",
+            axum::routing::delete(remove_member),
+        )
+        .route("/mesh/v1/groups/{group}/rotate", post(rotate_secret))
         .route(
             "/mesh/v1/inventory",
             put(put_inventory).patch(patch_inventory),
@@ -67,8 +73,22 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/watch/{session}/command", post(command_watch))
         .route("/mesh/v1/watch/{session}/report", post(report_watch))
         .route("/stream/{group}/{item_key}/{node}", get(stream))
+        // An explicit ceiling on every request body, replacing axum's implicit 2 MiB default.
+        //
+        // The default only applies to handlers that use a body *extractor*, and it is silent, so
+        // "is this listener bounded" was a question you had to answer per handler. This one line
+        // answers it once, for every route including any added later, and picks a number with a
+        // reason behind it: the largest body any caller sends is an inventory PUT from Core, whose
+        // records are the same [`crate::inventory::WireRecord`]s gossip chunks at 192 KiB a batch.
+        // Four megabytes is room for a library-sized push with an order of magnitude to spare, and
+        // is still small enough that a wedged caller cannot make the node allocate its way out of
+        // memory. (M8b)
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(node)
 }
+
+/// The largest request body the local API will read. See [`router`].
+pub const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 
 /// An error that turns into a JSON body rather than an empty status page, because the caller is a
 /// program and the message is the whole point.
@@ -120,8 +140,23 @@ fn parse_group(s: &str) -> ApiResult<GroupId> {
 
 // --- status -------------------------------------------------------------------------------------
 
-async fn healthz() -> &'static str {
-    "ok"
+/// `GET /healthz` — alive, and whether this node is refusing anybody for their protocol version.
+///
+/// Used to be the two bytes `ok`, and callers only ever checked the status code. It still is, for
+/// a node that has refused nothing: `{"ok":true,"protocol":"1.1"}` is as cheap to look at. The
+/// counter appears only when it is non-zero, so a health check that greps for trouble finds
+/// nothing to grep on a healthy node.
+async fn healthz() -> Json<serde_json::Value> {
+    let p = crate::proto::status();
+    let mut body = serde_json::json!({ "ok": true, "protocol": p.version });
+    let refused = p.refused_gossip + p.refused_handshake;
+    if refused > 0 {
+        body["protocol_refused"] = serde_json::json!(refused);
+        if let Some(last) = p.last_incompatible {
+            body["protocol_last_incompatible"] = serde_json::json!(last);
+        }
+    }
+    Json(body)
 }
 
 #[derive(Serialize)]
@@ -144,6 +179,14 @@ struct StatusBody {
     /// is a *degraded* node, not a broken one — DNS discovery and relays still work — so it is
     /// reported here rather than by refusing to start. See [`crate::node::DhtState`].
     dht: crate::node::DhtState,
+    /// The protocol version this build speaks, and how many frames it has refused for speaking a
+    /// different one (M8b).
+    ///
+    /// The counters are the answer to the failure this whole mechanism exists for: a group whose
+    /// members are on two incompatible builds looks, from the outside, exactly like a group with a
+    /// network problem. A non-zero `refused_gossip` here says which it is, without anybody having
+    /// to find the log line. See [`crate::proto`] and `docs/UPGRADING.md`.
+    protocol: crate::proto::ProtocolStatus,
 }
 
 async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
@@ -158,6 +201,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
         direct_addrs: addr.ip_addrs().map(|a| a.to_string()).collect(),
         side_door: node.side_door(),
         dht: node.dht_state(),
+        protocol: crate::proto::status(),
     })
 }
 
@@ -295,6 +339,57 @@ async fn set_coordinator(
         coordinator: g.coordinator.map(|u| u.to_string()),
         created_at: g.created_at,
     }))
+}
+
+/// `GET /mesh/v1/groups/{group}/members` — the group's membership, removed members included.
+async fn list_members(
+    State(node): State<Arc<MeshNode>>,
+    Path(group): Path<String>,
+) -> ApiResult<Json<MembersBody>> {
+    let id = parse_group(&group)?;
+    let state = node.db.rekey_state(&id)?;
+    Ok(Json(MembersBody {
+        members: node.members(&id)?,
+        epoch: state.epoch,
+        rotated_at: state.at,
+        rotated_by: state.by,
+    }))
+}
+
+#[derive(Serialize)]
+struct MembersBody {
+    members: Vec<crate::node::MemberView>,
+    /// How many times this group's secret has been rotated. `0` is a group that never has.
+    epoch: u64,
+    /// The author's clock at the last rotation, in milliseconds. `0` when there has been none.
+    rotated_at: u64,
+    /// The node that made the last rotation.
+    rotated_by: String,
+}
+
+/// `DELETE /mesh/v1/groups/{group}/members/{node}` — remove a member and rotate the secret.
+///
+/// See [`MeshNode::revoke_member`] for what a removal has to do and why each part of it is
+/// necessary. The answer names the members that took the new secret before the call returned; the
+/// rest pick it up from the grace window the next time they dial anybody.
+async fn remove_member(
+    State(node): State<Arc<MeshNode>>,
+    Path((group, member)): Path<(String, String)>,
+) -> ApiResult<Json<crate::node::Rotation>> {
+    let id = parse_group(&group)?;
+    Ok(Json(node.revoke_member(&id, member.trim()).await?))
+}
+
+/// `POST /mesh/v1/groups/{group}/rotate` — change the group secret, keeping every member.
+///
+/// For when a code leaked rather than when a person left. Every invite minted before now stops
+/// working; nobody is removed.
+async fn rotate_secret(
+    State(node): State<Arc<MeshNode>>,
+    Path(group): Path<String>,
+) -> ApiResult<Json<crate::node::Rotation>> {
+    let id = parse_group(&group)?;
+    Ok(Json(node.rotate_secret(&id).await?))
 }
 
 async fn leave_group(

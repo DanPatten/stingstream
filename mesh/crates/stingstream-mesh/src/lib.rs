@@ -16,6 +16,10 @@
 //!   over `iroh-gossip`, merged into a SQLite `group_index` ([`db`]). Member requests and the
 //!   claims that decide which node fulfils one ([`requests`]) ride the same topic.
 //!
+//! Both peer connections and gossip frames carry a two-byte protocol version ([`proto`]): a major
+//! that must match and a minor that is negotiated down, so a group whose members are on different
+//! builds says so instead of going quiet. `docs/UPGRADING.md` is the policy.
+//!
 //! See `docs/MESH.md` for the wire protocol, the invite format and the local/peer API reference.
 
 pub mod api;
@@ -28,6 +32,7 @@ pub mod identity;
 pub mod inventory;
 pub mod node;
 pub mod peer;
+pub mod proto;
 pub mod rendezvous;
 pub mod requests;
 pub mod score;

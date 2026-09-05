@@ -1,6 +1,6 @@
 //! `mesh.db` — the SQLite store behind the group index.
 //!
-//! Six tables:
+//! Seven tables:
 //!
 //! * `groups` — the groups this node belongs to, including their secrets. The file is created
 //!   owner-only where the OS supports it, for the same reason `node.key` is.
@@ -15,6 +15,8 @@
 //! * `request_claims` — one row per (request, claiming node). The winner is a pure function of
 //!   these rows, which is what makes "exactly one node grabs it" true without a coordinator; see
 //!   [`crate::requests`].
+//! * `revocations` — one row per (group, node) removed from a group. Consulted by the peer
+//!   handshake before either secret, so a removed member that kept the old key is still refused.
 //! * `meta` — small key/value state, currently the per-group gossip sequence number.
 //!
 //! Every function here is synchronous and short. `rusqlite` is not `Send`-across-await friendly and
@@ -40,8 +42,10 @@ use crate::util::{now_rfc3339, restrict_to_owner};
 /// scorer weighs a candidate's bandwidth on. 4 added M6's `requests` and `request_claims` tables
 /// and the two `can_fulfil_*` columns on `peers` the request router picks a volunteer out of. Every
 /// statement in [`SCHEMA`] is `IF NOT EXISTS`, so a new database is correct by construction;
-/// [`Db::migrate`] is what brings an existing one forward.
-pub const SCHEMA_VERSION: i64 = 4;
+/// [`Db::migrate`] is what brings an existing one forward. 5 added M8b's secret rotation: the
+/// `secret_epoch`, `prev_secret`, `prev_secret_until`, `rekey_at` and `rekey_by` columns on
+/// `groups`, and the `revocations` table that keeps a removed member out whatever secret it holds.
+pub const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -56,7 +60,24 @@ CREATE TABLE IF NOT EXISTS groups (
     coordinator     TEXT,
     coordinator_at  INTEGER NOT NULL DEFAULT 0,
     coordinator_by  TEXT NOT NULL DEFAULT '',
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    -- How many times this group's secret has been rotated. 0 is "never", which is also what a
+    -- group created before M8b reads as. Every rotation is (epoch, at, by) and the highest wins.
+    secret_epoch      INTEGER NOT NULL DEFAULT 0,
+    -- The secret from before the last rotation, kept until prev_secret_until so a member that was
+    -- offline during the rotation can still be recognised long enough to be handed the new one.
+    prev_secret       BLOB,
+    prev_secret_until INTEGER NOT NULL DEFAULT 0,
+    rekey_at          INTEGER NOT NULL DEFAULT 0,
+    rekey_by          TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS revocations (
+    group_id TEXT NOT NULL,
+    node_id  TEXT NOT NULL,
+    epoch    INTEGER NOT NULL,
+    at       TEXT NOT NULL,
+    PRIMARY KEY (group_id, node_id)
 );
 
 CREATE TABLE IF NOT EXISTS peers (
@@ -133,6 +154,21 @@ pub struct Db {
     conn: Mutex<Connection>,
 }
 
+/// Where a group is in its rotation history. See [`Db::rekey_state`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RekeyState {
+    /// How many times the secret has been rotated. `0` means never.
+    pub epoch: u64,
+    /// The secret from before the last rotation, if its grace window is still open.
+    pub previous: Option<GroupSecret>,
+    /// Milliseconds since the epoch at which `previous` stops being accepted.
+    pub previous_until: u64,
+    /// The author's clock at the moment of the last rotation. Breaks a tie on `epoch`.
+    pub at: u64,
+    /// The node id that made the last rotation. Breaks a tie on `(epoch, at)`.
+    pub by: String,
+}
+
 impl Db {
     /// Open (creating if needed) the database at `path` and bring the schema up to date.
     pub fn open(path: &Path) -> Result<Self> {
@@ -165,6 +201,18 @@ impl Db {
     /// converges, and a fresh one created by [`SCHEMA`] is a no-op.
     fn migrate(&self) -> Result<()> {
         let conn = self.lock();
+        // A table, not a column: `IF NOT EXISTS` makes it idempotent on its own, so it does not
+        // need the duplicate-column dance below.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS revocations (
+                 group_id TEXT NOT NULL,
+                 node_id  TEXT NOT NULL,
+                 epoch    INTEGER NOT NULL,
+                 at       TEXT NOT NULL,
+                 PRIMARY KEY (group_id, node_id)
+             );",
+        )
+        .context("migrating mesh.db: revocations")?;
         for statement in [
             "ALTER TABLE inventory ADD COLUMN local_images TEXT",
             "ALTER TABLE inventory ADD COLUMN local_subtitles TEXT",
@@ -174,6 +222,11 @@ impl Db {
             "ALTER TABLE peers ADD COLUMN side_door TEXT",
             "ALTER TABLE peers ADD COLUMN can_fulfil_movies INTEGER",
             "ALTER TABLE peers ADD COLUMN can_fulfil_tv INTEGER",
+            "ALTER TABLE groups ADD COLUMN secret_epoch INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE groups ADD COLUMN prev_secret BLOB",
+            "ALTER TABLE groups ADD COLUMN prev_secret_until INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE groups ADD COLUMN rekey_at INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE groups ADD COLUMN rekey_by TEXT NOT NULL DEFAULT ''",
         ] {
             match conn.execute(statement, []) {
                 Ok(_) => tracing::info!(statement, "migrated mesh.db"),
@@ -252,7 +305,14 @@ impl Db {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(group_id) DO UPDATE SET
                      name = excluded.name,
-                     secret = excluded.secret,
+                     -- Only a group that has never rotated takes its secret from here. The one
+                     -- caller that writes an *existing* group is a re-join from an invite code,
+                     -- and an invite minted before a rotation carries the old secret; letting it
+                     -- through would silently demote a member back onto a key its group has
+                     -- already moved off. After the first rotation the secret comes from
+                     -- `apply_rekey` and nowhere else. (M8b)
+                     secret = CASE WHEN groups.secret_epoch = 0
+                                   THEN excluded.secret ELSE groups.secret END,
                      -- The coordinator is the one mutable field, and it has its own conflict rule
                      -- (last writer wins, see CoordinatorStamp). An unstamped write -- a re-join
                      -- from an invite code, which is the only caller that has one -- must not
@@ -371,6 +431,163 @@ impl Db {
     }
 
     /// Leave a group: drop its membership, index rows and secret.
+    /// The rotation state of a group: which epoch its secret is at, and the previous secret while
+    /// its grace window is open.
+    ///
+    /// Separate from [`Group`] on purpose. A `Group` is passed by value into every dial, every
+    /// gossip publish and every peer route in the crate; the rotation state is read in exactly two
+    /// places (the peer server deciding whom to admit, and a dial that has to fall back) and
+    /// carrying a spare secret through all the rest would put a second copy of the group's key in
+    /// every one of those call frames for no reason.
+    pub fn rekey_state(&self, id: &GroupId) -> Result<RekeyState> {
+        let row = self
+            .lock()
+            .query_row(
+                "SELECT secret_epoch, prev_secret, prev_secret_until, rekey_at, rekey_by
+                 FROM groups WHERE group_id = ?1",
+                params![id.to_string()],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, Option<Vec<u8>>>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()
+            .context("reading a group's rekey state")?;
+        let Some((epoch, prev, until, at, by)) = row else {
+            return Ok(RekeyState::default());
+        };
+        let until = until.max(0) as u64;
+        // The window is enforced on read rather than by a sweeper: a secret nobody asks about does
+        // no harm sitting in a row, and a sweeper would be one more task to get wrong.
+        let previous = prev
+            .filter(|b| b.len() == 32 && crate::util::now_millis() < until)
+            .map(|b| {
+                let mut k = [0u8; 32];
+                k.copy_from_slice(&b);
+                GroupSecret(k)
+            });
+        Ok(RekeyState {
+            epoch: epoch.max(0) as u64,
+            previous,
+            previous_until: until,
+            at: at.max(0) as u64,
+            by,
+        })
+    }
+
+    /// Adopt a rotation, if it beats the one already stored.
+    ///
+    /// The ordering is `(epoch, at, by)`, the same shape [`CoordinatorStamp`] uses and for the same
+    /// reason: two administrators can press "remove" within the same second on different nodes, and
+    /// a group whose members disagree about the key forever is far worse than one that picks the
+    /// higher node id. The loser's members find out on their next dial, because the winner's
+    /// *previous* secret is the one they still hold.
+    ///
+    /// Returns `true` when the record was applied.
+    pub fn apply_rekey(
+        &self,
+        id: &GroupId,
+        epoch: u64,
+        secret: &GroupSecret,
+        at: u64,
+        by: &str,
+        grace_secs: u64,
+    ) -> Result<bool> {
+        let current = self.rekey_state(id)?;
+        if (epoch, at, by) <= (current.epoch, current.at, current.by.as_str()) {
+            return Ok(false);
+        }
+        let Some(existing) = self.group(id)? else {
+            return Ok(false);
+        };
+        let until = crate::util::now_millis() + grace_secs.saturating_mul(1000);
+        self.lock()
+            .execute(
+                "UPDATE groups SET secret = ?2, secret_epoch = ?3, prev_secret = ?4,
+                     prev_secret_until = ?5, rekey_at = ?6, rekey_by = ?7
+                 WHERE group_id = ?1",
+                params![
+                    id.to_string(),
+                    secret.as_bytes().to_vec(),
+                    epoch as i64,
+                    existing.secret.as_bytes().to_vec(),
+                    until as i64,
+                    at as i64,
+                    by,
+                ],
+            )
+            .context("applying a group rekey")?;
+        Ok(true)
+    }
+
+    /// Record that a node has been removed from a group. Idempotent; keeps the earliest epoch.
+    pub fn revoke(&self, group: &GroupId, node: &str, epoch: u64) -> Result<()> {
+        self.lock()
+            .execute(
+                "INSERT INTO revocations (group_id, node_id, epoch, at) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(group_id, node_id) DO UPDATE SET
+                     epoch = MIN(revocations.epoch, excluded.epoch)",
+                params![group.to_string(), node, epoch as i64, now_rfc3339()],
+            )
+            .context("recording a revocation")?;
+        Ok(())
+    }
+
+    /// Every node id removed from a group.
+    pub fn revoked(&self, group: &GroupId) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare("SELECT node_id FROM revocations WHERE group_id = ?1 ORDER BY node_id")
+            .context("listing revocations")?;
+        let rows = stmt
+            .query_map(params![group.to_string()], |r| r.get::<_, String>(0))
+            .context("listing revocations")?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.context("reading a revocation")?);
+        }
+        Ok(out)
+    }
+
+    /// Is this node revoked from this group?
+    pub fn is_revoked(&self, group: &GroupId, node: &str) -> Result<bool> {
+        let n: i64 = self
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM revocations WHERE group_id = ?1 AND node_id = ?2",
+                params![group.to_string(), node],
+                |r| r.get(0),
+            )
+            .context("checking a revocation")?;
+        Ok(n > 0)
+    }
+
+    /// Forget a revoked node entirely: its membership row and everything it holds.
+    ///
+    /// Called after the grace period the federated library uses for an offline peer, so a removed
+    /// member's titles grey out first and disappear second — the same sequence a member that
+    /// simply went away produces, which is what stops a revocation from looking like data loss.
+    pub fn drop_peer(&self, group: &GroupId, node: &str) -> Result<usize> {
+        let conn = self.lock();
+        let removed = conn
+            .execute(
+                "DELETE FROM inventory WHERE group_id = ?1 AND node_id = ?2",
+                params![group.to_string(), node],
+            )
+            .context("dropping a revoked peer's inventory")?;
+        conn.execute(
+            "DELETE FROM peers WHERE group_id = ?1 AND node_id = ?2",
+            params![group.to_string(), node],
+        )
+        .context("dropping a revoked peer")?;
+        Ok(removed)
+    }
+
     pub fn delete_group(&self, id: &GroupId) -> Result<bool> {
         let conn = self.lock();
         let gid = id.to_string();
@@ -378,6 +595,8 @@ impl Db {
             .context("clearing the group index")?;
         conn.execute("DELETE FROM peers WHERE group_id = ?1", params![gid])
             .context("clearing group peers")?;
+        conn.execute("DELETE FROM revocations WHERE group_id = ?1", params![gid])
+            .context("clearing group revocations")?;
         let n = conn
             .execute("DELETE FROM groups WHERE group_id = ?1", params![gid])
             .context("deleting the group")?;

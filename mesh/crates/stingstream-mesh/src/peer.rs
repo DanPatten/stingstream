@@ -18,6 +18,8 @@
 //! | `GET` | `/peer/v1/watch` | The watch-together sessions this node leads (M7). |
 //! | `GET` | `/peer/v1/watch/clock` | Two timestamps, for an NTP-style clock offset. |
 //! | `POST` | `/peer/v1/watch/{join,leave,report,command}` | The bridge itself — see [`crate::watch`]. |
+//! | `GET` | `/peer/v1/group/rekey` | The newest secret rotation this node holds, so a member that missed one can catch up (M8b). |
+//! | `POST` | `/peer/v1/group/rekey` | Push a rotation to this node. |
 //!
 //! Everything else is a 404. There is deliberately no path that takes a filesystem path: a peer
 //! names an `item_key` and a `file_hash`, and the *serving* node resolves that to a path through
@@ -199,6 +201,13 @@ pub fn if_range_allows(if_range: Option<&str>, etag: &str) -> bool {
 
 // --- the server -------------------------------------------------------------------------------
 
+/// How long a peer may hold a stream open without finishing a request line and headers.
+///
+/// Thirty seconds, matching the gateway's own listener. Only reachable by an authenticated group
+/// member, so this is not a defence against strangers; it is a defence against a member whose
+/// build is wedged pinning one task per stream on every other node in the group.
+const HEADER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Shared state for the peer protocol handler.
 #[derive(Debug)]
 pub struct PeerState {
@@ -269,7 +278,15 @@ impl iroh::protocol::ProtocolHandler for PeerProtocol {
             &conn,
             &state.node_key,
             &state.node_name,
-            move |gid| db.group(gid).ok().flatten().map(|g| g.secret),
+            move |gid| {
+                let group = db.group(gid).ok().flatten()?;
+                let state = db.rekey_state(gid).unwrap_or_default();
+                Some(auth::GroupAuth {
+                    secret: group.secret,
+                    previous: state.previous,
+                    revoked: db.revoked(gid).unwrap_or_default(),
+                })
+            },
         )
         .await
         {
@@ -317,16 +334,42 @@ impl iroh::protocol::ProtocolHandler for PeerProtocol {
                 Ok(pair) => pair,
                 Err(_) => break, // the peer closed, or the connection dropped
             };
+
+            // Revocation is re-checked here, not only at the handshake, because a connection
+            // outlives the decision that should have ended it. A member removed while it had a
+            // live connection open would otherwise keep every route on it for as long as QUIC kept
+            // the connection up -- which, on an idle-but-alive link between two machines that are
+            // both switched on, is indefinitely. One indexed row per stream is the price of
+            // "refused from then on" meaning *then*. (M8b)
+            if state.db.is_revoked(&session.group_id, &peer).unwrap_or(false) {
+                tracing::info!(
+                    group = %session.group_id,
+                    peer = %session.peer.fmt_short(),
+                    "closing a live connection from a member that has been removed"
+                );
+                conn.close(auth::CLOSE_UNAUTHENTICATED.into(), b"removed from the group");
+                break;
+            }
             let state = state.clone();
             let group = session.group_id;
             let peer_id = session.peer;
+            let stale = session.stale_secret;
             tokio::spawn(async move {
                 let io = TokioIo::new(tokio::io::join(recv, send));
                 let svc = hyper::service::service_fn(move |req: Request<Incoming>| {
                     let state = state.clone();
-                    async move { Ok::<_, std::convert::Infallible>(serve(state, group, peer_id, req).await) }
+                    async move {
+                        Ok::<_, std::convert::Infallible>(
+                            serve(state, group, peer_id, stale, req).await,
+                        )
+                    }
                 });
                 if let Err(e) = hyper::server::conn::http1::Builder::new()
+                    // A peer is authenticated before it gets here, but "authenticated" is not
+                    // "friendly": a member that opens a stream and never sends a request line would
+                    // otherwise pin a task for the life of the connection. (M8b)
+                    .timer(hyper_util::rt::TokioTimer::new())
+                    .header_read_timeout(HEADER_TIMEOUT)
                     .serve_connection(io, svc)
                     .await
                 {
@@ -366,11 +409,23 @@ async fn serve(
     state: Arc<PeerState>,
     group: GroupId,
     peer: EndpointId,
+    stale: bool,
     req: Request<Incoming>,
 ) -> Response<PeerBody> {
     let path = req.uri().path().to_string();
     let method = req.method().clone();
     tracing::debug!(%group, peer = %peer.fmt_short(), %method, path, "peer request");
+
+    // A peer that authenticated with the *previous* group secret has missed a rotation. It is let
+    // in far enough to be told what the new secret is and not one inch further — no inventory, no
+    // files, no watch bridge. Written as an allow-list rather than a deny-list so a route added
+    // later is closed to a stale peer by default. (M8b)
+    if stale && !is_rekey_route(&path) {
+        return status(
+            StatusCode::CONFLICT,
+            "this group's secret has rotated; fetch /peer/v1/group/rekey and reconnect",
+        );
+    }
 
     if state.light && light_node_refuses(&path) {
         tracing::debug!(%group, peer = %peer.fmt_short(), path, "refusing a file request: this node is a light member");
@@ -485,7 +540,66 @@ async fn serve(
             }
             serve_watch(state, group, peer, action, req).await
         }
+        ["peer", "v1", "group", "rekey"] => match method {
+            Method::GET | Method::HEAD => match crate::node::stored_rekey(&state.db, &group)
+                .and_then(|r| serde_json::to_value(r).ok())
+            {
+                Some(record) => json_response(&record),
+                None => status(
+                    StatusCode::NOT_FOUND,
+                    "this group's secret has never been rotated",
+                ),
+            },
+            Method::POST => serve_rekey(state, group, peer, req).await,
+            _ => status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed"),
+        },
         _ => status(StatusCode::NOT_FOUND, "no such peer route"),
+    }
+}
+
+/// The one route a peer holding the previous group secret may reach. See [`serve`].
+fn is_rekey_route(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    matches!(segments.as_slice(), ["peer", "v1", "group", "rekey"])
+}
+
+/// `POST /peer/v1/group/rekey` — a member hands this node a new group secret.
+///
+/// The connection is already authenticated as a current member of this group, and the record
+/// carries its own signature, so what is left is for [`crate::node::MeshNode::apply_rekey`] to
+/// decide whether it beats what we hold and, if it does, to adopt it and pass it on.
+async fn serve_rekey(
+    state: Arc<PeerState>,
+    group: GroupId,
+    peer: EndpointId,
+    req: Request<Incoming>,
+) -> Response<PeerBody> {
+    let Some(node) = state.node.get().and_then(|w| w.upgrade()) else {
+        return status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this node cannot apply a rotation",
+        );
+    };
+    let bytes = match req.into_body().collect().await {
+        Ok(b) => b.to_bytes(),
+        Err(e) => {
+            tracing::warn!(error = %e, "reading a rekey request body");
+            return status(StatusCode::BAD_REQUEST, "could not read the request body");
+        }
+    };
+    let record: crate::group::RekeyRecord = match serde_json::from_slice(&bytes) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(peer = %peer.fmt_short(), error = %e, "decoding a rekey record");
+            return status(StatusCode::BAD_REQUEST, "that is not a rotation record");
+        }
+    };
+    match node.apply_rekey(&group, record, Some(peer)).await {
+        Ok(applied) => json_response(&serde_json::json!({ "applied": applied })),
+        Err(e) => {
+            tracing::warn!(%group, peer = %peer.fmt_short(), error = %e, "refusing a rekey record");
+            status(StatusCode::FORBIDDEN, "that rotation was refused")
+        }
     }
 }
 
@@ -1006,6 +1120,11 @@ fn content_type_for(path: &std::path::Path) -> &'static str {
 pub struct PeerConnection {
     pub conn: Connection,
     pub peer_name: String,
+    /// The highest protocol minor both ends speak. See [`crate::proto`].
+    pub minor: u8,
+    /// The peer told us we authenticated with *its* previous group secret: this node missed a
+    /// rotation and can reach nothing on this connection but the rekey route. (M8b)
+    pub stale: bool,
 }
 
 impl PeerConnection {
@@ -1050,17 +1169,24 @@ pub async fn connect(
         .await
         .map_err(err)
         .with_context(|| format!("connecting to peer {}", peer.fmt_short()))?;
-    let peer_name = auth::client_handshake(&conn, group, secret, node_key, node_name).await?;
+    let session = auth::client_handshake(&conn, group, secret, node_key, node_name).await?;
     let (path, rtt) = path_summary(&conn);
     tracing::info!(
         %group,
         peer = %peer.fmt_short(),
-        peer_name,
+        peer_name = %session.peer_name,
         path,
         rtt_ms = rtt,
+        protocol_minor = session.minor,
+        stale_secret = session.stale_secret,
         "connected to a peer"
     );
-    Ok(PeerConnection { conn, peer_name })
+    Ok(PeerConnection {
+        conn,
+        peer_name: session.peer_name,
+        minor: session.minor,
+        stale: session.stale_secret,
+    })
 }
 
 #[cfg(test)]
@@ -1087,6 +1213,22 @@ mod tests {
         assert!(!light_node_refuses("/peer/v1/watch/clock"));
         assert!(!light_node_refuses("/peer/v1/watch/join"));
         assert!(!light_node_refuses("/peer/v1/watch/command"));
+        // M8b's rekey route is group business, not content: a phone that missed a rotation has to
+        // be able to catch up, and the record it fetches costs it a hundred bytes.
+        assert!(!light_node_refuses("/peer/v1/group/rekey"));
+    }
+
+    #[test]
+    fn only_the_rekey_route_is_open_to_a_peer_holding_the_previous_secret() {
+        assert!(is_rekey_route("/peer/v1/group/rekey"));
+        assert!(is_rekey_route("/peer/v1/group/rekey/"));
+        // Everything else, including the routes a stale member most wants, stays shut.
+        assert!(!is_rekey_route("/peer/v1/inventory"));
+        assert!(!is_rekey_route("/peer/v1/status"));
+        assert!(!is_rekey_route("/peer/v1/file/movie:tmdb:1/abc"));
+        assert!(!is_rekey_route("/peer/v1/group/rekey/latest"));
+        assert!(!is_rekey_route("/peer/v1/group"));
+        assert!(!is_rekey_route("/"));
     }
 
     #[test]

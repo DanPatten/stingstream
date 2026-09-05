@@ -10,7 +10,27 @@
 //! * **`coordinator`** — optional URL of a `stingstream-relay`. Absent means the group runs on
 //!   public infrastructure only (n0 relays, n0 DNS, mainline DHT); see `docs/MESH.md`.
 //!
-//! Revocation in v1 is secret rotation. Per-member revocation lands in M8.
+//! # Rotation and revocation (M8b)
+//!
+//! Removing a member is a **secret rotation plus a deny-list**, and both halves are load-bearing.
+//!
+//! Rotation alone is not enough: the removed node still has the old secret, and any gossip frame or
+//! peer connection it recorded before the rotation stays readable to it forever. A deny-list alone
+//! is not enough either: the deny-list is per-node state, and a member that is offline when the
+//! removal happens does not have it, so the removed node could still talk to *that* member. Doing
+//! both means the removed node needs a secret it cannot get and an identity every other member
+//! refuses.
+//!
+//! A rotation is a [`RekeyRecord`]: a new secret, the epoch it takes the group to, the node ids
+//! removed at that epoch, and an Ed25519 signature by the member that made it. It travels **only**
+//! over authenticated peer connections — never over gossip, which the removed member can still
+//! decrypt at the moment the decision is taken — and each member that receives one forwards it to
+//! every other member it knows, so one online administrator is enough to re-key a whole group.
+//!
+//! Two members rotating at once is resolved the same way two members changing the coordinator at
+//! once is: the ordering `(epoch, at, by)`, highest wins. The loser's members recover because the
+//! winner keeps the previous secret alive for a grace window and hands the new one to anybody who
+//! turns up holding it. See [`crate::db::Db::apply_rekey`] and `docs/UPGRADING.md`.
 
 use std::fmt;
 use std::str::FromStr;
@@ -178,6 +198,146 @@ impl CoordinatorStamp {
     /// a re-announcement storm between two members that both hold it.
     pub fn superseded_by(&self, other: &Self) -> bool {
         (other.at, other.by.as_str()) > (self.at, self.by.as_str())
+    }
+}
+
+/// Domain separator for a rotation signature, so it can never be replayed into the peer handshake
+/// or the ACME endpoint, which sign with the same key.
+const REKEY_DOMAIN: &[u8] = b"stingstream-rekey-v1";
+
+/// How long a rotated-away secret keeps being accepted, in seconds. Seven days.
+///
+/// This is the window in which a member that was switched off during a rotation can come back, be
+/// recognised by what it still holds, and be handed the new key without a human re-issuing an
+/// invite. Long because the case it exists for is a laptop in a drawer, and cheap because the only
+/// thing the old secret buys during it is [`crate::peer`]'s rekey-catchup route — no inventory, no
+/// files, no gossip. A member that misses the whole window has to re-join from a fresh invite,
+/// which is the honest cost of having no key server.
+pub const REKEY_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// One rotation of a group's secret, signed by the member that made it.
+///
+/// Passed between members over authenticated peer connections. Never gossiped: at the instant a
+/// member is removed it can still read the topic, and a new secret published there would be a new
+/// secret handed straight to the node it was minted to exclude.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RekeyRecord {
+    pub group_id: [u8; 32],
+    /// The epoch this record takes the group to. Strictly greater than the one it replaces.
+    pub epoch: u64,
+    /// The new group secret.
+    pub secret: [u8; 32],
+    /// Node ids (hex) removed from the group, cumulative across every rotation so far.
+    ///
+    /// Cumulative rather than "removed by this record" so a member that missed an earlier rotation
+    /// does not end up with a deny-list full of holes: adopting the newest record it can find is
+    /// always enough.
+    pub revoked: Vec<String>,
+    /// The author's clock, in milliseconds. Breaks a tie on `epoch`.
+    pub at: u64,
+    /// The node id (hex) that made the rotation. Breaks a tie on `(epoch, at)`, and is whose key
+    /// `sig` is checked against.
+    pub by: String,
+    /// Ed25519 over [`RekeyRecord::transcript`].
+    pub sig: Vec<u8>,
+}
+
+/// Never print the new secret, whatever anybody does with `{:?}`.
+impl fmt::Debug for RekeyRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RekeyRecord")
+            .field("group_id", &GroupId(self.group_id))
+            .field("epoch", &self.epoch)
+            .field("secret", &"<redacted>")
+            .field("revoked", &self.revoked.len())
+            .field("at", &self.at)
+            .field("by", &self.by)
+            .finish()
+    }
+}
+
+impl RekeyRecord {
+    /// The bytes the signature covers: everything that decides what this record *does*.
+    ///
+    /// The revoked list is sorted before it is folded in, so two members that assembled the same
+    /// set in a different order produce the same transcript. It is length-prefixed rather than
+    /// joined by a separator, so `["ab", "cd"]` and `["abcd"]` cannot collide into one signature.
+    pub fn transcript(
+        group_id: &[u8; 32],
+        epoch: u64,
+        secret: &[u8; 32],
+        revoked: &[String],
+        at: u64,
+    ) -> Vec<u8> {
+        let mut sorted: Vec<&str> = revoked.iter().map(|s| s.as_str()).collect();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let mut t = Vec::with_capacity(REKEY_DOMAIN.len() + 32 + 8 + 32 + 8 + sorted.len() * 72);
+        t.extend_from_slice(REKEY_DOMAIN);
+        t.extend_from_slice(group_id);
+        t.extend_from_slice(&epoch.to_le_bytes());
+        t.extend_from_slice(secret);
+        t.extend_from_slice(&at.to_le_bytes());
+        t.extend_from_slice(&(sorted.len() as u32).to_le_bytes());
+        for node in sorted {
+            t.extend_from_slice(&(node.len() as u32).to_le_bytes());
+            t.extend_from_slice(node.as_bytes());
+        }
+        t
+    }
+
+    /// Build and sign a rotation.
+    pub fn sign(
+        group_id: &GroupId,
+        epoch: u64,
+        secret: &GroupSecret,
+        revoked: Vec<String>,
+        key: &iroh::SecretKey,
+    ) -> Self {
+        let at = crate::util::now_millis();
+        let t = Self::transcript(group_id.as_bytes(), epoch, secret.as_bytes(), &revoked, at);
+        Self {
+            group_id: *group_id.as_bytes(),
+            epoch,
+            secret: *secret.as_bytes(),
+            revoked,
+            at,
+            by: key.public().to_string(),
+            sig: key.sign(&t).to_bytes().to_vec(),
+        }
+    }
+
+    /// Check the signature and that the record is for `group`.
+    ///
+    /// Says nothing about whether `by` is *entitled* to rotate — that is the caller's business,
+    /// because only the caller knows the group's membership. What this proves is that the node
+    /// named in `by` really wrote these exact bytes.
+    pub fn verify(&self, group: &GroupId) -> Result<()> {
+        if &self.group_id != group.as_bytes() {
+            bail!("this rotation is for another group");
+        }
+        if self.epoch == 0 {
+            bail!("a rotation cannot be at epoch 0");
+        }
+        let author: EndpointId = self
+            .by
+            .parse()
+            .context("the node id that signed this rotation is not a valid node id")?;
+        let raw = <[u8; 64]>::try_from(self.sig.as_slice())
+            .map_err(|_| anyhow::anyhow!("a rotation signature has the wrong length"))?;
+        let t = Self::transcript(&self.group_id, self.epoch, &self.secret, &self.revoked, self.at);
+        author
+            .verify(&t, &iroh::Signature::from_bytes(&raw))
+            .map_err(|_| anyhow::anyhow!("a rotation signature does not verify"))?;
+        Ok(())
+    }
+
+    pub fn group(&self) -> GroupId {
+        GroupId(self.group_id)
+    }
+
+    pub fn new_secret(&self) -> GroupSecret {
+        GroupSecret(self.secret)
     }
 }
 

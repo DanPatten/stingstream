@@ -89,6 +89,18 @@ pub struct MeshNode {
     pub watch: crate::watch::Registry,
     /// Measured clock offset and round trip to each peer, per group, for the watch bridge.
     watch_clocks: Mutex<HashMap<(GroupId, String), crate::watch::Clock>>,
+    /// This node, as an `Arc`, for the handful of `&self` methods that have to reach one.
+    ///
+    /// Three things here need `Arc<Self>`: `start_group` (it hands a clone to the gossip loop),
+    /// `tokio::spawn` (it needs `'static`), and anything that calls either. Rotation (M8b) is
+    /// reached from inside `connect_peer`, which every reader in the crate calls through a plain
+    /// `&self`, so the alternative was `self: &Arc<Self>` on a dozen methods and every one of
+    /// their callers. **Weak**, because `MeshNode` owns the router that owns the peer server that
+    /// holds this state; a strong reference would be a cycle and a node that never drops.
+    /// `OnceLock` because it can only be filled in after the `Arc` exists, which is after
+    /// construction. Every reader treats "not set" as "no node", which is what the tests that
+    /// build a bare node see.
+    me: std::sync::OnceLock<std::sync::Weak<MeshNode>>,
 }
 
 impl std::fmt::Debug for MeshNode {
@@ -208,7 +220,9 @@ impl MeshNode {
             watch,
             watch_clocks: Mutex::new(HashMap::new()),
             dht: dht_state,
+            me: std::sync::OnceLock::new(),
         });
+        let _ = node.me.set(Arc::downgrade(&node));
 
         // Close the loop the construction order forced open: the peer server was registered with
         // the router before the node existed, and the watch routes need to reach back into it. Weak,
@@ -278,6 +292,14 @@ impl MeshNode {
             "mesh node started"
         );
         Ok(node)
+    }
+
+    /// This node as an `Arc`, for the methods that need one. See [`MeshNode::me`].
+    fn arc(&self) -> Result<Arc<Self>> {
+        self.me
+            .get()
+            .and_then(|w| w.upgrade())
+            .ok_or_else(|| anyhow::anyhow!("this mesh node is shutting down"))
     }
 
     /// What the mainline-DHT address lookup is doing, for `/mesh/v1/status`.
@@ -755,6 +777,25 @@ impl MeshNode {
     // --- peer connections ---------------------------------------------------------------------
 
     /// A live, authenticated connection to `addr` for `group`, dialing if we do not have one.
+    ///
+    /// # Recovering from a rotation, in both directions
+    ///
+    /// A group's secret can change while two members are apart (M8b), and the member that dialed
+    /// is as likely to be the one holding the newer key as the older. Both cases are recovered
+    /// here, because this is the only place in the crate that both knows the group and has a
+    /// connection to talk over:
+    ///
+    /// * **We are behind.** The peer accepts our proof under *its* previous secret and says so
+    ///   ([`PeerConnection::stale`]). We pull its rotation record over that very connection, adopt
+    ///   it, and redial. The connection we were given serves nothing else, so there is nothing to
+    ///   lose by throwing it away.
+    /// * **They are behind.** Our current secret gets us nowhere, so we retry with *our* previous
+    ///   one — which is their current one — and, being a current member from their point of view,
+    ///   push our record at them before redialing on the new key.
+    ///
+    /// Exactly one retry each way. A peer that is two rotations behind (which takes both a removal
+    /// and a manual rotation inside one grace window) falls through to a plain dial failure and
+    /// re-joins from an invite, which is the documented floor.
     pub async fn connect_peer(&self, group: &Group, addr: EndpointAddr) -> Result<PeerConnection> {
         let key = (group.id, addr.id);
         self.remember(&addr);
@@ -766,17 +807,71 @@ impl MeshNode {
                 }
             }
         }
-        let conn = peer::connect(
+
+        // Read the group fresh. The caller's copy may predate a rotation this node has already
+        // applied — `Group` is passed by value all over the crate and nothing invalidates a copy.
+        let live = self.db.group(&group.id)?.unwrap_or_else(|| group.clone());
+
+        let conn = match self.dial(&live.id, &live.secret, addr.clone()).await {
+            Ok(conn) if !conn.stale => conn,
+            Ok(stale_conn) => {
+                tracing::info!(
+                    group = %live.id, peer = %addr.id.fmt_short(),
+                    "this node missed a group secret rotation; catching up from the peer"
+                );
+                self.catch_up_rekey(&live.id, &stale_conn).await?;
+                let now = self
+                    .db
+                    .group(&live.id)?
+                    .ok_or_else(|| anyhow::anyhow!("group {} disappeared", live.id))?;
+                self.dial(&now.id, &now.secret, addr.clone()).await?
+            }
+            Err(first) => {
+                let Some(previous) = self.db.rekey_state(&live.id)?.previous else {
+                    return Err(first);
+                };
+                // Their key may be the one we just rotated away from.
+                let behind = self
+                    .dial(&live.id, &previous, addr.clone())
+                    .await
+                    .map_err(|_| first)?;
+                tracing::info!(
+                    group = %live.id, peer = %addr.id.fmt_short(),
+                    "the peer missed a group secret rotation; pushing the record to it"
+                );
+                if let Some(record) = stored_rekey(&self.db, &live.id) {
+                    if let Err(e) = self.push_rekey_over(&behind, &record).await {
+                        tracing::warn!(
+                            group = %live.id, peer = %addr.id.fmt_short(), error = %e,
+                            "the peer would not take our rotation record"
+                        );
+                    }
+                }
+                drop(behind);
+                self.dial(&live.id, &live.secret, addr.clone()).await?
+            }
+        };
+
+        self.conns.lock().await.insert(key, conn.clone());
+        Ok(conn)
+    }
+
+    /// One dial, one handshake, no cache and no recovery. See [`MeshNode::connect_peer`].
+    async fn dial(
+        &self,
+        group: &GroupId,
+        secret: &crate::group::GroupSecret,
+        addr: EndpointAddr,
+    ) -> Result<PeerConnection> {
+        peer::connect(
             &self.endpoint,
             addr,
-            &group.id,
-            &group.secret,
+            group,
+            secret,
             &self.secret_key,
             &self.cfg.node_name,
         )
-        .await?;
-        self.conns.lock().await.insert(key, conn.clone());
-        Ok(conn)
+        .await
     }
 
     /// Connect to a peer named only by node id, letting discovery find it.
@@ -785,6 +880,398 @@ impl MeshNode {
             .parse()
             .with_context(|| format!("{node} is not a node id"))?;
         self.connect_peer(group, EndpointAddr::new(id)).await
+    }
+
+    // —- secret rotation and member revocation (M8b) ——————————————————————
+
+    /// Remove a member from a group, and rotate the group's secret so the removal sticks.
+    ///
+    /// The five things a removal has to be, and where each of them happens:
+    ///
+    /// 1. **A new secret the removed node does not have.** Minted here, carried to the remaining
+    ///    members over authenticated peer connections and never over gossip — the removed node can
+    ///    still read the topic at this instant, so a new key published there would be a new key
+    ///    handed straight to it.
+    /// 2. **Its connections refused from now on.** [`Db::revoke`] writes a deny-list the peer
+    ///    handshake checks *before* either secret, against the QUIC identity, which cannot be
+    ///    forged. That is what covers the window before every member has the new key, and the
+    ///    member that was offline for the whole rotation.
+    /// 3. **Invite codes regenerated.** Nothing to do: an invite carries the secret, so every code
+    ///    minted before this moment is already dead, and the next [`MeshNode::invite`] call reads
+    ///    the group fresh and mints one that works.
+    /// 4. **The rendezvous entry re-keyed.** Also nothing to do, and for the same reason: the
+    ///    rendezvous id, its bearer token and its sealing key are all derived from the group secret
+    ///    ([`crate::rendezvous`]), so the group moves to a different, unrelated path at the
+    ///    coordinator the moment the secret changes. The old entries expire on their own, and the
+    ///    coordinator never knew what they were. [`MeshNode::publish_rendezvous`] at the new id is
+    ///    the only step, and `adopt_rekey` does it.
+    /// 5. **The removed node's holdings dropped.** Left to the same grace period an offline peer
+    ///    gets, via [`MeshNode::forget_revoked`], so a removal looks like a member going away
+    ///    rather than like data loss. The federated library greys the titles first and removes them
+    ///    second, exactly as it already does.
+    ///
+    /// Returns how many members were reached. Members that were not reached are not a failure: the
+    /// ones that were will forward the record, and one that misses it entirely still cannot be
+    /// impersonated by the removed node, which no longer has an identity any of them will accept.
+    pub async fn revoke_member(&self, id: &GroupId, node: &str) -> Result<Rotation> {
+        if node == self.node_id() {
+            bail!("a node cannot remove itself from a group; leave the group instead");
+        }
+        let _: EndpointId = node
+            .parse()
+            .with_context(|| format!("{node} is not a node id"))?;
+        if self.db.group(id)?.is_none() {
+            bail!("this node is not a member of group {id}");
+        }
+        self.rotate(id, Some(node.to_string())).await
+    }
+
+    /// Rotate a group's secret without removing anybody.
+    ///
+    /// The answer to "somebody pasted our invite code into a group chat". Every member keeps its
+    /// place; every code minted before now stops working.
+    pub async fn rotate_secret(&self, id: &GroupId) -> Result<Rotation> {
+        if self.db.group(id)?.is_none() {
+            bail!("this node is not a member of group {id}");
+        }
+        self.rotate(id, None).await
+    }
+
+    async fn rotate(&self, id: &GroupId, remove: Option<String>) -> Result<Rotation> {
+        let state = self.db.rekey_state(id)?;
+        let mut revoked = self.db.revoked(id)?;
+        if let Some(node) = &remove {
+            if !revoked.iter().any(|n| n == node) {
+                revoked.push(node.clone());
+            }
+        }
+        revoked.sort();
+        revoked.dedup();
+
+        let record = crate::group::RekeyRecord::sign(
+            id,
+            state.epoch.saturating_add(1),
+            &crate::group::GroupSecret::generate(),
+            revoked,
+            &self.secret_key,
+        );
+        let epoch = record.epoch;
+
+        // Apply locally first. If this node cannot adopt its own rotation there is nothing worth
+        // sending, and a half-applied rotation is the one state with no way out.
+        if !self.adopt_rekey(&record).await? {
+            bail!("a newer rotation is already stored for this group; try again");
+        }
+
+        let reached = self.push_rekey(id, &record, None).await;
+        tracing::info!(
+            group = %id, epoch,
+            removed = remove.as_deref().map(short).unwrap_or("(nobody)"),
+            reached = reached.len(),
+            "rotated the group secret"
+        );
+
+        Ok(Rotation {
+            group: *id,
+            epoch,
+            removed: remove,
+            reached,
+        })
+    }
+
+    /// Take a rotation record from a peer.
+    ///
+    /// `from` is the connection it arrived on, excluded from the onward push so two members do not
+    /// bounce the same record back and forth. The record is only adopted when it beats what this
+    /// node holds, so the fan-out terminates on its own.
+    pub async fn apply_rekey(
+        &self,
+        id: &GroupId,
+        record: crate::group::RekeyRecord,
+        from: Option<EndpointId>,
+    ) -> Result<bool> {
+        if !self.take_rekey(id, &record).await? {
+            return Ok(false);
+        }
+        // Pass it on. Spawned, because the peer that pushed this to us is waiting on our answer and
+        // the onward fan-out can take as long as it takes.
+        if let Ok(node) = self.arc() {
+            let id = *id;
+            tokio::spawn(async move {
+                node.push_rekey(&id, &record, from).await;
+            });
+        }
+        Ok(true)
+    }
+
+    /// Check a rotation record and adopt it, without telling anybody else.
+    ///
+    /// **This half never dials**, and that is what makes it exist rather than being three more
+    /// lines of [`MeshNode::apply_rekey`]. The full version spawns a fan-out, the fan-out dials,
+    /// a dial can discover that *this* node is the one behind, and catching up lands back at a
+    /// rotation record — a ring of four `async fn`s whose `Send`-ness each depended on the next,
+    /// which the compiler reports as "future cannot be sent between threads safely" and then, when
+    /// you box it, as an outright cycle. A member that is catching up has nothing to forward
+    /// anyway: the node it just learned from is current, and is already doing the forwarding.
+    async fn take_rekey(&self, id: &GroupId, record: &crate::group::RekeyRecord) -> Result<bool> {
+        record.verify(id)?;
+
+        // The signature says who wrote it. Membership says whether they were entitled to. A node
+        // this one has never heard of could otherwise mint a rotation for any group whose id it
+        // knew — and a group id travels in invite codes.
+        if self.db.peer(id, &record.by)?.is_none() {
+            bail!(
+                "a rotation signed by {}, who is not a member of this group",
+                short(&record.by)
+            );
+        }
+        if self.db.is_revoked(id, &record.by)? {
+            bail!(
+                "a rotation signed by {}, who has been removed from this group",
+                short(&record.by)
+            );
+        }
+        if record.revoked.iter().any(|n| n == &self.node_id()) {
+            // Adopting this would be this node removing itself on somebody else's say-so. The
+            // author is a member in good standing as far as we know, so this is worth shouting
+            // about rather than silently ignoring, but it is not worth obeying.
+            bail!("that rotation removes this node from its own group");
+        }
+
+        if !self.adopt_rekey(record).await? {
+            return Ok(false);
+        }
+        tracing::info!(
+            group = %id, epoch = record.epoch, by = %short(&record.by),
+            removed = record.revoked.len(),
+            "adopted a group secret rotation"
+        );
+        Ok(true)
+    }
+
+    /// Store a rotation and make the running node agree with it.
+    ///
+    /// Returns `false` when the record loses to one already stored, which is the ordinary outcome
+    /// of a record arriving twice by two routes.
+    async fn adopt_rekey(&self, record: &crate::group::RekeyRecord) -> Result<bool> {
+        let id = record.group();
+        let applied = self.db.apply_rekey(
+            &id,
+            record.epoch,
+            &record.new_secret(),
+            record.at,
+            &record.by,
+            crate::group::REKEY_GRACE_SECS,
+        )?;
+        if !applied {
+            return Ok(false);
+        }
+        for node in &record.revoked {
+            self.db.revoke(&id, node, record.epoch)?;
+        }
+        store_rekey(&self.db, &id, record);
+
+        // Every cached connection for this group was authenticated under the old secret. They are
+        // still *live* — QUIC does not care that we changed a key in a database — so a revoked
+        // member's existing connection would keep working until it happened to drop. Closing them
+        // is what makes "refused from then on" true from this instant rather than eventually.
+        let mut closed = 0usize;
+        {
+            let mut conns = self.conns.lock().await;
+            conns.retain(|(g, _), c| {
+                if g == &id {
+                    c.conn.close(
+                        crate::auth::CLOSE_UNAUTHENTICATED.into(),
+                        b"group secret rotated",
+                    );
+                    closed += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+
+        // Restart the group's gossip under the new secret. Dropping the old `RunningGroup` first
+        // aborts its publisher, or the group would have two heartbeat loops, one of them sealing
+        // under a key a removed member still holds.
+        let restarted = self.db.group(&id)?;
+        let boot: Vec<EndpointId> = self
+            .db
+            .peers(Some(&id))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.node != self.node_id() && !record.revoked.contains(&p.node))
+            .filter_map(|p| p.node.parse().ok())
+            .collect();
+        self.groups.lock().await.remove(&id);
+        if let Some(group) = restarted {
+            self.arc()?.start_group(group.clone(), boot).await?;
+            self.publish_rendezvous(&group).await;
+        }
+        tracing::debug!(%id, closed, "closed peer connections held under the old group secret");
+        Ok(true)
+    }
+
+    /// Hand `record` to every member of the group except the revoked ones, this node and `skip`.
+    ///
+    /// Returns the node ids that took it. Failures are logged, not propagated: a member that is
+    /// switched off cannot be re-keyed now, and the grace window is what catches it later.
+    async fn push_rekey(
+        &self,
+        id: &GroupId,
+        record: &crate::group::RekeyRecord,
+        skip: Option<EndpointId>,
+    ) -> Vec<String> {
+        let Ok(Some(group)) = self.db.group(id) else {
+            return Vec::new();
+        };
+        let me = self.node_id();
+        let skip = skip.map(|s| s.to_string());
+        let members: Vec<String> = self
+            .db
+            .peers(Some(id))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.node)
+            .filter(|n| {
+                n != &me && Some(n) != skip.as_ref() && !record.revoked.contains(n)
+            })
+            .collect();
+
+        let mut reached = Vec::new();
+        for node in members {
+            match tokio::time::timeout(
+                REKEY_PUSH_TIMEOUT,
+                self.peer_json::<_, serde_json::Value>(
+                    &group,
+                    &node,
+                    "/peer/v1/group/rekey",
+                    record,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(_)) => reached.push(node),
+                Ok(Err(e)) => tracing::warn!(
+                    group = %id, node = %short(&node), error = %e,
+                    "could not hand a member the new group secret"
+                ),
+                Err(_) => tracing::warn!(
+                    group = %id, node = %short(&node),
+                    "a member did not answer a rekey push in time"
+                ),
+            }
+        }
+        reached
+    }
+
+    /// POST a rotation over one already-open connection.
+    async fn push_rekey_over(
+        &self,
+        conn: &PeerConnection,
+        record: &crate::group::RekeyRecord,
+    ) -> Result<()> {
+        let bytes = serde_json::to_vec(record).context("encoding a rotation record")?;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/peer/v1/group/rekey")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(
+                http_body_util::Full::new(bytes::Bytes::from(bytes))
+                    .map_err(|never| match never {})
+                    .boxed(),
+            )
+            .context("building a rekey request")?;
+        let resp = conn.request(req).await?;
+        if !resp.status().is_success() {
+            bail!("the peer answered {} for a rekey push", resp.status());
+        }
+        Ok(())
+    }
+
+    /// Pull the newest rotation a peer holds, over a connection that can reach nothing else.
+    async fn catch_up_rekey(&self, id: &GroupId, conn: &PeerConnection) -> Result<()> {
+        let req = Request::builder()
+            .method("GET")
+            .uri("/peer/v1/group/rekey")
+            .header(header::ACCEPT, "application/json")
+            .body(empty_body())
+            .context("building a rekey request")?;
+        let resp = conn.request(req).await?;
+        if !resp.status().is_success() {
+            bail!(
+                "the peer answered {} for its rotation record",
+                resp.status()
+            );
+        }
+        let bytes = resp
+            .into_body()
+            .collect()
+            .await
+            .context("reading a rotation record")?
+            .to_bytes();
+        let record: crate::group::RekeyRecord =
+            serde_json::from_slice(&bytes).context("decoding a rotation record")?;
+        // Same checks a pushed record gets: the connection proves the *sender* is a member of this
+        // group, not that the record's author was entitled to write it. `take_rekey` rather than
+        // `apply_rekey` because a node that is catching up has nobody to forward to — see there.
+        self.take_rekey(id, &record).await?;
+        Ok(())
+    }
+
+    /// Drop everything a revoked member holds, once its grace period has passed.
+    ///
+    /// Deliberately not part of the rotation. A revocation that also wiped the removed node's
+    /// titles from every library the same second would look, to everybody watching, exactly like a
+    /// bug that ate half the group's catalogue. Greying out first and removing later is the
+    /// sequence members already understand, because it is what an offline peer does.
+    pub fn forget_revoked(&self, id: &GroupId, grace: std::time::Duration) -> Result<usize> {
+        let cutoff = crate::util::now_millis().saturating_sub(grace.as_millis() as u64);
+        let state = self.db.rekey_state(id)?;
+        if state.at == 0 || state.at > cutoff {
+            return Ok(0);
+        }
+        let mut dropped = 0usize;
+        for node in self.db.revoked(id)? {
+            dropped += self.db.drop_peer(id, &node)?;
+        }
+        Ok(dropped)
+    }
+
+    /// The members of a group, with the removed ones marked.
+    pub fn members(&self, id: &GroupId) -> Result<Vec<MemberView>> {
+        let revoked = self.db.revoked(id)?;
+        let me = self.node_id();
+        let mut out: Vec<MemberView> = self
+            .db
+            .peers(Some(id))?
+            .into_iter()
+            .map(|p| MemberView {
+                node_name: p.node_name.clone(),
+                online: p.online,
+                last_seen: p.last_seen.clone(),
+                is_self: p.node == me,
+                revoked: revoked.contains(&p.node),
+                node: p.node,
+            })
+            .collect();
+        // A removed member whose rows have already been dropped still belongs on the list, or an
+        // administrator has no way to see that the removal happened.
+        for node in revoked {
+            if !out.iter().any(|m| m.node == node) {
+                out.push(MemberView {
+                    node: node.clone(),
+                    node_name: String::new(),
+                    online: false,
+                    last_seen: None,
+                    is_self: false,
+                    revoked: true,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.node.cmp(&b.node));
+        Ok(out)
     }
 
     // --- inventory ----------------------------------------------------------------------------
@@ -2498,6 +2985,72 @@ pub enum JoinRoute {
     Inviter,
     /// The coordinator's rendezvous list.
     Rendezvous,
+}
+
+/// How long a member has to take a pushed rotation before the pusher moves on.
+const REKEY_PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `meta` key under which a group's newest rotation record is kept.
+///
+/// The `meta` table rather than a column on `groups`, because what is stored is the *record* — the
+/// signature and the author and the revoked list, exactly as it arrived — and it exists to be
+/// handed back out verbatim to a member that missed it. Re-deriving one from the group's columns
+/// would mean re-signing it with this node's key, which would launder somebody else's decision into
+/// this node's name.
+fn rekey_key(group: &GroupId) -> String {
+    format!("rekey:{group}")
+}
+
+/// The newest rotation record this node holds for a group, if it has ever seen one.
+pub fn stored_rekey(db: &Db, group: &GroupId) -> Option<crate::group::RekeyRecord> {
+    db.meta(&rekey_key(group))
+        .ok()
+        .flatten()
+        .and_then(|json| serde_json::from_str(&json).ok())
+}
+
+/// Keep a rotation record so a member that missed it can be handed it later.
+pub fn store_rekey(db: &Db, group: &GroupId, record: &crate::group::RekeyRecord) {
+    match serde_json::to_string(record) {
+        Ok(json) => {
+            if let Err(e) = db.set_meta(&rekey_key(group), &json) {
+                tracing::warn!(%group, error = %e, "storing a rotation record");
+            }
+        }
+        Err(e) => tracing::warn!(%group, error = %e, "encoding a rotation record"),
+    }
+}
+
+/// What a rotation did, as the API reports it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Rotation {
+    #[serde(serialize_with = "crate::node::serialize_group")]
+    pub group: GroupId,
+    /// The epoch the group is now at.
+    pub epoch: u64,
+    /// The node removed, when the rotation was a removal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed: Option<String>,
+    /// The members that took the new secret while the caller waited. The rest get it from the
+    /// grace window on their next dial.
+    pub reached: Vec<String>,
+}
+
+fn serialize_group<S: serde::Serializer>(g: &GroupId, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&g.to_string())
+}
+
+/// One member of a group, as the Group screen lists them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MemberView {
+    pub node: String,
+    pub node_name: String,
+    pub online: bool,
+    pub last_seen: Option<String>,
+    /// This is the node the caller is talking to.
+    pub is_self: bool,
+    /// Removed from the group. Kept on the list so the removal is visible.
+    pub revoked: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

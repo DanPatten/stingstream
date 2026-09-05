@@ -17,19 +17,44 @@
 //! body       = JSON(Body)
 //! plaintext  = postcard(Signed { author, ts, body, sig })
 //! sig        = Ed25519(node_key, "stingstream-gossip-v1" || group_id || ts_le || body)
-//! wire       = nonce(24) || XChaCha20Poly1305(key, nonce, plaintext)
+//! wire       = major(1) || minor(1) || nonce(24)
+//!              || XChaCha20Poly1305(key, nonce, aad = major||minor, plaintext)
 //! ```
 //!
 //! The body is JSON, not postcard, on purpose: [`WireRecord`] uses `skip_serializing_if` to keep
 //! records compact for the local API, and a non-self-describing format cannot round-trip a struct
 //! whose fields disappear on the way out. The envelope around it stays postcard because its shape
 //! is fixed.
+//!
+//! # The version prefix (M8b)
+//!
+//! The two leading bytes are the protocol version ([`crate::proto`]), in the clear and **outside**
+//! the seal, and bound in as the AEAD's associated data so they cannot be flipped without breaking
+//! the tag. They are outside the seal because that is the only position from which they are useful:
+//! a receiver that cannot open a frame today cannot tell "somebody else's group" from "a build that
+//! writes a different envelope", and the second of those is the failure that cost a group half its
+//! members when [`MAX_GOSSIP_MESSAGE`] moved. Two plaintext bytes tell a relay the protocol
+//! generation and nothing else — not the group, not the author, not the payload.
+//!
+//! Gossip is a broadcast with nobody to negotiate against, so the rule is: **send at our own minor,
+//! accept any minor with a matching major.** Every field a minor adds to a [`Body`] therefore has
+//! to be `#[serde(default)]`, and every new variant has to be one an older node can skip. See
+//! `docs/UPGRADING.md`.
+//!
+//! # Replay
+//!
+//! The signed envelope carries the author's clock, and until M8b nothing looked at it. Anybody who
+//! could see the topic — a relay, or a former member who kept a capture — could re-broadcast a
+//! recorded frame forever, and every receiver would accept it: the signature still verifies, the
+//! seal still opens, and the body is by construction one a member really did write. That matters
+//! most for exactly the frame you would want to replay, a `Snapshot` from before a title was
+//! removed. [`MAX_CLOCK_SKEW_MS`] closes it to a window rather than a lifetime.
 
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use bytes::Bytes;
-use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use iroh::{EndpointId, SecretKey, Signature};
 use iroh_gossip::api::{Event, GossipSender};
@@ -41,6 +66,7 @@ use crate::config::GossipConfig;
 use crate::db::Db;
 use crate::group::{GroupId, GroupSecret};
 use crate::inventory::{Heartbeat, WireRecord};
+use crate::proto::{self, PROTOCOL_MAJOR, PROTOCOL_MINOR};
 
 /// `meta` key holding this node's advertised capacity, as JSON.
 ///
@@ -98,6 +124,43 @@ pub type ConfigChangeSender = tokio::sync::mpsc::UnboundedSender<GroupId>;
 const SIGN_DOMAIN: &[u8] = b"stingstream-gossip-v1";
 /// BLAKE3 `derive_key` context for the sealing key. Changing this rotates every group's key.
 const SEAL_CONTEXT: &str = "stingstream gossip v1 seal key";
+
+/// How far from this node's clock a gossip envelope's timestamp may be, in milliseconds.
+///
+/// Ten minutes each way. Generous on purpose: the timestamp is the *author's* wall clock, home
+/// machines are routinely a minute or two out, and a node whose clock is wrong should lose its
+/// replay protection long before it loses its ability to be in a group. It still turns "a captured
+/// frame is valid forever" into "a captured frame is valid for the length of one lunch break",
+/// which is the whole of the difference that matters -- a former member's snapshot of a library
+/// that has since changed cannot be pushed back onto the group tomorrow.
+///
+/// The future half of the window has to exist at all because the receiver's clock can be the slow
+/// one; a strictly-past rule would drop live traffic from a node three seconds ahead.
+pub const MAX_CLOCK_SKEW_MS: u64 = 10 * 60 * 1000;
+
+/// Why [`open`] refused a frame. Separated from the message so callers can count the cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenError {
+    /// The frame's protocol major is not one this build speaks. Already counted and (rate-limited)
+    /// logged by [`crate::proto::refuse`].
+    IncompatibleVersion,
+    /// Too short, unsealed, tampered with, from another group, or badly signed.
+    NotForUs,
+    /// Opened and verified, but the author's clock is outside [`MAX_CLOCK_SKEW_MS`].
+    OutOfWindow,
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenError::IncompatibleVersion => f.write_str("incompatible protocol version"),
+            OpenError::NotForUs => f.write_str("not sealed and signed for this group"),
+            OpenError::OutOfWindow => {
+                f.write_str("the author's timestamp is outside the replay window")
+            }
+        }
+    }
+}
 
 /// Messages carried on a group's topic.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -187,6 +250,22 @@ pub enum Body {
     Watch {
         session: crate::watch::WatchSession,
     },
+    /// Who has been removed from the group, and at which secret epoch (M8b).
+    ///
+    /// **The new secret is not here and never will be.** A rotation travels point to point over
+    /// authenticated peer connections ([`crate::group::RekeyRecord`]) precisely because the node
+    /// being removed can still read this topic at the moment the decision is taken. What rides
+    /// gossip is only the *list*, sealed under the new secret, so a member that has already been
+    /// re-keyed learns the deny-list even if it was re-keyed by a third party that had a shorter
+    /// list than the administrator did.
+    ///
+    /// Idempotent and re-announced on every snapshot tick, like every other record here.
+    Revocation {
+        epoch: u64,
+        nodes: Vec<String>,
+        at: u64,
+        by: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,8 +304,24 @@ pub fn seal(
     node_key: &SecretKey,
     body: &Body,
 ) -> Result<Bytes> {
+    seal_at(group, secret, node_key, body, now_millis())
+}
+
+/// [`seal`], with the envelope's timestamp given rather than read from the clock.
+///
+/// Exists for the replay test, which has to produce a frame that is genuinely well formed and
+/// genuinely out of the window — and would otherwise have to either wait ten minutes or assert
+/// against a hand-assembled envelope, which tests the test rather than the code. Public because
+/// the test lives in `tests/`, and harmless: a caller that lies about the time only makes a frame
+/// every receiver drops.
+pub fn seal_at(
+    group: &GroupId,
+    secret: &GroupSecret,
+    node_key: &SecretKey,
+    body: &Body,
+    ts: u64,
+) -> Result<Bytes> {
     let body_bytes = serde_json::to_vec(body).context("encoding a gossip body")?;
-    let ts = now_millis();
     let sig = node_key.sign(&sign_transcript(group, ts, &body_bytes));
     let envelope = SignedEnvelope {
         author: *node_key.public().as_bytes(),
@@ -238,41 +333,76 @@ pub fn seal(
 
     let mut nonce = [0u8; 24];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
+    let aad = [PROTOCOL_MAJOR, PROTOCOL_MINOR];
     let ciphertext = cipher(secret)
-        .encrypt(XNonce::from_slice(&nonce), plaintext.as_ref())
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext.as_ref(),
+                aad: &aad,
+            },
+        )
         .map_err(|e| anyhow::anyhow!("sealing a gossip message failed: {e}"))?;
 
-    let mut out = Vec::with_capacity(24 + ciphertext.len());
+    let mut out = Vec::with_capacity(2 + 24 + ciphertext.len());
+    out.extend_from_slice(&aad);
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ciphertext);
     Ok(Bytes::from(out))
 }
 
-/// Open a sealed message and verify the author's signature.
+/// Open a sealed message, check its version and window, and verify the author's signature.
 ///
-/// Returns the author and body. Failure means the message was not written by a group member, was
-/// tampered with, or is not for this group at all — every case is a drop, never an error to the
-/// user.
-pub fn open(group: &GroupId, secret: &GroupSecret, wire: &[u8]) -> Result<(EndpointId, Body)> {
-    if wire.len() < 24 + 16 {
-        bail!("gossip message is too short to be sealed");
+/// Returns the author and body. Every failure is a drop, never an error to the user; the
+/// [`OpenError`] exists so the receive loop can tell the three cases apart in a log line and so a
+/// version mismatch is counted rather than buried among ordinary "not for this group" noise.
+///
+/// `delivered_from` is the neighbour that handed us the frame — not the author, which we do not
+/// know until it opens — and is used only to name somebody findable in the version-mismatch log.
+pub fn open(
+    group: &GroupId,
+    secret: &GroupSecret,
+    wire: &[u8],
+    delivered_from: &str,
+) -> Result<(EndpointId, Body), OpenError> {
+    // 2 version bytes + 24-byte nonce + a 16-byte AEAD tag is the shortest possible frame.
+    if wire.len() < 2 + 24 + 16 {
+        return Err(OpenError::NotForUs);
     }
-    let (nonce, ciphertext) = wire.split_at(24);
-    let plaintext = cipher(secret)
-        .decrypt(XNonce::from_slice(nonce), ciphertext)
-        .map_err(|_| anyhow::anyhow!("gossip message is not sealed for this group"))?;
-    let envelope: SignedEnvelope =
-        postcard::from_bytes(&plaintext).context("decoding a gossip envelope")?;
+    let (major, minor) = (wire[0], wire[1]);
+    if !proto::compatible(major) {
+        proto::refuse(proto::Surface::Gossip, major, minor, delivered_from);
+        return Err(OpenError::IncompatibleVersion);
+    }
 
-    let author = EndpointId::from_bytes(&envelope.author).context("invalid gossip author")?;
-    let raw = <[u8; 64]>::try_from(envelope.sig.as_slice())
-        .map_err(|_| anyhow::anyhow!("gossip signature has the wrong length"))?;
+    let (nonce, ciphertext) = wire[2..].split_at(24);
+    let plaintext = cipher(secret)
+        .decrypt(
+            XNonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad: &wire[..2],
+            },
+        )
+        .map_err(|_| OpenError::NotForUs)?;
+    let envelope: SignedEnvelope =
+        postcard::from_bytes(&plaintext).map_err(|_| OpenError::NotForUs)?;
+
+    let author = EndpointId::from_bytes(&envelope.author).map_err(|_| OpenError::NotForUs)?;
+    let raw = <[u8; 64]>::try_from(envelope.sig.as_slice()).map_err(|_| OpenError::NotForUs)?;
     let transcript = sign_transcript(group, envelope.ts, &envelope.body);
     author
         .verify(&transcript, &Signature::from_bytes(&raw))
-        .map_err(|_| anyhow::anyhow!("gossip signature does not verify"))?;
+        .map_err(|_| OpenError::NotForUs)?;
 
-    let body: Body = serde_json::from_slice(&envelope.body).context("decoding a gossip body")?;
+    // Checked *after* the signature, so the cheaper timestamp comparison cannot be used as an
+    // oracle by somebody outside the group, and so an out-of-window frame is known to be a real
+    // member's rather than noise.
+    if now_millis().abs_diff(envelope.ts) > MAX_CLOCK_SKEW_MS {
+        return Err(OpenError::OutOfWindow);
+    }
+
+    let body: Body = serde_json::from_slice(&envelope.body).map_err(|_| OpenError::NotForUs)?;
     Ok((author, body))
 }
 
@@ -280,11 +410,27 @@ pub fn open(group: &GroupId, secret: &GroupSecret, wire: &[u8]) -> Result<(Endpo
 pub struct GroupGossip {
     pub group: GroupId,
     pub sender: GossipSender,
+    /// The receive loop and the heartbeat loop, aborted when this is dropped.
+    ///
+    /// They used to be detached, which was fine while a group's secret never changed. A rotation
+    /// (M8b) restarts a group, and a detached heartbeat loop holds the *old* secret in its own
+    /// stack frame — so the node would go on publishing a beat a minute sealed under the key it
+    /// had just rotated away from, readable by the member it had just removed, for as long as the
+    /// process lived. Owning the handles is what makes "restart the group" actually mean it.
+    tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for GroupGossip {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GroupGossip").field("group", &self.group).finish()
+    }
+}
+
+impl Drop for GroupGossip {
+    fn drop(&mut self) {
+        for t in self.tasks.drain(..) {
+            t.abort();
+        }
     }
 }
 
@@ -318,8 +464,10 @@ pub async fn spawn(
         .context("subscribing to the group topic")?;
     let (sender, mut receiver) = topic.split();
 
+    let mut tasks = Vec::with_capacity(2);
+
     // Receive loop.
-    {
+    tasks.push({
         let db = db.clone();
         let sender = sender.clone();
         let node_key = node_key.clone();
@@ -352,6 +500,7 @@ pub async fn spawn(
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_group_config(&db, &sender, &group, &secret, &node_key).await;
+                        publish_revocations(&db, &sender, &group, &secret, &node_key).await;
                         publish_watch_sessions(&watch, &sender, &group, &secret, &node_key).await;
                         publish(&sender, &group, &secret, &node_key, &Body::RequestSnapshot).await;
                     }
@@ -366,7 +515,20 @@ pub async fn spawn(
                         publish(&sender, &group, &secret, &node_key, &Body::RequestSnapshot).await;
                     }
                     Event::Received(msg) => {
-                        match open(&group, &secret, &msg.content) {
+                        // The group's secret can change under this loop (M8b): a rotation applied
+                        // by `MeshNode::apply_rekey` writes the database and restarts the group, so
+                        // the copy captured when this task was spawned is only correct until then.
+                        // Re-reading it per frame is one indexed row from a WAL-mode SQLite and is
+                        // the difference between a rotation being seamless and every member having
+                        // to be restarted by hand.
+                        let secret = db
+                            .group(&group)
+                            .ok()
+                            .flatten()
+                            .map(|g| g.secret)
+                            .unwrap_or(secret);
+                        let from = msg.delivered_from.fmt_short().to_string();
+                        match open(&group, &secret, &msg.content, &from) {
                             Ok((author, body)) => {
                                 handle(
                                     &db, &sender, &group, &secret, &node_key, &node_name, author,
@@ -375,11 +537,13 @@ pub async fn spawn(
                                 .await;
                             }
                             Err(e) => {
-                                // Not a group member, or a corrupt message. Dropped, with the
-                                // delivering peer named so a misconfigured node is findable.
+                                // Not a group member, a corrupt message, a replay, or a build we
+                                // cannot talk to. The version case is already counted and logged by
+                                // `proto::refuse`; the rest are dropped with the delivering peer
+                                // named so a misconfigured node is findable.
                                 tracing::debug!(
                                     %group,
-                                    from = %msg.delivered_from.fmt_short(),
+                                    from = %from,
                                     error = %e,
                                     "dropping an unreadable gossip message"
                                 );
@@ -388,11 +552,11 @@ pub async fn spawn(
                     }
                 }
             }
-        });
-    }
+        })
+    });
 
     // Heartbeat and periodic snapshot.
-    {
+    tasks.push({
         let db = db.clone();
         let sender = sender.clone();
         let node_key = node_key.clone();
@@ -419,15 +583,20 @@ pub async fn spawn(
                         publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_group_config(&db, &sender, &group, &secret, &node_key).await;
+                        publish_revocations(&db, &sender, &group, &secret, &node_key).await;
                         watch.sweep(crate::watch::now_ms());
                         publish_watch_sessions(&watch, &sender, &group, &secret, &node_key).await;
                     }
                 }
             }
-        });
-    }
+        })
+    });
 
-    Ok(GroupGossip { group, sender })
+    Ok(GroupGossip {
+        group,
+        sender,
+        tasks,
+    })
 }
 
 /// Broadcast one body, logging rather than propagating a send failure.
@@ -534,6 +703,41 @@ pub async fn publish_group_config(
             coordinator: stored.coordinator.as_ref().map(|u| u.to_string()),
             at: stored.coordinator_stamp.at,
             by: stored.coordinator_stamp.by.clone(),
+        },
+    )
+    .await;
+}
+
+/// Broadcast the group's deny-list, if it has one.
+///
+/// Sealed under the current secret like everything else on the topic, which is what makes it safe
+/// to send at all: the nodes it names cannot open it.
+pub async fn publish_revocations(
+    db: &Db,
+    sender: &GossipSender,
+    group: &GroupId,
+    secret: &GroupSecret,
+    node_key: &SecretKey,
+) {
+    let nodes = match db.revoked(group) {
+        Ok(n) if n.is_empty() => return,
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(%group, error = %e, "reading the revocation list to publish");
+            return;
+        }
+    };
+    let state = db.rekey_state(group).unwrap_or_default();
+    publish(
+        sender,
+        group,
+        secret,
+        node_key,
+        &Body::Revocation {
+            epoch: state.epoch,
+            nodes,
+            at: state.at,
+            by: state.by,
         },
     )
     .await;
@@ -807,6 +1011,45 @@ async fn handle(
                 );
             }
         }
+        Body::Revocation {
+            epoch,
+            nodes,
+            at,
+            by,
+        } => {
+            // Recorded whatever the epoch: a revocation is only ever added to, never withdrawn, so
+            // an old list is a subset of the truth and applying it cannot un-remove anybody. The
+            // epoch is carried for the log and for the record's own ordering, not as a gate.
+            let mut added = Vec::new();
+            for node in &nodes {
+                if node == &me.to_string() {
+                    // Somebody says we are out. We cannot act on that from gossip alone — a node
+                    // that removes *itself* on hearsay would be a one-message denial of service —
+                    // and we will find out for real the moment our next dial is refused.
+                    tracing::warn!(
+                        %group, from = %author.fmt_short(), epoch,
+                        "a member says this node has been removed from the group"
+                    );
+                    continue;
+                }
+                match db.is_revoked(group, node) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        if db.revoke(group, node, epoch).is_ok() {
+                            added.push(node.clone());
+                        }
+                    }
+                    Err(e) => tracing::warn!(error = %e, "checking a revocation"),
+                }
+            }
+            if !added.is_empty() {
+                tracing::info!(
+                    %group, from = %author.fmt_short(), epoch, at, by,
+                    removed = added.len(),
+                    "adopted a revocation list"
+                );
+            }
+        }
         Body::RequestClaim { mut claim } => {
             // The claiming node is the *author*, never whatever the body says. Taking the node id
             // from the payload would let any member write a claim in somebody else's name and take
@@ -947,7 +1190,7 @@ mod tests {
                 "a sealed chunk is {} bytes, over the {MAX_GOSSIP_MESSAGE}-byte frame limit",
                 wire.len()
             );
-            let (_, back) = open(&group, &secret, &wire).unwrap();
+            let (_, back) = open(&group, &secret, &wire, "test").unwrap();
             assert_eq!(back, body);
         }
     }
@@ -972,7 +1215,7 @@ mod tests {
         let secret = GroupSecret::generate();
         let key = SecretKey::generate();
         let wire = seal(&group, &secret, &key, &body()).unwrap();
-        let (author, got) = open(&group, &secret, &wire).unwrap();
+        let (author, got) = open(&group, &secret, &wire, "test").unwrap();
         assert_eq!(author, key.public());
         assert_eq!(got, body());
     }
@@ -982,7 +1225,7 @@ mod tests {
         let group = GroupId::generate();
         let key = SecretKey::generate();
         let wire = seal(&group, &GroupSecret::generate(), &key, &body()).unwrap();
-        assert!(open(&group, &GroupSecret::generate(), &wire).is_err());
+        assert!(open(&group, &GroupSecret::generate(), &wire, "test").is_err());
     }
 
     #[test]
@@ -990,9 +1233,12 @@ mod tests {
         let secret = GroupSecret::generate();
         let key = SecretKey::generate();
         let wire = seal(&GroupId::generate(), &secret, &key, &body()).unwrap();
-        // Same secret, different group: the signature transcript no longer matches.
-        let e = open(&GroupId::generate(), &secret, &wire).unwrap_err().to_string();
-        assert!(e.contains("signature does not verify"), "{e}");
+        // Same secret, different group: the signature transcript no longer matches, and the
+        // caller cannot tell that from "somebody else's group" — which is the point.
+        assert_eq!(
+            open(&GroupId::generate(), &secret, &wire, "test").unwrap_err(),
+            OpenError::NotForUs
+        );
     }
 
     #[test]
@@ -1003,16 +1249,16 @@ mod tests {
         let mut wire = seal(&group, &secret, &key, &body()).unwrap().to_vec();
         let n = wire.len();
         wire[n - 1] ^= 0xff;
-        assert!(open(&group, &secret, &wire).is_err());
+        assert!(open(&group, &secret, &wire, "test").is_err());
     }
 
     #[test]
     fn a_truncated_message_is_rejected_rather_than_panicking() {
         let group = GroupId::generate();
         let secret = GroupSecret::generate();
-        assert!(open(&group, &secret, &[]).is_err());
-        assert!(open(&group, &secret, &[0u8; 10]).is_err());
-        assert!(open(&group, &secret, &[0u8; 40]).is_err());
+        assert!(open(&group, &secret, &[], "test").is_err());
+        assert!(open(&group, &secret, &[0u8; 10], "test").is_err());
+        assert!(open(&group, &secret, &[0u8; 40], "test").is_err());
     }
 
     #[test]
@@ -1066,7 +1312,7 @@ mod tests {
             },
         };
         let wire = seal(&group, &secret, &key, &request).unwrap();
-        assert_eq!(open(&group, &secret, &wire).unwrap().1, request);
+        assert_eq!(open(&group, &secret, &wire, "test").unwrap().1, request);
 
         let claim = Body::RequestClaim {
             claim: crate::requests::ClaimRecord {
@@ -1080,7 +1326,7 @@ mod tests {
             },
         };
         let wire = seal(&group, &secret, &key, &claim).unwrap();
-        assert_eq!(open(&group, &secret, &wire).unwrap().1, claim);
+        assert_eq!(open(&group, &secret, &wire, "test").unwrap().1, claim);
     }
 
     #[test]
@@ -1116,6 +1362,6 @@ mod tests {
             removals: vec!["movie:tmdb:2".into()],
         };
         let wire = seal(&group, &secret, &key, &b).unwrap();
-        assert_eq!(open(&group, &secret, &wire).unwrap().1, b);
+        assert_eq!(open(&group, &secret, &wire, "test").unwrap().1, b);
     }
 }
