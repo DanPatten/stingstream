@@ -2,7 +2,9 @@
   "name": "streamyfin",
   "main": "./index",
   "version": "1.0.0",
+  "packageManager": "bun@1.4.1",
   "scripts": {
+    "preinstall": "node scripts/require-bun.js",
     "submodule-reload": "git submodule update --init --remote --recursive",
     "clean": "echo y | expo prebuild --clean",
     "start": "bun run submodule-reload && expo start",
