@@ -394,13 +394,6 @@ jobs:
             -n stingstream-phone-release-unsigned -D dist/android || true
           gh run download "${{ steps.find.outputs.run_id }}" --repo "${{ github.repository }}" \
             -n stingstream-tv-release-unsigned -D dist/android || true
-          find dist/android -type f -name '*.apk' -exec sh -c '
-            for f; do
-              case "$f" in
-                */app-release-unsigned.apk|*/app-release.apk) : ;;
-                *) continue ;;
-              esac
-            done' _ {} + || true
           # Normalize whatever gradle named the APK (app-release-unsigned.apk / app-release.apk)
           # into the names tools/generate-version-json.sh looks for.
           phone=$(find dist/android -path '*phone*' -name '*.apk' | head -1)
