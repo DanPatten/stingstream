@@ -320,9 +320,16 @@ case "$FIRST_PATH" in
 esac
 
 log "blocking all UDP on node-b and restarting its mesh"
-# `-x` on the process *name*, not `-f` on the command line: `-f stingstream-mesh` also matches the
-# `sh -c` that is doing the killing, so it kills itself and docker exec returns 143.
-docker exec ss-node-b pkill -x stingstream-mesh || true
+# `-f` against the full path, run as the exec'd process itself rather than through `sh -c`: `-x`
+# cannot match a name longer than 15 characters, and `-f stingstream-mesh` under `sh -c` matches
+# the shell that is doing the killing. pkill never matches itself, so this form is safe.
+docker exec ss-node-b pkill -f /opt/bin/stingstream-mesh || true
+# ...and make sure it really went, or the "restart with UDP blocked" is not a restart at all.
+for _ in $(seq 1 15); do
+  docker exec ss-node-b pgrep -f /opt/bin/stingstream-mesh >/dev/null 2>&1 || break
+  sleep 1
+done
+docker exec ss-node-b pgrep -f /opt/bin/stingstream-mesh >/dev/null 2>&1   && fail "node-b's mesh would not stop" || true
 sleep 3
 # No UDP at all except DNS: no QUIC, no hole punching, nothing but TCP to the coordinator. This is
 # the hostile-network case — a corporate or hotel network that passes only TCP.

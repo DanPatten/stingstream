@@ -97,7 +97,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nat-scenario-logs
-          path: /tmp/stingstream-nat/
+          # Only the logs. The scenario's data directories also hold each node's `mesh.db`, which
+          # is created inside the container as root and mode 0600 for the same reason `node.key`
+          # is — the runner user cannot read it, and the upload fails on the whole directory.
+          path: |
+            /tmp/stingstream-nat/*.log
+            /tmp/stingstream-nat/*/*.log
           if-no-files-found: warn
 
   image:
