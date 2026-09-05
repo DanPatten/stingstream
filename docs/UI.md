@@ -91,10 +91,24 @@ lib/stingstream/hooks.ts  ──uses──▶  lib/stingstream/client.ts (useSti
       transcoding, logs), not StingStream.Core's business, so they go through `/jellyfin/*` like
       every other Jellyfin call the app makes.
 
-lib/stingstream/status.ts — plain `fetch` against `/healthz` and `/stingstream/mesh/v1/status`.
-Both are gateway-level endpoints, not part of Core's own OpenAPI document, so they're outside the
-generated client; see the file's own comment.
+lib/stingstream/status.ts — plain `fetch` against `/healthz` only. It is a gateway-level
+endpoint, not part of Core's own OpenAPI document, so it's outside the generated client; see
+the file's own comment.
 ```
+
+**The gateway's raw `/stingstream/mesh/*` is loopback-only by design (M3b) — never call it from
+the app.** It's the mesh child's own unauthenticated port, proxied through the gateway; it can
+create groups and mint invite codes with no auth of its own, and the gateway binds `0.0.0.0`, so
+routing it to the LAN would hand any device on the network the ability to do that. Every mesh
+operation the app needs (status, groups, join, invite, index, peers) has an authenticated
+equivalent under `/stingstream/api/v1/mesh/*` in Core's own OpenAPI document — reachable through
+the generated client exactly like every other StingStream endpoint (`useMeshStatus()` in
+`lib/stingstream/hooks.ts` is the example this milestone's Node status screen uses). Those
+endpoints answer `503` (not an empty result) when the mesh can't be reached — deliberately, since
+the federated-library materializer reads an empty group index as "this group holds nothing" and
+would delete every pointer file on a mesh restart otherwise. Treat `503` here as "mesh
+unavailable / still starting," not as "empty" — the two look identical if a screen only inspects
+the response body instead of the status.
 
 **Auth.** `useStingStreamClient()` (`lib/stingstream/client.ts`) reads the app's existing
 `apiAtom` (the same `@jellyfin/sdk` `Api` object every Jellyfin screen uses) and builds a client
@@ -144,7 +158,7 @@ Radarr's/Sonarr's JSON straight through, so their real shape is hand-typed (loos
 | Server settings → Quality profiles | default-profile-name field | listing/creating/editing actual profiles |
 | Server settings → Root folders / Naming / Notifications (incl. extra webhooks) | full CRUD | — |
 | Admin → Users / Libraries / Transcoding / Logs | all of it (Jellyfin's own API) | — |
-| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/mesh/v1/status` (mesh preview) | per-child version numbers |
+| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count) | per-child version numbers |
 
 A stubbed feature never shows fabricated rows presented as real data — it shows `GapNotice` with a
 one-line reason and a pointer to `docs/UI-API-GAPS.md`. The one partial exception is Manage's add
