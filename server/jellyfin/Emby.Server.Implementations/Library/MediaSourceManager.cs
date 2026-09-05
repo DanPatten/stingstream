@@ -58,6 +58,14 @@ namespace Emby.Server.Implementations.Library
         private readonly IDirectoryService _directoryService;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly IMediaAttachmentRepository _mediaAttachmentRepository;
+
+        /// <summary>
+        /// StingStream patch: an optional last pass over a resolved source list. Null on a stock
+        /// build, because nothing registers one. See <see cref="IMediaSourceDecorator"/> and
+        /// <c>docs/PATCHES.md</c>.
+        /// </summary>
+        private readonly IMediaSourceDecorator _mediaSourceDecorator;
+
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
@@ -77,7 +85,8 @@ namespace Emby.Server.Implementations.Library
             IMediaEncoder mediaEncoder,
             IDirectoryService directoryService,
             IMediaStreamRepository mediaStreamRepository,
-            IMediaAttachmentRepository mediaAttachmentRepository)
+            IMediaAttachmentRepository mediaAttachmentRepository,
+            IMediaSourceDecorator mediaSourceDecorator = null)
         {
             _appHost = appHost;
             _itemRepo = itemRepo;
@@ -92,6 +101,7 @@ namespace Emby.Server.Implementations.Library
             _directoryService = directoryService;
             _mediaStreamRepository = mediaStreamRepository;
             _mediaAttachmentRepository = mediaAttachmentRepository;
+            _mediaSourceDecorator = mediaSourceDecorator;
         }
 
         public void AddParts(IEnumerable<IMediaSourceProvider> providers)
@@ -242,7 +252,18 @@ namespace Emby.Server.Implementations.Library
                 ? topSourceId
                 : item.Id;
 
-            return SortMediaSources(list, preferredId).ToArray();
+            var sorted = SortMediaSources(list, preferredId).ToArray();
+
+            // StingStream patch: give a registered decorator the last word on order and on the URL
+            // ffmpeg will be handed. This is the single funnel both PlaybackInfo and the streaming
+            // endpoints go through, which is why the hook is here and not in the API layer. See
+            // IMediaSourceDecorator and docs/PATCHES.md.
+            if (_mediaSourceDecorator is null)
+            {
+                return sorted;
+            }
+
+            return await _mediaSourceDecorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc />>

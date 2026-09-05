@@ -15,6 +15,7 @@ using StingStream.Core.FirstRun;
 using StingStream.Core.Inventory;
 using StingStream.Core.Library;
 using StingStream.Core.Mesh;
+using StingStream.Core.Playback;
 using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -104,6 +105,20 @@ public static class StingStreamCoreExtensions
         services.AddHostedService(sp => sp.GetRequiredService<InventoryPublisher>());
         services.AddSingleton<FederatedLibraryService>();
         services.AddHostedService(sp => sp.GetRequiredService<FederatedLibraryService>());
+
+        // Source selection (M4). The decorator is registered as Jellyfin's own
+        // IMediaSourceDecorator, which is what puts it in the path of every PlaybackInfo *and*
+        // every server-side media-source resolve -- see docs/PATCHES.md for the one hook that
+        // makes that possible.
+        services.AddSingleton<PlaybackPolicyStore>();
+        services.AddSingleton<FederatedSourceService>();
+        services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator, FederatedSourceDecorator>();
+
+        // Pin and mirror.
+        services.AddSingleton<LibraryStateStore>();
+        services.AddSingleton<PinStore>();
+        services.AddSingleton<PinService>();
+        services.AddHostedService(sp => sp.GetRequiredService<PinService>());
 
         AddStingStreamLocalResolution(services);
 

@@ -238,6 +238,33 @@ public sealed class FederatedSettings
 
     /// <summary>Fetch artwork from the holding node over the mesh.</summary>
     public bool FetchImages { get; set; } = true;
+
+    /// <summary>
+    /// Copy every film the group holds into this node's own Movies folder.
+    /// </summary>
+    /// <remarks>
+    /// The "mirror everything" toggle, per library. Off by default, and it should stay off on a
+    /// laptop: the whole point of the federated library is that one copy is enough. It is on for a
+    /// seedbox or an always-on node someone wants to be the group's backstop, and the background
+    /// job that acts on it is capacity-aware — it stops at <see cref="MirrorMinFreeBytes"/> and runs
+    /// at most <see cref="MirrorConcurrency"/> copies at once, so mirroring never starves playback.
+    /// </remarks>
+    public bool MirrorMovies { get; set; }
+
+    /// <summary>Copy every episode the group holds into this node's own TV folder.</summary>
+    public bool MirrorTv { get; set; }
+
+    /// <summary>
+    /// How many pins may copy at once, mirror or hand-requested.
+    /// </summary>
+    /// <remarks>
+    /// One by default. A pin is a whole film over someone else's uplink; running four at once makes
+    /// all four slower, and makes the stream-capacity numbers a holder advertises a fiction.
+    /// </remarks>
+    public int MirrorConcurrency { get; set; } = 1;
+
+    /// <summary>Stop mirroring when the media volume has less than this much free.</summary>
+    public long MirrorMinFreeBytes { get; set; } = 20L * 1024 * 1024 * 1024;
 }
 
 public sealed class NotificationSettings

@@ -22,6 +22,22 @@ namespace StingStream.Core.Controllers;
 [ApiExplorerSettings(GroupName = StingStreamApi.DocumentName)]
 public abstract class StingStreamControllerBase : ControllerBase
 {
+    /// <summary>
+    /// The claim Jellyfin's own authentication handler puts the user id in.
+    /// </summary>
+    /// <remarks>
+    /// The literal string rather than <c>Jellyfin.Api.Constants.InternalClaimTypes.UserId</c>:
+    /// that constant lives in <c>Jellyfin.Api</c>, which this project deliberately does not
+    /// reference — StingStream's controllers are hosted alongside Jellyfin's, not derived from
+    /// them. The value is part of Jellyfin's own token format and changing it would break every
+    /// existing client, so copying it is safe in a way that copying an implementation detail
+    /// would not be.
+    /// </remarks>
+    protected const string UserIdClaim = "Jellyfin-UserId";
+
+    /// <summary>The authenticated user's id, or an empty string for an API-key caller.</summary>
+    /// <returns>The user id as Jellyfin issued it.</returns>
+    protected string CurrentUserId() => User?.FindFirst(UserIdClaim)?.Value ?? string.Empty;
 }
 
 /// <summary>Constants shared by the StingStream API surface.</summary>

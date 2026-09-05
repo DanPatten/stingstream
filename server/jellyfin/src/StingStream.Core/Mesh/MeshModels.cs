@@ -151,6 +151,81 @@ public sealed class MeshPeer
     public long? ActiveTranscodes { get; set; }
 
     public long? FreeSpace { get; set; }
+
+    /// <summary>
+    /// Rolling measured throughput <em>from</em> this peer, bits per second.
+    /// </summary>
+    /// <remarks>
+    /// Null until this node has actually pulled enough bytes from the peer for a sample to mean
+    /// anything: the mesh discards transfers below 256 KiB or 100 ms, because a 64 KiB seek that
+    /// finished in 8 ms is arithmetically 65 Mbit/s and tells you nothing about whether a film will
+    /// stream. See <c>Db::record_throughput</c> in the mesh crate.
+    /// </remarks>
+    public long? ThroughputBps { get; set; }
+
+    /// <summary>How many transfers have gone into the average.</summary>
+    public long? ThroughputSamples { get; set; }
+
+    /// <summary>When the average was last updated, RFC 3339.</summary>
+    public string? ThroughputAt { get; set; }
+}
+
+/// <summary>One scored candidate from <c>GET /mesh/v1/sources/{group}/{item_key}</c>.</summary>
+/// <remarks>
+/// The mesh's own answer to the source question, which <see cref="Playback.SourceScorer"/> mirrors
+/// in C# for <c>PlaybackInfo</c>. Core reads this endpoint only when it wants the mesh's opinion —
+/// diagnostics, and the harness — because it can compute its own from the index and the peer rows
+/// it already has.
+/// </remarks>
+public sealed class MeshScoredSource
+{
+    public string Node { get; set; } = string.Empty;
+
+    public string NodeName { get; set; } = string.Empty;
+
+    public bool Online { get; set; }
+
+    public string? FileHash { get; set; }
+
+    public long? Bitrate { get; set; }
+
+    public long? Size { get; set; }
+
+    public int? Height { get; set; }
+
+    public int? Width { get; set; }
+
+    public string? Resolution { get; set; }
+
+    public string? Path { get; set; }
+
+    public long? RttMs { get; set; }
+
+    public long? ThroughputBps { get; set; }
+
+    public double Score { get; set; }
+
+    /// <summary>Bits per second this source needs, including the scorer's margin.</summary>
+    public long NeededBps { get; set; }
+
+    public bool Fits { get; set; }
+
+    public bool Measured { get; set; }
+
+    public List<string> Reasons { get; set; } = new();
+}
+
+/// <summary>The body of <c>GET /mesh/v1/sources/{group}/{item_key}</c>.</summary>
+public sealed class MeshSources
+{
+    public string Group { get; set; } = string.Empty;
+
+    public string ItemKey { get; set; } = string.Empty;
+
+    /// <summary><c>speed_first</c> or <c>quality_first</c>.</summary>
+    public string Policy { get; set; } = string.Empty;
+
+    public List<MeshScoredSource> Sources { get; set; } = new();
 }
 
 /// <summary>The media summary the mesh gossips. See <c>MediaSummary</c> in the mesh crate.</summary>

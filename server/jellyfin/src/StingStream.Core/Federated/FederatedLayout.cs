@@ -59,6 +59,52 @@ public static class FederatedLayout
         return string.IsNullOrWhiteSpace(quality) ? node : $"{node} {q}";
     }
 
+    /// <summary>
+    /// Work out a distinct version label for every holder of one title.
+    /// </summary>
+    /// <param name="holders">The holders: node id, human name, and resolution label.</param>
+    /// <returns>Node id to label, for every holder given.</returns>
+    /// <remarks>
+    /// <para>
+    /// The label is what separates one holder's <c>.strm</c> from another's inside a single title
+    /// folder, and Jellyfin turns same-folder files into alternate versions of one item by name. So
+    /// two holders whose labels collide do not produce two versions — the second file overwrites
+    /// the first, and the group silently has one source where it should have had two.
+    /// </para>
+    /// <para>
+    /// Collisions are not hypothetical. The mesh's default node name is the machine's hostname, and
+    /// two people who never renamed their node both call it after a laptop model; a pair of nodes
+    /// that both hold the same 1080p encode then both want <c>attic 1080p</c>. When that happens
+    /// every colliding holder gets its short node id appended — every one of them, not just the
+    /// loser, so the names do not shuffle when a third holder appears and the disambiguation is
+    /// stable across passes and across nodes.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, string> AssignLabels(
+        IReadOnlyList<(string Node, string? NodeName, string? Quality)> holders)
+    {
+        ArgumentNullException.ThrowIfNull(holders);
+
+        var preferred = new Dictionary<string, string>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (node, nodeName, quality) in holders)
+        {
+            var label = VersionLabel(nodeName, node, quality);
+            preferred[node] = label;
+            counts[label] = counts.TryGetValue(label, out var n) ? n + 1 : 1;
+        }
+
+        var assigned = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (node, label) in preferred)
+        {
+            assigned[node] = counts[label] > 1
+                ? SafePath.Component($"{label} {ShortNode(node)}", label)
+                : label;
+        }
+
+        return assigned;
+    }
+
     /// <summary>The first eight characters of a node id: enough to tell two peers apart in a name.</summary>
     /// <param name="nodeId">The node id.</param>
     /// <returns>A short, safe token.</returns>
@@ -244,6 +290,51 @@ public static class FederatedLayout
 
     /// <summary>The marker hostname in a federated stream URL.</summary>
     public const string LocalHost = "stingstream.local";
+
+    /// <summary>
+    /// Take a federated stream URL apart again.
+    /// </summary>
+    /// <param name="url">The URL from a <c>.strm</c>, or a <c>MediaSourceInfo.Path</c>.</param>
+    /// <param name="group">The group id.</param>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="node">The holding node's id.</param>
+    /// <returns>True when the URL is one of ours and had all three segments.</returns>
+    /// <remarks>
+    /// This is the inverse of <see cref="StreamUrl"/> and the reason that method's path shape is
+    /// called load-bearing. It is what lets the PlaybackInfo scorer work out which group index row a
+    /// <c>MediaSourceInfo</c> corresponds to without carrying a side table from the materializer to
+    /// the player — the URL Jellyfin already stores <em>is</em> the association.
+    ///
+    /// Deliberately strict about the host: a URL that merely looks similar is not decorated, scored
+    /// or rewritten, so nothing here can act on a path a user put in a library by hand.
+    /// </remarks>
+    public static bool TryParseStreamUrl(
+        string? url,
+        out string group,
+        out string itemKey,
+        out string node)
+    {
+        group = string.Empty;
+        itemKey = string.Empty;
+        node = string.Empty;
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Host, LocalHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 4 || !string.Equals(segments[0], "stream", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        group = Uri.UnescapeDataString(segments[1]);
+        itemKey = Uri.UnescapeDataString(segments[2]);
+        node = Uri.UnescapeDataString(segments[3]);
+        return group.Length > 0 && itemKey.Length > 0 && node.Length > 0;
+    }
 
     /// <summary>Write a <c>.strm</c> atomically.</summary>
     /// <param name="path">Destination.</param>

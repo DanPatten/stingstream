@@ -388,6 +388,15 @@ public sealed class FederatedLibraryService : BackgroundService
             }
         }
 
+        // One label per holder, decided across every holder of a title at once.
+        //
+        // This is what makes multi-version materialization actually produce several versions.
+        // Jellyfin groups same-folder files into alternate versions by *name*, so two holders whose
+        // labels collide -- two nodes still called after their hostname, both holding the same 1080p
+        // encode -- would write one file twice and the group would silently lose a source. Deciding
+        // labels per title rather than per pointer is the only place the collision is visible.
+        var labels = AssignLabels(desired);
+
         foreach (var ((group, itemKey, node), entry) in desired)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -412,6 +421,9 @@ public sealed class FederatedLibraryService : BackgroundService
                         entry,
                         existing,
                         titleOwners,
+                        labels.TryGetValue((itemKey, node), out var label)
+                            ? label
+                            : FederatedLayout.VersionLabel(entry.NodeName, entry.Node, entry.Media.Resolution),
                         settings,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -460,12 +472,53 @@ public sealed class FederatedLibraryService : BackgroundService
 
     // --- writing -----------------------------------------------------------
 
+    /// <summary>
+    /// Decide a version label for every holder of every title in this pass.
+    /// </summary>
+    /// <param name="desired">The pointers this pass wants to exist.</param>
+    /// <returns>(item key, node) to label.</returns>
+    /// <remarks>
+    /// Keyed on the item key alone, not on (group, item key): a node in two groups that both hold
+    /// the same film materializes both into one title folder, and two files in one folder is
+    /// exactly where a label collision does its damage.
+    /// </remarks>
+    private static Dictionary<(string ItemKey, string Node), string> AssignLabels(
+        Dictionary<(string Group, string ItemKey, string Node), MeshIndexEntry> desired)
+    {
+        var byItem = new Dictionary<string, List<(string Node, string? NodeName, string? Quality)>>(StringComparer.Ordinal);
+        foreach (var ((_, itemKey, node), entry) in desired)
+        {
+            if (!byItem.TryGetValue(itemKey, out var holders))
+            {
+                holders = new List<(string, string?, string?)>();
+                byItem[itemKey] = holders;
+            }
+
+            if (!holders.Any(h => string.Equals(h.Node, node, StringComparison.Ordinal)))
+            {
+                holders.Add((node, entry.NodeName, entry.Media.Resolution));
+            }
+        }
+
+        var labels = new Dictionary<(string, string), string>();
+        foreach (var (itemKey, holders) in byItem)
+        {
+            foreach (var (node, label) in FederatedLayout.AssignLabels(holders))
+            {
+                labels[(itemKey, node)] = label;
+            }
+        }
+
+        return labels;
+    }
+
     private async Task<FederatedPointer?> WritePointerAsync(
         string root,
         string group,
         MeshIndexEntry entry,
         FederatedPointer? existing,
         Dictionary<string, string> titleOwners,
+        string label,
         FederatedSettings settings,
         CancellationToken cancellationToken)
     {
@@ -473,7 +526,6 @@ public sealed class FederatedLibraryService : BackgroundService
             && entry.Metadata.Episode is not null
             && !string.IsNullOrWhiteSpace(entry.Metadata.SeriesName);
 
-        var label = FederatedLayout.VersionLabel(entry.NodeName, entry.Node, entry.Media.Resolution);
         var libraryRoot = Path.Combine(
             root,
             isEpisode ? FederatedLayout.TvDirectory : FederatedLayout.MoviesDirectory);

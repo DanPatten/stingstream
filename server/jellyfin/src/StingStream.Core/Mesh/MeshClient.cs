@@ -117,6 +117,47 @@ public interface IMeshClient
     /// </remarks>
     Task<IReadOnlyList<MeshPeer>?> PeersAsync(string? group, CancellationToken cancellationToken);
 
+    /// <summary>One peer's measured link, as the source scorer sees it.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="node">The peer's node id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The peer row, or null when the mesh cannot be asked or has never seen it.</returns>
+    Task<MeshPeer?> PeerStatsAsync(string group, string node, CancellationToken cancellationToken);
+
+    /// <summary>The mesh's own scored candidate list for an item.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="policy">The playback policy to score under.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The scored sources, or null when the mesh could not be asked.</returns>
+    Task<MeshSources?> SourcesAsync(
+        string group,
+        string itemKey,
+        Playback.PlaybackPolicy policy,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read a byte range of a peer's file through the mesh, for a pin.
+    /// </summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="itemKey">The item key.</param>
+    /// <param name="node">The holding node's id, or <c>any</c> to let the mesh choose.</param>
+    /// <param name="from">First byte wanted.</param>
+    /// <param name="to">Last byte wanted, inclusive, or null for "to the end".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The open response; the caller disposes it and copies the body.</returns>
+    /// <remarks>
+    /// Returns the live <see cref="HttpResponseMessage"/> rather than bytes because a pin copies a
+    /// whole film: buffering one in memory to hand it back would be a gigabyte per pin.
+    /// </remarks>
+    Task<HttpResponseMessage> OpenRangeAsync(
+        string group,
+        string itemKey,
+        string node,
+        long from,
+        long? to,
+        CancellationToken cancellationToken);
+
     /// <summary>Fetch one artwork file from a peer, over the mesh.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="itemKey">The item key.</param>
@@ -402,6 +443,57 @@ public sealed class MeshClient : IMeshClient
             ? "/mesh/v1/peers"
             : $"/mesh/v1/peers?group={Uri.EscapeDataString(group)}";
         return await TryGetAsync<List<MeshPeer>>(url, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshPeer?> PeerStatsAsync(string group, string node, CancellationToken cancellationToken)
+        => await TryGetAsync<MeshPeer>(
+            $"/mesh/v1/peers/{Uri.EscapeDataString(node)}/stats?group={Uri.EscapeDataString(group)}",
+            cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<MeshSources?> SourcesAsync(
+        string group,
+        string itemKey,
+        Playback.PlaybackPolicy policy,
+        CancellationToken cancellationToken)
+        => await TryGetAsync<MeshSources>(
+            $"/mesh/v1/sources/{Uri.EscapeDataString(group)}/{Uri.EscapeDataString(itemKey)}"
+            + $"?policy={Playback.PolicyNames.Wire(policy)}",
+            cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The <see cref="HttpClient"/> is deliberately not disposed. Clients from
+    /// <see cref="IHttpClientFactory"/> are cheap wrappers over a pooled handler, and disposing one
+    /// while its response body is still being read cancels the read — which is exactly what a pin
+    /// does with the value this returns.
+    /// </remarks>
+    public async Task<HttpResponseMessage> OpenRangeAsync(
+        string group,
+        string itemKey,
+        string node,
+        long from,
+        long? to,
+        CancellationToken cancellationToken)
+    {
+        var http = Client();
+        // A pin copies a whole film over someone else's uplink one chunk at a time. The timeout
+        // has to cover a chunk, not the file.
+        http.Timeout = TimeSpan.FromMinutes(10);
+        var url = $"/stream/{Uri.EscapeDataString(group)}/{Uri.EscapeDataString(itemKey)}"
+                  + $"/{Uri.EscapeDataString(node)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(from, to);
+        var response = await http
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        if (response.IsSuccessStatusCode)
+        {
+            _lastOkUtc = DateTime.UtcNow;
+        }
+
+        return response;
     }
 
     /// <inheritdoc />

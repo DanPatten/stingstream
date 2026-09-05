@@ -25,8 +25,11 @@ namespace StingStream.Core.Data;
 public sealed class CoreDatabase : IDisposable
 {
     /// <summary>Bumped whenever <see cref="ApplySchema"/> gains a migration step.</summary>
-    /// <remarks>2 added the federated-pointer table in M3b.</remarks>
-    public const int SchemaVersion = 2;
+    /// <remarks>
+    /// 2 added the federated-pointer table in M3b. 3 added <c>library_state</c> and <c>pins</c> in
+    /// M4 — the dedupe verdict the add flow records, and the mirror queue.
+    /// </remarks>
+    public const int SchemaVersion = 3;
 
     private readonly ILogger<CoreDatabase> _logger;
     private readonly INodeRuntimeProvider _runtime;
@@ -237,6 +240,48 @@ public sealed class CoreDatabase : IDisposable
             );
             CREATE INDEX IF NOT EXISTS ix_federated_group ON federated (group_id);
             CREATE INDEX IF NOT EXISTS ix_federated_folder ON federated (folder);
+
+            -- What the add/request flow decided about a title, and why. This is the persisted
+            -- "available via group" state the UI shows instead of a download that never started:
+            -- without a row here, a user who added a film the group already holds would see
+            -- nothing happen and reasonably conclude the button was broken.
+            --
+            -- Keyed on the item key rather than on a Jellyfin id, because at the moment the
+            -- decision is made there is no local item -- that is the whole point of the decision.
+            CREATE TABLE IF NOT EXISTS library_state (
+                item_key    TEXT PRIMARY KEY,
+                kind        TEXT NOT NULL,
+                provider    TEXT NOT NULL DEFAULT '',
+                provider_id TEXT NOT NULL DEFAULT '',
+                title       TEXT NOT NULL DEFAULT '',
+                state       TEXT NOT NULL,
+                monitored   INTEGER NOT NULL DEFAULT 0,
+                holders     TEXT NOT NULL DEFAULT '[]',
+                note        TEXT NOT NULL DEFAULT '',
+                requested_by TEXT NOT NULL DEFAULT '',
+                updated_at  TEXT NOT NULL
+            );
+
+            -- The mirror queue: one row per title this node is copying, or has copied, out of the
+            -- group into its own root folder. Kept after it completes so the API can answer "has
+            -- this been pinned" without inferring it from the filesystem, and so a failed pin says
+            -- why rather than merely not having happened.
+            CREATE TABLE IF NOT EXISTS pins (
+                item_key     TEXT PRIMARY KEY,
+                group_id     TEXT NOT NULL,
+                node_id      TEXT NOT NULL DEFAULT '',
+                node_name    TEXT NOT NULL DEFAULT '',
+                file_hash    TEXT,
+                target_path  TEXT NOT NULL DEFAULT '',
+                total_bytes  INTEGER NOT NULL DEFAULT 0,
+                copied_bytes INTEGER NOT NULL DEFAULT 0,
+                state        TEXT NOT NULL,
+                error        TEXT,
+                requested_by TEXT NOT NULL DEFAULT '',
+                started_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_pins_state ON pins (state);
             """);
 
         var existing = ScalarLong(connection, "SELECT version FROM schema_version LIMIT 1;");

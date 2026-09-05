@@ -360,3 +360,92 @@ jobs:
           name: e2e-m3-federated
           path: .e2e-m3-artifacts/
           if-no-files-found: warn
+
+  # The M4 acceptance harness: three nodes, two encodes of one film, and a source choice that has to
+  # be right. Lighter than the M3 job despite having one more node, because none of the three runs
+  # an arr: B and C are pure holders whose media is placed on disk with an NFO carrying the TMDB id,
+  # and A's only add is one the group already satisfies, which never reaches an arr at all. So this
+  # job builds the supervisor and Jellyfin and nothing else, and needs no NZBGet, no seeder and no
+  # Torznab stub.
+  #
+  # There is no -SkipCoordinator equivalent: every step here runs on loopback and needs nothing
+  # hosted by anyone. See tools/e2e-m4.ps1 and docs/RUNNING.md.
+  e2e-m4:
+    name: e2e (M4 acceptance)
+    runs-on: ubuntu-latest
+    # Three Jellyfins, a 4K encode, and two throttled links that are throttled on purpose.
+    timeout-minutes: 75
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK (10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      # Both halves of this job need it: the harness generates the media with it, and node A
+      # transcodes node C's 4K encode with it.
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build the supervisor
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream
+
+      - name: Build Jellyfin (with StingStream.Core)
+        run: dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Debug
+
+      - name: Run the M4 acceptance harness
+        run: >
+          pwsh tools/e2e-m4.ps1 -SkipBuild
+          -WorkDir "${{ github.workspace }}/.e2e-m4-work"
+
+      # All three nodes' logs. Which node failed is usually obvious from the step name; which node
+      # *caused* it is not, and the source-selection steps are decided by numbers that only appear
+      # in A's mesh log.
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m4-logs
+          path: |
+            .e2e-m4-work/logs/
+            .e2e-m4-work/node-a/logs/
+            .e2e-m4-work/node-b/logs/
+            .e2e-m4-work/node-c/logs/
+            .e2e-m4-work/node-a/runtime.json
+            .e2e-m4-work/node-b/runtime.json
+            .e2e-m4-work/node-c/runtime.json
+          if-no-files-found: warn
+
+      - name: Collect node A's federated tree and pinned media
+        if: always()
+        run: |
+          mkdir -p .e2e-m4-artifacts
+          if [ -d .e2e-m4-work/node-a/federated ]; then
+            find .e2e-m4-work/node-a/federated -type f -exec ls -l {} + > .e2e-m4-artifacts/federated-listing.txt
+            for f in $(find .e2e-m4-work/node-a/federated -name '*.strm'); do
+              echo "===== $f" >> .e2e-m4-artifacts/federated-pointers.txt
+              cat "$f" >> .e2e-m4-artifacts/federated-pointers.txt
+              echo >> .e2e-m4-artifacts/federated-pointers.txt
+            done
+          fi
+          if [ -d .e2e-m4-work/node-a/media ]; then
+            find .e2e-m4-work/node-a/media -type f -exec ls -l {} + > .e2e-m4-artifacts/pinned-listing.txt
+          fi
+
+      - name: Upload the federated listing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m4-federated
+          path: .e2e-m4-artifacts/
+          if-no-files-found: warn
