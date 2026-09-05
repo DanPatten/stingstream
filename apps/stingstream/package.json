@@ -13,6 +13,7 @@
     "ios:install-metal-toolchain": "bash scripts/ios/install-metal-toolchain.sh",
     "ios": "cross-env EXPO_TV=0 expo run:ios",
     "ios:tv": "cross-env EXPO_TV=1 expo run:ios",
+    "build:web": "expo export --platform web",
     "android": "cross-env EXPO_TV=0 expo run:android",
     "android:tv": "cross-env EXPO_TV=1 expo run:android",
     "build:android:local": "cd android && cross-env NODE_ENV=production ./gradlew assembleRelease",
@@ -33,6 +34,7 @@
     "uuid": "11.1.1"
   },
   "dependencies": {
+    "@stingstream/api-client": "file:../../packages/api-client",
     "@bottom-tabs/react-navigation": "1.4.0",
     "@douglowder/expo-av-route-picker-view": "^0.0.5",
     "@expo/metro-runtime": "~57.0.6",

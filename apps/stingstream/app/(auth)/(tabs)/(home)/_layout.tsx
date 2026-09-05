@@ -246,6 +246,36 @@ export default function IndexLayout() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name='settings/server/page'
+        options={{
+          title: "Server settings",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/admin/page'
+        options={{
+          title: "Admin",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/node/page'
+        options={{
+          title: "Node status",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
       {Object.entries(nestedTabPageScreenOptions).map(([name, options]) => (
         <Stack.Screen key={name} name={name} options={options} />
       ))}

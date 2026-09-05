@@ -8,6 +8,7 @@ import type {
   ParamListBase,
   TabNavigationState,
 } from "expo-router/react-navigation";
+import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
@@ -22,6 +23,7 @@ import {
   useTVHomeBackHandler,
   useTVTabRootBackHandler,
 } from "@/hooks/useTVBackHandler";
+import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
 
@@ -141,6 +143,12 @@ function TVTabLayout() {
 export default function TabLayout() {
   const { settings } = useSettings();
   const { t } = useTranslation();
+  const user = useAtomValue(userAtom);
+  // Manage/Downloads talk to StingStream.Core, which requires Jellyfin's
+  // RequiresElevation policy on every endpoint (see docs/UI-API-GAPS.md and
+  // packages/api-client) — hide the tabs entirely for non-admins rather than
+  // showing a permanently-blocked screen.
+  const isStingStreamAdmin = !!user?.Policy?.IsAdministrator;
 
   // Must be called before any conditional return (rules of hooks)
   useTVHomeBackHandler();
@@ -223,6 +231,28 @@ export default function TabLayout() {
               Platform.OS === "android"
                 ? (_e) => require("@/assets/icons/rectangle.stack.fill.png")
                 : (_e) => ({ sfSymbol: "rectangle.stack.fill" }),
+          }}
+        />
+        <NativeTabs.Screen
+          name='(manage)'
+          options={{
+            title: "Manage",
+            tabBarItemHidden: Platform.isTV || !isStingStreamAdmin,
+            tabBarIcon:
+              Platform.OS === "android"
+                ? (_e) => require("@/assets/icons/manage.sliders.png")
+                : (_e) => ({ sfSymbol: "slider.horizontal.3" }),
+          }}
+        />
+        <NativeTabs.Screen
+          name='(downloads)'
+          options={{
+            title: "Downloads",
+            tabBarItemHidden: Platform.isTV || !isStingStreamAdmin,
+            tabBarIcon:
+              Platform.OS === "android"
+                ? (_e) => require("@/assets/icons/downloads.arrow.png")
+                : (_e) => ({ sfSymbol: "arrow.down.circle.fill" }),
           }}
         />
         <NativeTabs.Screen

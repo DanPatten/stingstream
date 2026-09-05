@@ -22,7 +22,7 @@ const SettingsTV = Platform.isTV ? require("./settings.tv").default : null;
 function SettingsMobile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [_user] = useAtom(userAtom);
+  const [user] = useAtom(userAtom);
   const { logout } = useJellyfin();
 
   const navigation = useNavigation();
@@ -123,6 +123,31 @@ function SettingsMobile() {
             />
           </ListGroup>
         </View>
+
+        {user?.Policy?.IsAdministrator && (
+          <View className='mb-4'>
+            <ListGroup title='StingStream node'>
+              <ListItem
+                onPress={() => router.push("/settings/server/page")}
+                showArrow
+                title='Server settings'
+                subtitle='Indexers, download clients, quality profiles, root folders, naming, notifications'
+              />
+              <ListItem
+                onPress={() => router.push("/settings/admin/page")}
+                showArrow
+                title='Admin'
+                subtitle='Jellyfin users, libraries, transcoding, logs'
+              />
+              <ListItem
+                onPress={() => router.push("/settings/node/page")}
+                showArrow
+                title='Node status'
+                subtitle='Children, versions, data directory, ports'
+              />
+            </ListGroup>
+          </View>
+        )}
 
         <StorageSettings />
       </View>
