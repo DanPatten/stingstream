@@ -379,7 +379,56 @@ Notes that cost time to find:
 
 ---
 
-## 9. Open items
+## 9. What has been verified
+
+On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09-05:
+
+* **The FFI's own suite runs on the device.** `cargo ndk-test -t x86_64 -P 26 -p stingstream-mesh-ffi`
+  runs the real library on the emulator: 24 unit tests, plus `tests/light_node.rs`, which starts a
+  light handle and a full node in one process, joins by invite, streams a byte-verified mid-file
+  range through the light node's loopback port, and is refused `403` in the reverse direction. All
+  25 pass. This is the same crate the `.so` is built from, on the same ABI.
+
+* **A light node on the emulator joined a group on this machine and streamed from it.** A
+  `stingstream-mesh` node on the desktop created a group, published one 4 MB file, and minted an
+  invite. A light node inside the emulator joined it (`"via": "inviter"` — the invite code was the
+  only route in), saw `attic-desktop` online, and answered
+  `GET /stream/<group>/movie:tmdb:16205/<node>` with `Range: bytes=3145728-3211263`:
+
+  ```
+  HTTP/1.1 206 Partial Content
+  content-range: bytes 3145728-3211263/4194304
+  etag: W/"b3-b3test000…"
+  ```
+
+  All 65 536 bytes matched their file offsets. The desktop reported the path to the emulator as
+  `direct`, 4 ms — a real hole-punch through the emulator's NAT, not a relayed fallback.
+
+* **The reverse direction is refused.** The desktop asking the emulator's light node for the same
+  file got `403 this node is a light member of the group and serves no files`.
+
+The transcript is in the M3c scratch directory.
+
+### One thing Android does differently
+
+iroh reads the system DNS configuration through `ndk_context`, which needs a JNI context installed
+by the host application. A bare CLI binary has none, so on the emulator it logs
+
+```
+Failed to read the system's DNS config, using Google DNS servers as fallback.
+```
+
+and carries on. Discovery still works — Google's resolvers answer n0's pkarr records perfectly
+well — but the node ignores whatever DNS the device is configured with, which on a VPN or a
+split-horizon network is not what the user asked for. Inside the app the same gap exists unless
+something calls `ndk_context::initialize_android_context`. Fixing it means a `JNI_OnLoad` in this
+crate (JNA's `Native.register` goes through `System.loadLibrary`, which does call it) plus a small
+Kotlin call to hand over the `Context`. Worth doing before release; it is not on the playback path,
+which is why it is not done here.
+
+---
+
+## 10. Open items
 
 * **The coordinator cannot be changed after a group is created** (see §7). Needs an endpoint and a
   gossip body, not just a screen.
