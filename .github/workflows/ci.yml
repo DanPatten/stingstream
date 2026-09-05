@@ -346,10 +346,16 @@ jobs:
           mkdir -p .e2e-m3-artifacts
           if [ -d .e2e-m3-work/node-a/federated ]; then
             find .e2e-m3-work/node-a/federated -type f -exec ls -l {} + > .e2e-m3-artifacts/federated-listing.txt
-            for f in $(find .e2e-m3-work/node-a/federated -name '*.strm' -o -name '*.nfo'); do
-              echo "===== $f" >> .e2e-m3-artifacts/federated-pointers.txt
-              cat "$f" >> .e2e-m3-artifacts/federated-pointers.txt
-            done
+            # -print0, because every path here is a film title and every film title has spaces in
+            # it. `for f in $(find ...)` splits "Version Probe" into two words, `cat` fails on the
+            # first of them, and the step fails -- turning a *passing* acceptance run into a red
+            # job with `cat: .../tv/Version: No such file or directory` as the only clue.
+            find .e2e-m3-work/node-a/federated \( -name '*.strm' -o -name '*.nfo' \) -print0 |
+              while IFS= read -r -d '' f; do
+                echo "===== $f" >> .e2e-m3-artifacts/federated-pointers.txt
+                cat "$f" >> .e2e-m3-artifacts/federated-pointers.txt
+                echo >> .e2e-m3-artifacts/federated-pointers.txt
+              done
           fi
 
 
@@ -432,11 +438,14 @@ jobs:
           mkdir -p .e2e-m4-artifacts
           if [ -d .e2e-m4-work/node-a/federated ]; then
             find .e2e-m4-work/node-a/federated -type f -exec ls -l {} + > .e2e-m4-artifacts/federated-listing.txt
-            for f in $(find .e2e-m4-work/node-a/federated -name '*.strm'); do
-              echo "===== $f" >> .e2e-m4-artifacts/federated-pointers.txt
-              cat "$f" >> .e2e-m4-artifacts/federated-pointers.txt
-              echo >> .e2e-m4-artifacts/federated-pointers.txt
-            done
+            # -print0: see the same step in the M3 job. Every path here is a film title, and every
+            # film title has spaces in it.
+            find .e2e-m4-work/node-a/federated -name '*.strm' -print0 |
+              while IFS= read -r -d '' f; do
+                echo "===== $f" >> .e2e-m4-artifacts/federated-pointers.txt
+                cat "$f" >> .e2e-m4-artifacts/federated-pointers.txt
+                echo >> .e2e-m4-artifacts/federated-pointers.txt
+              done
           fi
           if [ -d .e2e-m4-work/node-a/media ]; then
             find .e2e-m4-work/node-a/media -type f -exec ls -l {} + > .e2e-m4-artifacts/pinned-listing.txt
