@@ -1,0 +1,15 @@
+# Winget manifest set for StingStream -- ready to submit once a release exists.
+#
+# This is a TEMPLATE: the version folder (0.8.0), InstallerUrl and InstallerSha256 below are
+# placeholders that must be updated to match a real GitHub release before submission. See
+# docs/RELEASING.md "Submitting to winget" for the exact steps, including how to compute the SHA256
+# (the release workflow already publishes a SHA256SUMS file alongside every artifact) and how to
+# validate locally with `winget validate --manifest <this directory>` before opening a PR against
+# microsoft/winget-pkgs.
+#
+# Schema: https://aka.ms/winget-manifest.version.1.6.0.schema.json
+PackageIdentifier: DanPatten.StingStream
+PackageVersion: 0.8.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

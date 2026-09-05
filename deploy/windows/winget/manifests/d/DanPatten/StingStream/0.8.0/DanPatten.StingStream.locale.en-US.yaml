@@ -1,0 +1,33 @@
+# TEMPLATE -- see DanPatten.StingStream.yaml's header for what needs updating before submission.
+#
+# Schema: https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: DanPatten.StingStream
+PackageVersion: 0.8.0
+PackageLocale: en-US
+Publisher: Dan Patten
+PublisherUrl: https://github.com/DanPatten
+PublisherSupportUrl: https://github.com/DanPatten/stingstream/issues
+PackageName: StingStream
+PackageUrl: https://github.com/DanPatten/stingstream
+License: GPL-3.0-or-later
+LicenseUrl: https://github.com/DanPatten/stingstream/blob/master/LICENSE
+Copyright: Copyright (c) Dan Patten and contributors
+ShortDescription: >-
+  One self-hosted media server: Jellyfin, Radarr, Sonarr and NZBGet behind a single install,
+  a single login, and a mesh that shares your group's libraries and downloads automatically.
+Description: >-
+  StingStream replaces the usual five-tool media stack (Jellyfin, Sonarr, Radarr, a remote-management
+  app, and a download client) with one install, one UI, and one login. Every member of a group pools
+  their libraries and downloads automatically, and playback picks the best available source across
+  the group. Installs as a Windows service listening on http://localhost:8790.
+Moniker: stingstream
+Tags:
+  - media-server
+  - jellyfin
+  - radarr
+  - sonarr
+  - self-hosted
+  - home-media
+ReleaseNotesUrl: https://github.com/DanPatten/stingstream/releases
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

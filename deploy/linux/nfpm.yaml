@@ -1,0 +1,89 @@
+# nfpm config for the StingStream .deb (https://nfpm.goreleaser.com/).
+#
+# Built from an already-packaged dist/node/<rid>/ tree (tools/package-node.sh), not from source --
+# nfpm only assembles the package around files that already exist.
+#
+# Two things verified empirically here, neither documented clearly enough upstream to trust
+# without checking, and both wrong in an earlier draft of this file:
+#
+# 1. **nfpm does NOT expand `${VAR}` in its own config file.** `arch:`/`version:`/`contents[].src`
+#    all come out completely literal -- `${STINGSTREAM_RID}` fails as a glob that matches nothing,
+#    not as an unset variable. This file MUST be rendered through `envsubst` first:
+#
+#      STINGSTREAM_VERSION=0.8.0 STINGSTREAM_ARCH=amd64 STINGSTREAM_RID=linux-x64 \
+#        envsubst '${STINGSTREAM_VERSION} ${STINGSTREAM_ARCH} ${STINGSTREAM_RID}' \
+#        < deploy/linux/nfpm.yaml > /tmp/nfpm-rendered.yaml
+#      nfpm package --config /tmp/nfpm-rendered.yaml --target dist/installers/ --packager deb
+#
+#    The explicit variable list on the `envsubst` call matters: bare `envsubst` substitutes every
+#    `$VAR`-shaped thing it finds in the whole environment, which is a much bigger blast radius
+#    than this file needs. `.github/workflows/release.yml` does exactly this before calling nfpm.
+# 2. **Every relative `src` path is resolved against nfpm's current working directory at
+#    invocation time, not against this file's own location.** So every path below is repo-root-
+#    relative (this is invoked from the repo root), not `deploy/linux`-relative, even though the
+#    file lives in `deploy/linux/`.
+#
+# A version containing a hyphen (e.g. an `-rc1` pre-release tag) comes out with the hyphen turned
+# into `~` in the resulting filename -- ordinary Debian version-string handling, not a bug here,
+# but worth knowing before comparing a `.deb` filename against `tools/generate-version-json.sh`'s
+# expectations for a release candidate specifically.
+#
+# nfpm is not installed by this repository -- `go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest`
+# or download a release binary; see docs/RELEASING.md.
+
+name: stingstream
+arch: "${STINGSTREAM_ARCH}"
+platform: linux
+version: "${STINGSTREAM_VERSION}"
+section: video
+priority: optional
+maintainer: "Dan Patten <noreply@stingstream.org>"
+vendor: StingStream
+homepage: https://github.com/DanPatten/stingstream
+license: GPL-3.0-or-later
+description: |
+  One self-hosted media server: Jellyfin, Radarr, Sonarr and NZBGet behind a single install,
+  a single login, and a mesh that shares your group's libraries and downloads automatically.
+  .
+  Installs to /opt/stingstream, runs as the "stingstream" system user under systemd, and listens
+  on http://localhost:8790 once the stingstream.service unit starts.
+
+depends:
+  # Self-contained .NET publishes still need these system libraries (see
+  # deploy/node/Dockerfile's own runtime stage, which installs the same set for the same reason):
+  # ICU for globalization, fontconfig/freetype for Jellyfin's SkiaSharp-based image processing.
+  - libicu72
+  - libfontconfig1
+  - libfreetype6
+recommends:
+  # NZBGet's own bundled 7za/unrar cover most archives; a system unrar handles the rest for RAR5
+  # archives that need the non-free unrar rather than unrar-free.
+  - p7zip-full
+
+contents:
+  - src: dist/node/${STINGSTREAM_RID}/bin
+    dst: /opt/stingstream/bin
+    file_info:
+      mode: 0755
+  - src: dist/node/${STINGSTREAM_RID}/web
+    dst: /opt/stingstream/web
+  - src: dist/node/${STINGSTREAM_RID}/LICENSE
+    dst: /opt/stingstream/LICENSE
+  - src: dist/node/${STINGSTREAM_RID}/NOTICE.md
+    dst: /opt/stingstream/NOTICE.md
+  - src: dist/node/${STINGSTREAM_RID}/VERSION
+    dst: /opt/stingstream/VERSION
+  - src: deploy/linux/systemd/stingstream.service
+    dst: /lib/systemd/system/stingstream.service
+    file_info:
+      mode: 0644
+
+scripts:
+  preinstall: deploy/linux/scripts/preinstall.sh
+  postinstall: deploy/linux/scripts/postinstall.sh
+  preremove: deploy/linux/scripts/preremove.sh
+  postremove: deploy/linux/scripts/postremove.sh
+
+deb:
+  fields:
+    Bugs: https://github.com/DanPatten/stingstream/issues

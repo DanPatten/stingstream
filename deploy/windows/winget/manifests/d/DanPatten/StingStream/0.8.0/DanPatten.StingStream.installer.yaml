@@ -1,0 +1,27 @@
+# TEMPLATE -- see DanPatten.StingStream.yaml's header for what needs updating before submission.
+#
+# InstallerUrl/InstallerSha256 point at the win-x64 installer .github/workflows/release.yml
+# publishes as a GitHub Release asset (StingStream-Setup-<version>-win-x64.exe) and its entry in
+# that release's SHA256SUMS file.
+#
+# Schema: https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: DanPatten.StingStream
+PackageVersion: 0.8.0
+InstallerType: inno
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+# Inno Setup's own silent-install switches (StingStream.iss uses the wizard defaults, so no custom
+# switches are needed beyond Inno's standard /VERYSILENT /NORESTART).
+InstallerSwitches:
+  Silent: "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES"
+  SilentWithProgress: "/SILENT /NORESTART"
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/DanPatten/stingstream/releases/download/v0.8.0/StingStream-Setup-0.8.0-win-x64.exe
+    InstallerSha256: "0000000000000000000000000000000000000000000000000000000000000000"  # PLACEHOLDER -- replace from that release's SHA256SUMS
+ManifestType: installer
+ManifestVersion: 1.6.0

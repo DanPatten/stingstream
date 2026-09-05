@@ -17,6 +17,9 @@ that reference is the newer document and wins on detail:
 | [`docs/UI.md`](UI.md) | The screens, their information architecture, and what each one calls. |
 | [`docs/RUNNING.md`](RUNNING.md) | Running a node, running two, and the acceptance harnesses. |
 | [`docs/PATCHES.md`](PATCHES.md) | Every line StingStream changes inside a vendored upstream, and why. |
+| [`deploy/node/LAYOUT.md`](../deploy/node/LAYOUT.md) | The install tree every packaging target (installer, `.deb`, AppImage, Docker image) assembles, and exactly which `childdef.rs` function resolves each path. |
+| [`docs/INSTALL.md`](INSTALL.md) | Installing a release on each platform: first run, ports, data locations, uninstalling. |
+| [`docs/RELEASING.md`](RELEASING.md) | Versioning, cutting a release, what CI verifies where, the service-mode approach, the update check, and what still needs Dan (signing certificates, winget/Homebrew submission). |
 
 ## Context
 
@@ -1279,6 +1282,57 @@ languages within a scan cycle. A DVR recording on B plays on A's TV.
 
 **Accept:** install on a clean Windows box and a clean Ubuntu box from the release page; both
 join a group with one code; `/security-review` findings triaged.
+
+### M8a — Packaging, installers and the release pipeline (Sonnet 5) — done; hardening half of M8 still to come
+
+The half of M8 above that is packaging rather than security. See `deploy/node/LAYOUT.md`,
+`docs/INSTALL.md` and `docs/RELEASING.md` for the full detail; this is the summary that belongs in
+the wide view.
+
+- **The install tree** (`deploy/node/LAYOUT.md`) is one shape shared by every delivery mechanism:
+  `bin/{stingstream,mesh/stingstream-mesh,jellyfin,radarr,sonarr,nzbget,ffmpeg}/`, `web/`, `LICENSE`,
+  `NOTICE.md`, `VERSION`. `tools/package-node.ps1`/`.sh` build it for one RID at a time,
+  self-contained but deliberately **not trimmed** (`PublishTrimmed` is unsafe for ASP.NET Core plus
+  Jellyfin's reflection-based plugin loader, and neither Radarr nor Sonarr's own build system uses
+  it). Every launcher this milestone writes passes `--install-root` explicitly rather than relying
+  on the binary's own argv[0]-relative fallback — see that document's own note on why the two
+  disagree on purpose.
+- **`deploy/node/Dockerfile`** builds the same tree inside a multi-stage, linux/amd64 +
+  linux/arm64 image, published as `ghcr.io/danpatten/stingstream-node` by
+  `.github/workflows/images.yml` on every push to `master` (mirroring `coordinator.yml`'s pattern
+  for the coordinator image, but as its own workflow so the two do not queue behind each other).
+  `deploy/coordinator/compose.yml`'s `storage-node` profile now points at it for real.
+- **Joining a group from an environment variable** (`STINGSTREAM_JOIN_CODE`) is a small additive
+  change in `mesh/crates/stingstream/src/main.rs`: once the embedded mesh is up, the supervisor
+  calls `MeshNode::join` directly (no HTTP round-trip needed — it already holds the `Arc<MeshNode>`)
+  if the variable is set. Idempotent, so it is safe to leave set across restarts. A second small
+  addition, `--node-name`/`STINGSTREAM_MESH_NODE_NAME`, overrides `config.toml`'s `node_name` the
+  same way `--port` already overrode the gateway port, for the same container-friendly reason.
+- **Windows service mode** (`--service`, `mesh/crates/stingstream/src/service.rs`, the
+  `windows-service` crate) registers the supervisor itself with the Service Control Manager rather
+  than wrapping it in a generic service host (NSSM et al.) — see `docs/RELEASING.md` "The
+  service-mode approach" for why that distinction matters for a clean stop. Linux and macOS get the
+  same clean-stop property for free from systemd and launchd respectively, needing no equivalent
+  in-process mode.
+- **`--healthcheck`** is a synchronous, dependency-free GET of `/healthz` over loopack, added so
+  `deploy/node/Dockerfile`'s `HEALTHCHECK` (and CI's own smoke tests) do not need curl or wget in
+  the runtime image.
+- **The update check** (`mesh/crates/stingstream/src/updatecheck.rs`) polls a published
+  `version.json` daily and adds `latest_version` next to `/healthz`'s existing `version` field.
+  Deliberately the smaller half of "show update available": comparing the two and surfacing
+  anything in the UI is left as a TODO for whoever owns `StingStream.Core`'s status surface or the
+  web app, so that decision (semver handling, dismissing a notification, per-channel opt-in) is not
+  made twice.
+- **What is verified where** (the honest version; `docs/RELEASING.md` has the full table): Windows
+  build + package verified locally on Dan's machine, installer *compiled* but not silently
+  installed anywhere automated; Linux `.deb` **actually installed and its systemd unit checked**
+  against `/healthz` in CI, on a real (non-emulated) Ubuntu VM, for linux-x64 only — linux-arm64 is
+  build-verified; the node Docker image is smoke-tested in CI for both architectures via QEMU;
+  macOS artifacts are built and given a real (if partial) smoke test on genuine GitHub-hosted Mac
+  hardware — the first place in this entire project anything has run on real Mac hardware — but
+  full multi-child startup on macOS remains unverified anywhere, and nothing is code-signed or
+  notarized on any platform (needs Dan: an Authenticode certificate, an Apple Developer Program
+  membership).
 
 ---
 

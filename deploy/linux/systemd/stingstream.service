@@ -1,0 +1,35 @@
+[Unit]
+Description=StingStream media node
+Documentation=https://github.com/DanPatten/stingstream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stingstream
+Group=stingstream
+# --install-root and --data-dir are explicit rather than relying on the binary's own
+# argv[0]-relative fallback (see deploy/node/LAYOUT.md) -- a systemd unit is exactly the kind of
+# launcher that should never depend on that. /var/lib/stingstream is created and owned by
+# deploy/linux/scripts/preinstall.sh before this unit is ever started.
+ExecStart=/opt/stingstream/bin/stingstream --install-root /opt/stingstream --data-dir /var/lib/stingstream
+Restart=on-failure
+RestartSec=5
+# SIGTERM is what the supervisor's own wait_for_shutdown_signal listens for on Unix, with a grace
+# period for children before anything is killed (docs/RUNNING.md). TimeoutStopSec gives that
+# period, plus every child's own shutdown, room to finish before systemd escalates to SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Defense in depth, not required for the default install (gateway.port 8790 needs no special
+# capability). Uncomment AmbientCapabilities if gateway.https_port is set to a privileged port
+# (e.g. 443) for the HTTPS side door -- see docs/SIDEDOOR.md.
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/stingstream
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

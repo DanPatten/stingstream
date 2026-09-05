@@ -1,0 +1,49 @@
+# Build context for deploy/node/Dockerfile.
+#
+# BuildKit reads `<dockerfile>.dockerignore` in preference to the context root's `.dockerignore`
+# (same mechanism deploy/coordinator/Dockerfile.dockerignore uses). Whitelist approach: exclude
+# everything, then name back in exactly what the Dockerfile's stages COPY -- the mesh workspace,
+# the three .NET subtrees' *source* (not their local build output, which the container rebuilds
+# fresh), the fetched third-party binaries for the platforms this image ships, the web bundle, and
+# the top-level license files. Everything else in this monorepo (apps/stingstream's own
+# node_modules/android/ios, the other four vendored subtrees, tools/, docs/) would otherwise make
+# the context many gigabytes for no benefit -- none of it reaches the final image.
+
+*
+
+!mesh/Cargo.toml
+!mesh/Cargo.lock
+!mesh/crates/**
+mesh/target/
+**/target/
+mesh/jellyswarrm/
+
+!server/jellyfin/**
+!server/radarr/**
+!server/sonarr/**
+# Local build/publish litter from a developer's own out-of-container builds -- irrelevant here and
+# occasionally the wrong platform's binaries, which would otherwise get copied into the context and
+# ignored, but there is no reason to send them over the build socket at all.
+**/bin/
+**/obj/
+**/_output/
+**/_tests/
+**/_temp/
+**/node_modules/
+
+!third_party/ffmpeg/bin/**
+!third_party/nzbget/bin/**
+# The archives fetch-jellyfin-ffmpeg.ps1 leaves alongside the extracted binaries, and the
+# installer/uninstaller nzbget's own Windows fetch leaves (irrelevant to the Linux platforms this
+# image ships, and the Dockerfile's `thirdparty` stage does not look for them).
+third_party/ffmpeg/bin/*/*.zip
+third_party/ffmpeg/bin/*/*.tar.xz
+third_party/ffmpeg/bin/*/*.tar.gz
+third_party/nzbget/bin/*/*-setup.exe
+third_party/nzbget/bin/*/*.run
+third_party/nzbget/bin/*/Uninstall.exe
+
+!apps/stingstream/dist/**
+
+!LICENSE
+!NOTICE.md

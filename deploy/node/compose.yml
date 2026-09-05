@@ -1,0 +1,45 @@
+# A single StingStream node.
+#
+#   docker compose -f deploy/node/compose.yml up -d
+#   docker compose -f deploy/node/compose.yml logs -f
+#
+# Everything the node needs is one image, one exposed port and two volumes: its own data directory
+# and wherever your media library lives. See deploy/node/LAYOUT.md for what is inside the image and
+# docs/INSTALL.md for the non-Docker installers (Windows service, .deb, AppImage) this same tree
+# also ships as.
+#
+# To join an existing group on first run, set STINGSTREAM_JOIN_CODE in .env (or the environment)
+# to an invite code minted by another member -- see docs/RUNNING.md "Running two nodes on one
+# machine" for how to mint one. Leave it unset to run this node standalone; a group can always be
+# created or joined later from the web UI.
+
+name: stingstream-node
+
+services:
+  stingstream:
+    image: ghcr.io/danpatten/stingstream-node:latest
+    # To build from a checkout instead:
+    #   build:
+    #     context: ../..
+    #     dockerfile: deploy/node/Dockerfile
+    restart: unless-stopped
+    environment:
+      STINGSTREAM_JOIN_CODE: ${STINGSTREAM_JOIN_CODE:-}
+    ports:
+      - "8790:8790"
+    volumes:
+      - stingstream-data:/data
+      # A separate volume/bind mount for media, layered at the exact path the node's own layout
+      # expects it (docs/RUNNING.md, "The data directory") -- not a different top-level path -- so
+      # it can point at different storage than the rest of /data while Radarr, Sonarr and Jellyfin
+      # still find it where they always look.
+      - ${STINGSTREAM_MEDIA:-./media}:/data/media
+    healthcheck:
+      test: ["CMD", "/app/bin/stingstream", "--healthcheck", "--data-dir", "/data"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  stingstream-data:

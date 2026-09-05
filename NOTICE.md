@@ -107,6 +107,24 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
   `third_party/nzbget/bin/` (gitignored). Latest release checked during M0: **v26.3**.
 - **License:** GPL-2.0 (nzbgetcom is a maintained fork of the original NZBGet, itself GPL-2.0).
 
+## Build-time tooling embedded in release artifacts (M8a)
+
+Neither of these is fetched or vendored into the repository — both are installed on the machine
+producing a release (locally via winget, or in `.github/workflows/release.yml`) — but each embeds
+a small stub of its own code into the artifact it produces, which is why they are listed here
+rather than only in `docs/RELEASING.md`.
+
+- **Inno Setup** (`deploy/windows/StingStream.iss`, compiled by `deploy/windows/build-installer.ps1`):
+  the compiled `StingStream-Setup-*.exe` contains Inno Setup's own setup launcher and uninstaller
+  stub code. Upstream: https://jrsoftware.org/isinfo.php. License: the
+  [Inno Setup License](https://jrsoftware.org/files/is/license.txt), a custom BSD-like license
+  requiring only that the license text accompany distribution and that Inno Setup not be
+  misrepresented as StingStream's own work — met by this file's own header comment naming it.
+- **AppImageKit** (`deploy/linux/appimage/build-appimage.sh`, via `appimagetool`): every
+  `StingStream-*.AppImage` this produces embeds AppImageKit's runtime stub (the ELF header code
+  that mounts the image's squashfs payload when the file is executed). Upstream:
+  https://github.com/AppImage/AppImageKit. License: MIT.
+
 ## StingStream's own license
 
 - All new code under `mesh/crates/*`, `server/jellyfin/src/StingStream.Core` (once it exists),

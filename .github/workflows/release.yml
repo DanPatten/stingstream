@@ -1,0 +1,481 @@
+# The M8a release pipeline: on a `v*` tag, build every packaging target this milestone produces,
+# checksum them, and publish a GitHub Release. Also runnable via workflow_dispatch for a dry run
+# on master without a tag -- see docs/RELEASING.md "Doing a release" for the exact steps and what
+# a dry run does and does not prove.
+#
+# Jobs:
+#   * `version`            -- resolves the version string from the tag (or the dispatch input).
+#   * `windows-installer`  -- windows-latest: tools/package-node.ps1 -Rid win-x64, then
+#                              deploy/windows/build-installer.ps1 (Inno Setup).
+#   * `linux-packages`     -- ubuntu-latest, matrix [linux-x64, linux-arm64]: tools/package-node.sh,
+#                              nfpm for the .deb, appimagetool for the AppImage. The linux-x64 leg
+#                              additionally installs its own .deb on the runner (a real Ubuntu VM
+#                              with real systemd -- see that job's own comment) and checks the
+#                              service actually starts.
+#   * `macos`               -- macos-14 (Apple Silicon) + macos-13 (Intel): real Mac hardware, so
+#                              this actually builds and smoke-tests the binary, unlike anything
+#                              possible on Dan's own machine. Unsigned, unnotarized -- see
+#                              docs/INSTALL.md "macOS" for exactly what that means for a user.
+#   * `android-unsigned`    -- best-effort, no rebuild: downloads the unsigned APKs app.yml's own
+#                              `android-release-unsigned` job already produces, if a run exists
+#                              for this commit (or, failing that, the most recent one on master).
+#                              Signing stays local per docs/APP-RELEASE.md regardless of this job.
+#   * `release`             -- gathers every artifact, computes SHA256SUMS and version.json
+#                              (tools/generate-version-json.sh), retags the node image
+#                              (ghcr.io/danpatten/stingstream-node) with the release version, and
+#                              creates the GitHub Release.
+#
+# Versioning: 0.<milestone>.<n> until 1.0 (docs/RELEASING.md). A tag is the only thing that makes
+# this a real, numbered release; workflow_dispatch is for proving the pipeline works.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Version to build, without a leading "v" (e.g. 0.8.0). Required for a manual dry run --
+          there is no tag to read it from. Does not create a GitHub Release; see the `release`
+          job's own `if:`.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # One release build at a time full stop -- unlike ci.yml/coordinator.yml's per-push groups,
+  # there is no "several people pushing to master minutes apart" scenario for a release tag, and
+  # two releases racing to create GitHub Releases or retag the same image is worth serializing
+  # against even if it means one waits.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      is_tag: ${{ steps.v.outputs.is_tag }}
+    steps:
+      - id: v
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            v="${GITHUB_REF_NAME#v}"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            v="${{ inputs.version }}"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -z "$v" ]]; then
+            echo "::error::No version resolved. Push a vX.Y.Z tag, or pass 'version' for workflow_dispatch."
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building version $v"
+
+  windows-installer:
+    name: Windows installer
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Same three bands as ci.yml's own dotnet job: Radarr pins 8.0, Jellyfin and Sonarr pin 10.0.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Fetch jellyfin-ffmpeg and nzbget (win64)
+        run: |
+          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform win64
+          pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform win64
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - name: Install the API client's dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+      - name: Build the web bundle
+        working-directory: apps/stingstream
+        run: |
+          bun install --frozen-lockfile
+          bun run build:web
+
+      - name: Package the win-x64 node
+        run: pwsh tools/package-node.ps1 -Rid win-x64 -Version "${{ needs.version.outputs.version }}"
+
+      - name: Install Inno Setup
+        run: winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+
+      - name: Build the installer
+        run: pwsh deploy/windows/build-installer.ps1 -SkipPackage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installers/StingStream-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  linux-packages:
+    name: Linux packages (${{ matrix.rid }})
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            deb_arch: amd64
+            appimage_arch: x86_64
+          - rid: linux-arm64
+            deb_arch: arm64
+            appimage_arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rid == 'linux-arm64' && 'aarch64-unknown-linux-gnu' || '' }}
+
+      - name: Install the aarch64 cross-linker
+        if: matrix.rid == 'linux-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform ${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }}
+      - name: Fetch nzbget
+        # No linux-arm64 asset upstream -- see deploy/node/LAYOUT.md. package-node.sh already
+        # handles the resulting missing bin/nzbget gracefully.
+        if: matrix.rid == 'linux-x64'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - name: Install the API client's dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+      - name: Build the web bundle
+        working-directory: apps/stingstream
+        run: |
+          bun install --frozen-lockfile
+          bun run build:web
+
+      - name: Package the node
+        run: tools/package-node.sh --rid ${{ matrix.rid }} --version "${{ needs.version.outputs.version }}"
+
+      - name: Install nfpm
+        run: |
+          curl -sfL https://raw.githubusercontent.com/goreleaser/nfpm/main/install.sh | sh -s -- -b /usr/local/bin
+          # gettext-base (envsubst) is normally already on the ubuntu-latest image; installed
+          # explicitly rather than assumed, since deploy/linux/nfpm.yaml's own values depend on it.
+          command -v envsubst > /dev/null || sudo apt-get update && sudo apt-get install -y gettext-base
+
+      - name: Build the .deb
+        env:
+          STINGSTREAM_VERSION: ${{ needs.version.outputs.version }}
+          STINGSTREAM_ARCH: ${{ matrix.deb_arch }}
+          STINGSTREAM_RID: ${{ matrix.rid }}
+        # nfpm does not expand ${VAR} in its own config file -- verified empirically, see
+        # deploy/linux/nfpm.yaml's own header comment -- so it has to be rendered through envsubst
+        # first, and run from the repo root: every relative `src` in that file resolves against
+        # nfpm's cwd at invocation time, not against the config file's own location.
+        run: |
+          set -euo pipefail
+          mkdir -p dist/installers
+          envsubst '${STINGSTREAM_VERSION} ${STINGSTREAM_ARCH} ${STINGSTREAM_RID}' \
+            < deploy/linux/nfpm.yaml > /tmp/nfpm-rendered.yaml
+          nfpm package --config /tmp/nfpm-rendered.yaml --target dist/installers/ --packager deb
+
+      - name: Build the AppImage
+        run: |
+          chmod +x deploy/linux/appimage/build-appimage.sh
+          deploy/linux/appimage/build-appimage.sh --rid ${{ matrix.rid }} --version "${{ needs.version.outputs.version }}"
+
+      # GitHub-hosted ubuntu-latest runners are real Ubuntu VMs with a real systemd as PID 1 --
+      # not a container -- so installing the .deb here and checking `systemctl status` /
+      # `/healthz` is a genuine test of the postinst + unit file, not an emulation of one. Only
+      # done for linux-x64: linux-arm64's package cannot actually execute on this runner's CPU,
+      # and QEMU-emulating a full Jellyfin+Radarr+Sonarr+NZBGet boot for a CI smoke test is not a
+      # good trade against the time it costs -- that leg is verified by successfully building and
+      # by depending on the exact same postinst/systemd unit the x64 leg does exercise.
+      - name: Verify the .deb installs and the service starts
+        if: matrix.rid == 'linux-x64'
+        run: |
+          set -euo pipefail
+          deb=$(ls dist/installers/*_amd64.deb | head -1)
+          echo "Installing $deb"
+          sudo apt-get update
+          sudo apt-get install -y "$deb"
+
+          echo "-- systemctl status --"
+          sudo systemctl status stingstream.service --no-pager || true
+
+          ok=0
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /tmp/healthz.json -w '%{http_code}' http://127.0.0.1:8790/healthz || echo 000)
+            if [ "$code" = "200" ] || [ "$code" = "503" ]; then ok=1; break; fi
+            sleep 2
+          done
+          echo "-- /healthz --"
+          cat /tmp/healthz.json || true
+          echo
+          sudo journalctl -u stingstream --no-pager | tail -150
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::stingstream.service never answered on :8790 after install"
+            exit 1
+          fi
+
+          echo "-- verifying uninstall leaves /var/lib/stingstream in place --"
+          sudo systemctl stop stingstream.service || true
+          sudo apt-get remove -y stingstream
+          test -d /var/lib/stingstream || { echo "::error::uninstall removed the data directory -- it must not"; exit 1; }
+          echo "OK: /var/lib/stingstream survived removal, as documented in docs/INSTALL.md"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages-${{ matrix.rid }}
+          path: |
+            dist/installers/*.deb
+            dist/installers/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    name: macOS (${{ matrix.rid }}, unsigned)
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rid: osx-arm64
+          - os: macos-13
+            rid: osx-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Fetch jellyfin-ffmpeg and nzbget (macos)
+        run: |
+          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform macos
+          pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform macos
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - name: Install the API client's dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+      - name: Build the web bundle
+        working-directory: apps/stingstream
+        run: |
+          bun install --frozen-lockfile
+          bun run build:web
+
+      - name: Package the node
+        run: bash tools/package-node.sh --rid ${{ matrix.rid }} --version "${{ needs.version.outputs.version }}"
+
+      # Real Mac hardware, unlike anywhere else in this project (docs/INSTALL.md) -- so this is a
+      # genuine (if partial) proof the binary runs on macOS, not just that it cross-compiles.
+      # --print-runtime resolves config and exits without starting any child, which is what a
+      # locally-built, non-quarantined binary can do here without hitting Gatekeeper at all; a
+      # downloaded release tarball is a different story -- see docs/INSTALL.md for what that means
+      # for an actual user, and why the full multi-child boot stays unverified.
+      - name: Smoke-test the built binary
+        run: |
+          set -euo pipefail
+          chmod +x "dist/node/${{ matrix.rid }}/bin/stingstream"
+          "dist/node/${{ matrix.rid }}/bin/stingstream" --version
+          "dist/node/${{ matrix.rid }}/bin/stingstream" \
+            --install-root "dist/node/${{ matrix.rid }}" \
+            --data-dir "$RUNNER_TEMP/stingstream-data" \
+            --print-runtime | tee "$RUNNER_TEMP/runtime.json"
+          grep -q '"node_id"' "$RUNNER_TEMP/runtime.json"
+
+      - name: Tarball
+        run: |
+          mkdir -p dist/installers
+          tar -czf "dist/installers/StingStream-${{ needs.version.outputs.version }}-${{ matrix.rid }}.tar.gz" \
+            -C "dist/node/${{ matrix.rid }}" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.rid }}
+          path: dist/installers/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  android-unsigned:
+    name: Android (unsigned, reused from app.yml)
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true # a release must not fail just because Android artifacts are stale/missing
+    steps:
+      - name: Find a successful app.yml run to reuse
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --repo "${{ github.repository }}" --workflow=app.yml \
+            --commit "${{ github.sha }}" --status success --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -z "$run_id" ]]; then
+            echo "No app.yml run for this exact commit; falling back to the most recent successful run on master."
+            run_id=$(gh run list --repo "${{ github.repository }}" --workflow=app.yml \
+              --branch master --status success --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if [[ -z "$run_id" ]]; then
+            echo "::warning::No successful app.yml run found at all -- this release will ship with no Android artifacts."
+          else
+            echo "Reusing app.yml run $run_id"
+          fi
+
+      - name: Download the unsigned APKs
+        if: steps.find.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/android
+          gh run download "${{ steps.find.outputs.run_id }}" --repo "${{ github.repository }}" \
+            -n stingstream-phone-release-unsigned -D dist/android || true
+          gh run download "${{ steps.find.outputs.run_id }}" --repo "${{ github.repository }}" \
+            -n stingstream-tv-release-unsigned -D dist/android || true
+          find dist/android -type f -name '*.apk' -exec sh -c '
+            for f; do
+              case "$f" in
+                */app-release-unsigned.apk|*/app-release.apk) : ;;
+                *) continue ;;
+              esac
+            done' _ {} + || true
+          # Normalize whatever gradle named the APK (app-release-unsigned.apk / app-release.apk)
+          # into the names tools/generate-version-json.sh looks for.
+          phone=$(find dist/android -path '*phone*' -name '*.apk' | head -1)
+          tv=$(find dist/android -path '*tv*' -name '*.apk' | head -1)
+          [[ -n "$phone" ]] && cp "$phone" "dist/android/stingstream-phone-${{ needs.version.outputs.version }}-unsigned.apk"
+          [[ -n "$tv" ]] && cp "$tv" "dist/android/stingstream-tv-${{ needs.version.outputs.version }}-unsigned.apk"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.find.outputs.run_id != ''
+        with:
+          name: android-unsigned
+          path: dist/android/stingstream-*-unsigned.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    name: Publish the release
+    needs: [version, windows-installer, linux-packages, macos, android-unsigned]
+    # Android is best-effort (continue-on-error above); Windows, Linux and macOS are not -- a
+    # release missing one of those is not the release this milestone promises.
+    if: |
+      always() &&
+      needs.windows-installer.result == 'success' &&
+      needs.linux-packages.result == 'success' &&
+      needs.macos.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/collected
+
+      - name: Flatten artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist/final
+          find dist/collected -type f \( \
+            -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.apk' \
+          \) -exec cp {} dist/final/ \;
+          ls -la dist/final
+
+      - name: Compute SHA256SUMS
+        working-directory: dist/final
+        run: sha256sum * > SHA256SUMS
+
+      - name: Generate version.json
+        run: |
+          chmod +x tools/generate-version-json.sh
+          tools/generate-version-json.sh \
+            --version "${{ needs.version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --artifacts-dir dist/final \
+            --out dist/final/version.json
+
+      # Only a real tag push creates a Release; a workflow_dispatch dry run stops here, having
+      # already proven every build+package+verify step above.
+      - name: Create the GitHub Release
+        if: needs.version.outputs.is_tag == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: StingStream v${{ needs.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/final/*
+          fail_on_unmatched_files: true
+
+      - uses: docker/setup-buildx-action@v3
+        if: needs.version.outputs.is_tag == 'true'
+      - uses: docker/login-action@v3
+        if: needs.version.outputs.is_tag == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Copies the manifest list images.yml already pushed for this exact commit (on its own push
+      # to master) under a new tag, rather than rebuilding -- `imagetools create` only moves a
+      # manifest, so this is seconds, not a second multi-platform build. Best-effort: it only
+      # exists if images.yml already ran successfully for this SHA, which is the normal case for a
+      # tag pushed against a commit already on master, but not guaranteed for one that is not.
+      - name: Retag the node image with the release version
+        if: needs.version.outputs.is_tag == 'true'
+        continue-on-error: true
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/danpatten/stingstream-node:v${{ needs.version.outputs.version }} \
+            ghcr.io/danpatten/stingstream-node:${{ github.sha }}

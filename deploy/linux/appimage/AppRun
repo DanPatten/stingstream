@@ -1,0 +1,12 @@
+#!/bin/sh
+# AppImage entry point. HERE resolves through the AppImage's own mount point regardless of where
+# the .AppImage file itself was launched from -- the standard AppImage pattern.
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# A desktop user's own data directory, not /var/lib/stingstream (that is the .deb's install, which
+# assumes a system user and a systemd unit -- neither exists for an AppImage run by an ordinary
+# user account). --install-root is passed explicitly for the same reason every other launcher in
+# this milestone passes it -- see deploy/node/LAYOUT.md.
+export STINGSTREAM_DATA="${STINGSTREAM_DATA:-$HOME/.local/share/stingstream}"
+
+exec "$HERE/bin/stingstream" --install-root "$HERE" "$@"

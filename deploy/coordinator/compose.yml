@@ -68,23 +68,34 @@ services:
       start_period: 10s
 
   # A full StingStream node joined to a group, so the coordinator host doubles as an always-on
-  # seedbox and cache. The node image is published by M8; until then this profile is a placeholder
-  # that documents the shape rather than something that will start.
+  # seedbox and cache. The image is deploy/node/Dockerfile, published by M8a's images.yml
+  # (ghcr.io/danpatten/stingstream-node), and this profile is the "join a group from an env var"
+  # path M8a's deliverables call for -- see docs/RUNNING.md if you would rather mint an invite and
+  # join over the API by hand instead.
   storage-node:
     profiles: ["storage-node"]
-    image: ghcr.io/danpatten/stingstream:latest
+    image: ghcr.io/danpatten/stingstream-node:latest
     restart: unless-stopped
     depends_on:
       - coordinator
     environment:
-      STINGSTREAM_DATA: /data
-      # Join a group by putting its invite code here. The node will publish itself to the
-      # coordinator's rendezvous and pin whatever the group asks it to.
+      # Join a group by putting its invite code here. On startup the node calls
+      # MeshNode::join with it once the mesh is up (see mesh/crates/stingstream/src/main.rs) --
+      # idempotent, so leaving this set across restarts just refreshes membership rather than
+      # erroring on an already-joined group.
       STINGSTREAM_JOIN_CODE: ${STORAGE_NODE_JOIN_CODE:-}
       STINGSTREAM_MESH_NODE_NAME: ${STORAGE_NODE_NAME:-seedbox}
+    ports:
+      - "8790:8790"
     volumes:
       - storage-node-data:/data
       - ${STORAGE_NODE_MEDIA:-./media}:/data/media
+    healthcheck:
+      test: ["CMD", "/app/bin/stingstream", "--healthcheck", "--data-dir", "/data"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
 volumes:
   coordinator-data:

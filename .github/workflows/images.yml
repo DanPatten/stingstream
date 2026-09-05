@@ -1,0 +1,157 @@
+# The StingStream node image (M8a): deploy/node/Dockerfile, linux/amd64 + linux/arm64.
+#
+# A separate workflow from coordinator.yml on purpose: that one owns stingstream-coordinator (the
+# stingstream-relay binary, `mesh/**` broadly) and is plausibly touched by the same milestone that
+# is changing the coordinator itself; this one only cares about deploy/node/** and the three server
+# subtrees' publishable projects. Keeping them apart means a node-image-only change does not queue
+# behind, or race, an unrelated coordinator change in the same concurrency group.
+#
+#   * `build` — fetches ffmpeg/nzbget for both Linux platforms, builds the web bundle, then a
+#     multi-platform `docker buildx build` (amd64 + arm64, via QEMU emulation on the arm64 side --
+#     this is the slow part of this job, and a native arm64 runner would be the obvious speedup if
+#     this job's duration ever becomes a problem). Pushes to GHCR on master only; a pull request
+#     still builds (without pushing), which is what catches a broken Dockerfile.
+#   * A same-job smoke test: a second, single-platform (host-arch) build run through `docker run`
+#     and `/healthz`, the same pattern coordinator.yml's own `image` job uses -- a multi-platform
+#     manifest list from buildx cannot be `docker run` directly on a runner of one architecture.
+name: images
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "deploy/node/**"
+      - "mesh/crates/stingstream/**"
+      - "mesh/crates/stingstream-mesh/**"
+      - "mesh/Cargo.toml"
+      - "mesh/Cargo.lock"
+      - "server/jellyfin/**"
+      - "server/radarr/**"
+      - "server/sonarr/**"
+      - "third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1"
+      - "third_party/nzbget/fetch-nzbget.ps1"
+      - ".github/workflows/images.yml"
+  pull_request:
+    paths:
+      - "deploy/node/**"
+      - ".github/workflows/images.yml"
+  workflow_dispatch:
+
+concurrency:
+  # Same reasoning as coordinator.yml and app.yml: on master every run gets its own group so a
+  # push minutes behind another is never silently cancelled before it starts; on a branch a new
+  # push supersedes the old run.
+  group: images-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.run_id || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  node-image:
+    name: node image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fetched for BOTH Linux platforms before the build: deploy/node/Dockerfile's `thirdparty`
+      # stage picks between them by TARGETARCH so one multi-platform `buildx build` gets the right
+      # binary on each side (see that Dockerfile's own comments). No linux-arm64 nzbget --
+      # nzbgetcom publishes no arm64 release asset; the image still builds and runs with NZBGet
+      # reported as disabled (deploy/node/LAYOUT.md).
+      - name: Fetch jellyfin-ffmpeg (linux64, linuxarm64)
+        run: |
+          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64
+          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linuxarm64
+
+      - name: Fetch nzbget (linux-x64)
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64
+
+      # The web bundle. Building it here (rather than shipping the image with only the placeholder
+      # page) costs a few extra minutes of CI time for a release-quality image; a checkout with
+      # no dist/ would otherwise fail the Dockerfile's COPY outright rather than degrading
+      # gracefully, so this step is not optional.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
+      - name: Install the API client's dependencies
+        working-directory: packages/api-client
+        run: bun install --frozen-lockfile
+      - name: Build the web bundle
+        working-directory: apps/stingstream
+        run: |
+          bun install --frozen-lockfile
+          bun run build:web
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/node/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/danpatten/stingstream-node:${{ github.sha }}
+            ghcr.io/danpatten/stingstream-node:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # Single-platform (host arch) rebuild for the smoke test -- see this workflow's header for
+      # why a multi-platform manifest list cannot be `docker run` directly. Reuses the buildx cache
+      # from the step above, so this is much faster than the first build.
+      - name: Build the smoke-test image (host arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/node/Dockerfile
+          load: true
+          tags: stingstream-node-smoke:latest
+          cache-from: type=gha
+
+      - name: Smoke-test the image
+        run: |
+          set -euo pipefail
+          docker run -d --name node-smoke -p 18790:8790 stingstream-node-smoke:latest
+
+          # Five processes come up here, three of them self-contained .NET apps doing first-run
+          # database setup -- a much heavier startup than coordinator.yml's single Rust binary, so
+          # this accepts the gateway answering AT ALL (200 while healthy, 503 while a child is
+          # still starting) as the pass condition within the window, rather than requiring every
+          # child fully healthy -- that is what --healthcheck's own longer-run behaviour and a real
+          # deploy's restart policy are for, not a CI smoke test's job.
+          ok=0
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /tmp/healthz.json -w '%{http_code}' http://127.0.0.1:18790/healthz || echo 000)
+            if [ "$code" = "200" ] || [ "$code" = "503" ]; then ok=1; break; fi
+            sleep 2
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::/healthz never answered"
+            docker logs node-smoke
+            docker rm -f node-smoke
+            exit 1
+          fi
+          cat /tmp/healthz.json
+          echo
+          # --healthcheck is the same check the image's own HEALTHCHECK runs; it only passes once
+          # /healthz is actually 200, so give it its own longer, separate window rather than
+          # failing the whole job over children that are still starting.
+          for i in $(seq 1 60); do
+            if docker exec node-smoke /app/bin/stingstream --healthcheck --data-dir /data; then break; fi
+            sleep 2
+          done
+          docker logs node-smoke
+          docker rm -f node-smoke
