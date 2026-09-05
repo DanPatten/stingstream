@@ -104,8 +104,16 @@ jobs:
       # merely empty. arm64 has no nzbget fetch step (no upstream release asset -- see
       # deploy/node/LAYOUT.md), so that directory was never created on this leg's checkout.
       - name: Ensure third_party/nzbget/bin exists even when nothing was fetched into it
+        # A bare `mkdir -p` was not enough on its own -- found still failing after adding it:
+        # Dockerfile.dockerignore's `!third_party/nzbget/bin/**` unignore pattern only matches
+        # *files* under that path, so a truly empty directory never makes it into the build
+        # context Docker actually sees, and COPY still reports "not found". The placeholder file
+        # gives that pattern something to match; the Dockerfile's own arch-specific logic never
+        # looks for a file named exactly this, so it changes nothing else.
         if: ${{ !matrix.fetch_nzbget }}
-        run: mkdir -p third_party/nzbget/bin
+        run: |
+          mkdir -p third_party/nzbget/bin
+          touch third_party/nzbget/bin/.keep
 
       # The web bundle. Building it here (rather than shipping the image with only the placeholder
       # page) costs a few extra minutes of CI time for a release-quality image; a checkout with
