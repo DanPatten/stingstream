@@ -1585,8 +1585,12 @@ export interface components {
             WentOffline?: number;
             /** Format: int32 */
             CameBack?: number;
+            /** @description True when the pass did nothing because the mesh could not be read. */
+            Skipped?: boolean;
             /** @description Folders that changed and therefore need refreshing. */
             readonly Folders?: string[];
+            /** @description The pointer files themselves, refreshed after their folders. */
+            readonly Pointers?: string[];
             readonly Errors?: string[];
         };
         /**
@@ -4767,18 +4771,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The server is currently starting or is temporarily not available. */
+            /** @description The mesh is not answering. */
             503: {
                 headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/html": unknown;
-                };
+                content?: never;
             };
         };
     };
@@ -4928,18 +4926,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The server is currently starting or is temporarily not available. */
+            /** @description Service Unavailable */
             503: {
                 headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/html": unknown;
-                };
+                content?: never;
             };
         };
     };
@@ -5082,18 +5074,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The server is currently starting or is temporarily not available. */
+            /** @description Service Unavailable */
             503: {
                 headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/html": unknown;
-                };
+                content?: never;
             };
         };
     };

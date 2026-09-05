@@ -591,28 +591,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
+            "description": "The mesh is not answering."
           }
         },
         "security": [
@@ -825,28 +804,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -1060,28 +1018,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -4760,12 +4697,24 @@
             "type": "integer",
             "format": "int32"
           },
+          "Skipped": {
+            "type": "boolean",
+            "description": "True when the pass did nothing because the mesh could not be read."
+          },
           "Folders": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Folders that changed and therefore need refreshing.",
+            "readOnly": true
+          },
+          "Pointers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The pointer files themselves, refreshed after their folders.",
             "readOnly": true
           },
           "Errors": {
