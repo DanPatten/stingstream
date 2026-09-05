@@ -52,6 +52,8 @@ public sealed class FirstRunService : BackgroundService
     private readonly IUserManager _users;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly IInventoryService _inventory;
+    private readonly System.Net.Http.IHttpClientFactory _httpFactory;
+    private readonly ArrClientFactory _arrs;
 
     public FirstRunService(
         ILogger<FirstRunService> logger,
@@ -63,7 +65,9 @@ public sealed class FirstRunService : BackgroundService
         ILibraryManager library,
         IUserManager users,
         IServerConfigurationManager serverConfig,
-        IInventoryService inventory)
+        IInventoryService inventory,
+        System.Net.Http.IHttpClientFactory httpFactory,
+        ArrClientFactory arrs)
     {
         _logger = logger;
         _runtime = runtime;
@@ -75,13 +79,21 @@ public sealed class FirstRunService : BackgroundService
         _users = users;
         _serverConfig = serverConfig;
         _inventory = inventory;
+        _httpFactory = httpFactory;
+        _arrs = arrs;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Let Jellyfin finish coming up. Creating libraries while its own start-up scan is still
-        // running produces a scan that misses them.
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+        // Wait for this server's own HTTP surface, not a fixed delay.
+        //
+        // Hosted services start before Kestrel accepts connections, and the first thing the wiring
+        // does is register a download client pointing at the qBittorrent shim *in this process*.
+        // Registering it while nothing is listening had Radarr reject the whole request with
+        // "Host: Unable to connect to qBittorrent" and take first-run wiring down with it. A flat
+        // five-second delay was enough on a developer's machine and not on a CI runner, which is
+        // exactly the kind of guess this replaces.
+        await WaitForSelfAsync(stoppingToken).ConfigureAwait(false);
 
         try
         {
@@ -98,6 +110,46 @@ public sealed class FirstRunService : BackgroundService
             // half-configured Radarr is still a node someone can log into and fix.
             _logger.LogError(ex, "First-run wiring failed. The node is running; re-run it from /stingstream/api/v1/setup/run");
         }
+    }
+
+    /// <summary>
+    /// Wait until this server answers its own health endpoint, or the timeout elapses.
+    /// </summary>
+    private async Task WaitForSelfAsync(CancellationToken cancellationToken)
+    {
+        var jellyfin = _arrs.Jellyfin;
+        if (jellyfin is null)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var url = jellyfin.BaseUrl + "/health";
+        using var http = _httpFactory.CreateClient(ArrClient.HttpClientName);
+        http.Timeout = TimeSpan.FromSeconds(5);
+
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var response = await http.GetAsync(url, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug("This server is answering at {Url}; starting wiring", url);
+                    return;
+                }
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
+            {
+                // Not listening yet.
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+        }
+
+        _logger.LogWarning("This server never answered {Url}; wiring anyway", url);
     }
 
     /// <summary>Run the wiring. Public so the API can re-run it on demand.</summary>

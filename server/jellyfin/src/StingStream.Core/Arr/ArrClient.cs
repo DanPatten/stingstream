@@ -160,8 +160,19 @@ public sealed class ArrClient
         }
     }
 
+    /// <summary>
+    /// Collapse a response body onto one line and cap it.
+    /// </summary>
+    /// <remarks>
+    /// NzbDrone pretty-prints its validation failures, and the supervisor's log is JSON lines --
+    /// one line per line of child output -- so a multi-line message loses everything after the
+    /// first newline exactly when the detail matters most.
+    /// </remarks>
     private static string Truncate(string s)
-        => s.Length <= 600 ? s : string.Concat(s.AsSpan(0, 600), "...");
+    {
+        var oneLine = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ").Trim();
+        return oneLine.Length <= 600 ? oneLine : string.Concat(oneLine.AsSpan(0, 600), "...");
+    }
 
     public Task<JsonNode?> GetAsync(string path, CancellationToken ct = default)
         => SendAsync(HttpMethod.Get, path, null, ct);
@@ -260,19 +271,23 @@ public sealed class ArrClient
         var name = desired["name"]?.GetValue<string>()
             ?? throw new ArgumentException("A provider resource must have a name.", nameof(desired));
 
+        // forceSave on both paths skips the app's own connectivity test. Without it, creating a
+        // download client whose target is not answering *at that instant* fails with
+        // "Host: Unable to connect to qBittorrent" and takes the whole first-run wiring with it --
+        // and the target here is the qBittorrent shim inside this very process, which on a slow
+        // machine has not necessarily begun accepting connections by the time the wiring runs.
+        // The configuration is correct either way; the arr connects when it next needs to, and
+        // reachability is reported separately.
         var existing = await FindByNameAsync(resource, name, ct).ConfigureAwait(false);
         if (existing is null)
         {
-            var created = await PostAsync(resource, desired, ct).ConfigureAwait(false);
+            var created = await PostAsync($"{resource}?forceSave=true", desired, ct).ConfigureAwait(false);
             return created as JsonObject ?? desired;
         }
 
         var id = existing["id"]?.GetValue<int>() ?? 0;
         var merged = desired.DeepClone().AsObject();
         merged["id"] = id;
-        // forceSave skips the app's own connectivity test on save. Without it, saving a download
-        // client whose target is still starting fails validation and the whole first run aborts;
-        // the sync reports reachability separately.
         var updated = await PutAsync($"{resource}/{id}?forceSave=true", merged, ct).ConfigureAwait(false);
         return updated as JsonObject ?? merged;
     }
