@@ -148,16 +148,17 @@ Verified 2026-09-04 unless marked otherwise.
   `third_party/nzbget/fetch-nzbget.ps1` (latest release checked during M0: v26.3, correctly
   preferring the non-debug release assets over nzbgetcom's much larger `-debug` builds). InfiniDysk
   / `nzbdav/nzbdav` (.NET 10, MIT, maintained) for optional stream-from-usenet mode via WebDAV.
-  **M0 build finding:** its `RapidYencSharp` project has an MSBuild pre-build step
+  **M0 build finding, resolved:** its `RapidYencSharp` project has an MSBuild pre-build step
   (`scripts/ensure-rapidyenc-native.sh`) that downloads a native `rapidyenc` binary from a GitHub
-  Releases asset (which 302-redirects to `release-assets.githubusercontent.com`). On this machine
-  the build fails there: the `curl` bundled with Git for Windows (7.49.1 / OpenSSL 1.0.2h, from
-  2016) cannot complete the TLS handshake with that CDN host (`curl -v` shows a `TLS alert, Client
-  hello` immediately after following the redirect, producing a 0-byte file that then fails to
+  Releases asset (which 302-redirects to `release-assets.githubusercontent.com`). This first failed
+  on this machine: the `curl` bundled with Git for Windows (7.49.1 / OpenSSL 1.0.2h, from 2016)
+  couldn't complete the TLS handshake with that CDN host (`curl -v` showed a `TLS alert, Client
+  hello` immediately after following the redirect, producing a 0-byte file that then failed to
   unzip) — confirmed as a `curl`-version issue, not network/disk, by fetching the identical URL
-  successfully with PowerShell's `Invoke-WebRequest` (57,240 bytes, valid zip). No `wget` is
-  installed as a fallback. Not fixed during M0 (would mean installing/upgrading `curl`, outside the
-  toolchains authorized for this pass); needs Dan's call in a future milestone.
+  successfully with PowerShell's `Invoke-WebRequest` (57,240 bytes, valid zip). Fixed by installing
+  a modern `curl` (`cURL.cURL` via winget, 8.21.0) and putting its directory ahead of Git's bundled
+  one on `PATH` for the build invocation only (no subtree patch). Build result: **succeeded**, 0
+  warnings, 0 errors, rapidyenc native fetched and installed correctly.
 
 **Licensing outcome**: everything is combinable. New StingStream code is GPL-3.0-or-later. The mesh
 binary is GPL-2.0-or-later. Radarr/Sonarr/NZBGet stay in their own processes under their own
@@ -441,13 +442,14 @@ with its dev-fixture media as LFS pointers). Toolchains installed: .NET SDK `8.0
 `10.0.400` via winget (alongside the pre-existing `9.0.310`, `2.1.100`, `1.0.4`); `yarn 1.22.22`
 via `corepack enable` (with `--install-directory` pointed at the user-writable npm prefix, since
 the default install directory under `Program Files\nodejs` needs admin rights this session
-didn't have). Build results: Jellyfin, Radarr, Sonarr (v5) all **succeed**; the two new
-`stingstream*`-crate and Jellyswarrm Cargo workspaces both **succeed** (and Jellyswarrm's own test
-suite passes, 235 tests, 2 correctly-ignored integration tests); InfiniDysk fails on a
-`curl`-version-specific TLS handshake issue fetching a native library (environment limitation, not
-a code problem — see "Facts" above); the Expo web export fails exactly as expected, with the
-precise missing-dependency error captured for the M2 spike. Full command-by-command results are in
-the M0 build report delivered alongside this milestone.
+didn't have); a modern `curl` (`cURL.cURL` 8.21.0) via winget, ahead of Git for Windows' bundled
+7.49.1 on `PATH`, to fix InfiniDysk's native-library fetch (see "Facts" above). Build results:
+**all four .NET components succeed** (Jellyfin, Radarr, Sonarr v5, InfiniDysk — 0 errors each); the
+two new `stingstream*`-crate and Jellyswarrm Cargo workspaces both **succeed** (and Jellyswarrm's
+own test suite passes, 235 tests, 2 correctly-ignored integration tests); `yarn install` for
+apps/stingstream **succeeds** cleanly with no extra flags; the Expo web export fails exactly as
+expected, with the precise missing-dependency error captured for the M2 spike. Full
+command-by-command results are in the M0 build report delivered alongside this milestone.
 
 ### M1 — One-node "one app" server (Opus 5)
 
@@ -664,9 +666,9 @@ join a group with one code; `/security-review` findings triaged.
   increase. Routers with DNS rebinding protection need a whitelist; the client detects and explains
   it. Relay operators see SNI hostnames but never plaintext or keys.
 - **InfiniDysk streaming mode on Windows** needs a WebDAV mount (WinFsp/rclone) — kept optional
-  and out of the critical path. Separately, its native-library fetch step fails on this build
-  machine's outdated bundled `curl` (see "Facts" above) — needs a toolchain decision before
-  InfiniDysk can build here.
+  and out of the critical path. Its native-library fetch step originally failed on this build
+  machine's outdated bundled `curl`; fixed by installing a modern `curl` via winget ahead of it on
+  `PATH` (see "Facts" above) — resolved, no longer a risk.
 - **Name** — `.com`/`.net` status and trademark clearance for StingStream are unverified; Dan to
   check before registering or publishing store listings.
 - **Legal posture** — content-agnostic, private groups only, no public directory by decision.
