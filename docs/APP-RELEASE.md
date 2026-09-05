@@ -559,6 +559,46 @@ playback) works end-to-end when the peer actually has the item; the two failures
 reproducible, and worth fixing but are edge cases (a profile-forced transcode, and one item's
 mesh-reported availability not matching reality) rather than the path being broken.
 
+### Both of those failures, re-tested on M7's code — fixed (2026-09-05)
+
+Same emulator, same shape of node: a watcher holding only pointers, with the 4K Big Buck Bunny on a
+throttled peer (`tools/e2e-m4.ps1 -KeepRunning` leaves exactly that standing).
+
+1. **The 4K download now takes the original.** `PlaybackInfo` still answers a `TranscodingUrl` for
+   the download profile — `/videos/…/stream.mp4?…TranscodeReasons=DirectPlayError`, so the
+   precondition is unchanged and the fix is not the server quietly deciding differently. What
+   changed is that `getDownloadUrl` no longer consults it: the app logged
+   `[DOWNLOAD] Download URL: http://127.0.0.1:42215/stream/<group>/movie%3Atmdb%3A10378/<node>` —
+   its own light node's loopback port — and `OkHttpDownloadManager` reported
+   `Download completed: taskId=1, bytes=29950135` about thirty seconds later, into
+   `/data/user/0/org.stingstream.app/files/big_buck_bunny_2008.mp4`. 29,950,135 bytes is the 4K
+   original to the byte. Under M5 this same tap died at the sixty-second timeout.
+   - The app's own code path was also run against that live node directly, with the real download
+     device profile, asserting all four cases: default and explicit `original` take the mesh URL
+     with `transcoded: false` and no extended timeout, and a Download quality of `low` still asks
+     the home node for a transcode and gets the fifteen-minute read timeout.
+2. **The 404 from a holder that no longer had the file** was a mesh bug, not an app one; it is
+   fixed at source and made survivable (M7 bug 1, `docs/ARCHITECTURE.md`), with a regression test in
+   `mesh/crates/stingstream-mesh/tests/two_nodes.rs` and a harness step that deletes a holder's file
+   behind its back and requires the read to continue from somebody else.
+
+Two things worth knowing that this pass turned up, neither of them M7's code:
+
+* **A phone debug build can silently inherit a TV build's module set.** `android/build/generated/
+  autolinking/autolinking.json` is cached against hashes of `package.json`, the lockfiles and
+  `react-native.config.js` — none of which mention `EXPO_TV`. So a build run with `EXPO_TV=1`
+  writes a cache with `react-native-track-player`, `react-native-pager-view` and
+  `react-native-volume-manager` linked out (that is what `react-native.config.js` does for TV), and
+  the next phone build reuses it and produces an APK that dies at startup with
+  `TurboModuleRegistry.getEnforcing(…): 'TrackPlayer' could not be found`. Deleting that directory
+  before `assembleDebug` fixes it; a real fix would put `EXPO_TV` in the cache key.
+* **The node's base URL is not the server URL the app wants.** Jellyfin lives at `/jellyfin` behind
+  the gateway, and the gateway answers *any* unknown path with its placeholder page at HTTP 200 —
+  so `checkJellyfinServer` gets HTML where it expected JSON and the user is told "Could not connect
+  to the server", which is both wrong and unhelpful. `http://host:port/jellyfin` connects
+  immediately. Worth either accepting the bare base URL (probe `/jellyfin/System/Info/Public` as a
+  fallback) or having the gateway 404 unknown paths.
+
 ### Chromecast (§7) — not device-verified (no hardware); unit-tested + manual checklist only, as planned
 
 ### DNS-rebinding detection (§8) — implemented, not separately re-verified this pass
