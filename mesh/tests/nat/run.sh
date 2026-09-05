@@ -305,9 +305,11 @@ stream_check() { # label
   echo "bytes verified"
 }
 
-# Hole punching through two MASQUERADE NATs is what iroh exists to do, but it is not guaranteed on
-# every CI network, and a relayed path is a correct outcome too. What must hold is that the transfer
-# succeeds and the path is one the mesh knows how to report.
+# Hole punching through two MASQUERADE NATs is what iroh exists to do, but it is not guaranteed
+# here and a relayed path is a correct outcome too. In particular this scenario's coordinator
+# terminates no TLS, so it runs no QUIC address-discovery listener (the probe validates a
+# certificate) and neither node learns its own mapped address — which is most of what makes a
+# punch land. What must hold is that the transfer succeeds and the path is one the mesh reports.
 stream_check "through both NATs"
 FIRST_PATH=$(peer_path)
 echo "iroh path: $FIRST_PATH"
@@ -318,7 +320,9 @@ case "$FIRST_PATH" in
 esac
 
 log "blocking all UDP on node-b and restarting its mesh"
-docker exec ss-node-b sh -c 'pkill -f stingstream-mesh || true'
+# `-x` on the process *name*, not `-f` on the command line: `-f stingstream-mesh` also matches the
+# `sh -c` that is doing the killing, so it kills itself and docker exec returns 143.
+docker exec ss-node-b pkill -x stingstream-mesh || true
 sleep 3
 # No UDP at all except DNS: no QUIC, no hole punching, nothing but TCP to the coordinator. This is
 # the hostile-network case — a corporate or hotel network that passes only TCP.
