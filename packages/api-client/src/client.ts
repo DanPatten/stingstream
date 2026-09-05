@@ -1,5 +1,5 @@
 import createClient, { type Client } from "openapi-fetch";
-import { getStingStreamApiBaseUrl } from "./node-url";
+import { getNodeBaseUrl } from "./node-url";
 import type { paths } from "./types.gen";
 
 export interface StingStreamClientOptions {
@@ -27,11 +27,22 @@ export type StingStreamClient = Client<paths>;
  * Builds a typed client for `/stingstream/api/v1/*`, generated from the
  * OpenAPI document StingStream.Core publishes at
  * `/stingstream/api/v1/openapi.json`. See README.md for regeneration.
+ *
+ * The `baseUrl` here is the node's origin only (e.g. `http://host:8790`),
+ * NOT `.../stingstream/api/v1` — `openapi-typescript` generates `paths` keys
+ * as the full absolute path from the document's own root (`/stingstream/api/v1/Settings`,
+ * etc; the OpenAPI document's own `servers` entry, `/jellyfin`, describes
+ * Core's *other* mount point inside Jellyfin's own routing and is not used
+ * here), and `openapi-fetch` concatenates `baseUrl + path` verbatim. Passing
+ * the API prefix as `baseUrl` here previously double-prefixed every request
+ * (`/stingstream/api/v1/stingstream/api/v1/Settings`, a 404) — caught by
+ * exercising the real app against a real node, not by the type checker,
+ * since the concatenation is a runtime string join with no type to catch it.
  */
 export function createStingStreamClient(
   opts: StingStreamClientOptions,
 ): StingStreamClient {
-  const baseUrl = getStingStreamApiBaseUrl(opts.jellyfinBasePath);
+  const baseUrl = getNodeBaseUrl(opts.jellyfinBasePath);
   const headers: Record<string, string> = { ...opts.extraHeaders };
   if (opts.accessToken) {
     headers.Authorization = `MediaBrowser Token="${opts.accessToken}"`;
