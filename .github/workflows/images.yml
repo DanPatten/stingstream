@@ -53,7 +53,12 @@ jobs:
       contents: read
       packages: write
     steps:
+      # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its imports
+      # must resolve for `bun run build:web` below to bundle at all (same reasoning as ci.yml's
+      # `node` job and app.yml's `checks`/`android-release-unsigned` jobs).
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       # Fetched for BOTH Linux platforms before the build: deploy/node/Dockerfile's `thirdparty`
       # stage picks between them by TARGETARCH so one multi-platform `buildx build` gets the right

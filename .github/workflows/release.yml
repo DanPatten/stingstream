@@ -85,7 +85,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
+      # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
+      # imports must resolve for bun run build:web below to bundle at all (same reasoning as
+      # ci.yml's node job and app.yml's checks/android-release-unsigned jobs).
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -146,7 +151,12 @@ jobs:
             deb_arch: arm64
             appimage_arch: aarch64
     steps:
+      # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
+      # imports must resolve for bun run build:web below to bundle at all (same reasoning as
+      # ci.yml's node job and app.yml's checks/android-release-unsigned jobs).
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -280,7 +290,12 @@ jobs:
           - os: macos-13
             rid: osx-x64
     steps:
+      # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
+      # imports must resolve for bun run build:web below to bundle at all (same reasoning as
+      # ci.yml's node job and app.yml's checks/android-release-unsigned jobs).
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
 
