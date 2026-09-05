@@ -276,15 +276,114 @@ Honest list. None blocks the decision; several will need attention during M2 pro
 
 ---
 
-## 8. Toolchain notes for whoever picks this up
+## 8. Android TV still builds and runs (Phase 2)
 
-- Install with **`bun install`** if you have it (`bun.lock` is the lockfile of record and CI checks
-  it with `--frozen-lockfile`). `yarn install` works and is what was used here; it writes a
-  `yarn.lock` which is now gitignored. `npm install` needs `--legacy-peer-deps` and still trips on
-  `react-native-track-player`'s git `prepare` script.
-- `bun` was installed for this run via `npm install -g bun` (v1.4.1) purely to regenerate
-  `bun.lock` after adding the three dependencies. `bun install --frozen-lockfile --dry-run
-  --ignore-scripts` passes.
+Done after the web decision, to prove the changes cost nothing on the target that matters most.
+
+**Result: the `:tv` variant builds, installs and runs.**
+
+```
+$ EXPO_TV=1 npx expo prebuild --platform android --clean     -> Finished prebuild
+$ cd android && ./gradlew assembleDebug --no-daemon          -> BUILD SUCCESSFUL in 30m 48s
+                                                                1286 tasks, 1254 executed
+```
+
+APK: `apps/stingstream/android/app/build/outputs/apk/debug/app-debug.apk` - **300 MB** (a debug
+build carrying three ABIs: arm64-v8a, x86_64, armeabi-v7a, plus the MPV/ExoPlayer native libs;
+`android/` is gitignored, as upstream intends). The generated manifest carries
+`android.software.leanback` and `LEANBACK_LAUNCHER`, so it is genuinely the TV variant.
+
+Emulator: AVD **`stingstream-tv`**, `system-images;android-36;android-tv;x86_64` on the `tv_1080p`
+device profile, WHPX-accelerated, booted headless. Note that `system-images;android-34;android-tv`
+only exists for `x86` / `arm64-v8a` - API 36 is the lowest Android TV image offering `x86_64`, so
+it was used instead of the API 34 the brief suggested. The APK ships an `x86_64` slice, so this is
+the right pairing.
+
+Verified by `adb`:
+
+1. `adb install` -> `Success` (16 s).
+2. The debug build embeds `expo-dev-client`, so launching lands on `DevLauncherActivity`. Started
+   Metro with `EXPO_TV=1 npx expo start --dev-client`, ran `adb reverse tcp:8081 tcp:8081`, and
+   deep-linked the launcher with
+   `streamyfin://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081`. `MainActivity` came
+   up and Metro bundled for android-tv.
+3. **The app renders its TV login screen** - "Streamyfin / Add a server to get started /
+   **+ Add server**" - with the focus ring drawn around the Add server button.
+4. **D-pad works.** `adb shell input keyevent` for `DPAD_DOWN` (20), `DPAD_CENTER` (23),
+   `DPAD_UP` (19) and `BACK` (4) all move focus / activate / dismiss as expected: the dev menu
+   opened and closed, `DPAD_CENTER` on "Add server" opened the server modal (its backdrop dimmed
+   the screen), and `BACK` returned to the login screen with focus intact.
+5. `adb logcat` shows no fatal JS errors - only the pre-existing require-cycle warning
+   (`JellyfinProvider -> useJellyseerr -> atoms/settings -> JellyfinProvider`) and
+   "`Sentry.wrap` was called before `Sentry.init`" (expected: crash reporting is off).
+
+Screenshots in the run scratchpad: `tv-04-app.png` (login screen behind the dev menu),
+`tv-06-login.png` (login screen with the D-pad focus ring), `tv-09-dpad-up.png` (after BACK from
+the modal).
+
+Minor, emulator-only: the server-entry modal's *content* did not paint in a screenshot even though
+its backdrop and its BACK handling worked - almost certainly the `swiftshader_indirect` software
+GPU plus a Reanimated transition, not a code fault.
+
+### A real bug found on the way: duplicate `react-native-screens`
+
+The first TV run crashed at startup with **`Tried to register two views with the same name
+RNSScreen`**. Cause: `node_modules/expo-router/node_modules/react-native-screens@4.27.0` existing
+alongside the top-level `react-native-screens@4.26.2`, so both registered the same native view.
+
+The nested copy is **not in `bun.lock`** (before or after my edit to it) - it was a stale artifact
+left by the earlier `yarn install`, and `bun install --frozen-lockfile` did not prune it.
+`rm -rf node_modules && bun install --frozen-lockfile` produced a single 4.26.2 and the crash went
+away.
+
+Two things follow, and both matter beyond this spike:
+
+1. **Install this app with `bun`, not `yarn` or `npm`.** `package.json` pins
+   `react-native-screens` deliberately (it is listed in `expo.install.exclude`) and yarn's hoisting
+   defeats that pin. The failure mode is a *runtime* crash on device that no bundler check catches
+   - `expo export --platform android` succeeded happily with the broken tree.
+2. **Do not trust a partial reinstall after switching package managers.** `bun install
+   --frozen-lockfile` over a yarn-built `node_modules` left the bad copy in place; only deleting
+   `node_modules` fixed it.
+
+The web export was re-verified on the clean bun tree afterwards (3541 modules, boots to `/login`
+with zero console errors), so both targets are green from the same install.
+
+---
+
+## 9. Toolchain notes for whoever picks this up
+
+- Install with **`bun install`** - `bun.lock` is the lockfile of record, CI checks it with
+  `--frozen-lockfile`, and (per section 8) yarn's hoisting introduces a duplicate
+  `react-native-screens` that crashes native builds at runtime. `bun` was installed for this run
+  via `npm install -g bun` (v1.4.1). `npm install` needs `--legacy-peer-deps` and still trips on
+  `react-native-track-player`'s git `prepare` script. A `yarn.lock`, if one appears, is a local
+  by-product and is now gitignored.
+- **JDK 17**: `winget install Microsoft.OpenJDK.17` **ignores `--location`** and installs to
+  `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot`. It was copied to
+  **`E:\Java\jdk-17.0.20.101-hotspot`** (a JDK is relocatable) and `JAVA_HOME` points there.
+  `winget uninstall Microsoft.OpenJDK.17` then failed with exit code 1603 (needs elevation), so the
+  303 MB copy on the nearly-full C: drive is still there - **Dan may want to run that uninstall
+  from an elevated prompt to reclaim it.**
+- **Android SDK** at **`E:\Android\sdk`** (command-line tools
+  `commandlinetools-win-13114758_latest.zip` unpacked into `cmdline-tools/latest`; note that
+  build `13716544` 404s, so 13114758 is the current one). Installed: `platform-tools`,
+  `platforms;android-35`, `platforms;android-36`, `build-tools;35.0.0`, `build-tools;36.0.0`,
+  `emulator`, `system-images;android-36;android-tv;x86_64`. AGP auto-fetched NDK `29.0.14206865`.
+- **AVDs** at **`E:\Android\avd`** via `ANDROID_AVD_HOME` - `avdmanager` otherwise puts them under
+  `C:\Users\Dan\.android\avd`, and the userdata image grows to gigabytes on a drive with under
+  5 GB free.
+- **User environment variables set** (`[Environment]::SetEnvironmentVariable(..., "User")`):
+  `JAVA_HOME=E:\Java\jdk-17.0.20.101-hotspot`, `ANDROID_HOME=E:\Android\sdk`,
+  `ANDROID_SDK_ROOT=E:\Android\sdk`, `ANDROID_AVD_HOME=E:\Android\avd`,
+  `GRADLE_USER_HOME=E:\Dan\Documents\Repos\.gradle`,
+  `YARN_CACHE_FOLDER=E:\Dan\Documents\Repos\.yarn-cache`.
+- **`android/local.properties` must use forward slashes**: `sdk.dir=E:/Android/sdk`. Java
+  `.properties` files treat a backslash as an escape, so `sdk.dir=E:\Android\sdk` silently becomes
+  `E:Androidsdk` and the build dies with the wonderfully unhelpful *"The filename, directory name,
+  or volume label syntax is incorrect"* out of `SdkLocator.validateSdkPath`.
+- The SDK licence prompt needs real stdin. `yes | sdkmanager.bat --licenses` from a bash shell
+  works; piping a string in from PowerShell does not.
 - Debugging class-3 (import-time) failures: minified stacks are useless. Export with
   `--no-minify --output-dir dist-dbg`, serve it, read the line number out of the console error and
   `awk` that line range out of the bundle — the offending `requireNativeView("…")` call is right
