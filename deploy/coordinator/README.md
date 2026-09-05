@@ -40,11 +40,19 @@ Lite is the one-click option. Full is the one that needs no third party at all.
 The image is published on every push to `master`:
 `ghcr.io/danpatten/stingstream-coordinator:latest`.
 
+> Dan's own instance already runs this way, at
+> `https://stingstream-coordinator-production.up.railway.app` — Railway project `stingstream`,
+> service `stingstream-coordinator`. It is baked into the app as the shared fallback coordinator,
+> so a group that picks "Default" gets it without doing anything.
+
 1. **New Project → Deploy from Docker image**, and paste that image.
 2. **Settings → Networking → Generate Domain.** Railway assigns `*.up.railway.app` and terminates
    TLS in front of the container, which is why the default `STINGSTREAM_COORDINATOR_TLS=none` is
    correct here.
-3. Set variables (all optional; the defaults give a working relay + rendezvous):
+3. Set variables (all optional; the defaults give a working relay + rendezvous). The image binds
+   `[::]:$PORT`, which matters: Railway reaches a container over an IPv6-only private network, and
+   a listener on `0.0.0.0` is invisible to its edge proxy with a healthy container, clean logs and
+   every request timing out.
 
    | Variable | Value |
    |---|---|

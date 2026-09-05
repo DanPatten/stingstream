@@ -478,7 +478,7 @@ plan.
 | `cargo test -p stingstream-mesh -p stingstream-relay` | 141 unit tests plus the integration suites |
 | `mesh/crates/stingstream-mesh/tests/two_nodes.rs` | two nodes, one process, **every discovery service off**: create, invite, join, gossip, and a 1 MiB mid-file range out of a 50 MB file with every byte checked against its offset and the iroh path asserted `direct`. Also the range grammar's edges, and a node with the right group id but the wrong secret being refused. |
 | `mesh/crates/stingstream-relay/tests/rendezvous_join.rs` | three real nodes against a live coordinator: **B joins after the inviter has shut down**, via the rendezvous. Plus a check that the raw stored entry carries neither the group id nor the member's name. |
-| `mesh/tests/nat/run.sh` | two nodes behind two separate NATted Docker networks with a Full-mode coordinator between them: join, converge, stream. Then again with **all UDP blocked** on one node, asserting the path is `relay`. Linux + Docker; runs in CI. |
+| `mesh/tests/nat/run.sh` | two nodes on separate `--internal` Docker networks, each behind its own MASQUERADE router, with a Full-mode coordinator on the WAN between them. Asserts there is no route between the LANs, then that the group converges and a 1 MiB range arrives byte-for-byte. Repeats with **all UDP dropped** on one node and asserts the path is `relay`. Linux + Docker; runs in CI. |
 
 CI is `.github/workflows/coordinator.yml`: tests and clippy on Linux and Windows, the NAT scenario,
 and the coordinator image built on every change and pushed to
@@ -487,6 +487,16 @@ and the coordinator image built on every change and pushed to
 The integration tests deliberately run with n0's relays, n0 DNS and the mainline DHT all disabled.
 They therefore need no network beyond loopback and cannot be made flaky by someone else's
 infrastructure — and if they pass, the relay map is an optimisation rather than a dependency.
+
+**What the NAT run actually reports.** On GitHub-hosted runners the *first* transfer comes back over
+the relay rather than direct, and the script says so rather than failing. The reason is in the
+scenario's own configuration: its coordinator terminates no TLS, so it runs no QUIC
+address-discovery listener (the probe validates a certificate), so neither node learns the address
+its NAT mapped it to — which is most of what makes a punch land. Both halves of what the milestone
+asks for are still exercised: two nodes with no route to each other join a group, converge an index
+and stream a verified range across two NATs, and then do it again with every UDP packet dropped on
+one of them. A Full-mode coordinator with a real certificate on a real VPS is the configuration
+where the direct path is expected, and that is a manual check rather than a CI one.
 
 ---
 
@@ -514,7 +524,9 @@ infrastructure — and if they pass, the relay map is an optimisation rather tha
   `STINGSTREAM_DNS_TOKEN`, and a domain whose DNS lives at Cloudflare. Until then the provider stays
   `none` and the side door is Full-mode-only.
 * **The node half of the side door** — ACME client, `portmapper`, rustls on the gateway, the
-  `stingstream/tcp/1` handler, connection racing in the web bundle — is M3b.
+  `stingstream/tcp/1` handler, connection racing in the web bundle — is M3b. The coordinator half
+  (SNI router, tunnel, signed TXT endpoint, probe) is here and unit-tested, but nothing has spoken
+  to it end to end yet, because there is no node listening on `stingstream/tcp/1`.
 * **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
   ride iroh's own encryption between two authenticated members. That is the right boundary, but it
   means a member is trusted with everything the group holds. Per-member revocation is M8.
