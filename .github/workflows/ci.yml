@@ -102,27 +102,44 @@ jobs:
     name: node (apps/stingstream)
     runs-on: ubuntu-latest
     steps:
+      # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule (mapped in the
+      # root .gitmodules, since `git subtree add` never initialized it: see docs/M2-web-spike.md
+      # section 1) and its ~30 imports must resolve for the app to bundle at all. The two
+      # `update = none` entries (mesh/jellyswarrm/ui, server/infinidysk/libs/rapidyenc) are skipped
+      # cleanly here the same way they are for any other checkout in this repo -- verify that from
+      # the run's checkout step log if this ever needs re-checking.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
+      # `expo export` is invoked via npx below (the command verified in docs/M2-web-spike.md),
+      # which needs a real Node/npm on PATH regardless of bun.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+
+      # Upstream Streamyfin uses bun (bun.lock committed), and it is the only package manager this
+      # app supports: yarn's hoisting introduces a duplicate react-native-screens that crashes the
+      # Android/TV app at startup (docs/M2-web-spike.md section 8; enforced for local installs too
+      # via package.json's preinstall guard, see docs/APP-DEV.md).
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.1
 
       - name: Install dependencies
         working-directory: apps/stingstream
-        # Upstream Streamyfin uses bun (bun.lock committed). CI uses npm with
-        # --legacy-peer-deps: a plain `npm install` fails resolving the aliased
-        # react-native-tvos package against react-native-reanimated's peer range (M0 finding;
-        # bun's resolver accepts it). Revisit once bun is available in this runner image, or once
-        # M2 sorts out the app's real toolchain.
-        run: npm install --no-audit --no-fund --legacy-peer-deps
+        run: bun install --frozen-lockfile
 
       - name: Expo web export
         working-directory: apps/stingstream
-        # Expected to fail today -- Streamyfin is a native-heavy Expo/React Native app with no web
-        # target upstream. This job is intentionally continue-on-error so CI stays green; the
-        # M2 web-target spike (docs/ARCHITECTURE.md M2) is what actually fixes this, and its
-        # gating decision depends on exactly how/why this step fails. Do not remove
-        # continue-on-error before that spike lands.
+        # The M2 web-target spike (docs/M2-web-spike.md) made this succeed for real: expo export
+        # produces a working static bundle that boots, logs into Jellyfin, browses the library and
+        # plays video. continue-on-error is gone on purpose -- a regression here should fail CI.
         run: npx expo export --platform web
-        continue-on-error: true
+
+      - name: Upload web export
+        uses: actions/upload-artifact@v4
+        with:
+          name: stingstream-web-dist
+          path: apps/stingstream/dist/
+          if-no-files-found: error
