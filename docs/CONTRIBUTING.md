@@ -46,6 +46,13 @@ repository until you finish.
 If a change has to be in flight for a while, keep the *registration* uncommitted until the thing it
 registers compiles, and say so when someone's build goes red.
 
+The nastier version of this is a **partial commit**: `pub mod score;` committed without
+`score.rs`, or a struct field set in one file and declared in another that stayed unstaged. It
+builds perfectly on the machine that made it — the missing pieces are sitting right there in the
+working tree — and is broken for everyone else and for CI. Before pushing, check that `git status`
+shows no untracked `.rs` under a crate you just touched, and no unstaged edit to a file the
+committed one now depends on.
+
 ## 3. Run nodes from a private copy of the build outputs
 
 A running node holds `mesh/target/debug/` and `server/*/bin/` open, so nobody can rebuild while it
