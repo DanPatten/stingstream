@@ -42,10 +42,12 @@ mkdir -p "$APPDIR"
 
 echo "== Assembling $APPDIR =="
 cp -r "$NODE_DIR/bin" "$APPDIR/bin"
-[[ -d "$NODE_DIR/web" ]] && cp -r "$NODE_DIR/web" "$APPDIR/web"
+# if/fi, not `[[ ]] &&` -- a bare `cond && cmd` statement is not safe under `set -e` for the
+# common case where cond is false (found breaking release.yml's android job for real).
+if [[ -d "$NODE_DIR/web" ]]; then cp -r "$NODE_DIR/web" "$APPDIR/web"; fi
 cp "$NODE_DIR/LICENSE" "$APPDIR/"
 cp "$NODE_DIR/NOTICE.md" "$APPDIR/"
-[[ -f "$NODE_DIR/VERSION" ]] && cp "$NODE_DIR/VERSION" "$APPDIR/"
+if [[ -f "$NODE_DIR/VERSION" ]]; then cp "$NODE_DIR/VERSION" "$APPDIR/"; fi
 
 cp "$REPO_ROOT/deploy/linux/appimage/AppRun" "$APPDIR/AppRun"
 chmod +x "$APPDIR/AppRun"

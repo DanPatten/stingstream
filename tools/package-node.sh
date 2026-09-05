@@ -81,7 +81,10 @@ MESH_BIN="$RUST_TARGET_DIR/stingstream-mesh$EXE"
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
     echo "-- cargo build --release ($RUST_TRIPLE$([[ $RUST_NATIVE -eq 1 ]] && echo ' (native)'))"
     CARGO_ARGS=(build --release --manifest-path "$REPO_ROOT/mesh/Cargo.toml" -p stingstream -p stingstream-mesh)
-    [[ "$RUST_NATIVE" -eq 0 ]] && CARGO_ARGS+=(--target "$RUST_TRIPLE")
+    # if/fi, not `[[ ]] &&` -- a bare `cond && cmd` statement is not safe under `set -e` for the
+    # common case where cond is false (found breaking release.yml's android job for real: see its
+    # own commit message).
+    if [[ "$RUST_NATIVE" -eq 0 ]]; then CARGO_ARGS+=(--target "$RUST_TRIPLE"); fi
     cargo "${CARGO_ARGS[@]}"
 fi
 [[ -f "$SUPERVISOR_BIN" ]] || { echo "Expected the supervisor at $SUPERVISOR_BIN -- build it first, or drop --skip-build." >&2; exit 1; }
@@ -191,7 +194,7 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"/bin/{jellyfin,radarr,sonarr,mesh,ffmpeg,nzbget}
 
 cp "$SUPERVISOR_BIN" "$OUT_DIR/bin/stingstream$EXE"
-[[ -f "$MESH_BIN" ]] && cp "$MESH_BIN" "$OUT_DIR/bin/mesh/stingstream-mesh$EXE"
+if [[ -f "$MESH_BIN" ]]; then cp "$MESH_BIN" "$OUT_DIR/bin/mesh/stingstream-mesh$EXE"; fi
 
 cp -r "$JELLYFIN_OUT"/. "$OUT_DIR/bin/jellyfin/"
 cp -r "$RADARR_OUT"/. "$OUT_DIR/bin/radarr/"

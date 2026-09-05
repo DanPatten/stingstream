@@ -428,8 +428,14 @@ jobs:
           # into the names tools/generate-version-json.sh looks for.
           phone=$(find dist/android -path '*phone*' -name '*.apk' | head -1)
           tv=$(find dist/android -path '*tv*' -name '*.apk' | head -1)
-          [[ -n "$phone" ]] && cp "$phone" "dist/android/stingstream-phone-${{ needs.version.outputs.version }}-unsigned.apk"
-          [[ -n "$tv" ]] && cp "$tv" "dist/android/stingstream-tv-${{ needs.version.outputs.version }}-unsigned.apk"
+          # if/fi, not `[[ ... ]] &&` -- under `set -e`, a bare `cond && cmd` statement whose
+          # condition is false exits the whole script with the condition's own failure status.
+          # Found failing for real: no app.yml artifact matched (a stale/expired run), so both
+          # conditions were false, and the step died here instead of finishing gracefully into the
+          # empty-output case this job's `continue-on-error` and upload-artifact `if-no-files-found:
+          # warn` are designed to tolerate.
+          if [[ -n "$phone" ]]; then cp "$phone" "dist/android/stingstream-phone-${{ needs.version.outputs.version }}-unsigned.apk"; fi
+          if [[ -n "$tv" ]]; then cp "$tv" "dist/android/stingstream-tv-${{ needs.version.outputs.version }}-unsigned.apk"; fi
 
       - uses: actions/upload-artifact@v4
         if: steps.find.outputs.run_id != ''
