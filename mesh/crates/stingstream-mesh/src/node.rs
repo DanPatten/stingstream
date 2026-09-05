@@ -35,6 +35,7 @@ use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayConfig, RelayUrl, SecretKey};
 use iroh_gossip::net::{Gossip, GOSSIP_ALPN};
+use serde::Serialize;
 use tokio::sync::{Mutex, Semaphore};
 
 use crate::config::MeshConfig;
@@ -74,6 +75,8 @@ pub struct MeshNode {
     /// Handed to every group's gossip loop so a coordinator change it adopted reaches the task
     /// below, which owns the relay map and the rendezvous. See [`MeshNode::set_coordinator`].
     config_changes: crate::gossip::ConfigChangeSender,
+    /// What the mainline-DHT address lookup is doing. See [`DhtState`].
+    dht: Arc<std::sync::RwLock<DhtState>>,
     /// Relay URLs this node put in the map *because a coordinator asked for them*.
     ///
     /// Tracked separately from the endpoint's own map because that map also holds n0's public
@@ -121,12 +124,13 @@ impl MeshNode {
             // goes back in afterwards.
             builder = builder.clear_address_lookup().address_lookup(addr_book.clone());
         }
-        if cfg.discovery.mainline_dht {
-            builder = builder.address_lookup(
-                iroh_mainline_address_lookup::DhtAddressLookup::builder()
-                    .secret_key(secret_key.clone()),
-            );
-        }
+        // The mainline DHT is deliberately **not** registered on the builder. Doing so defers its
+        // construction to `bind()`, and a DHT that cannot build -- no network at that instant, a
+        // captive portal, a hotel that blocks UDP, DNS that will not resolve the bootstrap
+        // hostnames -- then fails the bind and takes the whole node down with it. That is what
+        // "Could not bootstrap the routing table" did to a node on 8790: a transient in an
+        // *optional* discovery service killed a server that had two working ones. It is attached
+        // after the bind instead, and retried, by `spawn_dht_lookup` below.
         let endpoint = builder
             .bind()
             .await
@@ -165,6 +169,19 @@ impl MeshNode {
 
         let (config_tx, mut config_rx) = tokio::sync::mpsc::unbounded_channel::<GroupId>();
 
+        // Attach the mainline DHT, retrying in the background if it is not available yet.
+        let dht_state = Arc::new(std::sync::RwLock::new(DhtState::Off));
+        if cfg.discovery.mainline_dht {
+            let bootstrap = cfg.discovery.dht_bootstrap.clone();
+            let key = secret_key.clone();
+            spawn_dht_lookup(
+                endpoint.clone(),
+                dht_state.clone(),
+                DhtRetry::default(),
+                move || build_dht_lookup(&key, bootstrap.as_deref()),
+            );
+        }
+
         let node = Arc::new(Self {
             cfg,
             secret_key,
@@ -179,6 +196,7 @@ impl MeshNode {
             streams,
             config_changes: config_tx,
             coordinator_relays: Mutex::new(seeded_coordinator_relays),
+            dht: dht_state,
         });
 
         // React to a coordinator change that arrived over gossip: the database has already applied
@@ -244,6 +262,11 @@ impl MeshNode {
             "mesh node started"
         );
         Ok(node)
+    }
+
+    /// What the mainline-DHT address lookup is doing, for `/mesh/v1/status`.
+    pub fn dht_state(&self) -> DhtState {
+        self.dht.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// How many more file streams this node will serve to peers before it starts answering 503.
@@ -1714,11 +1737,167 @@ pub struct JoinOutcome {
     pub contacted: Vec<String>,
 }
 
+// --- mainline DHT, which is allowed to be unavailable -----------------------------------------
+
+/// What the mainline-DHT address lookup is doing.
+///
+/// The DHT is the *third* way a node finds a peer, behind the addresses an invite code carries and
+/// n0's DNS discovery, and behind relays for actually connecting. It is worth having — it is the
+/// only one of the three that needs nothing hosted by anybody — and it is worth nothing at all if
+/// its absence stops the node.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum DhtState {
+    /// `[discovery] mainline_dht = false`. Not a failure.
+    Off,
+    /// Attached to the endpoint and publishing.
+    Up,
+    /// The last attempt failed and another is scheduled.
+    Retrying { attempts: u32, last_error: String },
+    /// Every attempt failed. The node runs on DNS discovery and relays.
+    Unavailable { attempts: u32, last_error: String },
+}
+
+/// How hard to try before leaving the DHT alone.
+///
+/// Six attempts on a doubling five-second backoff is about ten minutes, which covers the failures
+/// that actually resolve themselves — a laptop whose lid opened before the Wi-Fi associated, a
+/// machine that booted before its network did, a captive portal somebody is about to click
+/// through. Past that the network is not coming back on its own, and a node retrying forever is a
+/// node writing a warning into somebody's log every five minutes for the life of the process.
+#[derive(Clone, Copy, Debug)]
+pub struct DhtRetry {
+    pub max_attempts: u32,
+    pub initial_delay: std::time::Duration,
+    pub max_delay: std::time::Duration,
+}
+
+impl Default for DhtRetry {
+    fn default() -> Self {
+        Self {
+            max_attempts: 6,
+            initial_delay: std::time::Duration::from_secs(5),
+            max_delay: std::time::Duration::from_secs(300),
+        }
+    }
+}
+
+/// Build the mainline-DHT address lookup, optionally against a different bootstrap set.
+///
+/// Fallible on purpose and at this level on purpose: `Dht::new` binds a UDP socket synchronously,
+/// so "no usable network interface" and "the OS refused the socket" surface here rather than
+/// somewhere unrecoverable later.
+fn build_dht_lookup(
+    secret_key: &SecretKey,
+    bootstrap: Option<&[String]>,
+) -> Result<iroh_mainline_address_lookup::DhtAddressLookup> {
+    let mut builder = iroh_mainline_address_lookup::DhtAddressLookup::builder();
+    builder = builder.secret_key(secret_key.clone());
+    if let Some(nodes) = bootstrap {
+        let mut dht = n0_mainline::Dht::builder();
+        dht.bootstrap(nodes);
+        builder = builder.dht_builder(dht);
+    }
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("building the mainline DHT address lookup: {e}"))
+}
+
+/// Attach the mainline-DHT address lookup to an already-bound endpoint, retrying if it is not
+/// available yet.
+///
+/// Attaching *after* the bind rather than through the endpoint builder is the whole point. The
+/// builder defers construction to `bind()` and propagates its error, so a DHT that cannot start —
+/// which happens for entirely ordinary transient reasons — fails the bind and the node never comes
+/// up at all. That is what took a node down on 2026-09-05: an optional third discovery service
+/// killed a server whose other two were working. Here the worst case is a warning and two
+/// discovery services instead of three.
+///
+/// `AddressLookupServices::add` republishes whatever address data the endpoint already has, so a
+/// lookup that attaches on the fourth attempt is not missing the first three minutes of
+/// announcements — it publishes them the moment it arrives.
+///
+/// The builder is a closure so a test can supply one that fails; there is no other way to make a
+/// UDP socket refuse to bind on demand.
+fn spawn_dht_lookup<F>(
+    endpoint: Endpoint,
+    state: Arc<std::sync::RwLock<DhtState>>,
+    retry: DhtRetry,
+    build: F,
+) where
+    F: Fn() -> Result<iroh_mainline_address_lookup::DhtAddressLookup> + Send + 'static,
+{
+    let set = move |s: DhtState| *state.write().unwrap_or_else(|e| e.into_inner()) = s;
+    tokio::spawn(async move {
+        let mut delay = retry.initial_delay;
+        for attempt in 1..=retry.max_attempts {
+            match build() {
+                Ok(lookup) => {
+                    match endpoint.address_lookup() {
+                        Ok(services) => {
+                            services.add(lookup);
+                            if attempt == 1 {
+                                tracing::debug!("mainline DHT address lookup attached");
+                            } else {
+                                tracing::info!(
+                                    attempt,
+                                    "mainline DHT address lookup attached after retrying"
+                                );
+                            }
+                            set(DhtState::Up);
+                        }
+                        // The endpoint closed while we were building. Nothing to attach to, and
+                        // nothing worth saying about it.
+                        Err(_) => set(DhtState::Unavailable {
+                            attempts: attempt,
+                            last_error: "the endpoint closed".to_string(),
+                        }),
+                    }
+                    return;
+                }
+                Err(e) => {
+                    let last_error = format!("{e:#}");
+                    let last = attempt == retry.max_attempts;
+                    // WARN, not ERROR, and never fatal: the node is up and reachable through n0's
+                    // DNS discovery and its relays. The message says both halves, because a bare
+                    // "the DHT failed" reads like the node did.
+                    tracing::warn!(
+                        attempt,
+                        max = retry.max_attempts,
+                        error = %last_error,
+                        retry_in_secs = if last { 0 } else { delay.as_secs() },
+                        "mainline DHT discovery is unavailable; the node is running on DNS \
+                         discovery and its relays"
+                    );
+                    set(if last {
+                        DhtState::Unavailable {
+                            attempts: attempt,
+                            last_error,
+                        }
+                    } else {
+                        DhtState::Retrying {
+                            attempts: attempt,
+                            last_error,
+                        }
+                    });
+                    if last {
+                        return;
+                    }
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(retry.max_delay);
+                }
+            }
+        }
+    });
+}
+
 /// The relay map an endpoint should bind with: n0's relays if they are wanted, plus the shared
 /// fallback coordinator and every known group's coordinator.
 ///
 /// This runs before `bind` because iroh decides at bind time whether the endpoint has a relay
-/// transport at all, and one that was never created cannot be given entries afterwards.
+/// transport at all, and one that was never created cannot be given entries afterwards. The
+/// mainline DHT is the opposite case and is attached *after* the bind, by [`spawn_dht_lookup`],
+/// precisely so its failure cannot take the endpoint with it.
 async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> (iroh::RelayMap, Vec<RelayUrl>) {
     let map = iroh::RelayMap::empty();
     if cfg.discovery.n0_relays {
@@ -1845,5 +2024,111 @@ mod tests {
             status_for(&anyhow::anyhow!("connection refused")),
             StatusCode::BAD_GATEWAY
         );
+    }
+
+    // --- the DHT is allowed to be unavailable -------------------------------------------------
+
+    /// A bound endpoint with no discovery of any kind, for the retry tests below.
+    async fn bare_endpoint() -> Endpoint {
+        Endpoint::builder(iroh::endpoint::presets::N0)
+            .clear_address_lookup()
+            .relay_mode(iroh::RelayMode::Disabled)
+            .bind()
+            .await
+            .expect("binding a bare endpoint")
+    }
+
+    fn fast_retry(max_attempts: u32) -> DhtRetry {
+        DhtRetry {
+            max_attempts,
+            initial_delay: std::time::Duration::from_millis(1),
+            max_delay: std::time::Duration::from_millis(2),
+        }
+    }
+
+    async fn settled(state: &Arc<std::sync::RwLock<DhtState>>) -> DhtState {
+        for _ in 0..200 {
+            let now = state.read().unwrap().clone();
+            if matches!(now, DhtState::Up | DhtState::Unavailable { .. }) {
+                return now;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the DHT retry loop never settled");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dht_that_never_builds_leaves_the_node_running() {
+        // The regression this exists for: registering the DHT on the endpoint *builder* makes a
+        // failure to construct it fail `bind()`, which takes the whole node down. Here the
+        // endpoint is already bound before the DHT is even attempted, so "the DHT never worked"
+        // and "the node is up" are both true at once.
+        let endpoint = bare_endpoint().await;
+        let state = Arc::new(std::sync::RwLock::new(DhtState::Off));
+
+        spawn_dht_lookup(endpoint.clone(), state.clone(), fast_retry(3), || {
+            anyhow::bail!("no network")
+        });
+
+        match settled(&state).await {
+            DhtState::Unavailable {
+                attempts,
+                last_error,
+            } => {
+                assert_eq!(attempts, 3, "every attempt should have been made");
+                assert!(last_error.contains("no network"), "{last_error}");
+            }
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+
+        // The endpoint is untouched and still usable, which is the whole point.
+        assert!(!endpoint.is_closed());
+        endpoint.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dht_that_comes_back_is_attached_on_a_later_attempt() {
+        // The other half: a transient. `AddressLookupServices::add` republishes whatever address
+        // data the endpoint already has, so attaching late is not the same as never attaching.
+        let endpoint = bare_endpoint().await;
+        let state = Arc::new(std::sync::RwLock::new(DhtState::Off));
+        let key = SecretKey::generate();
+        let attempts = Arc::new(std::sync::atomic::AtomicU32::new(0));
+
+        let counter = attempts.clone();
+        spawn_dht_lookup(endpoint.clone(), state.clone(), fast_retry(5), move || {
+            if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                anyhow::bail!("not yet");
+            }
+            build_dht_lookup(&key, None)
+        });
+
+        assert_eq!(settled(&state).await, DhtState::Up);
+        assert!(
+            attempts.load(std::sync::atomic::Ordering::SeqCst) >= 3,
+            "it should have failed twice before succeeding"
+        );
+        assert_eq!(
+            endpoint.address_lookup().expect("open").len(),
+            1,
+            "the lookup should be attached to the live endpoint"
+        );
+        endpoint.close().await;
+    }
+
+    #[test]
+    fn every_dht_state_serialises_with_a_state_tag() {
+        // `/mesh/v1/status` carries this, and "off" and "unavailable" are different answers a
+        // support question needs to tell apart.
+        let json = |s: &DhtState| serde_json::to_value(s).unwrap();
+        assert_eq!(json(&DhtState::Off)["state"], "off");
+        assert_eq!(json(&DhtState::Up)["state"], "up");
+        let down = DhtState::Unavailable {
+            attempts: 6,
+            last_error: "no network".into(),
+        };
+        assert_eq!(json(&down)["state"], "unavailable");
+        assert_eq!(json(&down)["attempts"], 6);
+        assert_eq!(json(&down)["last_error"], "no network");
     }
 }

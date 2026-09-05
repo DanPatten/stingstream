@@ -4508,6 +4508,7 @@ dependencies = [
  "iroh-mainline-address-lookup",
  "iroh-relay",
  "n0-future",
+ "n0-mainline",
  "postcard",
  "rand 0.8.8",
  "reqwest 0.12.28",

@@ -31,6 +31,27 @@ pub struct ChildDef {
     pub health_basic_auth: Option<(String, String)>,
     /// A JSON body to POST instead of issuing a GET (NZBGet's JSON-RPC).
     pub health_post_body: Option<String>,
+    /// How to ask this child which build it is, when it can be asked.
+    pub version_probe: Option<VersionProbe>,
+}
+
+/// One request that answers "which build is this child running?".
+///
+/// Four children, four dialects — Jellyfin has `/System/Info/Public`, the arrs
+/// have `/api/v3/system/status` behind an API key, NZBGet has a JSON-RPC
+/// `version` method behind HTTP Basic — so this is a small description of a
+/// request and where in the answer the version sits, rather than four bespoke
+/// probes. `docs/UI-API-GAPS.md` gap 10.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionProbe {
+    pub url: String,
+    /// A JSON body to POST instead of issuing a GET.
+    pub post_body: Option<String>,
+    pub basic_auth: Option<(String, String)>,
+    /// Extra headers, which for the arrs is `X-Api-Key`.
+    pub headers: Vec<(String, String)>,
+    /// RFC 6901 JSON pointer to the version inside the answer, e.g. `/version`.
+    pub pointer: String,
 }
 
 /// How a .NET application is launched.

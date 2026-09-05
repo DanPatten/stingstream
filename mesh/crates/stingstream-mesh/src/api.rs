@@ -127,6 +127,13 @@ struct StatusBody {
     /// with no coordinator or no certificate. See [`crate::sidedoor`].
     #[serde(skip_serializing_if = "Option::is_none")]
     side_door: Option<crate::sidedoor::SideDoor>,
+    /// What the mainline-DHT address lookup is doing.
+    ///
+    /// Always present, because "off" and "unavailable" are different answers and a support
+    /// question about a node nobody can find needs to tell them apart. A DHT that could not start
+    /// is a *degraded* node, not a broken one — DNS discovery and relays still work — so it is
+    /// reported here rather than by refusing to start. See [`crate::node::DhtState`].
+    dht: crate::node::DhtState,
 }
 
 async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
@@ -140,6 +147,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
         relay_urls: addr.relay_urls().map(|u| u.to_string()).collect(),
         direct_addrs: addr.ip_addrs().map(|a| a.to_string()).collect(),
         side_door: node.side_door(),
+        dht: node.dht_state(),
     })
 }
 

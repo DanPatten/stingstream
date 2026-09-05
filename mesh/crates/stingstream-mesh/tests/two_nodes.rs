@@ -35,6 +35,7 @@ fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
             n0_relays: false,
             mainline_dht: false,
             fallback_coordinator: None,
+            dht_bootstrap: None,
         },
         gossip: stingstream_mesh::config::GossipConfig {
             // Fast enough that the test does not sit waiting for a tick.
@@ -468,6 +469,63 @@ async fn a_coordinator_change_reaches_the_other_node() -> Result<()> {
     wait_for("A to adopt the cleared coordinator", Duration::from_secs(30), || async {
         let g = a.groups().await.into_iter().find(|g| g.id == group.id)?;
         g.coordinator.is_none().then_some(g)
+    })
+    .await?;
+
+    a.shutdown().await;
+    b.shutdown().await;
+    Ok(())
+}
+
+/// A node whose mainline DHT is useless still comes up, and still finds its peer (M4.5).
+///
+/// The regression, in the shape that actually happened: the DHT was registered on the endpoint
+/// *builder*, so a `Dht::new` that could not bind its UDP socket — no usable interface, a captive
+/// network, an OS that refused it — failed `bind()` and the whole node exited, taking two working
+/// discovery routes down with the optional third. A node on 8790 died that way on 2026-09-05 with
+/// "Could not bootstrap the routing table" as the last thing in its log.
+///
+/// Here both nodes have `mainline_dht = true` and a bootstrap list pointing at a documentation
+/// address that answers nothing (RFC 5737 TEST-NET-1). Everything else stays as the other tests
+/// have it — no n0 relays, no n0 DNS — so the *only* addressing either node has is the invite
+/// code. If the DHT's uselessness reached the endpoint at all, neither node would exist; if it
+/// reached discovery, the join would fail. The assertion is that a whole group works anyway.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_useless_dht_does_not_stop_a_node_or_its_group() -> Result<()> {
+    let root = tempfile::tempdir()?;
+
+    let with_dead_dht = |dir: std::path::PathBuf, name: &str| {
+        let mut cfg = offline_config(&dir, name);
+        cfg.discovery.mainline_dht = true;
+        // TEST-NET-1: reserved for documentation, routed nowhere.
+        cfg.discovery.dht_bootstrap = Some(vec!["192.0.2.1:6881".to_string()]);
+        cfg
+    };
+
+    // Both nodes come up at all, which is the first half of the assertion.
+    let a = MeshNode::spawn(with_dead_dht(root.path().join("a"), "attic")).await?;
+    let b = MeshNode::spawn(with_dead_dht(root.path().join("b"), "loft")).await?;
+
+    // And a group works end to end on the routes that are left.
+    let group = a.create_group("dht-is-down", None).await?;
+    let outcome = b.join(&a.invite(&group.id).await?).await?;
+    assert_eq!(
+        outcome.via,
+        JoinRoute::Inviter,
+        "the invite code is the only route in, and it must still work"
+    );
+
+    let media = root.path().join("b-media");
+    std::fs::create_dir_all(&media)?;
+    let file = media.join("one.mkv");
+    write_test_file(&file, 4096)?;
+    b.put_inventory(&group.id, &[record("movie:tmdb:1", &file, 4096, "h1")])
+        .await?;
+    wait_for("B's record to reach A", Duration::from_secs(20), || async {
+        a.index(&group.id)
+            .ok()?
+            .into_iter()
+            .find(|e| e.record.item_key == "movie:tmdb:1")
     })
     .await?;
 

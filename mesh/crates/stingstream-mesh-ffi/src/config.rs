@@ -152,6 +152,10 @@ impl MeshConfigInput {
                 mainline_dht: self.mainline_dht,
                 n0_relays: self.n0_relays,
                 fallback_coordinator,
+                // Spread the rest: DiscoveryConfig grows as discovery does, and the app has an
+                // opinion about the three switches above and nothing else. See
+                // docs/CONTRIBUTING.md rule 1.
+                ..DiscoveryConfig::default()
             },
             peer: PeerConfig {
                 light: self.light,

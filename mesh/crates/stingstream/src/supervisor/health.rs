@@ -74,6 +74,22 @@ pub async fn poll(
                     }
                     s.last_error = None;
                 });
+
+                // Ask which build it is, once. A version does not change while a process
+                // runs, so probing on every health tick would be a request every few
+                // seconds for a string that is the same every time; a restart clears it
+                // (see `Restarting` below) and the next healthy tick asks again, which is
+                // exactly when the answer can have changed.
+                let known = node
+                    .status_of(&def.name)
+                    .map(|s| s.version.is_some())
+                    .unwrap_or(false);
+                if !known {
+                    if let Some(version) = read_version(&client, &def).await {
+                        tracing::info!(child = %def.name, %version, "child version");
+                        node.update(&def.name, |s| s.version = Some(version));
+                    }
+                }
             }
             Err(e) => {
                 let within_grace =
@@ -125,6 +141,51 @@ pub async fn probe(client: &reqwest::Client, def: &ChildDef) -> Result<(), Strin
     }
 }
 
+/// Ask a child which build it is, or give up quietly.
+///
+/// Quietly on purpose: a version is a nice-to-have on a status screen, and a child that answers
+/// its health endpoint but not this one is working perfectly well. Every failure path — no probe
+/// configured, a refused connection, a body that is not JSON, a pointer that finds nothing — is
+/// the same answer, `None`, which `/healthz` renders as an absent field and the app renders as a
+/// dash.
+pub async fn read_version(client: &reqwest::Client, def: &ChildDef) -> Option<String> {
+    let probe = def.version_probe.as_ref()?;
+
+    let mut req = match &probe.post_body {
+        Some(body) => client
+            .post(&probe.url)
+            .header("content-type", "application/json")
+            .body(body.clone()),
+        None => client.get(&probe.url),
+    };
+    if let Some((user, pass)) = &probe.basic_auth {
+        req = req.basic_auth(user, Some(pass));
+    }
+    for (name, value) in &probe.headers {
+        req = req.header(name, value);
+    }
+
+    let res = req.send().await.ok()?;
+    if !res.status().is_success() {
+        tracing::debug!(
+            child = %def.name,
+            status = res.status().as_u16(),
+            "version probe was refused"
+        );
+        return None;
+    }
+
+    let body: serde_json::Value = res.json().await.ok()?;
+    let found = body.pointer(&probe.pointer)?;
+    match found {
+        serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
+        // NZBGet answers `{"result": "26.3"}`; a child that answered a number rather than a
+        // string is still telling us its version.
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 /// reqwest's error chain is long and repeats the URL several times; one line is enough for a log
 /// field and for `/healthz`.
 fn shorten(msg: &str) -> String {
@@ -160,6 +221,7 @@ mod tests {
             health_url: url.to_string(),
             health_basic_auth: None,
             health_post_body: None,
+            version_probe: None,
         }
     }
 

@@ -90,7 +90,14 @@ pub fn build_children(
         };
         let def = match *name {
             "jellyfin" => jellyfin_def(runtime, layout, mode, child_rt.port)?,
-            "radarr" | "sonarr" => arr_def(name, layout, mode, child_rt.port, child_rt.url_base.clone())?,
+            "radarr" | "sonarr" => arr_def(
+                name,
+                layout,
+                mode,
+                child_rt.port,
+                child_rt.url_base.clone(),
+                child_rt.api_key.clone(),
+            )?,
             "nzbget" => nzbget_def(runtime, layout, mode, child_rt.port)?,
             "mesh" => match mesh_def(runtime, mode, child_rt.port) {
                 Some(def) => def,
@@ -168,6 +175,18 @@ fn jellyfin_def(
         health_url: format!("http://127.0.0.1:{port}{}/health", preseed::jellyfin::BASE_URL),
         health_basic_auth: None,
         health_post_body: None,
+        // `/System/Info/Public` rather than `/System/Info`: the public one needs no token, which
+        // the supervisor does not have and should not need in order to answer "which build".
+        version_probe: Some(childdef::VersionProbe {
+            url: format!(
+                "http://127.0.0.1:{port}{}/System/Info/Public",
+                preseed::jellyfin::BASE_URL
+            ),
+            post_body: None,
+            basic_auth: None,
+            headers: Vec::new(),
+            pointer: "/Version".to_string(),
+        }),
     })
 }
 
@@ -177,6 +196,7 @@ fn arr_def(
     mode: &Mode,
     port: u16,
     url_base: String,
+    api_key: Option<String>,
 ) -> Result<ChildDef> {
     let data_dir = if name == "radarr" { layout.radarr() } else { layout.sonarr() };
     let entry = match mode {
@@ -196,6 +216,13 @@ fn arr_def(
         health_url: format!("http://127.0.0.1:{port}{url_base}/ping"),
         health_basic_auth: None,
         health_post_body: None,
+        version_probe: api_key.map(|key| childdef::VersionProbe {
+            url: format!("http://127.0.0.1:{port}{url_base}/api/v3/system/status"),
+            post_body: None,
+            basic_auth: None,
+            headers: vec![("X-Api-Key".to_string(), key)],
+            pointer: "/version".to_string(),
+        }),
     })
 }
 
@@ -229,6 +256,13 @@ fn mesh_def(runtime: &Runtime, mode: &Mode, port: u16) -> Option<ChildDef> {
         health_url: format!("http://127.0.0.1:{port}/healthz"),
         health_basic_auth: None,
         health_post_body: None,
+        version_probe: Some(childdef::VersionProbe {
+            url: format!("http://127.0.0.1:{port}/mesh/v1/status"),
+            post_body: None,
+            basic_auth: None,
+            headers: Vec::new(),
+            pointer: "/version".to_string(),
+        }),
     })
 }
 
@@ -246,6 +280,7 @@ fn nzbget_def(
     let (user, pass) = child_rt
         .and_then(|c| c.username.clone().zip(c.password.clone()))
         .unwrap_or_else(|| ("stingstream".to_string(), String::new()));
+    let version_auth = (user.clone(), pass.clone());
 
     Ok(ChildDef {
         name: "nzbget".to_string(),
@@ -266,6 +301,20 @@ fn nzbget_def(
         health_post_body: Some(
             r#"{"version":"1.1","id":1,"method":"version","params":[]}"#.to_string(),
         ),
+        // The health probe already *is* the version call -- NZBGet answers a bare GET on
+        // /jsonrpc with an error, so the only probe that proves the control API is serving is a
+        // real method call, and `version` is the cheapest one. This repeats it rather than
+        // reading the health response, because the health checker deliberately looks at nothing
+        // but the status code.
+        version_probe: Some(childdef::VersionProbe {
+            url: format!("http://127.0.0.1:{port}/jsonrpc"),
+            post_body: Some(
+                r#"{"version":"1.1","id":1,"method":"version","params":[]}"#.to_string(),
+            ),
+            basic_auth: Some(version_auth),
+            headers: Vec::new(),
+            pointer: "/result".to_string(),
+        }),
     })
 }
 
@@ -401,6 +450,10 @@ async fn supervise_one(
             s.state = ChildState::Restarting;
             s.restarts = s.restarts.saturating_add(1);
             s.healthy_since = None;
+            // A restart is the one moment a child's version can have changed under it -- an
+            // in-place upgrade is a stop and a start -- so forget it and let the next healthy
+            // tick ask again.
+            s.version = None;
         });
 
         if wait_or_shutdown(&mut shutdown, delay).await {

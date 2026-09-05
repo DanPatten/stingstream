@@ -59,6 +59,14 @@ pub struct ChildStatus {
     pub last_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub healthy_since: Option<String>,
+    /// Which build this child is running, probed once it first answers.
+    ///
+    /// Absent when the child is disabled, has never answered, or has no way to be
+    /// asked. All three are real states rather than errors, which is why this is
+    /// an `Option` that is simply left out of `/healthz` rather than an empty
+    /// string. `docs/UI-API-GAPS.md` gap 10.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 impl ChildStatus {
@@ -78,6 +86,7 @@ impl ChildStatus {
             last_exit: None,
             last_error: None,
             healthy_since: None,
+            version: None,
         }
     }
 }

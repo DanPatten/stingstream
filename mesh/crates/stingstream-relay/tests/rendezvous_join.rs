@@ -81,6 +81,10 @@ fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
             n0_relays: false,
             mainline_dht: false,
             fallback_coordinator: None,
+            // Spread rather than enumerate: DiscoveryConfig belongs to stingstream-mesh and grows
+            // as discovery does (see docs/CONTRIBUTING.md rule 1). This test has an opinion about
+            // exactly one thing -- everything is off -- and none about the rest.
+            ..Default::default()
         },
         gossip: stingstream_mesh::config::GossipConfig {
             heartbeat_secs: 1,

@@ -89,6 +89,13 @@ pub struct DiscoveryConfig {
     /// The shared fallback coordinator, appended to every group's relay map.
     /// Defaults to [`DEFAULT_FALLBACK_COORDINATOR`].
     pub fallback_coordinator: Option<String>,
+    /// Replace the mainline DHT's bootstrap nodes.
+    ///
+    /// `None` uses the public ones, which is what everybody wants. It exists for a closed network
+    /// running its own DHT, and for the acceptance test that points a node at an unroutable
+    /// address to prove the node still comes up and still finds its peers by other means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dht_bootstrap: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +214,7 @@ impl Default for DiscoveryConfig {
             mainline_dht: true,
             n0_relays: true,
             fallback_coordinator: DEFAULT_FALLBACK_COORDINATOR.map(str::to_string),
+            dht_bootstrap: None,
         }
     }
 }
