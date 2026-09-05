@@ -26,6 +26,8 @@
     "got_it": "Got it",
     "connection_failed": "Connection failed",
     "could_not_connect_to_server": "Could not connect to the server. Please check the URL and your network connection.",
+    "not_a_jellyfin_server_title": "That is not a Jellyfin server",
+    "not_a_jellyfin_server_description": "The address answered, but it is not Jellyfin. StingStream nodes serve Jellyfin under /jellyfin — try adding that to the address.",
     "an_unexpected_error_occurred": "An unexpected error occurred",
     "change_server": "Change server",
     "invalid_username_or_password": "Invalid username or password",

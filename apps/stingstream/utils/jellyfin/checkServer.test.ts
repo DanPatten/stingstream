@@ -43,9 +43,8 @@ mock.module("@/utils/secureCredentials", () => ({
   },
 }));
 
-const { checkJellyfinServer, ServerTooOldError } = await import(
-  "./checkServer"
-);
+const { checkJellyfinServer, NotAJellyfinServerError, ServerTooOldError } =
+  await import("./checkServer");
 
 // --- fetch stub ------------------------------------------------------------
 
@@ -76,6 +75,20 @@ const okResponse = (body: Record<string, unknown> = {}): Response =>
 
 const statusResponse = (status: number): Response =>
   ({ ok: false, status, json: async () => ({}) }) as Response;
+
+/** A StingStream node's gateway placeholder: HTTP 200, and HTML. */
+const htmlResponse = (): Response =>
+  ({
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new SyntaxError("Unexpected token < in JSON at position 0");
+    },
+  }) as unknown as Response;
+
+/** 200 with JSON that is not a Jellyfin document — a proxy's own status page, say. */
+const jsonArrayResponse = (): Response =>
+  ({ ok: true, status: 200, json: async () => [] }) as unknown as Response;
 
 const networkError = () =>
   Promise.reject(new TypeError("Network request failed"));
@@ -283,5 +296,131 @@ describe("checkJellyfinServer custom headers", () => {
     ]);
 
     expect(persistedHeaders).toHaveLength(0);
+  });
+});
+
+// --- Jellyfin under /jellyfin ----------------------------------------------
+// A StingStream node's gateway serves Jellyfin at /jellyfin and answers every path it does not
+// know with its own placeholder page at HTTP 200. Before this, typing the node's own address —
+// the address on its own status screen, and the one anybody would try first — got HTML where the
+// check wanted JSON, and the user was told to check their network connection.
+
+describe("checkJellyfinServer finds Jellyfin under /jellyfin", () => {
+  test("an HTML answer at the root is retried one level down, and that base is adopted", async () => {
+    fetchImpl = async (url) =>
+      url.startsWith("http://node.local:8890/jellyfin/")
+        ? okResponse({ ServerName: "stingstream-a" })
+        : htmlResponse();
+
+    const result = await checkJellyfinServer("http://node.local:8890");
+
+    expect(result).toEqual({
+      url: "http://node.local:8890/jellyfin",
+      name: "stingstream-a",
+    });
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "http://node.local:8890/System/Info/Public",
+      "http://node.local:8890/jellyfin/System/Info/Public",
+    ]);
+  });
+
+  test("JSON that is not a Jellyfin document counts as not-Jellyfin too", async () => {
+    fetchImpl = async (url) =>
+      url.includes("/jellyfin/") ? okResponse() : jsonArrayResponse();
+
+    const result = await checkJellyfinServer("http://node.local:8890");
+
+    expect(result?.url).toBe("http://node.local:8890/jellyfin");
+  });
+
+  test("a real Jellyfin at the root is never asked about /jellyfin", async () => {
+    routes({ http: async () => okResponse() });
+
+    await checkJellyfinServer("http://192.168.1.10:8096");
+
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "http://192.168.1.10:8096/System/Info/Public",
+    ]);
+  });
+
+  test("an address that already says /jellyfin is not doubled up", async () => {
+    fetchImpl = async () => htmlResponse();
+
+    await expect(
+      checkJellyfinServer("http://node.local:8890/jellyfin"),
+    ).rejects.toBeInstanceOf(NotAJellyfinServerError);
+
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "http://node.local:8890/jellyfin/System/Info/Public",
+    ]);
+  });
+
+  test("HTML at both levels is a distinct error, not 'could not connect'", async () => {
+    fetchImpl = async () => htmlResponse();
+
+    await expect(
+      checkJellyfinServer("http://node.local:8890"),
+    ).rejects.toBeInstanceOf(NotAJellyfinServerError);
+  });
+
+  test("nothing answering at all is still undefined, not the not-Jellyfin error", async () => {
+    routes({});
+
+    expect(
+      await checkJellyfinServer("http://192.168.1.10:8096"),
+    ).toBeUndefined();
+  });
+
+  test("a non-2xx answer is not mistaken for a placeholder page", async () => {
+    fetchImpl = async () => statusResponse(404);
+
+    expect(
+      await checkJellyfinServer("http://192.168.1.10:8096"),
+    ).toBeUndefined();
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("headers are carried to the nested probe and persisted against the base that answered", async () => {
+    const typed = [header("CF-Access-Client-Id", "abc")];
+    fetchImpl = async (url) =>
+      url.includes("/jellyfin/") ? okResponse() : htmlResponse();
+
+    await checkJellyfinServer("http://node.local:8890", typed);
+
+    expect(
+      (fetchCalls[1]?.init as { headers?: Record<string, string> })?.headers,
+    ).toEqual({ "CF-Access-Client-Id": "abc" });
+    expect(persistedHeaders).toEqual([
+      { url: "http://node.local:8890/jellyfin", headers: typed },
+    ]);
+  });
+
+  test("a schemeless address still tries https first, then http, before going down a level", async () => {
+    fetchImpl = async (url) =>
+      url.startsWith("http://node.local:8890/jellyfin/")
+        ? okResponse()
+        : url.startsWith("https://")
+          ? networkError()
+          : htmlResponse();
+
+    const result = await checkJellyfinServer("node.local:8890");
+
+    expect(result?.url).toBe("http://node.local:8890/jellyfin");
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "https://node.local:8890/System/Info/Public",
+      "http://node.local:8890/System/Info/Public",
+      "http://node.local:8890/jellyfin/System/Info/Public",
+    ]);
+  });
+
+  test("an old Jellyfin under /jellyfin still reports its age, not a missing server", async () => {
+    fetchImpl = async (url) =>
+      url.includes("/jellyfin/")
+        ? okResponse({ Version: "10.9.0" })
+        : htmlResponse();
+
+    await expect(
+      checkJellyfinServer("http://node.local:8890"),
+    ).rejects.toBeInstanceOf(ServerTooOldError);
   });
 });

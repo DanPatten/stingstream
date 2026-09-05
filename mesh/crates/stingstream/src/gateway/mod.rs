@@ -205,6 +205,26 @@ async fn index(State(state): State<GatewayState>) -> Response {
 /// Anything the routed prefixes did not claim: the web bundle, or a 404.
 async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response {
     let path = req.uri().path().to_string();
+
+    // A stock Jellyfin client at the wrong door. Jellyfin is under `/jellyfin`, and answering
+    // `/System/Info/Public` with 200 and HTML -- which both the placeholder page and the SPA
+    // fallback would -- makes the client fail while parsing, somewhere unrelated, and report a
+    // network problem. It is worth being specific about, because "check your network connection"
+    // for a path problem is a trap a user cannot get out of.
+    if web::looks_like_jellyfin_api(&path) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": format!(
+                    "This is a StingStream node, not a Jellyfin server. Jellyfin is under {}{}.",
+                    JELLYFIN_PREFIX, path
+                ),
+                "jellyfin_base": JELLYFIN_PREFIX,
+            })),
+        )
+            .into_response();
+    }
+
     match &state.web {
         Some(bundle) => web::serve(bundle, &path).await,
         // No bundle: the placeholder page is the honest answer for a page request, and a missing

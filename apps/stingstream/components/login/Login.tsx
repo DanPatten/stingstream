@@ -35,6 +35,7 @@ import {
 import { type CustomHeader, usableCustomHeaders } from "@/utils/customHeaders";
 import {
   checkJellyfinServer,
+  NotAJellyfinServerError,
   ServerTooOldError,
 } from "@/utils/jellyfin/checkServer";
 import type { SavedServer } from "@/utils/secureCredentials";
@@ -262,6 +263,14 @@ export const Login: React.FC = () => {
           Alert.alert(
             t("login.too_old_server_text"),
             t("login.too_old_server_description"),
+          );
+        } else if (e instanceof NotAJellyfinServerError) {
+          // Something answered — it just was not Jellyfin, at the root or under /jellyfin. Saying
+          // "check your network connection" here sends people to look at the wrong thing, which is
+          // exactly what typing a StingStream node's own address used to do.
+          Alert.alert(
+            t("login.not_a_jellyfin_server_title"),
+            t("login.not_a_jellyfin_server_description"),
           );
         }
       } finally {

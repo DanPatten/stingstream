@@ -137,6 +137,41 @@ pub fn looks_like_an_asset(url_path: &str) -> bool {
     }
 }
 
+/// Top-level path segments that belong to **Jellyfin's** API rather than to this gateway.
+///
+/// Not exhaustive, and it does not need to be: it is the set a stock client actually reaches for
+/// before anything else -- authenticating, reading system info, listing items, playing something.
+const JELLYFIN_API_SEGMENTS: &[&str] = &[
+    "Albums", "Artists", "Audio", "Auth", "Branding", "Channels", "ClientLog", "Collections",
+    "Devices", "DisplayPreferences", "Environment", "Genres", "Images", "Items", "Library",
+    "LiveTv", "Localization", "MusicGenres", "Notifications", "Packages", "Persons", "Playback",
+    "Playlists", "Plugins", "QuickConnect", "Repositories", "ScheduledTasks", "Search",
+    "SearchHints", "Sessions", "Shows", "Startup", "Studios", "Subtitles", "SyncPlay", "System",
+    "Trailers", "UserItems", "UserViews", "Users", "Videos", "Years",
+];
+
+/// Whether a path at the gateway's root is a stock Jellyfin client asking the wrong door.
+///
+/// Jellyfin lives under [`JELLYFIN_PREFIX`](super::JELLYFIN_PREFIX), so `/System/Info/Public` is
+/// not a route this gateway has. Answering it with the placeholder page -- HTTP 200 and HTML --
+/// is the worst possible answer: the client parses HTML as JSON, fails somewhere unrelated, and
+/// reports a network problem. The StingStream app did exactly that, and told people to check
+/// their network connection when the only thing wrong was a missing `/jellyfin`. A 404 lets a
+/// client fail fast and say something true.
+///
+/// **Matching is case-sensitive, and that is what keeps it safe.** Jellyfin's own routing is
+/// case-insensitive, but every client spells these segments in PascalCase, while the web app's
+/// own routes are lowercase (`/settings`, `/search`, `/library/...`). So `/Search` is Jellyfin's
+/// and `/search` is ours, and the SPA fallback keeps every route it had.
+pub fn looks_like_jellyfin_api(url_path: &str) -> bool {
+    let first = url_path
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    JELLYFIN_API_SEGMENTS.contains(&first)
+}
+
 /// What `Cache-Control` a file gets.
 pub fn cache_control(url_path: &str, resolved: &Path) -> &'static str {
     let name = resolved
@@ -245,6 +280,60 @@ fn percent_decode(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stock_jellyfin_client_at_the_root_is_recognised() {
+        for path in [
+            "/System/Info/Public",
+            "/Users/AuthenticateByName",
+            "/Items/abc/PlaybackInfo",
+            "/Sessions/Playing",
+            "/Videos/abc/stream.mp4",
+            "/QuickConnect/Initiate",
+            "/SyncPlay/New",
+            "/Branding/Configuration",
+        ] {
+            assert!(looks_like_jellyfin_api(path), "{path} should be Jellyfin's");
+        }
+    }
+
+    #[test]
+    fn the_web_apps_own_routes_are_left_alone() {
+        // Lowercase is the whole rule: these are the SPA's routes, and losing them to a 404 would
+        // trade one broken client for a broken app.
+        for path in [
+            "/",
+            "/settings",
+            "/search",
+            "/items/page",
+            "/library/movies",
+            "/downloads",
+            "/group",
+            "/manage/movies",
+            "/users",
+            "/system",
+        ] {
+            assert!(!looks_like_jellyfin_api(path), "{path} is the app's");
+        }
+    }
+
+    #[test]
+    fn the_gateways_own_prefixes_are_not_claimed() {
+        // These never reach the fallback, but the predicate must not want them if they did.
+        for path in ["/jellyfin/System/Info/Public", "/stingstream/api/v1/watch", "/stream/g/k/n"] {
+            assert!(!looks_like_jellyfin_api(path));
+        }
+    }
+
+    #[test]
+    fn only_the_first_segment_counts() {
+        // A deeper `Items` belongs to whoever owns the first segment, not to Jellyfin.
+        assert!(!looks_like_jellyfin_api("/api/Items"));
+        assert!(!looks_like_jellyfin_api("/x/System/Info/Public"));
+        // And the bare segment, with or without a trailing slash, is still Jellyfin's.
+        assert!(looks_like_jellyfin_api("/System"));
+        assert!(looks_like_jellyfin_api("/System/"));
+    }
 
     fn bundle() -> (tempfile::TempDir, WebBundle) {
         let td = tempfile::tempdir().unwrap();
