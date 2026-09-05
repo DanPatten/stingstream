@@ -403,3 +403,27 @@ Run it with `-PrivateCopy <dir>` on a machine where several people share the che
 `RUNNING.md` — a running node holds the repository's build outputs open. This is the first harness
 whose nodes really grab something, so its private copy needs Radarr and Sonarr in it as well;
 `New-PrivateInstallRoot -WithArrs` copies them, and the harness passes that switch for you.
+
+### Two traps this harness fell into, neither of them in M6
+
+Both cost a fifteen-minute wait each, and both are recorded here because the places they *are*
+documented are not places anyone would think to look.
+
+**The arrs' sample check.** Both arrs reject a too-short import against a table keyed on the
+*title's* runtime rather than a flat number — 15 s under three minutes, 90 s under ten, 300 s under
+thirty, 600 s above (`NzbDrone.Core.MediaFiles.EpisodeImport.DetectSample`). The Beverly Hillbillies
+is a thirty-minute show, so its episode clip has to clear 300 s; `e2e-m6.ps1` uses 330. Get it wrong
+and everything works: the release is grabbed, the torrent completes, the seeder reports every byte
+sent — and then the import sits in the queue forever with `appears to be a sample` in Sonarr's
+**debug** log and nothing whatever in its info log. The table is written down at the top of
+`tools/e2e-m1.ps1`, which is not where you will be looking when your download has just succeeded.
+
+**`@($null).Count` is 1 in PowerShell.** `Invoke-Json` returns `$null` for a body of `[]`, because
+`ConvertFrom-Json '[]'` emits nothing and a function that emits nothing returns null — so
+`@(Invoke-Node …/movies).Count -eq 0` reads an empty Radarr as holding one movie. `Get-RecordCount`
+in `e2e-m6.ps1` filters the nulls. The same shape bit `e2e-m3`'s coordinator step in a nastier way
+(`f45be61`): there the phantom element does not throw, it silently fails to match, and the harness
+reports "the peer never adopted the change" instead of "the list was empty" — sending the reader
+hunting a gossip bug that is not there. Both harnesses now carry their own helper;
+`tools/e2e-common.ps1` is where the pair belongs, next time somebody is in that file for another
+reason.
