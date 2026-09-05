@@ -1,0 +1,129 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "environment": "development",
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_WRITE_DEBUG": "1"
+      }
+    },
+    "development_tv": {
+      "environment": "development",
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_TV": "1",
+        "EXPO_PUBLIC_WRITE_DEBUG": "1"
+      }
+    },
+    "development-simulator": {
+      "environment": "development",
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_WRITE_DEBUG": "1"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_WRITE_DEBUG": "1"
+      }
+    },
+    "preview_tv": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_TV": "1",
+        "EXPO_PUBLIC_WRITE_DEBUG": "1"
+      }
+    },
+    "production": {
+      "bun": "1.4.0",
+      "environment": "production",
+      "autoIncrement": true,
+      "android": {
+        "image": "latest",
+        "config": "android-production.yml"
+      },
+      "ios": {
+        "config": "ios-production.yml"
+      }
+    },
+    "production-apk": {
+      "bun": "1.4.0",
+      "environment": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk",
+        "image": "latest",
+        "config": "android-production-apk.yml"
+      }
+    },
+    "production-apk-tv": {
+      "bun": "1.4.0",
+      "environment": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk",
+        "image": "latest",
+        "config": "android-production-tv.yml"
+      },
+      "env": {
+        "EXPO_TV": "1"
+      }
+    },
+    "production_tv": {
+      "bun": "1.4.0",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_TV": "1"
+      },
+      "ios": {
+        "credentialsSource": "local",
+        "config": "ios-production.yml"
+      }
+    },
+    "ci": {
+      "extends": "production",
+      "autoIncrement": false
+    },
+    "ci_tv": {
+      "extends": "production_tv",
+      "autoIncrement": false
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "MWD5K362T8",
+        "ascAppId": "6593660679"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "internal",
+        "releaseStatus": "completed"
+      }
+    },
+    "production_tv": {
+      "ios": {
+        "appleTeamId": "MWD5K362T8",
+        "ascAppId": "6593660679"
+      }
+    }
+  }
+}

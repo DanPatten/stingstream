@@ -1,0 +1,84 @@
+buildscript {
+  repositories {
+    mavenCentral()
+  }
+  dependencies {
+    classpath("org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:${rootProject.ext.has('kotlinVersion') ? rootProject.ext.get('kotlinVersion') : '2.1.20'}")
+  }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+
+group = 'expo.modules.mpvplayer'
+version = '0.7.6'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+def useManagedAndroidSdkVersions = false
+if (useManagedAndroidSdkVersions) {
+  useDefaultAndroidSdkVersions()
+} else {
+  buildscript {
+    ext.safeExtGet = { prop, fallback ->
+      rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
+  }
+  project.android {
+    compileSdkVersion safeExtGet("compileSdkVersion", 36)
+    defaultConfig {
+      minSdkVersion safeExtGet("minSdkVersion", 26)
+      targetSdkVersion safeExtGet("targetSdkVersion", 36)
+    }
+  }
+}
+
+android {
+  namespace "expo.modules.mpvplayer"
+  defaultConfig {
+    versionCode 1
+    versionName "0.7.6"
+    ndk {
+      // Architectures supported by mpv-android
+      abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+    }
+  }
+  buildFeatures {
+    compose true
+  }
+  lintOptions {
+    abortOnError false
+  }
+  sourceSets {
+    main {
+      jniLibs.srcDirs = ['libs']
+    }
+  }
+}
+
+dependencies {
+  // libmpv from Maven Central
+  implementation 'dev.jdtech.mpv:libmpv:1.0.0'
+
+  // Jetpack Compose dependencies matching @expo/ui
+  implementation 'androidx.compose.foundation:foundation-android:1.10.6'
+  implementation 'androidx.compose.ui:ui-android:1.10.6'
+  implementation "androidx.compose.material3:material3:1.5.0-alpha17"
+  implementation 'androidx.compose.material3:material3-android:1.5.0-alpha17'
+  implementation 'androidx.compose.material:material-icons-core:1.7.8'
+  implementation 'androidx.compose.material:material-icons-extended:1.7.8'
+  implementation 'androidx.lifecycle:lifecycle-runtime:2.10.0'
+  implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
+  implementation 'androidx.activity:activity-ktx:1.9.3'
+  implementation 'androidx.savedstate:savedstate-ktx:1.2.1'
+  implementation 'androidx.core:core-ktx:1.18.0'
+  // Android TV Compose material
+  implementation 'androidx.tv:tv-material:1.0.0'
+
+  testImplementation 'junit:junit:4.13.2'
+}

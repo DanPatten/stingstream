@@ -1,0 +1,18 @@
+import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
+import { View, type ViewProps } from "react-native";
+import { Text } from "@/components/common/Text";
+
+interface Props extends ViewProps {
+  item: BaseItemDto;
+}
+
+export const MoviesTitleHeader: React.FC<Props> = ({ item, ...props }) => {
+  return (
+    <View {...props}>
+      <Text selectable className='font-bold text-2xl mb-1'>
+        {item?.Name}
+      </Text>
+      <Text className='opacity-50'>{item?.ProductionYear}</Text>
+    </View>
+  );
+};

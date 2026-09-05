@@ -1,0 +1,357 @@
+import type {
+  BaseItemDto,
+  PlaybackProgressInfo,
+} from "@jellyfin/sdk/lib/generated-client";
+import { getPlaystateApi, getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
+import { useMemo } from "react";
+import { useDownload } from "@/providers/DownloadProvider";
+import { DownloadedItem } from "@/providers/Downloads/types";
+import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
+import { shuffleQueueAtom } from "@/utils/atoms/shuffleQueue";
+import { useNetworkStatus } from "./useNetworkStatus";
+
+interface PlaybackManagerProps {
+  item?: BaseItemDto | null;
+  isOffline?: boolean;
+}
+
+/**
+ * Gets adjacent items (previous/current/next) for offline mode from downloaded files
+ */
+const getOfflineAdjacentItems = (
+  item: BaseItemDto,
+  downloadedFiles: DownloadedItem[],
+): BaseItemDto[] | null => {
+  if (!item.SeriesId || !downloadedFiles) {
+    return null;
+  }
+
+  const seriesEpisodes = downloadedFiles
+    .filter((f) => f.item.SeriesId === item.SeriesId)
+    .map((f) => f.item);
+
+  seriesEpisodes.sort((a, b) => {
+    if (a.ParentIndexNumber !== b.ParentIndexNumber) {
+      return (a.ParentIndexNumber ?? 0) - (b.ParentIndexNumber ?? 0);
+    }
+    return (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0);
+  });
+
+  const currentIndex = seriesEpisodes.findIndex((ep) => ep.Id === item.Id);
+
+  if (currentIndex === -1) {
+    return null;
+  }
+
+  const result: BaseItemDto[] = [];
+  if (currentIndex > 0) {
+    result.push(seriesEpisodes[currentIndex - 1]);
+  }
+  result.push(seriesEpisodes[currentIndex]);
+  if (currentIndex < seriesEpisodes.length - 1) {
+    result.push(seriesEpisodes[currentIndex + 1]);
+  }
+  return result;
+};
+
+/**
+ * A hook to manage playback state, abstracting away the complexities of
+ * online/offline and local/remote state management.
+ *
+ * This provides a simple facade for player components to report playback
+ * without needing to know the underlying details of data syncing.
+ */
+export const usePlaybackManager = ({
+  item,
+  isOffline = false,
+}: PlaybackManagerProps = {}) => {
+  const api = useAtomValue(apiAtom);
+  const user = useAtomValue(userAtom);
+  const shuffleQueue = useAtomValue(shuffleQueueAtom);
+  const { isConnected } = useNetworkStatus();
+  const queryClient = useQueryClient();
+  const { getDownloadedItemById, updateDownloadedItem, getDownloadedItems } =
+    useDownload();
+
+  /** Whether the device is online. actually it's connected to the internet. */
+  const isOnline = isConnected;
+
+  // Adjacent episodes logic
+  const { data: adjacentItems } = useQuery({
+    queryKey: ["adjacentItems", item?.Id, item?.SeriesId, isOffline],
+    queryFn: async (): Promise<BaseItemDto[] | null> => {
+      if (!item?.SeriesId) {
+        return null;
+      }
+
+      if (isOffline) {
+        return getOfflineAdjacentItems(item, getDownloadedItems() || []);
+      }
+
+      if (!api) {
+        return null;
+      }
+
+      const res = await getTvShowsApi(api).getEpisodes({
+        seriesId: item.SeriesId,
+        adjacentTo: item.Id,
+        limit: 3,
+        fields: ["MediaSources", "MediaStreams", "ParentId"],
+      });
+
+      return res.data.Items || null;
+    },
+    enabled:
+      (isOffline || !!api) &&
+      !!item?.Id &&
+      !!item?.SeriesId &&
+      (item?.Type === "Episode" || item?.Type === "Audio"),
+    staleTime: 0,
+  });
+
+  /**
+   * When a shuffle queue is active for the current series and contains the
+   * current item, prev/next come from the shuffled order instead of the
+   * sequential adjacent-episode order. The guard is intentionally strict
+   * (series match AND current item present) so an unrelated episode opened
+   * while a stale queue is set falls back to the adjacent-items path cleanly.
+   */
+  const shuffleActive =
+    !!shuffleQueue &&
+    !!item?.SeriesId &&
+    shuffleQueue.seriesId === item.SeriesId &&
+    shuffleQueue.items.some((e) => e.Id === item.Id);
+
+  /**
+   * Derive prev/next from the current item's real position in the adjacent
+   * list rather than from the array length. `getEpisodes({ adjacentTo })` does
+   * not guarantee a fixed [prev, current, next] shape — at the first/last
+   * episode it can still return the current item as the first/last entry — so
+   * length-based indexing wrongly surfaces the current episode as "previous".
+   */
+  const currentIndex = useMemo(
+    () => adjacentItems?.findIndex((e) => e.Id === item?.Id) ?? -1,
+    [adjacentItems, item],
+  );
+
+  /** Index of the current item within the shuffle queue (or -1). */
+  const shuffleIndex = useMemo(
+    () =>
+      shuffleActive
+        ? (shuffleQueue?.items.findIndex((e) => e.Id === item?.Id) ?? -1)
+        : -1,
+    [shuffleActive, shuffleQueue, item],
+  );
+
+  /** A neighbour is only navigable if it has an actual media file (not a
+   * "Virtual"/missing episode placeholder, e.g. an absent Special). */
+  const isNavigable = (episode?: BaseItemDto | null): episode is BaseItemDto =>
+    !!episode && episode.Id !== item?.Id && episode.LocationType !== "Virtual";
+
+  const previousItem = useMemo(() => {
+    if (shuffleActive) {
+      if (shuffleIndex <= 0) return null;
+      const candidate = shuffleQueue?.items[shuffleIndex - 1];
+      return isNavigable(candidate) ? candidate : null;
+    }
+    if (!adjacentItems || currentIndex <= 0) return null;
+    const candidate = adjacentItems[currentIndex - 1];
+    return isNavigable(candidate) ? candidate : null;
+  }, [
+    shuffleActive,
+    shuffleQueue,
+    shuffleIndex,
+    adjacentItems,
+    currentIndex,
+    item,
+  ]);
+
+  /** The next item in the series */
+  const nextItem = useMemo(() => {
+    if (shuffleActive) {
+      if (shuffleIndex < 0) return null;
+      const candidate = shuffleQueue?.items[shuffleIndex + 1];
+      return isNavigable(candidate) ? candidate : null;
+    }
+    if (!adjacentItems || currentIndex < 0) return null;
+    const candidate = adjacentItems[currentIndex + 1];
+    return isNavigable(candidate) ? candidate : null;
+  }, [
+    shuffleActive,
+    shuffleQueue,
+    shuffleIndex,
+    adjacentItems,
+    currentIndex,
+    item,
+  ]);
+
+  /**
+   * Reports playback progress.
+   *
+   * - If offline and the item is downloaded, updates are saved locally.
+   * - If online and the item is downloaded, it updates locally and syncs with the server.
+   * - If online and streaming, it reports directly to the server.
+   *
+   * @param itemId The ID of the item.
+   * @param positionTicks The current playback position in ticks.
+   */
+  const reportPlaybackProgress = async (
+    playbackProgressInfo: PlaybackProgressInfo,
+  ) => {
+    const positionTicks = playbackProgressInfo.PositionTicks || 0;
+    const itemId = playbackProgressInfo.ItemId!;
+    const localItem = getDownloadedItemById(itemId);
+
+    // Handle local state update for downloaded items
+    if (localItem) {
+      const runTimeTicks = localItem.item.RunTimeTicks ?? 0;
+      const playedPercentage =
+        runTimeTicks > 0 ? (positionTicks / runTimeTicks) * 100 : 0;
+
+      // Jellyfin thresholds
+      const MINIMUM_PERCENTAGE = 5; // 5% minimum to save progress
+      const PLAYED_THRESHOLD_PERCENTAGE = 90; // 90% to mark as played
+
+      const isItemConsideredPlayed =
+        playedPercentage > PLAYED_THRESHOLD_PERCENTAGE;
+      const meetsMinimumPercentage = playedPercentage >= MINIMUM_PERCENTAGE;
+
+      const shouldSaveProgress =
+        meetsMinimumPercentage && !isItemConsideredPlayed;
+
+      updateDownloadedItem(itemId, {
+        ...localItem,
+        item: {
+          ...localItem.item,
+          UserData: {
+            ...localItem.item.UserData,
+            PlaybackPositionTicks:
+              isItemConsideredPlayed || !shouldSaveProgress
+                ? 0
+                : Math.floor(positionTicks),
+            Played: isItemConsideredPlayed,
+            LastPlayedDate: new Date().toISOString(),
+            PlayedPercentage:
+              isItemConsideredPlayed || !shouldSaveProgress
+                ? 0
+                : playedPercentage,
+          },
+        },
+      });
+      // Force invalidate queries so they refetch from updated local database
+      queryClient.invalidateQueries({ queryKey: ["item", itemId] });
+      queryClient.invalidateQueries({ queryKey: ["episodes"] });
+    }
+
+    // Handle remote state update if online
+    if (isOnline && api) {
+      try {
+        await getPlaystateApi(api).reportPlaybackProgress({
+          playbackProgressInfo,
+        });
+      } catch (error) {
+        console.error("Failed to report playback progress", error);
+      }
+    }
+  };
+
+  /**
+   * Marks an item as played.
+   *
+   * - If offline and downloaded, it marks as played locally.
+   * - If online, it marks as played on the server and syncs the state back to the local item if it exists.
+   *
+   * @param itemId The ID of the item.
+   */
+  const markItemPlayed = async (itemId: string) => {
+    const localItem = getDownloadedItemById(itemId);
+
+    // Handle local state update for downloaded items
+    if (localItem) {
+      updateDownloadedItem(itemId, {
+        ...localItem,
+        item: {
+          ...localItem.item,
+          UserData: {
+            ...localItem.item.UserData,
+            Played: true,
+            PlaybackPositionTicks: 0,
+            PlayedPercentage: 0,
+            LastPlayedDate: new Date().toISOString(),
+          },
+        },
+      });
+      // Force invalidate queries so they refetch from updated local database
+      queryClient.invalidateQueries({ queryKey: ["item", itemId] });
+      queryClient.invalidateQueries({ queryKey: ["episodes"] });
+    }
+
+    // Handle remote state update if online
+    if (isOnline && api && user) {
+      try {
+        await getPlaystateApi(api).markPlayedItem({
+          itemId,
+          userId: user.Id,
+        });
+      } catch (error) {
+        console.error("Failed to mark item as played on server", error);
+        throw error;
+      }
+    }
+  };
+
+  /**
+   * Marks an item as unplayed.
+   *
+   * - If offline and downloaded, it marks as unplayed locally.
+   * - If online, it marks as unplayed on the server and syncs the state back to the local item if it exists.
+   *
+   * @param itemId The ID of the item.
+   */
+  const markItemUnplayed = async (itemId: string) => {
+    const localItem = getDownloadedItemById(itemId);
+
+    // Handle local state update for downloaded items
+    if (localItem) {
+      updateDownloadedItem(itemId, {
+        ...localItem,
+        item: {
+          ...localItem.item,
+          UserData: {
+            ...localItem.item.UserData,
+            Played: false,
+            PlaybackPositionTicks: 0,
+            PlayedPercentage: 0,
+            LastPlayedDate: new Date().toISOString(), // Keep track of when it was marked unplayed
+          },
+        },
+      });
+      // Force invalidate queries so they refetch from updated local database
+      queryClient.invalidateQueries({ queryKey: ["item", itemId] });
+      queryClient.invalidateQueries({ queryKey: ["episodes"] });
+    }
+
+    // Handle remote state update if online
+    if (isOnline && api && user) {
+      try {
+        await getPlaystateApi(api).markUnplayedItem({
+          itemId,
+          userId: user.Id,
+        });
+      } catch (error) {
+        console.error("Failed to mark item as unplayed on server", error);
+        throw error;
+      }
+    }
+  };
+
+  return {
+    reportPlaybackProgress,
+    markItemPlayed,
+    markItemUnplayed,
+    previousItem,
+    nextItem,
+  };
+};
