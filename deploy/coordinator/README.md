@@ -144,8 +144,25 @@ curl -fsS https://coord.example.org/healthz | jq .
 ### The `storage-node` profile
 
 `docker compose --profile storage-node up -d` adds a full StingStream node on the same box, joined
-to a group, so the host doubles as an always-on seedbox and cache. The node image lands in M8; until
-then the profile documents the shape and will not start.
+to a group, so the host doubles as an always-on seedbox and cache. The image is
+`ghcr.io/danpatten/stingstream-node` (`deploy/node/Dockerfile`, published by `.github/workflows/
+images.yml`) and this profile is real and startable — see this directory's `compose.yml` for the
+full set of knobs (the join code, media/downloads/cache mounts, the running user, resource limits).
+
+Before starting it: create a file containing the group's invite code (`chmod 600`), point
+`STORAGE_NODE_JOIN_CODE_FILE` at it, and set `STORAGE_NODE_MEDIA` (and, if you want them on the big
+disk too, `STORAGE_NODE_DOWNLOADS`/`STORAGE_NODE_CACHE`) to real paths. The invite code is a file
+rather than a plain environment variable on purpose — it carries the whole group's secret key
+material, and a plain `environment:` entry is visible in `docker inspect` and in
+`/proc/<pid>/environ`. See `mesh/crates/stingstream/src/joincode.rs`'s own module doc for the full
+reasoning, and `docs/RUNNING.md` if you would rather mint an invite and join over the API by hand
+instead.
+
+**Colocating a node with the coordinator is convenient but not free.** A runaway transcode or a
+large import competing for the same CPU and network as the relay, the authoritative DNS answers and
+the SNI router can degrade the whole group's experience, not just this node's. `compose.yml` has a
+commented `deploy.resources.limits` block on `storage-node` for exactly this; uncomment and size it
+to whatever headroom the rest of this box actually needs.
 
 ---
 

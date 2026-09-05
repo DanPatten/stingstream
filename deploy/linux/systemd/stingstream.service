@@ -31,5 +31,12 @@ ProtectHome=true
 ReadWritePaths=/var/lib/stingstream
 PrivateTmp=true
 
+# Uncomment to cap this node's footprint -- worth doing if this machine also runs anything else
+# that should not be starved by a runaway transcode or a large import (a coordinator's relay, DNS
+# and SNI router in particular; see deploy/coordinator/README.md's own warning about colocating a
+# storage-node on the same box).
+# MemoryMax=4G
+# CPUQuota=200%
+
 [Install]
 WantedBy=multi-user.target

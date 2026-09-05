@@ -8,23 +8,47 @@
 # docs/INSTALL.md for the non-Docker installers (Windows service, .deb, AppImage) this same tree
 # also ships as.
 #
-# To join an existing group on first run, set STINGSTREAM_JOIN_CODE in .env (or the environment)
-# to an invite code minted by another member -- see docs/RUNNING.md "Running two nodes on one
-# machine" for how to mint one. Leave it unset to run this node standalone; a group can always be
-# created or joined later from the web UI.
+# To join an existing group on first run, point STINGSTREAM_JOIN_CODE_FILE at a file containing an
+# invite code minted by another member (chmod 600) -- see docs/RUNNING.md "Running two nodes on one
+# machine" for how to mint one, and deploy/coordinator/compose.yml's own storage-node service for
+# why this is a file rather than a plain variable (an invite code carries the group's secret key
+# material). Leave it unset to run this node standalone; a group can always be created or joined
+# later from the web UI.
+#
+# Pinning: `:latest` moves every time master publishes a new image (images.yml). For an unattended
+# box, pin STINGSTREAM_NODE_TAG to a real release tag (e.g. `v0.8.0`) in `.env` instead, and update
+# on your own schedule -- see docs/RELEASING.md.
 
 name: stingstream-node
 
+secrets:
+  # Soft default (not `${VAR:?...}`): this section is parsed on every `docker compose` invocation
+  # against this file, even one that never sets a join code at all, and a hard-required variable
+  # here would break the plain "just run a node" case. /dev/null reads as empty; the node's own
+  # joincode::resolve() treats "no code configured" as the ordinary, non-error case (see
+  # mesh/crates/stingstream/src/joincode.rs).
+  join_code:
+    file: ${STINGSTREAM_JOIN_CODE_FILE:-/dev/null}
+
 services:
   stingstream:
-    image: ghcr.io/danpatten/stingstream-node:latest
+    image: ghcr.io/danpatten/stingstream-node:${STINGSTREAM_NODE_TAG:-latest}
     # To build from a checkout instead:
     #   build:
     #     context: ../..
     #     dockerfile: deploy/node/Dockerfile
-    restart: unless-stopped
+    # on-failure, not unless-stopped: the supervisor exits 0 on a deliberate shutdown (Ctrl+C,
+    # `docker stop`'s SIGTERM), and unless-stopped would restart it anyway on that clean exit --
+    # matching deploy/linux/systemd/stingstream.service's own Restart=on-failure.
+    restart: on-failure
+    secrets:
+      - join_code
     environment:
-      STINGSTREAM_JOIN_CODE: ${STINGSTREAM_JOIN_CODE:-}
+      STINGSTREAM_JOIN_CODE_FILE: /run/secrets/join_code
+    # Empty (the default) means the image's own user. Set both to the numeric owner of whatever
+    # you bind-mount below (`stat -c '%u:%g' /path/to/your/media`) so the node can actually write
+    # to it -- a bind mount keeps the HOST's ownership, which rarely matches the image's own user.
+    user: "${STINGSTREAM_UID:-}:${STINGSTREAM_GID:-}"
     ports:
       - "8790:8790"
     volumes:
@@ -32,14 +56,23 @@ services:
       # A separate volume/bind mount for media, layered at the exact path the node's own layout
       # expects it (docs/RUNNING.md, "The data directory") -- not a different top-level path -- so
       # it can point at different storage than the rest of /data while Radarr, Sonarr and Jellyfin
-      # still find it where they always look.
+      # still find it where they always look. Downloads and Jellyfin's transcode cache are the
+      # other two places real disk usage happens; point them at the big disk too if you have one.
+      # All three default to a small local directory, not an empty host path -- an empty value on
+      # the left of a compose bind mount does not mean "skip this line," it means an invalid mount.
       - ${STINGSTREAM_MEDIA:-./media}:/data/media
+      - ${STINGSTREAM_DOWNLOADS:-./downloads}:/data/downloads
+      - ${STINGSTREAM_CACHE:-./cache}:/data/jellyfin/cache
     healthcheck:
       test: ["CMD", "/app/bin/stingstream", "--healthcheck", "--data-dir", "/data"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      # 300s, not 60s: the supervisor's own first-run health grace is about that long and
+      # `/healthz` answers 503 until every child is healthy (docs/RUNNING.md) -- three
+      # self-contained .NET apps doing first-run database setup take longer than a first guess.
+      # 60s marked a perfectly healthy first-run node as failed around the 150s mark.
+      start_period: 300s
 
 volumes:
   stingstream-data:

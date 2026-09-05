@@ -180,7 +180,12 @@ EXPOSE 8790
 
 # --healthcheck (M8a): a synchronous, dependency-free GET of /healthz, because this image ships
 # no curl/wget. See src/main.rs's own `healthcheck` function.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+#
+# start-period=300s, not the Docker default of a few seconds: the supervisor's own first-run
+# health grace is about that long and /healthz answers 503 until every child is healthy
+# (docs/RUNNING.md) -- three self-contained .NET apps doing first-run database setup, not a quick
+# process. A shorter start-period marks a perfectly healthy first-run node as failed.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
   CMD ["/app/bin/stingstream", "--healthcheck", "--data-dir", "/data"]
 
 LABEL org.opencontainers.image.title="StingStream node" \
