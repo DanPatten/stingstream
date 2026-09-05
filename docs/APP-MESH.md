@@ -9,8 +9,10 @@ it does nothing else. That is what this document is about: the *light node* insi
 `docs/MESH.md` is the protocol reference and stays authoritative for anything on the wire.
 `docs/APP-DEV.md` covers building the app itself.
 
-**Status: M3c.** The FFI crate, the Expo module, the URL rewrite, auto-membership and the Group
-screen are implemented. Open items are at the end.
+**Status: M3c, verified end to end in the app.** The FFI crate, the Expo module, the URL rewrite,
+auto-membership and the Group screen are implemented, and §9 records the run where a phone logged
+into a real node, joined its group by itself, and served a byte-verified range off the holder's
+disk through its own loopback port. Open items are at the end.
 
 ---
 
@@ -262,7 +264,12 @@ authentication of its own; it binds `127.0.0.1` precisely because anything that 
 already on the machine. The gateway binds `0.0.0.0` so phones and TVs can reach the node, so it
 refuses `/stingstream/mesh/*` from anywhere but loopback — a phone gets `403`. `MeshController` is
 the same operations behind Jellyfin's own authentication, which the app already holds a token for.
-Responses are camelCase JSON, unlike the mesh's own snake_case.
+**Responses are PascalCase** (`{"Group": …, "NodeName": …}`), despite
+`StingStreamControllerBase`'s comment saying otherwise — Core runs inside Jellyfin, whose global
+`JsonSerializerOptions` are PascalCase, and the controller base overrides the `[Produces]` media
+types without touching the naming policy. Nulls are omitted rather than serialised. The client in
+`lib/stingstream/mesh.ts` reads either casing, so a future camelCase policy would need no change
+here.
 
 | Used for | Call | |
 |---|---|---|
@@ -465,6 +472,42 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
   Silence from a warning that only fires on failure, in a path that certainly ran, is the positive
   result: the library loaded.
 
+* **The whole chain, inside the real app.** A node of my own (`m3c-home`, gateway 8890, its own
+  data directory and admin account, run from a private copy of the build outputs per
+  `CONTRIBUTING.md` §3) created a group and published one 4 MB file. The phone build logged in
+  against it from the emulator, and:
+
+  * **`startMesh()` bound and started** — the JNA/uniffi hop, exercised for real:
+
+    ```
+    I stingstream-mesh: identity: generated a new node key
+        path=/data/user/0/com.fredrikburmester.streamyfin/files/stingstream-mesh/node.key
+    I stingstream-mesh: node: mesh node started node=384eb2052209… node_name=Google sdk_gphone64_x86_64
+    I stingstream-mesh: stingstream_mesh_ffi: embedded mesh started node=384eb2052209… port=35533 light=true
+    ```
+
+  * **auto-membership joined the node's group** — the app minted an invite through
+    `POST /stingstream/api/v1/mesh/groups/{id}/invite` and joined with it, with no user action;
+  * **the peer showed online in the Group screen** — "M3c In-App · 2 members · 2 online · no
+    coordinator", and the detail screen listed `m3c-home` alongside this device at `Direct`, 28 ms;
+  * **`/stream` through the app's own loopback port returned the right bytes** —
+    `GET http://127.0.0.1:35533/stream/<group>/movie:tmdb:16205/<node>` with
+    `Range: bytes=1048576-1114111` answered `206`, `content-range: bytes 1048576-1114111/4194304`,
+    `etag: W/"b3-b3inapp…"`, and all 65 536 bytes matched their file offsets.
+
+  That closes the last hop. It also found a real bug on the way — see below.
+
+* **Core's mesh API answers PascalCase, not camelCase.** `StingStreamControllerBase` says
+  otherwise, but Core is hosted inside Jellyfin, whose global `JsonSerializerOptions` are
+  PascalCase, and the controller base overrides the `[Produces]` media types without touching the
+  naming policy. `GET /mesh/groups` really answers `[{"Group": "…", "Name": "…"}]`.
+
+  The client read `group`, got `undefined`, asked for an invite to a group called "undefined",
+  and every join failed into a `syncError` nobody was looking at — so the embedded mesh started
+  perfectly and joined nothing. Both sides worked; the *documented contract between them* was
+  wrong, which is precisely the class of bug a green test suite on either side cannot see. The
+  client now reads either casing.
+
 The transcript is in the M3c scratch directory.
 
 ### One thing Android does differently
@@ -488,31 +531,35 @@ which is why it is not done here.
 
 ## 10. Open items
 
-* **The coordinator cannot be changed after a group is created** (see §7). Needs an endpoint and a
-  gossip body, not just a screen.
+* **The coordinator cannot be changed after a group is created** (see §7). It is a property of the
+  group that travels in every invite code, and changing it has to reach every member — so it needs
+  an endpoint *and* a gossip body, not just a screen. Scheduled as a "change coordinator"
+  operation in M4.5; the picker here is create-time only until that lands, and the detail screen
+  shows the current value read-only.
 * **No iOS.** The FFI crate builds a `staticlib` and uniffi can emit Swift, but there is no iOS
   code here by decision.
 * **Re-sharing from a phone is deliberately impossible.** A light node serves nothing. If phones
   ever should re-share what they hold offline, that is a `light = false` node with a tiny inventory
   and a new set of questions about metered connections.
+* **`StingStream.Core` republishes the node's inventory on a timer**, overwriting anything pushed
+  by hand at `PUT /stingstream/mesh/v1/inventory`. Harmless in production — Core is the only thing
+  that should be publishing — but it means a manually seeded record for a test disappears within a
+  cycle, and a `/stream` fetch then answers `404 this node does not hold that item with that hash`.
+  Re-publish immediately before the fetch, or put a real file in the node's library.
 * **`MeshStatus.homeRelay` is "a relay this endpoint knows about", not "the relay this stream is
   using".** For the pill, the per-stream path from the stats callback is the accurate number, and
   that is what the overlay prefers.
 * **Android DNS through `ndk_context`** (see §9): the node falls back to Google's resolvers instead
   of the device's. A `JNI_OnLoad` in this crate plus a Kotlin call to hand over the `Context` fixes
   it; worth doing before release.
-* **JNA's symbol binding is still untested inside the app.** `System.loadLibrary` is verified
-  (§9); what is not is `Native.register` resolving uniffi's symbols, which happens on the first
-  `startMesh()` and therefore needs a login against a real node. It fails loudly — an
-  `UnsatisfiedLinkError` naming the symbol — so the check is simply: log in, and look at logcat.
-
-  **Do not try to verify this from `/proc/<pid>/maps`.** The APK ships its libraries uncompressed
-  and Android page-maps them straight out of `base.apk`, so no library appears in `maps` by name —
-  not `libstingstream_mesh_ffi.so`, not even `libhermes.so`. A `grep -c` there returns zero
-  whether the library loaded or not, which is a measurement that looks like an answer.
-
-* **Metro is unreliable on the M3c build machine**, which is what left the above unverified. It
-  serves one bundle and then stops answering HTTP on either stack — seen three times, including on
+* **Verifying that the library loaded**: do it from logcat, never from `/proc/<pid>/maps`. The
+  APK ships its libraries uncompressed and Android page-maps them straight out of `base.apk`, so
+  no library appears in `maps` by name — not `libstingstream_mesh_ffi.so`, not even
+  `libhermes.so`. A `grep -c` there returns zero whether the library loaded or not, which is a
+  measurement that looks like an answer. The mesh's own log lines under the `stingstream-mesh` tag
+  are the real signal.
+* **Metro is unreliable on the M3c build machine.** It serves one bundle and then stops answering
+  HTTP on either stack — seen three times, including on
   an instance that had already bundled successfully (`metro:bundling:done … ms=63539`, then a
   device timeout 36 minutes later). If a fresh instance has not answered within a couple of minutes
   of `metro:instantiate` in `.expo/dev/logs/start.log`, it is wedged rather than slow; restart it
