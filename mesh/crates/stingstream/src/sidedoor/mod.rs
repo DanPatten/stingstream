@@ -451,11 +451,11 @@ impl Cycle {
 
     /// Which name the coordinator should try, and on which port.
     ///
-    /// The public hostname is the honest target and the one a browser will use. When there is no
-    /// public address to publish under it — a node with no port mapping and no observed address —
-    /// the hostname resolves to nothing and the probe would fail for a reason that has nothing to
-    /// do with reachability, so this asks about the node's own registered address instead, which
-    /// the coordinator also allows.
+    /// The public hostname is the honest target and the one a browser will actually use, so it is
+    /// what gets probed. `[sidedoor] probe_by_address` asks about the node's registered address
+    /// instead — which the coordinator also allows — for a rig whose zone is not in public DNS,
+    /// where the hostname would fail to resolve for a reason that has nothing to do with
+    /// reachability.
     fn probe_target(
         &self,
         zone: &str,
@@ -466,8 +466,7 @@ impl Cycle {
         let port = mapped_port.unwrap_or(self.advertised_port());
         match public {
             Some(ip) if self.ctx.cfg.probe_by_address => (ip.to_string(), port),
-            Some(_) => (format!("{KIND_PUB}.{node_z32}.{zone}"), port),
-            None => (format!("{KIND_PUB}.{node_z32}.{zone}"), port),
+            _ => (format!("{KIND_PUB}.{node_z32}.{zone}"), port),
         }
     }
 

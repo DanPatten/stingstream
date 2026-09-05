@@ -432,3 +432,17 @@ afternoon working out why a certificate that was issued perfectly well still sho
   DNS-01 challenge at the same TXT name — the coordinator supports it — for a name nothing uses.
 * **Do not put CORS on `/healthz`.** `/sidedoor/v1/hello` exists precisely so the racing probes have
   somewhere cross-origin to go that carries nothing worth reading.
+* **Withdraw a DNS-01 token after the *order*, not after `set_ready`.** Telling the CA a challenge
+  is ready does not mean it has looked; validation is asynchronous. The first version of
+  `acme::obtain` cleared the token as soon as `set_ready` returned, and the order failed as
+  `urn:ietf:params:acme:error:unauthorized` — which reads as a permissions problem and is nothing of
+  the kind. It passed several runs by luck before `tools/e2e-sidedoor.ps1` caught it, and it would
+  have been far more likely against real Let's Encrypt, whose validation takes seconds rather than
+  milliseconds. A token that outlives its order by a second is harmless: it is a random string at a
+  name only its own node can write.
+* **`AsnEncodedData.Format()` is a Windows function.** It calls CryptFormatObject, which knows the
+  subjectAltName OID; on .NET for Linux there is no such formatter and it returns a hex dump. A
+  harness that parses `"DNS Name=…"` out of it is green on Windows and, on ubuntu, reports that a
+  certificate the node has plainly just been issued covers no names at all. `Get-CertificateNames`
+  prefers `X509SubjectAlternativeNameExtension` (.NET 7+) and keeps `Format()` only for Windows
+  PowerShell 5.1, where the type does not exist and the formatter does.

@@ -133,37 +133,32 @@ pub async fn obtain(
         "ACME order opened"
     );
 
-    // Every token this attempt published, so they can be withdrawn afterwards whether it worked or
-    // not. A token left behind is not dangerous — it is a random string at a name only this node
-    // can write — but it would still be answered on the next order, and tidying up is cheap.
+    // Every token this attempt publishes, so they can be withdrawn when the order is over.
+    //
+    // **After** the order, not after `set_ready`. Telling the CA a challenge is ready does not
+    // mean it has looked: validation is asynchronous, and Pebble in `tools/e2e-sidedoor.ps1`
+    // caught this by looking a few milliseconds later and getting NXDOMAIN from a name the token
+    // had already been withdrawn from. The order fails as `unauthorized`, which reads as a
+    // permissions problem and is nothing of the kind. A token that outlives its order by a second
+    // is not dangerous — it is a random string at a name only this node can write — so the safe
+    // side of this race is the patient one.
     let mut published: Vec<String> = Vec::new();
-    let result = solve(&mut order, coord, settings, base_domain, &mut published).await;
+    let retry = RetryPolicy::default().timeout(ORDER_TIMEOUT);
+    let issued = issue(
+        &mut order,
+        coord,
+        settings,
+        base_domain,
+        &mut published,
+        &retry,
+    )
+    .await;
     for token in &published {
         if let Err(e) = coord.clear_challenge(token).await {
             tracing::debug!(error = %format!("{e:#}"), "could not withdraw an ACME challenge token");
         }
     }
-    result?;
-
-    let retry = RetryPolicy::default().timeout(ORDER_TIMEOUT);
-    let status = order
-        .poll_ready(&retry)
-        .await
-        .context("waiting for the ACME order to become ready")?;
-    if status != OrderStatus::Ready {
-        bail!("the ACME order ended as {status:?} rather than ready");
-    }
-
-    // `finalize` generates the certificate's key pair here and returns it; the CSR made from it
-    // is the only thing that leaves the node.
-    let key_pem = order
-        .finalize()
-        .await
-        .context("finalizing the ACME order")?;
-    let chain_pem = order
-        .poll_certificate(&retry)
-        .await
-        .context("collecting the issued certificate")?;
+    let (key_pem, chain_pem) = issued?;
 
     let info = store
         .install(&chain_pem, &key_pem)
@@ -175,6 +170,38 @@ pub async fn obtain(
         "certificate issued and installed"
     );
     Ok(info)
+}
+
+/// Answer the challenges, wait for the order, and collect the certificate.
+///
+/// One function because the DNS-01 tokens have to stay published for all of it — see the note in
+/// [`obtain`] — and because a failure anywhere in here should withdraw them exactly once.
+async fn issue(
+    order: &mut instant_acme::Order,
+    coord: &CoordinatorClient,
+    settings: &AcmeSettings,
+    base_domain: &str,
+    published: &mut Vec<String>,
+    retry: &RetryPolicy,
+) -> Result<(String, String)> {
+    solve(order, coord, settings, base_domain, published).await?;
+
+    let status = order
+        .poll_ready(retry)
+        .await
+        .context("waiting for the ACME order to become ready")?;
+    if status != OrderStatus::Ready {
+        bail!("the ACME order ended as {status:?} rather than ready");
+    }
+
+    // `finalize` generates the certificate's key pair here and returns it; the CSR made from it is
+    // the only thing that leaves the node.
+    let key_pem = order.finalize().await.context("finalizing the ACME order")?;
+    let chain_pem = order
+        .poll_certificate(retry)
+        .await
+        .context("collecting the issued certificate")?;
+    Ok((key_pem, chain_pem))
 }
 
 /// Answer every outstanding authorization on the order.

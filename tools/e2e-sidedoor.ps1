@@ -96,6 +96,7 @@ $script:Steps = [System.Collections.Generic.List[object]]::new()
 $script:Processes = [System.Collections.Generic.List[object]]::new()
 $script:Failed = $false
 $script:Notes = [System.Collections.Generic.List[string]]::new()
+$script:Transcribing = $false
 
 # --- plumbing -------------------------------------------------------------------------------
 
@@ -361,17 +362,40 @@ function Get-CertificateNames {
     .SYNOPSIS
         The DNS names in a server certificate's subjectAltName.
     .DESCRIPTION
-        The certificate comes from [`Invoke-TlsRequest`], which already re-wrapped the raw bytes
-        into a certificate that owns its own context. It has to: the one `SslStream` hands its
-        callback is backed by a handle the stream closes with the connection, and reading an
-        extension off it afterwards fails with "m_safeCertContext is an invalid handle".
+        Two implementations, because there is no one way that works everywhere.
+
+        `AsnEncodedData.Format()` is implemented by *Windows* -- it calls CryptFormatObject, which
+        knows the subjectAltName OID and produces "DNS Name=x" lines. On .NET for Linux there is no
+        such formatter and `Format()` falls back to a **hex dump**, so the parse below silently
+        finds nothing and every certificate looks like it covers no names at all. That is exactly
+        how this first failed in CI: green on Windows, and on ubuntu a certificate the node had
+        plainly just been issued "presented a certificate for []".
+
+        So the typed reader is tried first (`X509SubjectAlternativeNameExtension`, .NET 7+, which
+        is what PowerShell 7 runs and what CI uses), and the Windows formatter is the fallback for
+        Windows PowerShell 5.1 on .NET Framework, where the type does not exist and `Format()`
+        works properly.
+
+        The certificate itself comes from [`Invoke-TlsRequest`], which already re-wrapped the raw
+        bytes into one that owns its own context: the certificate `SslStream` hands its callback is
+        backed by a handle the stream closes with the connection, and reading an extension off it
+        afterwards fails with "m_safeCertContext is an invalid handle".
     #>
     param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
     $san = $Certificate.Extensions | Where-Object { $_.Oid -and $_.Oid.Value -eq '2.5.29.17' }
     if (-not $san) { return @() }
-    $text = $san.Format($true)
+
+    $typed = 'System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension' -as [type]
+    if ($typed) {
+        try {
+            return @($typed::new($san.RawData, $san.Critical).EnumerateDnsNames())
+        } catch {
+            Write-Host "      (typed SAN reader failed: $($_.Exception.Message))" -ForegroundColor DarkGray
+        }
+    }
+
     $names = @()
-    foreach ($line in ($text -split "`r?`n")) {
+    foreach ($line in ($san.Format($true) -split "`r?`n")) {
         if ($line -match '(?i)DNS Name=(.+)$') { $names += $Matches[1].Trim() }
     }
     return $names
@@ -605,6 +629,16 @@ if ((Test-Path $WorkDir) -and -not $KeepData) {
     Remove-Item -Recurse -Force $WorkDir -ErrorAction SilentlyContinue
 }
 New-Item -ItemType Directory -Force -Path $WorkDir, $LogDir, $NodeData, $BinDir | Out-Null
+# Everything this script prints also goes into the log directory, which CI uploads as an artifact.
+# Without it, a failure on a runner is diagnosable only from the job log -- which is unreadable
+# until the *whole* run finishes, and by then somebody has usually pushed again.
+try {
+    Start-Transcript -Path (Join-Path $LogDir 'harness.log') -Force | Out-Null
+    $script:Transcribing = $true
+} catch {
+    $script:Transcribing = $false
+    Write-Host "      (no transcript: $($_.Exception.Message))" -ForegroundColor DarkGray
+}
 Write-Host "      work dir  $WorkDir"
 Write-Host "      pebble    $PebbleDir"
 
@@ -731,10 +765,12 @@ $NodeId = $SideDoor.node
 Invoke-Step 'HTTPS on the gateway answers for the public hostname' {
     $name = "pub.$NodeId.$Zone"
     $r = Invoke-TlsRequest -Address '127.0.0.1' -Port $Ports.Gateway -Sni $name
-    if ($r.Status -ne 200) { throw "GET /sidedoor/v1/hello over TLS answered $($r.Status): $($r.Body)" }
+    if ($r.Status -ne 200) {
+        throw "GET /sidedoor/v1/hello over TLS answered $($r.Status). Headers: $($r.Headers). Body: $($r.Body)"
+    }
     $names = Get-CertificateNames -Certificate $r.Certificate
     if ($names -notcontains "*.$NodeId.$Zone") {
-        throw "the gateway presented a certificate for [$($names -join ', ')]"
+        throw "the gateway presented a certificate for [$($names -join ', ')] (subject $($r.Certificate.Subject))"
     }
     $hello = $r.Body | ConvertFrom-Json
     if ($hello.node -ne $NodeId) { throw "the gateway answered for node $($hello.node), expected $NodeId" }
@@ -823,7 +859,7 @@ Invoke-Step 'The relay hostname tunnels through the coordinator to the node' {
     }
     $names = Get-CertificateNames -Certificate $r.Certificate
     if ($names -notcontains "*.$NodeId.$Zone") {
-        throw "the passthrough presented [$($names -join ', ')] -- the coordinator must not terminate TLS"
+        throw "the passthrough presented [$($names -join ', ')] (subject $($r.Certificate.Subject)) -- the coordinator must not terminate TLS"
     }
     $hello = $r.Body | ConvertFrom-Json
     if ($hello.node -ne $NodeId) { throw "the passthrough reached node $($hello.node)" }
@@ -917,6 +953,8 @@ Invoke-Step 'The certificate survived a restart without a second ACME order' {
         Write-Head 'Cleanup'
         Stop-Tools
     }
+
+    if ($script:Transcribing) { try { Stop-Transcript | Out-Null } catch { } }
 }
 
 if ($script:Failed) {
