@@ -17,9 +17,9 @@ StingStream/
 ├─ server/radarr/            # subtree: Radarr/Radarr
 ├─ server/sonarr/            # subtree: Sonarr/Sonarr
 ├─ server/infinidysk/        # subtree: nzbdav/nzbdav (optional usenet streaming)
-├─ mesh/                     # Rust workspace
-│  ├─ jellyswarrm/           # subtree: LLukas22/Jellyswarrm
-│  └─ crates/
+├─ mesh/                     # Rust — TWO Cargo workspaces (see docs/ARCHITECTURE.md)
+│  ├─ jellyswarrm/           # subtree: LLukas22/Jellyswarrm — its own Cargo workspace
+│  └─ crates/                # mesh/Cargo.toml is the OTHER workspace, for these three:
 │     ├─ stingstream/        # entry binary: supervisor + gateway
 │     ├─ stingstream-mesh/   # iroh transport, groups, gossip index, source selection
 │     └─ stingstream-relay/  # relay + discovery + storage-node profile
@@ -36,23 +36,33 @@ Each component builds independently today; there is no unified top-level build y
 M1). From a clean clone:
 
 ```powershell
-# .NET components (requires the .NET SDK version each component's global.json pins)
-dotnet build server/jellyfin/Jellyfin.Server
-dotnet build server/radarr/src/Radarr.sln    # or the solution file present in server/radarr
-dotnet build server/sonarr/src/Sonarr.sln    # or the solution file present in server/sonarr
-dotnet build server/infinidysk
+# .NET components -- each pins its own SDK feature band via its own global.json (or bare TFM for
+# infinidysk, which has none); install all four side-by-side (the .NET SDK supports this):
+#   server/jellyfin:   global.json pins SDK 10.0.0
+#   server/radarr:     global.json pins SDK 8.0.421
+#   server/sonarr:     global.json pins SDK 6.0.405
+#   server/infinidysk: no global.json; all projects target net10.0
+dotnet build server/jellyfin/Jellyfin.sln
+dotnet build server/radarr/src/Radarr.sln
+dotnet build server/sonarr/src/Sonarr.sln
+dotnet build server/infinidysk/NzbWebDAV.sln
 
-# Rust workspace (mesh/crates/*, plus mesh/jellyswarrm if the workspace includes it)
-cargo build --manifest-path mesh/Cargo.toml
+# Rust -- mesh/ is TWO separate Cargo workspaces, not one (see docs/ARCHITECTURE.md
+# "Mesh workspace" for why unifying them was tried and doesn't work):
+cargo build --manifest-path mesh/Cargo.toml            # stingstream, stingstream-mesh, stingstream-relay
+$env:JELLYSWARRM_SKIP_UI = "1"                          # skips Jellyswarrm's optional embedded admin UI,
+cargo build --manifest-path mesh/jellyswarrm/Cargo.toml # whose ui/ git submodule subtree never checks out
 
-# StingStream app (Expo). Web export is expected to fail until the M2 web-target spike;
-# see docs/ARCHITECTURE.md "Risks" for why.
+# StingStream app (Expo). Uses bun upstream (bun.lock committed); with npm, --legacy-peer-deps is
+# needed (a plain `npm install` fails resolving the aliased react-native-tvos package against
+# react-native-reanimated's peer range -- see docs/ARCHITECTURE.md). Web export is expected to
+# fail until the M2 web-target spike; see docs/ARCHITECTURE.md "Risks" for why.
 cd apps/stingstream
-npm install   # or yarn install, whichever lockfile is present upstream
+npm install --legacy-peer-deps   # or: bun install
 npx expo export --platform web
 
 # Fetch third-party NZBGet binaries (not vendored; downloaded on demand)
-pwsh third_party/nzbget/fetch-nzbget.ps1
+powershell -File third_party/nzbget/fetch-nzbget.ps1
 ```
 
 To pull upstream changes into all six vendored subtrees, see `tools/upstream-pull.ps1`.

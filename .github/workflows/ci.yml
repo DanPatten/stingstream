@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  dotnet:
+    name: dotnet (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Each of the four .NET components pins its own SDK feature band via its own global.json
+      # (jellyfin: 10.0.0, radarr: 8.0.421, sonarr: 6.0.405) or bare net10.0 TFM (infinidysk, no
+      # global.json). Installing all of them side-by-side is supported by the .NET SDK and is the
+      # only way a single runner builds all four -- see docs/ARCHITECTURE.md "Facts" for the M0
+      # finding that no single locally-installed SDK version covers more than one of these.
+      - name: Setup .NET SDKs (6.0, 8.0, 9.0, 10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Build server/jellyfin (Jellyfin.Server)
+        run: dotnet build server/jellyfin/Jellyfin.sln --configuration Release
+
+      - name: Build server/radarr
+        run: dotnet build server/radarr/src/Radarr.sln --configuration Release
+
+      - name: Build server/sonarr
+        run: dotnet build server/sonarr/src/Sonarr.sln --configuration Release
+
+      - name: Build server/infinidysk
+        run: dotnet build server/infinidysk/NzbWebDAV.sln --configuration Release
+
+  rust:
+    name: rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true # mesh/jellyswarrm/dev/media/** is Git LFS-tracked; see docs/ARCHITECTURE.md
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            mesh
+            mesh/jellyswarrm
+
+      # mesh/ is deliberately TWO separate Cargo workspaces, not one -- re-rooting Jellyswarrm's
+      # crates under mesh/Cargo.toml was tried during M0 and fails on its ~40-entry
+      # workspace.dependencies table. See docs/ARCHITECTURE.md "Mesh workspace" and mesh/Cargo.toml.
+      - name: Build mesh/ (stingstream, stingstream-mesh, stingstream-relay)
+        run: cargo build --manifest-path mesh/Cargo.toml --workspace
+
+      - name: Build mesh/jellyswarrm
+        # JELLYSWARRM_SKIP_UI skips building the optional embedded jellyfin-web admin UI, whose
+        # `ui/` git submodule a plain `git subtree add`/`pull` never initializes (see
+        # docs/ARCHITECTURE.md). StingStream's own UI comes from apps/stingstream (Streamyfin), so
+        # Jellyswarrm's bundled UI is not something we need built here.
+        run: cargo build --manifest-path mesh/jellyswarrm/Cargo.toml --workspace
+        env:
+          JELLYSWARRM_SKIP_UI: "1"
+
+  node:
+    name: node (apps/stingstream)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: apps/stingstream
+        # Upstream Streamyfin uses bun (bun.lock committed). CI uses npm with
+        # --legacy-peer-deps: a plain `npm install` fails resolving the aliased
+        # react-native-tvos package against react-native-reanimated's peer range (M0 finding;
+        # bun's resolver accepts it). Revisit once bun is available in this runner image, or once
+        # M2 sorts out the app's real toolchain.
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: Expo web export
+        working-directory: apps/stingstream
+        # Expected to fail today -- Streamyfin is a native-heavy Expo/React Native app with no web
+        # target upstream. This job is intentionally continue-on-error so CI stays green; the
+        # M2 web-target spike (docs/ARCHITECTURE.md M2) is what actually fixes this, and its
+        # gating decision depends on exactly how/why this step fails. Do not remove
+        # continue-on-error before that spike lands.
+        run: npx expo export --platform web
+        continue-on-error: true

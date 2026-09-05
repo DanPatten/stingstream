@@ -5,9 +5,18 @@ members = [
     "crates/stingstream-mesh",
     "crates/stingstream-relay",
 ]
-# mesh/jellyswarrm (subtree: LLukas22/Jellyswarrm) is added as a member here once the subtree
-# lands, if doing so resolves cleanly alongside the three crates above. See docs/ARCHITECTURE.md
-# "Mesh workspace" for the outcome of that check.
+# mesh/jellyswarrm (subtree: LLukas22/Jellyswarrm) is deliberately NOT a member of this workspace.
+# It keeps its own Cargo.toml workspace (mesh/jellyswarrm/Cargo.toml) and builds independently
+# (`cargo build --manifest-path mesh/jellyswarrm/Cargo.toml`, or `cd mesh/jellyswarrm && cargo
+# build`). See docs/ARCHITECTURE.md "Mesh workspace" for why: Jellyswarrm's three crates
+# (jellyswarrm-proxy, jellyswarrm-macros, jellyfin-api) use `field.workspace = true` inheritance
+# for `version`/`authors`/`repository` AND for its full ~40-entry `[workspace.dependencies]` table
+# (axum, sqlx, tokio, reqwest, etc. all pinned there). Re-rooting them under this workspace would
+# mean copying that entire dependency table in here verbatim, which guarantees version conflicts
+# the moment the new stingstream* crates need a different version of something Jellyswarrm also
+# pins, and silently re-couples our crates to upstream's dependency choices on every subtree pull.
+# Tried and confirmed during M0 (two failed merge attempts: missing workspace.package.version,
+# then missing workspace.dependencies entries) before falling back to two workspaces.
 
 [workspace.package]
 edition = "2021"
