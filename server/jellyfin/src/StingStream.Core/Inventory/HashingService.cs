@@ -36,12 +36,18 @@ public sealed class HashingService : BackgroundService
     private readonly ILogger<HashingService> _logger;
     private readonly CoreDatabase _db;
     private readonly IIdleSignal _idle;
+    private readonly IServiceProvider _services;
 
-    public HashingService(ILogger<HashingService> logger, CoreDatabase db, IIdleSignal idle)
+    public HashingService(
+        ILogger<HashingService> logger,
+        CoreDatabase db,
+        IIdleSignal idle,
+        IServiceProvider services)
     {
         _logger = logger;
         _db = db;
         _idle = idle;
+        _services = services;
     }
 
     /// <summary>Files at or above this size are deferred until the node is idle.</summary>
@@ -247,6 +253,40 @@ public sealed class HashingService : BackgroundService
             size / (1024 * 1024),
             elapsed.TotalSeconds,
             hex[..16]);
+
+        await PublishToInventoryAsync(itemId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Rebuild the item's inventory record now that its hash is known.
+    /// </summary>
+    /// <remarks>
+    /// The record is written the moment an import lands and the hash arrives later -- minutes
+    /// later for a large file -- so without this step <c>file_hash</c> stays null until somebody
+    /// triggers a full rebuild, which defeats the point of computing it. Resolved from the
+    /// container at call time rather than injected, because the inventory service depends on this
+    /// one and a constructor reference would be a cycle.
+    /// </remarks>
+    private async Task PublishToInventoryAsync(string? itemId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(itemId) || !Guid.TryParse(itemId, out var id))
+        {
+            return;
+        }
+
+        try
+        {
+            if (_services.GetService(typeof(IInventoryService)) is IInventoryService inventory)
+            {
+                await inventory.RefreshItemAsync(id, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException
+                                      or Microsoft.Data.Sqlite.SqliteException)
+        {
+            // The hash is stored either way; the record catches up on the next refresh.
+            _logger.LogWarning(ex, "Could not update the inventory record for {ItemId}", itemId);
+        }
     }
 
     /// <summary>Stream a file through BLAKE3, yielding between chunks.</summary>
