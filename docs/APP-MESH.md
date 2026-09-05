@@ -466,3 +466,9 @@ which is why it is not done here.
 * **`MeshStatus.homeRelay` is "a relay this endpoint knows about", not "the relay this stream is
   using".** For the pill, the per-stream path from the stats callback is the accurate number, and
   that is what the overlay prefers.
+* **Android DNS through `ndk_context`** (see §9): the node falls back to Google's resolvers instead
+  of the device's. A `JNI_OnLoad` in this crate plus a Kotlin call to hand over the `Context` fixes
+  it; worth doing before release.
+* **The JNA hop is untested inside the app** (see §9). Repeat the check the first time anyone has
+  a working Metro on a machine with the TV APK installed: launch, log in, and watch for
+  `UnsatisfiedLinkError` — or its absence, and a node id on the Groups screen.
