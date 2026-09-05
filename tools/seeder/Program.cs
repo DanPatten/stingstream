@@ -38,16 +38,44 @@ public static class Program
 
         // 1. Tracker. Announcing over HTTP on loopback means the downloading engine finds this
         //    seeder without DHT, local peer discovery or anything leaving the machine.
-        var announceUri = new Uri($"http://127.0.0.1:{options.TrackerPort.ToString(CultureInfo.InvariantCulture)}/announce/");
         using var tracker = new TrackerServer
         {
             AllowUnregisteredTorrents = true,
             AnnounceInterval = TimeSpan.FromSeconds(options.AnnounceIntervalSeconds),
             MinAnnounceInterval = TimeSpan.FromSeconds(options.AnnounceIntervalSeconds),
         };
-        var listener = new HttpTrackerListener(IPAddress.Loopback, (ushort)options.TrackerPort);
+
+        // Asking the OS for a free port and then binding it is racy, and HttpListener additionally
+        // refuses a prefix that another registration on the machine still holds -- including one
+        // left behind by a process that was killed. Retry rather than fail the whole harness.
+        HttpTrackerListener? listener = null;
+        Uri? announceUri = null;
+        var port = options.TrackerPort;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            var candidate = new HttpTrackerListener(IPAddress.Loopback, (ushort)port);
+            try
+            {
+                candidate.Start();
+                listener = candidate;
+                announceUri = new Uri($"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}/announce/");
+                break;
+            }
+            catch (HttpListenerException ex)
+            {
+                Console.Error.WriteLine($"seeder: port {port} unusable ({ex.Message.Trim()}); trying another");
+                candidate.Stop();
+                port = Options.FreePort();
+            }
+        }
+
+        if (listener is null || announceUri is null)
+        {
+            Console.Error.WriteLine("seeder: could not bind a tracker port after 12 attempts.");
+            return 1;
+        }
+
         tracker.RegisterListener(listener);
-        listener.Start();
         Console.WriteLine($"tracker: {announceUri}");
 
         // 2. Build the .torrent.
@@ -245,7 +273,7 @@ internal sealed class Options
         => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : fallback;
 
     /// <summary>Ask the OS for a free loopback port by binding zero and reading it back.</summary>
-    private static int FreePort()
+    public static int FreePort()
     {
         using var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
         l.Start();

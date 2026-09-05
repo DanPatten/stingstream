@@ -572,6 +572,41 @@ Invoke-Step 'StingStream API is reachable' {
 }
 
 # ============================================================================================
+Invoke-Step 'Gateway proxies the Jellyfin WebSocket' {
+    # Jellyfin's clients hold a WebSocket open at /socket for session and playback events, so the
+    # gateway cannot be a plain request/response proxy -- it has to relay the 101 and then splice
+    # the two connections. Nothing else in this harness would notice if that broke.
+    # ApiKey, not api_key: this Jellyfin only reads the lowercase spelling when
+    # EnableLegacyAuthorization is on, and it is off by default -- an api_key= socket request is
+    # answered with a bare 403 and no hint as to why.
+    $uri = [Uri]("ws://127.0.0.1:$GatewayPort/jellyfin/socket?ApiKey=$($script:JellyfinToken)&deviceId=e2e-m1")
+    $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+    try {
+        $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(30))
+        $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult()
+        if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+            throw "The WebSocket did not open through the gateway (state: $($ws.State))."
+        }
+
+        # Prove it is a real end-to-end tunnel, not just a completed handshake: Jellyfin answers
+        # KeepAlive with a ForceKeepAlive message.
+        $send = [Text.Encoding]::UTF8.GetBytes('{"MessageType":"KeepAlive"}')
+        $ws.SendAsync(
+            [ArraySegment[byte]]::new($send),
+            [System.Net.WebSockets.WebSocketMessageType]::Text,
+            $true,
+            $cts.Token).GetAwaiter().GetResult()
+
+        $buffer = [byte[]]::new(8192)
+        $received = $ws.ReceiveAsync([ArraySegment[byte]]::new($buffer), $cts.Token).GetAwaiter().GetResult()
+        $text = [Text.Encoding]::UTF8.GetString($buffer, 0, $received.Count)
+        Write-Host "      101 Switching Protocols, first frame: $($text.Substring(0, [Math]::Min(80, $text.Length)))"
+    } finally {
+        try { $ws.Dispose() } catch { }
+    }
+}
+
+# ============================================================================================
 Invoke-Step 'Add the indexer and sync' {
     $indexer = Invoke-StingStream '/stingstream/api/v1/settings/indexers?sync=true' -Method POST -Body @{
         name           = 'E2E Torznab'
