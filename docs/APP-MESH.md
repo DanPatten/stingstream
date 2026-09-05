@@ -452,6 +452,19 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
   and a native module that has only ever been *compiled* has not been tested. The Rust half was
   proven on the device; the Kotlin around it was not, and that is exactly where the bug was.
 
+* **With that fixed, the module registers and the library loads.** On the phone build, with the JS
+  bundle running (`ReactNativeJS: Running "main"`, the providers imported — so `MeshProvider`
+  mounted and called `isMeshAvailable()`):
+
+  * no `appContext` crash — the app runs;
+  * nothing at all from the module's own `StingstreamMesh` log tag, and it logs a warning
+    *precisely* when `System.loadLibrary("stingstream_mesh_ffi")` fails;
+  * no `UnsatisfiedLinkError` anywhere in logcat;
+  * and the installed APK does contain all three libraries (`unzip -l` on `base.apk`).
+
+  Silence from a warning that only fires on failure, in a path that certainly ran, is the positive
+  result: the library loaded.
+
 The transcript is in the M3c scratch directory.
 
 ### One thing Android does differently
@@ -488,17 +501,15 @@ which is why it is not done here.
 * **Android DNS through `ndk_context`** (see §9): the node falls back to Google's resolvers instead
   of the device's. A `JNI_OnLoad` in this crate plus a Kotlin call to hand over the `Context` fixes
   it; worth doing before release.
-* **The JNA hop is still untested inside the app.** The startup crash above was one layer
-  earlier — module registration — so it says nothing about whether JNA can bind uniffi's symbols
-  once `startMesh()` is called. The check, with the APK installed and the app on a real screen:
+* **JNA's symbol binding is still untested inside the app.** `System.loadLibrary` is verified
+  (§9); what is not is `Native.register` resolving uniffi's symbols, which happens on the first
+  `startMesh()` and therefore needs a login against a real node. It fails loudly — an
+  `UnsatisfiedLinkError` naming the symbol — so the check is simply: log in, and look at logcat.
 
-  ```
-  adb shell "run-as com.fredrikburmester.streamyfin cat /proc/<pid>/maps" | grep -c stingstream_mesh_ffi
-  ```
-
-  Non-zero means `isMeshAvailable()` ran and `System.loadLibrary` succeeded. The rest — JNA
-  resolving uniffi's symbols — happens on the first `startMesh()`, which needs a login, and fails
-  loudly with an `UnsatisfiedLinkError` naming the symbol if it fails at all.
+  **Do not try to verify this from `/proc/<pid>/maps`.** The APK ships its libraries uncompressed
+  and Android page-maps them straight out of `base.apk`, so no library appears in `maps` by name —
+  not `libstingstream_mesh_ffi.so`, not even `libhermes.so`. A `grep -c` there returns zero
+  whether the library loaded or not, which is a measurement that looks like an answer.
 
 * **Metro is unreliable on the M3c build machine**, which is what left the above unverified. It
   serves one bundle and then stops answering HTTP on either stack — seen three times, including on
