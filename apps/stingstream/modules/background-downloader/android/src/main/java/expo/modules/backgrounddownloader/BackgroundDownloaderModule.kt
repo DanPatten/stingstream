@@ -15,15 +15,36 @@ data class DownloadTaskInfo(
   val destinationPath: String?,
   val itemId: String? = null,
   /** Custom proxy auth headers for a server behind an access gateway. */
-  val headers: Map<String, String>? = null
+  val headers: Map<String, String>? = null,
+  /**
+   * Fallback denominator for progress when the server sends no `Content-Length`.
+   *
+   * A real-time transcode is chunked, so there is no total to divide by and the progress ring sat
+   * at zero for the whole download -- indistinguishable from a stalled one, which is half of why
+   * M5's timeout looked like a hang. iOS has used this estimate since Streamyfin; Android now does
+   * too.
+   */
+  val estimatedTotalBytes: Long? = null
 )
 
 private data class QueuedDownload(
   val url: String,
   val destinationPath: String?,
   val itemId: String?,
-  val headers: Map<String, String>?
+  val headers: Map<String, String>?,
+  /** See [DownloadOptions.readTimeoutSeconds] in the TypeScript module. */
+  val readTimeoutSeconds: Long? = null,
+  /** See [DownloadTaskInfo.estimatedTotalBytes]. */
+  val estimatedTotalBytes: Long? = null
 )
+
+/** `metadata.estimatedTotalBytes`, from an untyped JS object, or null when it was not sent. */
+private fun estimatedTotalOf(metadata: Map<String, Any?>?): Long? =
+  (metadata?.get("estimatedTotalBytes") as? Number)?.toLong()?.takeIf { it > 0 }
+
+/** `options.readTimeoutSeconds`, from an untyped JS object, or null for the default. */
+private fun readTimeoutOf(options: Map<String, Any?>?): Long? =
+  (options?.get("readTimeoutSeconds") as? Number)?.toLong()
 
 class BackgroundDownloaderModule : Module() {
   companion object {
@@ -94,13 +115,22 @@ class BackgroundDownloaderModule : Module() {
       }
     }
 
-    // `metadata` carries the iOS Live Activity payload; here only `itemId` is used, echoed back in
-    // events so JS can correlate them without a taskId bookkeeping layer. The parameter must exist
-    // on both platforms regardless — JS always passes three arguments.
-    AsyncFunction("startDownload") { urlString: String, destinationPath: String?, metadata: Map<String, Any?>?, headers: Map<String, String>?, promise: Promise ->
+    // `metadata` carries the iOS Live Activity payload; here `itemId` (echoed back in every event,
+    // which is how they find their way to the right JS process without a taskId bookkeeping layer)
+    // and `estimatedTotalBytes` (the progress denominator when a transcode sends no Content-Length)
+    // are used. Every parameter must exist on both platforms regardless — JS always passes all
+    // five.
+    AsyncFunction("startDownload") { urlString: String, destinationPath: String?, metadata: Map<String, Any?>?, headers: Map<String, String>?, options: Map<String, Any?>?, promise: Promise ->
       try {
         val taskId = synchronized(stateLock) {
-          startDownloadLocked(urlString, destinationPath, metadata?.get("itemId") as? String, headers)
+          startDownloadLocked(
+            urlString,
+            destinationPath,
+            metadata?.get("itemId") as? String,
+            headers,
+            readTimeoutOf(options),
+            estimatedTotalOf(metadata)
+          )
         }
         promise.resolve(taskId)
       } catch (e: Exception) {
@@ -108,7 +138,7 @@ class BackgroundDownloaderModule : Module() {
       }
     }
 
-    AsyncFunction("enqueueDownload") { urlString: String, destinationPath: String?, metadata: Map<String, Any?>?, headers: Map<String, String>?, promise: Promise ->
+    AsyncFunction("enqueueDownload") { urlString: String, destinationPath: String?, metadata: Map<String, Any?>?, headers: Map<String, String>?, options: Map<String, Any?>?, promise: Promise ->
       try {
         Log.d(TAG, "Enqueuing download: url=$urlString")
 
@@ -120,7 +150,9 @@ class BackgroundDownloaderModule : Module() {
               url = urlString,
               destinationPath = destinationPath,
               itemId = metadata?.get("itemId") as? String,
-              headers = headers
+              headers = headers,
+              readTimeoutSeconds = readTimeoutOf(options),
+              estimatedTotalBytes = estimatedTotalOf(metadata)
             )
           )
           Log.d(TAG, "Queue size: ${downloadQueue.size}")
@@ -209,7 +241,9 @@ class BackgroundDownloaderModule : Module() {
     urlString: String,
     destinationPath: String?,
     itemId: String?,
-    headers: Map<String, String>? = null
+    headers: Map<String, String>? = null,
+    readTimeoutSeconds: Long? = null,
+    estimatedTotalBytes: Long? = null
   ): Int {
     val taskId = taskIdCounter++
 
@@ -221,7 +255,8 @@ class BackgroundDownloaderModule : Module() {
       url = urlString,
       destinationPath = destinationPath,
       itemId = itemId,
-      headers = headers
+      headers = headers,
+      estimatedTotalBytes = estimatedTotalBytes
     )
 
     // Start foreground service if not running
@@ -244,6 +279,7 @@ class BackgroundDownloaderModule : Module() {
       url = urlString,
       destinationPath = destinationPath,
       headers = headers,
+      readTimeoutSeconds = readTimeoutSeconds,
       onProgress = { bytesWritten, totalBytes ->
         handleProgress(taskId, bytesWritten, totalBytes)
       },
@@ -276,7 +312,14 @@ class BackgroundDownloaderModule : Module() {
     Log.d(TAG, "Processing next in queue: ${next.url}")
 
     return try {
-      startDownloadLocked(next.url, next.destinationPath, next.itemId, next.headers)
+      startDownloadLocked(
+        next.url,
+        next.destinationPath,
+        next.itemId,
+        next.headers,
+        next.readTimeoutSeconds,
+        next.estimatedTotalBytes
+      )
     } catch (e: Exception) {
       Log.e(TAG, "Error processing queue item: ${e.message}", e)
       // Try to process next item
@@ -287,13 +330,19 @@ class BackgroundDownloaderModule : Module() {
   // Called from OkHttp dispatcher threads.
 
   private fun handleProgress(taskId: Int, bytesWritten: Long, totalBytes: Long) {
-    val progress = if (totalBytes > 0) {
-      bytesWritten.toDouble() / totalBytes.toDouble()
+    val taskInfo = synchronized(stateLock) { downloadTasks[taskId] }
+
+    // A transcode is chunked and carries no Content-Length, so fall back to what JS estimated from
+    // the bitrate and runtime. Capped at 0.99: an estimate that came in low must never let the ring
+    // read as finished while bytes are still arriving.
+    val denominator = if (totalBytes > 0) totalBytes else taskInfo?.estimatedTotalBytes ?: 0L
+    val progress = if (denominator > 0) {
+      (bytesWritten.toDouble() / denominator.toDouble()).coerceAtMost(
+        if (totalBytes > 0) 1.0 else 0.99
+      )
     } else {
       0.0
     }
-
-    val taskInfo = synchronized(stateLock) { downloadTasks[taskId] }
 
     // Update notification
     if (taskInfo != null) {

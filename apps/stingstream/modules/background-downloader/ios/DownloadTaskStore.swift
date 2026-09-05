@@ -21,9 +21,11 @@ struct DownloadTaskInfo: Codable {
   /// background transfer already carries them in its own request, so nothing is
   /// lost by not persisting them.
   var headers: [String: String]?
+  /// Seconds this download may go without progress. See `DownloadOptions` in the TS module.
+  var readTimeoutSeconds: Double?
 
   private enum CodingKeys: String, CodingKey {
-    case url, destinationPath, metadata, createdAt
+    case url, destinationPath, metadata, createdAt, readTimeoutSeconds
   }
 }
 

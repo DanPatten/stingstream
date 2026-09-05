@@ -5,6 +5,7 @@ import type {
   DownloadActivityMetadata,
   DownloadCompleteEvent,
   DownloadErrorEvent,
+  DownloadOptions,
   DownloadProgressEvent,
   DownloadStartedEvent,
 } from "./src/BackgroundDownloader.types";
@@ -21,12 +22,14 @@ export interface BackgroundDownloader {
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number>;
   enqueueDownload(
     url: string,
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number>;
   cancelDownload(taskId: number): void;
   cancelQueuedDownload(url: string): void;
@@ -66,12 +69,14 @@ const BackgroundDownloader: BackgroundDownloader = {
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number> {
     return await BackgroundDownloaderModule.startDownload(
       url,
       destinationPath,
       metadata,
       headers,
+      options,
     );
   },
 
@@ -80,12 +85,14 @@ const BackgroundDownloader: BackgroundDownloader = {
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number> {
     return await BackgroundDownloaderModule.enqueueDownload(
       url,
       destinationPath,
       metadata,
       headers,
+      options,
     );
   },
 
@@ -156,6 +163,7 @@ export type {
   DownloadActivityMetadata,
   DownloadCompleteEvent,
   DownloadErrorEvent,
+  DownloadOptions,
   DownloadProgressEvent,
   DownloadStartedEvent,
 };

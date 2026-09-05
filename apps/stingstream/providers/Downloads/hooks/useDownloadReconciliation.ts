@@ -68,6 +68,7 @@ async function reEnqueue(
       destinationPath,
       record.activityMetadata,
       headers,
+      { readTimeoutSeconds: record.readTimeoutSeconds },
     );
     if (taskId !== -1) {
       updatePendingDownload(record.itemId, { status: "downloading", taskId });

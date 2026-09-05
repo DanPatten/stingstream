@@ -41,6 +41,7 @@ export function estimateDownloadSize(
   runTimeTicks?: number | null,
 ): number | undefined {
   if (!runTimeTicks || runTimeTicks <= 0) return undefined;
+  if (!bitrateValue || bitrateValue <= 0) return undefined;
 
   // Convert ticks to seconds (1 tick = 100 nanoseconds)
   const durationSeconds = runTimeTicks / 10000000;

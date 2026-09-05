@@ -7,7 +7,12 @@ mock.module("expo", () => ({
   requireOptionalNativeModule: () => null,
 }));
 
-const { getStreamUrl, getDownloadStreamUrl } = await import("./getStreamUrl");
+const {
+  getStreamUrl,
+  getDownloadStreamUrl,
+  wantsTranscodedDownload,
+  TRANSCODE_READ_TIMEOUT_SECONDS,
+} = await import("./getStreamUrl");
 const { makeApi, bodyContaining } = await import("@/test-utils/jellyfinApi");
 
 describe("getStreamUrl", () => {
@@ -180,6 +185,29 @@ describe("getDownloadStreamUrl", () => {
       );
     });
 
+    test("a transcode waits far longer than the sixty seconds that killed M5's download", async () => {
+      const api = makeApi();
+      api.mock
+        .onPost(
+          "https://jellyfin.example.com/Items/item-1/PlaybackInfo",
+          bodyContaining({ deviceProfile: { Name: "1. MPV Download" } }),
+        )
+        .reply(200, downloadGetsAProgressiveMp4);
+
+      const result = await getDownloadStreamUrl({
+        api,
+        item: { Id: "item-1", Type: "Movie" },
+        userId: "user-1",
+        mediaSourceId: "media-1",
+        maxStreamingBitrate: 4_000_000,
+        audioStreamIndex: 0,
+        subtitleStreamIndex: 0,
+      });
+
+      expect(result?.transcoded).toBe(true);
+      expect(result?.readTimeoutSeconds).toBe(TRANSCODE_READ_TIMEOUT_SECONDS);
+    });
+
     test("downloads the TranscodingUrl exactly as the server sent it, even when the user picks no subtitle (streaming rewrites SubtitleMethod, downloads must not)", async () => {
       const api = makeApi();
       api.mock
@@ -226,6 +254,163 @@ describe("getDownloadStreamUrl", () => {
       expect(url.href).toBe(
         "https://jellyfin.example.com/videos/media-1/stream.mp4?DeviceId=device-1&PlaySessionId=session-1",
       );
+    });
+  });
+
+  /**
+   * Dan's decision, carried from M5 into M7 (`docs/APP-RELEASE.md` §6): a download takes the
+   * original unless the person doing the downloading asked for something else. PlaybackInfo
+   * setting `TranscodingUrl` is the *server* saying the download profile cannot direct-play the
+   * source, which is a different statement and must not be read as consent to re-encode.
+   */
+  describe("what counts as asking for a transcode", () => {
+    test("the default download quality, with no bitrate cap, does not", () => {
+      expect(wantsTranscodedDownload("original", undefined)).toBe(false);
+      expect(wantsTranscodedDownload(undefined, undefined)).toBe(false);
+    });
+
+    test("a download quality other than original does", () => {
+      expect(wantsTranscodedDownload("high", undefined)).toBe(true);
+      expect(wantsTranscodedDownload("low", undefined)).toBe(true);
+    });
+
+    test("a bitrate cap does, because it cannot be honoured any other way", () => {
+      expect(wantsTranscodedDownload("original", 4_000_000)).toBe(true);
+    });
+
+    test("Max quality is not a cap", () => {
+      // BITRATES[0] is `{ key: "Max", value: undefined }` -- the quality picker's way of saying
+      // "whatever the source is", which is the same answer as not asking at all.
+      expect(wantsTranscodedDownload("original", undefined)).toBe(false);
+    });
+  });
+
+  describe("a federated source the server wants to transcode (the M5 4K failure)", () => {
+    // The exact shape M5 hit: a 4K federated source the download profile cannot direct-play, so
+    // PlaybackInfo returns both a mesh `Path` and a `TranscodingUrl`. The old guard
+    // (`!mediaSource.TranscodingUrl`) skipped the mesh branch entirely, and the download became a
+    // home-node transcode of bytes pulled over the mesh -- which timed out at sixty seconds.
+    const fourKFederated = {
+      PlaySessionId: "session-1",
+      MediaSources: [
+        {
+          Id: "media-1",
+          IsRemote: true,
+          Protocol: "Http",
+          Path: "https://stingstream.local/stream/g1/movie:tmdb:1/holder",
+          TranscodingUrl:
+            "/videos/media-1/stream.mp4?DeviceId=device-1&TranscodeReasons=DirectPlayError",
+        },
+      ],
+    };
+
+    const playbackInfoReturns = (
+      api: ReturnType<typeof makeApi>,
+      body: unknown,
+    ) =>
+      api.mock
+        .onPost(
+          "https://jellyfin.example.com/Items/item-1/PlaybackInfo",
+          bodyContaining({ deviceProfile: { Name: "1. MPV Download" } }),
+        )
+        .reply(200, body);
+
+    // `fetchItemSources` swallows every failure and falls back to PlaybackInfo's own path, which
+    // is what these assertions are about; a rejecting fetch is the shortest way to say "no node
+    // answered".
+    const withNoSourcesEndpoint = async <T>(
+      run: () => Promise<T>,
+    ): Promise<T> => {
+      const original = globalThis.fetch;
+      globalThis.fetch = mock(() =>
+        Promise.reject(new Error("no node")),
+      ) as unknown as typeof fetch;
+      try {
+        return await run();
+      } finally {
+        globalThis.fetch = original;
+      }
+    };
+
+    test("downloads the original over the mesh, TranscodingUrl and all", async () => {
+      const api = makeApi();
+      playbackInfoReturns(api, fourKFederated);
+
+      const result = await withNoSourcesEndpoint(() =>
+        getDownloadStreamUrl({
+          api,
+          item: { Id: "item-1", Type: "Movie" },
+          userId: "user-1",
+          mediaSourceId: "media-1",
+          audioStreamIndex: 0,
+          subtitleStreamIndex: 0,
+        }),
+      );
+
+      expect(result?.url).toBe(
+        "https://stingstream.local/stream/g1/movie:tmdb:1/holder",
+      );
+      expect(result?.transcoded).toBe(false);
+      expect(result?.readTimeoutSeconds).toBeUndefined();
+    });
+
+    test("takes the transcode when the user picked a download quality, and waits for it", async () => {
+      const api = makeApi();
+      playbackInfoReturns(api, fourKFederated);
+
+      const result = await withNoSourcesEndpoint(() =>
+        getDownloadStreamUrl({
+          api,
+          item: { Id: "item-1", Type: "Movie" },
+          userId: "user-1",
+          mediaSourceId: "media-1",
+          audioStreamIndex: 0,
+          subtitleStreamIndex: 0,
+          downloadQuality: "low",
+        }),
+      );
+
+      expect(result?.url).toBe(
+        "https://jellyfin.example.com/videos/media-1/stream.mp4?DeviceId=device-1&TranscodeReasons=DirectPlayError",
+      );
+      expect(result?.transcoded).toBe(true);
+      expect(result?.readTimeoutSeconds).toBe(TRANSCODE_READ_TIMEOUT_SECONDS);
+      expect(TRANSCODE_READ_TIMEOUT_SECONDS).toBeGreaterThan(60);
+    });
+
+    test("a requested quality the source already satisfies still takes the mesh original", async () => {
+      const api = makeApi();
+      playbackInfoReturns(api, {
+        PlaySessionId: "session-1",
+        MediaSources: [
+          {
+            Id: "media-1",
+            IsRemote: true,
+            Protocol: "Http",
+            Path: "https://stingstream.local/stream/g1/movie:tmdb:1/holder",
+          },
+        ],
+      });
+
+      const result = await withNoSourcesEndpoint(() =>
+        getDownloadStreamUrl({
+          api,
+          item: { Id: "item-1", Type: "Movie" },
+          userId: "user-1",
+          mediaSourceId: "media-1",
+          audioStreamIndex: 0,
+          subtitleStreamIndex: 0,
+          downloadQuality: "high",
+        }),
+      );
+
+      // No TranscodingUrl means the server is saying the original already fits. Downloading it
+      // through `/Items/{id}/Download` would make the home node fetch it over the mesh and
+      // re-serve it, which is the double hop the mesh path exists to avoid.
+      expect(result?.url).toBe(
+        "https://stingstream.local/stream/g1/movie:tmdb:1/holder",
+      );
+      expect(result?.transcoded).toBe(false);
     });
   });
 

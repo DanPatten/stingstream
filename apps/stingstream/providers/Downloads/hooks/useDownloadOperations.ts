@@ -13,6 +13,7 @@ import { BackgroundDownloader } from "@/modules";
 import { getJellyfinHeadersForUrl } from "@/utils/customHeaders";
 import { getOrSetDeviceId } from "@/utils/device";
 import useDownloadHelper, { estimateDownloadSize } from "@/utils/download";
+import type { DownloadTransport } from "@/utils/jellyfin/media/getStreamUrl";
 import { logAndCaptureError } from "@/utils/log";
 import { downloadAdditionalAssets } from "../additionalDownloads";
 import {
@@ -66,6 +67,7 @@ export function useDownloadOperations({
       maxBitrate: Bitrate,
       audioStreamIndex?: number,
       subtitleStreamIndex?: number,
+      transport?: DownloadTransport,
     ) => {
       if (!api || !item.Id || !authHeader) {
         console.warn("startBackgroundDownload ~ Missing required params");
@@ -153,9 +155,15 @@ export function useDownloadOperations({
             item,
             api,
             t,
-            estimatedTotalBytes: maxBitrate.value
-              ? estimateDownloadSize(maxBitrate.value, item.RunTimeTicks)
-              : undefined,
+            // The bitrate the download will actually run at: the user's cap when they set one,
+            // otherwise the source's own. Both platforms use this as the progress denominator when
+            // the server sends no Content-Length, which a real-time transcode never does — without
+            // it the ring sits at zero for the whole download and a slow transcode is
+            // indistinguishable from a stalled one.
+            estimatedTotalBytes: estimateDownloadSize(
+              maxBitrate.value ?? mediaSource.Bitrate ?? 0,
+              item.RunTimeTicks,
+            ),
           });
         } catch (error) {
           console.warn("[DOWNLOAD] Live Activity metadata failed:", error);
@@ -188,6 +196,7 @@ export function useDownloadOperations({
           audioStreamIndex,
           subtitleStreamIndex,
           activityMetadata,
+          readTimeoutSeconds: transport?.readTimeoutSeconds,
         });
 
         // Start the download using enqueueDownload for sequential processing
@@ -196,6 +205,7 @@ export function useDownloadOperations({
           destinationPath,
           activityMetadata,
           getJellyfinHeadersForUrl(downloadUrl, api?.basePath),
+          { readTimeoutSeconds: transport?.readTimeoutSeconds },
         );
 
         if (taskId !== -1) {

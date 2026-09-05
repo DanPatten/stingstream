@@ -49,6 +49,13 @@ export interface PendingDownload {
   subtitleStreamIndex?: number;
   /** Metadata originally handed to native; reused when re-enqueueing after a relaunch. */
   activityMetadata?: DownloadActivityMetadata;
+  /**
+   * Seconds this download may go without a byte. Present only for a real-time transcode, which
+   * sends nothing while the home node starts ffmpeg; absent means the platform default, which is
+   * right for the mesh-direct original. Persisted so a download re-enqueued after a relaunch does
+   * not quietly go back to timing out at sixty seconds.
+   */
+  readTimeoutSeconds?: number;
 }
 
 const PENDING_DOWNLOADS_KEY = "downloads.pending.v1.json";

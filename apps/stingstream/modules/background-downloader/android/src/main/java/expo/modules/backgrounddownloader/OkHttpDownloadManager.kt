@@ -14,20 +14,44 @@ import java.util.concurrent.TimeUnit
 class OkHttpDownloadManager {
   private val TAG = "OkHttpDownloadManager"
 
+  companion object {
+    /**
+     * Seconds of silence on the socket before a download is called dead.
+     *
+     * This is the right number for the only transfer StingStream downloads by default: the
+     * original file, pulled straight off a peer's disk over the mesh. That path starts sending
+     * within a round trip, and the mesh does its own stall detection and holder failover at
+     * fifteen seconds -- so a whole minute of nothing really does mean the transfer is gone.
+     */
+    const val DEFAULT_READ_TIMEOUT_SECONDS = 60L
+
+    /**
+     * The ceiling for an explicitly requested transcode.
+     *
+     * A transcode sends nothing at all while the home node starts ffmpeg, seeks and fills its
+     * first segment, and for a 4K source pulled over the mesh that can run well past a minute --
+     * which is exactly how M5's download of Big Buck Bunny died at sixty seconds
+     * (`docs/APP-RELEASE.md` §11). Downloads no longer take that path unless the user asks for it
+     * by picking a download quality, and when they do, waiting is the correct behaviour.
+     */
+    const val MAX_READ_TIMEOUT_SECONDS = 1800L
+  }
+
   private val client = OkHttpClient.Builder()
     .connectTimeout(30, TimeUnit.SECONDS)
-    .readTimeout(60, TimeUnit.SECONDS)
+    .readTimeout(DEFAULT_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     .callTimeout(0, TimeUnit.SECONDS) // No timeout for long transcodes
     .build()
 
   // Mutated from the JS thread (start/cancel) and OkHttp dispatcher threads (callbacks).
   private val activeDownloads = ConcurrentHashMap<Int, Call>()
-  
+
   fun startDownload(
     taskId: Int,
     url: String,
     destinationPath: String,
     headers: Map<String, String>? = null,
+    readTimeoutSeconds: Long? = null,
     onProgress: (bytesWritten: Long, totalBytes: Long) -> Unit,
     onComplete: (filePath: String) -> Unit,
     onError: (error: String) -> Unit
@@ -39,8 +63,18 @@ class OkHttpDownloadManager {
       requestBuilder.addHeader(key, value)
     }
     val request = requestBuilder.build()
-    
-    val call = client.newCall(request)
+
+    // A derived client rather than a new one: `newBuilder()` shares the connection pool and the
+    // dispatcher, so a per-download timeout costs nothing but the builder.
+    val timeout = readTimeoutSeconds?.coerceIn(1L, MAX_READ_TIMEOUT_SECONDS)
+    val callClient = if (timeout != null && timeout != DEFAULT_READ_TIMEOUT_SECONDS) {
+      Log.d(TAG, "Download taskId=$taskId waits up to ${timeout}s between reads")
+      client.newBuilder().readTimeout(timeout, TimeUnit.SECONDS).build()
+    } else {
+      client
+    }
+
+    val call = callClient.newCall(request)
     activeDownloads[taskId] = call
     
     call.enqueue(object : Callback {

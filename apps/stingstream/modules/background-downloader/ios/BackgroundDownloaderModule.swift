@@ -19,6 +19,13 @@ enum DownloadError: Error {
 /// Live Activity metadata handed down from JS at enqueue time. Entirely optional — a download
 /// without it still works, it just never surfaces on the Lock Screen. All user-visible strings are
 /// resolved in JS so translations stay single-sourced in `translations/*.json`.
+/// Per-download transport options. See `DownloadOptions` in the TypeScript module.
+struct DownloadOptionsRecord: Record {
+  @Field var readTimeoutSeconds: Double = 0
+
+  var timeout: Double? { readTimeoutSeconds > 0 ? readTimeoutSeconds : nil }
+}
+
 struct DownloadMetadataRecord: Record {
   @Field var itemId: String = ""
   @Field var title: String = ""
@@ -221,20 +228,21 @@ public class BackgroundDownloaderModule: Module {
 
     AsyncFunction("startDownload") {
       (urlString: String, destinationPath: String?, metadata: DownloadMetadataRecord?,
-        headers: [String: String]?) -> Int in
+        headers: [String: String]?, options: DownloadOptionsRecord?) -> Int in
       try self.stateQueue.sync {
         try self.beginDownloadLocked(
           urlString: urlString,
           destinationPath: destinationPath,
           metadata: metadata?.toMetadata(),
-          headers: headers
+          headers: headers,
+          readTimeoutSeconds: options?.timeout
         )
       }
     }
 
     AsyncFunction("enqueueDownload") {
       (urlString: String, destinationPath: String?, metadata: DownloadMetadataRecord?,
-        headers: [String: String]?) -> Int in
+        headers: [String: String]?, options: DownloadOptionsRecord?) -> Int in
       try self.stateQueue.sync { () throws -> Int in
         let wasEmpty = self.downloadQueue.isEmpty
         self.downloadQueue.append(
@@ -242,7 +250,8 @@ public class BackgroundDownloaderModule: Module {
             url: urlString,
             destinationPath: destinationPath,
             metadata: metadata?.toMetadata(),
-            headers: headers
+            headers: headers,
+            readTimeoutSeconds: options?.timeout
           )
         )
         self.queueDidChangeLocked()
@@ -380,7 +389,8 @@ public class BackgroundDownloaderModule: Module {
     urlString: String,
     destinationPath: String?,
     metadata: DownloadActivityMetadata?,
-    headers: [String: String]? = nil
+    headers: [String: String]? = nil,
+    readTimeoutSeconds: Double? = nil
   ) throws -> Int {
     guard let url = URL(string: urlString) else {
       throw DownloadError.invalidURL
@@ -397,7 +407,10 @@ public class BackgroundDownloaderModule: Module {
     // Create a URLRequest to ensure proper handling
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
-    request.timeoutInterval = 300
+    // Five minutes by default -- generous for the mesh-direct original, which is what a download
+    // takes unless the user picked a download quality. An explicitly requested transcode passes a
+    // longer one, because the home node sends nothing at all while ffmpeg starts and seeks.
+    request.timeoutInterval = readTimeoutSeconds.map { min(max($0, 1), 1800) } ?? 300
     headers?.forEach { key, value in
       request.setValue(value, forHTTPHeaderField: key)
     }
@@ -678,7 +691,8 @@ public class BackgroundDownloaderModule: Module {
       urlString: next.url,
       destinationPath: next.destinationPath,
       metadata: next.metadata,
-      headers: next.headers
+      headers: next.headers,
+      readTimeoutSeconds: next.readTimeoutSeconds
     )
   }
 

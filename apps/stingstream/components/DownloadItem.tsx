@@ -259,6 +259,11 @@ export const DownloadItems: React.FC<DownloadProps> = ({
           maxStreamingBitrate: (selectedOptions?.bitrate || defaultBitrate)
             .value,
           audioMode: settings?.audioTranscodeMode,
+          // The Download quality setting, read for the first time (M7). `original` — its default —
+          // means a federated download takes the file itself over the mesh however PlaybackInfo
+          // negotiated it; anything else is the user asking for a re-encode, and gets one, with a
+          // timeout long enough for the home node to start ffmpeg.
+          downloadQuality: settings?.downloadQuality?.value,
         }).catch((error) => {
           logAndCaptureError("Getting download stream URL failed", error, {
             itemType: itemForDownload.Type,
@@ -270,11 +275,17 @@ export const DownloadItems: React.FC<DownloadProps> = ({
           url: downloadDetails?.url,
           item: itemForDownload,
           mediaSource: downloadDetails?.mediaSource,
+          transport: downloadDetails
+            ? {
+                transcoded: downloadDetails.transcoded,
+                readTimeoutSeconds: downloadDetails.readTimeoutSeconds,
+              }
+            : undefined,
         };
       });
 
       const downloadDetails = await Promise.all(downloadDetailsPromises);
-      for (const { url, item, mediaSource } of downloadDetails) {
+      for (const { url, item, mediaSource, transport } of downloadDetails) {
         if (!url) {
           Alert.alert(
             t("home.downloads.something_went_wrong"),
@@ -308,6 +319,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
           selectedOptions?.bitrate || defaultBitrate,
           downloadAudioIndex,
           downloadSubtitleIndex,
+          transport,
         );
       }
     },

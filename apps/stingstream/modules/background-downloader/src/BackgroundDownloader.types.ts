@@ -63,18 +63,36 @@ export interface DownloadActivityMetadata {
   labels: Record<string, string>;
 }
 
+/**
+ * Per-download transport settings. Both platforms accept it; both clamp it to 1..1800 seconds.
+ */
+export interface DownloadOptions {
+  /**
+   * How long a download may go without receiving a byte before it is called dead.
+   *
+   * The default (60s on Android, 300s on iOS) is right for the transfer StingStream downloads by
+   * default -- the original file, straight off a peer's disk over the mesh, which starts sending
+   * within a round trip. It is badly wrong for a transcode, which sends nothing at all while the
+   * home node starts ffmpeg and seeks: that is how M5's 4K download died at exactly sixty seconds
+   * (`docs/APP-RELEASE.md` §11). Pass a long one whenever the URL is a transcode.
+   */
+  readTimeoutSeconds?: number;
+}
+
 export interface BackgroundDownloaderModuleType {
   startDownload(
     url: string,
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number>;
   enqueueDownload(
     url: string,
     destinationPath?: string,
     metadata?: DownloadActivityMetadata,
     headers?: Record<string, string>,
+    options?: DownloadOptions,
   ): Promise<number>;
   cancelDownload(taskId: number): void;
   cancelQueuedDownload(url: string): void;
