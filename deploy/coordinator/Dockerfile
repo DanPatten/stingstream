@@ -59,8 +59,12 @@ COPY --from=builder /src/mesh/target/release/stingstream-relay /usr/local/bin/st
 
 USER stingstream
 WORKDIR /data
+# `[::]` rather than `0.0.0.0`: a dual-stack socket on Linux accepts IPv4 too, and Railway (like
+# Fly) reaches a container over an IPv6-only private network — an IPv4-only listener is invisible
+# to their edge proxy, with a healthy container, clean logs and every request timing out. The
+# platform's `PORT` still chooses the port; see the ordering in config.rs.
 ENV STINGSTREAM_COORDINATOR_DATA_DIR=/data \
-    STINGSTREAM_COORDINATOR_BIND=0.0.0.0:8080
+    STINGSTREAM_COORDINATOR_BIND=[::]:8080
 
 # Lite mode's single port. Full mode also wants 53/udp, 53/tcp, 443/tcp and 7842/udp; see
 # deploy/coordinator/compose.yml.
