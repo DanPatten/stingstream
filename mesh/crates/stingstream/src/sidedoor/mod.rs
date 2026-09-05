@@ -280,7 +280,6 @@ struct Cycle {
     settings: acme::AcmeSettings,
     mapper: Option<PortMapper>,
     client: Option<CoordinatorClient>,
-    names: Option<NodeNames>,
     zone: Option<String>,
     last_register: Option<std::time::Instant>,
     last_probe: Option<std::time::Instant>,
@@ -300,7 +299,6 @@ impl Cycle {
             settings,
             mapper,
             client: None,
-            names: None,
             zone: None,
             last_register: None,
             last_probe: None,
@@ -366,8 +364,9 @@ impl Cycle {
                 .await
                 .context("registering with the coordinator")?;
             self.last_register = Some(std::time::Instant::now());
-            if let Some(names) = resp.names.clone() {
-                self.names = Some(names.clone());
+            // The coordinator computes these from the node id in the signature, so this is the
+            // authoritative answer rather than a guess -- and it is the one `/healthz` shows.
+            if let Some(names) = resp.names {
                 self.ctx.handle.update(|s| s.names = Some(names));
             }
             tracing::debug!(
