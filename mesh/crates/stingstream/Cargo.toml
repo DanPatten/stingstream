@@ -9,3 +9,37 @@ description = "StingStream entry binary: supervisor + gateway. See docs/ARCHITEC
 [[bin]]
 name = "stingstream"
 path = "src/main.rs"
+
+[lib]
+name = "stingstream"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["ws", "macros"] }
+base64 = "0.22"
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "net", "signal", "sync", "time"] }
+toml = "0.8"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

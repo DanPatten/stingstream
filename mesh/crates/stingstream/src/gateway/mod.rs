@@ -1,0 +1,333 @@
+//! The gateway: the one port a StingStream node exposes.
+//!
+//! Routes, in match order:
+//!
+//! | Path | Goes to | Notes |
+//! |---|---|---|
+//! | `/healthz` | the gateway itself | JSON child states, for humans and for `tools/e2e-m1.ps1` |
+//! | `/stingstream/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
+//! | `/jellyfin/*` | Jellyfin | includes the `/jellyfin/socket` WebSocket |
+//! | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children | **`--dev` only** |
+//! | `/` | the gateway itself | placeholder page until M2 ships the web bundle |
+//!
+//! Jellyfin is started with `BaseUrl=/jellyfin`, and ASP.NET's `app.Map(BaseUrl, ...)` puts
+//! *every* Jellyfin route — `StingStream.Core`'s included — underneath it. So `/stingstream/...`
+//! on the gateway maps to `/jellyfin/stingstream/...` upstream. That asymmetry is the whole reason
+//! [`proxy::Upstream::upstream_prefix`] exists.
+
+pub mod proxy;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use axum::extract::{ConnectInfo, Request, State};
+use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
+use axum::routing::{any, get};
+use axum::{Json, Router};
+use serde_json::json;
+
+use crate::state::{ChildState, NodeState};
+use proxy::{Upstream, ProxyClient};
+
+/// Gateway path prefix under which `StingStream.Core` answers.
+pub const STINGSTREAM_PREFIX: &str = "/stingstream";
+/// Gateway path prefix for Jellyfin, and Jellyfin's own `BaseUrl`.
+pub const JELLYFIN_PREFIX: &str = "/jellyfin";
+
+#[derive(Clone)]
+pub struct GatewayState {
+    pub node: Arc<NodeState>,
+    pub client: ProxyClient,
+}
+
+pub fn router(node: Arc<NodeState>) -> Router {
+    let dev = node.dev;
+    let expose_child_uis = dev && node.config.gateway.expose_child_uis_in_dev;
+    let state = GatewayState {
+        node,
+        client: proxy::client(),
+    };
+
+    let mut app = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/", get(index))
+        // `StingStream.Core` is inside Jellyfin, so both of these dial the same child; only the
+        // path rewriting differs.
+        .route(
+            "/stingstream/{*rest}",
+            any(proxy_to_core),
+        )
+        .route("/stingstream", any(proxy_to_core))
+        .route("/jellyfin/{*rest}", any(proxy_to_jellyfin))
+        .route("/jellyfin", any(proxy_to_jellyfin));
+
+    if expose_child_uis {
+        // Debug convenience only. An installed node never routes these: Radarr's, Sonarr's and
+        // NZBGet's own UIs are not StingStream's front door (docs/ARCHITECTURE.md).
+        app = app
+            .route("/radarr/{*rest}", any(proxy_to_radarr))
+            .route("/radarr", any(proxy_to_radarr))
+            .route("/sonarr/{*rest}", any(proxy_to_sonarr))
+            .route("/sonarr", any(proxy_to_sonarr))
+            .route("/nzbget/{*rest}", any(proxy_to_nzbget))
+            .route("/nzbget", any(proxy_to_nzbget));
+    }
+
+    app.with_state(state)
+}
+
+// --- gateway's own endpoints ---------------------------------------------------------------
+
+async fn healthz(State(state): State<GatewayState>) -> Response {
+    let children = state.node.all();
+    let ok = state.node.all_healthy();
+    let body = json!({
+        "status": if ok { "ok" } else { "degraded" },
+        "node": {
+            "id": state.node.runtime.node_id,
+            "name": state.node.runtime.node_name,
+            "dev": state.node.dev,
+            "first_run": state.node.runtime.first_run,
+            "data_dir": state.node.runtime.data_dir,
+        },
+        "gateway": {
+            "port": state.node.runtime.gateway.port,
+        },
+        "children": children,
+    });
+    // 503 when degraded, so `curl --fail` and CI health gates work without parsing the body.
+    let code = if ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (code, Json(body)).into_response()
+}
+
+async fn index(State(state): State<GatewayState>) -> Html<String> {
+    Html(placeholder_page(
+        &state.node.runtime.node_name,
+        state.node.dev,
+    ))
+}
+
+/// The `/` placeholder until M2's web bundle replaces it.
+pub fn placeholder_page(node_name: &str, dev: bool) -> String {
+    let name = html_escape(node_name);
+    let dev_note = if dev {
+        r#"<p class="dev">Running in <code>--dev</code> mode: the Radarr, Sonarr and NZBGet UIs
+        are proxied at <a href="/radarr/">/radarr/</a>, <a href="/sonarr/">/sonarr/</a> and
+        <a href="/nzbget/">/nzbget/</a> for debugging. An installed node never routes those.</p>"#
+    } else {
+        ""
+    };
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StingStream &mdash; {name}</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+         margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: #101418; color: #e6e9ec; }}
+  main {{ max-width: 34rem; padding: 2rem; }}
+  h1 {{ font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }}
+  .node {{ color: #6fd3c7; font-weight: 600; }}
+  p {{ color: #a8b1b9; }}
+  code {{ background: #1b2127; padding: .1em .35em; border-radius: 4px; }}
+  a {{ color: #6fd3c7; }}
+  ul {{ color: #a8b1b9; padding-left: 1.1rem; }}
+  .dev {{ border-left: 3px solid #3a4550; padding-left: .9rem; font-size: .92rem; }}
+</style>
+</head>
+<body>
+<main>
+  <h1>StingStream node <span class="node">{name}</span></h1>
+  <p>The node is running. The unified UI arrives in M2 &mdash; until then this page is a
+     placeholder and the node is driven through its API.</p>
+  <ul>
+    <li><a href="/healthz">/healthz</a> &mdash; supervisor and child states</li>
+    <li><code>/stingstream/api/v1/</code> &mdash; StingStream API
+        (<a href="/stingstream/api/v1/openapi.json">OpenAPI</a>)</li>
+    <li><code>/jellyfin/</code> &mdash; this node's Jellyfin</li>
+  </ul>
+  {dev_note}
+</main>
+</body>
+</html>
+"#
+    )
+}
+
+fn html_escape(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_string(),
+            '<' => "&lt;".to_string(),
+            '>' => "&gt;".to_string(),
+            '"' => "&quot;".to_string(),
+            '\'' => "&#39;".to_string(),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
+// --- proxy handlers -------------------------------------------------------------------------
+
+/// The peer address, when the server was built with `into_make_service_with_connect_info`.
+///
+/// Read from the request extensions rather than taken as an extractor, because
+/// `Option<ConnectInfo<_>>` is not an optional extractor in axum 0.8 and a required one would
+/// make every route depend on the connect-info service being installed.
+fn peer_addr(req: &Request) -> Option<SocketAddr> {
+    req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0)
+}
+
+async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Response {
+    // Jellyfin's BaseUrl is /jellyfin, and ASP.NET maps every route under it, so Core's
+    // controllers really live at /jellyfin/stingstream/... upstream.
+    forward(
+        state,
+        req,
+        "jellyfin",
+        STINGSTREAM_PREFIX,
+        format!("{JELLYFIN_PREFIX}{STINGSTREAM_PREFIX}"),
+    )
+    .await
+}
+
+async fn proxy_to_jellyfin(State(state): State<GatewayState>, req: Request) -> Response {
+    forward(state, req, "jellyfin", JELLYFIN_PREFIX, JELLYFIN_PREFIX.to_string()).await
+}
+
+async fn proxy_to_radarr(State(state): State<GatewayState>, req: Request) -> Response {
+    forward(state, req, "radarr", "/radarr", "/radarr".into()).await
+}
+
+async fn proxy_to_sonarr(State(state): State<GatewayState>, req: Request) -> Response {
+    forward(state, req, "sonarr", "/sonarr", "/sonarr".into()).await
+}
+
+async fn proxy_to_nzbget(State(state): State<GatewayState>, req: Request) -> Response {
+    // NZBGet has no concept of a URL base, so its upstream prefix is empty: /nzbget/foo -> /foo.
+    forward(state, req, "nzbget", "/nzbget", String::new()).await
+}
+
+async fn forward(
+    state: GatewayState,
+    req: Request,
+    child: &'static str,
+    gateway_prefix: &str,
+    upstream_prefix: String,
+) -> Response {
+    let Some(status) = state.node.status_of(child) else {
+        return (StatusCode::NOT_FOUND, format!("{child} is not configured")).into_response();
+    };
+    if !status.enabled {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("{child} is disabled on this node"),
+        )
+            .into_response();
+    }
+    if !status.state.is_routable() {
+        // Retry-After tells a well-behaved client (and Radarr's HTTP layer) to back off rather
+        // than hammer a child that is in its restart backoff.
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [("retry-after", "5")],
+            format!("{child} is {:?} and cannot serve requests yet", status.state),
+        )
+            .into_response();
+    }
+    let upstream = Upstream {
+        authority: format!("127.0.0.1:{}", status.port),
+        upstream_prefix,
+        name: child,
+    };
+    let client_addr = peer_addr(&req);
+    proxy::proxy(state.client, upstream, gateway_prefix, client_addr, req).await
+}
+
+/// True when the given child is in a state the gateway will route to.
+pub fn is_routable(node: &NodeState, child: &str) -> bool {
+    node.status_of(child)
+        .map(|s| s.enabled && s.state.is_routable())
+        .unwrap_or(false)
+}
+
+/// Convenience for tests and diagnostics: what state does `/healthz` report overall?
+pub fn overall_state(node: &NodeState) -> ChildState {
+    if node.all_healthy() {
+        ChildState::Healthy
+    } else {
+        ChildState::Starting
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placeholder_page_names_the_node_and_escapes_it() {
+        let page = placeholder_page("attic & <loft>", true);
+        assert!(page.contains("attic &amp; &lt;loft&gt;"));
+        assert!(!page.contains("<loft>"));
+        assert!(page.contains("/healthz"));
+        assert!(page.contains("/stingstream/api/v1/openapi.json"));
+    }
+
+    #[test]
+    fn placeholder_page_mentions_child_uis_only_in_dev() {
+        assert!(placeholder_page("n", true).contains("/radarr/"));
+        assert!(!placeholder_page("n", false).contains("/radarr/"));
+    }
+
+    #[test]
+    fn core_requests_are_rewritten_under_jellyfins_base_url() {
+        let upstream_prefix = format!("{JELLYFIN_PREFIX}{STINGSTREAM_PREFIX}");
+        assert_eq!(
+            proxy::rewrite_path(
+                "/stingstream/api/v1/openapi.json",
+                STINGSTREAM_PREFIX,
+                &upstream_prefix
+            )
+            .unwrap(),
+            "/jellyfin/stingstream/api/v1/openapi.json"
+        );
+        assert_eq!(
+            proxy::rewrite_path("/stingstream/qbt/api/v2/auth/login", STINGSTREAM_PREFIX, &upstream_prefix)
+                .unwrap(),
+            "/jellyfin/stingstream/qbt/api/v2/auth/login"
+        );
+    }
+
+    #[test]
+    fn jellyfin_requests_including_the_socket_pass_through_unchanged() {
+        assert_eq!(
+            proxy::rewrite_path("/jellyfin/socket?api_key=k", JELLYFIN_PREFIX, JELLYFIN_PREFIX)
+                .unwrap(),
+            "/jellyfin/socket?api_key=k"
+        );
+        assert_eq!(
+            proxy::rewrite_path("/jellyfin/System/Info", JELLYFIN_PREFIX, JELLYFIN_PREFIX).unwrap(),
+            "/jellyfin/System/Info"
+        );
+    }
+
+    #[test]
+    fn nzbget_loses_its_prefix_because_it_has_no_url_base() {
+        assert_eq!(proxy::rewrite_path("/nzbget/jsonrpc", "/nzbget", "").unwrap(), "/jsonrpc");
+        assert_eq!(proxy::rewrite_path("/nzbget", "/nzbget", "").unwrap(), "/");
+    }
+
+    #[test]
+    fn html_escape_covers_every_dangerous_character() {
+        assert_eq!(html_escape("<a href=\"x\">&'"), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+    }
+}

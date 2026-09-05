@@ -1,10 +1,358 @@
-//! StingStream entry binary.
+//! StingStream entry binary: supervisor + gateway.
 //!
-//! This is an M0 skeleton stub: it exists so the `mesh` Rust workspace builds cleanly on a clean
-//! clone. The supervisor (spawn/monitor/restart of jellyfin/radarr/sonarr/nzbget/infinidysk) and
-//! the gateway (port 8790, routing `/`, `/jellyfin/*`, `/stingstream/api/*`) are implemented in
-//! M1. See docs/ARCHITECTURE.md.
+//! ```text
+//! stingstream --dev                 # run a node from the in-repo build outputs
+//! stingstream --data-dir E:\node    # explicit data directory (or $STINGSTREAM_DATA)
+//! stingstream --print-runtime       # resolve config and print runtime.json without starting
+//! ```
+//!
+//! See `docs/RUNNING.md`.
 
-fn main() {
-    println!("stingstream: M0 skeleton stub, not yet implemented (see M1 in docs/ARCHITECTURE.md)");
+use std::collections::BTreeMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use tokio::sync::watch;
+
+use stingstream::config::Config;
+use stingstream::gateway;
+use stingstream::logging;
+use stingstream::paths::{self, Layout};
+use stingstream::ports::PortAllocator;
+use stingstream::preseed;
+use stingstream::runtime::{
+    self, AdminRuntime, CarriedSecrets, ChildRuntime, GatewayRuntime, Runtime, RUNTIME_VERSION,
+};
+use stingstream::secrets;
+use stingstream::state::NodeState;
+use stingstream::supervisor::{self, childdef, Mode};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "stingstream",
+    about = "StingStream node: supervisor + gateway",
+    version
+)]
+struct Cli {
+    /// Node data directory. Defaults to $STINGSTREAM_DATA, then the platform default
+    /// (%LOCALAPPDATA%\StingStream on Windows, ~/.local/share/stingstream elsewhere).
+    #[arg(long, value_name = "DIR", env = paths::DATA_DIR_ENV)]
+    data_dir: Option<PathBuf>,
+
+    /// Run children from the in-repo build outputs instead of an installed layout, and proxy the
+    /// Radarr, Sonarr and NZBGet UIs through the gateway for debugging.
+    #[arg(long)]
+    dev: bool,
+
+    /// Repository root for --dev. Detected from the working directory or the binary's own
+    /// location when omitted.
+    #[arg(long, value_name = "DIR")]
+    repo_root: Option<PathBuf>,
+
+    /// Installation root for production mode: children are found under <DIR>/bin/<child>/.
+    #[arg(long, value_name = "DIR")]
+    install_root: Option<PathBuf>,
+
+    /// Override the gateway port from config.toml.
+    #[arg(long, value_name = "PORT")]
+    port: Option<u16>,
+
+    /// Resolve everything, write config.toml and runtime.json, print runtime.json, and exit
+    /// without starting any child. Used by tools/e2e-m1.ps1 and for diagnosing a node.
+    #[arg(long)]
+    print_runtime: bool,
+
+    /// Do not start children; run the gateway alone. Useful when attaching a debugger to a child
+    /// started by hand.
+    #[arg(long)]
+    no_children: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
+    let layout = Layout::new(&data_dir);
+    layout.create_all()?;
+
+    let mut config = Config::load_or_create(&layout.config_toml())?;
+    if let Some(p) = cli.port {
+        config.gateway.port = p;
+    }
+    config.validate()?;
+
+    let _log_guard = logging::init(
+        &layout.supervisor_log(),
+        &config.logging.level,
+        config.logging.console,
+    )?;
+
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        data_dir = %data_dir.display(),
+        dev = cli.dev,
+        "StingStream starting"
+    );
+
+    let mode = resolve_mode(&cli)?;
+    let rt = build_runtime(&config, &layout, &mode, &data_dir)?;
+    rt.save(&layout.runtime_json())?;
+
+    if cli.print_runtime {
+        println!("{}", serde_json::to_string_pretty(&rt)?);
+        return Ok(());
+    }
+
+    supervisor::preseed_all(&config, &rt, &layout)?;
+    tracing::info!("child configuration written");
+
+    let node = Arc::new(NodeState::new(config.clone(), rt.clone(), mode.is_dev()));
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    // Children first, so they are already coming up while the listener binds.
+    let supervisor_task = if cli.no_children {
+        tracing::warn!("--no-children: not starting any child process");
+        None
+    } else {
+        let defs = supervisor::build_children(&config, &rt, &layout, &mode)?;
+        tracing::info!(
+            children = defs.len(),
+            names = %defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", "),
+            "starting children"
+        );
+        let node = node.clone();
+        let layout = layout.clone();
+        let rx = shutdown_rx.clone();
+        Some(tokio::spawn(
+            async move { supervisor::run(defs, node, layout, rx).await },
+        ))
+    };
+
+    let bind: SocketAddr = format!("{}:{}", config.gateway.bind, config.gateway.port)
+        .parse()
+        .with_context(|| {
+            format!(
+                "gateway.bind {:?} and gateway.port {} do not form a socket address",
+                config.gateway.bind, config.gateway.port
+            )
+        })?;
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
+        .with_context(|| format!("binding the gateway to {bind}"))?;
+    tracing::info!(%bind, "gateway listening");
+    print_banner(&rt, mode.is_dev());
+
+    let app = gateway::router(node.clone());
+    let mut server_shutdown = shutdown_rx.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = server_shutdown.wait_for(|s| *s).await;
+        })
+        .await
+    });
+
+    wait_for_shutdown_signal().await;
+    tracing::info!("shutting down");
+    let _ = shutdown_tx.send(true);
+
+    if let Some(t) = supervisor_task {
+        let _ = t.await;
+    }
+    let _ = server.await;
+    tracing::info!("stopped");
+    Ok(())
+}
+
+fn resolve_mode(cli: &Cli) -> Result<Mode> {
+    if cli.dev {
+        let repo_root = match &cli.repo_root {
+            Some(p) => p.clone(),
+            None => childdef::detect_repo_root().context(
+                "--dev could not find the StingStream repository from the working directory or \
+                 the binary's location; pass --repo-root",
+            )?,
+        };
+        anyhow::ensure!(
+            repo_root.join("server").join("jellyfin").is_dir(),
+            "--repo-root {} does not look like the StingStream repository",
+            repo_root.display()
+        );
+        Ok(Mode::Dev { repo_root })
+    } else {
+        let install_root = match &cli.install_root {
+            Some(p) => p.clone(),
+            None => std::env::current_exe()
+                .ok()
+                // <install>/bin/stingstream/stingstream(.exe) -> <install>
+                .and_then(|e| e.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).map(PathBuf::from))
+                .context(
+                    "could not determine the installation root; pass --install-root, or --dev to \
+                     run from the repository",
+                )?,
+        };
+        Ok(Mode::Prod { install_root })
+    }
+}
+
+/// Assign ports, carry secrets forward, and assemble `runtime.json`.
+fn build_runtime(
+    config: &Config,
+    layout: &Layout,
+    mode: &Mode,
+    data_dir: &std::path::Path,
+) -> Result<Runtime> {
+    let previous = Runtime::load(&layout.runtime_json());
+    let carried = CarriedSecrets::from_previous(previous.as_ref());
+
+    let mut alloc = PortAllocator::new();
+    alloc.reserve(config.gateway.port);
+
+    let mut children: BTreeMap<String, ChildRuntime> = BTreeMap::new();
+    for name in supervisor::CHILD_ORDER {
+        let enabled = config.child_enabled(name);
+        if !enabled {
+            children.insert(
+                (*name).to_string(),
+                ChildRuntime {
+                    enabled: false,
+                    port: 0,
+                    url_base: format!("/{name}"),
+                    base_url: String::new(),
+                    api_key: None,
+                    username: None,
+                    password: None,
+                },
+            );
+            continue;
+        }
+        let port = alloc.assign(config.preferred_port(name))?;
+        let url_base = match *name {
+            "jellyfin" => preseed::jellyfin::BASE_URL.to_string(),
+            other => format!("/{other}"),
+        };
+        // NZBGet has no URL-base concept: it always serves from the root of its own port.
+        let effective_base = if *name == "nzbget" { "" } else { url_base.as_str() };
+        let (api_key, username, password) = match *name {
+            "radarr" | "sonarr" => (Some(carried.api_key_for(name)), None, None),
+            "nzbget" => {
+                let (u, p) = carried.nzbget_credentials();
+                (None, Some(u), Some(p))
+            }
+            _ => (None, None, None),
+        };
+        children.insert(
+            (*name).to_string(),
+            ChildRuntime {
+                enabled: true,
+                port,
+                url_base: url_base.clone(),
+                base_url: format!("http://127.0.0.1:{port}{effective_base}"),
+                api_key,
+                username,
+                password,
+            },
+        );
+    }
+
+    // The qBittorrent-compatible shim lives inside Jellyfin, so the arrs dial Jellyfin's port with
+    // this as their UrlBase. Jellyfin's own BaseUrl is part of that path because ASP.NET maps
+    // every route under it.
+    let mut qbt = carried.qbt_or_new();
+    qbt.url_base = format!("{}/stingstream/qbt", preseed::jellyfin::BASE_URL);
+
+    let jellyfin_admin = Some(carried.jellyfin_admin.unwrap_or_else(|| AdminRuntime {
+        username: "stingstream".to_string(),
+        password: secrets::password(secrets::PASSWORD_LEN),
+    }));
+
+    let ffmpeg_path = childdef::find_ffmpeg(mode.repo_root(), mode.install_root());
+    if ffmpeg_path.is_none() {
+        tracing::warn!(
+            "no ffmpeg found: Jellyfin cannot transcode or generate images. Run \
+             third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1."
+        );
+    }
+    let ffprobe_path = ffmpeg_path.as_deref().and_then(childdef::ffprobe_beside);
+
+    Ok(Runtime {
+        version: RUNTIME_VERSION,
+        node_id: carried
+            .node_id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        node_name: config.node_name.clone(),
+        first_run: carried.first_run,
+        dev: mode.is_dev(),
+        data_dir: data_dir.to_path_buf(),
+        gateway: GatewayRuntime {
+            bind: config.gateway.bind.clone(),
+            port: config.gateway.port,
+            local_url: format!("http://127.0.0.1:{}", config.gateway.port),
+        },
+        paths: runtime::paths_runtime(layout),
+        children,
+        qbittorrent: qbt,
+        jellyfin_admin,
+        ffmpeg_path,
+        ffprobe_path,
+        updated_at: runtime::now_rfc3339(),
+    })
+}
+
+/// One human-readable block on stderr so someone starting a node by hand knows where to go.
+fn print_banner(rt: &Runtime, dev: bool) {
+    let mut lines = vec![
+        format!("StingStream node \"{}\" is up.", rt.node_name),
+        format!("  Gateway      {}", rt.gateway.local_url),
+        format!("  Health       {}/healthz", rt.gateway.local_url),
+        format!("  StingStream  {}/stingstream/api/v1/", rt.gateway.local_url),
+        format!("  Jellyfin     {}/jellyfin/", rt.gateway.local_url),
+        format!("  Data         {}", rt.data_dir.display()),
+    ];
+    if dev {
+        lines.push("  Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)".into());
+    }
+    if rt.first_run {
+        if let Some(admin) = &rt.jellyfin_admin {
+            lines.push(String::new());
+            lines.push("  First run. The Jellyfin administrator account is being created as:".into());
+            lines.push(format!("    username  {}", admin.username));
+            lines.push(format!("    password  {}", admin.password));
+            lines.push("  These are also in runtime.json in the data directory.".into());
+        }
+    }
+    eprintln!("\n{}\n", lines.join("\n"));
+}
+
+/// Ctrl+C on every platform, plus SIGTERM where it exists (Docker and systemd send it).
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "cannot listen for SIGTERM; Ctrl+C only");
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl+C"),
+            _ = term.recv() => tracing::info!("received SIGTERM"),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("received Ctrl+C");
+    }
 }
