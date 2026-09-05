@@ -78,6 +78,12 @@ them M4's in-flight `pub mod score;` for a file that was still untracked, which 
 everyone until M4 pushed the other half. If a staged hunk is not yours, take the file out of the
 index (`git restore --staged <file>` is a *write*; ask first) or wait for its author.
 
+**Stage and commit in a single shell invocation** — `git add <explicit paths> && git commit -F -`
+— never as two calls with thinking in between. The index is shared, so a separate add and commit is
+not atomic *in either direction*: another agent's `git add` can put its files in your commit, and
+its `git commit` can carry yours away into its own. Both happened on 2026-09-05, hours apart. One
+invocation closes the window.
+
 The same reasoning rules out every git command that rewrites the working tree — `checkout --`,
 `restore`, `reset`, `stash`, `clean`. To undo your own edits, reverse them by hand.
 

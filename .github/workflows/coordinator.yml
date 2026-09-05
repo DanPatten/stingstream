@@ -28,7 +28,10 @@ on:
 
 concurrency:
   group: coordinator-${{ github.ref }}
-  cancel-in-progress: true
+  # A master run always reaches a conclusion; a pull-request run still cancels when it is
+  # superseded. Several agents push to master minutes apart, and with `true` here each push
+  # cancelled the run before it -- so a green master was luck rather than evidence.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 env:
   CARGO_TERM_COLOR: always
