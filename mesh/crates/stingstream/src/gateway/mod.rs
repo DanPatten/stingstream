@@ -17,6 +17,7 @@
 //! on the gateway maps to `/jellyfin/stingstream/...` upstream. That asymmetry is the whole reason
 //! [`proxy::Upstream::upstream_prefix`] exists.
 
+pub mod listen;
 pub mod proxy;
 pub mod web;
 
@@ -68,6 +69,7 @@ pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> 
 
     let mut app = Router::new()
         .route("/healthz", get(healthz))
+        .route("/sidedoor/v1/hello", get(sidedoor_hello))
         .route("/", get(index))
         // `StingStream.Core` is inside Jellyfin, so both of these dial the same child; only the
         // path rewriting differs.
@@ -121,7 +123,10 @@ async fn healthz(State(state): State<GatewayState>) -> Response {
         },
         "gateway": {
             "port": state.node.runtime.gateway.port,
+            "https_port": state.node.config.gateway.https_port,
+            "tls": state.node.config.gateway.tls,
         },
+        "side_door": state.node.side_door.get(),
         "children": children,
     });
     // 503 when degraded, so `curl --fail` and CI health gates work without parsing the body.
@@ -131,6 +136,49 @@ async fn healthz(State(state): State<GatewayState>) -> Response {
         StatusCode::SERVICE_UNAVAILABLE
     };
     (code, Json(body)).into_response()
+}
+
+/// `GET /sidedoor/v1/hello` — the endpoint a racing web client actually calls.
+///
+/// The web bundle opens every side-door candidate at once and keeps the first that answers
+/// ([`apps/stingstream/lib/stingstream/sidedoor.ts`](../../../../apps/stingstream/lib/stingstream/sidedoor.ts)).
+/// Those requests are **cross-origin** — the page was loaded from one of the candidates and is
+/// probing the others — so they need `Access-Control-Allow-Origin`, and `/healthz` is not the
+/// place to put it: that document carries child ports, the data directory and the whole side-door
+/// state, and any page on the internet could then read it out of a browser that can reach this
+/// node.
+///
+/// So this is a separate, deliberately tiny document:
+///
+/// * `node` — this node's id, so a client can tell it reached the node it meant to rather than
+///   whatever a hostile DNS answer pointed at.
+/// * `secure` — whether *this* request arrived over TLS. A candidate that answers in plain HTTP is
+///   the DNS-rebinding fallback, not a win, and the client must be able to tell the difference.
+/// * `client_ip` — the address this node sees the caller at. It is the caller's own address, which
+///   it is not learning anything by being told, and it is what lets the client remember which
+///   candidate won *on this network* rather than re-racing on every page load.
+async fn sidedoor_hello(State(state): State<GatewayState>, req: Request) -> Response {
+    let secure = req
+        .extensions()
+        .get::<listen::ConnSecure>()
+        .is_some_and(|c| c.0);
+    let sd = state.node.side_door.get();
+    let body = json!({
+        "ok": true,
+        "node": sd.node,
+        "secure": secure,
+        "client_ip": peer_addr(&req).map(|a| a.ip().to_string()),
+        "direct_https": sd.direct_https,
+    });
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        Json(body),
+    )
+        .into_response()
 }
 
 async fn index(State(state): State<GatewayState>) -> Response {

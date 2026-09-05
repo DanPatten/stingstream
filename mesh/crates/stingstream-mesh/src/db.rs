@@ -30,9 +30,10 @@ use crate::util::{now_rfc3339, restrict_to_owner};
 /// Schema version.
 ///
 /// 2 added `inventory.local_images`, which is how the peer image route resolves a kind to a file
-/// this node holds. Every statement in [`SCHEMA`] is `IF NOT EXISTS`, so a new database is correct
-/// by construction; [`Db::migrate`] is what brings an existing one forward.
-pub const SCHEMA_VERSION: i64 = 2;
+/// this node holds. 3 added the rolling throughput columns on `peers`, which are what M4's source
+/// scorer weighs a candidate's bandwidth on. Every statement in [`SCHEMA`] is `IF NOT EXISTS`, so a
+/// new database is correct by construction; [`Db::migrate`] is what brings an existing one forward.
+pub const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -62,6 +63,9 @@ CREATE TABLE IF NOT EXISTS peers (
     active_direct_streams INTEGER,
     active_transcodes    INTEGER,
     free_space           INTEGER,
+    throughput_bps       INTEGER,
+    throughput_samples   INTEGER,
+    throughput_at        TEXT,
     PRIMARY KEY (group_id, node_id)
 );
 
@@ -120,7 +124,13 @@ impl Db {
     /// converges, and a fresh one created by [`SCHEMA`] is a no-op.
     fn migrate(&self) -> Result<()> {
         let conn = self.lock();
-        for statement in ["ALTER TABLE inventory ADD COLUMN local_images TEXT"] {
+        for statement in [
+            "ALTER TABLE inventory ADD COLUMN local_images TEXT",
+            "ALTER TABLE peers ADD COLUMN throughput_bps INTEGER",
+            "ALTER TABLE peers ADD COLUMN throughput_samples INTEGER",
+            "ALTER TABLE peers ADD COLUMN throughput_at TEXT",
+            "ALTER TABLE peers ADD COLUMN side_door TEXT",
+        ] {
             match conn.execute(statement, []) {
                 Ok(_) => tracing::info!(statement, "migrated mesh.db"),
                 Err(e) if e.to_string().contains("duplicate column name") => {}
@@ -334,7 +344,8 @@ impl Db {
             .execute(
                 "UPDATE peers SET online = 1, last_seen = ?3,
                         max_direct_streams = ?4, max_transcodes = ?5,
-                        active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8
+                        active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8,
+                        side_door = COALESCE(?9, side_door)
                  WHERE group_id = ?1 AND node_id = ?2",
                 params![
                     group.to_string(),
@@ -345,6 +356,13 @@ impl Db {
                     hb.active_direct_streams as i64,
                     hb.active_transcodes as i64,
                     hb.free_space as i64,
+                    // COALESCE, not a plain assignment: a heartbeat that carries no side door is
+                    // the normal state for a node that has one and is mid-renewal, and blanking
+                    // the candidates on every such beat would make a peer flicker in and out of
+                    // being reachable by a browser.
+                    hb.side_door
+                        .as_ref()
+                        .and_then(|sd| serde_json::to_string(sd).ok()),
                 ],
             )
             .context("recording a heartbeat")?;
@@ -390,7 +408,8 @@ impl Db {
         let conn = self.lock();
         let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
-                          active_transcodes, free_space
+                          active_transcodes, free_space, throughput_bps, throughput_samples,
+                          throughput_at, side_door
                    FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
@@ -409,11 +428,87 @@ impl Db {
                     active_direct_streams: r.get::<_, Option<i64>>(10)?.map(|v| v as u32),
                     active_transcodes: r.get::<_, Option<i64>>(11)?.map(|v| v as u32),
                     free_space: r.get::<_, Option<i64>>(12)?.map(|v| v as u64),
+                    throughput_bps: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+                    throughput_samples: r.get::<_, Option<i64>>(14)?.map(|v| v as u64),
+                    throughput_at: r.get(15)?,
+                    // A row written before this column existed, or by a peer with no side door,
+                    // simply has none. Unparseable JSON is treated the same way rather than
+                    // failing the whole listing: one confused peer must not blank the Group screen.
+                    side_door: r
+                        .get::<_, Option<String>>(16)?
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok()),
                 })
             })
             .context("listing peers")?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .context("reading peer rows")
+    }
+
+    /// One peer's row, or `None` when this node has never seen it in that group.
+    pub fn peer(&self, group: &GroupId, node: &str) -> Result<Option<PeerRow>> {
+        Ok(self
+            .peers(Some(group))?
+            .into_iter()
+            .find(|p| p.node == node))
+    }
+
+    /// Fold one completed transfer into a peer's rolling throughput estimate.
+    ///
+    /// An exponentially-weighted moving average with `alpha = 0.4`: recent enough to notice a link
+    /// that has just got worse, damped enough that one unlucky range read does not condemn a peer.
+    ///
+    /// Short or tiny transfers are **ignored rather than averaged in**. A 64 KiB seek that
+    /// completes in 8 ms is 65 Mbit/s and says nothing about whether a film will stream; a poster
+    /// fetch says less. The floors below (256 KiB and 100 ms) are what keep the estimate about
+    /// sustained bandwidth, which is the only thing the scorer can usefully compare with a bitrate.
+    pub fn record_throughput(
+        &self,
+        group: &GroupId,
+        node: &str,
+        bytes: u64,
+        secs: f64,
+    ) -> Result<Option<u64>> {
+        const MIN_BYTES: u64 = 256 * 1024;
+        const MIN_SECS: f64 = 0.1;
+        const ALPHA: f64 = 0.4;
+
+        if bytes < MIN_BYTES || secs < MIN_SECS || !secs.is_finite() {
+            return Ok(None);
+        }
+        let sample = (bytes as f64 * 8.0 / secs) as u64;
+
+        self.note_member(group, node, "")?;
+        let conn = self.lock();
+        let current: Option<(Option<i64>, Option<i64>)> = conn
+            .query_row(
+                "SELECT throughput_bps, throughput_samples FROM peers
+                 WHERE group_id = ?1 AND node_id = ?2",
+                params![group.to_string(), node],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .context("reading a peer's throughput")?;
+        let (previous, samples) = current.unwrap_or((None, None));
+        let blended = match previous {
+            Some(prev) if prev > 0 => {
+                (ALPHA * sample as f64 + (1.0 - ALPHA) * prev as f64) as u64
+            }
+            _ => sample,
+        };
+        conn.execute(
+            "UPDATE peers SET throughput_bps = ?3, throughput_samples = ?4, throughput_at = ?5
+             WHERE group_id = ?1 AND node_id = ?2",
+            params![
+                group.to_string(),
+                node,
+                blended as i64,
+                samples.unwrap_or(0) + 1,
+                now_rfc3339(),
+            ],
+        )
+        .context("recording a peer's throughput")?;
+        Ok(Some(blended))
     }
 
     // --- inventory ----------------------------------------------------------------------------
@@ -700,6 +795,94 @@ impl Db {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .context("reading holder rows")
     }
+
+    /// Every holder of an item, with everything the scorer needs about reaching it.
+    ///
+    /// One query rather than "list holders, then look each peer up": a scoring pass runs on the
+    /// PlaybackInfo path and on every `?any=1` stream request, and a join is what keeps that a
+    /// single read of a local database rather than N of them.
+    pub fn candidates(
+        &self,
+        group: &GroupId,
+        item_key: &str,
+    ) -> Result<Vec<crate::score::Candidate>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT i.node_id, COALESCE(p.node_name, ''), COALESCE(p.online, 0), i.file_hash,
+                        i.record, i.updated_at, p.path, p.rtt_ms, p.throughput_bps,
+                        p.max_direct_streams, p.active_direct_streams, p.max_transcodes,
+                        p.active_transcodes, p.free_space
+                 FROM inventory i
+                 LEFT JOIN peers p ON p.group_id = i.group_id AND p.node_id = i.node_id
+                 WHERE i.group_id = ?1 AND i.item_key = ?2",
+            )
+            .context("looking up scoring candidates")?;
+        let rows = stmt
+            .query_map(params![group.to_string(), item_key], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)? != 0,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<i64>>(7)?,
+                    r.get::<_, Option<i64>>(8)?,
+                    r.get::<_, Option<i64>>(9)?,
+                    r.get::<_, Option<i64>>(10)?,
+                    r.get::<_, Option<i64>>(11)?,
+                    r.get::<_, Option<i64>>(12)?,
+                    r.get::<_, Option<i64>>(13)?,
+                ))
+            })
+            .context("looking up scoring candidates")?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (
+                node,
+                node_name,
+                online,
+                file_hash,
+                record,
+                updated_at,
+                path,
+                rtt_ms,
+                throughput_bps,
+                max_direct_streams,
+                active_direct_streams,
+                max_transcodes,
+                active_transcodes,
+                free_space,
+            ) = row.context("reading a candidate row")?;
+            let media = serde_json::from_str::<WireRecord>(&record)
+                .map(|r| r.media)
+                .unwrap_or_default();
+            out.push(crate::score::Candidate {
+                node,
+                node_name,
+                online,
+                file_hash,
+                bitrate: media.bitrate,
+                size: media.size,
+                height: media.height,
+                width: media.width,
+                resolution: media.resolution,
+                path,
+                rtt_ms: rtt_ms.map(|v| v as u64),
+                throughput_bps: throughput_bps.map(|v| v as u64),
+                max_direct_streams: max_direct_streams.map(|v| v as u32),
+                active_direct_streams: active_direct_streams.map(|v| v as u32),
+                max_transcodes: max_transcodes.map(|v| v as u32),
+                active_transcodes: active_transcodes.map(|v| v as u32),
+                free_space: free_space.map(|v| v as u64),
+                updated_at,
+            });
+        }
+        Ok(out)
+    }
 }
 
 fn insert_record(
@@ -764,6 +947,17 @@ pub struct PeerRow {
     pub active_direct_streams: Option<u32>,
     pub active_transcodes: Option<u32>,
     pub free_space: Option<u64>,
+    /// Rolling measured throughput *from* this peer, bits per second. Null until this node has
+    /// pulled enough bytes from it for a sample to mean anything — see [`Db::record_throughput`].
+    pub throughput_bps: Option<u64>,
+    /// How many transfers have gone into the average.
+    pub throughput_samples: Option<u64>,
+    /// When the average was last updated, RFC 3339.
+    pub throughput_at: Option<String>,
+    /// Where a browser can reach this peer over HTTPS, as the peer last gossiped it. `None` for a
+    /// peer with no coordinator or no certificate. See [`crate::sidedoor`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_door: Option<crate::sidedoor::SideDoor>,
 }
 
 #[cfg(test)]
@@ -954,6 +1148,112 @@ mod tests {
         let holders = db.holders(&g.id, "a").unwrap();
         assert_eq!(holders.len(), 2);
         assert_eq!(holders[0].0, "n2", "most recently updated first");
+    }
+
+    #[test]
+    fn throughput_ignores_samples_too_small_to_mean_anything() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        // 64 KiB in 8 ms is 65 Mbit/s and says nothing about sustained bandwidth.
+        assert_eq!(db.record_throughput(&g.id, "peer", 64 * 1024, 0.008).unwrap(), None);
+        // A megabyte in a millisecond is a local cache hit, not a link measurement.
+        assert_eq!(db.record_throughput(&g.id, "peer", 1 << 20, 0.001).unwrap(), None);
+        assert!(db.peer(&g.id, "peer").unwrap().is_none_or(|p| p.throughput_bps.is_none()));
+    }
+
+    #[test]
+    fn throughput_is_an_exponential_moving_average() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        // 10 MB in 10 s = 8 Mbit/s.
+        let first = db
+            .record_throughput(&g.id, "peer", 10_000_000, 10.0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, 8_000_000);
+        // 10 MB in 1 s = 80 Mbit/s. alpha = 0.4, so 0.4*80 + 0.6*8 = 36.8 Mbit/s.
+        let second = db
+            .record_throughput(&g.id, "peer", 10_000_000, 1.0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(second, 36_800_000);
+
+        let row = db.peer(&g.id, "peer").unwrap().unwrap();
+        assert_eq!(row.throughput_bps, Some(36_800_000));
+        assert_eq!(row.throughput_samples, Some(2));
+        assert!(row.throughput_at.is_some());
+    }
+
+    #[test]
+    fn candidates_join_the_index_to_what_is_known_about_reaching_each_holder() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+
+        let mut wire = record("movie:tmdb:1", "2026-09-05T00:00:00Z", None).to_wire();
+        wire.media = MediaSummary {
+            bitrate: Some(5_000_000),
+            height: Some(1080),
+            width: Some(1920),
+            resolution: Some("1080p".into()),
+            size: Some(4_000_000_000),
+            ..Default::default()
+        };
+        db.merge_peer_records(&g.id, "b", std::slice::from_ref(&wire)).unwrap();
+        db.set_heartbeat(
+            &g.id,
+            "b",
+            "loft",
+            &Heartbeat {
+                max_direct_streams: 8,
+                active_direct_streams: 1,
+                max_transcodes: 2,
+                active_transcodes: 0,
+                free_space: 123,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        db.set_peer_path(&g.id, "b", "direct", Some(4)).unwrap();
+        db.record_throughput(&g.id, "b", 10_000_000, 10.0).unwrap();
+
+        let candidates = db.candidates(&g.id, "movie:tmdb:1").unwrap();
+        assert_eq!(candidates.len(), 1);
+        let c = &candidates[0];
+        assert_eq!(c.node, "b");
+        assert_eq!(c.node_name, "loft");
+        assert!(c.online);
+        assert_eq!(c.bitrate, Some(5_000_000));
+        assert_eq!(c.height, Some(1080));
+        assert_eq!(c.resolution.as_deref(), Some("1080p"));
+        assert_eq!(c.path.as_deref(), Some("direct"));
+        assert_eq!(c.rtt_ms, Some(4));
+        assert_eq!(c.throughput_bps, Some(8_000_000));
+        assert_eq!(c.max_direct_streams, Some(8));
+        assert_eq!(c.active_direct_streams, Some(1));
+        assert_eq!(c.file_hash.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn a_holder_with_no_peer_row_still_appears_as_a_candidate() {
+        // Which is the join being a LEFT JOIN, and it matters: a snapshot can arrive over gossip
+        // before this node has ever connected to its author, and dropping the candidate would make
+        // a title unplayable until the first heartbeat landed.
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.merge_peer_records(
+            &g.id,
+            "stranger",
+            &[record("movie:tmdb:1", "2026-09-05T00:00:00Z", None).to_wire()],
+        )
+        .unwrap();
+        let candidates = db.candidates(&g.id, "movie:tmdb:1").unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].path.is_none());
+        assert!(candidates[0].throughput_bps.is_none());
     }
 
     #[test]

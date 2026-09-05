@@ -133,11 +133,20 @@ impl MeshNode {
             streams: streams.clone(),
             chunk_bytes: cfg.peer.stream_chunk_bytes,
             light: cfg.peer.light,
+            throttle_bytes_per_sec: cfg.peer.throttle_bytes_per_sec,
         });
-        let router = Router::builder(endpoint.clone())
+        let mut router = Router::builder(endpoint.clone())
             .accept(GOSSIP_ALPN, gossip.clone())
-            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state))
-            .spawn();
+            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state));
+        // The node half of the coordinator's SNI passthrough. Registered only when there is a
+        // gateway to pipe into: a node with no side door refuses the ALPN outright, which is a
+        // clean answer rather than a connection that opens and then goes nowhere.
+        if cfg.sidedoor.gateway_port != 0 {
+            let target = crate::tunnel::target_for(cfg.sidedoor.gateway_port);
+            tracing::info!(%target, "side-door passthrough enabled (ALPN stingstream/tcp/1)");
+            router = router.accept(crate::TCP_ALPN, crate::tunnel::TunnelProtocol::new(target));
+        }
+        let router = router.spawn();
 
         let node = Arc::new(Self {
             cfg,
@@ -657,10 +666,36 @@ impl MeshNode {
         let merged = crate::inventory::Heartbeat {
             max_direct_streams: max as u32,
             active_direct_streams: max.saturating_sub(self.available_streams()) as u32,
+            // The side door is published by the supervisor, not by Core, and Core's capacity push
+            // does not carry one. Without this, every heartbeat from Core would erase the
+            // candidate hostnames a browser needs.
+            side_door: capacity
+                .side_door
+                .clone()
+                .or_else(|| self.capacity().side_door),
             ..capacity.clone()
         };
         let json = serde_json::to_string(&merged).context("encoding this node's capacity")?;
         self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
+    }
+
+    /// Publish this node's side-door candidates, so the group learns where a browser can reach it.
+    ///
+    /// Written by the supervisor's side-door manager (`stingstream`'s `sidedoor` module), which is
+    /// the half that owns the gateway, the certificate and the coordinator client. It rides the
+    /// heartbeat, so it converges on the same schedule as liveness and vanishes with the peer.
+    /// `None` clears it — which is the right answer for a certificate that has expired and not
+    /// been renewed, because the names would still resolve and the padlock would not.
+    pub fn set_side_door(&self, side_door: Option<crate::sidedoor::SideDoor>) -> Result<()> {
+        let mut hb = self.capacity();
+        hb.side_door = side_door;
+        let json = serde_json::to_string(&hb).context("encoding this node's side door")?;
+        self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
+    }
+
+    /// This node's own side-door candidates, if it has published any.
+    pub fn side_door(&self) -> Option<crate::sidedoor::SideDoor> {
+        self.capacity().side_door
     }
 
     /// Group membership and liveness.
@@ -671,10 +706,15 @@ impl MeshNode {
     pub fn peers(&self, group_id: Option<&GroupId>) -> Result<Vec<PeerRow>> {
         let me = self.node_id();
         let mut rows = self.db.peers(group_id)?;
+        let mine = self.side_door();
         for row in &mut rows {
             if row.node == me {
                 row.node_name.clone_from(&self.cfg.node_name);
                 row.online = true;
+                // Nothing ever heartbeats on this node's behalf, so its own row would otherwise
+                // show no side door at all — which reads as "a browser cannot reach me" on the one
+                // screen where that is most obviously wrong.
+                row.side_door.clone_from(&mine);
             }
         }
         Ok(rows)
@@ -682,35 +722,309 @@ impl MeshNode {
 
     // --- streaming ----------------------------------------------------------------------------
 
-    /// Proxy a range request for `item_key` to `node` over iroh.
+    /// Score every holder of `item_key`, best first.
+    ///
+    /// The mesh's own copy of the source-selection answer. `StingStream.Core` scores the same
+    /// candidates for `PlaybackInfo` under the *user's* policy; this one exists for the callers
+    /// that have no Jellyfin in front of them — `?any=1`, mid-stream failover, and the harness.
+    pub fn sources(
+        &self,
+        group_id: &GroupId,
+        item_key: &str,
+        policy: crate::score::Policy,
+    ) -> Result<Vec<crate::score::Scored>> {
+        if self.db.group(group_id)?.is_none() {
+            bail!("this node is not a member of group {group_id}");
+        }
+        Ok(crate::score::rank(
+            &self.db.candidates(group_id, item_key)?,
+            policy,
+        ))
+    }
+
+    /// Proxy a range request for `item_key` to a holder over iroh, and keep it going.
     ///
     /// This is the server side of `/stream/{group}/{item_key}/{node}`: the URL a federated `.strm`
-    /// file resolves to. M3a always uses the node named in the URL; M4 replaces that with the
-    /// scored candidate list and adds same-hash failover.
+    /// file resolves to. Two things happen here that a plain proxy would not do.
+    ///
+    /// **Source choice.** `node` is normally the holder the `.strm` names, which is what keeps a
+    /// "Play from…" choice meaning what it said. [`ANY_SOURCE`] (or `?any=1`) instead hands the
+    /// choice to [`MeshNode::sources`], so a browser, a cast receiver or a stock Jellyfin client
+    /// gets the same scoring the app gets without knowing the mesh exists.
+    ///
+    /// **Failover.** The response body is wrapped so that if the holder dies mid-stream — killed,
+    /// unplugged, or simply saturated — the next holder of the **same `file_hash`** is asked for
+    /// `bytes=<where we got to>-` and the bytes keep coming on the same HTTP response. The reader
+    /// sees one uninterrupted body: the `ETag` is derived from the file hash, so both holders are
+    /// serving the same representation by definition, and a player never learns that anything
+    /// happened. A holder with a *different* encode is not a substitute and is never used — that
+    /// case is a restart by timestamp on the next `MediaSource`, which is the app's job.
     pub async fn stream(
-        &self,
+        self: &Arc<Self>,
         group_id: &GroupId,
         item_key: &str,
         node: &str,
         headers: &http::HeaderMap,
-    ) -> Result<Response<Incoming>> {
+        policy: crate::score::Policy,
+    ) -> Result<Response<axum::body::Body>> {
         let Some(group) = self.db.group(group_id)? else {
             bail!("this node is not a member of group {group_id}");
         };
-        // The hash from our own index, so a peer serving a *different* file under the same key is
-        // caught rather than played.
-        let hash = self
-            .db
-            .holders(group_id, item_key)?
-            .into_iter()
-            .find(|(n, _)| n == node)
-            .and_then(|(_, h)| h)
-            .unwrap_or_else(|| "any".to_string());
+        let candidates = self.db.candidates(group_id, item_key)?;
 
+        // The order to try holders in. A named node goes first even if the scorer would not have
+        // chosen it: the caller asked for that source, and second-guessing a "Play from…" choice
+        // would make the menu a lie.
+        let order: Vec<String> = if node.eq_ignore_ascii_case(ANY_SOURCE) {
+            let ranked = crate::score::rank(&candidates, policy);
+            let chosen: Vec<String> = ranked
+                .iter()
+                .filter(|s| s.candidate.online)
+                .map(|s| s.candidate.node.clone())
+                .collect();
+            if chosen.is_empty() {
+                bail!("no online holder of {item_key} in group {group_id}");
+            }
+            tracing::info!(
+                group = %group_id,
+                item_key,
+                policy = ?policy,
+                chosen = %short(&chosen[0]),
+                score = ranked[0].score,
+                reasons = %ranked[0].reasons.join("; "),
+                "chose a source for an ?any= stream request"
+            );
+            chosen
+        } else {
+            let mut order = vec![node.to_string()];
+            order.extend(
+                crate::score::failover_set(&candidates, node, policy)
+                    .into_iter()
+                    .map(|s| s.candidate.node),
+            );
+            order
+        };
+
+        // The hash from our own index, so a peer serving a *different* file under the same key is
+        // caught rather than played. Taken from the *first* candidate in the order, and reused for
+        // every failover, which is what makes "the same bytes" true rather than hoped for.
+        let hash = candidates
+            .iter()
+            .find(|c| c.node == order[0])
+            .and_then(|c| c.file_hash.clone())
+            .filter(|h| !h.is_empty())
+            .unwrap_or_else(|| ANY_HASH.to_string());
+
+        // The first holder to answer supplies the headers the client sees, so a 503 from a
+        // saturated node has to be tried past *before* anything is committed to the wire.
+        let mut last: Option<anyhow::Error> = None;
+        let mut opened: Option<(usize, Response<Incoming>)> = None;
+        for (i, holder) in order.iter().enumerate() {
+            match self
+                .open_range(&group, item_key, &hash, holder, RangeAsk::Passthrough(headers))
+                .await
+            {
+                Ok(resp) if resp.status() == StatusCode::SERVICE_UNAVAILABLE => {
+                    tracing::info!(
+                        group = %group_id, item_key, node = %short(holder),
+                        "holder is at its stream limit; trying the next one"
+                    );
+                    last = Some(anyhow::anyhow!(
+                        "node {} is at its stream limit",
+                        short(holder)
+                    ));
+                }
+                Ok(resp) if resp.status().is_server_error() => {
+                    last = Some(anyhow::anyhow!(
+                        "node {} answered {}",
+                        short(holder),
+                        resp.status()
+                    ));
+                }
+                Ok(resp) => {
+                    opened = Some((i, resp));
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        group = %group_id, item_key, node = %short(holder), error = %e,
+                        "could not open a stream from a holder; trying the next one"
+                    );
+                    last = Some(e);
+                }
+            }
+        }
+        let Some((chosen_index, resp)) = opened else {
+            return Err(last.unwrap_or_else(|| anyhow::anyhow!("no holder of {item_key} answered")));
+        };
+        let chosen = order[chosen_index].clone();
+        // Everything before the one that answered has already failed this request; everything after
+        // it is still worth trying if it dies mid-body.
+        let queue: std::collections::VecDeque<String> =
+            order[chosen_index + 1..].iter().cloned().collect();
+
+        let (parts, body) = resp.into_parts();
+        let (start, end, total) = span_of(&parts);
+        tracing::info!(
+            group = %group_id,
+            item_key,
+            node = %short(&chosen),
+            status = parts.status.as_u16(),
+            start,
+            end,
+            total,
+            failover_candidates = queue.len(),
+            "streaming from a peer"
+        );
+
+        let mut out = Response::new(self.clone().failover_body(
+            group,
+            item_key.to_string(),
+            hash,
+            chosen,
+            queue,
+            body,
+            start,
+            end,
+        ));
+        *out.status_mut() = parts.status;
+        for (name, value) in parts.headers.iter() {
+            out.headers_mut().insert(name, value.clone());
+        }
+        Ok(out)
+    }
+
+    /// Wrap a peer's body so a holder dying mid-stream is a re-dial rather than a broken player.
+    ///
+    /// The generator owns the whole transfer: it counts the bytes it has emitted, so it always
+    /// knows the offset to resume from, and it treats a *short* body — one that ends cleanly before
+    /// the `Content-Length` it promised — as a failure too. That case is the common one: a killed
+    /// process closes its QUIC connection, and a closed connection is an EOF, not an error.
+    #[allow(clippy::too_many_arguments)]
+    fn failover_body(
+        self: Arc<Self>,
+        group: Group,
+        item_key: String,
+        hash: String,
+        first_node: String,
+        rest: std::collections::VecDeque<String>,
+        body: Incoming,
+        start: u64,
+        end: Option<u64>,
+    ) -> axum::body::Body {
+        let stream = async_stream::stream! {
+            let mut current = body;
+            let mut queue = rest;
+            let mut holder = first_node;
+            let mut sent: u64 = 0;
+            let mut holder_bytes: u64 = 0;
+            let mut holder_started = std::time::Instant::now();
+            let expected = end.map(|e| e.saturating_sub(start) + 1);
+
+            loop {
+                let frame = current.frame().await;
+                match frame {
+                    Some(Ok(f)) => {
+                        if let Ok(data) = f.into_data() {
+                            sent += data.len() as u64;
+                            holder_bytes += data.len() as u64;
+                            yield Ok::<bytes::Bytes, std::io::Error>(data);
+                        }
+                        continue;
+                    }
+                    Some(Err(e)) => {
+                        tracing::warn!(
+                            group = %group.id, item_key, node = %short(&holder), error = %e,
+                            sent, "a peer's stream failed mid-body"
+                        );
+                    }
+                    None => {
+                        self.note_throughput(&group.id, &holder, holder_bytes, holder_started.elapsed());
+                        match expected {
+                            Some(want) if sent < want => {
+                                tracing::warn!(
+                                    group = %group.id, item_key, node = %short(&holder),
+                                    sent, want, "a peer's stream ended early"
+                                );
+                            }
+                            _ => break,
+                        }
+                    }
+                }
+
+                // Something went wrong. Find another holder of the same bytes and carry on from
+                // exactly where the reader has got to.
+                let resume_from = start + sent;
+                let mut resumed = false;
+                while let Some(next) = queue.pop_front() {
+                    match self
+                        .open_range(
+                            &group,
+                            &item_key,
+                            &hash,
+                            &next,
+                            RangeAsk::From(resume_from, end),
+                        )
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            tracing::info!(
+                                group = %group.id, item_key,
+                                from = %short(&holder), to = %short(&next),
+                                offset = resume_from,
+                                "continuing the stream from another holder of the same file"
+                            );
+                            current = resp.into_body();
+                            holder = next;
+                            holder_bytes = 0;
+                            holder_started = std::time::Instant::now();
+                            resumed = true;
+                            break;
+                        }
+                        Ok(resp) => tracing::warn!(
+                            group = %group.id, item_key, node = %short(&next),
+                            status = resp.status().as_u16(),
+                            "a failover holder refused the resume"
+                        ),
+                        Err(e) => tracing::warn!(
+                            group = %group.id, item_key, node = %short(&next), error = %e,
+                            "a failover holder could not be reached"
+                        ),
+                    }
+                }
+                if !resumed {
+                    tracing::error!(
+                        group = %group.id, item_key, sent,
+                        "no other holder of this file could continue the stream"
+                    );
+                    yield Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "the holder stopped and no other node holds these bytes",
+                    ));
+                    return;
+                }
+            }
+        };
+        axum::body::Body::from_stream(stream)
+    }
+
+    /// Ask one holder for a file, either passing the client's own range through or resuming.
+    ///
+    /// One retry on a transport failure, because a cached connection can be dead without knowing
+    /// it: a peer that restarted, or a relay path whose far end vanished, stays "open" until QUIC's
+    /// idle timeout notices. The first failure evicts it and re-dials.
+    async fn open_range(
+        &self,
+        group: &Group,
+        item_key: &str,
+        hash: &str,
+        node: &str,
+        ask: RangeAsk<'_>,
+    ) -> Result<Response<Incoming>> {
         let uri = format!(
             "/peer/v1/file/{}/{}",
             encode_segment(item_key),
-            encode_segment(&hash)
+            encode_segment(hash)
         );
         let build = || {
             let mut req = Request::builder()
@@ -718,28 +1032,43 @@ impl MeshNode {
                 .uri(&uri)
                 .body(empty_body())
                 .context("building a file request")?;
-            // Forward exactly the headers that make range playback work, and nothing else: the
-            // peer does not need our cookies, our user agent or anything the player attached.
-            for name in [
-                header::RANGE,
-                header::IF_RANGE,
-                header::IF_NONE_MATCH,
-                header::ACCEPT,
-            ] {
-                if let Some(v) = headers.get(&name) {
-                    req.headers_mut().insert(name, v.clone());
+            match ask {
+                RangeAsk::Passthrough(headers) => {
+                    // Forward exactly the headers that make range playback work, and nothing else:
+                    // the peer does not need our cookies, our user agent or anything the player
+                    // attached.
+                    for name in [
+                        header::RANGE,
+                        header::IF_RANGE,
+                        header::IF_NONE_MATCH,
+                        header::ACCEPT,
+                    ] {
+                        if let Some(v) = headers.get(&name) {
+                            req.headers_mut().insert(name, v.clone());
+                        }
+                    }
+                }
+                RangeAsk::From(start, end) => {
+                    // No `If-Range` and no `If-None-Match`: the whole point is that this holder is
+                    // serving the same representation, and a precondition that failed would give us
+                    // the file from byte zero in the middle of a playback.
+                    let spec = match end {
+                        Some(e) => format!("bytes={start}-{e}"),
+                        None => format!("bytes={start}-"),
+                    };
+                    req.headers_mut().insert(
+                        header::RANGE,
+                        http::HeaderValue::from_str(&spec)
+                            .context("building a resume range header")?,
+                    );
                 }
             }
             anyhow::Ok(req)
         };
 
-        // Two attempts, because a cached connection can be dead without knowing it yet: a peer
-        // that restarted, or a relay path whose far end vanished, stays "open" until QUIC's idle
-        // timeout notices. The first failure evicts it and re-dials, which is what a player would
-        // otherwise have to do by giving up and being restarted by a person.
         let mut last: Option<anyhow::Error> = None;
         for attempt in 0..2u32 {
-            let conn = match self.connect_node(&group, node).await {
+            let conn = match self.connect_node(group, node).await {
                 Ok(c) => c,
                 Err(e) if attempt == 0 => {
                     last = Some(e);
@@ -748,28 +1077,16 @@ impl MeshNode {
                 }
                 Err(e) => return Err(e),
             };
-            let started = std::time::Instant::now();
             match conn.request(build()?).await {
                 Ok(resp) => {
                     let (path, rtt) = peer::path_summary(&conn.conn);
-                    let _ = self.db.set_peer_path(group_id, node, &path, rtt);
-                    tracing::info!(
-                        group = %group_id,
-                        item_key,
-                        node = %&node[..node.len().min(12)],
-                        status = resp.status().as_u16(),
-                        path,
-                        rtt_ms = rtt,
-                        ttfb_ms = started.elapsed().as_millis() as u64,
-                        attempt,
-                        "streaming from a peer"
-                    );
+                    let _ = self.db.set_peer_path(&group.id, node, &path, rtt);
                     return Ok(resp);
                 }
                 Err(e) if attempt == 0 => {
                     tracing::warn!(
-                        group = %group_id,
-                        node = %&node[..node.len().min(12)],
+                        group = %group.id,
+                        node = %short(node),
                         error = %e,
                         "the peer connection failed; dropping it and re-dialling once"
                     );
@@ -780,6 +1097,25 @@ impl MeshNode {
             }
         }
         Err(last.unwrap_or_else(|| anyhow::anyhow!("could not reach node {node}")))
+    }
+
+    /// Fold a completed transfer into a peer's rolling throughput estimate.
+    fn note_throughput(&self, group: &GroupId, node: &str, bytes: u64, elapsed: std::time::Duration) {
+        match self
+            .db
+            .record_throughput(group, node, bytes, elapsed.as_secs_f64())
+        {
+            Ok(Some(bps)) => tracing::info!(
+                %group,
+                node = %short(node),
+                bytes,
+                secs = format!("{:.2}", elapsed.as_secs_f64()),
+                mbits = format!("{:.1}", bps as f64 / 1e6),
+                "measured a peer's throughput"
+            ),
+            Ok(None) => {}
+            Err(e) => tracing::debug!(error = %e, "could not record a peer's throughput"),
+        }
     }
 
     /// Fetch one artwork file for `item_key` from `node` over iroh.
@@ -873,6 +1209,69 @@ impl MeshNode {
         }
         self.endpoint.close().await;
     }
+}
+
+/// The `node` segment that means "you choose", on `/stream/{group}/{item_key}/{node}`.
+///
+/// A `.strm` never contains this: a materialized pointer names the holder it was written for, so a
+/// "Play from…" choice keeps meaning what it said. It exists for the callers that have no opinion —
+/// `?any=1` from Jellyfin's own proxying path, a cast receiver, or a client recovering from a
+/// pointer whose holder has left the group.
+pub const ANY_SOURCE: &str = "any";
+
+/// The `file_hash` segment that means "whatever you hold under this key".
+///
+/// Only used when this node's own index carries no hash for the holder — a title imported on a peer
+/// whose BLAKE3 has not finished yet. It is deliberately *not* the default: the hash is what stops a
+/// stale pointer from playing whatever file has since taken that item key.
+const ANY_HASH: &str = "any";
+
+/// What to ask a holder for.
+#[derive(Clone, Copy)]
+enum RangeAsk<'a> {
+    /// Pass the client's own conditional and range headers through, unchanged.
+    Passthrough(&'a http::HeaderMap),
+    /// Resume at a byte offset, with no preconditions. See [`MeshNode::open_range`].
+    From(u64, Option<u64>),
+}
+
+/// The byte span a peer's response actually covers: `(start, end, total)`.
+///
+/// Read from `Content-Range` when there is one, and from `Content-Length` otherwise. This is what
+/// makes a resume correct: the client may have asked with a suffix range (`bytes=-500`), and only
+/// the holder's answer says where that landed.
+fn span_of(parts: &http::response::Parts) -> (u64, Option<u64>, Option<u64>) {
+    let content_length = parts
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
+
+    if let Some(range) = parts
+        .headers
+        .get(header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(spec) = range.trim().strip_prefix("bytes ") {
+            let (span, total) = spec.split_once('/').unwrap_or((spec, "*"));
+            if let Some((a, b)) = span.split_once('-') {
+                if let (Ok(start), Ok(end)) = (a.trim().parse::<u64>(), b.trim().parse::<u64>()) {
+                    return (start, Some(end), total.trim().parse::<u64>().ok());
+                }
+            }
+        }
+    }
+
+    match content_length {
+        Some(0) => (0, None, Some(0)),
+        Some(len) => (0, Some(len - 1), Some(len)),
+        None => (0, None, None),
+    }
+}
+
+/// The first twelve characters of a node id: enough to tell peers apart in a log line.
+fn short(node: &str) -> &str {
+    &node[..node.len().min(12)]
 }
 
 /// How a join found its first peer.

@@ -28,11 +28,15 @@ pub mod inventory;
 pub mod node;
 pub mod peer;
 pub mod rendezvous;
+pub mod score;
+pub mod sidedoor;
+pub mod tunnel;
 pub mod util;
 
 pub use config::MeshConfig;
 pub use group::{Group, GroupId, GroupSecret, Invite};
 pub use node::MeshNode;
+pub use sidedoor::{SideDoor, SideDoorCandidate};
 
 /// ALPN for peer-to-peer HTTP/1.1 over iroh. One request per bidirectional QUIC stream.
 pub const HTTP_ALPN: &[u8] = b"stingstream/http/1";

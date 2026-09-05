@@ -29,6 +29,7 @@ use stingstream::runtime::{
     RUNTIME_VERSION,
 };
 use stingstream::secrets;
+use stingstream::sidedoor::{self, certs::CertStore};
 use stingstream::state::{ChildState, NodeState};
 use stingstream::supervisor::{self, childdef, Mode};
 
@@ -84,6 +85,12 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // rustls needs a process-wide crypto provider before anything touches TLS: the gateway's
+    // certificate resolver, the ACME client and every outbound HTTPS call. Installing it here (and
+    // ignoring "already installed", which a second call in a test would report) keeps that out of
+    // every call site.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     let data_dir = paths::resolve_data_dir(cli.data_dir.as_deref())?;
     let layout = Layout::new(&data_dir);
@@ -177,7 +184,23 @@ async fn main() -> Result<()> {
     // listening would answer a player with a connection error rather than a 503.
     let mesh = if config.children.mesh && config.mesh.embedded {
         let port = rt.mesh.api_port;
-        match embedded_mesh::start(&data_dir, port, &config.node_name, shutdown_rx.clone()).await {
+        // The gateway port goes with it: the mesh is where the coordinator's SNI passthrough
+        // lands (ALPN `stingstream/tcp/1`), and all it does with a tunnelled connection is pipe
+        // it into the gateway on loopback.
+        let tunnel_port = if config.sidedoor.enabled {
+            config.gateway.port
+        } else {
+            0
+        };
+        match embedded_mesh::start(
+            &data_dir,
+            port,
+            &config.node_name,
+            tunnel_port,
+            shutdown_rx.clone(),
+        )
+        .await
+        {
             Ok(m) => {
                 node.update("mesh", |c| {
                     c.enabled = true;
@@ -216,7 +239,51 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("binding the gateway to {bind}"))?;
-    tracing::info!(%bind, "gateway listening");
+
+    // The certificate store exists whether or not the side door does: a certificate dropped in by
+    // hand is served just the same, and the gateway's listener needs something to ask either way.
+    let certs = CertStore::open(&data_dir).context("opening the certificate store")?;
+    let tls = config.gateway.tls.then(|| certs.clone());
+    match (config.gateway.tls, certs.info()) {
+        (true, Some(info)) => tracing::info!(
+            names = %info.names.join(", "),
+            not_after = info.not_after.as_deref().unwrap_or("?"),
+            days_left = info.days_left.unwrap_or_default(),
+            %bind,
+            "gateway listening, serving HTTPS with the stored certificate"
+        ),
+        (true, None) => tracing::info!(
+            %bind,
+            "gateway listening (plain HTTP; HTTPS starts as soon as a certificate is issued)"
+        ),
+        (false, _) => tracing::info!(%bind, "gateway listening (plain HTTP; gateway.tls is off)"),
+    }
+
+    // The optional HTTPS-only listener. A node that cannot bind it -- 443 needs privileges on Unix
+    // and may simply be taken -- is not a broken node, so this warns and carries on with the port
+    // it already has.
+    let https_listener = match config.gateway.https_port {
+        0 => None,
+        port => {
+            let addr: SocketAddr = format!("{}:{}", config.gateway.bind, port)
+                .parse()
+                .with_context(|| format!("gateway.https_port {port} is not bindable"))?;
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => {
+                    tracing::info!(%addr, "gateway HTTPS listening");
+                    Some(l)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        %addr, error = %e,
+                        "could not bind gateway.https_port; the side door will advertise the \
+                         gateway port instead"
+                    );
+                    None
+                }
+            }
+        }
+    };
 
     let web = resolve_web_dist(&config, &mode);
     match &web {
@@ -229,17 +296,42 @@ async fn main() -> Result<()> {
     print_banner(&rt, mode.is_dev(), web.is_some(), mesh_node_id.as_deref());
 
     let app = gateway::router_with_web(node.clone(), web);
-    let mut server_shutdown = shutdown_rx.clone();
-    let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(async move {
-            let _ = server_shutdown.wait_for(|s| *s).await;
+    let server = {
+        let app = app.clone();
+        let tls = tls.clone();
+        let rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            gateway::listen::serve(listener, app, tls, gateway::listen::Accepts::Either, rx).await
         })
-        .await
+    };
+    let https_server = https_listener.map(|l| {
+        let app = app.clone();
+        let tls = tls.clone();
+        let rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            gateway::listen::serve(l, app, tls, gateway::listen::Accepts::TlsOnly, rx).await
+        })
     });
+
+    // The side door, once everything it needs is up: the mesh (for the group's coordinator, iroh's
+    // observed addresses and the heartbeat it publishes on) and the gateway port it is about to
+    // advertise. It never fails the node: every problem is a state on /healthz and a retry.
+    let side_door = if config.sidedoor.enabled {
+        let ctx = sidedoor::SideDoorContext {
+            data_dir: data_dir.clone(),
+            cfg: config.sidedoor.clone(),
+            store: certs.clone(),
+            handle: node.side_door.clone(),
+            gateway_port: config.gateway.port,
+            extra_https_port: https_server.as_ref().map(|_| config.gateway.https_port),
+            mesh: mesh.as_ref().map(|m| m.node.clone()),
+        };
+        let rx = shutdown_rx.clone();
+        Some(tokio::spawn(async move { sidedoor::run(ctx, rx).await }))
+    } else {
+        tracing::info!("the HTTPS side door is off ([sidedoor] enabled = false)");
+        None
+    };
 
     wait_for_shutdown_signal().await;
     tracing::info!("shutting down");
@@ -248,7 +340,13 @@ async fn main() -> Result<()> {
     if let Some(t) = supervisor_task {
         let _ = t.await;
     }
+    if let Some(t) = side_door {
+        let _ = t.await;
+    }
     let _ = server.await;
+    if let Some(t) = https_server {
+        let _ = t.await;
+    }
     // The mesh's own task shuts its endpoint down on the same signal; holding the handle until
     // here is what keeps it alive for exactly as long as the gateway it serves.
     drop(mesh);

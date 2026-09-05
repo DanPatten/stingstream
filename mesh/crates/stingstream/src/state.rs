@@ -87,6 +87,10 @@ pub struct NodeState {
     pub config: Config,
     pub runtime: Runtime,
     pub dev: bool,
+    /// Where the HTTPS side door has got to. Created here (rather than passed in) because the
+    /// handle is itself shared: the side-door task writes through a clone of this one, so
+    /// `/healthz` sees its state without the two knowing about each other.
+    pub side_door: crate::sidedoor::SideDoorHandle,
     children: RwLock<BTreeMap<String, ChildStatus>>,
 }
 
@@ -103,6 +107,7 @@ impl NodeState {
             config,
             runtime,
             dev,
+            side_door: crate::sidedoor::SideDoorHandle::disabled(),
             children: RwLock::new(children),
         }
     }

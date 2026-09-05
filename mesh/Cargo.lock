@@ -1830,6 +1830,8 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -2032,6 +2034,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "instant-acme"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f05ad37c421b962354c358d347d4a6130151df9407978372d3ad7f0c8f71a64"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "http",
+ "http-body",
+ "http-body-util",
+ "httpdate",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "rcgen",
+ "ring",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -4424,14 +4452,20 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "clap",
+ "data-encoding",
  "futures-util",
  "http",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "instant-acme",
+ "iroh",
  "libc",
+ "portmapper",
  "rand 0.8.8",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4440,11 +4474,13 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "tokio-rustls",
  "toml 0.8.23",
  "tower",
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]

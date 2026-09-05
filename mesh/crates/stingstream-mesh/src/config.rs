@@ -58,6 +58,7 @@ pub struct MeshConfig {
     pub discovery: DiscoveryConfig,
     pub peer: PeerConfig,
     pub gossip: GossipConfig,
+    pub sidedoor: SideDoorConfig,
 
     /// Filled in by [`MeshConfig::load`]; not part of the file.
     #[serde(skip)]
@@ -116,6 +117,20 @@ pub struct PeerConfig {
     /// Set by `stingstream-mesh-ffi` for the embedded node inside the app; a full node leaves it
     /// `false`. See `docs/APP-MESH.md`.
     pub light: bool,
+
+    /// **Serving-side bandwidth cap**, bytes per second, `0` for none.
+    ///
+    /// Paces the bytes this node writes onto a peer's stream. It exists for two reasons and both
+    /// are honest ones: a seedbox on a metered line has a real use for "serve at most 5 MB/s", and
+    /// `tools/e2e-m4.ps1` needs a link that is genuinely, measurably slow in order to prove that
+    /// Speed-first avoids it and that the transcode fallback fires. Simulating the second with a
+    /// smaller file would prove nothing about *bandwidth*, which is the input the scorer actually
+    /// weighs.
+    ///
+    /// The cap is applied per stream, not per node, and it is deliberately on the *serving* side:
+    /// that is where the bytes are produced, and it is the only place a cap cannot be talked out of
+    /// by the reader.
+    pub throttle_bytes_per_sec: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +145,25 @@ pub struct GossipConfig {
     pub snapshot_interval_secs: u64,
 }
 
+/// The mesh's half of the HTTPS side door (`docs/SIDEDOOR.md`).
+///
+/// The side door itself is driven by the supervisor, which owns the gateway, the certificate and
+/// the coordinator client. All the *mesh* contributes is the last hop of the coordinator's SNI
+/// passthrough: a `stingstream/tcp/1` listener that pipes a tunnelled TCP connection into the
+/// node's own gateway (see [`crate::tunnel`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SideDoorConfig {
+    /// The local gateway port a passthrough connection is piped into. `0` means "no passthrough",
+    /// and the node does not register the ALPN at all, so a dial is refused cleanly rather than
+    /// hanging.
+    ///
+    /// The supervisor sets this from `config.toml`'s `gateway.port` when it runs the mesh in its
+    /// own process, which is the default and needs no configuration here. Set it by hand only when
+    /// running `stingstream-mesh` as a separate process alongside a gateway.
+    pub gateway_port: u16,
+}
+
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
@@ -138,6 +172,7 @@ impl Default for MeshConfig {
             discovery: DiscoveryConfig::default(),
             peer: PeerConfig::default(),
             gossip: GossipConfig::default(),
+            sidedoor: SideDoorConfig::default(),
             data_dir: PathBuf::new(),
         }
     }
@@ -171,6 +206,7 @@ impl Default for PeerConfig {
             max_transcodes: 2,
             join_dial_timeout_secs: 12,
             light: false,
+            throttle_bytes_per_sec: 0,
         }
     }
 }

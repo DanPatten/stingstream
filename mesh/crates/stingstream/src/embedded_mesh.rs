@@ -43,10 +43,13 @@ pub struct EmbeddedMesh {
 /// Returns once the API listener is bound, so the gateway never proxies to a port nothing is on
 /// yet. The endpoint's own discovery continues to come up in the background, which is why callers
 /// treat "the mesh is up" and "the mesh has peers" as different questions.
+///
+/// `gateway_port` is where the side door's SNI passthrough is piped; pass `0` for none.
 pub async fn start(
     data_dir: &Path,
     api_port: u16,
     node_name: &str,
+    gateway_port: u16,
     shutdown: watch::Receiver<bool>,
 ) -> Result<EmbeddedMesh> {
     let mut cfg = MeshConfig::load(data_dir).context("loading mesh.toml")?;
@@ -57,6 +60,14 @@ pub async fn start(
     }
     if !node_name.trim().is_empty() {
         cfg.node_name = node_name.trim().to_string();
+    }
+    // The last hop of the HTTPS side door. The coordinator's SNI router tunnels a browser's TCP
+    // connection over iroh to this node's `stingstream/tcp/1` listener, which pipes it into the
+    // gateway on loopback -- so the mesh has to know which port that is, and only the supervisor
+    // does. `0` (the side door off, or the mesh run standalone) means the ALPN is not registered
+    // at all and a dial is refused rather than left hanging.
+    if gateway_port != 0 {
+        cfg.sidedoor.gateway_port = gateway_port;
     }
 
     let bind = std::net::SocketAddr::new(cfg.api.bind, cfg.api.port);

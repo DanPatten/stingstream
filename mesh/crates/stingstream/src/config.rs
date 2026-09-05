@@ -21,6 +21,7 @@ pub struct Config {
     pub gateway: GatewayConfig,
     pub children: ChildrenConfig,
     pub mesh: MeshSection,
+    pub sidedoor: SideDoorConfig,
     pub ports: PortsConfig,
     pub supervisor: SupervisorConfig,
     pub logging: LoggingConfig,
@@ -35,6 +36,24 @@ pub struct GatewayConfig {
     /// Proxy `/radarr/*`, `/sonarr/*` and `/nzbget/*` through the gateway. Forced off outside
     /// `--dev`: those UIs are never the front door (see `docs/ARCHITECTURE.md`).
     pub expose_child_uis_in_dev: bool,
+    /// Serve HTTPS on [`GatewayConfig::port`] whenever `$STINGSTREAM_DATA/tls/` holds a
+    /// certificate.
+    ///
+    /// On by default, and it costs nothing on a node that has no certificate: the listener decides
+    /// per connection, from the first byte (see [`crate::gateway::listen`]). Plain HTTP from this
+    /// machine keeps working either way, which is what `docs/RUNNING.md` and the harnesses depend
+    /// on; a plain request from anywhere else is redirected to `https://` once a certificate
+    /// exists. Set false to serve plain HTTP only, certificate or not.
+    pub tls: bool,
+
+    /// An additional HTTPS-only listener, usually `443`.
+    ///
+    /// `0` (the default) means none, and the side door then advertises `:8790` in its hostnames,
+    /// which works everywhere but looks like a URL somebody typed wrong. Binding 443 needs
+    /// privileges on Unix (`CAP_NET_BIND_SERVICE`, or a redirect rule) and a free port on Windows;
+    /// a failure to bind it is logged and the node carries on with the port it has.
+    pub https_port: u16,
+
     /// Directory holding the built web bundle, served at `/`.
     ///
     /// Empty means "look in the usual places": `<install>/web` for an installed node and
@@ -59,6 +78,73 @@ pub struct MeshSection {
     /// Setting this false goes back to supervising the `stingstream-mesh` binary, which is how you
     /// attach a debugger to just the mesh. `[children] mesh = false` turns the mesh off entirely.
     pub embedded: bool,
+}
+
+/// The HTTPS side door (`docs/SIDEDOOR.md`).
+///
+/// Everything here is inert without a coordinator that serves a `direct.<host>` zone: with none,
+/// the node has no hostname to get a certificate for, and `/healthz` says so rather than retrying
+/// forever. The zero-server default is exactly that case, and it is not a fault.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SideDoorConfig {
+    /// Run the side door at all: the ACME client, the port mapping, the reachability probe and the
+    /// candidate hostnames published to the group.
+    pub enabled: bool,
+
+    /// Which coordinator to use. Empty means "the first group that has one, then the shared
+    /// fallback baked into the build" -- which is what a node should do and needs no configuration.
+    pub coordinator: String,
+
+    /// `production` (Let's Encrypt), `staging` (Let's Encrypt staging), or a directory URL.
+    ///
+    /// **Start with `staging`.** Its certificates are not publicly trusted, so a browser shows a
+    /// warning, but its rate limits are generous and a mistake costs nothing. Production allows 50
+    /// new certificates per registered domain per week and does not forgive a loop.
+    /// `tools/e2e-sidedoor.ps1` points this at a local Pebble.
+    pub acme_directory: String,
+
+    /// `mailto:` address for the ACME account. Optional; Let's Encrypt uses it only for expiry
+    /// warnings, which this node does not need because it renews itself.
+    pub acme_contact: String,
+
+    /// A PEM root to trust **when talking to the ACME server**, for a private CA like Pebble.
+    ///
+    /// It changes nothing else: not what the gateway serves, not what a browser accepts, and not
+    /// any other connection this node makes. Leave it empty for Let's Encrypt.
+    pub acme_root: String,
+
+    /// Seconds to wait after publishing the DNS-01 record before telling the CA to look for it.
+    ///
+    /// Zero is right for a Full-mode coordinator, which answers its own zone from memory. A Lite
+    /// one writes through a provider API -- allow 20 seconds or so for Cloudflare.
+    pub acme_propagation_secs: u64,
+
+    /// Ask the router for a TCP mapping to the gateway (UPnP IGD, NAT-PMP, PCP).
+    pub port_mapping: bool,
+
+    /// The port the coordinator's SNI router listens on, which the `relay.` hostname is dialled at.
+    /// 443 in every deployment that has one.
+    pub relay_port: u16,
+
+    /// Renew the certificate once it is this many days old. 60 of 90 leaves a month of retries
+    /// before anything a browser can see breaks.
+    pub renew_after_days: u64,
+
+    /// How often to refresh the registration with the coordinator. Must stay well inside the
+    /// coordinator's own 900-second registration TTL, or the node's names stop resolving and the
+    /// SNI router stops routing it.
+    pub register_interval_secs: u64,
+
+    /// How often to ask the coordinator to re-test whether this node is reachable directly.
+    pub probe_interval_secs: u64,
+
+    /// Ask the coordinator to probe this node's **IP address** rather than its public hostname.
+    ///
+    /// Off by default, because the hostname is what a browser will use and is therefore the honest
+    /// thing to test. On for a test rig whose zone is not in public DNS, where the hostname would
+    /// fail to resolve for reasons that have nothing to do with reachability.
+    pub probe_by_address: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +216,7 @@ impl Default for Config {
             gateway: GatewayConfig::default(),
             children: ChildrenConfig::default(),
             mesh: MeshSection::default(),
+            sidedoor: SideDoorConfig::default(),
             ports: PortsConfig::default(),
             supervisor: SupervisorConfig::default(),
             logging: LoggingConfig::default(),
@@ -143,6 +230,8 @@ impl Default for GatewayConfig {
             bind: "0.0.0.0".to_string(),
             port: DEFAULT_GATEWAY_PORT,
             expose_child_uis_in_dev: true,
+            tls: true,
+            https_port: 0,
             web_dist: String::new(),
         }
     }
@@ -151,6 +240,27 @@ impl Default for GatewayConfig {
 impl Default for MeshSection {
     fn default() -> Self {
         Self { embedded: true }
+    }
+}
+
+impl Default for SideDoorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            coordinator: String::new(),
+            acme_directory: "production".to_string(),
+            acme_contact: String::new(),
+            acme_root: String::new(),
+            acme_propagation_secs: 5,
+            port_mapping: true,
+            relay_port: 443,
+            renew_after_days: 60,
+            // Five minutes, against the coordinator's fifteen-minute TTL: two refreshes may be
+            // lost before the node's names stop resolving.
+            register_interval_secs: 300,
+            probe_interval_secs: 900,
+            probe_by_address: false,
+        }
     }
 }
 
@@ -279,6 +389,24 @@ impl Config {
             self.supervisor.health_interval_secs > 0,
             "config.toml: supervisor.health_interval_secs must be > 0"
         );
+        anyhow::ensure!(
+            self.gateway.https_port != self.gateway.port,
+            "config.toml: gateway.https_port ({}) must differ from gateway.port; the gateway \
+             already serves HTTPS on its own port when a certificate exists",
+            self.gateway.https_port
+        );
+        anyhow::ensure!(
+            self.sidedoor.register_interval_secs > 0 && self.sidedoor.register_interval_secs < 900,
+            "config.toml: sidedoor.register_interval_secs must be between 1 and 899; the \
+             coordinator forgets a registration after 900 seconds"
+        );
+        anyhow::ensure!(
+            (1..=89).contains(&self.sidedoor.renew_after_days),
+            "config.toml: sidedoor.renew_after_days must be between 1 and 89 (a certificate from \
+             Let's Encrypt is valid for 90)"
+        );
+        crate::sidedoor::acme::Directory::parse(&self.sidedoor.acme_directory)
+            .map_err(|e| anyhow::anyhow!("config.toml: sidedoor.{e}"))?;
         Ok(())
     }
 

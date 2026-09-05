@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom } from "@/providers/JellyfinProvider";
+import type { SideDoorRecord } from "./sidedoor";
 
 /**
  * The **home node's** mesh, as the app reaches it: `/stingstream/api/v1/mesh/*`, which is
@@ -71,6 +72,11 @@ export interface MeshNodePeer {
   activeDirectStreams?: number | null;
   activeTranscodes?: number | null;
   freeSpace?: number | null;
+  /**
+   * Where a browser can reach *this peer* over HTTPS, as the peer last gossiped it. What a cast
+   * sender races when it hands a receiver a URL for a film held by another node.
+   */
+  sideDoor?: SideDoorRecord | null;
 }
 
 /** `GET /mesh/status`. */
@@ -82,7 +88,18 @@ export interface MeshNodeStatus {
   availableStreams: number;
   relayUrls: string[];
   directAddrs: string[];
+  /**
+   * Where a browser can reach this node over HTTPS (`docs/SIDEDOOR.md`).
+   *
+   * Optional twice over: a node with no coordinator publishes none, and Core only forwards the
+   * field on a build that knows about it. Absent means "race nothing"; the web bundle falls back
+   * to the coordinator's public discovery record.
+   */
+  sideDoor?: SideDoorRecord | null;
 }
+
+/** Re-exported so a screen can take the record without reaching past this module. */
+export type { SideDoorRecord } from "./sidedoor";
 
 export interface MeshInvite {
   code: string;

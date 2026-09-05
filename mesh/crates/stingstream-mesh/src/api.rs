@@ -39,8 +39,11 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             put(put_inventory).patch(patch_inventory),
         )
         .route("/mesh/v1/capacity", get(get_capacity).put(put_capacity))
+        .route("/mesh/v1/sidedoor", get(get_side_door).put(put_side_door))
         .route("/mesh/v1/index", get(index))
         .route("/mesh/v1/peers", get(peers))
+        .route("/mesh/v1/peers/{node}/stats", get(peer_stats))
+        .route("/mesh/v1/sources/{group}/{item_key}", get(sources))
         .route(
             "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
             get(image),
@@ -112,6 +115,10 @@ struct StatusBody {
     available_streams: usize,
     relay_urls: Vec<String>,
     direct_addrs: Vec<String>,
+    /// Where a browser can reach this node over HTTPS, when the side door is up. Absent on a node
+    /// with no coordinator or no certificate. See [`crate::sidedoor`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    side_door: Option<crate::sidedoor::SideDoor>,
 }
 
 async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
@@ -124,6 +131,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
         available_streams: node.available_streams(),
         relay_urls: addr.relay_urls().map(|u| u.to_string()).collect(),
         direct_addrs: addr.ip_addrs().map(|a| a.to_string()).collect(),
+        side_door: node.side_door(),
     })
 }
 
@@ -324,6 +332,24 @@ async fn get_capacity(State(node): State<Arc<MeshNode>>) -> Json<crate::inventor
     Json(node.capacity())
 }
 
+/// `PUT /mesh/v1/sidedoor` — publish this node's side-door candidates into the group.
+///
+/// The supervisor calls [`MeshNode::set_side_door`] directly when the mesh runs in its process,
+/// which is the default. This route is what the same supervisor uses when it does not
+/// (`[mesh] embedded = false`), and what a test or a script uses to inspect or clear the record.
+/// An empty body clears it.
+async fn put_side_door(
+    State(node): State<Arc<MeshNode>>,
+    body: Option<Json<crate::sidedoor::SideDoor>>,
+) -> ApiResult<Json<serde_json::Value>> {
+    node.set_side_door(body.map(|Json(sd)| sd))?;
+    Ok(Json(serde_json::json!({ "side_door": node.side_door() })))
+}
+
+async fn get_side_door(State(node): State<Arc<MeshNode>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "side_door": node.side_door() }))
+}
+
 #[derive(Deserialize)]
 struct GroupQuery {
     group: Option<String>,
@@ -354,26 +380,115 @@ async fn peers(
     Ok(Json(node.peers(id.as_ref())?))
 }
 
+// --- source selection ---------------------------------------------------------------------------
+
+/// Query parameters shared by the scoring endpoints and `/stream`.
+#[derive(Deserialize, Default)]
+struct SourceQuery {
+    /// `speed_first` (the default) or `quality_first`.
+    policy: Option<String>,
+    /// `?any=1` lets the mesh choose the source itself, whatever the path says.
+    any: Option<String>,
+}
+
+impl SourceQuery {
+    fn policy(&self) -> crate::score::Policy {
+        self.policy
+            .as_deref()
+            .and_then(crate::score::Policy::parse)
+            .unwrap_or_default()
+    }
+
+    /// A query flag is "on" for anything but the spellings that plainly mean off, so `?any`,
+    /// `?any=1` and `?any=true` all work and `?any=0` does not.
+    fn any(&self) -> bool {
+        match self.any.as_deref() {
+            None => false,
+            Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"),
+        }
+    }
+}
+
+/// `GET /mesh/v1/sources/{group}/{item_key}` — every holder, scored, best first.
+///
+/// The mesh's own answer to "where should this play from", with the reasons attached.
+/// `StingStream.Core` scores the same candidates under the *user's* policy for `PlaybackInfo`;
+/// this is what the harness, the mesh's own `?any=1` and anything without a Jellyfin read.
+async fn sources(
+    State(node): State<Arc<MeshNode>>,
+    Path((group, item_key)): Path<(String, String)>,
+    Query(q): Query<SourceQuery>,
+) -> ApiResult<Json<SourcesBody>> {
+    let id = parse_group(&group)?;
+    let policy = q.policy();
+    Ok(Json(SourcesBody {
+        group: id.to_string(),
+        item_key: item_key.clone(),
+        policy,
+        sources: node.sources(&id, &item_key, policy)?,
+    }))
+}
+
+#[derive(Serialize)]
+struct SourcesBody {
+    group: String,
+    item_key: String,
+    policy: crate::score::Policy,
+    sources: Vec<crate::score::Scored>,
+}
+
+/// `GET /mesh/v1/peers/{node}/stats?group=` — one peer's measured link, as the scorer sees it.
+///
+/// Separate from `/mesh/v1/peers` because this is the *measurement*, not the membership: it is what
+/// a scorer weighs, what the Node status screen shows as "12 Mbit/s from loft", and what a support
+/// question about a slow stream needs first.
+async fn peer_stats(
+    State(node): State<Arc<MeshNode>>,
+    Path(peer): Path<String>,
+    Query(q): Query<GroupQuery>,
+) -> ApiResult<Json<crate::db::PeerRow>> {
+    let group = q
+        .group
+        .ok_or_else(|| ApiError::bad_request("?group= is required"))?;
+    let id = parse_group(&group)?;
+    let rows = node.peers(Some(&id))?;
+    rows.into_iter()
+        .find(|r| r.node.eq_ignore_ascii_case(&peer))
+        .map(Json)
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                format!("this node has never seen {peer} in that group"),
+            )
+        })
+}
+
 // --- streaming ----------------------------------------------------------------------------------
 
-/// `GET /stream/{group}/{item_key}/{node}` — proxy a range request to the holder over iroh.
+/// `GET /stream/{group}/{item_key}/{node}` — proxy a range request to a holder over iroh.
 ///
 /// The response status, `Content-Range`, `Content-Length`, `ETag` and `Accept-Ranges` are passed
-/// through verbatim, because a player's seek behaviour depends on all of them.
+/// through verbatim, because a player's seek behaviour depends on all of them. The body is *not*
+/// passed through verbatim: it survives the holder dying, by continuing from the next node holding
+/// the same `file_hash` at the byte offset already delivered. See [`MeshNode::stream`].
+///
+/// `?any=1` (or the literal node segment `any`) hands the source choice to the mesh's own scorer,
+/// which is how Jellyfin's proxying path and a cast receiver get the same selection the app gets.
 async fn stream(
     State(node): State<Arc<MeshNode>>,
     Path((group, item_key, source)): Path<(String, String, String)>,
+    Query(q): Query<SourceQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
     let id = parse_group(&group)?;
-    let upstream = node.stream(&id, &item_key, &source, &headers).await?;
-    let (parts, body) = upstream.into_parts();
-    let mut out = Response::new(axum::body::Body::new(body));
-    *out.status_mut() = parts.status;
-    for (name, value) in parts.headers.iter() {
-        out.headers_mut().insert(name, value.clone());
-    }
-    Ok(out)
+    let source = if q.any() {
+        crate::node::ANY_SOURCE
+    } else {
+        source.as_str()
+    };
+    Ok(node
+        .stream(&id, &item_key, source, &headers, q.policy())
+        .await?)
 }
 
 /// `GET /mesh/v1/image/{group}/{item_key}/{node}/{kind}` — one artwork file from a peer.
