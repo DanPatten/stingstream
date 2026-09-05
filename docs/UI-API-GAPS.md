@@ -1,10 +1,11 @@
-# M2 UI/API gaps
+# UI/API gaps
 
 Endpoints the M2 screens want that `StingStream.Core` does not expose yet (checked against
 `packages/api-client/openapi.json`, generated from a live M1 dev node on 2026-09-05). Every gap
 below has a matching "isn't available yet" notice in the UI (`components/stingstream/shared/
 GapNotice.tsx`) rather than a fabricated result — see `docs/UI.md` for the "real vs. stubbed"
-screen-by-screen breakdown. Method/path here are proposals for M3b/M4, not existing routes.
+screen-by-screen breakdown. Method/path in the numbered list below are proposals, not existing
+routes; **"Closed in M4" near the end lists the ones that are now real**, with their actual shapes.
 
 For each: **who hits it**, **why it's blocked today**, **proposed endpoint**, **proposed response
 shape**.
@@ -203,6 +204,115 @@ screen can't show "which build is this node running."
 knows which binary it launched and most children answer their own version over their local API
 (Jellyfin's `/System/Info`, the arrs' `/api/v3/system/status`, NZBGet's `version` RPC method); this
 is a small addition, not a design question, unlike most items above.
+
+---
+
+---
+
+## Closed in M4
+
+Four of the states the M2 screens were written against — the ones that only exist once a group has
+more than one member — now have real endpoints. All are behind Jellyfin's own authentication like
+the rest of the StingStream API; `{id}` accepts a Jellyfin item id **or** a StingStream item key,
+because the app has one or the other depending on which screen it is on.
+
+### "Available via group" — the state where nothing downloads
+
+```
+POST /stingstream/api/v1/library/add
+  { tmdbId | tvdbId, minimumHeight?, trackForUpgrades?, searchOnAdd?, monitor?,
+    qualityProfileName?, rootFolderPath? }
+->  { itemKey, state, downloading, holders[], addedToArr, monitored, note, arr }
+
+GET  /stingstream/api/v1/items/{id}/availability
+->  { itemKey, state, heldLocally, holders[], decision, pin }
+
+GET  /stingstream/api/v1/library/state      -> every recorded decision, newest first
+```
+
+`state` is one of `available_via_group`, `wanted`, `local`, `unmonitored`, `unknown`.
+`downloading: false` with `state: "available_via_group"` is the dedupe answer, and `note` is a
+sentence the UI can show verbatim ("Already held by loft; no download started."). The `decision`
+object on `availability` is the *stored* verdict with its timestamp, which is what explains an add
+that visibly did nothing; `state` beside it is recomputed live, because the group moves.
+
+`minimumHeight` (0 = anything) is the quality floor, in pixels. It is deliberately not the arr's
+quality profile: a profile is a cutoff and an upgrade policy in release terms, and the index holds
+pixels and a bitrate. Gap #4 above (quality-profile listing) is still open and is still the right
+place for the richer version of this question.
+
+### "Play from…" — the scored source list
+
+```
+GET /stingstream/api/v1/items/{id}/sources[?policy=speed_first|quality_first][&userId=]
+->  { itemKey, policy, heldLocally,
+      sources: [ { node, nodeName, group, online, resolution, width, height, bitrate,
+                   sizeBytes, fileHash, path, rttMs, throughputBps,
+                   maxDirectStreams, activeDirectStreams,
+                   score, neededBps, fits, measured, reasons[], streamUrl } ] }
+```
+
+`reasons` is written for people — `"direct path, 4 ms"`, `"measured 31.2 Mbit/s against 2.5 Mbit/s
+needed"`, `"1 of 8 stream slots in use"`, `"holder is offline"` — so the menu can explain its order
+rather than just assert it. An offline or saturated holder is still listed, with a negative score and
+the reason, instead of disappearing.
+
+This is not the same list as PlaybackInfo's, and the difference is useful: PlaybackInfo can only
+return sources Jellyfin has items for, while this also lists a holder whose pointer was never
+materialized — most obviously for a title this node holds locally, whose remote copies are still
+perfectly playable and are what a failover would use.
+
+The **order** is the same, though, and deliberately so: PlaybackInfo's `MediaSources` come back in
+exactly this ranking, so an app that just plays the first source gets the scored choice without
+asking for it, and only needs this endpoint to *explain* the choice or to offer the alternatives.
+Each `MediaSource` also carries its holder's file hash as its weak `ETag` (`W/"b3-…"`), which is the
+`stingstream:file_hash` an app needs to tell "the same bytes elsewhere, resume silently" from "a
+different encode, restart at a timestamp".
+
+### The playback policy
+
+```
+GET /stingstream/api/v1/users/{userId}/playback-policy   -> { userId, policy, updatedAt }
+PUT /stingstream/api/v1/users/{userId}/playback-policy   <- { policy }
+```
+
+`policy` is `speed_first` (the default) or `quality_first`. A user may always read and write their
+own; changing somebody else's needs elevation.
+
+### Pin
+
+```
+POST   /stingstream/api/v1/items/{id}/pin  -> 202 with the pin row (409 if nobody online holds it)
+GET    /stingstream/api/v1/items/{id}/pin  -> { state, copiedBytes, totalBytes, progress, nodeName,
+                                                targetPath, error, startedAt, updatedAt }
+DELETE /stingstream/api/v1/items/{id}/pin  -> 204, and a partial copy is thrown away
+```
+
+`state` is `queued`, `copying`, `importing`, `done` or `failed`; `progress` is a fraction or null
+while the size is unknown. A finished pin keeps its row, so "has this been pinned" does not have to
+be inferred from the filesystem, and a failed one says why — the two ways a pin ends badly (nobody
+online holds it; the disk filled) need completely different responses from a person.
+
+The per-library "mirror everything" toggle is in the shared settings document rather than on its own
+route: `federated.mirrorMovies`, `federated.mirrorTv`, `federated.mirrorConcurrency` and
+`federated.mirrorMinFreeBytes`, read and written through the existing `GET/PUT /settings`.
+
+### Also new, and useful on the Node status screen
+
+```
+GET /stingstream/api/v1/mesh/peers/{node}/stats?group={group}
+->  the peer row, including throughputBps, throughputSamples, throughputAt
+```
+
+The *measurement*, as opposed to the membership `GET /mesh/peers` already returns. It is what a
+support question about a slow stream needs first, and what "12 Mbit/s from loft" on the Group screen
+would read.
+
+### Still open from the M2 list
+
+Gaps 1–10 above are unchanged except where noted: title lookup, monitor toggle, delete,
+quality-profile CRUD, calendar, history, the per-download item list, external download clients,
+indexer test, and per-child versions are all still gaps. None of them is M4's.
 
 ---
 

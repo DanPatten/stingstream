@@ -291,7 +291,7 @@ works unchanged. Proven pattern from the debrid ecosystem; implemented in `Sting
 1. App asks its home node's Jellyfin for PlaybackInfo.
 2. `StingStream.Core` looks up candidates for the item_key in `group_index` and scores them:
    connectivity (direct beats relayed, RTT from iroh path info) → measured throughput (rolling
-   per-peer estimate, short probe range-fetch if stale) → quality fit against policy → source load.
+   per-peer estimate) → quality fit against policy → source load.
 3. Policy is a user setting: **Speed first** (default: best quality that fits bandwidth with margin)
    or **Quality first** (highest quality; transcode if it doesn't fit). PlaybackInfo returns the
    MediaSources in scored order; the app plays the first and offers "Play from…" for the rest.
@@ -303,6 +303,83 @@ works unchanged. Proven pattern from the debrid ecosystem; implemented in `Sting
 6. Failover: same file hash elsewhere → the mesh `/stream` endpoint resumes by byte offset on
    another holder transparently. Different file → the app restarts by timestamp on the next
    MediaSource.
+
+#### The scoring formula, as built (M4)
+
+Four components, each normalised to `0..1`, weighted by the viewer's policy:
+
+| Component | How it is computed |
+|---|---|
+| `connectivity` | `0.7 × path + 0.3 × rtt`, where `path` is 1.0 direct, 0.9 mixed, 0.45 relay, 0.6 never-connected, and `rtt = 1 / (1 + ms/120)` |
+| `throughput_fit` | `min(1, measured ÷ (bitrate × 1.25))`, or 0.5 when the link has never been measured |
+| `quality` | `min(1, height ÷ 2160)`, or 0.4 when the holder published no dimensions |
+| `headroom` | `free ÷ max_direct_streams` from the holder's heartbeat, or 0.5 when it advertises none |
+
+| Policy | `connectivity` | `throughput_fit` | `quality` | `headroom` |
+|---|---|---|---|---|
+| **Speed first** (default) | 30 | 45 | 20 | 5 |
+| **Quality first** | 20 | 15 | 60 | 5 |
+
+Then two disqualifiers, applied as large negative offsets rather than as filters — a holder that
+cannot serve still appears in "Play from…" *with a reason* instead of vanishing: a holder with no
+heartbeat inside the peer timeout loses 10,000, and one already at its advertised
+`max_direct_streams` loses 1,000.
+
+Three deliberate choices in there:
+
+- **An unmeasured link scores 0.5, not 1.0.** It should not beat a peer we have watched succeed, and
+  it should not lose to one we have watched fail. Measurements come from real transfers: the mesh
+  folds each completed range read into a per-peer EWMA (α = 0.4) and *discards* anything under
+  256 KiB or 100 ms, because a 64 KiB seek that finished in 8 ms is arithmetically 65 Mbit/s and
+  says nothing about whether a film will stream.
+- **The 25% margin** is what makes "fits" mean fits: an average bitrate hides the peaks a
+  variable-bitrate encode actually has to deliver on time.
+- **The formula exists twice**, in `StingStream.Core/Playback/SourceScorer.cs` and in
+  `mesh/crates/stingstream-mesh/src/score.rs`, with the same weights and the same test cases in both
+  languages. That is a real cost, paid so that `?any=1` and mid-stream failover — moments with no
+  Jellyfin in the loop — do not put a .NET round trip inside every seek.
+
+#### Failover semantics (M4)
+
+`/stream/{group}/{item_key}/{node}` returns a body that **survives its holder**. When the holder
+fails mid-transfer, the mesh asks the next holder of the **same `file_hash`** for
+`bytes=<what has already been delivered>-` and keeps yielding on the same HTTP response. The reader
+sees one uninterrupted body, because the `ETag` is derived from the hash and both holders are
+therefore serving the same representation by definition.
+
+Three things count as "failed": an error on the body, a body that ends before its promised
+`Content-Length`, and a body that produces nothing for `peer.stream_stall_secs` (15 by default). The
+third is what makes failover *prompt*: a holder whose process is killed closes nothing at all, and
+QUIC will not call that a failure until its own idle timeout, tens of seconds later — long after a
+player has given up. A `503` from a saturated holder is handled before any bytes are committed, so
+the client never sees it.
+
+**A holder with a different encode is never used.** Resuming into different bytes at a byte offset
+produces garbage. That case is a restart by timestamp on the next `MediaSource`, and it belongs to
+the client: PlaybackInfo gives it the ordered list and each source's hash (as the `ETag`,
+`W/"b3-<hash>"`), which is exactly enough to tell "the same bytes elsewhere, resume silently" from
+"a different encode, restart at 00:41:12". The app half is M5's.
+
+#### The transcode fix, and why it needed no encoder patch
+
+Transcoding a federated source used to fail outright. The pointer's host is `stingstream.local`,
+which resolves only inside Jellyfin's own `HttpClient` (`StingStreamLocalHandler`); ffmpeg does its
+own DNS and never sees that handler.
+
+`MediaSourceInfo` already carries `EncoderPath`/`EncoderProtocol`, and
+`EncodingHelper.AttachMediaSourceInfo` already prefers them over `Path` — it is how Live TV hands the
+encoder a local recording URL. So the source decorator fills them in with this node's own gateway,
+`http://127.0.0.1:<gateway>/stream/<group>/<item_key>/<node>`, and every downstream line is
+unmodified upstream code. The client still gets `stingstream.local`, which is what the native app
+rewrites to its own embedded mesh.
+
+The **trigger** is separate from the fix: when a source's bitrate exceeds what this node has
+*measured* it can pull from that holder, the decorator clears `SupportsDirectPlay`, which is what
+makes Jellyfin's own `StreamBuilder` return a transcode. It fires only on a link that has actually
+been measured and measured short — transcoding on a guess spends the home node's CPU and the
+viewer's quality for nothing. Under Speed first it should almost never fire, because the ranking has
+already preferred a version that fits; under Quality first it is the mechanism by which "give me the
+4K even if the link cannot carry it" is kept as a promise.
 
 ### Grab / add / request flow
 
@@ -316,6 +393,38 @@ works unchanged. Proven pattern from the debrid ecosystem; implemented in `Sting
    within seconds.
 5. **Pin/mirror**: node fetches the file over iroh (resumable HTTP range) into its own root folder,
    imports it, removes its pointer entry, and the index now shows two copies.
+
+**The verdict is persisted** (`library_state` in `core.db`), and that is not bookkeeping for its own
+sake: the dedupe rule is the single most surprising thing StingStream does from outside. A user
+presses Add and no download starts. Without a stored row saying "available via group, held by loft",
+that is indistinguishable from a button that does not work.
+
+"Acceptable quality" is compared against a **pixel floor** the caller passes
+(`minimumHeight`, 0 by default meaning "anything the group has"), not against the arr's quality
+profile. A profile is a cutoff and an upgrade policy expressed in release terms; the group index
+holds pixels and a bitrate. Mapping one onto the other honestly needs the arr's own release parser,
+which is not reachable from here — so this promises the smaller thing it can actually keep.
+
+**Pin** goes through the mesh's own `/stream` endpoint rather than reaching into iroh directly,
+which buys three things for free: the source is chosen by the same scorer playback uses, a holder
+dying halfway is a transparent continuation from another holder of the same bytes, and a saturated
+holder's `503` sends it elsewhere instead of stalling. The copy is verified against the BLAKE3 the
+holder published before it is moved into place, and it resumes from a partial file across a restart
+of the *pinning* node too.
+
+The import is **place, then rescan**: the file is written straight into the arr's root folder under
+the layout the arr itself would have produced, and the arr is then asked to rescan that one title.
+The obvious alternative — stage it and call `DownloadedMoviesScan` — runs the arr's *release* parser
+over a filename that was never a release, and it rejects what it cannot parse, including anything
+that trips its sample-size check. A rescan of a title the arr already tracks has no such opinion. A
+pin of something the arr has never heard of has nothing to rescan, and Jellyfin is asked directly
+through the same targeted refresh the arr webhooks use.
+
+A per-library **mirror** toggle (`federated.mirrorMovies` / `mirrorTv`) runs the same path in the
+background for everything the group holds, stopping at a configurable free-space floor and running
+at most `mirrorConcurrency` copies at once. Off by default, and it should stay off on a laptop: the
+point of the federated library is that one copy is enough. It is for a seedbox or an always-on node
+somebody wants to be the group's backstop.
 
 ### Coordinator (`stingstream-relay`) — one binary, three deployment modes
 
@@ -412,10 +521,21 @@ both. Let's Encrypt allows 50 new certificates per registered domain per week an
 so a friend-group coordinator is comfortable; Dan's shared fallback would request a rate-limit
 increase or add ZeroSSL as a second CA once it passes that.
 
-**Status.** The coordinator half of the side door shipped in M3a and is deployed. The node half —
-the ACME client, rustls on the gateway, `portmapper`, and publishing the candidate hostnames — has
-**not** shipped: M3b spent its budget on the federated library and the two-node acceptance instead.
-It is the largest single piece of M3 still outstanding.
+**Status.** Both halves shipped: the coordinator's in M3a, the node's in M3d. A node now runs its
+own ACME client (`instant-acme`, DNS-01 through the coordinator's signed TXT endpoint) with the key
+generated and kept on the node; the gateway serves that certificate with rustls and picks up a
+renewal on the next handshake rather than on a restart; iroh's `portmapper` asks the router for a
+TCP mapping and surfaces the manual rule when all three protocols fail; the node answers ALPN
+`stingstream/tcp/1` so the coordinator's SNI passthrough has somewhere to land; and its candidate
+hostnames ride the gossip heartbeat to every member. The web bundle races them.
+`tools/e2e-sidedoor.ps1` proves the whole path — a real ACME order against a local Pebble, a real
+wildcard certificate, a real TLS handshake against `pub.<nodeid>`, a real tunnel through the SNI
+router, and the `blocked` case — on loopback, in about a minute and a half, on Windows and in CI.
+**What has not happened is a certificate from real Let's Encrypt for a real domain**, because a
+Lite-mode coordinator publishes every one of these names through a DNS provider and there is no
+Cloudflare token yet; Dan's Railway coordinator therefore has no side door today and a node pointed
+at it reports `state: "no_zone"` and carries on without one. Full mode needs no token at all.
+`docs/SIDEDOOR.md` is the reference.
 
 ### The app (`apps/stingstream`)
 
@@ -574,8 +694,14 @@ Jellyfin runs with `BaseUrl=/jellyfin`, and ASP.NET maps its entire pipeline und
 | `/stingstream/*` | Jellyfin, rewritten to `/jellyfin/stingstream/*` |
 | `/stream/*` | the mesh: ranged reads of a peer's file, proxied byte for byte (M3b) |
 | `/jellyfin/*` | Jellyfin, including the `/jellyfin/socket` WebSocket |
+| `/sidedoor/v1/hello` | the gateway itself: which node, was this connection TLS, what address does the caller look like from here. CORS-open on purpose, and deliberately not `/healthz` — the racing probes are cross-origin, and `/healthz` carries child ports and the data directory (M3d) |
 | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children — **`--dev` only** |
 | everything else | the web bundle, with SPA fallback; the placeholder page when there is no bundle (M3b) |
+
+**The gateway sniffs the first byte of each connection** (`0x16` is a TLS ClientHello) rather than
+running two listeners. Loopback plain HTTP keeps working exactly as before; an off-machine plain
+request is answered with a `308` to `https` once a certificate exists; TLS responses carry HSTS. A
+node with no certificate behaves as it always did (M3d).
 
 `/stingstream/mesh/*` is restricted to loopback on purpose. The mesh API is unauthenticated because
 it binds `127.0.0.1` and anything that can reach it is already on the machine — but the gateway
@@ -588,8 +714,9 @@ Windows, `~/.local/share/stingstream` elsewhere): `config.toml` (written once wi
 rewritten), `runtime.json` (rewritten every start), `core.db`, `logs/*.jsonl` (one per child plus
 the supervisor, JSON lines), `jellyfin/{config,data,cache,log}/`, `radarr/`, `sonarr/`, `nzbget/`,
 `downloads/{torrents,usenet}/`, `media/{Movies,TV}/`, and `federated/{movies,tv}/` — the two
-Shared libraries M3b materializes into. M3 adds `node.key` (the iroh identity), `mesh.toml` and
-`mesh.db` alongside them. See `docs/RUNNING.md`.
+Shared libraries M3b materializes into. M3 adds `node.key` (the iroh identity), `mesh.toml`,
+`mesh.db` and `tls/` — the node's own certificate, its key, and its ACME account (M3d) — alongside
+them. See `docs/RUNNING.md`.
 
 **`runtime.json` is the contract** between the Rust supervisor, `StingStream.Core` inside Jellyfin,
 and the acceptance harness: assigned ports, generated arr API keys, NZBGet and qBittorrent-shim
@@ -611,6 +738,23 @@ policies, self-described at `/stingstream/api/v1/openapi.json`:
 | `GET /inventory`, `GET /inventory/{itemKey}`, `POST /inventory/rebuild` | the records M3 will publish |
 | `POST /webhooks/arr` | the arrs' event receiver (anonymous, loopback callers only) |
 | `/stingstream/qbt/api/v2/*` | the qBittorrent-compatible subset the arrs use |
+
+M4 added, all behind the same authentication:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET/PUT /users/{userId}/playback-policy` | Speed first or Quality first, per user |
+| `GET /items/{id}/sources` | every holder, scored, with the reasons — the "Play from…" menu |
+| `GET /items/{id}/availability` | whether anything needs downloading, plus the stored add decision |
+| `POST/GET/DELETE /items/{id}/pin` | keep a copy here; progress; cancel |
+| `POST /library/add` | add a title, checking the group first |
+| `GET /library/state` | every recorded add decision |
+| `GET /mesh/peers/{node}/stats?group=` | one peer's measured link, as the scorer sees it |
+
+`{id}` on the `items` routes is a Jellyfin item id **or** a StingStream item key. Both are things a
+caller legitimately has: the app has a Jellyfin id for anything on a library screen, and an item key
+for anything it read out of the group index or got back from `POST /library/add` — which by
+construction has no local item, because the point of that answer was that nothing was downloaded.
 
 **Storage.** `core.db` is plain SQLite through `Microsoft.Data.Sqlite`, not EF Core. StingStream's
 data is a handful of small tables; adding entities to Jellyfin's `DbContext` would hand its
@@ -930,6 +1074,123 @@ resumes from C within about 5 seconds. Adding a movie already on B from A trigge
 Pinning it on A copies it, removes A's pointer entry, and the index shows two sources. Three
 viewers streaming three different files from B simultaneously all play.
 
+**M4 status (2026-09-05): complete, acceptance passing on Windows.** `tools/e2e-m4.ps1`, three
+complete nodes on one machine, 239 seconds:
+
+| Step | | |
+|---|---|---|
+| Two encodes of one film, plus two more films, at real constant bitrates | pass | 6.2 s |
+| B (fast holder) starts with three films, Big Buck Bunny at 1080p | pass | 22.4 s |
+| C starts throttled to 1 MB/s and one stream slot, with the 4K and a byte-identical copy of B's Sita | pass | 21.5 s |
+| B and C inventory what they hold | pass | 10.7 s |
+| A starts empty; group with no coordinator; both join | pass | 17.8 s |
+| Both holders' inventories reach A's index, with one hash shared and two distinct | pass | 5.3 s |
+| A materializes **one folder with two `.strm` versions** — one item, two MediaSources | pass | 4.7 s |
+| A measures both links: **B 34 Mbit/s, C 9 Mbit/s** | pass | 5.3 s |
+| **Speed first picks B (87.9 v 70.2); Quality first picks C (90.0 v 68.6)** — `/items/{id}/sources` and PlaybackInfo agreeing | pass | 0.5 s |
+| **Quality first on a link that cannot carry it transcodes on A**: ffmpeg's `-i` is `http://127.0.0.1:8880/stream/…`, and a 26 MB HLS segment of C's 4K comes back | pass | 30.7 s |
+| **C's one stream slot**: two concurrent readers, the second gets `503` and continues from B — 30.2 s and 7.6 s, both byte-exact | pass | 48.1 s |
+| Three concurrent streams from B, all byte-exact | pass | 19.7 s |
+| Adding a film the group holds starts no download; "available via group" is persisted | pass | 0.1 s |
+| Pinning it copies it into A's own root folder, removes A's pointer, and takes the holders from one to two | pass | 8.2 s |
+| **B killed mid-stream: continued from C after 3.4 s, byte-exact over 30 MB** | pass | 37.7 s |
+
+Everything on loopback, with nothing hosted by anyone. The two throttles are the mesh's own
+serving-side cap, not a simulation.
+
+#### What M4 settled
+
+**One hook was not enough, and neither hook alone would have done.** The obvious place to order
+`MediaSources` is the PlaybackInfo controller — an MVC filter, no vendored patch at all. That place
+is wrong on its own: Jellyfin resolves an item's media sources *twice*, once for the client in
+`MediaInfoHelper` and again server-side with no client involved in `StreamingHelpers`, on every
+stream and every transcode segment. Decorating only the API response would hand the client one
+answer and the transcoder another — which matters here more than anywhere, because the whole
+transcode fix is that the URL ffmpeg gets must *differ* from the URL the client gets. So the primary
+hook is `IMediaSourceDecorator` at the end of `GetPlaybackMediaSources`, the one funnel both paths
+go through (`docs/PATCHES.md`).
+
+The other place turned out to be necessary too, and only a live run could have shown it.
+`MediaInfoController` calls `MediaInfoHelper.SortMediaSources` **after** the decorator has run, and
+that sort begins by floating "the source belonging to the queried item" to the front. Upstream's
+rule is right for what it was written for: a user opening one version of a film they hold two copies
+of expects *that* version, because it carries their resume position. For a federated title every
+version is a pointer at somebody else's disk, none of them is the one the user opened, and which is
+the primary item is an accident of which `.strm` the resolver read first. Letting that accident
+outrank a measured link hands a viewer on a slow connection exactly the holder they cannot reach —
+which is what the harness caught, with the scorer's own log line one line above the failure saying
+it had chosen the other one. So the order is applied twice: in the decorator, for everything the
+server does, and again in a result filter for the response the client reads.
+
+**The transcode fix needed no encoder patch, and that was a surprise.** M3b left it as "ffmpeg does
+its own DNS and never sees `StingStreamLocalHandler`", with the expectation that M4 would patch
+`EncodingHelper` or `MediaEncoder`. It did not have to: `MediaSourceInfo.EncoderPath` /
+`EncoderProtocol` already exist for exactly this, and `AttachMediaSourceInfo` already prefers them.
+Live TV has been using the mechanism all along.
+
+**Bandwidth has to be real, or the test passes for the wrong reason.** The harness caps node C's
+link with the mesh's own serving-side throttle rather than simulating a slow peer with a smaller
+file, because file size is not the input the scorer weighs. The same principle bit once more, one
+level down: the generated clips are encoded **constant-bitrate**, because a colour-bar test pattern
+is a static image and x264 compresses twelve seconds of it to a couple of hundred kilobytes whatever
+`-b:v` says. With the fictional bitrate that produced, every source "fit" every link and Speed-first
+and Quality-first returned the same answer — a green run that proved nothing. `-minrate` with
+`nal-hrd=cbr` makes a 4K source really need 20 Mbit/s.
+
+**Three films were enough to take a node off the air.** The most valuable thing the harness found,
+and it had nothing to do with source selection. `iroh-gossip`'s default `max_message_size` is 4096
+bytes; an inventory snapshot of three ordinary records exceeds it; and the refusal lands on the
+*send* side of connections that are already established. So the publishing node stops being able to
+broadcast anything at all — to anybody — while continuing to receive normally. From outside, a peer
+simply goes quiet and every other member declares it offline a heartbeat later. Nothing in any log
+said so, because the one line that would have was at `debug`.
+
+The two-node M3 acceptance never came close: one or two small records stayed under 4 KB. It took a
+third node, and a third film, to cross the line — and any real library would have crossed it on day
+one. The fix raises the frame limit to 256 KiB (a constant, not a setting: every member of a group
+must agree, or a mixed-version group reproduces exactly this silence) *and* chunks snapshots and
+deltas, because no ceiling makes a ten-thousand-title library one message. `chunk == 0` replaces
+what is known about the author and later chunks merge, so a lost chunk costs those records until the
+next snapshot rather than corrupting the ones that arrived. The broadcast failure now logs at warn,
+with the size.
+
+**A measurement that only happens at end-of-body never happens.** The obvious way to record
+throughput is to measure the transfer and write it down when the upstream body reports EOF. It
+never fired. The response carries a `Content-Length`, so once hyper has written that many bytes it
+considers the message complete and drops the body without polling it again — the generator is
+dropped mid-`await` and the EOF arm is unreachable. Every completed range read looked, to the
+scorer, like a link that had never been used, and every source scored identically. Recording on
+`Drop` fixes it and is better besides: a player that abandons a seek after three seconds still
+delivered three seconds of real bytes, and that is a sample worth having.
+
+**A killed holder closes nothing.** Failing over on a body error is not enough: a process that is
+killed does not close its QUIC connection, it just stops answering, and iroh will not call that a
+failure until its own idle timeout tens of seconds later — long after a player has given up. Hence
+`peer.stream_stall_secs`: a body that produces nothing for the timeout is treated as failed. That is
+what makes the milestone's "about five seconds" a bound rather than a hope.
+
+**Two implementations of one formula, deliberately.** `SourceScorer.cs` and `score.rs` carry the same
+weights and the same test cases. The alternative is the mesh asking Core which source to use for
+every range request, which puts a .NET process in the path of every seek and makes failover depend
+on the component most likely to be busy. The cost is a real one and is paid on purpose; the thing
+that keeps them honest is that both sets of tests assert the same cases in their own languages, and
+`tools/e2e-m4.ps1` asserts that `/items/{id}/sources` and PlaybackInfo agree.
+
+**Jellyfin's own version label truncates a node name at its last hyphen.** A pointer written as
+`Big Buck Bunny (2008) - stingstream-c 2160p.strm` comes back from PlaybackInfo with the
+`MediaSource.Name` `c 2160p`, not `stingstream-c 2160p`. Cosmetic, and only for clients that read
+Jellyfin's own name — StingStream's own "Play from…" reads `nodeName` from
+`GET /items/{id}/sources`, which is the whole name. Recorded because the first reaction to seeing
+`c 2160p` in a log is to go looking for a bug in the materializer, and there isn't one.
+
+**Label collisions are the silent multi-version failure.** Jellyfin groups same-folder files into
+alternate versions *by name*. Two holders that both defaulted their node name to the machine's
+hostname and both hold the same encode produce the same label, and the second `.strm` overwrites the
+first — one source where there should have been two, looking from outside exactly like a peer that
+never published. Labels are therefore decided across every holder of a title at once, and when two
+collide, *both* get their short node id appended so the names do not shuffle when a third holder
+appears.
+
 ### M5 — Android phone and TV release readiness, offline (Sonnet 5)
 
 - Production Android and Android TV builds (local Gradle; EAS not available), branding,
@@ -1030,6 +1291,13 @@ join a group with one code; `/security-review` findings triaged.
   separately that `npm install` needs both `--legacy-peer-deps` and `--ignore-scripts` on this
   toolchain before `yarn` was available — so the spike starts from zero rather than from a broken
   build, with the exact dependency-install path already mapped.
+- **Mixed-version groups have no protocol negotiation.** The gossip frame size
+  (`MAX_GOSSIP_MESSAGE`, 256 KiB) is a constant every member must share: a receiver on an older
+  build rejects a larger frame, and the rejection is invisible on that side, so the *sender* goes
+  silent to it while everything else keeps working. That is precisely the bug M4 found, and today
+  the only mitigation is that nothing is deployed — restarting a stale node is the whole migration.
+  Before anyone runs a build they cannot restart at will, gossip needs a version byte and a
+  negotiated ceiling. On the list for M8, alongside member revocation.
 - **Six upstream subtrees drifting** — monthly pull cadence, config-over-patch rule, and every
   patch listed in `docs/PATCHES.md`. Sonarr v5 is pre-release and will churn most.
 - **iOS and TV constraints** — background networking and MPVKit acceptance are proven by

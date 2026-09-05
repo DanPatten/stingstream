@@ -428,6 +428,12 @@ hundred kilobytes. The bitrate the scorer then reads out of the group index is f
 proves nothing. `-minrate` with `nal-hrd=cbr` is what makes a 4K source really need 20 Mbit/s. The
 harness fails the generation step outright if a clip comes out at less than half its target size.
 
+When a step fails, the first place to look is `<work>/logs/node-*.err.log` — the supervisor's
+structured log, which is where the mesh's own `tracing` output goes, including the scorer's decision
+line (`Source order for … under speed_first: …` with every candidate's score and reasons) and every
+failover. `<work>/node-*/logs/` has the same per-child. The CI job uploads all three nodes' logs and
+node A's federated tree on failure.
+
 Gateway ports default to 8880 (A), 8980 (B) and 9080 (C), with ephemeral child ports, so it does not
 collide with a development node or with the M3 harness.
 

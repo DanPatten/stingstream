@@ -34,9 +34,9 @@ refreshes and library creation, `IUserManager` for the bootstrap administrator,
 `IMediaSourceManager` for the inventory record's media summary, and Jellyfin's own authorization
 policies for its API. None of that is reachable over HTTP.
 
-Four edits to vendored files attach it, plus one behaviour change that M3b needed. They are
-deliberately as small as they can be: the project itself is new code in a new directory, and these
-are only the seams.
+Four edits to vendored files attach it, plus one behaviour change M3b needed and one extension point
+M4 added. They are deliberately as small as they can be: the project itself is new code in a new
+directory, and these are only the seams.
 
 ### 1. `Jellyfin.Server/Jellyfin.Server.csproj` — a project reference
 
@@ -131,6 +131,80 @@ Debrid users get the same improvement for free.
 **Upstream-pull risk:** low but real. If the surrounding method is rewritten, re-apply by deleting
 the `.strm` clause again. `tools/e2e-m3.ps1`'s "Jellyfin on A streams the federated movie" step is
 what catches a regression: without the patch the request stalls on a doomed probe.
+
+### 7. `MediaBrowser.Controller/Library/IMediaSourceDecorator.cs` — a new extension point
+
+A new interface, and the only new file StingStream adds to a vendored project:
+
+```csharp
+public interface IMediaSourceDecorator
+{
+    Task<IReadOnlyList<MediaSourceInfo>> DecorateAsync(
+        BaseItem item, User user, IReadOnlyList<MediaSourceInfo> sources, CancellationToken ct);
+}
+```
+
+**Why a new interface rather than an existing one.** `IMediaSourceProvider` — the extension point
+upstream already has — *adds* dynamic sources. M4 needs to reorder and adjust the *static* ones an
+item already has, which nothing upstream exposes.
+
+**Why it lives in `MediaBrowser.Controller`.** That project is already referenced by both
+`Emby.Server.Implementations` (which calls it) and `StingStream.Core` (which implements it), so the
+alternative — a project reference from `Emby.Server.Implementations` to `StingStream.Core` — would
+have coupled a vendored project to ours for no gain. One small file in a directory that is already
+full of one-interface files is the smaller change.
+
+### 8. `Emby.Server.Implementations/Library/MediaSourceManager.cs` — call the decorator
+
+Four small edits, all one seam: a `using`, a nullable field, an **optional** constructor parameter
+(`IMediaSourceDecorator mediaSourceDecorator = null` — Microsoft's DI honours a default value for a
+service it cannot resolve, so a stock build with nothing registered is unaffected), and the call
+itself at the end of `GetPlaybackMediaSources`:
+
+```csharp
+var sorted = SortMediaSources(list, preferredId).ToArray();
+if (_mediaSourceDecorator is null)
+{
+    return sorted;
+}
+
+return await _mediaSourceDecorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
+```
+
+**Why here and not in the API layer.** `GetPlaybackMediaSources` is the single funnel that both
+`MediaInfoHelper` (PlaybackInfo, what the client sees) and `StreamingHelpers` (every streaming and
+transcoding request, resolved server-side with no client involved) go through. A filter on the
+PlaybackInfo controller would give the client one answer and the transcoder another — which is
+precisely the failure this hook exists to prevent, since the whole point is that the URL ffmpeg gets
+must differ from the URL the client gets.
+
+**Upstream-pull risk:** low. The hook is at the end of a method whose shape has been stable; if the
+method is rewritten, re-add the two lines before the return. `tools/e2e-m4.ps1`'s "Speed first picks
+B; Quality first picks C" step is what catches a regression — without the decorator the order is
+Jellyfin's own, which is by pixel count and therefore always the 4K.
+
+**And one thing this hook does *not* fix, which is not a patch.** `MediaInfoController` calls
+`MediaInfoHelper.SortMediaSources` after the decorator has run, and that sort floats "the source
+belonging to the queried item" to the front — a rule that is right for local alternate versions and
+meaningless for a federated title, where every version is a pointer and the primary item is whichever
+`.strm` the resolver read first. Rather than patch that sort, `StingStream.Core` re-applies its own
+order in an MVC result filter (`PlaybackInfoOrderFilter`), which runs after the action and needs no
+vendored change at all. The order is therefore applied twice, deliberately: in the decorator for
+everything the server does with the sources, and in the filter for the list the client reads.
+
+### Not a patch: the transcode fix uses `EncoderPath`, which upstream already has
+
+Worth recording because it is the *absence* of a patch that was expected. A transcode of a federated
+source used to fail: the pointer's host is `stingstream.local`, which only resolves inside Jellyfin's
+own `HttpClient` (see `StingStreamLocalHandler`), and ffmpeg does its own DNS.
+
+The fix needed no change to the encoder at all. `MediaSourceInfo` already carries
+`EncoderPath`/`EncoderProtocol`, and `EncodingHelper.AttachMediaSourceInfo` already prefers them over
+`Path` when both are set — it is how Live TV hands the encoder a local recording URL. So
+`FederatedSourceDecorator` fills them in with this node's own gateway
+(`http://127.0.0.1:<gateway>/stream/<group>/<item_key>/<node>`) and everything downstream is
+unmodified upstream code. The client still gets `stingstream.local`, which is what the native app
+rewrites to its own embedded mesh.
 
 ### Not a patch, but a deliberate deviation: analyzer settings
 

@@ -258,11 +258,47 @@ whose fields disappear on the way out.
 
 | | |
 |---|---|
-| `Snapshot { node_name, seq, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. |
-| `Delta { node_name, seq, upserts, removals }` | incremental changes |
+| `Snapshot { node_name, seq, chunk, chunks, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. **Chunked** — see below. |
+| `Delta { node_name, seq, upserts, removals }` | incremental changes, chunked the same way; the removals ride the first chunk |
 | `Heartbeat { node_name, heartbeat }` | liveness plus advertised capacity |
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
+
+### Frame size, and why snapshots are chunked
+
+**`MAX_GOSSIP_MESSAGE` is 256 KiB, and it is a protocol constant, not a setting.** A receiver
+rejects a frame larger than its own limit, so every member of a group must use the same number; two
+builds that disagree produce the failure described next, in one direction only, with nothing on the
+receiving side to show for it. It is a `const` in `gossip.rs` for exactly that reason, and changing
+it is a wire-compatibility break.
+
+`iroh-gossip`'s own default is 4096 bytes. **An inventory snapshot of three ordinary records exceeds
+it**, and the refusal lands on the *send* side of connections that are already established: the
+publishing node stops being able to broadcast anything at all, to anybody, while continuing to
+receive normally. From outside, a peer goes quiet and every other member declares it offline a
+heartbeat timeout later, with nothing in any log to say why. `tools/e2e-m4.ps1` found this the first
+time it ran with three nodes; the two-node M3 acceptance never came close, because one or two small
+records stay under 4 KB.
+
+Raising the ceiling is necessary but not sufficient — no ceiling makes a ten-thousand-title library
+one message — so `gossip::chunk_records` splits a snapshot or a delta into runs whose serialized
+records stay under `RECORD_BUDGET` (192 KiB, leaving room for the envelope, the signature, the nonce
+and the AEAD tag). The semantics:
+
+* **`chunk == 0` replaces** everything the receiver knew about the author; **every chunk after it
+  merges**. A chunk lost in transit therefore costs those records until the next snapshot rather
+  than corrupting the ones that did arrive.
+* `chunk` and `chunks` are `#[serde(default)]`, so a message from a build that predates chunking
+  reads as "one chunk, replace" — which is exactly what it used to mean.
+* An empty inventory still sends one chunk carrying no records. That message is how the group learns
+  a node no longer holds anything.
+* A single record too large to fit on its own is **dropped with a warning** rather than poisoning
+  the batch. A `WireRecord` is metadata, not media, so one that large is a bug or a hostile edit,
+  and losing that one title beats losing the group's whole view of the node.
+
+A refused broadcast is logged at **warn**, with the message size. It used to be debug, on the
+reasonable-sounding grounds that broadcasting with no neighbours is normal — but it is the one
+failure in this crate that silences a node with no other symptom, and that is not a thing to bury.
 
 A neighbour appearing triggers both a snapshot and a `RequestSnapshot`, so a fresh join converges in
 seconds rather than waiting for the next tick. A peer with no heartbeat for `peer_timeout_secs` is
@@ -330,11 +366,17 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 `local_path` is populated only for this node's own rows. Indexes on `(group_id, item_key)` — what
 the source scorer reads — and `(group_id, file_hash)` — what same-hash failover reads.
 
-**`throughput_bps` is a measurement, not an advertisement.** Every completed range read this node
-pulls from a peer is folded into a per-peer exponentially-weighted moving average (α = 0.4), and
-transfers under 256 KiB or 100 ms are **discarded rather than averaged in**: a 64 KiB seek that
-finished in 8 ms is arithmetically 65 Mbit/s and says nothing about whether a film will stream. Null
-until a real transfer has happened, which the scorer treats as "unknown", not as "fast" or "slow".
+**`throughput_bps` is a measurement, not an advertisement.** Every range read this node pulls from a
+peer is folded into a per-peer exponentially-weighted moving average (α = 0.4), and transfers under
+256 KiB or 100 ms are **discarded rather than averaged in**: a 64 KiB seek that finished in 8 ms is
+arithmetically 65 Mbit/s and says nothing about whether a film will stream. Null until a real
+transfer has happened, which the scorer treats as "unknown", not as "fast" or "slow".
+
+The sample is taken when the transfer's meter is **dropped**, not when the upstream body reports
+EOF, and that distinction is load-bearing. A `/stream` response carries a `Content-Length`; once
+hyper has written that many bytes it treats the message as complete and drops the body without
+polling it again, so an end-of-body hook is simply never reached. Dropping is also the more honest
+moment: a player that abandons a seek after three seconds still pulled three seconds of real bytes.
 
 ---
 
@@ -670,3 +712,11 @@ where the direct path is expected, and that is a manual check rather than a CI o
 * **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
   ride iroh's own encryption between two authenticated members. That is the right boundary, but it
   means a member is trusted with everything the group holds. Per-member revocation is M8.
+* **Gossip has no version negotiation.** `MAX_GOSSIP_MESSAGE` is a constant every member must share,
+  and two builds that disagree go silent in one direction with nothing on the receiving side to show
+  for it — which is exactly the failure M4 found. Nothing is deployed, so restarting a stale node is
+  the whole migration today, but before anyone runs a build they cannot restart at will the protocol
+  needs a version byte and a negotiated ceiling. M8, alongside revocation.
+* **Source-side transcoding.** When a link cannot carry a source, the *home* node transcodes it and
+  pulls the original over the mesh. Asking the holder to transcode instead would save that bandwidth
+  entirely, but it needs the holder's own Jellyfin in the path and a way to authenticate to it.
