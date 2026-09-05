@@ -140,6 +140,52 @@ pub fn dev_output_dirs(repo_root: &Path, child: &str) -> Vec<PathBuf> {
     }
 }
 
+/// Roots to search when none of [`dev_output_dirs`] holds the entry point.
+///
+/// The exact paths above are what a build produces on the machine this was written on, but they
+/// are not guaranteed: Radarr and Sonarr set a per-platform `RuntimeIdentifier`, so their output
+/// can land in a RID subdirectory, and a developer may have built a configuration nobody
+/// anticipated. Searching the output root is cheap and does not need updating every time an
+/// upstream build changes shape.
+pub fn dev_search_roots(repo_root: &Path, child: &str) -> Vec<PathBuf> {
+    match child {
+        "jellyfin" => vec![repo_root
+            .join("server")
+            .join("jellyfin")
+            .join("Jellyfin.Server")
+            .join("bin")],
+        "radarr" => vec![repo_root.join("server").join("radarr").join("_output")],
+        "sonarr" => vec![repo_root.join("server").join("sonarr").join("_output")],
+        _ => Vec::new(),
+    }
+}
+
+/// Find a .NET entry point anywhere under `root`, descending at most `depth` levels.
+///
+/// Deterministic: directories are sorted, so two runs on the same tree pick the same build.
+pub fn find_dotnet_entry_deep(root: &Path, stem: &str, depth: usize) -> Option<DotnetEntry> {
+    if let Some(entry) = find_dotnet_entry(root, stem) {
+        return Some(entry);
+    }
+    if depth == 0 {
+        return None;
+    }
+
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(root)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    subdirs.sort();
+    for sub in subdirs {
+        if let Some(entry) = find_dotnet_entry_deep(&sub, stem, depth - 1) {
+            return Some(entry);
+        }
+    }
+    None
+}
+
 /// The assembly stem each child's entry point uses.
 pub fn dotnet_stem(child: &str) -> &'static str {
     match child {
@@ -159,14 +205,36 @@ pub fn resolve_dev_dotnet(repo_root: &Path, child: &str) -> Result<DotnetEntry> 
             return Ok(entry);
         }
     }
+
+    // The expected paths missed. Search the output root before giving up: Radarr and Sonarr set a
+    // per-platform RuntimeIdentifier, so on Linux their entry point sits a level deeper than it
+    // does on Windows.
+    let roots = dev_search_roots(repo_root, child);
+    for root in &roots {
+        if let Some(entry) = find_dotnet_entry_deep(root, stem, 3) {
+            tracing::debug!(
+                child,
+                path = %entry.program().display(),
+                "found the build output by searching rather than at the expected path"
+            );
+            return Ok(entry);
+        }
+    }
+
     anyhow::bail!(
-        "{child}: no build output found. Looked for {stem}{exe} or {stem}.dll in: {}. \
-         Build it first -- see docs/RUNNING.md.",
-        dirs.iter()
+        "{child}: no build output found. Looked for {stem}{exe} or {stem}.dll in [{expected}], \
+         and searched [{searched}]. Build it first -- see docs/RUNNING.md.",
+        exe = std::env::consts::EXE_SUFFIX,
+        expected = dirs
+            .iter()
             .map(|d| d.display().to_string())
             .collect::<Vec<_>>()
             .join(", "),
-        exe = std::env::consts::EXE_SUFFIX,
+        searched = roots
+            .iter()
+            .map(|d| d.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", "),
     )
 }
 
@@ -316,6 +384,34 @@ mod tests {
         assert!(dev_output_dirs(r, "sonarr")[0].ends_with("_output/net10.0")
             || dev_output_dirs(r, "sonarr")[0].ends_with("_output\\net10.0"));
         assert!(dev_output_dirs(r, "nzbget").is_empty());
+    }
+
+    #[test]
+    fn resolve_dev_dotnet_finds_an_entry_in_a_runtime_identifier_subdirectory() {
+        // What a Linux build of Radarr actually produces: _output/net8.0/linux-x64/, not
+        // _output/net8.0/. CI found this the hard way.
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        std::fs::create_dir_all(root.join("mesh")).unwrap();
+        let deep = root
+            .join("server")
+            .join("radarr")
+            .join("_output")
+            .join("net8.0")
+            .join("linux-x64");
+        touch(&deep.join("Radarr.Console.dll"));
+
+        let entry = resolve_dev_dotnet(root, "radarr").unwrap();
+        assert_eq!(entry.dir().unwrap(), deep);
+    }
+
+    #[test]
+    fn find_dotnet_entry_deep_respects_its_depth_limit() {
+        let td = tempfile::tempdir().unwrap();
+        let deep = td.path().join("a").join("b").join("c").join("d");
+        touch(&deep.join("jellyfin.dll"));
+        assert!(find_dotnet_entry_deep(td.path(), "jellyfin", 3).is_none());
+        assert!(find_dotnet_entry_deep(td.path(), "jellyfin", 4).is_some());
     }
 
     #[test]
