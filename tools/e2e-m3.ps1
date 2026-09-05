@@ -189,6 +189,19 @@ function Wait-Until {
     throw "Timed out after ${Seconds}s waiting for: $What. Last seen: $last"
 }
 
+function Test-SameUrl {
+    <#
+    .SYNOPSIS
+        Compare two URLs, ignoring a trailing slash.
+    .DESCRIPTION
+        The mesh parses a coordinator with Rust's `url` crate, which normalises
+        `https://host` to `https://host/`. An exact string comparison against what was sent in
+        would therefore always fail, and would look like "the group did not keep its coordinator".
+    #>
+    param([string]$A, [string]$B)
+    return ([string]$A).TrimEnd('/') -eq ([string]$B).TrimEnd('/')
+}
+
 function Get-Member-Value {
     <#
     .SYNOPSIS
@@ -1182,14 +1195,18 @@ if ($SkipCoordinator) {
             name = 'E2E Coordinated'; coordinator = $FallbackCoordinator
         }
         $kept = Get-Member-Value $group 'coordinator'
-        if ($kept -ne $FallbackCoordinator) { throw "the group did not keep its coordinator: $kept" }
+        if (-not (Test-SameUrl $kept $FallbackCoordinator)) {
+            throw "the group did not keep its coordinator: $kept"
+        }
+
+        Write-Host "      group $($group.group) '$($group.name)', coordinator $kept"
 
         $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
         $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
         Write-Host "      B joined via '$($joined.via)'"
         if ($joined.via -eq 'none') { throw 'B reached nobody in the coordinated group.' }
         $carried = Get-Member-Value $joined 'coordinator'
-        if ($carried -ne $FallbackCoordinator) {
+        if (-not (Test-SameUrl $carried $FallbackCoordinator)) {
             throw "the invite did not carry the coordinator to B: $carried"
         }
         Write-Host '      the coordinator travelled in the invite, as a property of the group'

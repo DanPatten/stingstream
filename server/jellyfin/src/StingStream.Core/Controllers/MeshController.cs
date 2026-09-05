@@ -46,19 +46,33 @@ public sealed class MeshController : StingStreamControllerBase
     public async Task<ActionResult<MeshStatus>> Status(CancellationToken cancellationToken)
     {
         var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
-        return status is null
-            ? StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "the mesh is not answering" })
-            : status;
+        return status is null ? MeshUnavailable() : Ok(status);
     }
 
     /// <summary>Every group this node belongs to.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The groups.</response>
+    /// <response code="503">The mesh is not answering.</response>
     /// <returns>The groups.</returns>
     [HttpGet("groups")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<MeshGroup>>> Groups(CancellationToken cancellationToken)
-        => Ok(await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false));
+    {
+        var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
+        return groups is null ? MeshUnavailable() : Ok(groups);
+    }
+
+    /// <summary>
+    /// The one answer for "the mesh did not answer".
+    /// </summary>
+    /// <remarks>
+    /// A 503 rather than an empty list, because a caller that cannot tell the two apart draws the
+    /// wrong conclusion — the app would show an empty Group screen, and the federated materializer
+    /// would delete every pointer on the node.
+    /// </remarks>
+    private ActionResult MeshUnavailable()
+        => StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "the mesh is not answering" });
 
     /// <summary>Create a group.</summary>
     /// <param name="body">Name, and optionally a coordinator URL.</param>
@@ -125,8 +139,12 @@ public sealed class MeshController : StingStreamControllerBase
     /// <returns>The index.</returns>
     [HttpGet("groups/{group}/index")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<MeshIndex>> Index(string group, CancellationToken cancellationToken)
-        => await _mesh.IndexAsync(group, cancellationToken).ConfigureAwait(false);
+    {
+        var index = await _mesh.IndexAsync(group, cancellationToken).ConfigureAwait(false);
+        return index is null ? MeshUnavailable() : Ok(index);
+    }
 
     /// <summary>Group membership, liveness, observed path and advertised capacity.</summary>
     /// <param name="group">The group id, or omit for every group.</param>
@@ -135,10 +153,14 @@ public sealed class MeshController : StingStreamControllerBase
     /// <returns>The peers.</returns>
     [HttpGet("peers")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<MeshPeer>>> Peers(
         [FromQuery] string? group,
         CancellationToken cancellationToken)
-        => Ok(await _mesh.PeersAsync(group, cancellationToken).ConfigureAwait(false));
+    {
+        var peers = await _mesh.PeersAsync(group, cancellationToken).ConfigureAwait(false);
+        return peers is null ? MeshUnavailable() : Ok(peers);
+    }
 
     /// <summary>
     /// Run one federated-library materialization pass now.

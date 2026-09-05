@@ -377,16 +377,21 @@ the Plex remote-access design with one change: private keys never leave the node
 3. **Port mapping.** The supervisor asks the router for a TCP mapping to the gateway via UPnP IGD,
    NAT-PMP or PCP, reusing iroh's `portmapper`. The result is shown on the Node status screen, with
    manual-rule instructions if all three fail.
-4. **Reachability probe.** Over its existing iroh connection the node reports
-   `{lan_ips, public_ip, mapped_port, cert_expiry}` to the relay. The relay attempts a real TLS
-   handshake to the public hostname and records `direct_https: ok | blocked` in the node's
-   discovery record, so clients learn the answer without first reaching the node.
-5. **Relay passthrough when direct fails** (CGNAT, no UPnP, 443-only networks). The relay's 443
-   listener dispatches by SNI: its own hostname goes to iroh-relay, and
-   `relay.<nodeid>.direct.<relay-host>` becomes a raw TCP tunnel over iroh to that node's gateway.
-   TLS still terminates on the node with the node's certificate, so the relay sees SNI and
-   ciphertext only. Same certificate, three hostnames. Only nodes registered with that relay are
-   routable, so the router cannot be used as an open proxy.
+4. **Reachability probe.** The node reports `{lan_ips, public_ip, mapped_port, cert_expiry}` to the
+   coordinator, signed by its own iroh key so the claimed addresses cannot be altered in flight. The
+   coordinator attempts a real TLS *handshake* to the public hostname — not a TCP connect, which a
+   plain listener would pass — and records `direct_https: ok | blocked` in the node's discovery
+   record, so clients learn the answer without first reaching the node. It deliberately does not
+   validate the certificate: trust is the browser's job, and a node mid-renewal should not read as
+   unreachable. A node may only ask about a hostname containing its own id, so the endpoint is not
+   a port scanner with someone else's source address.
+5. **Coordinator passthrough when direct fails** (CGNAT, no UPnP, 443-only networks). The
+   coordinator's 443 listener reads the ClientHello by hand and dispatches by SNI: its own hostname
+   terminates there and serves the relay and the API, and `relay.<nodeid>.direct.<host>` becomes a
+   raw TCP tunnel over iroh to that node's gateway. TLS still terminates on the *node*, with the
+   node's certificate, so the coordinator sees an SNI string and ciphertext. Same certificate, three
+   hostnames. Only registered nodes are routable, and an unregistered id is refused identically to a
+   stranger's name, so the router cannot be used as an open proxy.
 6. **Connection racing.** The web bundle and the cast sender read the candidate hostnames from the
    discovery record — LAN, public, relay — open all of them with a short timeout, keep the first
    that completes a TLS handshake, and remember the winner per network. LAN wins at home, public
@@ -396,7 +401,7 @@ the Plex remote-access design with one change: private keys never leave the node
    from a receiver.
 8. **DNS rebinding protection.** Some routers (OpenWrt dnsmasq, pfSense, Fritz!Box) drop public DNS
    answers that point at private IPs. The web client detects this (LAN name fails while the LAN IP
-   is reachable), shows the one-line fix — whitelist `direct.<relay-host>` — and falls back to plain
+   is reachable), shows the one-line fix — whitelist `direct.<host>` — and falls back to plain
    `http://<lan-ip>:8790` for LAN browsers with a visible warning.
 
 Hosting needs, by mode. **Lite (Railway):** a service with the TCP proxy on 443, a domain whose
@@ -784,6 +789,15 @@ that changed, and stamps what the index already said onto the resulting items:
   tables from the index record, so the resolution and codec badges are right the moment the item
   appears and nothing is ever probed.
 
+**It polls the index rather than subscribing to it, and that was a choice.** The milestone allowed
+either, and offered to add an SSE or long-poll endpoint to the mesh if one were needed. One is not:
+a pass is a `GET` against a local SQLite database over loopback followed by a set comparison, it is
+idempotent, and it is cheap enough at fifteen seconds that a peer's new import appears about as
+fast as a local one. A change feed would add a second failure mode — a subscription that silently
+stops delivering — to a system that currently cannot get stuck, because the next pass re-reads
+everything from scratch. `POST /stingstream/api/v1/mesh/federated/refresh` forces a pass for a
+harness or an impatient administrator.
+
 **Peer titles are untrusted input, and they become folder names.** `Federated/SafePath.cs` rebuilds
 each component from an allow-list of characters rather than stripping dangerous ones out, refuses
 components that are only dots, prefixes reserved Windows device names, trims the trailing dots and
@@ -835,20 +849,58 @@ written against, which is exactly why it was worth checking rather than assuming
 quality for episodes as well as films. The verification step stays in the harness: it is cheap, and
 it is the thing that will notice if an upstream pull takes the behaviour away again.
 
+**What the acceptance run actually proved.** `tools/e2e-m3.ps1`, on Dan's machine, two complete
+nodes with their own Jellyfin, Radarr, Sonarr, NZBGet and iroh identity:
+
+| Step | Result |
+|---|---|
+| B grabs and imports a movie and an episode through the M1 pipeline | pass |
+| A creates a group with **no coordinator**; B joins with A's invite | pass, `via: inviter` |
+| B's inventory reaches A's group index, with no `local_path` anywhere in it | pass |
+| A materializes Shared Movies and Shared TV | pass |
+| The federated movie has a poster, an overview and a `1920x1080 h264` badge | pass |
+| PlaybackInfo returns a `stingstream.local` source, `Protocol=Http`, `SupportsDirectPlay=true` | pass |
+| `GET /jellyfin/Videos/{id}/stream` on A returns B's file **byte for byte** | pass |
+| `GET /stream/{group}/{key}/{node}` with a `Range` returns `206` and the right bytes | pass |
+| Episode multi-version support on this Jellyfin | **supported** |
+| B stops; A tags its versions `stingstream:unavailable` within a minute, keeping the items | pass |
+| B returns; the tag clears | pass |
+| A group with Dan's Railway coordinator; the invite carries it to B | pass |
+| A rendezvous join with the inviter offline | pass, `via: rendezvous` |
+
+Two things the run also settled about *timing*, both worth knowing before reading a slow run as a
+fault. Gossip converges in about a second — both nodes log the snapshot arriving — but the *first*
+materialization pass is slow, because a Jellyfin that has just had two libraries created and is
+scanning them can take tens of seconds to answer an API call. Every pass after it is instant. And
+two nodes on one machine reach each other over a `direct`/`mixed` iroh path with an RTT in the low
+tens of milliseconds; the NAT scenario in `mesh/tests/nat/run.sh` is what exercises the relayed
+case.
+
 **The gateway restricts `/stingstream/mesh/*` to loopback.** The mesh API is unauthenticated because
 it binds `127.0.0.1`; the gateway binds `0.0.0.0`. Proxying an API that creates groups and mints
 invite codes onto a LAN address would have handed the group to anyone on the same Wi-Fi. The app
 uses `/stingstream/api/v1/mesh/*` instead — the same operations behind Jellyfin's own auth.
 
-**Two bugs the two-node run found that no unit test would have.**
+**Three bugs the two-node run found that no unit test would have.**
 
 1. `IPathRefresher` refreshed a folder that was already a known item without validating its
    children, and `RefreshMetadata` on a `Folder` does not descend. So a season folder that already
    existed got re-read and the new episode inside it was never noticed — a Series and a Season with
    nothing in them. The arr-import path never hit it because that path names a *file*.
-2. The materialization pass could run twice concurrently — once from the timer, once from
+2. `FederatedStore.Parse` passed `DateTimeStyles.RoundtripKind | AdjustToUniversal`, which .NET
+   rejects outright. The only code path that reaches it is the *first* pass after a peer goes
+   offline, so the whole pass threw and the symptom was "the unavailable tag never appears" — three
+   layers away from a date-parsing bug.
+3. The materialization pass could run twice concurrently — once from the timer, once from
    `POST /mesh/federated/refresh` — with one deleting what the other had just written. Now
    serialized on a semaphore.
+
+**And one found by reading it back afterwards, which matters more than any of them.** The mesh
+client returned an *empty* index when the mesh was merely unreachable, and the materializer reads an
+empty index as "the group holds nothing" and deletes every pointer. One restart of the mesh process
+would have taken a node's whole Shared library with it. `GroupsAsync`, `IndexAsync` and `PeersAsync`
+are now nullable — null means "could not ask", and a pass that cannot read the mesh does nothing at
+all rather than something confident and wrong.
 
 **Still outstanding from M3.** The HTTPS side door's *node* half (ACME, rustls on the gateway,
 `portmapper`, publishing the candidate hostnames) has not shipped, and is the largest single piece

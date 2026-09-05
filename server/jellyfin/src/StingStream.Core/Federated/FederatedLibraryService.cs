@@ -206,6 +206,16 @@ public sealed class FederatedLibraryService : BackgroundService
         }
 
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
+        if (groups is null)
+        {
+            // The mesh did not answer. Doing nothing is the only safe response: an empty answer
+            // and an unanswered question look identical from here, and treating the second as the
+            // first would delete every pointer on the node because the mesh happened to restart.
+            _logger.LogDebug("The mesh did not answer; skipping this pass");
+            report.Skipped = true;
+            return report;
+        }
+
         var known = _store.All();
 
         if (groups.Count == 0)
@@ -238,12 +248,22 @@ public sealed class FederatedLibraryService : BackgroundService
             cancellationToken.ThrowIfCancellationRequested();
             groupIds.Add(group.Group);
 
-            foreach (var peer in await _mesh.PeersAsync(group.Group, cancellationToken).ConfigureAwait(false))
+            var peers = await _mesh.PeersAsync(group.Group, cancellationToken).ConfigureAwait(false);
+            var index = await _mesh.IndexAsync(group.Group, cancellationToken).ConfigureAwait(false);
+            if (peers is null || index is null)
+            {
+                // Same rule as above, one group down: a half-read pass would remove every pointer
+                // for this group and start a grace period on the rest.
+                _logger.LogDebug("The mesh did not answer for group {Group}; skipping this pass", group.Name);
+                report.Skipped = true;
+                return report;
+            }
+
+            foreach (var peer in peers)
             {
                 online[(group.Group, peer.Node)] = peer.Online;
             }
 
-            var index = await _mesh.IndexAsync(group.Group, cancellationToken).ConfigureAwait(false);
             foreach (var entry in index.Entries)
             {
                 if (string.IsNullOrEmpty(entry.Node)
@@ -1239,6 +1259,15 @@ public sealed class FederatedReport
     public int WentOffline { get; set; }
 
     public int CameBack { get; set; }
+
+    /// <summary>
+    /// True when the pass did nothing because the mesh could not be read.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from a pass that legitimately had nothing to do. The API returns it so a caller
+    /// forcing a refresh can tell "your group holds nothing" from "I could not find out".
+    /// </remarks>
+    public bool Skipped { get; set; }
 
     /// <summary>Folders that changed and therefore need refreshing.</summary>
     public List<string> Folders { get; } = new();

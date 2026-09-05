@@ -31,10 +31,19 @@ public interface IMeshClient
     /// <returns>The status, or null when the mesh is unreachable.</returns>
     Task<MeshStatus?> StatusAsync(CancellationToken cancellationToken);
 
-    /// <summary>Every group this node belongs to.</summary>
+    /// <summary>
+    /// Every group this node belongs to, or <see langword="null"/> when the mesh could not be
+    /// asked.
+    /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The groups; empty when the mesh is unreachable.</returns>
-    Task<IReadOnlyList<MeshGroup>> GroupsAsync(CancellationToken cancellationToken);
+    /// <returns>The groups, or null.</returns>
+    /// <remarks>
+    /// Null and empty mean genuinely different things here, which is why this is nullable at all.
+    /// "This node belongs to no groups" tells the federated materializer to take every pointer
+    /// down; "the mesh did not answer" must not. Collapsing the two would mean one restart of the
+    /// mesh process deletes a node's whole Shared library.
+    /// </remarks>
+    Task<IReadOnlyList<MeshGroup>?> GroupsAsync(CancellationToken cancellationToken);
 
     /// <summary>Create a group.</summary>
     /// <param name="name">Human-readable group name.</param>
@@ -86,17 +95,27 @@ public interface IMeshClient
     /// <returns>A task.</returns>
     Task PutCapacityAsync(MeshCapacity capacity, CancellationToken cancellationToken);
 
-    /// <summary>The merged group index: every member's records.</summary>
+    /// <summary>
+    /// The merged group index, or <see langword="null"/> when the mesh could not be asked.
+    /// </summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The index.</returns>
-    Task<MeshIndex> IndexAsync(string group, CancellationToken cancellationToken);
+    /// <returns>The index, or null.</returns>
+    /// <remarks>Nullable for the same reason as <see cref="GroupsAsync"/>.</remarks>
+    Task<MeshIndex?> IndexAsync(string group, CancellationToken cancellationToken);
 
-    /// <summary>Group membership and liveness.</summary>
+    /// <summary>
+    /// Group membership and liveness, or <see langword="null"/> when the mesh could not be asked.
+    /// </summary>
     /// <param name="group">The group id, or null for every group.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The peers.</returns>
-    Task<IReadOnlyList<MeshPeer>> PeersAsync(string? group, CancellationToken cancellationToken);
+    /// <returns>The peers, or null.</returns>
+    /// <remarks>
+    /// Nullable for the same reason as <see cref="GroupsAsync"/>: an unanswered call would
+    /// otherwise read as "every peer is offline", which starts a grace period on every title in
+    /// the group.
+    /// </remarks>
+    Task<IReadOnlyList<MeshPeer>?> PeersAsync(string? group, CancellationToken cancellationToken);
 
     /// <summary>Fetch one artwork file from a peer, over the mesh.</summary>
     /// <param name="group">The group id.</param>
@@ -115,12 +134,15 @@ public interface IMeshClient
 
 /// <inheritdoc />
 /// <remarks>
-/// Every method answers "the mesh is not there" the same way — an empty result and a debug log,
-/// never an exception that would take a caller down. A node whose mesh has not started, or which
-/// was built without one, is still a complete single-node server, and the federated library simply
-/// has nothing to do. The one exception is the group-lifecycle calls, which are only ever reached
-/// from an explicit API request: those throw, because the user asked for something specific and
-/// deserves to be told it did not happen.
+/// The read methods answer "the mesh is not there" with <see langword="null"/> and a debug log,
+/// never an exception that would take a caller down: a node whose mesh has not started, or which
+/// was built without one, is still a complete single-node server. **Null is not the same as
+/// empty**, and the difference matters more than it looks — "this node is in no groups" tells the
+/// federated materializer to take every pointer down, while "the mesh did not answer" must leave
+/// them exactly where they are.
+///
+/// The group-lifecycle calls are the exception and throw, because they are only ever reached from
+/// an explicit API request and the user deserves to be told it did not happen.
 /// </remarks>
 public sealed class MeshClient : IMeshClient
 {
@@ -253,9 +275,8 @@ public sealed class MeshClient : IMeshClient
         => TryGetAsync<MeshStatus>("/mesh/v1/status", cancellationToken);
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<MeshGroup>> GroupsAsync(CancellationToken cancellationToken)
-        => await TryGetAsync<List<MeshGroup>>("/mesh/v1/groups", cancellationToken).ConfigureAwait(false)
-           ?? new List<MeshGroup>();
+    public async Task<IReadOnlyList<MeshGroup>?> GroupsAsync(CancellationToken cancellationToken)
+        => await TryGetAsync<List<MeshGroup>>("/mesh/v1/groups", cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<MeshGroup> CreateGroupAsync(string name, string? coordinator, CancellationToken cancellationToken)
@@ -369,20 +390,18 @@ public sealed class MeshClient : IMeshClient
     }
 
     /// <inheritdoc />
-    public async Task<MeshIndex> IndexAsync(string group, CancellationToken cancellationToken)
+    public async Task<MeshIndex?> IndexAsync(string group, CancellationToken cancellationToken)
         => await TryGetAsync<MeshIndex>(
-               $"/mesh/v1/index?group={Uri.EscapeDataString(group)}",
-               cancellationToken).ConfigureAwait(false)
-           ?? new MeshIndex { Group = group };
+            $"/mesh/v1/index?group={Uri.EscapeDataString(group)}",
+            cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<MeshPeer>> PeersAsync(string? group, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<MeshPeer>?> PeersAsync(string? group, CancellationToken cancellationToken)
     {
         var url = string.IsNullOrWhiteSpace(group)
             ? "/mesh/v1/peers"
             : $"/mesh/v1/peers?group={Uri.EscapeDataString(group)}";
-        return await TryGetAsync<List<MeshPeer>>(url, cancellationToken).ConfigureAwait(false)
-               ?? new List<MeshPeer>();
+        return await TryGetAsync<List<MeshPeer>>(url, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

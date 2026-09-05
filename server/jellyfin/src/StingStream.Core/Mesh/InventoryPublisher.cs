@@ -120,6 +120,13 @@ public sealed class InventoryPublisher : BackgroundService
     private async Task PassAsync(CancellationToken cancellationToken)
     {
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
+        if (groups is null)
+        {
+            // The mesh did not answer. Leave the feed alone: whatever is queued still needs
+            // publishing when it comes back.
+            return;
+        }
+
         if (groups.Count == 0)
         {
             // Not in a group yet. Drop whatever the feed accumulated rather than growing it
