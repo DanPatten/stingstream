@@ -180,7 +180,7 @@ const describePeer = (peer: MeshNodePeer): string => {
   return bits.join(" • ");
 };
 
-const pathLabel = (path: string | null): string => {
+const pathLabel = (path: string | null | undefined): string => {
   switch (path) {
     case "direct":
     case "mixed":

@@ -4,8 +4,13 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import useRouter from "@/hooks/useAppRouter";
-import { useNodeMeshGroups, useNodeMeshPeers } from "@/lib/stingstream/mesh";
+import {
+  MeshUnavailableError,
+  useNodeMeshGroups,
+  useNodeMeshPeers,
+} from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 import { DeviceMeshSection } from "./DeviceMeshSection";
@@ -37,6 +42,23 @@ export function GroupsScreen() {
       online: rows.filter((p) => p.online).length,
     };
   };
+
+  // A node whose mesh child is down answers 503, and that is emphatically not "you belong to no
+  // groups" — showing the empty state would tell the user their group had vanished. It gets its
+  // own line, and this device's own section still renders below it, because the phone's mesh is
+  // a separate thing that may well be fine.
+  if (groups.error instanceof MeshUnavailableError) {
+    return (
+      <>
+        <DeviceMeshSection />
+        <View className='h-4' />
+        <GapNotice
+          title="This node's mesh isn't answering"
+          detail={groups.error.message}
+        />
+      </>
+    );
+  }
 
   return (
     <QueryState

@@ -37,30 +37,40 @@ import { apiAtom } from "@/providers/JellyfinProvider";
  * predates `MeshController`, and regenerating it needs a live node.
  */
 
-/** `GET /mesh/groups`, and the body of `POST /mesh/groups`. */
+/**
+ * `GET /mesh/groups`, and the body of `POST /mesh/groups`.
+ *
+ * Every nullable field here is **optional**, not `T | null`: Core omits nulls from its JSON
+ * rather than serialising them, so a group with no coordinator has no `coordinator` key at all.
+ * Typing it as `string | null` would let code assume the key is present.
+ */
 export interface MeshNodeGroup {
   group: string;
   name: string;
-  coordinator: string | null;
+  /**
+   * Absent for the zero-server default. The mesh normalises what it stores — `https://host`
+   * comes back as `https://host/` — so never compare this to what a user typed.
+   */
+  coordinator?: string | null;
   createdAt: string;
 }
 
-/** `GET /mesh/peers`. */
+/** `GET /mesh/peers`. Nulls are omitted, so every optional field may simply be missing. */
 export interface MeshNodePeer {
   group: string;
   node: string;
   nodeName: string;
   online: boolean;
   firstSeen: string;
-  lastSeen: string | null;
-  /** `direct`, `relay`, `mixed`, or null when nothing has connected yet. */
-  path: string | null;
-  rttMs: number | null;
-  maxDirectStreams: number | null;
-  maxTranscodes: number | null;
-  activeDirectStreams: number | null;
-  activeTranscodes: number | null;
-  freeSpace: number | null;
+  lastSeen?: string | null;
+  /** `direct`, `relay`, `mixed`, or absent when nothing has connected yet. */
+  path?: string | null;
+  rttMs?: number | null;
+  maxDirectStreams?: number | null;
+  maxTranscodes?: number | null;
+  activeDirectStreams?: number | null;
+  activeTranscodes?: number | null;
+  freeSpace?: number | null;
 }
 
 /** `GET /mesh/status`. */
@@ -81,7 +91,7 @@ export interface MeshInvite {
 export interface MeshJoinResponse {
   group: string;
   name: string;
-  coordinator: string | null;
+  coordinator?: string | null;
   via: "inviter" | "rendezvous" | "none";
   contacted: string[];
 }
@@ -93,10 +103,23 @@ export interface MeshJoinResponse {
  * ProblemDetails object; a proxy in between may answer neither. All three end up as one sentence
  * the Group screen can show.
  */
+export class MeshUnavailableError extends Error {
+  readonly unavailable = true;
+}
+
 const readError = async (res: Response, what: string): Promise<Error> => {
   if (res.status === 401 || res.status === 403) {
     return new Error(
       `${what}: this needs a Jellyfin administrator account on the home node.`,
+    );
+  }
+  // Core answers 503 when it cannot reach the mesh child, rather than an empty result — because
+  // "no groups" and "I could not ask" look identical in a body and mean opposite things. On the
+  // node side that distinction stops the federated materializer deleting every pointer during a
+  // mesh restart; here it stops the Group screen telling the user they belong to nothing.
+  if (res.status === 503) {
+    return new MeshUnavailableError(
+      "This node's mesh isn't answering. Groups and peers are unavailable until it comes back; playback still works through the home node.",
     );
   }
   let detail = `${res.status}`;
