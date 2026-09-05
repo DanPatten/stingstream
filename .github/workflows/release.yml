@@ -223,11 +223,25 @@ jobs:
         run: tools/package-node.sh --rid ${{ matrix.rid }} --version "${{ needs.version.outputs.version }}"
 
       - name: Install nfpm
+        # nfpm has no install.sh (found for real: goreleaser/nfpm has never had one at this path --
+        # `curl -sfL .../install.sh | sh` 404'd, and piping a 404 into `sh` with no `pipefail` is a
+        # silent no-op, not a build failure, so this went unnoticed until the next step's `nfpm:
+        # command not found`). Downloads the .deb directly instead, with `curl -f` so a bad URL
+        # fails loudly here rather than silently downstream.
         run: |
-          curl -sfL https://raw.githubusercontent.com/goreleaser/nfpm/main/install.sh | sh -s -- -b /usr/local/bin
+          set -euo pipefail
+          nfpm_version=$(curl -fsSL https://api.github.com/repos/goreleaser/nfpm/releases/latest | \
+            python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+          curl -fsSL -o /tmp/nfpm.deb \
+            "https://github.com/goreleaser/nfpm/releases/download/v${nfpm_version}/nfpm_${nfpm_version}_amd64.deb"
+          sudo apt-get install -y /tmp/nfpm.deb
+          nfpm --version
           # gettext-base (envsubst) is normally already on the ubuntu-latest image; installed
           # explicitly rather than assumed, since deploy/linux/nfpm.yaml's own values depend on it.
-          command -v envsubst > /dev/null || sudo apt-get update && sudo apt-get install -y gettext-base
+          if ! command -v envsubst > /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y gettext-base
+          fi
 
       - name: Build the .deb
         env:
