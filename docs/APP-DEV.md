@@ -114,6 +114,12 @@ For iterative work, `npx expo start --web` runs Metro's own dev server instead o
 cd apps/stingstream
 bun install --frozen-lockfile
 
+# Optional, and only needed for the mesh: builds the Rust light node into the Expo module.
+# Skipping it is fine — the module still compiles (its uniffi bindings are committed), Gradle
+# prints a warning, and the app runs with the mesh reporting available:false, exactly as on web.
+# A *release* build fails without it. See docs/APP-MESH.md.
+pwsh scripts/build-mesh-android.ps1
+
 # Regenerate the native android/ project for the TV variant (android/ is gitignored, matching
 # upstream). Equivalent to the "prebuild:tv" package.json script.
 $env:EXPO_TV = "1"
@@ -122,6 +128,20 @@ npx expo prebuild --platform android --clean
 cd android
 ./gradlew assembleDebug --no-daemon
 ```
+
+**Windows: keep `GRADLE_USER_HOME` shallow.** `react-native-screens`'s CMake step stats a header
+inside the Gradle transform cache that, from `E:\Dan\Documents\Repos\.gradle`, comes to 261
+characters — one over `MAX_PATH` — and ninja fails with *"Filename longer than 260 characters"*.
+A junction fixes it without re-downloading anything:
+
+```powershell
+cmd /c mklink /J E:\g E:\Dan\Documents\Repos\.gradle   # once, no admin needed
+$env:GRADLE_USER_HOME = "E:/g"
+```
+
+If a build has already failed this way, delete `node_modules/react-native-screens/android/.cxx`
+too: CMake bakes the absolute prefab path into its ninja files, so the old one survives the
+environment change until the configuration is regenerated.
 
 A debug build takes on the order of 30 minutes cold and produces
 `android/app/build/outputs/apk/debug/app-debug.apk` (~300 MB across three ABIs plus the
