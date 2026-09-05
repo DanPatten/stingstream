@@ -24,10 +24,11 @@ use stingstream::paths::{self, Layout};
 use stingstream::ports::PortAllocator;
 use stingstream::preseed;
 use stingstream::runtime::{
-    self, AdminRuntime, CarriedSecrets, ChildRuntime, GatewayRuntime, Runtime, RUNTIME_VERSION,
+    self, AdminRuntime, CarriedSecrets, ChildRuntime, GatewayRuntime, MeshRuntime, Runtime,
+    RUNTIME_VERSION,
 };
 use stingstream::secrets;
-use stingstream::state::NodeState;
+use stingstream::state::{ChildState, NodeState};
 use stingstream::supervisor::{self, childdef, Mode};
 
 #[derive(Parser, Debug)]
@@ -120,6 +121,19 @@ async fn main() -> Result<()> {
         None
     } else {
         let defs = supervisor::build_children(&config, &rt, &layout, &mode)?;
+        // A child that is enabled but has no definition was skipped deliberately (today only a
+        // mesh whose binary has not been built). Mark it disabled, or it would sit at `Stopped`
+        // forever and hold `/healthz` at "degraded" for a node that is otherwise perfectly well.
+        for name in supervisor::CHILD_ORDER {
+            let enabled = node.status_of(name).is_some_and(|s| s.enabled);
+            if enabled && !defs.iter().any(|d| d.name == *name) {
+                node.update(name, |c| {
+                    c.enabled = false;
+                    c.state = ChildState::Disabled;
+                    c.last_error = Some("not started: its binary was not found".to_string());
+                });
+            }
+        }
         tracing::info!(
             children = defs.len(),
             names = %defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", "),
@@ -239,8 +253,9 @@ fn build_runtime(
             "jellyfin" => preseed::jellyfin::BASE_URL.to_string(),
             other => format!("/{other}"),
         };
-        // NZBGet has no URL-base concept: it always serves from the root of its own port.
-        let effective_base = if *name == "nzbget" { "" } else { url_base.as_str() };
+        // NZBGet and the mesh have no URL-base concept: both always serve from the root of their
+        // own port.
+        let effective_base = if matches!(*name, "nzbget" | "mesh") { "" } else { url_base.as_str() };
         let (api_key, username, password) = match *name {
             "radarr" | "sonarr" => (Some(carried.api_key_for(name)), None, None),
             "nzbget" => {
@@ -274,6 +289,10 @@ fn build_runtime(
         password: secrets::password(secrets::PASSWORD_LEN),
     }));
 
+    // The mesh reads `mesh.api_port` from runtime.json before it falls back to
+    // `children.mesh.port`; publishing both means it cannot pick up a stale one.
+    let mesh_api_port = children.get("mesh").map(|c| c.port).unwrap_or_default();
+
     let ffmpeg_path = childdef::find_ffmpeg(mode.repo_root(), mode.install_root());
     if ffmpeg_path.is_none() {
         tracing::warn!(
@@ -300,6 +319,7 @@ fn build_runtime(
         paths: runtime::paths_runtime(layout),
         children,
         qbittorrent: qbt,
+        mesh: MeshRuntime { api_port: mesh_api_port },
         jellyfin_admin,
         ffmpeg_path,
         ffprobe_path,
@@ -315,6 +335,7 @@ fn print_banner(rt: &Runtime, dev: bool) {
         format!("  Health       {}/healthz", rt.gateway.local_url),
         format!("  StingStream  {}/stingstream/api/v1/", rt.gateway.local_url),
         format!("  Jellyfin     {}/jellyfin/", rt.gateway.local_url),
+        format!("  Mesh         {}/stingstream/mesh/v1/status", rt.gateway.local_url),
         format!("  Data         {}", rt.data_dir.display()),
     ];
     if dev {

@@ -347,6 +347,33 @@ pub fn which(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// Locate the `stingstream-mesh` binary.
+///
+/// Its own crate lives in this workspace, so in `--dev` it is wherever `cargo build` put it —
+/// Release preferred over Debug, matching [`dev_output_dirs`]. In an installed node it sits beside
+/// the other children under `<install>/bin/mesh/`.
+///
+/// Returns `None` rather than failing: until M3b embeds the mesh library in this process, a node
+/// whose mesh binary has not been built is still a perfectly good single-node server, and refusing
+/// to start would be a worse answer than running without a mesh.
+pub fn find_mesh_binary(repo_root: Option<&Path>, install_root: Option<&Path>) -> Option<PathBuf> {
+    let exe = format!("stingstream-mesh{}", std::env::consts::EXE_SUFFIX);
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(r) = install_root {
+        candidates.push(r.join("bin").join("mesh").join(&exe));
+    }
+    if let Some(r) = repo_root {
+        let target = r.join("mesh").join("target");
+        candidates.push(target.join("release").join(&exe));
+        candidates.push(target.join("debug").join(&exe));
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .or_else(|| which(&exe))
+}
+
 /// Locate `ffmpeg` for Jellyfin: the fetched jellyfin-ffmpeg first, then `PATH`.
 pub fn find_ffmpeg(repo_root: Option<&Path>, install_root: Option<&Path>) -> Option<PathBuf> {
     let exe = format!("ffmpeg{}", std::env::consts::EXE_SUFFIX);

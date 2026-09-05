@@ -45,6 +45,9 @@ pub struct Runtime {
     /// in-process MonoTorrent engine. The shim itself lives in `StingStream.Core`, so it is
     /// reached at the Jellyfin child's port.
     pub qbittorrent: QbtRuntime,
+    /// Where the mesh node's local API is. `stingstream-mesh` reads `mesh.api_port` from here
+    /// before it falls back to `children.mesh.port` or its own default.
+    pub mesh: MeshRuntime,
     /// Bootstrap Jellyfin administrator, created on first run only if no user exists at all.
     pub jellyfin_admin: Option<AdminRuntime>,
     /// Absolute path to the `ffmpeg` binary handed to Jellyfin, when one was found.
@@ -103,6 +106,12 @@ pub struct QbtRuntime {
     /// Path prefix on the Jellyfin child where the shim answers, i.e. `/stingstream/qbt`. The arrs
     /// are configured with the Jellyfin child's host/port plus this as their `UrlBase`.
     pub url_base: String,
+}
+
+/// The mesh node's local API, as `stingstream-mesh` expects to find it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeshRuntime {
+    pub api_port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,6 +327,7 @@ mod tests {
                 password: "pw".into(),
                 url_base: "/stingstream/qbt".into(),
             },
+            mesh: MeshRuntime { api_port: 8791 },
             jellyfin_admin: None,
             ffmpeg_path: None,
             ffprobe_path: None,

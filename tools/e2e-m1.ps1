@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     M1 acceptance harness: one command, one node, a movie and an episode all the way from a
     Torznab search to a playable stream out of Jellyfin.
@@ -507,6 +507,11 @@ jellyfin = 0
 radarr = 0
 sonarr = 0
 nzbget = 0
+# The mesh runs as a supervised child only when mesh/target/**/stingstream-mesh has been built.
+# The harness builds -p stingstream alone, so on CI there is usually no binary: the supervisor
+# logs that, marks the child disabled and the node is healthy without it. 0 rather than its
+# default 8791 so a machine that *has* built it does not fight this harness's gateway port.
+mesh = 0
 infinidysk = 0
 
 [logging]

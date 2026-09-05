@@ -5,6 +5,8 @@
 //! | Path | Goes to | Notes |
 //! |---|---|---|
 //! | `/healthz` | the gateway itself | JSON child states, for humans and for `tools/e2e-m1.ps1` |
+//! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half |
+//! | `/stream/*` | the mesh node | ranged reads of a peer's file, proxied byte for byte |
 //! | `/stingstream/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
 //! | `/jellyfin/*` | Jellyfin | includes the `/jellyfin/socket` WebSocket |
 //! | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children | **`--dev` only** |
@@ -34,6 +36,12 @@ use proxy::{Upstream, ProxyClient};
 pub const STINGSTREAM_PREFIX: &str = "/stingstream";
 /// Gateway path prefix for Jellyfin, and Jellyfin's own `BaseUrl`.
 pub const JELLYFIN_PREFIX: &str = "/jellyfin";
+/// Gateway path prefix for the mesh node's API. Upstream it is [`MESH_UPSTREAM_PREFIX`].
+pub const MESH_PREFIX: &str = "/stingstream/mesh";
+/// Where the mesh serves that API on its own port (`docs/MESH.md`, "Local API").
+pub const MESH_UPSTREAM_PREFIX: &str = "/mesh";
+/// Gateway *and* upstream prefix for ranged reads of a peer's file.
+pub const STREAM_PREFIX: &str = "/stream";
 
 #[derive(Clone)]
 pub struct GatewayState {
@@ -59,6 +67,13 @@ pub fn router(node: Arc<NodeState>) -> Router {
             any(proxy_to_core),
         )
         .route("/stingstream", any(proxy_to_core))
+        // Registered after the catch-all above, and matched before it: matchit scores a literal
+        // segment above a wildcard regardless of insertion order. The router test below is what
+        // keeps that true.
+        .route("/stingstream/mesh/{*rest}", any(proxy_to_mesh))
+        .route("/stingstream/mesh", any(proxy_to_mesh))
+        .route("/stream/{*rest}", any(proxy_to_stream))
+        .route("/stream", any(proxy_to_stream))
         .route("/jellyfin/{*rest}", any(proxy_to_jellyfin))
         .route("/jellyfin", any(proxy_to_jellyfin));
 
@@ -154,6 +169,8 @@ pub fn placeholder_page(node_name: &str, dev: bool) -> String {
     <li><code>/stingstream/api/v1/</code> &mdash; StingStream API
         (<a href="/stingstream/api/v1/openapi.json">OpenAPI</a>)</li>
     <li><code>/jellyfin/</code> &mdash; this node's Jellyfin</li>
+    <li><code>/stingstream/mesh/v1/</code> &mdash; this node's mesh
+        (<a href="/stingstream/mesh/v1/status">status</a>)</li>
   </ul>
   {dev_note}
 </main>
@@ -202,6 +219,19 @@ async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Respo
 
 async fn proxy_to_jellyfin(State(state): State<GatewayState>, req: Request) -> Response {
     forward(state, req, "jellyfin", JELLYFIN_PREFIX, JELLYFIN_PREFIX.to_string()).await
+}
+
+/// The mesh node's own HTTP API.
+///
+/// Runs as a supervised child until M3b embeds the library in this process; when that lands only
+/// this function changes, not the URL its callers use.
+async fn proxy_to_mesh(State(state): State<GatewayState>, req: Request) -> Response {
+    forward(state, req, "mesh", MESH_PREFIX, MESH_UPSTREAM_PREFIX.to_string()).await
+}
+
+/// Ranged reads of a peer's file. Same child, same prefix on both sides.
+async fn proxy_to_stream(State(state): State<GatewayState>, req: Request) -> Response {
+    forward(state, req, "mesh", STREAM_PREFIX, STREAM_PREFIX.to_string()).await
 }
 
 async fn proxy_to_radarr(State(state): State<GatewayState>, req: Request) -> Response {
@@ -324,6 +354,53 @@ mod tests {
     fn nzbget_loses_its_prefix_because_it_has_no_url_base() {
         assert_eq!(proxy::rewrite_path("/nzbget/jsonrpc", "/nzbget", "").unwrap(), "/jsonrpc");
         assert_eq!(proxy::rewrite_path("/nzbget", "/nzbget", "").unwrap(), "/");
+    }
+
+    #[test]
+    fn mesh_requests_lose_the_stingstream_half_of_their_prefix() {
+        assert_eq!(
+            proxy::rewrite_path("/stingstream/mesh/v1/status", MESH_PREFIX, MESH_UPSTREAM_PREFIX)
+                .unwrap(),
+            "/mesh/v1/status"
+        );
+        assert_eq!(
+            proxy::rewrite_path(
+                "/stingstream/mesh/v1/groups/g1/invite",
+                MESH_PREFIX,
+                MESH_UPSTREAM_PREFIX
+            )
+            .unwrap(),
+            "/mesh/v1/groups/g1/invite"
+        );
+    }
+
+    #[test]
+    fn stream_requests_pass_through_unchanged() {
+        assert_eq!(
+            proxy::rewrite_path("/stream/g1/movie:tmdb:1/n2", STREAM_PREFIX, STREAM_PREFIX)
+                .unwrap(),
+            "/stream/g1/movie:tmdb:1/n2"
+        );
+    }
+
+    /// `/stingstream/mesh/...` sits underneath the `/stingstream/{*rest}` catch-all. axum's
+    /// matcher panics on genuinely ambiguous route pairs, and it does so inside `Router::route`,
+    /// so building the same set here turns "the node panics on start-up" into a failing test.
+    /// (Which of the two wins is matchit's documented priority order: a literal segment beats a
+    /// wildcard. `tools/e2e-m1.ps1` checks that end to end against a running node.)
+    #[test]
+    fn the_mesh_routes_do_not_collide_with_the_core_catch_all() {
+        async fn noop() -> &'static str {
+            ""
+        }
+        let _: Router = Router::new()
+            .route("/stingstream/{*rest}", any(noop))
+            .route("/stingstream", any(noop))
+            .route("/stingstream/mesh/{*rest}", any(noop))
+            .route("/stingstream/mesh", any(noop))
+            .route("/stream/{*rest}", any(noop))
+            .route("/stream", any(noop))
+            .route("/jellyfin/{*rest}", any(noop));
     }
 
     #[test]

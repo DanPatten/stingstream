@@ -31,7 +31,7 @@ use childdef::ChildDef;
 
 /// Canonical child order. Jellyfin first because `StingStream.Core` inside it does the first-run
 /// wiring of the others, and it is the slowest to come up.
-pub const CHILD_ORDER: &[&str] = &["jellyfin", "radarr", "sonarr", "nzbget", "infinidysk"];
+pub const CHILD_ORDER: &[&str] = &["jellyfin", "radarr", "sonarr", "nzbget", "mesh", "infinidysk"];
 
 /// Where the supervisor looks for child binaries.
 #[derive(Debug, Clone)]
@@ -92,6 +92,19 @@ pub fn build_children(
             "jellyfin" => jellyfin_def(runtime, layout, mode, child_rt.port)?,
             "radarr" | "sonarr" => arr_def(name, layout, mode, child_rt.port, child_rt.url_base.clone())?,
             "nzbget" => nzbget_def(runtime, layout, mode, child_rt.port)?,
+            "mesh" => match mesh_def(runtime, mode, child_rt.port) {
+                Some(def) => def,
+                None => {
+                    // Not fatal. M3b embeds the mesh library in this process; until then a node
+                    // whose mesh binary has not been built is still a working single-node server,
+                    // and the gateway answers its mesh routes with a 503 that says so.
+                    tracing::warn!(
+                        "no stingstream-mesh binary found; this node will run without a mesh. \
+                         Build it with `cargo build -p stingstream-mesh`."
+                    );
+                    continue;
+                }
+            },
             // InfiniDysk is a later milestone; config.toml defaults it off and the loop above
             // skips it, but an explicitly-enabled one should say why it cannot start.
             "infinidysk" => anyhow::bail!(
@@ -181,6 +194,39 @@ fn arr_def(
         env: BTreeMap::new(),
         // NzbDrone's unauthenticated liveness endpoint, under the configured UrlBase.
         health_url: format!("http://127.0.0.1:{port}{url_base}/ping"),
+        health_basic_auth: None,
+        health_post_body: None,
+    })
+}
+
+/// The mesh node, run as a child until M3b embeds its library here.
+fn mesh_def(runtime: &Runtime, mode: &Mode, port: u16) -> Option<ChildDef> {
+    let program = childdef::find_mesh_binary(mode.repo_root(), mode.install_root())?;
+
+    let mut env = BTreeMap::new();
+    env.insert(
+        crate::paths::DATA_DIR_ENV.to_string(),
+        runtime.data_dir.display().to_string(),
+    );
+
+    Some(ChildDef {
+        name: "mesh".to_string(),
+        program,
+        // --data-dir and --api-port explicitly as well as through the environment: the mesh reads
+        // runtime.json for its port, and passing it directly means the two can never disagree
+        // about which node this is.
+        args: vec![
+            "--data-dir".to_string(),
+            runtime.data_dir.display().to_string(),
+            "--api-port".to_string(),
+            port.to_string(),
+            "serve".to_string(),
+            "--node-name".to_string(),
+            runtime.node_name.clone(),
+        ],
+        cwd: None,
+        env,
+        health_url: format!("http://127.0.0.1:{port}/healthz"),
         health_basic_auth: None,
         health_post_body: None,
     })

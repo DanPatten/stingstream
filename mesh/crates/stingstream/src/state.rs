@@ -157,7 +157,9 @@ impl NodeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::{ChildRuntime, GatewayRuntime, PathsRuntime, QbtRuntime, RUNTIME_VERSION};
+    use crate::runtime::{
+        ChildRuntime, GatewayRuntime, MeshRuntime, PathsRuntime, QbtRuntime, RUNTIME_VERSION,
+    };
     use std::path::PathBuf;
 
     fn state_with(children: &[(&str, bool)]) -> NodeState {
@@ -204,6 +206,7 @@ mod tests {
                 password: "p".into(),
                 url_base: "/stingstream/qbt".into(),
             },
+            mesh: MeshRuntime { api_port: 8791 },
             jellyfin_admin: None,
             ffmpeg_path: None,
             ffprobe_path: None,

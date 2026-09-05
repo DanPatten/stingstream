@@ -43,6 +43,12 @@ pub struct ChildrenConfig {
     pub radarr: bool,
     pub sonarr: bool,
     pub nzbget: bool,
+    /// The mesh node.
+    ///
+    /// Run as a child only until M3b embeds `stingstream-mesh` in this process. A node whose mesh
+    /// binary is not built simply has no mesh: the supervisor logs it and carries on, rather than
+    /// refusing to start a server that is otherwise perfectly usable.
+    pub mesh: bool,
     /// InfiniDysk (usenet streaming) is a later milestone; off by default.
     pub infinidysk: bool,
 }
@@ -58,6 +64,7 @@ pub struct PortsConfig {
     pub radarr: u16,
     pub sonarr: u16,
     pub nzbget: u16,
+    pub mesh: u16,
     pub infinidysk: u16,
 }
 
@@ -121,6 +128,7 @@ impl Default for ChildrenConfig {
             radarr: true,
             sonarr: true,
             nzbget: true,
+            mesh: true,
             infinidysk: false,
         }
     }
@@ -135,6 +143,8 @@ impl Default for PortsConfig {
             radarr: 7878,
             sonarr: 8989,
             nzbget: 6789,
+            // The mesh's own documented default (docs/MESH.md, "Local API").
+            mesh: 8791,
             infinidysk: 8484,
         }
     }
@@ -246,6 +256,7 @@ impl Config {
             "radarr" => self.ports.radarr,
             "sonarr" => self.ports.sonarr,
             "nzbget" => self.ports.nzbget,
+            "mesh" => self.ports.mesh,
             "infinidysk" => self.ports.infinidysk,
             _ => 0,
         }
@@ -258,6 +269,7 @@ impl Config {
             "radarr" => self.children.radarr,
             "sonarr" => self.children.sonarr,
             "nzbget" => self.children.nzbget,
+            "mesh" => self.children.mesh,
             "infinidysk" => self.children.infinidysk,
             _ => false,
         }
@@ -339,8 +351,10 @@ mod tests {
     fn preferred_port_and_enabled_lookup_by_name() {
         let cfg = Config::default();
         assert_eq!(cfg.preferred_port("sonarr"), 8989);
+        assert_eq!(cfg.preferred_port("mesh"), 8791);
         assert_eq!(cfg.preferred_port("nope"), 0);
         assert!(cfg.child_enabled("nzbget"));
+        assert!(cfg.child_enabled("mesh"));
         assert!(!cfg.child_enabled("nope"));
     }
 }
