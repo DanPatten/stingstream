@@ -1,20 +1,44 @@
-//! `stingstream-mesh`: iroh transport, groups, gossip-backed `group_index`, and source selection.
+//! `stingstream-mesh` — the StingStream node's peer-to-peer half.
 //!
-//! M0 skeleton stub, so the `mesh` Rust workspace builds cleanly on a clean clone. Implemented in
-//! M3 (groups, relay, federation) and M4 (shared downloads, group index, source selection). See
-//! docs/ARCHITECTURE.md.
+//! One [`MeshNode`] owns a single iroh endpoint and any number of *groups*. A group is an
+//! invite-only set of nodes that pool their libraries: it has a 32-byte id (which is also its
+//! `iroh-gossip` topic), a 32-byte secret that gates both gossip and peer connections, and an
+//! optional coordinator URL.
+//!
+//! Three surfaces:
+//!
+//! * **Local HTTP API** ([`api`]) on `127.0.0.1`, for `StingStream.Core` to push inventory and for
+//!   the app to read the merged group index. It also hosts `/stream/{group}/{item_key}/{node}`,
+//!   the endpoint a federated `.strm` file resolves to.
+//! * **Peer HTTP over iroh** ([`peer`]) on ALPN `stingstream/http/1`: one HTTP/1.1 request per QUIC
+//!   bidirectional stream, after a group-secret handshake ([`auth`]).
+//! * **Gossip** ([`gossip`]): signed, group-encrypted inventory snapshots, deltas and heartbeats
+//!   over `iroh-gossip`, merged into a SQLite `group_index` ([`db`]).
+//!
+//! See `docs/MESH.md` for the wire protocol, the invite format and the local/peer API reference.
 
-/// Placeholder so this crate has something to compile and (later) test against.
-pub fn placeholder() -> &'static str {
-    "stingstream-mesh: M0 skeleton stub, not yet implemented (see M3/M4 in docs/ARCHITECTURE.md)"
-}
+pub mod api;
+pub mod auth;
+pub mod config;
+pub mod db;
+pub mod gossip;
+pub mod group;
+pub mod identity;
+pub mod inventory;
+pub mod node;
+pub mod peer;
+pub mod rendezvous;
+pub mod util;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use config::MeshConfig;
+pub use group::{Group, GroupId, GroupSecret, Invite};
+pub use node::MeshNode;
 
-    #[test]
-    fn placeholder_returns_a_message() {
-        assert!(!placeholder().is_empty());
-    }
-}
+/// ALPN for peer-to-peer HTTP/1.1 over iroh. One request per bidirectional QUIC stream.
+pub const HTTP_ALPN: &[u8] = b"stingstream/http/1";
+
+/// ALPN for the coordinator's SNI passthrough: a raw TCP stream tunnelled to the node's gateway.
+///
+/// Used by `stingstream-relay` when a browser reaches `relay.<nodeid>.direct.<host>` and the node
+/// is not directly reachable. The node terminates TLS itself; the coordinator sees ciphertext.
+pub const TCP_ALPN: &[u8] = b"stingstream/tcp/1";

@@ -4,7 +4,59 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "iroh transport, groups, gossip group_index, source selection. See docs/ARCHITECTURE.md."
+description = "StingStream mesh: iroh transport, groups, gossip group index, peer HTTP and the /stream endpoint. See docs/MESH.md."
 
 [lib]
+name = "stingstream_mesh"
 path = "src/lib.rs"
+
+# `src/main.rs`, not `src/bin/`: the root .gitignore carries a bare `bin/` rule for the .NET
+# subtrees, which would silently untrack anything under a Rust crate's `src/bin/` too.
+[[bin]]
+name = "stingstream-mesh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-stream = "0.3"
+axum = { version = "0.8", features = ["macros"] }
+blake3 = "1"
+bs58 = { version = "0.5", features = ["check"] }
+bytes = "1"
+chacha20poly1305 = "0.10"
+clap = { version = "4", features = ["derive", "env"] }
+data-encoding = "2"
+hmac = "0.12"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
+iroh = "1.1"
+iroh-base = "1.1"
+iroh-gossip = "0.101"
+iroh-mainline-address-lookup = "0.5"
+n0-future = "0.3"
+postcard = { version = "1", features = ["use-std"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "signal", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
+toml = "0.8"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+serde_json = "1"
+tempfile = "3"
