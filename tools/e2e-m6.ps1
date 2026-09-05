@@ -113,7 +113,16 @@ $SeriesTitle = 'The Beverly Hillbillies'
 $SeriesYear = 1962
 $EpisodeRelease = 'The.Beverly.Hillbillies.S01E01.1080p.WEB.x264-TEST'
 $EpisodeFileName = "$EpisodeRelease.mkv"
-$EpisodeSeconds = 8
+
+# 330 seconds, and not one fewer. Both arrs run a sample check on every import and reject anything
+# too short, against a table keyed on the *title's* runtime rather than a flat number
+# (NzbDrone.Core.MediaFiles.EpisodeImport.DetectSample): 15 s under three minutes, 90 s under ten,
+# 300 s under thirty, 600 s above. The Beverly Hillbillies is a thirty-minute show, so its episode
+# has to clear 300 s. Get it wrong and the download completes perfectly, the torrent seeds, and the
+# release then sits in the queue forever with "appears to be a sample" in Sonarr's debug log and
+# nothing at all in its info log -- which is exactly how this harness lost two fifteen-minute waits.
+# M1 wrote the table down; I did not read it.
+$EpisodeSeconds = 330
 
 # The size the *release* declares, which is not the size of the file. It has to sit inside the
 # quality definition's MB-per-minute window for WEBDL-1080p or Sonarr rejects the release before it
@@ -297,6 +306,21 @@ function Invoke-AsMember {
     )
     Invoke-Json -Uri "$($Member.Url)$Path" -Method $Method -Body $Body `
         -Headers @{ 'Authorization' = "MediaBrowser Token=`"$($Member.Token)`"" } -TimeoutSec $TimeoutSec
+}
+
+function Get-RecordCount {
+    <#
+    .SYNOPSIS
+        How many records a StingStream endpoint really returned.
+    .DESCRIPTION
+        `@($null).Count` is **1** in PowerShell, and `Invoke-Json` answers `$null` for a body of
+        `[]` -- because `ConvertFrom-Json '[]'` emits nothing and a function that emits nothing
+        returns null. So the obvious `@(Invoke-Node ...).Count -eq 0` reads an empty Radarr as
+        holding one movie, which is how this harness spent a run asserting that a precondition it
+        had itself invented was violated.
+    #>
+    param($Value)
+    return @($Value | Where-Object { $null -ne $_ }).Count
 }
 
 function Get-StatusCode {
@@ -786,10 +810,12 @@ Invoke-Step 'The requester is notified that it is ready' {
 
 # ============================================================================================
 Invoke-Step 'A request for a film the group already has starts no download' {
-    $before = @(Invoke-Node $NodeB '/stingstream/api/v1/movies' -TimeoutSec 120)
-    if ($before.Count -ne 0) {
-        throw "Radarr on B already tracks $($before.Count) movie(s) before the second request; the assertion below would prove nothing."
-    }
+    # A count taken *before*, and compared after, rather than an assertion that Radarr starts empty.
+    # What is being proved is that the request added nothing, and that is true whatever Radarr
+    # happened to hold already -- which is also the honest shape for a real node, where Radarr
+    # usually holds plenty.
+    $before = Get-RecordCount (Invoke-Node $NodeB '/stingstream/api/v1/movies' -TimeoutSec 120)
+    Write-Host "      Radarr on B tracks $before movie(s) before the request"
 
     $made = Invoke-AsMember '/stingstream/api/v1/requests' -Method POST -Body @{
         tmdbId = $MovieTmdb; title = $MovieTitle; year = $MovieYear; group = $Group.group
@@ -812,14 +838,14 @@ Invoke-Step 'A request for a film the group already has starts no download' {
     Start-Sleep -Seconds 5
     Invoke-Node $NodeB '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
 
-    $after = @(Invoke-Node $NodeB '/stingstream/api/v1/movies' -TimeoutSec 120)
-    if ($after.Count -ne 0) {
-        throw "Radarr on B was told about $($after.Count) movie(s); the dedupe rule did not hold."
+    $after = Get-RecordCount (Invoke-Node $NodeB '/stingstream/api/v1/movies' -TimeoutSec 120)
+    if ($after -ne $before) {
+        throw "Radarr on B went from $before to $after movie(s); the dedupe rule did not hold."
     }
     $queue = Invoke-Node $NodeB '/stingstream/api/v1/queue' -TimeoutSec 120
-    $radarrQueue = @(Get-Member-Value $queue 'radarr')
-    if ($radarrQueue.Count -gt 0) { throw "Radarr on B has $($radarrQueue.Count) item(s) queued." }
-    Write-Host '      Radarr on B never heard about it, and its queue is empty'
+    $radarrQueue = Get-RecordCount (Get-Member-Value $queue 'radarr')
+    if ($radarrQueue -gt 0) { throw "Radarr on B has $radarrQueue item(s) queued." }
+    Write-Host "      Radarr on B still tracks $after movie(s) and its queue is empty"
     Add-HarnessNote 'Requesting a title the group already holds is answered "available" and downloads nothing.'
 }
 
