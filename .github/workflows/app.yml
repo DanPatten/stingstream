@@ -59,6 +59,18 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # `@stingstream/api-client` is a `file:` dependency whose package.json points `types` at
+      # `dist/index.d.ts` — a build output, and gitignored. Without it TypeScript resolves every
+      # import from that package as `any`, and the screens that use it fail with a wall of
+      # TS7006 "implicitly has an 'any' type". Locally it happens to be built already; a clean
+      # checkout has to build it. (ci.yml's `expo export` never noticed, because babel erases
+      # types rather than checking them.)
+      - name: Build the API client
+        working-directory: packages/api-client
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Install dependencies
         working-directory: apps/stingstream
         run: bun install --frozen-lockfile
