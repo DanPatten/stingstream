@@ -51,9 +51,14 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # Deliberately NO `lfs: true`. mesh/jellyswarrm/dev/media/** is Git LFS-tracked upstream and
+      # is vendored here as plain LFS *pointer* text -- the real objects were never pushed to this
+      # repository's LFS endpoint, so an LFS-enabled checkout fails with "failed to fetch some
+      # objects from .../info/lfs". The root .lfsconfig fetch-excludes that path for the same
+      # reason, and nothing in this workflow needs the media: Jellyswarrm's demo fixtures are only
+      # used by its own dev environment, which tools/fetch-jellyswarrm-media.ps1 sets up on demand.
+      # See docs/PATCHES.md.
       - uses: actions/checkout@v4
-        with:
-          lfs: true # mesh/jellyswarrm/dev/media/** is Git LFS-tracked; see docs/ARCHITECTURE.md
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -68,6 +73,21 @@ jobs:
       # workspace.dependencies table. See docs/ARCHITECTURE.md "Mesh workspace" and mesh/Cargo.toml.
       - name: Build mesh/ (stingstream, stingstream-mesh, stingstream-relay)
         run: cargo build --manifest-path mesh/Cargo.toml --workspace
+
+      - name: Test mesh/
+        run: cargo test --manifest-path mesh/Cargo.toml --workspace
+
+      - name: Clippy mesh/
+        run: cargo clippy --manifest-path mesh/Cargo.toml --workspace --all-targets -- -D warnings
+
+      # crates/jellyswarrm-proxy has `#[derive(RustEmbed)] #[folder = "static/"]`, and that derive
+      # only implements the Embed trait when the folder exists at compile time -- without it the
+      # crate compiles Asset but omits get(), and every call site fails with "associated item not
+      # found". The directory is not committed (git does not track empty directories, and it is
+      # not part of the vendored source), so CI creates it. See docs/PATCHES.md.
+      - name: Create the empty static/ directory jellyswarrm-proxy's RustEmbed derive needs
+        run: mkdir -p mesh/jellyswarrm/crates/jellyswarrm-proxy/static
+        shell: bash
 
       - name: Build mesh/jellyswarrm
         # JELLYSWARRM_SKIP_UI skips building the optional embedded jellyfin-web admin UI, whose
