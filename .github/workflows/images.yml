@@ -98,6 +98,15 @@ jobs:
         if: matrix.fetch_nzbget
         run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64
 
+      # Found breaking the arm64 leg for real: deploy/node/Dockerfile's `thirdparty` stage does an
+      # unconditional `COPY third_party/nzbget/bin /tp/nzbget`, and Docker's COPY fails hard --
+      # "not found" -- on a source directory that does not exist at all, as opposed to one that is
+      # merely empty. arm64 has no nzbget fetch step (no upstream release asset -- see
+      # deploy/node/LAYOUT.md), so that directory was never created on this leg's checkout.
+      - name: Ensure third_party/nzbget/bin exists even when nothing was fetched into it
+        if: ${{ !matrix.fetch_nzbget }}
+        run: mkdir -p third_party/nzbget/bin
+
       # The web bundle. Building it here (rather than shipping the image with only the placeholder
       # page) costs a few extra minutes of CI time for a release-quality image; a checkout with
       # no dist/ would otherwise fail the Dockerfile's COPY outright rather than degrading
