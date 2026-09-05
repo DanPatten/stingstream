@@ -106,3 +106,33 @@ The same reasoning rules out every git command that rewrites the working tree �
 `react-native-screens` that crashes the Android app at startup — a *runtime* failure that no
 bundler or CI check catches short of launching the app. `package.json` enforces this with a
 `preinstall` guard and a `packageManager` field; do not work around them. See `APP-DEV.md`.
+
+## 6. A shell script authored on Windows has no executable bit until you give it one
+
+Every checkout in this repo happens to be on Windows today, and Windows/NTFS has no POSIX
+executable bit at all — a `.sh` file written or edited here lands in git as mode `100644`, and a
+real Linux runner refuses to run it directly: `tools/package-node.sh: Permission denied` (exit
+126), found breaking M8a's release workflow this way. Fixing the *content* is not enough; the mode
+bit is a separate thing git tracks, and this checkout's `core.filemode=false` (set for a reason —
+without it, ordinary Windows checkout noise across five vendored subtrees makes half the repository
+look "modified" on every `git status`) means git does not even notice a plain `chmod +x` here.
+
+```
+git update-index --chmod=+x path/to/script.sh
+git diff --cached --stat                      # confirm this shows ONLY the files you meant to touch
+git commit -F -                               # a bare commit, not `--only`/`-- <paths>` -- see below
+```
+
+**`git commit --only <paths>` (rule 4's own recommendation) will silently discard this fix.** Its
+pathspec form rescans the *working tree* for the named paths before snapshotting — correct and
+exactly the point for ordinary content changes, but on this filesystem the working tree never
+actually reports as executable (there is no on-disk bit for Windows to set), so the rescan resets
+your index-only mode change back to `644` before the commit is made, and you get a clean-looking
+"nothing to commit" with no error. The only way to actually commit a mode-only change here is a
+bare `git commit` of the index as it stands — which is why the `git diff --cached --stat` check
+above is not optional in this one case: a bare commit has none of `--only`'s protection against
+sweeping in someone else's staged files, so you are the protection. Confirm the diff shows
+exactly what you intended, and nothing else, before running it.
+
+If a file's *content* also changed, commit that with the normal `--only` pathspec form first (rule
+4), then do the mode-only fix above as its own, separate, bare commit.

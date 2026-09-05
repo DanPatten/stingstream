@@ -130,6 +130,21 @@ does not fail the release; check the GHCR tags by hand if that happens).
   `linux-x64`, `macos`). A linux-arm64 node ships with `bin/nzbget/` empty and NZBGet reported
   `Disabled` in `/healthz` — not a packaging bug, a real upstream gap. Fixed by either a future
   nzbgetcom release or building it from source for arm64, neither in scope here.
+- **A `set -e` footgun in every shell script the pipeline runs.** A bare, standalone `[[ cond ]] &&
+  cmd` statement is not safe under `set -e` for the ordinary case where `cond` is false — the
+  common advice that `&&`/`||` "exempt" a command from triggering `errexit` only reliably holds
+  when something *else* still runs and produces the list's final exit status; when `cond` alone is
+  false and nothing follows it, the failing test's own exit status is what the enclosing script
+  sees, and the script dies right there with no error message pointing at why. Found for real in
+  `release.yml`'s `android-unsigned` job (`[[ -n "$phone" ]] && cp ...` with `$phone` empty — the
+  normal "no matching artifact" case) and fixed everywhere else the same shape appeared for a
+  legitimately optional side effect: `tools/package-node.sh`, `deploy/linux/appimage/
+  build-appimage.sh`. Use `if [[ cond ]]; then cmd; fi` instead whenever `cond` being false is a
+  normal outcome, not a bug.
+- **Shell scripts authored on Windows have no executable bit** — see `docs/CONTRIBUTING.md` §6 for
+  the fix and why `git commit --only` does not work for it on this checkout. Found breaking this
+  same `linux-packages` job (`tools/package-node.sh: Permission denied`) minutes after the `set -e`
+  fix above, in the same dry run.
 
 ---
 
