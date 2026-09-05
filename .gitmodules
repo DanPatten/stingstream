@@ -1,0 +1,4 @@
+[submodule "mesh/jellyswarrm/ui"]
+    path = mesh/jellyswarrm/ui
+    url = https://github.com/jellyfin/jellyfin-web.git
+    update = none

@@ -56,44 +56,40 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 
 - **Upstream:** https://github.com/LLukas22/Jellyswarrm
 - **Branch:** `main` (matches both the plan and the repository's default branch/`HEAD`).
-- **Commit fetched:** `e210972dc76dc53ac7316e8a1f6d80ebee362e04`
-- **Vendoring status: BLOCKED, not yet committed.** `git subtree add` failed partway: the repo
-  tracks demo/dev fixture media (`dev/media/**/*.mp4`, `dev/media/**/*.ogg`) via Git LFS per its
-  `.gitattributes`, and `git-lfs` is not installed on this machine, so the checkout of those 49
-  files failed (`git-lfs smudge` filter error) and the subtree script aborted before creating its
-  merge commit. No commit landed and `HEAD` is unaffected, but the working tree/index currently
-  hold the rest of the fetched content (174 files — all of the actual source, none of it affected)
-  staged outside of any commit. See the main report for the recovery options this needs Dan to
-  choose between. All license and source-tree findings below were read directly from that staged
-  working-tree content, which is unaffected by the missing dev-fixture media.
-- **License — exact wording found, quoted verbatim:**
+- **Commit vendored:** `e210972dc76dc53ac7316e8a1f6d80ebee362e04`
+- **Vendoring note:** `dev/media/**` (18 files, `.mp4`/`.ogg`, Git-LFS-tracked upstream) is
+  committed here as plain LFS pointer text, not the real media — this machine had no `git-lfs`
+  installed at vendor time, and there was no reason to require it just to get Jellyswarrm's
+  buildable source, which is unaffected. The root `.lfsconfig` excludes this path from ordinary
+  LFS fetch so a clone never needs `git-lfs` for this reason; `tools/fetch-jellyswarrm-media.ps1`
+  fetches the real content on demand for anyone who wants Jellyswarrm's own dev/demo environment.
+  See `docs/PATCHES.md` for full detail, including the CC BY attribution requirement (Big Buck
+  Bunny, Sintel) that applies only if that fetch script is actually run.
+- **License — exact wording found, quoted verbatim, and Dan's decision:**
   - The top-level `mesh/jellyswarrm/LICENSE` file is the **unfilled** GNU GPL v2 (June 1991)
     boilerplate template as distributed by the FSF — it still contains the literal placeholders
     `{{description}}`, `Copyright (C) {{year}}  {{fullname}}` in its "How to Apply These Terms"
-    section, and was never filled in with Jellyswarrm's own project/copyright details. Read as
-    written, it is GPL-2.0-**only** wording (the template's suggested notice reads "either version
-    2 of the License, or (at your option) any later version" — but this is boilerplate *advice to
-    adopters* on what to write, not a completed statement that was actually applied).
+    section, and was never filled in with Jellyswarrm's own project/copyright details.
   - `mesh/jellyswarrm/README.md` carries a badge reading "License-GPL_v2" that links to
     `https://www.gnu.org/licenses/old-licenses/gpl-2.0.html` — the *old-licenses* GPL-2.0-only
     page specifically, not the current/general GPL page. No "or later" wording appears anywhere
     in the README's license badge or link.
-  - **However**, the three actual Rust crates that make up the buildable project — the ones we
-    are forking — each declare their own license directly in `Cargo.toml` and ship real,
-    filled-in `LICENSE-MIT` / `LICENSE-APACHE` files (e.g. `crates/jellyswarrm-proxy/LICENSE-MIT`
-    reads "Copyright (c) 2025 Lukas Kreussel", a real name, not a template):
+  - The three actual Rust crates that make up the buildable project — the ones we are forking —
+    each declare their own license directly in `Cargo.toml` and ship real, filled-in
+    `LICENSE-MIT` / `LICENSE-APACHE` files (e.g. `crates/jellyswarrm-proxy/LICENSE-MIT` reads
+    "Copyright (c) 2025 Lukas Kreussel", a real name, not a template):
     - `crates/jellyswarrm-proxy` (the reverse proxy binary): `license = "MIT OR Apache-2.0"`
     - `crates/jellyswarrm-macros`: `license = "MIT OR Apache-2.0"`
     - `crates/jellyfin-api`: `license = "MIT OR Apache-2.0"`
-  - **Conclusion:** the actual redistributable/buildable Jellyswarrm code (all three of its
-    crates) is dual-licensed **MIT OR Apache-2.0** — more permissive than GPL, and not GPL at all.
-    The repository's top-level GPL-2.0 LICENSE file/README badge is an unfilled template that
-    does not appear to apply to the crate code itself (most likely leftover boilerplate, or
-    intended to cover only non-crate assets such as the dev/demo environment and docs). Either
-    way, it is GPL-2.0-**only** wording as written, never "or later" — the plan's "GPL-2.0-only
-    vs or-later" question is answered as: **neither cleanly applies; the code we're forking is
-    actually MIT/Apache-2.0**. Flagged for Dan's decision on whether this changes the mesh
-    binary's own license choice below.
+  - **Dan's decision:** given the top-level LICENSE/README say GPL-2.0 and the crates say
+    MIT OR Apache-2.0, StingStream treats Jellyswarrm **conservatively as GPL-2.0** rather than
+    relying on the crate-level MIT/Apache-2.0 declaration. StingStream's own mesh crates stay
+    **GPL-2.0-or-later**, which is compatible with Jellyswarrm under either reading (a GPL-2.0
+    dependency is compatible with a GPL-2.0-or-later work; MIT/Apache-2.0 code is compatible with
+    everything). **Recommended follow-up:** ask upstream (LLukas22) to clarify which license
+    actually governs the project — file an issue or PR requesting the top-level LICENSE file be
+    filled in (or replaced with a note pointing at the per-crate MIT/Apache-2.0 files, if that's
+    the intended license) so this ambiguity doesn't need re-litigating on every upstream pull.
 
 ## Not vendored (fetched on demand)
 
