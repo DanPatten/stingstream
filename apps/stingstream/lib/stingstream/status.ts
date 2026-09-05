@@ -2,10 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { useNodeBaseUrl } from "./client";
 
 /**
- * `/healthz` and the mesh's own `/stingstream/mesh/v1/status` are gateway-level
- * endpoints, not part of StingStream.Core's `/stingstream/api/v1/*` OpenAPI
- * document (see docs/RUNNING.md), so they are not in the generated client.
- * Both are cheap, unauthenticated JSON endpoints — plain `fetch` is enough.
+ * `/healthz` is a gateway-level endpoint, not part of StingStream.Core's
+ * `/stingstream/api/v1/*` OpenAPI document (see docs/RUNNING.md), so it is
+ * not in the generated client. It's a cheap, unauthenticated JSON endpoint —
+ * plain `fetch` is enough.
+ *
+ * Mesh status used to live here too, against the mesh's own raw
+ * `/stingstream/mesh/v1/status`. As of M3b that raw surface is
+ * localhost-only (it can create groups and mint invite codes with no auth of
+ * its own, and the gateway binds 0.0.0.0) — the app now uses
+ * `useMeshStatus()` in `lib/stingstream/hooks.ts`, which goes through the
+ * generated client against `/stingstream/api/v1/mesh/status` instead
+ * (Jellyfin-authenticated, same as everything else this app calls).
  */
 
 export interface HealthzChild {
@@ -33,16 +41,6 @@ export interface HealthzResponse {
   children: HealthzChild[];
 }
 
-export interface MeshStatusResponse {
-  node: string;
-  node_name: string;
-  version: string;
-  groups: number;
-  available_streams: number;
-  relay_urls: string[];
-  direct_addrs: string[];
-}
-
 export function useHealthz() {
   const nodeBaseUrl = useNodeBaseUrl();
   return useQuery({
@@ -58,23 +56,5 @@ export function useHealthz() {
     },
     enabled: !!nodeBaseUrl,
     refetchInterval: 5000,
-  });
-}
-
-export function useMeshStatus() {
-  const nodeBaseUrl = useNodeBaseUrl();
-  return useQuery({
-    queryKey: ["stingstream", "mesh-status", nodeBaseUrl],
-    queryFn: async (): Promise<MeshStatusResponse> => {
-      const res = await fetch(`${nodeBaseUrl}/stingstream/mesh/v1/status`);
-      if (!res.ok)
-        throw new Error(`GET /stingstream/mesh/v1/status -> ${res.status}`);
-      return res.json();
-    },
-    enabled: !!nodeBaseUrl,
-    refetchInterval: 10000,
-    // M3 mesh work is landing alongside M2; older nodes with no mesh child
-    // simply won't answer this, so a failure here is not fatal to the screen.
-    retry: 1,
   });
 }

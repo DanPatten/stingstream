@@ -112,6 +112,148 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Mesh/federated/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one federated-library materialization pass now.
+         * @description The service already runs one every few seconds; this exists so a harness or an impatient
+         *     administrator does not have to wait for the timer, and so a failure has somewhere to report
+         *     itself synchronously.
+         */
+        post: operations["Mesh_RefreshFederated"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every group this node belongs to. */
+        get: operations["Mesh_Groups"];
+        put?: never;
+        /** Create a group. */
+        post: operations["Mesh_CreateGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Leave a group. */
+        delete: operations["Mesh_Leave"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The merged group index: every member's titles. */
+        get: operations["Mesh_Index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint an invite code. */
+        post: operations["Mesh_Invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join a group from an invite code. */
+        post: operations["Mesh_Join"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/peers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Group membership, liveness, observed path and advertised capacity. */
+        get: operations["Mesh_Peers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This node's mesh identity, addresses and group count. */
+        get: operations["Mesh_Status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Settings": {
         parameters: {
             query?: never;
@@ -1079,6 +1221,13 @@ export interface components {
             /** @description Gets or sets the sub container(s) which this container must meet. */
             SubContainer?: string | null;
         };
+        /** @description Body of `POST /mesh/groups`. */
+        CreateGroupRequest: {
+            /** @description Human-readable group name. */
+            Name?: string;
+            /** @description Optional coordinator URL, carried in every invite so members auto-configure it. */
+            Coordinator?: string | null;
+        };
         /** @description The custom value option for custom database providers. */
         CustomDatabaseOption: {
             /** @description Gets or sets the key of the value. */
@@ -1426,6 +1575,40 @@ export interface components {
             Password?: string;
             Enabled?: boolean;
         };
+        /** @description What one materialization pass did. */
+        FederatedReport: {
+            /** Format: int32 */
+            Written?: number;
+            /** Format: int32 */
+            Removed?: number;
+            /** Format: int32 */
+            WentOffline?: number;
+            /** Format: int32 */
+            CameBack?: number;
+            /** @description Folders that changed and therefore need refreshing. */
+            readonly Folders?: string[];
+            readonly Errors?: string[];
+        };
+        /**
+         * @description The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
+         *     library scan.
+         */
+        FederatedSettings: {
+            /** @description Materialize the group index at all. */
+            Enabled?: boolean;
+            /**
+             * Format: int32
+             * @description How often to compare the group index against what has been materialized.
+             */
+            PollIntervalSeconds?: number;
+            /**
+             * Format: int32
+             * @description How long a holder may stay offline before its pointers are deleted rather than greyed out.
+             */
+            OfflineGraceDays?: number;
+            /** @description Fetch artwork from the holding node over the mesh. */
+            FetchImages?: boolean;
+        };
         /** @description What first-run wiring did. */
         FirstRunReport: {
             /** @description False when any step failed, which leaves `first_run` set for the next start. */
@@ -1671,6 +1854,13 @@ export interface components {
             FileHash?: string | null;
             /** @description Absolute path on this node. Never published to peers; kept for local bookkeeping. */
             LocalPath?: string | null;
+            /**
+             * @description Absolute paths of this item's artwork on this node, keyed by lowercase image kind
+             *     (`primary`, `backdrop`, `logo`, `thumb`, `banner`).
+             */
+            LocalImages?: {
+                [key: string]: string;
+            };
             UpdatedAt?: string;
         };
         /**
@@ -1678,6 +1868,11 @@ export interface components {
          * @enum {string}
          */
         IsoType: "Dvd" | "BluRay";
+        /** @description Body of `POST /mesh/groups/join`. */
+        JoinGroupRequest: {
+            /** @description The base58 invite code. */
+            Code?: string;
+        };
         JsonNode: {
             readonly Options?: components["schemas"]["JsonNodeOptions"] | null;
             readonly Parent?: components["schemas"]["JsonNode"] | null;
@@ -2128,6 +2323,158 @@ export interface components {
             Url?: string | null;
             Name?: string | null;
         };
+        /** @description One group this node belongs to. */
+        MeshGroup: {
+            /** @description The 32-byte group id, hex. */
+            Group?: string;
+            Name?: string;
+            /** @description The group's coordinator URL, or null for a zero-server group. */
+            Coordinator?: string | null;
+            CreatedAt?: string;
+        };
+        /** @description `GET /mesh/v1/index?group=`. */
+        MeshIndex: {
+            Group?: string;
+            Entries?: components["schemas"]["MeshIndexEntry"][];
+        };
+        /** @description One node's view of one item, as the merged index serves it. */
+        MeshIndexEntry: {
+            /** @description The holding node's iroh node id. */
+            Node?: string;
+            /** @description The holding node's human name. This is the `<node-label>` in pointer filenames. */
+            NodeName?: string;
+            /** @description False when the holder has missed its heartbeats. */
+            Online?: boolean;
+            ItemKey?: string;
+            /** @description The media summary the mesh gossips. See `MediaSummary` in the mesh crate. */
+            Media?: components["schemas"]["MeshMedia"];
+            /** @description Enough metadata for the receiving node to write a complete `.nfo`. */
+            Metadata?: components["schemas"]["MeshMetadata"];
+            /** @description Peer-relative image routes, e.g. `/peer/v1/image/movie:tmdb:1/primary`. */
+            ImageUrls?: string[];
+            FileHash?: string | null;
+            UpdatedAt?: string;
+        };
+        /** @description The answer to `POST /mesh/v1/groups/{group}/invite`. */
+        MeshInvite: {
+            Code?: string;
+        };
+        /** @description The answer to `POST /mesh/v1/groups/join`. */
+        MeshJoinResult: {
+            Group?: string;
+            Name?: string;
+            Coordinator?: string | null;
+            /** @description `inviter`, `rendezvous` or `none`. */
+            Via?: string;
+            Contacted?: string[];
+        };
+        /** @description The media summary the mesh gossips. See `MediaSummary` in the mesh crate. */
+        MeshMedia: {
+            Container?: string | null;
+            /** Format: int32 */
+            Width?: number | null;
+            /** Format: int32 */
+            Height?: number | null;
+            /** @description `1080p`, `2160p`, and so on. */
+            Resolution?: string | null;
+            VideoCodec?: string | null;
+            AudioCodec?: string | null;
+            /**
+             * Format: int64
+             * @description Overall bitrate, bits per second.
+             */
+            Bitrate?: number | null;
+            /**
+             * Format: int64
+             * @description File size in bytes.
+             */
+            Size?: number | null;
+            /**
+             * Format: int64
+             * @description Runtime in milliseconds. Jellyfin's own unit is ticks; the mesh's is milliseconds.
+             */
+            DurationMs?: number | null;
+            AudioTracks?: components["schemas"]["MeshTrack"][];
+            SubtitleTracks?: components["schemas"]["MeshTrack"][];
+        };
+        /** @description Enough metadata for the receiving node to write a complete `.nfo`. */
+        MeshMetadata: {
+            Title?: string;
+            OriginalTitle?: string | null;
+            /** Format: int32 */
+            Year?: number | null;
+            Overview?: string | null;
+            Genres?: string[];
+            People?: components["schemas"]["MeshPerson"][];
+            /** Format: float */
+            CommunityRating?: number | null;
+            OfficialRating?: string | null;
+            PremiereDate?: string | null;
+            /**
+             * @description Provider ids as ordered pairs, because the mesh models them as a Rust
+             *     `Vec<(String, String)>` and that serialises as an array of two-element arrays.
+             */
+            ProviderIds?: string[][];
+            SeriesName?: string | null;
+            /** Format: int32 */
+            Season?: number | null;
+            /** Format: int32 */
+            Episode?: number | null;
+        };
+        /** @description One row of the mesh's `peers` table. */
+        MeshPeer: {
+            Group?: string;
+            Node?: string;
+            NodeName?: string;
+            Online?: boolean;
+            FirstSeen?: string;
+            LastSeen?: string | null;
+            /** @description `direct`, `relay`, `mixed`, or null before any connection. */
+            Path?: string | null;
+            /** Format: int64 */
+            RttMs?: number | null;
+            /** Format: int64 */
+            MaxDirectStreams?: number | null;
+            /** Format: int64 */
+            MaxTranscodes?: number | null;
+            /** Format: int64 */
+            ActiveDirectStreams?: number | null;
+            /** Format: int64 */
+            ActiveTranscodes?: number | null;
+            /** Format: int64 */
+            FreeSpace?: number | null;
+        };
+        /** @description One cast or crew member. */
+        MeshPerson: {
+            Name?: string;
+            Role?: string | null;
+            /** @description Actor, Director, Writer, ... Named `kind` on the wire. */
+            Kind?: string | null;
+        };
+        /** @description `GET /mesh/v1/status`. */
+        MeshStatus: {
+            /** @description This node's iroh node id, 64 hex characters. */
+            Node?: string;
+            NodeName?: string;
+            Version?: string;
+            /** Format: int32 */
+            Groups?: number;
+            /** Format: int32 */
+            AvailableStreams?: number;
+            RelayUrls?: string[];
+            DirectAddrs?: string[];
+        };
+        /** @description One audio or subtitle track. */
+        MeshTrack: {
+            Language?: string | null;
+            Codec?: string | null;
+            Title?: string | null;
+            /** Format: int32 */
+            Channels?: number | null;
+            Forced?: boolean;
+            /** @description Named `default` on the wire, which is a C# keyword. */
+            default?: boolean;
+        };
         /** @description Enough metadata for a peer to build a complete `.nfo` without a metadata provider. */
         MetadataBlob: {
             Title?: string;
@@ -2290,10 +2637,6 @@ export interface components {
             SyncStatuses?: components["schemas"]["SyncStatus"][];
             RecentArrEvents?: components["schemas"]["ArrEvent"][];
         };
-        /**
-         * @description The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
-         *     library scan.
-         */
         NotificationSettings: {
             WebhookEnabled?: boolean;
             WebhookName?: string;
@@ -3029,11 +3372,9 @@ export interface components {
             RootFolders?: components["schemas"]["RootFolderSettings"];
             /** @description File and folder naming, pushed to both apps' `/api/v3/config/naming`. */
             Naming?: components["schemas"]["NamingSettings"];
-            /**
-             * @description The webhook StingStream installs in both apps so an import reaches Jellyfin without a full
-             *     library scan.
-             */
             Notifications?: components["schemas"]["NotificationSettings"];
+            /** @description How this node materializes the group's titles into its own Jellyfin. */
+            Federated?: components["schemas"]["FederatedSettings"];
             /**
              * @description Quality profile to use when adding titles. Empty means "whatever the app's first profile
              *     is", which is what a fresh Radarr or Sonarr always has at least one of.
@@ -4339,6 +4680,456 @@ export interface operations {
                 };
             };
             /** @description Sonarr is not configured or not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Mesh_RefreshFederated: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the pass did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederatedReport"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Groups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The groups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshGroup"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_CreateGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Name, and optionally a coordinator URL. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+                "text/json": components["schemas"]["CreateGroupRequest"];
+                "application/*+json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The new group. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshGroup"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Leave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Left. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node is not a member of that group. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The index. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshIndex"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invite code. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshInvite"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Join: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The invite code. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JoinGroupRequest"];
+                "text/json": components["schemas"]["JoinGroupRequest"];
+                "application/*+json": components["schemas"]["JoinGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description What the join reached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshJoinResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Peers: {
+        parameters: {
+            query?: {
+                /** @description The group id, or omit for every group. */
+                group?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The peers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshPeer"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_Status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node has no mesh, or it is not answering. */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -14,6 +14,7 @@ export type NotificationSettings =
 export type ExtraWebhook = components["schemas"]["ExtraWebhook"];
 export type SyncStatus = components["schemas"]["SyncStatus"];
 export type NodeStatus = components["schemas"]["NodeStatus"];
+export type MeshStatus = components["schemas"]["MeshStatus"];
 
 const keys = {
   status: ["stingstream", "status"] as const,
@@ -23,7 +24,34 @@ const keys = {
   series: ["stingstream", "series"] as const,
   queue: ["stingstream", "queue"] as const,
   sync: ["stingstream", "sync"] as const,
+  meshStatus: ["stingstream", "mesh-status"] as const,
 };
+
+/**
+ * This node's mesh identity/addresses/group count, through
+ * `/stingstream/api/v1/mesh/status` (Jellyfin-authenticated). The raw
+ * `/stingstream/mesh/*` the mesh child itself answers on is deliberately
+ * localhost-only as of M3b (it can create groups and mint invite codes with
+ * no auth of its own) — this is the one the app should call. A 503 means
+ * this node has no mesh or it isn't answering, which M3 nodes running ahead
+ * of the mesh work may hit; that's not a bug in this screen.
+ */
+export function useMeshStatus() {
+  const client = useStingStreamClient();
+  return useQuery({
+    queryKey: keys.meshStatus,
+    queryFn: async () => {
+      const { data, error } = await client!.GET(
+        "/stingstream/api/v1/Mesh/status",
+      );
+      if (error) throw error;
+      return data as MeshStatus;
+    },
+    enabled: !!client,
+    refetchInterval: 10000,
+    retry: 1,
+  });
+}
 
 /** Everything about this node's StingStream half — the Node status screen's main source. */
 export function useNodeStatus() {

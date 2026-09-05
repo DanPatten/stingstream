@@ -2,8 +2,8 @@ import { View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { useNodeStatus } from "@/lib/stingstream/hooks";
-import { useHealthz, useMeshStatus } from "@/lib/stingstream/status";
+import { useMeshStatus, useNodeStatus } from "@/lib/stingstream/hooks";
+import { useHealthz } from "@/lib/stingstream/status";
 import { GapNotice } from "../shared/GapNotice";
 import { QueryState } from "../shared/ScreenState";
 
@@ -102,28 +102,29 @@ export function NodeStatusScreen() {
           <Text className='text-white text-lg font-semibold mb-2'>Mesh</Text>
           {mesh.data ? (
             <ListGroup>
-              <ListItem title='Version' value={mesh.data.version} />
+              <ListItem title='Node id' value={mesh.data.Node} />
+              <ListItem title='Version' value={mesh.data.Version} />
               <ListItem
                 title='Groups joined'
-                value={String(mesh.data.groups)}
+                value={String(mesh.data.Groups ?? 0)}
               />
               <ListItem
                 title='Available streams'
-                value={String(mesh.data.available_streams)}
+                value={String(mesh.data.AvailableStreams ?? 0)}
               />
               <ListItem
                 title='Relay'
-                value={mesh.data.relay_urls.join(", ") || "none"}
+                value={mesh.data.RelayUrls?.join(", ") || "none"}
               />
               <ListItem
                 title='Direct addresses'
-                value={mesh.data.direct_addrs.join(", ") || "none"}
+                value={mesh.data.DirectAddrs?.join(", ") || "none"}
               />
             </ListGroup>
           ) : (
             <GapNotice
               title="Mesh status isn't available"
-              detail="This node's mesh child isn't answering — groups and peer streaming land in M3 (see docs/ARCHITECTURE.md)."
+              detail="This node's mesh isn't answering — see docs/ARCHITECTURE.md for M3's mesh status."
             />
           )}
         </>
