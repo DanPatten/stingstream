@@ -143,3 +143,78 @@ jobs:
           name: stingstream-web-dist
           path: apps/stingstream/dist/
           if-no-files-found: error
+
+  # The M1 acceptance harness: the test that decides whether a node actually works. It builds a
+  # node, generates two test media files with the fetched jellyfin-ffmpeg, seeds them from a
+  # self-hosted BitTorrent tracker, serves them from a Torznab stub, and drives a movie and an
+  # episode all the way from a search to a playable stream out of Jellyfin -- then restarts the
+  # node and checks everything comes back. See tools/e2e-m1.ps1 and docs/RUNNING.md.
+  #
+  # Linux-only: one runner is enough for an end-to-end test, and both fetch scripts support Linux.
+  e2e-m1:
+    name: e2e (M1 acceptance)
+    runs-on: ubuntu-latest
+    # Building Jellyfin, Radarr and Sonarr, then running the whole download path, takes a while.
+    timeout-minutes: 60
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDKs (8.0, 10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      # Neither binary is vendored; both are fetched on demand into gitignored directories the
+      # supervisor discovers on its own. Without ffmpeg the harness cannot generate its test files
+      # and Jellyfin cannot probe them.
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Fetch NZBGet
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build the supervisor
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream
+
+      - name: Build Jellyfin (with StingStream.Core)
+        run: dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Debug
+
+      - name: Build Radarr
+        run: dotnet build server/radarr/src/Radarr.sln -c Debug
+
+      - name: Build Sonarr
+        run: dotnet build server/sonarr/src/Sonarr.sln -c Debug
+
+      - name: Build the harness support tools
+        run: |
+          dotnet build tools/seeder/Seeder.csproj -c Release
+          dotnet build tools/torznab-stub/TorznabStub.csproj -c Release
+
+      - name: Run the acceptance harness
+        run: pwsh tools/e2e-m1.ps1 -SkipBuild
+
+      # The node's own logs are the only way to work out why a failure happened, and the run is
+      # long enough that re-running it locally to find out is expensive.
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m1-logs
+          path: |
+            ../.stingstream-e2e/logs/
+            ../.stingstream-e2e/data/logs/
+            ../.stingstream-e2e/data/runtime.json
+          if-no-files-found: warn

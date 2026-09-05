@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>StingStream.Tools.TorznabStub</RootNamespace>
+    <AssemblyName>torznab-stub</AssemblyName>
+    <!-- Standalone acceptance-harness tool: it deliberately does not inherit any of the vendored
+         projects' build settings, and lives outside every vendored solution. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>
