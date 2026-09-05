@@ -28,6 +28,7 @@
 pub mod acme;
 pub mod config;
 pub mod dns;
+pub mod health;
 pub mod http;
 pub mod probe;
 pub mod registry;

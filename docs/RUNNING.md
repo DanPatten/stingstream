@@ -92,9 +92,52 @@ Useful flags:
 | `--no-children` | run the gateway alone, so you can start a child under a debugger |
 | `--install-root <DIR>` | production mode: children live under `<DIR>/bin/<child>/` |
 | `--web-dist <DIR>` | serve a built web bundle at `/` (default: `apps/stingstream/dist` in `--dev`, `<install>/web` otherwise) |
+| `--join-code <CODE>` | join a group from an invite code on start; also `$STINGSTREAM_JOIN_CODE` |
+| `--join-code-file <PATH>` | read that code from a file instead; also `$STINGSTREAM_JOIN_CODE_FILE` |
+| `--healthcheck` | ask a node at `--data-dir` whether it is healthy, exit 0/1, start nothing |
 
 Ctrl+C stops the node. On Unix the children get a `SIGTERM` and a grace period first; on Windows
 they are terminated (see "Known limitations").
+
+### Joining a group with nobody at the keyboard
+
+A seedbox comes up with no one to run the join call by hand, so it can be told the invite code up
+front. This is what `deploy/coordinator/compose.yml`'s `storage-node` profile uses, and it is
+exactly the same `MeshNode::join` the API performs — including being **idempotent**, so leaving the
+value set across restarts refreshes membership rather than failing on a group already joined.
+
+```powershell
+# The straightforward form.
+$env:STINGSTREAM_JOIN_CODE = "3Nk9…"
+
+# Better, and what a container or a systemd unit should do: an invite code carries the group
+# *secret*, and an environment variable is visible in `docker inspect` and /proc/<pid>/environ.
+# A path can be a compose secret, a systemd LoadCredential=, or a 0600 file.
+$env:STINGSTREAM_JOIN_CODE_FILE = "/run/secrets/stingstream-invite"
+```
+
+The file wins when both are set, so a deployment that has moved to the safer form is not silently
+overridden by a stale variable in an `.env`.
+
+**Joining and finding somebody are different things**, and this is the part worth knowing. A join
+succeeds even when neither the inviter nor the group's coordinator answers: the group exists here,
+its gossip topic is live, and a member that appears later is found. But the usual *reason* nobody
+answered is that the code is wrong, the inviter is switched off, or the coordinator has not
+finished starting — so the node retries on a backoff for about half an hour, warns in a full
+sentence when it gives up, and reports where it got to on `/healthz`:
+
+```powershell
+(Invoke-RestMethod http://127.0.0.1:8790/healthz).join
+# state      : local_only
+# group      : 5f0c…
+# name       : The Attic
+# attempts   : 8
+```
+
+`state` is one of `off` (no code configured — most nodes), `joining`, `joined` (a member answered),
+`local_only` (in the group, sharing with nobody yet) or `failed` (the code does not decode; not
+retried, because it never will). A `local_only` node is *not* unhealthy and `/healthz` still
+answers 200 — restart-looping its container would not introduce it to anybody.
 
 ### The web UI
 

@@ -18,6 +18,7 @@
 pub mod config;
 pub mod embedded_mesh;
 pub mod gateway;
+pub mod joincode;
 pub mod logging;
 pub mod paths;
 pub mod ports;

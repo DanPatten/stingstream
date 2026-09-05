@@ -103,6 +103,11 @@ pub struct NodeState {
     /// The update check's own shared state (M8a) -- see `crate::updatecheck`. Same "created here,
     /// written through a clone" pattern as `side_door` above.
     pub updates: crate::updatecheck::UpdateCheckHandle,
+    /// How joining a group from `STINGSTREAM_JOIN_CODE` went (M7). Same pattern again. It is on
+    /// `/healthz` because a headless storage node's join is otherwise invisible: a join that
+    /// reached nobody succeeds, and the only evidence used to be one field in a log line nobody
+    /// is tailing. See `crate::joincode`.
+    pub join: crate::joincode::JoinHandle,
     children: RwLock<BTreeMap<String, ChildStatus>>,
 }
 
@@ -121,6 +126,7 @@ impl NodeState {
             dev,
             side_door: crate::sidedoor::SideDoorHandle::disabled(),
             updates: crate::updatecheck::UpdateCheckHandle::default(),
+            join: crate::joincode::JoinHandle::default(),
             children: RwLock::new(children),
         }
     }

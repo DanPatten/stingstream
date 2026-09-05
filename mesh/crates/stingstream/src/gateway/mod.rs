@@ -136,6 +136,11 @@ async fn healthz(State(state): State<GatewayState>) -> Response {
             "tls": state.node.config.gateway.tls,
         },
         "side_door": state.node.side_door.get(),
+        // How the configured invite code got on, if there was one. `{"state":"off"}` on a node
+        // nobody handed one to, which is most of them. Deliberately does *not* affect the 200/503
+        // below: a node that joined a group locally and has found nobody yet is running perfectly
+        // well, and restart-looping its container would not introduce it to anybody.
+        "join": state.node.join.get(),
         "children": children,
     });
     // 503 when degraded, so `curl --fail` and CI health gates work without parsing the body.

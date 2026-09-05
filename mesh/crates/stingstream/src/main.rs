@@ -20,6 +20,7 @@ use tokio::sync::watch;
 use stingstream::config::{self, Config};
 use stingstream::embedded_mesh;
 use stingstream::gateway;
+use stingstream::joincode;
 use stingstream::logging;
 use stingstream::paths::{self, Layout};
 use stingstream::ports::PortAllocator;
@@ -112,6 +113,13 @@ struct Cli {
     /// hand.
     #[arg(long, value_name = "CODE", env = "STINGSTREAM_JOIN_CODE")]
     join_code: Option<String>,
+
+    /// Read the invite code from a file instead. Wins over `--join-code`/`STINGSTREAM_JOIN_CODE`
+    /// when both are set. An invite code carries the group *secret*, and an environment variable
+    /// is visible in `docker inspect` and `/proc/<pid>/environ` -- a path can be a compose secret,
+    /// a systemd `LoadCredential=`, or simply a `0600` file. See `crate::joincode`.
+    #[arg(long, value_name = "PATH", env = "STINGSTREAM_JOIN_CODE_FILE")]
+    join_code_file: Option<String>,
 
     /// Check whether a node at --data-dir (or $STINGSTREAM_DATA) is healthy and exit -- 0 if
     /// `/healthz` answers 200, non-zero otherwise. Does not start anything. This is
@@ -347,29 +355,25 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // docs/RUNNING.md by hand -- what deploy/node's STINGSTREAM_JOIN_CODE needs on first run.
     // `MeshNode::join` is idempotent (it refreshes membership if this node already belongs to the
     // group the code names), so leaving the variable set across restarts is fine rather than
-    // something that has to be unset after the first one. Spawned rather than awaited: the mesh's
-    // own join dials the inviter over iroh, which can take longer than this node should make the
-    // gateway wait to bind.
-    if let Some(m) = &mesh {
-        if let Some(code) = cli.join_code.as_deref() {
-            let code = code.trim().to_string();
-            if !code.is_empty() {
-                let node = m.node.clone();
-                tokio::spawn(async move {
-                    match node.join(&code).await {
-                        Ok(outcome) => tracing::info!(
-                            group = %outcome.group.id,
-                            name = %outcome.group.name,
-                            via = ?outcome.via,
-                            "joined group from STINGSTREAM_JOIN_CODE"
-                        ),
-                        Err(e) => tracing::error!(
-                            error = %format!("{e:#}"),
-                            "STINGSTREAM_JOIN_CODE: could not join the group"
-                        ),
-                    }
-                });
-            }
+    // something that has to be unset after the first one. Everything else about it -- reading the
+    // code from a file, retrying while nobody answers, and saying so on `/healthz` -- is in
+    // `crate::joincode`, with the reasoning for each.
+    //
+    // A code that cannot be *read* is fatal, and deliberately so: somebody named a path, and a
+    // node that came up without the group it was told to join, sharing nothing, is a worse outcome
+    // than one that refuses to start and says why.
+    if let Some(code) = joincode::resolve(cli.join_code_file.as_deref(), cli.join_code.as_deref())?
+    {
+        match &mesh {
+            Some(m) => joincode::spawn(
+                m.node.clone(),
+                code,
+                node.join.clone(),
+                shutdown_rx.clone(),
+            ),
+            None => tracing::warn!(
+                "an invite code is configured but the mesh is off ([children] mesh = false), so                  there is nothing to join with"
+            ),
         }
     }
 

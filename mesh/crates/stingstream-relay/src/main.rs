@@ -37,6 +37,12 @@ struct Cli {
     /// Check the configuration and exit without binding anything.
     #[arg(long)]
     check: bool,
+    /// Ask the *running* coordinator whether it is serving: `GET /healthz` over loopback, exit 0
+    /// only on a 200. This is what a container's `HEALTHCHECK` should run -- `--check` validates
+    /// configuration in a fresh process and never touches the running server, so it cannot fail
+    /// for a coordinator that has hung.
+    #[arg(long)]
+    healthcheck: bool,
     /// `trace` | `debug` | `info` | `warn` | `error`. `RUST_LOG` wins if set.
     #[arg(long, default_value = "info")]
     log: String,
@@ -64,6 +70,15 @@ async fn main() -> Result<()> {
     if let Some(b) = cli.bind {
         cfg.http.bind = b;
     }
+    // Before `validate()`: a health check asks the running coordinator how it is, and a
+    // configuration that has drifted since it started is a different question with a different
+    // answer. Only the bind address is needed, and that is already resolved.
+    if cli.healthcheck {
+        return stingstream_relay::health::probe(stingstream_relay::health::probe_target(
+            cfg.http.bind,
+        ));
+    }
+
     cfg.validate()?;
 
     if cli.check {
