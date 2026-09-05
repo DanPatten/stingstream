@@ -19,18 +19,23 @@ using StingStream.Core.Torrents;
 namespace StingStream.Core.FirstRun;
 
 /// <summary>
-/// Wires a brand-new node together the first time it starts.
+/// Wires a node together: fully the first time, and enough to keep it working on every start
+/// after that.
 /// </summary>
 /// <remarks>
 /// "One install, one command, and it works" is the whole promise of a StingStream node, and this
-/// is where that promise is kept: on a fresh data directory it creates the Jellyfin administrator,
+/// is where that promise is kept. On a fresh data directory it creates the Jellyfin administrator,
 /// the Movies and TV Shows libraries, the qBittorrent categories the arrs will use, the arrs' root
-/// folders, both download clients, the indexers, the naming rules and the import webhook -- and
-/// then never runs again.
+/// folders, both download clients, the indexers, the naming rules and the import webhook.
 ///
-/// Every step is idempotent regardless, and the whole thing runs on a background task rather than
-/// blocking start-up: Radarr and Sonarr are still starting when Jellyfin is ready, and the sync
-/// waits for them.
+/// On every subsequent start it re-runs the *configuration* half. That is not belt and braces: the
+/// children's ports are assigned at start-up and can move between runs, and the arrs store their
+/// download client's host and port, so a node that only wired itself once would come back from a
+/// restart with both apps talking to dead ports. Creating an administrator or a library, by
+/// contrast, is genuinely once-only.
+///
+/// The whole thing runs on a background task rather than blocking start-up: Radarr and Sonarr are
+/// still starting when Jellyfin is ready, and the sync waits for them.
 /// </remarks>
 public sealed class FirstRunService : BackgroundService
 {
@@ -110,21 +115,36 @@ public sealed class FirstRunService : BackgroundService
             return report;
         }
 
-        if (!runtime.FirstRun && !force)
+        var firstRun = runtime.FirstRun || force;
+        _db.EnsureInitialized();
+
+        // These run on *every* start, not just the first.
+        //
+        // The children's ports are assigned at start-up and can move between runs — a preferred
+        // port that something else has taken falls back to an ephemeral one. The arrs store their
+        // download client's host and port, so without a sync on every start a restart leaves both
+        // apps pointing at dead ports, with nothing but "Unable to retrieve queue and history
+        // items" in their logs and downloads that silently never import. Everything here is
+        // idempotent and matched by name, so re-running it converges rather than duplicating.
+        _logger.LogInformation(
+            "{Phase} StingStream wiring for node {Node}",
+            firstRun ? "Starting first-run" : "Refreshing",
+            runtime.NodeName);
+
+        await EnsureSharedSettingsAsync(runtime, report, cancellationToken).ConfigureAwait(false);
+        await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
+        await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
+
+        if (!firstRun)
         {
-            report.Skipped = true;
-            report.Steps.Add("skipped: this node has already been wired");
+            report.Steps.Add("already wired: refreshed the arrs' view of this run's ports only");
             return report;
         }
 
-        _logger.LogInformation("Starting StingStream first-run wiring for node {Node}", runtime.NodeName);
-        _db.EnsureInitialized();
-
+        // These are genuinely once-only: creating an administrator or a library a second time
+        // would be wrong, not merely wasteful.
         await EnsureAdminUserAsync(runtime, report).ConfigureAwait(false);
-        await EnsureSharedSettingsAsync(runtime, report, cancellationToken).ConfigureAwait(false);
-        await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
         await EnsureLibrariesAsync(runtime, report, cancellationToken).ConfigureAwait(false);
-        await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
 
         // Build whatever the node already holds, so a re-wired node has an inventory immediately.
         try

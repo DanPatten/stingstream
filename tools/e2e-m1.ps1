@@ -13,14 +13,15 @@
     What it does, in order:
 
       1. Builds everything it needs (skip with -SkipBuild).
-      2. Generates two test media files with the fetched jellyfin-ffmpeg: two minutes of colour
-         bars and a tone, named as a movie release and an episode release.
+      2. Generates two test media files with the fetched jellyfin-ffmpeg -- colour bars and a
+         tone, named as a movie release and an episode release, each long enough to clear the
+         arrs' sample check for its title.
       3. Makes a .torrent for each and seeds it from a self-hosted tracker on loopback.
       4. Serves both as releases from a Torznab stub.
       5. Starts a StingStream node on a throwaway data directory and waits for every child to be
          healthy and for first-run wiring to finish.
       6. Adds the indexer through the StingStream API, then adds the movie (TMDB 10378) and the
-         series (TVDB 78435, "Popeye the Sailor").
+         series (TVDB 71471, "The Beverly Hillbillies").
       7. Waits for grab -> download through the qBittorrent-compatible API -> import -> webhook ->
          Jellyfin item, for each.
       8. Asserts the item exists in Jellyfin and that GET /jellyfin/Videos/{id}/stream returns 200
@@ -75,9 +76,23 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 
 # --- constants ----------------------------------------------------------------------------
 
-# Length of the generated test clips, in seconds. Must stay above 90: both arrs reject a shorter
-# import as a sample. See "Generate test media".
-$TestClipSeconds = 120
+# Length of the generated test clips, in seconds.
+#
+# Both arrs run a sample check on every import and reject anything too short, and the threshold is
+# a table keyed on the *title's* runtime, not a flat number
+# (NzbDrone.Core.MediaFiles.EpisodeImport.DetectSample):
+#
+#     runtime <=  3 min ->  15 s
+#     runtime <= 10 min ->  90 s
+#     runtime <= 30 min -> 300 s
+#     otherwise         -> 600 s
+#
+# Big Buck Bunny is 10 minutes, so 120 s clears its 90 s bar with room to spare. The Beverly
+# Hillbillies is a 30-minute show, so its episode needs to clear 300 s. Get this wrong and the
+# download completes perfectly and then sits in the queue forever as "importPending" with the
+# status message "Sample" -- which is exactly how both of these were found.
+$MovieClipSeconds = 120
+$EpisodeClipSeconds = 330
 
 # Big Buck Bunny. Creative Commons, on TMDB, and short.
 $MovieTmdbId = 10378
@@ -89,11 +104,14 @@ $MovieFileName = "$MovieRelease.mkv"
 # is much smaller, which nothing checks.
 $MovieDeclaredSize = 500MB
 
-# Popeye the Sailor (1933). The Fleischer cartoons are largely public domain, the series exists on
-# TVDB, and its episodes are numbered from S01E01.
-$SeriesTvdbId = 78435
-$SeriesTitle = 'Popeye the Sailor'
-$EpisodeRelease = 'Popeye.the.Sailor.S01E01.1080p.WEB.x264-TEST'
+# The Beverly Hillbillies (1962). Its first-season episodes are public domain -- the copyright was
+# never renewed -- and, unlike several other public-domain candidates, TVDB numbers it
+# conventionally as seasons 1..9 rather than by year. That matters: "Popeye the Sailor" (tvdb
+# 78435) was the first choice and turned out to have year-numbered seasons (1933..1957), so an
+# S01E01 release matched no episode at all and Sonarr searched 25 seasons and grabbed nothing.
+$SeriesTvdbId = 71471
+$SeriesTitle = 'The Beverly Hillbillies'
+$EpisodeRelease = 'The.Beverly.Hillbillies.S01E01.1080p.WEB.x264-TEST'
 $EpisodeFileName = "$EpisodeRelease.mkv"
 $EpisodeDeclaredSize = 500MB
 
@@ -393,21 +411,17 @@ $FFmpeg = Invoke-Step 'Locate ffmpeg' {
 # ============================================================================================
 Invoke-Step 'Generate test media' {
     foreach ($spec in @(
-        @{ Path = (Join-Path $SeedDir "movie/$MovieFileName"); Label = 'movie' },
-        @{ Path = (Join-Path $SeedDir "tv/$EpisodeFileName"); Label = 'episode' }
+        @{ Path = (Join-Path $SeedDir "movie/$MovieFileName"); Label = 'movie'; Seconds = $MovieClipSeconds },
+        @{ Path = (Join-Path $SeedDir "tv/$EpisodeFileName"); Label = 'episode'; Seconds = $EpisodeClipSeconds }
     )) {
         # Colour bars and a 440 Hz tone: a real H.264/AAC file that ffprobe and Jellyfin analyse
         # normally, small enough that the transfer is never the slow part.
         #
-        # The duration is not arbitrary. Both arrs run a sample check on every import and reject
-        # anything whose runtime is under 90 seconds (NzbDrone's DetectSample), so a shorter file
-        # downloads perfectly and then sits in the queue forever as trackedDownloadState
-        # "importPending" with the status message "Sample". $TestClipSeconds is comfortably past
-        # that line.
+        # The durations are not arbitrary -- see the sample-check table at the top of this file.
         & $FFmpeg -y -hide_banner -loglevel error `
             -f lavfi -i "smptebars=size=1920x1080:rate=24" `
             -f lavfi -i "sine=frequency=440:sample_rate=48000" `
-            -t $TestClipSeconds -c:v libx264 -preset veryfast -pix_fmt yuv420p `
+            -t $spec.Seconds -c:v libx264 -preset veryfast -pix_fmt yuv420p `
             -c:a aac -b:a 128k -shortest $spec.Path
         if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed generating the $($spec.Label) file ($LASTEXITCODE)" }
         $size = (Get-Item $spec.Path).Length
@@ -491,7 +505,10 @@ nzbget = 0
 infinidysk = 0
 
 [logging]
-level = "info"
+# debug, not info: this level also reaches the arrs (the supervisor maps it into their config.xml),
+# and their info-level logs say nothing at all about why a completed download was not imported.
+# The whole point of the log artifact a failing run leaves behind is that it answers that.
+level = "debug"
 console = true
 "@
     Set-Content -Path (Join-Path $DataDir 'config.toml') -Value $config -Encoding utf8
@@ -583,7 +600,7 @@ Invoke-Step 'Gateway proxies the Jellyfin WebSocket' {
     $ws = [System.Net.WebSockets.ClientWebSocket]::new()
     try {
         $cts = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(30))
-        $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult()
+        $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult() | Out-Null
         if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
             throw "The WebSocket did not open through the gateway (state: $($ws.State))."
         }
@@ -595,7 +612,7 @@ Invoke-Step 'Gateway proxies the Jellyfin WebSocket' {
             [ArraySegment[byte]]::new($send),
             [System.Net.WebSockets.WebSocketMessageType]::Text,
             $true,
-            $cts.Token).GetAwaiter().GetResult()
+            $cts.Token).GetAwaiter().GetResult() | Out-Null
 
         $buffer = [byte[]]::new(8192)
         $received = $ws.ReceiveAsync([ArraySegment[byte]]::new($buffer), $cts.Token).GetAwaiter().GetResult()
@@ -692,7 +709,9 @@ Invoke-Step 'Add the series' {
         tvdbId      = $SeriesTvdbId
         monitored   = $true
         searchOnAdd = $true
-        monitor     = 'all'
+        # firstSeason, not all: the release on offer is S01E01, and monitoring nine seasons would
+        # have Sonarr run a search per season against the stub for nothing.
+        monitor     = 'firstSeason'
     } -TimeoutSec 300
     Write-Host "      Sonarr series id $($series.id): $($series.title)"
     $script:SonarrSeriesId = $series.id
@@ -735,7 +754,11 @@ Invoke-Step 'Inventory records built' {
     Write-Host "      $($inventory.total) record(s)"
     if ($inventory.total -lt 1) { throw 'No inventory records were built for the imported items.' }
     foreach ($r in $inventory.records) {
-        Write-Host "      $($r.itemKey)  $($r.media.resolution) $($r.media.videoCodec)  hash=$(if ($r.fileHash) { $r.fileHash.Substring(0, 12) } else { 'pending' })"
+        # fileHash is absent, not null, while a file is still queued for hashing -- the API omits
+        # null properties, and Set-StrictMode makes reading an absent one a terminating error.
+        $hash = Get-Member-Value $r 'fileHash'
+        $shown = if ($hash) { $hash.Substring(0, 12) } else { 'pending' }
+        Write-Host "      $($r.itemKey)  $($r.media.resolution) $($r.media.videoCodec)  hash=$shown"
     }
 }
 
