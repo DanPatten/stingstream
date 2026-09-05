@@ -1,0 +1,2226 @@
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using System.Threading.Channels;
+using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Contexts;
+using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Exceptions;
+using NzbWebDAV.Extensions;
+using NzbWebDAV.Services.Diagnostics;
+using NzbWebDAV.Services.Repair;
+using NzbWebDAV.Services.StreamTrace;
+using Serilog;
+using UsenetSharp.Models;
+using UsenetSharp.Streams;
+
+namespace NzbWebDAV.Streams;
+
+public class MultiSegmentStream : FastReadOnlyNonSeekableStream
+{
+    private const int BodyPipelineBatchSize = 4;
+    private const int MaxBodyRetries = 2;
+    private const int MaxCorruptionRetries = 3;
+
+    private readonly Memory<string> _segmentIds;
+    private readonly string[][]? _segmentFallbacks;
+    private readonly INntpClient _usenetClient;
+    private readonly long _estimatedSegmentSize;
+    private readonly SegmentSizes _segmentSizes;
+    private readonly bool _failFastOnFirstSegment;
+    private readonly bool _useContainerAwareFill;
+    private readonly long? _firstSegmentFileOffset;
+    private readonly string _fileName;
+    private readonly Channel<Task<SegmentDownloadResult>> _streamTasks;
+    private readonly int _bodyPipelineBatchSize;
+    private readonly AdaptiveBodyBatchSizer? _batchSizer;
+    private readonly ContextualCancellationTokenSource _cts;
+    private readonly long? _readBudget;
+    private readonly long _prefetchByteCeiling;
+    private readonly int _taskWindowSize;
+    private readonly InFlightArticleBudget? _budget;
+    private long _inFlightPrefetchBytes;
+    private TaskCompletionSource _prefetchSpace =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Stream? _stream;
+    private int _consecutiveZeroFills;
+    private int _deliveredSegments;
+    private bool _disposed;
+    private readonly Task _downloadTask;
+    private readonly object _disposeGate = new();
+    private Task? _disposeTask;
+    // Segment tasks whose channel write was cancelled are disposed out-of-band by
+    // the producer; DisposeCoreAsync must join them so DisposeAsync does not return
+    // while their BudgetedStream leases are still held (#840 scrub wedge).
+    private readonly ConcurrentQueue<Task> _orphanedDisposals = new();
+    private readonly ConcurrentQueue<Task> _batchCompletionObservers = new();
+    private readonly HashSet<string>? _knownCorruptSegmentIds;
+    private readonly IReadOnlySet<int>? _knownMissingSegmentIndices;
+
+    private int GetCorruptionRetryLimit(string segmentId) =>
+        _knownCorruptSegmentIds is not null && _knownCorruptSegmentIds.Contains(segmentId)
+            ? 0
+            : MaxCorruptionRetries;
+
+    private void ThrowIfPlaybackFailFast()
+    {
+        if (!PlaybackHoleTracker.ShouldFailFast(_fileName, out var exception))
+            return;
+        ExceptionDispatchInfo.Capture(
+            exception ?? new UsenetArticleNotFoundException(_segmentIds.Span[0])).Throw();
+    }
+
+    private SegmentDownloadResult ToDownloadResult(
+        DrainedSegment drained,
+        long estimate,
+        string segmentId) =>
+        SegmentDownloadResult.Success(drained.Stream, estimate, drained.ShortPadded, segmentId);
+
+    /// <summary>
+    /// Optional per-instance test hook invoked with the segment-boundary readiness sample,
+    /// after it is taken and before the segment task is awaited. Production code never sets
+    /// this; instance scope keeps parallel stream tests from observing each other's streams.
+    /// </summary>
+    internal Action<bool>? TestOnSegmentReadiness;
+
+    /// <summary>Current adaptive BODY batch width (or the fixed pipeline size when not adaptive).</summary>
+    internal int PrefetchBatchWidth => _batchSizer?.Current ?? _bodyPipelineBatchSize;
+
+    /// <summary>
+    /// Test hook: completes when the producer loop has exited (e.g. after observing
+    /// the consecutive-zero-fill cancellation), so tests can assert on the final
+    /// request count without racing the prefetch top-up.
+    /// </summary>
+    internal Task DownloadTaskForTests => _downloadTask;
+
+    public static Stream Create(
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null,
+        InFlightArticleBudget? inFlightArticleBudget = null,
+        bool useContainerAwareFill = false,
+        long? firstSegmentFileOffset = null,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize,
+        HashSet<string>? knownCorruptSegmentIds = null,
+        IReadOnlySet<int>? knownMissingSegmentIndices = null)
+    {
+        return Create(
+            segmentIds,
+            usenetClient,
+            articleBufferSize,
+            estimatedSegmentSize: 0,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests,
+            cancellationToken,
+            fileName,
+            readBudget,
+            segmentFallbacks,
+            inFlightArticleBudget: inFlightArticleBudget,
+            useContainerAwareFill: useContainerAwareFill,
+            firstSegmentFileOffset: firstSegmentFileOffset,
+            bodyPipelineBatchWidth: bodyPipelineBatchWidth,
+            knownCorruptSegmentIds: knownCorruptSegmentIds,
+            knownMissingSegmentIndices: knownMissingSegmentIndices);
+    }
+
+    /// <param name="estimatedSegmentSize">
+    /// Approximate decoded size per segment, used only for buffer capacity hints and
+    /// prefetch budgeting. It must never determine how many bytes this stream emits —
+    /// an estimate that is off by even one byte shifts every following byte in the file.
+    /// </param>
+    /// <param name="exactSegmentSizes">
+    /// Exact decoded size of each segment in <paramref name="segmentIds"/>, in the same
+    /// order. Supplied when the import recorded per-segment byte ranges, and required
+    /// before a failed segment may be replaced with same-length gap bytes.
+    /// </param>
+    internal static Stream CreateWithInitialBatchPlan
+    (
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        long estimatedSegmentSize,
+        bool failFastOnFirstSegment,
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null,
+        ReadOnlyMemory<long> exactSegmentSizes = default,
+        InFlightArticleBudget? inFlightArticleBudget = null,
+        bool useContainerAwareFill = false,
+        long? firstSegmentFileOffset = null,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize,
+        HashSet<string>? knownCorruptSegmentIds = null,
+        IReadOnlySet<int>? knownMissingSegmentIndices = null,
+        InitialBodyBatchPlan? initialBatchPlan = null
+    )
+    {
+        return articleBufferSize == 0
+            ? new UnbufferedMultiSegmentStream(
+                segmentIds, usenetClient, estimatedSegmentSize, fileName, segmentFallbacks,
+                exactSegmentSizes, useContainerAwareFill, firstSegmentFileOffset,
+                failFastOnFirstSegment, knownCorruptSegmentIds, knownMissingSegmentIndices)
+            : new MultiSegmentStream(
+                segmentIds,
+                usenetClient,
+                articleBufferSize,
+                estimatedSegmentSize,
+                failFastOnFirstSegment,
+                usePipelinedBodyRequests,
+                fileName,
+                readBudget,
+                segmentFallbacks,
+                exactSegmentSizes,
+                inFlightArticleBudget,
+                useContainerAwareFill,
+                firstSegmentFileOffset,
+                bodyPipelineBatchWidth,
+                knownCorruptSegmentIds,
+                knownMissingSegmentIndices,
+                initialBatchPlan,
+                cancellationToken);
+    }
+
+    public static Stream Create
+    (
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        long estimatedSegmentSize,
+        bool failFastOnFirstSegment,
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null,
+        ReadOnlyMemory<long> exactSegmentSizes = default,
+        InFlightArticleBudget? inFlightArticleBudget = null,
+        bool useContainerAwareFill = false,
+        long? firstSegmentFileOffset = null,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize,
+        HashSet<string>? knownCorruptSegmentIds = null,
+        IReadOnlySet<int>? knownMissingSegmentIndices = null
+    )
+    {
+        return CreateWithInitialBatchPlan(
+            segmentIds,
+            usenetClient,
+            articleBufferSize,
+            estimatedSegmentSize,
+            failFastOnFirstSegment,
+            usePipelinedBodyRequests,
+            cancellationToken,
+            fileName,
+            readBudget,
+            segmentFallbacks,
+            exactSegmentSizes,
+            inFlightArticleBudget,
+            useContainerAwareFill,
+            firstSegmentFileOffset,
+            bodyPipelineBatchWidth,
+            knownCorruptSegmentIds,
+            knownMissingSegmentIndices,
+            initialBatchPlan: null);
+    }
+
+    internal sealed record FirstSegmentHybridOptions(
+        Memory<string> SegmentIds,
+        INntpClient UsenetClient,
+        int ArticleBufferSize,
+        long EstimatedSegmentSize,
+        bool FailFastOnFirstSegment,
+        bool UsePipelinedBodyRequests,
+        string? FileName,
+        long? ReadBudget,
+        string[][]? SegmentFallbacks,
+        ReadOnlyMemory<long> ExactSegmentSizes,
+        InFlightArticleBudget? InFlightArticleBudget,
+        bool UseContainerAwareFill,
+        long? FirstSegmentFileOffset,
+        int BodyPipelineBatchWidth,
+        HashSet<string>? KnownCorruptSegmentIds,
+        IReadOnlySet<int>? KnownMissingSegmentIndices,
+        CancellationToken CancellationToken)
+    {
+        internal InitialBodyBatchPlan? InitialBatchPlan { get; init; }
+    }
+
+    /// <summary>
+    /// Starts the first segment directly from its decoded BODY, then starts the normal
+    /// buffered pipeline after the first positive requested read when a remainder is
+    /// known to be required. This lets a player receive its first bytes without waiting
+    /// for a whole decoded segment to drain or for later articles to be admitted.
+    /// </summary>
+    internal static Stream CreateFirstSegmentHybridWithInitialBatchPlan(
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        long estimatedSegmentSize,
+        bool failFastOnFirstSegment,
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null,
+        ReadOnlyMemory<long> exactSegmentSizes = default,
+        InFlightArticleBudget? inFlightArticleBudget = null,
+        bool useContainerAwareFill = false,
+        long? firstSegmentFileOffset = null,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize,
+        HashSet<string>? knownCorruptSegmentIds = null,
+        IReadOnlySet<int>? knownMissingSegmentIndices = null,
+        InitialBodyBatchPlan? initialBatchPlan = null)
+    {
+        return CreateFirstSegmentHybridCore(
+            new FirstSegmentHybridOptions(
+                segmentIds,
+                usenetClient,
+                articleBufferSize,
+                estimatedSegmentSize,
+                failFastOnFirstSegment,
+                usePipelinedBodyRequests,
+                fileName,
+                readBudget,
+                segmentFallbacks,
+                exactSegmentSizes,
+                inFlightArticleBudget,
+                useContainerAwareFill,
+                firstSegmentFileOffset,
+                bodyPipelineBatchWidth,
+                knownCorruptSegmentIds,
+                knownMissingSegmentIndices,
+                cancellationToken)
+            {
+                InitialBatchPlan = initialBatchPlan,
+            },
+            firstSegmentPrefixBytes: 0);
+    }
+
+    public static Stream CreateFirstSegmentHybrid(
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        long estimatedSegmentSize,
+        bool failFastOnFirstSegment,
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null,
+        ReadOnlyMemory<long> exactSegmentSizes = default,
+        InFlightArticleBudget? inFlightArticleBudget = null,
+        bool useContainerAwareFill = false,
+        long? firstSegmentFileOffset = null,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize,
+        HashSet<string>? knownCorruptSegmentIds = null,
+        IReadOnlySet<int>? knownMissingSegmentIndices = null)
+    {
+        return CreateFirstSegmentHybridWithInitialBatchPlan(
+            segmentIds,
+            usenetClient,
+            articleBufferSize,
+            estimatedSegmentSize,
+            failFastOnFirstSegment,
+            usePipelinedBodyRequests,
+            cancellationToken,
+            fileName,
+            readBudget,
+            segmentFallbacks,
+            exactSegmentSizes,
+            inFlightArticleBudget,
+            useContainerAwareFill,
+            firstSegmentFileOffset,
+            bodyPipelineBatchWidth,
+            knownCorruptSegmentIds,
+            knownMissingSegmentIndices,
+            initialBatchPlan: null);
+    }
+
+    /// <summary>
+    /// Same hybrid as <see cref="CreateFirstSegmentHybrid"/>, but discards
+    /// <paramref name="firstSegmentPrefixBytes"/> from the raw unbuffered head before
+    /// wrapping it. Prefix discard must not go through the handoff owner — those reads
+    /// are not requested response bytes and must not start the remainder.
+    /// </summary>
+    internal static async Task<Stream> CreatePositionedFirstSegmentHybridAsync(
+        FirstSegmentHybridOptions options,
+        long firstSegmentPrefixBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(firstSegmentPrefixBytes);
+
+        // Fully unbuffered files skip the hybrid. A one-segment remainder still needs
+        // the unbuffered head so an exact-index seek does not drain that article first.
+        if (options.ArticleBufferSize == 0 || options.SegmentIds.Length == 0)
+        {
+#pragma warning disable CA2000 // ownership transfers to the caller after prefix discard
+            var stream = Create(
+                options.SegmentIds,
+                options.UsenetClient,
+                options.ArticleBufferSize,
+                options.EstimatedSegmentSize,
+                options.FailFastOnFirstSegment,
+                options.UsePipelinedBodyRequests,
+                options.CancellationToken,
+                options.FileName,
+                options.ReadBudget,
+                options.SegmentFallbacks,
+                options.ExactSegmentSizes,
+                options.InFlightArticleBudget,
+                options.UseContainerAwareFill,
+                options.FirstSegmentFileOffset,
+                options.BodyPipelineBatchWidth,
+                options.KnownCorruptSegmentIds,
+                options.KnownMissingSegmentIndices);
+#pragma warning restore CA2000
+            return await DiscardPrefixOrDisposeAsync(
+                    stream, firstSegmentPrefixBytes, options.CancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var plan = BuildFirstSegmentHybridPlan(options, firstSegmentPrefixBytes);
+
+        var positionedHead = await DiscardPrefixOrDisposeAsync(
+                plan.Head, firstSegmentPrefixBytes, options.CancellationToken)
+            .ConfigureAwait(false);
+
+        if (plan.CreateRemainder is null)
+        {
+            StreamStartupTrace.TryRecord(
+                StreamStartupPhase.HandoffNotNeeded,
+                plan.HeadAvailableBytes);
+            return positionedHead;
+        }
+
+        StreamStartupTrace.TryRecord(
+            plan.StartPolicy == RemainderStartPolicy.AfterFirstPositiveRead
+                ? StreamStartupPhase.HandoffEager
+                : StreamStartupPhase.HandoffLegacyLazy,
+            plan.HeadAvailableBytes);
+        return new FirstSegmentHandoffStream(
+            positionedHead,
+            plan.CreateRemainder,
+            plan.StartPolicy,
+            options.CancellationToken);
+    }
+
+    private static async Task<Stream> DiscardPrefixOrDisposeAsync(
+        Stream stream,
+        long prefixBytes,
+        CancellationToken cancellationToken)
+    {
+        if (prefixBytes == 0)
+            return stream;
+
+        try
+        {
+            var discardStarted = Stopwatch.GetTimestamp();
+            if (stream is UnbufferedMultiSegmentStream unbuffered)
+            {
+                await unbuffered.DiscardPrefixBytesAsync(prefixBytes, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await stream.DiscardExactBytesAsync(prefixBytes, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            StreamStartupTrace.TryRecord(
+                StreamStartupPhase.PrefixDiscard,
+                prefixBytes,
+                Stopwatch.GetElapsedTime(discardStarted));
+            return stream;
+        }
+        catch (Exception primaryFailure)
+        {
+            try
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure) when (cleanupFailure is not OutOfMemoryException)
+            {
+                Log.Debug(
+                    cleanupFailure,
+                    "Failed to dispose first-segment stream after prefix positioning failed.");
+            }
+
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+            throw;
+        }
+    }
+
+    private static Stream CreateFirstSegmentHybridCore(
+        FirstSegmentHybridOptions options,
+        long firstSegmentPrefixBytes)
+    {
+        if (options.ArticleBufferSize == 0 || options.SegmentIds.Length == 0)
+        {
+            StreamStartupTrace.TryRecord(StreamStartupPhase.HandoffNotNeeded);
+            return Create(
+                options.SegmentIds,
+                options.UsenetClient,
+                options.ArticleBufferSize,
+                options.EstimatedSegmentSize,
+                options.FailFastOnFirstSegment,
+                options.UsePipelinedBodyRequests,
+                options.CancellationToken,
+                options.FileName,
+                options.ReadBudget,
+                options.SegmentFallbacks,
+                options.ExactSegmentSizes,
+                options.InFlightArticleBudget,
+                options.UseContainerAwareFill,
+                options.FirstSegmentFileOffset,
+                options.BodyPipelineBatchWidth,
+                options.KnownCorruptSegmentIds,
+                options.KnownMissingSegmentIndices);
+        }
+
+        var plan = BuildFirstSegmentHybridPlan(options, firstSegmentPrefixBytes);
+
+        if (plan.CreateRemainder is null)
+        {
+            StreamStartupTrace.TryRecord(
+                StreamStartupPhase.HandoffNotNeeded,
+                plan.HeadAvailableBytes);
+            return plan.Head;
+        }
+
+        StreamStartupTrace.TryRecord(
+            plan.StartPolicy == RemainderStartPolicy.AfterFirstPositiveRead
+                ? StreamStartupPhase.HandoffEager
+                : StreamStartupPhase.HandoffLegacyLazy,
+            plan.HeadAvailableBytes);
+        return new FirstSegmentHandoffStream(
+            plan.Head,
+            plan.CreateRemainder,
+            plan.StartPolicy,
+            options.CancellationToken);
+    }
+
+    private sealed record FirstSegmentHybridPlan(
+        Stream Head,
+        Func<CancellationToken, Stream>? CreateRemainder,
+        RemainderStartPolicy StartPolicy,
+        long? HeadAvailableBytes);
+
+    private static FirstSegmentHybridPlan BuildFirstSegmentHybridPlan(
+        FirstSegmentHybridOptions options,
+        long firstSegmentPrefixBytes)
+    {
+        if (options.InitialBatchPlan is { } initialPlan &&
+            initialPlan.PlannedSegmentCount != options.SegmentIds.Length - 1)
+        {
+            throw new ArgumentException(
+                "The finite-range batch plan must match the buffered remainder segment count.",
+                nameof(options));
+        }
+
+        var effectiveReadBudget =
+            options.ReadBudget ?? NzbWebDAV.WebDav.Requests.RangeContext.GetReadBudget();
+        var firstExactSizes = options.ExactSegmentSizes.Length == options.SegmentIds.Length
+            ? options.ExactSegmentSizes[..1]
+            : default;
+        var remainingExactSizes = options.ExactSegmentSizes.Length == options.SegmentIds.Length
+            ? options.ExactSegmentSizes[1..]
+            : default;
+        var firstFallbacks = options.SegmentFallbacks is { Length: > 0 }
+            ? options.SegmentFallbacks[..1]
+            : null;
+        var remainingFallbacks = options.SegmentFallbacks is { Length: > 1 }
+            ? options.SegmentFallbacks[1..]
+            : null;
+        var firstKnownMissing = options.KnownMissingSegmentIndices?
+            .Where(index => index == 0)
+            .ToHashSet();
+        var remainingKnownMissing = options.KnownMissingSegmentIndices?
+            .Where(index => index > 0)
+            .Select(index => index - 1)
+            .ToHashSet();
+        var remainingOffset = options.FirstSegmentFileOffset;
+        if (remainingOffset is not null && firstExactSizes.Length == 1)
+        {
+            try { remainingOffset = checked(remainingOffset.Value + firstExactSizes.Span[0]); }
+            catch (OverflowException) { remainingOffset = null; }
+        }
+
+        var remainderPlan = PlanHybridRemainder(
+            options.SegmentIds.Length,
+            firstExactSizes,
+            firstSegmentPrefixBytes,
+            effectiveReadBudget);
+
+#pragma warning disable CA2000 // ownership transfers to the caller / FirstSegmentHandoffStream
+        Stream head = new UnbufferedMultiSegmentStream(
+            options.SegmentIds[..1],
+            options.UsenetClient,
+            options.EstimatedSegmentSize,
+            options.FileName,
+            firstFallbacks,
+            firstExactSizes,
+            options.UseContainerAwareFill,
+            options.FirstSegmentFileOffset,
+            options.FailFastOnFirstSegment,
+            options.KnownCorruptSegmentIds,
+            firstKnownMissing);
+#pragma warning restore CA2000
+
+        if (!remainderPlan.NeedsRemainder)
+        {
+            return new FirstSegmentHybridPlan(
+                head,
+                null,
+                RemainderStartPolicy.None,
+                remainderPlan.HeadAvailableBytes);
+        }
+
+        // Capture every remainder input in this closure. Do not re-read AsyncLocal
+        // RangeContext after the handoff scheduling boundary.
+        Func<CancellationToken, Stream> createRemainder = lifetimeToken => CreateWithInitialBatchPlan(
+            options.SegmentIds[1..],
+            options.UsenetClient,
+            options.ArticleBufferSize,
+            options.EstimatedSegmentSize,
+            failFastOnFirstSegment: false,
+            options.UsePipelinedBodyRequests,
+            lifetimeToken,
+            options.FileName,
+            remainderPlan.RemainderBudget,
+            remainingFallbacks,
+            remainingExactSizes,
+            options.InFlightArticleBudget,
+            options.UseContainerAwareFill,
+            remainingOffset,
+            options.BodyPipelineBatchWidth,
+            options.KnownCorruptSegmentIds,
+            remainingKnownMissing,
+            options.InitialBatchPlan);
+
+        return new FirstSegmentHybridPlan(
+            head,
+            createRemainder,
+            remainderPlan.StartPolicy,
+            remainderPlan.HeadAvailableBytes);
+    }
+
+    internal readonly record struct HybridRemainderPlan(
+        long? HeadAvailableBytes,
+        long? RemainderBudget,
+        bool NeedsRemainder,
+        RemainderStartPolicy StartPolicy);
+
+    internal static HybridRemainderPlan PlanHybridRemainder(
+        int segmentCount,
+        ReadOnlyMemory<long> firstExactSizes,
+        long firstSegmentPrefixBytes,
+        long? readBudget)
+    {
+        var hasExactHead = firstExactSizes.Length == 1;
+        long? headAvailable = null;
+        if (hasExactHead)
+        {
+            var segmentSize = firstExactSizes.Span[0];
+            if (firstSegmentPrefixBytes < 0 || firstSegmentPrefixBytes >= segmentSize)
+            {
+                throw new InvalidOperationException(
+                    "Exact-index prefix is outside the mapped target segment.");
+            }
+
+            headAvailable = checked(segmentSize - firstSegmentPrefixBytes);
+        }
+
+        if (segmentCount <= 1)
+        {
+            return new HybridRemainderPlan(
+                headAvailable,
+                null,
+                false,
+                RemainderStartPolicy.None);
+        }
+
+        if (hasExactHead)
+        {
+            if (readBudget is { } budget)
+            {
+                var headContribution = Math.Min(budget, headAvailable!.Value);
+                var remainderBudget = checked(budget - headContribution);
+                var needsRemainder = remainderBudget > 0;
+                return new HybridRemainderPlan(
+                    headAvailable,
+                    remainderBudget,
+                    needsRemainder,
+                    needsRemainder
+                        ? RemainderStartPolicy.AfterFirstPositiveRead
+                        : RemainderStartPolicy.None);
+            }
+
+            return new HybridRemainderPlan(
+                headAvailable,
+                null,
+                true,
+                RemainderStartPolicy.AfterFirstPositiveRead);
+        }
+
+        // Unknown first-segment size: a full GET always needs the remainder, so eagerness
+        // is safe. A finite budget cannot prove the head will not satisfy it, so keep
+        // the legacy lazy-at-EOF start and do not subtract an unknown head.
+        if (readBudget is null)
+        {
+            return new HybridRemainderPlan(
+                null,
+                null,
+                true,
+                RemainderStartPolicy.AfterFirstPositiveRead);
+        }
+
+        return new HybridRemainderPlan(
+            null,
+            readBudget,
+            true,
+            RemainderStartPolicy.AtHeadEof);
+    }
+
+    private MultiSegmentStream
+    (
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        int articleBufferSize,
+        long estimatedSegmentSize,
+        bool failFastOnFirstSegment,
+        bool usePipelinedBodyRequests,
+        string? fileName,
+        long? readBudget,
+        string[][]? segmentFallbacks,
+        ReadOnlyMemory<long> exactSegmentSizes,
+        InFlightArticleBudget? inFlightArticleBudget,
+        bool useContainerAwareFill,
+        long? firstSegmentFileOffset,
+        int bodyPipelineBatchWidth,
+        HashSet<string>? knownCorruptSegmentIds,
+        IReadOnlySet<int>? knownMissingSegmentIndices,
+        InitialBodyBatchPlan? initialBatchPlan,
+        CancellationToken cancellationToken
+    )
+    {
+        _segmentIds = segmentIds;
+        _segmentFallbacks = segmentFallbacks;
+        _usenetClient = usenetClient;
+        _estimatedSegmentSize = estimatedSegmentSize;
+        _segmentSizes = new SegmentSizes(exactSegmentSizes, segmentIds.Length);
+        _failFastOnFirstSegment = failFastOnFirstSegment;
+        _useContainerAwareFill = useContainerAwareFill;
+        _firstSegmentFileOffset = firstSegmentFileOffset;
+        _knownCorruptSegmentIds = knownCorruptSegmentIds;
+        _knownMissingSegmentIndices = knownMissingSegmentIndices;
+        _fileName = string.IsNullOrEmpty(fileName) ? "unknown" : fileName;
+        _readBudget = readBudget ?? NzbWebDAV.WebDav.Requests.RangeContext.GetReadBudget();
+        _budget = inFlightArticleBudget ?? InFlightArticleBudget.Current;
+        _bodyPipelineBatchSize = Math.Min(Math.Max(1, bodyPipelineBatchWidth), articleBufferSize);
+        _taskWindowSize = CalculateTaskWindowSize(
+            articleBufferSize, usePipelinedBodyRequests, _bodyPipelineBatchSize);
+        _prefetchByteCeiling = _taskWindowSize > 0 && estimatedSegmentSize > 0
+            ? (long)_taskWindowSize * estimatedSegmentSize
+            : 0;
+        _batchSizer = usePipelinedBodyRequests
+            ? new AdaptiveBodyBatchSizer(
+                _bodyPipelineBatchSize,
+                initialBatchPlan?.InitialBatchWidth ?? _bodyPipelineBatchSize,
+                initialBatchPlan?.WideningNotBeforeDeliveredSegment ?? 0)
+            : null;
+        if (_batchSizer is not null && _bodyPipelineBatchSize != BodyPipelineBatchSize)
+        {
+            Log.Debug(
+                "Streaming BODY batch width for {FileName} configured at {BatchWidth} (stock {StockWidth}).",
+                _fileName,
+                _bodyPipelineBatchSize,
+                BodyPipelineBatchSize);
+        }
+        _streamTasks = Channel.CreateBounded<Task<SegmentDownloadResult>>(_taskWindowSize);
+        _cts = ContextualCancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _downloadTask = DownloadSegments(usePipelinedBodyRequests, _cts.Token);
+    }
+
+    /// <summary>
+    /// Computes the number of ordered segment tasks that may wait ahead of the consumer.
+    /// Pipelined BODY requests retain one connection per batch, not per segment, so a
+    /// segment-only window of <paramref name="articleBufferSize"/> could use only a quarter
+    /// of the per-stream connection budget at the normal four-article batch width. Expand
+    /// the task window by that width; the connection semaphore remains the concurrency
+    /// authority and <see cref="InFlightArticleBudget"/> remains the decoded-byte authority.
+    /// </summary>
+    internal static int CalculateTaskWindowSize(
+        int articleBufferSize,
+        bool usePipelinedBodyRequests,
+        int bodyPipelineBatchWidth = BodyPipelineBatchSize)
+    {
+        if (articleBufferSize <= 0) return 0;
+        if (!usePipelinedBodyRequests) return articleBufferSize;
+
+        var initialBatchWidth = Math.Min(bodyPipelineBatchWidth, articleBufferSize);
+        return articleBufferSize > int.MaxValue / initialBatchWidth
+            ? int.MaxValue
+            : articleBufferSize * initialBatchWidth;
+    }
+
+    private async Task DownloadSegments(
+        bool usePipelinedBodyRequests,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (usePipelinedBodyRequests)
+                await DownloadPipelinedSegments(cancellationToken).ConfigureAwait(false);
+            else
+                await DownloadIndividualSegments(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _streamTasks.Writer.TryComplete();
+        }
+        catch (OutOfMemoryException oom)
+        {
+            OomDiagnostics.LogHeapStateOnOom(oom, "segment download pipeline");
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _streamTasks.Writer.TryComplete(exception);
+        }
+        finally
+        {
+            _streamTasks.Writer.TryComplete();
+        }
+
+        return;
+    }
+
+    private async Task DownloadPipelinedSegments(CancellationToken cancellationToken)
+    {
+        var segmentsEnqueued = 0;
+        var enqueuedBytes = 0L;
+        for (var batchStart = 0; batchStart < _segmentIds.Length;)
+        {
+            if (ShouldStopPrefetch(segmentsEnqueued, enqueuedBytes))
+                break;
+
+            // Fail-fast must win before the batch goes on the wire: once BODY commands
+            // are issued, every response needs an owner that drains or disposes it.
+            ThrowIfPlaybackFailFast();
+
+            await WaitForPrefetchCeilingAsync(cancellationToken).ConfigureAwait(false);
+
+            // Adaptive width: narrower batches → more outstanding connections at the
+            // same article-buffer memory cost when the consumer is starving.
+            var batchWidth = _batchSizer?.Current ?? _bodyPipelineBatchSize;
+            var batchCount = Math.Min(batchWidth, _segmentIds.Length - batchStart);
+            var segmentIds = new SegmentId[batchCount];
+            for (var index = 0; index < batchCount; index++)
+            {
+                segmentIds[index] = _segmentIds.Span[batchStart + index];
+            }
+
+            await _streamTasks.Writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false);
+            var leases = new ArticleByteLease?[batchCount];
+            Task<SegmentDownloadResult>[]? streamTasks = null;
+            try
+            {
+                // Reserve decoded-memory capacity before the request takes a streaming
+                // permit. A saturated budget must never occupy all download slots with
+                // requests that cannot yet be drained.
+                for (var index = 0; index < leases.Length; index++)
+                {
+                    leases[index] = await LeaseSegmentBytesAsync(
+                        GetPlannedSegmentBytes(batchStart + index), cancellationToken).ConfigureAwait(false);
+                }
+
+                // Known degraded holes never enter a provider batch. They still ask local
+                // patch/cache layers first, and their tasks stay in file order with live
+                // results so the consumer's segment-boundary contract is unchanged.
+                var liveIndexes = Enumerable.Range(0, batchCount)
+                    .Where(index => _knownMissingSegmentIndices?.Contains(batchStart + index) != true)
+                    .ToArray();
+                Task<UsenetDecodedBodyResponse>[] liveResponses = [];
+                if (liveIndexes.Length > 0)
+                {
+                    var liveIds = liveIndexes.Select(index => segmentIds[index]).ToArray();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var fetched = await FetchAttributedBatchResponsesAsync(liveIds, cancellationToken)
+                        .ConfigureAwait(false);
+                    liveResponses = fetched.Responses;
+                    EnqueueBatchCompletionObserver(fetched.Completion);
+                }
+
+                streamTasks = new Task<SegmentDownloadResult>[batchCount];
+                var liveResponseIndex = 0;
+                for (var index = 0; index < batchCount; index++)
+                {
+                    var lease = leases[index]!;
+                    leases[index] = null;
+                    var segmentIndex = batchStart + index;
+                    streamTasks[index] = _knownMissingSegmentIndices?.Contains(segmentIndex) == true
+                        ? DownloadKnownMissingSegment(
+                            segmentIds[index], segmentIndex, lease, isFirstSegment: segmentIndex == 0, cancellationToken)
+                        : DownloadBatchSegment(
+                            liveResponses[liveResponseIndex++],
+                            segmentIds[index],
+                            segmentIndex,
+                            isFirstSegment: segmentIndex == 0,
+                            lease,
+                            cancellationToken);
+                }
+            }
+            catch
+            {
+                foreach (var lease in leases)
+                    lease?.Dispose();
+                throw;
+            }
+
+            var responseIndex = 0;
+            try
+            {
+                for (; responseIndex < streamTasks!.Length; responseIndex++)
+                {
+                    var planned = GetPlannedSegmentBytes(batchStart + responseIndex);
+                    await _streamTasks.Writer.WriteAsync(
+                        streamTasks[responseIndex], cancellationToken).ConfigureAwait(false);
+                    segmentsEnqueued++;
+                    enqueuedBytes += planned;
+                    Interlocked.Add(ref _inFlightPrefetchBytes, planned);
+                }
+            }
+            catch
+            {
+                for (; responseIndex < streamTasks!.Length; responseIndex++)
+                {
+                    _orphanedDisposals.Enqueue(DisposeStreamAsync(streamTasks[responseIndex]));
+                }
+
+                throw;
+            }
+
+            batchStart += batchCount;
+        }
+    }
+
+    private async Task DownloadIndividualSegments(CancellationToken cancellationToken)
+    {
+        var enqueuedBytes = 0L;
+        for (var index = 0; index < _segmentIds.Length; index++)
+        {
+            if (ShouldStopPrefetch(index, enqueuedBytes))
+                break;
+
+            await WaitForPrefetchCeilingAsync(cancellationToken).ConfigureAwait(false);
+
+            var segmentId = _segmentIds.Span[index];
+            await _streamTasks.Writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false);
+            var lease = await LeaseSegmentBytesAsync(
+                GetPlannedSegmentBytes(index), cancellationToken).ConfigureAwait(false);
+            var streamTask = DownloadSegment(
+                segmentId, index, lease, isFirstSegment: index == 0, cancellationToken);
+            var planned = GetPlannedSegmentBytes(index);
+            try
+            {
+                await _streamTasks.Writer.WriteAsync(streamTask, cancellationToken).ConfigureAwait(false);
+                enqueuedBytes += planned;
+                Interlocked.Add(ref _inFlightPrefetchBytes, planned);
+            }
+            catch
+            {
+                _orphanedDisposals.Enqueue(DisposeStreamAsync(streamTask));
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stop enqueueing once the bytes already in flight cover the read budget plus one
+    /// segment of slack, which absorbs the prefix a seek discards from the first segment.
+    /// Requires recorded per-segment sizes; without them the estimate can undershoot actual
+    /// segment lengths and truncate a range response, so prefetch is capped only by
+    /// <see cref="WaitForPrefetchCeilingAsync"/>.
+    /// </summary>
+    private bool ShouldStopPrefetch(int segmentsEnqueued, long enqueuedBytes)
+    {
+        // Range read budget: permanent stop once enough of the file is planned.
+        if (_readBudget is not null)
+        {
+            if (_segmentSizes.TryGetExactSize(0, out var slack))
+                return enqueuedBytes >= _readBudget.Value + slack;
+            return false;
+        }
+
+        // Full-file / non-range: never permanently stop (consumer needs the whole file).
+        // Per-stream byte ceiling is enforced by WaitForPrefetchCeilingAsync instead.
+        return false;
+    }
+
+    private sealed record FetchedBodyBatch(
+        Task<UsenetDecodedBodyResponse>[] Responses,
+        Task Completion);
+
+    private async Task<FetchedBodyBatch> FetchAttributedBatchResponsesAsync(
+        SegmentId[] liveIds,
+        CancellationToken cancellationToken)
+    {
+        using var fetchAttribution = FetchAttributionContext.Begin(_fileName);
+        var batch = await _usenetClient.DecodedBodiesAsync(
+            liveIds, onConnectionReadyAgain: null, cancellationToken).ConfigureAwait(false);
+        if (batch.Responses.Count != liveIds.Length)
+        {
+            // The client broke the batch contract after the commands went on the wire.
+            // Drain whatever arrived so the shared batch connection can complete.
+            foreach (var responseTask in batch.Responses)
+            {
+                try
+                {
+                    var response = await responseTask.ConfigureAwait(false);
+                    if (response.Stream is not null)
+                        await response.Stream.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                {
+                    Log.Debug(e, "Failed to drain BODY response after batch size mismatch.");
+                }
+            }
+
+            try
+            {
+                await batch.Completion.ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                Log.Debug(e, "Failed to observe BODY batch completion after size mismatch.");
+            }
+
+            throw new InvalidOperationException(
+                $"Pipelined BODY returned {batch.Responses.Count} responses for {liveIds.Length} requests.");
+        }
+
+        return new FetchedBodyBatch(batch.Responses.ToArray(), batch.Completion);
+    }
+
+    private void EnqueueBatchCompletionObserver(Task completion)
+    {
+        while (_batchCompletionObservers.TryPeek(out var head) &&
+               head.Status == TaskStatus.RanToCompletion)
+        {
+            _batchCompletionObservers.TryDequeue(out _);
+        }
+
+        _batchCompletionObservers.Enqueue(ObserveBatchCompletionAsync(completion));
+    }
+
+    private static async Task ObserveBatchCompletionAsync(Task completion)
+    {
+        try
+        {
+            await completion.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Log.Debug(exception, "Pipelined BODY batch completion failed.");
+        }
+    }
+
+    /// <summary>
+    /// When <see cref="_readBudget"/> is null, pause the producer once in-flight planned
+    /// bytes reach task-window-size × estimated segment size so full-file GETs cannot retain
+    /// unbounded decoded bytes ahead of the consumer. For pipelined BODY requests the task
+    /// window accounts for every segment needed to keep the connection budget occupied.
+    /// </summary>
+    private async Task WaitForPrefetchCeilingAsync(CancellationToken cancellationToken)
+    {
+        if (_prefetchByteCeiling <= 0) return;
+
+        while (Interlocked.Read(ref _inFlightPrefetchBytes) >= _prefetchByteCeiling)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var wait = Volatile.Read(ref _prefetchSpace);
+            if (Interlocked.Read(ref _inFlightPrefetchBytes) < _prefetchByteCeiling)
+                return;
+            await wait.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private void ReleaseInFlightPrefetchBytes(long plannedBytes)
+    {
+        if (plannedBytes <= 0) return;
+        Interlocked.Add(ref _inFlightPrefetchBytes, -plannedBytes);
+        var prior = Interlocked.Exchange(
+            ref _prefetchSpace,
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        prior.TrySetResult();
+    }
+
+    private long GetPlannedSegmentBytes(int segmentIndex) =>
+        _segmentSizes.TryGetExactSize(segmentIndex, out var exact)
+            ? exact
+            : Math.Max(0, _estimatedSegmentSize);
+
+    private async Task<SegmentDownloadResult> DownloadSegment(
+        string segmentId,
+        int segmentIndex,
+        ArticleByteLease initialLease,
+        bool isFirstSegment,
+        CancellationToken cancellationToken
+    )
+    {
+        var estimate = GetPlannedSegmentBytes(segmentIndex);
+        var lease = initialLease;
+        try
+        {
+            ThrowIfPlaybackFailFast();
+            if (_knownMissingSegmentIndices?.Contains(segmentIndex) == true)
+            {
+                var result = await DownloadKnownMissingSegment(
+                    segmentId, segmentIndex, lease, isFirstSegment, cancellationToken).ConfigureAwait(false);
+                lease = null;
+                return result;
+            }
+
+            var persistent = new PersistentCorruptionTracker();
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    UsenetDecodedBodyResponse bodyResponse;
+                    using (FetchAttributionContext.Begin(_fileName))
+                    {
+                        bodyResponse = await _usenetClient
+                            .DecodedBodyAsync(segmentId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    await ThrowOnSegmentIdMismatchAsync(segmentId, bodyResponse).ConfigureAwait(false);
+#pragma warning disable CA2000 // stream ownership transfers to the returned SegmentDownloadResult
+                    var drained = await DrainSegmentAsync(
+#pragma warning restore CA2000
+                            bodyResponse.Stream!, segmentIndex, cancellationToken, lease, estimate)
+                        .ConfigureAwait(false);
+                    lease = null;
+                    return ToDownloadResult(drained, estimate, segmentId);
+                }
+                catch (UsenetArticleNotFoundException e)
+                {
+                    var fallback = await TryFallbackSegmentsAsync(
+                            segmentIndex, lease, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (fallback is not null)
+                    {
+                        lease = null;
+                        return ToDownloadResult(fallback.Value, estimate, segmentId);
+                    }
+
+                    if (_failFastOnFirstSegment && isFirstSegment)
+                    {
+                        e.LogWarningKnownOrStack(
+                            "First article {SegmentId} missing on all providers at playback start while reading {FileName}. " +
+                            "Failing the stream so the player surfaces an error.",
+                            segmentId, _fileName);
+                        throw;
+                    }
+
+                    return ZeroFillSegment(
+                        "Article {SegmentId} missing on all providers while reading {FileName}. Filling the {Bytes}-byte gap to preserve later file offsets.",
+                        e.SegmentId,
+                        segmentIndex,
+                        e);
+                }
+                catch (UsenetCorruptArticleException e) when (!cancellationToken.IsCancellationRequested)
+                {
+                    persistent.NoteOrThrow(e);
+                    if (attempt >= GetCorruptionRetryLimit(segmentId))
+                    {
+                        var fallback = await TryFallbackSegmentsAsync(
+                                segmentIndex, lease, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (fallback is not null)
+                        {
+                            lease = null;
+                            return ToDownloadResult(fallback.Value, estimate, segmentId);
+                        }
+
+                        if (_failFastOnFirstSegment && isFirstSegment)
+                        {
+                            Par2RepairTriggerSink.ReportCorruption(_fileName, segmentId);
+                            e.LogWarningKnownOrStack(
+                                "First article {SegmentId} persistently corrupt at playback start while reading {FileName}. " +
+                                "Failing the stream so the player surfaces an error.",
+                                segmentId, _fileName);
+                            throw;
+                        }
+
+                        return ZeroFillSegment(
+                            "Article {SegmentId} persistently corrupt while reading {FileName}. Filling the {Bytes}-byte gap to preserve later file offsets.",
+                            segmentId,
+                            segmentIndex,
+                            e);
+                    }
+
+                    Log.Debug(
+                        e,
+                        "Corrupt segment {SegmentId} from provider {Provider}; retrying to allow provider failover (attempt {Attempt}).",
+                        segmentId,
+                        e.ProviderKey,
+                        attempt + 1);
+                    await Task.Delay(TimeSpan.FromMilliseconds(250 * (attempt + 1)), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OutOfMemoryException oom)
+                {
+                    OomDiagnostics.LogHeapStateOnOom(oom, "segment body retry");
+                    throw;
+                }
+                catch (Exception e) when (
+                    !cancellationToken.IsCancellationRequested
+                    && e is not OutOfMemoryException
+                    && e is not PersistentUsenetCorruptionException)
+                {
+                    if (attempt < MaxBodyRetries)
+                    {
+                        Log.Debug(e, "Transient failure fetching segment {SegmentId} (attempt {Attempt}). Retrying.",
+                            segmentId, attempt + 1);
+                        if (MultiProviderNntpClient.CurrentReadSessionId is { } retrySession)
+                            StreamTrace.TryRetry(retrySession, segmentId, attempt + 1, e.Message);
+                        await Task.Delay(TimeSpan.FromMilliseconds(250 * (attempt + 1)), cancellationToken)
+                            .ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (_failFastOnFirstSegment && isFirstSegment)
+                    {
+                        e.LogWarningKnownOrStack(
+                            "Segment {SegmentId} unavailable at playback start after {Attempts} attempts while reading {FileName}. " +
+                            "Failing the stream so the player surfaces an error.",
+                            segmentId, attempt + 1, _fileName);
+                        throw;
+                    }
+
+                    throw CreateTransientSegmentFailure(segmentId, segmentIndex, e);
+                }
+            }
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    private async Task<SegmentDownloadResult> DownloadKnownMissingSegment(
+        string segmentId,
+        int segmentIndex,
+        ArticleByteLease initialLease,
+        bool isFirstSegment,
+        CancellationToken cancellationToken)
+    {
+        var estimate = GetPlannedSegmentBytes(segmentIndex);
+        var lease = initialLease;
+        try
+        {
+            ThrowIfPlaybackFailFast();
+            var local = await TryGetLocalSegmentAsync(segmentId, segmentIndex, lease, cancellationToken)
+                .ConfigureAwait(false);
+            if (local is null)
+                local = await TryGetLocalFallbackSegmentsAsync(segmentIndex, lease, cancellationToken)
+                    .ConfigureAwait(false);
+            if (local is not null)
+            {
+                lease = null;
+                return ToDownloadResult(local.Value, estimate, segmentId);
+            }
+
+            var missing = new UsenetArticleNotFoundException(segmentId);
+            if (_failFastOnFirstSegment && isFirstSegment)
+            {
+                missing.LogWarningKnownOrStack(
+                    "First article {SegmentId} is health-confirmed missing at playback start while reading {FileName}. " +
+                    "Failing the stream so the player surfaces an error.",
+                    segmentId, _fileName);
+                throw missing;
+            }
+            return ZeroFillSegment(
+                "Article {SegmentId} is a health-confirmed missing segment of {FileName}. Filling the {Bytes}-byte gap without a provider request.",
+                segmentId,
+                segmentIndex,
+                missing);
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    private async Task<DrainedSegment?> TryGetLocalSegmentAsync(
+        string segmentId,
+        int segmentIndex,
+        ArticleByteLease? lease,
+        CancellationToken cancellationToken)
+    {
+        var body = await _usenetClient.TryGetLocalDecodedBodyAsync(segmentId, cancellationToken)
+            .ConfigureAwait(false);
+        if (body?.Stream is not { } stream) return null;
+
+        try
+        {
+            await ThrowOnSegmentIdMismatchAsync(segmentId, body).ConfigureAwait(false);
+            if (!await SegmentResponseValidator.IsFallbackPartSizeCompatibleAsync(
+                    stream, _segmentSizes, segmentIndex, cancellationToken).ConfigureAwait(false))
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+                return null;
+            }
+
+            return await DrainSegmentAsync(
+                    stream, segmentIndex, cancellationToken, lease, GetPlannedSegmentBytes(segmentIndex))
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task<DrainedSegment?> TryGetLocalFallbackSegmentsAsync(
+        int segmentIndex,
+        ArticleByteLease? lease,
+        CancellationToken cancellationToken)
+    {
+        foreach (var fallbackId in GetFallbacks(segmentIndex))
+        {
+            var local = await TryGetLocalSegmentAsync(fallbackId, segmentIndex, lease, cancellationToken)
+                .ConfigureAwait(false);
+            if (local is not null) return local;
+        }
+
+        return null;
+    }
+
+    private async Task<SegmentDownloadResult> DownloadBatchSegment(
+        Task<UsenetDecodedBodyResponse> responseTask,
+        string segmentId,
+        int segmentIndex,
+        bool isFirstSegment,
+        ArticleByteLease initialLease,
+        CancellationToken cancellationToken)
+    {
+        var estimate = GetPlannedSegmentBytes(segmentIndex);
+        var lease = initialLease;
+        Exception? playbackFailFast = null;
+        try
+        {
+            // The producer issued this batch before the task ran, so the response must
+            // always be owned here. A fail-fast check before the await would strand an
+            // already-on-the-wire body, and UsenetSharp's pump cannot release the shared
+            // batch connection until every handed-out stream is consumed or disposed.
+            var response = await responseTask.ConfigureAwait(false);
+            if (PlaybackHoleTracker.ShouldFailFast(_fileName, out var failFast))
+            {
+                if (response.Stream is not null)
+                {
+                    try
+                    {
+                        await response.Stream.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception disposeError) when (disposeError is not OutOfMemoryException)
+                    {
+                        Log.Debug(
+                            disposeError,
+                            "Failed to dispose pipelined BODY stream after playback fail-fast for {FileName}.",
+                            _fileName);
+                    }
+                }
+
+                playbackFailFast = failFast ?? new UsenetArticleNotFoundException(segmentId);
+                ExceptionDispatchInfo.Capture(playbackFailFast).Throw();
+            }
+
+            await ThrowOnSegmentIdMismatchAsync(segmentId, response).ConfigureAwait(false);
+#pragma warning disable CA2000 // stream ownership transfers to the returned SegmentDownloadResult
+            var drained = await DrainSegmentAsync(
+#pragma warning restore CA2000
+                    response.Stream!, segmentIndex, cancellationToken, lease, estimate)
+                .ConfigureAwait(false);
+            lease = null; // owned by BudgetedStream / buffer
+            return ToDownloadResult(drained, estimate, segmentId);
+        }
+        catch (Exception) when (playbackFailFast is not null)
+        {
+            // A tracker-provided fail-fast bypasses the miss/corruption recovery below:
+            // those handlers can issue fallback or rescue requests on a path already
+            // declared dead, and a successful fallback would defeat the fail-fast.
+            throw;
+        }
+        catch (UsenetArticleNotFoundException e)
+        {
+            var fallback = await TryFallbackSegmentsAsync(segmentIndex, lease, cancellationToken)
+                .ConfigureAwait(false);
+            if (fallback is not null)
+            {
+                lease = null;
+                return ToDownloadResult(fallback.Value, estimate, segmentId);
+            }
+
+            if (_failFastOnFirstSegment && isFirstSegment) throw;
+            return ZeroFillSegment(
+                "Article {SegmentId} missing on all providers while reading {FileName}. Filling the {Bytes}-byte gap to preserve later file offsets.",
+                e.SegmentId,
+                segmentIndex,
+                e);
+        }
+        catch (UsenetCorruptArticleException e) when (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var retried = await RetryCorruptSegmentAsync(
+                        segmentId, segmentIndex, e, lease, cancellationToken)
+                    .ConfigureAwait(false);
+                lease = null;
+                return ToDownloadResult(retried, estimate, segmentId);
+            }
+            catch (UsenetCorruptArticleException persistent)
+            {
+                if (_failFastOnFirstSegment && isFirstSegment)
+                {
+                    Par2RepairTriggerSink.ReportCorruption(_fileName, segmentId);
+                    throw;
+                }
+                return ZeroFillSegment(
+                    "Article {SegmentId} persistently corrupt while reading {FileName}. Filling the {Bytes}-byte gap to preserve later file offsets.",
+                    segmentId,
+                    segmentIndex,
+                    persistent);
+            }
+        }
+        catch (OutOfMemoryException oom)
+        {
+            OomDiagnostics.LogHeapStateOnOom(oom, "pipelined segment batch");
+            throw;
+        }
+        catch (Exception e) when (
+            !cancellationToken.IsCancellationRequested
+            && e is not OutOfMemoryException
+            && e is not PersistentUsenetCorruptionException)
+        {
+            // A failure inside a pipelined batch says nothing about whether the article
+            // can be fetched at all: the batch shares one connection, so a stall or a
+            // dropped socket takes out unrelated segments with it. Re-request this
+            // segment on its own first, which is what gives provider failover and the
+            // streaming-timeout retries a chance before any data is degraded.
+            DrainedSegment? rescued;
+            try
+            {
+                rescued = await TryRescueSegmentAsync(
+                        segmentId, segmentIndex, e, lease, cancellationToken)
+                    .ConfigureAwait(false);
+                if (rescued is not null)
+                    lease = null;
+            }
+            catch (UsenetArticleNotFoundException notFound)
+            {
+                // Rescue confirmed the article is genuinely missing — gap-fill
+                // instead of treating it as a transient transport failure.
+                if (_failFastOnFirstSegment && isFirstSegment) throw;
+                return ZeroFillSegment(
+                    "Article {SegmentId} missing on all providers while reading {FileName}. Filling the {Bytes}-byte gap to preserve later file offsets.",
+                    notFound.SegmentId,
+                    segmentIndex,
+                    notFound);
+            }
+
+            if (rescued is not null)
+                return ToDownloadResult(rescued.Value, estimate, segmentId);
+
+            if (_failFastOnFirstSegment && isFirstSegment) throw;
+            throw CreateTransientSegmentFailure(segmentId, segmentIndex, e);
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Re-requests a segment individually after its pipelined response failed. Returns
+    /// null once the retries are spent. Throws <see cref="UsenetArticleNotFoundException"/>
+    /// if rescue confirms the article is genuinely missing, so the caller can gap-fill
+    /// rather than treating it as a transient transport failure.
+    /// </summary>
+    private async Task<DrainedSegment?> TryRescueSegmentAsync(
+        string segmentId,
+        int segmentIndex,
+        Exception batchFailure,
+        ArticleByteLease? existingLease,
+        CancellationToken cancellationToken)
+    {
+        var lease = existingLease;
+        var persistent = new PersistentCorruptionTracker();
+        if (batchFailure is UsenetCorruptArticleException corruptBatch)
+            persistent.NoteOrThrow(corruptBatch);
+        try
+        {
+            for (var attempt = 1; attempt <= MaxBodyRetries; attempt++)
+            {
+                Log.Debug(
+                    batchFailure,
+                    "Pipelined segment {SegmentId} failed; re-requesting it individually (attempt {Attempt}).",
+                    segmentId, attempt);
+                if (MultiProviderNntpClient.CurrentReadSessionId is { } retrySession)
+                    StreamTrace.TryRetry(retrySession, segmentId, attempt, batchFailure.Message);
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken)
+                        .ConfigureAwait(false);
+                    if (lease is null)
+                        lease = await LeaseSegmentBytesAsync(
+                            GetPlannedSegmentBytes(segmentIndex), cancellationToken).ConfigureAwait(false);
+
+                    UsenetDecodedBodyResponse response;
+                    using (FetchAttributionContext.Begin(_fileName))
+                    {
+                        response = await _usenetClient.DecodedBodyAsync(segmentId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    await ThrowOnSegmentIdMismatchAsync(segmentId, response).ConfigureAwait(false);
+#pragma warning disable CA2000 // stream ownership transfers to the returned SegmentDownloadResult
+                    var rescued = await DrainSegmentAsync(
+#pragma warning restore CA2000
+                        response.Stream!, segmentIndex, cancellationToken, lease, GetPlannedSegmentBytes(segmentIndex))
+                        .ConfigureAwait(false);
+                    lease = null;
+                    return rescued;
+                }
+                catch (UsenetArticleNotFoundException)
+                {
+                    throw;
+                }
+                catch (PersistentUsenetCorruptionException)
+                {
+                    throw;
+                }
+                catch (UsenetCorruptArticleException e)
+                {
+                    persistent.NoteOrThrow(e);
+                    Log.Debug(e, "Individual rescue of segment {SegmentId} failed (attempt {Attempt}).",
+                        segmentId, attempt);
+                }
+                catch (OutOfMemoryException oom)
+                {
+                    OomDiagnostics.LogHeapStateOnOom(oom, "individual segment rescue");
+                    throw;
+                }
+                catch (Exception e) when (
+                    !cancellationToken.IsCancellationRequested
+                    && e is not OutOfMemoryException
+                    && e is not PersistentUsenetCorruptionException)
+                {
+                    // A non-corrupt rescue failure is swallowed here and the original
+                    // batch failure is surfaced as TransientSegmentExhaustionException.
+                    Log.Debug(e, "Individual rescue of segment {SegmentId} failed (attempt {Attempt}).",
+                        segmentId, attempt);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            if (existingLease is null)
+                lease?.Dispose();
+        }
+    }
+
+    private static Task ThrowOnSegmentIdMismatchAsync(
+        string segmentId,
+        UsenetDecodedBodyResponse response) =>
+        SegmentResponseValidator.ThrowOnSegmentIdMismatchAsync(segmentId, response);
+
+    private async Task<DrainedSegment> RetryCorruptSegmentAsync(
+        string segmentId,
+        int segmentIndex,
+        UsenetCorruptArticleException initialFailure,
+        ArticleByteLease? existingLease,
+        CancellationToken cancellationToken)
+    {
+        var failure = initialFailure;
+        var lease = existingLease;
+        var persistent = new PersistentCorruptionTracker();
+        persistent.NoteOrThrow(initialFailure);
+        try
+        {
+            for (var attempt = 1; attempt <= GetCorruptionRetryLimit(segmentId); attempt++)
+            {
+                Log.Debug(
+                    failure,
+                    "Corrupt pipelined segment {SegmentId} from provider {Provider}; retrying to allow provider failover (attempt {Attempt}).",
+                    segmentId,
+                    failure.ProviderKey,
+                    attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+
+                try
+                {
+                    if (lease is null)
+                        lease = await LeaseSegmentBytesAsync(
+                            GetPlannedSegmentBytes(segmentIndex), cancellationToken).ConfigureAwait(false);
+
+                    UsenetDecodedBodyResponse response;
+                    using (FetchAttributionContext.Begin(_fileName))
+                    {
+                        response = await _usenetClient.DecodedBodyAsync(segmentId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    await ThrowOnSegmentIdMismatchAsync(segmentId, response).ConfigureAwait(false);
+#pragma warning disable CA2000 // stream ownership transfers to the returned SegmentDownloadResult
+                    var retried = await DrainSegmentAsync(
+#pragma warning restore CA2000
+                        response.Stream!, segmentIndex, cancellationToken, lease, GetPlannedSegmentBytes(segmentIndex))
+                        .ConfigureAwait(false);
+                    lease = null;
+                    return retried;
+                }
+                catch (UsenetCorruptArticleException exception)
+                {
+                    persistent.NoteOrThrow(exception);
+                    failure = exception;
+                }
+            }
+
+            var fallback = await TryFallbackSegmentsAsync(segmentIndex, lease, cancellationToken)
+                .ConfigureAwait(false);
+            if (fallback is not null)
+            {
+                lease = null;
+                return fallback.Value;
+            }
+
+            ExceptionDispatchInfo.Capture(failure).Throw();
+            throw new InvalidOperationException("Unreachable after rethrowing a corrupt segment failure.");
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Try alternate MessageIds for a missing primary segment. Each BODY
+    /// attempt completes its callback exactly once via DecodedBodyAsync.
+    /// When <paramref name="existingLease"/> is supplied it is retained across
+    /// attempts; on success ownership transfers to the returned stream, on miss
+    /// the caller still owns the lease.
+    /// </summary>
+    private async Task<DrainedSegment?> TryFallbackSegmentsAsync(
+        int segmentIndex,
+        ArticleByteLease? existingLease,
+        CancellationToken cancellationToken)
+    {
+        var fallbacks = GetFallbacks(segmentIndex);
+        if (fallbacks.Length == 0) return null;
+
+        var lease = existingLease;
+        var ownsLease = existingLease is null;
+        try
+        {
+            foreach (var fallbackId in fallbacks)
+            {
+                try
+                {
+                    if (lease is null)
+                        lease = await LeaseSegmentBytesAsync(
+                            GetPlannedSegmentBytes(segmentIndex), cancellationToken).ConfigureAwait(false);
+
+                    UsenetDecodedBodyResponse bodyResponse;
+                    using (FetchAttributionContext.Begin(_fileName))
+                    {
+                        bodyResponse = await _usenetClient
+                            .DecodedBodyAsync(fallbackId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    await ThrowOnSegmentIdMismatchAsync(fallbackId, bodyResponse).ConfigureAwait(false);
+                    if (!await SegmentResponseValidator.IsFallbackPartSizeCompatibleAsync(
+                            bodyResponse.Stream!, _segmentSizes, segmentIndex, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        Log.Debug(
+                            "Fallback MessageId {FallbackId} for segment {PrimaryIndex} of {FileName} has a mismatched yEnc part size; skipping.",
+                            fallbackId, segmentIndex, _fileName);
+                        await bodyResponse.Stream!.DisposeAsync().ConfigureAwait(false);
+                        continue;
+                    }
+                    Log.Debug(
+                        "Segment {PrimaryIndex} recovered via fallback MessageId {FallbackId} while reading {FileName}.",
+                        segmentIndex, fallbackId, _fileName);
+#pragma warning disable CA2000 // stream ownership transfers to the returned SegmentDownloadResult
+                    var drained = await DrainSegmentAsync(
+#pragma warning restore CA2000
+                        bodyResponse.Stream!, segmentIndex, cancellationToken, lease, GetPlannedSegmentBytes(segmentIndex))
+                        .ConfigureAwait(false);
+                    lease = null;
+                    return drained;
+                }
+                catch (UsenetArticleNotFoundException)
+                {
+                    // Try the next alternate MessageId.
+                }
+                catch (UsenetCorruptArticleException)
+                {
+                    // Corrupt fallback — try the next alternate MessageId.
+                }
+                catch (UsenetUnexpectedResponseException e)
+                {
+                    Log.Debug(e, "Fallback MessageId {FallbackId} returned another article.", fallbackId);
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            if (ownsLease)
+                lease?.Dispose();
+        }
+    }
+
+    private string[] GetFallbacks(int segmentIndex)
+    {
+        if (_segmentFallbacks is null ||
+            segmentIndex < 0 ||
+            segmentIndex >= _segmentFallbacks.Length)
+            return [];
+
+        return _segmentFallbacks[segmentIndex] ?? [];
+    }
+
+    private async Task DisposeStreamAsync(
+        Task<SegmentDownloadResult> streamTask,
+        bool releaseInFlight = false)
+    {
+        try
+        {
+            var result = await streamTask.ConfigureAwait(false);
+            await using var stream = result.Stream;
+            if (releaseInFlight)
+                ReleaseInFlightPrefetchBytes(result.PlannedBytes);
+        }
+        catch
+        {
+            // The producer owns reporting download failures.
+        }
+    }
+
+    /// <summary>
+    /// Substitutes a bounded gap for a segment that could not be downloaded, but only for
+    /// a known fill length. Every byte after this segment is positioned by how many bytes
+    /// it contributes, so a wrong length corrupts the rest of the file instead of just
+    /// the part that failed — better to fail the read and let the player retry or report it.
+    /// </summary>
+    private SegmentDownloadResult ZeroFillSegment(
+        string messageTemplate,
+        string segmentId,
+        int segmentIndex,
+        Exception exception)
+    {
+        if (!_segmentSizes.TryGetFillLength(segmentIndex, out var fill, out var isExact))
+        {
+            if (exception.TryGetCausingException(out UsenetCorruptArticleException? _))
+                Par2RepairTriggerSink.ReportCorruption(_fileName, segmentId);
+            throw CreateUnknownLengthFailure(segmentId, segmentIndex, exception);
+        }
+
+        if (!isExact)
+        {
+            Log.Debug(
+                "Using the observed {Bytes}-byte segment size of {FileName} to replace failed segment {SegmentId}.",
+                fill, _fileName, segmentId);
+        }
+
+        if (exception.TryGetCausingException(out UsenetCorruptArticleException? _))
+            Par2RepairTriggerSink.ReportCorruption(_fileName, segmentId);
+        else
+            Par2RepairTriggerSink.Current?.ReportZeroFill(_fileName, segmentId, segmentIndex, fill);
+
+        PlaybackHoleTracker.RecordHole(_fileName, segmentId, exception);
+
+#pragma warning disable CA2000 // gap-fill stream ownership transfers to the returned SegmentDownloadResult
+        return SegmentDownloadResult.ZeroFill(
+            CreateGapFillStream(fill, segmentIndex),
+            messageTemplate,
+            segmentId,
+            fill,
+            exception,
+            GetPlannedSegmentBytes(segmentIndex));
+#pragma warning restore CA2000
+    }
+
+    private Stream CreateGapFillStream(long fill, int segmentIndex)
+    {
+        if (!_useContainerAwareFill)
+            return new ZeroStream(fill);
+
+        long? fileOffset = _firstSegmentFileOffset;
+        if (fileOffset is not null)
+        {
+            try
+            {
+                for (var i = 0; i < segmentIndex; i++)
+                {
+                    if (!_segmentSizes.TryGetExactSize(i, out var size))
+                    {
+                        fileOffset = null;
+                        break;
+                    }
+
+                    fileOffset = checked(fileOffset.Value + size);
+                }
+            }
+            catch (OverflowException)
+            {
+                fileOffset = null;
+            }
+        }
+
+        return ContainerAwareFillStream.Create(_fileName, fill, fileOffset);
+    }
+
+    private Exception CreateUnknownLengthFailure(string segmentId, int segmentIndex, Exception failure)
+    {
+        var message =
+            $"Segment {segmentIndex + 1} of {_segmentIds.Length} ({segmentId}) could not be downloaded " +
+            $"while reading \"{_fileName}\", and its exact length is unknown, so the rest of the file " +
+            "cannot be delivered at the right offsets. Repair the item to restore its segment sizes.";
+        return failure.IsNonRetryableDownloadException()
+            ? new NonRetryableDownloadException(message, failure)
+            : new RetryableDownloadException(message, failure);
+    }
+
+    private TransientSegmentExhaustionException CreateTransientSegmentFailure(
+        string segmentId, int segmentIndex, Exception failure)
+    {
+        var message =
+            $"Segment {segmentIndex + 1} of {_segmentIds.Length} ({segmentId}) could not be downloaded " +
+            $"while reading \"{_fileName}\" after all retry attempts were exhausted. " +
+            "The client should retry this range request.";
+        return new TransientSegmentExhaustionException(message, failure);
+    }
+
+    private async Task<DrainedSegment> DrainSegmentAsync(
+        Stream source,
+        int segmentIndex,
+        CancellationToken cancellationToken,
+        ArticleByteLease? existingLease = null,
+        long? leasedEstimate = null)
+    {
+        ArticleByteLease? lease = existingLease;
+        var ownsLease = existingLease is null;
+        PooledBufferStream? buffer = null;
+        var sourceDisposeAttempted = false;
+        try
+        {
+            var hasExactSize = _segmentSizes.TryGetExactSize(segmentIndex, out var exactSize);
+            var expected = hasExactSize ? exactSize : _estimatedSegmentSize;
+            var estimate = leasedEstimate
+                ?? (expected is > 0 and <= int.MaxValue ? expected : _estimatedSegmentSize);
+            if (estimate < 0) estimate = 0;
+
+            // Never lease while holding an open body pipe: a waiter in LeaseAsync must
+            // not hold pipe bytes. All production call sites lease before issuing the
+            // BODY request; this branch is defensive and currently unreachable. Future
+            // callers must also lease before BODY, not here after the pipe exists.
+            if (lease is null)
+                lease = await LeaseSegmentBytesAsync(estimate, cancellationToken).ConfigureAwait(false);
+
+            var capacity = await ResolveDrainCapacityHintAsync(
+                source, segmentIndex, estimate, cancellationToken).ConfigureAwait(false);
+            buffer = new PooledBufferStream(capacity);
+            var traceRange = MultiProviderNntpClient.CurrentStreamTraceRange;
+            var drainStarted = Stopwatch.GetTimestamp();
+            await source.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            StreamTrace.TryStall(
+                traceRange,
+                StreamStallKind.BodyDrain,
+                Stopwatch.GetElapsedTime(drainStarted));
+            var drained = buffer.Length;
+            var shortPadded = false;
+            if (hasExactSize)
+            {
+                shortPadded = AlignDrainedSegment(buffer, segmentIndex, drained, exactSize);
+            }
+            else
+                _segmentSizes.RecordObservedSize(segmentIndex, drained);
+
+            var actual = buffer.Length;
+            buffer.Position = 0;
+            // Keep the buffer and any internally acquired lease locally owned until
+            // source disposal succeeds. A disposal failure must not strand either.
+            sourceDisposeAttempted = true;
+            await source.DisposeAsync().ConfigureAwait(false);
+            if (actual != estimate)
+                lease.Adjust(actual - estimate);
+            // Build the wrapper that takes over the buffer and lease before dropping
+            // local ownership, so a failure here still routes both through the catch.
+            var result = ReferenceEquals(lease, ArticleByteLease.Empty)
+                ? (Stream)buffer
+                : new BudgetedStream(buffer, lease);
+            ownsLease = false;
+            buffer = null;
+            return new DrainedSegment(result, shortPadded);
+        }
+        catch
+        {
+            if (buffer is not null)
+                await buffer.DisposeAsync().ConfigureAwait(false);
+            if (ownsLease)
+                lease?.Dispose();
+            throw;
+        }
+        finally
+        {
+            if (!sourceDisposeAttempted)
+                await source.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Uses imported ranges first, then the body's exact decoded yEnc part size, and leaves
+    /// the file average as a fallback only. This chooses a rent hint; it never controls output.
+    /// </summary>
+    private async ValueTask<int> ResolveDrainCapacityHintAsync(
+        Stream source,
+        int segmentIndex,
+        long estimate,
+        CancellationToken cancellationToken)
+    {
+        if (_segmentSizes.TryGetExactSize(segmentIndex, out var exact))
+            return ToCapacity(exact);
+
+        if (estimate <= 0 || estimate > Array.MaxLength)
+            return 0;
+
+        if (source is not YencStream yencSource)
+            return ToCapacity(estimate);
+
+        UsenetYencHeader? header;
+        try
+        {
+            header = await yencSource.GetYencHeadersAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException)
+        {
+            // Header parse failed on a body that still may decode via ReadAsync (test fakes
+            // and some nonstandard streams). Keep the estimate; do not swallow corrupt-article
+            // or other download failures — those are not thrown from GetYencHeadersAsync here.
+            return ToCapacity(estimate);
+        }
+
+        if (header is not null
+            && header.PartSize > 0
+            && header.PartSize <= Array.MaxLength
+            && IsPlausiblePartSize(
+                header.PartSize, header.TotalParts, _segmentIds.Length, estimate))
+            return (int)header.PartSize;
+
+        return ToCapacity(estimate);
+    }
+
+    internal static int ToCapacity(long value) =>
+        value > 0 && value <= Array.MaxLength ? (int)value : 0;
+
+    /// <summary>
+    /// Rejects remote yEnc PartSize values that cannot be a full-part size for this file
+    /// average, so a malformed header cannot request an arbitrary multi-gigabyte rent.
+    /// </summary>
+    internal static bool IsPlausiblePartSize(
+        long partSize, int totalParts, int remainingParts, long estimate)
+    {
+        if (partSize <= 0 || estimate <= 0) return false;
+        if (totalParts < remainingParts) return false;
+        if (totalParts <= 1) return partSize <= estimate;
+        // EstimatedSegmentSize is floor(fileSize / totalParts), so add one before deriving
+        // the strict upper bound to cover the discarded integer-division remainder.
+        var upperBound = Math.Ceiling((estimate + 1d) * totalParts / (totalParts - 1));
+        return partSize <= upperBound;
+    }
+
+    private async ValueTask<ArticleByteLease> LeaseSegmentBytesAsync(
+        long estimate,
+        CancellationToken cancellationToken)
+    {
+        if (_budget is null || estimate <= 0)
+            return ArticleByteLease.Empty;
+        return await _budget.LeaseAsync(estimate, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <returns>True when the body was short and padded to the recorded length.</returns>
+    private bool AlignDrainedSegment(PooledBufferStream buffer, int segmentIndex, long drained, long expected)
+    {
+        if (drained == expected) return false;
+
+        if (drained > expected)
+        {
+            Log.Debug(
+                "Segment {SegmentIndex} of {FileName} decoded {Drained} bytes but was recorded as {Expected}. Truncating to keep offsets aligned.",
+                segmentIndex, _fileName, drained, expected);
+            buffer.SetLength(expected);
+            return false;
+        }
+
+        var shortfall = expected - drained;
+        var segmentId = _segmentIds.Span[segmentIndex];
+        SegmentHoleReporter.ReportShortDecode(_fileName, segmentId, segmentIndex, shortfall);
+        buffer.SetLength(expected);
+        return true;
+    }
+
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // if the stream is null, get the next stream.
+            if (_stream == null)
+            {
+                // Time spent here is the consumer starving: prefetch has not yet delivered
+                // the next segment. Low provider time with high consumer wait means the
+                // pipeline is not running far enough ahead, not that the provider is slow.
+                var traceRange = MultiProviderNntpClient.CurrentStreamTraceRange;
+                var waitStarted = Stopwatch.GetTimestamp();
+                var wasQueued = _streamTasks.Reader.TryRead(out var streamTask);
+                if (!wasQueued)
+                {
+                    if (!await _streamTasks.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false)) return 0;
+                    if (!_streamTasks.Reader.TryRead(out streamTask)) return 0;
+                }
+
+                // Ready means prefetch stayed ahead; use IsCompleted (not Successfully) so
+                // faulted tasks still count as present when the consumer arrived.
+                var nextSegment = streamTask
+                    ?? throw new InvalidOperationException("Segment channel returned a null task.");
+                var readyWhenNeeded = wasQueued && nextSegment.IsCompleted;
+                // Test hook: fires after readiness is sampled and before the segment task is awaited,
+                // so lockstep tests can keep the gate closed until starvation is observed.
+                TestOnSegmentReadiness?.Invoke(readyWhenNeeded);
+                var result = await nextSegment.ConfigureAwait(false);
+                StreamTrace.TryStall(
+                    traceRange,
+                    StreamStallKind.ConsumerWait,
+                    Stopwatch.GetElapsedTime(waitStarted));
+                ReleaseInFlightPrefetchBytes(result.PlannedBytes);
+                // Ignore the first delivered segment (startup warm-up).
+                if (_deliveredSegments++ > 0)
+                    ObserveBatchReadiness(readyWhenNeeded);
+                _stream = AcceptSegment(result);
+            }
+
+            // read from the stream
+            var read = await _stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read > 0) return read;
+
+            // if the stream ended, continue to the next stream.
+            await _stream.DisposeAsync().ConfigureAwait(false);
+            _stream = null;
+        }
+    }
+
+    private void ObserveBatchReadiness(bool readyWhenNeeded)
+    {
+        if (_batchSizer is null) return;
+        var change = _batchSizer.Observe(readyWhenNeeded);
+        if (change is null) return;
+
+        Log.Debug(
+            "Prefetch batch size for {FileName} changed from {PreviousBatchSize} to {BatchSize}. " +
+            "ReadyWhenNeeded={ReadyWhenNeeded}",
+            _fileName, change.Value.Previous, change.Value.Current, change.Value.ReadyWhenNeeded);
+
+        if (MultiProviderNntpClient.CurrentReadSessionId is { } sessionId)
+            StreamTrace.TryPrefetchWidth(sessionId, change.Value.Previous, change.Value.Current);
+    }
+
+    private Stream AcceptSegment(SegmentDownloadResult result)
+    {
+        if (!result.IsZeroFill)
+        {
+            if (result.IsShortPad)
+            {
+                _consecutiveZeroFills++;
+                if (_consecutiveZeroFills < GapFillLimits.MaxConsecutiveZeroFills
+                    && !PlaybackHoleTracker.ShouldFailFast(_fileName, out _))
+                    return result.Stream;
+
+                result.Stream.Dispose();
+                _cts.Cancel();
+                if (PlaybackHoleTracker.ShouldFailFast(_fileName, out var failFast)
+                    && failFast is not null)
+                {
+                    ExceptionDispatchInfo.Capture(failFast).Throw();
+                }
+
+                throw new UsenetArticleNotFoundException(result.SegmentId ?? _segmentIds.Span[0]);
+            }
+
+            _consecutiveZeroFills = 0;
+            PlaybackHoleTracker.RecordGoodSegment(_fileName);
+            return result.Stream;
+        }
+
+        _consecutiveZeroFills++;
+        ZeroFillLogLimiter.Write(
+            result.MessageTemplate!,
+            result.SegmentId!,
+            _fileName,
+            result.Bytes,
+            result.Failure);
+        if (MultiProviderNntpClient.CurrentReadSessionId is { } sessionId)
+            StreamTrace.TryZeroFill(sessionId, result.SegmentId!, result.Bytes);
+
+        if (_consecutiveZeroFills < GapFillLimits.MaxConsecutiveZeroFills
+            && !PlaybackHoleTracker.ShouldFailFast(_fileName, out _))
+            return result.Stream;
+
+        result.Stream.Dispose();
+        _cts.Cancel();
+        ExceptionDispatchInfo.Capture(result.Failure!).Throw();
+        throw new InvalidOperationException("Unreachable after rethrowing a gap-fill failure.");
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (!disposing) return;
+        // Sync Dispose must stay non-blocking (Seek calls it). Start the same
+        // idempotent cleanup that DisposeAsync awaits for lease release.
+        _ = EnsureDisposeAsync();
+        // Must be the protected overload: the parameterless Stream.Dispose() routes
+        // back through Close() into this method and recurses until the stack overflows.
+        base.Dispose(disposing);
+    }
+
+#pragma warning disable CA2215 // base.DisposeAsync() would route through Close()/Dispose(true) back into EnsureDisposeAsync's sync-over-async teardown; the _disposeGate/_disposeTask pair already guarantees exactly-once cleanup (see Dispose(bool) recursion note)
+    public override async ValueTask DisposeAsync()
+    {
+        await EnsureDisposeAsync().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
+#pragma warning restore CA2215
+
+    private Task EnsureDisposeAsync()
+    {
+        lock (_disposeGate)
+        {
+            if (_disposeTask is not null) return _disposeTask;
+            // Mark disposed before async cleanup so sync Dispose immediately rejects reads.
+            _disposed = true;
+            _disposeTask = DisposeCoreAsync();
+            return _disposeTask;
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        try
+        {
+            try
+            {
+#pragma warning disable CA1849 // synchronous Cancel is required -- teardown callbacks must run before _streamTasks.Writer completes; CancelAsync would race TryComplete
+                _cts.Cancel();
+#pragma warning restore CA1849
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already torn down.
+            }
+
+            _streamTasks.Writer.TryComplete();
+
+            if (_stream is not null)
+            {
+                await _stream.DisposeAsync().ConfigureAwait(false);
+                _stream = null;
+            }
+
+            // Drain queued segments concurrently so a task blocked on LeaseAsync can
+            // wake when another queued BudgetedStream releases its lease.
+            var pending = new List<Task>();
+            while (_streamTasks.Reader.TryRead(out var streamTask))
+                pending.Add(DisposeStreamAsync(streamTask, releaseInFlight: true));
+
+            try
+            {
+                await _downloadTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // Producer failures are surfaced on ReadAsync; teardown only needs cleanup.
+            }
+
+            while (_streamTasks.Reader.TryRead(out var streamTask))
+                pending.Add(DisposeStreamAsync(streamTask, releaseInFlight: true));
+
+            // Join the producer's out-of-band disposals so leases they hold are released
+            // before DisposeAsync completes. The producer has exited by now (awaited above),
+            // so no new orphans can be enqueued; drain is safe without a lock.
+            while (_orphanedDisposals.TryDequeue(out var orphaned))
+                pending.Add(orphaned);
+
+            while (_batchCompletionObservers.TryDequeue(out var observer))
+                pending.Add(observer);
+
+            if (pending.Count > 0)
+                await Task.WhenAll(pending).ConfigureAwait(false);
+        }
+        finally
+        {
+            _cts.Dispose();
+        }
+    }
+
+    private readonly record struct DrainedSegment(Stream Stream, bool ShortPadded);
+
+    private sealed record SegmentDownloadResult(
+        Stream Stream,
+        long PlannedBytes = 0,
+        string? MessageTemplate = null,
+        string? SegmentId = null,
+        long Bytes = 0,
+        Exception? Failure = null,
+        bool IsShortPad = false)
+    {
+        public bool IsZeroFill => Failure is not null;
+
+        public static SegmentDownloadResult Success(
+            Stream stream,
+            long plannedBytes = 0,
+            bool isShortPad = false,
+            string? segmentId = null) =>
+            new(stream, plannedBytes, SegmentId: segmentId, IsShortPad: isShortPad);
+
+        public static SegmentDownloadResult ZeroFill(
+            Stream stream,
+            string messageTemplate,
+            string segmentId,
+            long bytes,
+            Exception failure,
+            long plannedBytes = 0) =>
+            new(stream, plannedBytes, messageTemplate, segmentId, bytes, failure);
+    }
+}

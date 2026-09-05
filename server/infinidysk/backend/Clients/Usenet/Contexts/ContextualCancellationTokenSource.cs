@@ -1,0 +1,86 @@
+﻿using NzbWebDAV.Extensions;
+
+namespace NzbWebDAV.Clients.Usenet.Contexts;
+
+public sealed class ContextualCancellationTokenSource : IDisposable
+{
+    private readonly CancellationTokenSource _cts;
+    private readonly List<CancellationTokenContext> _contexts;
+    private bool _disposed;
+
+    public CancellationToken Token => _cts.Token;
+    public bool IsCancellationRequested => _cts.IsCancellationRequested;
+
+    private ContextualCancellationTokenSource(CancellationTokenSource cts)
+    {
+        _cts = cts;
+        _contexts = [];
+    }
+
+    public static ContextualCancellationTokenSource CreateLinkedTokenSource(CancellationToken linkedToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(linkedToken);
+        var contextualCts = new ContextualCancellationTokenSource(cts);
+        contextualCts.SetContext(linkedToken.GetContext<DownloadPriorityContext>());
+        contextualCts.SetContext(linkedToken.GetContext<StreamingSchedulingContext>());
+        contextualCts.SetContext(linkedToken.GetContext<StreamingTimeoutContext>());
+        contextualCts.SetContext(linkedToken.GetContext<QueueDownloadContext>());
+        contextualCts.SetContext(linkedToken.GetContext<MaintenanceDownloadContext>());
+        contextualCts.SetContext(linkedToken.GetContext<HealthCheckAdmissionContext>());
+        return contextualCts;
+    }
+
+    public static ContextualCancellationTokenSource CreateLinkedTokenSource
+    (
+        CancellationToken linkedToken1,
+        CancellationToken linkedToken2
+    )
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(linkedToken1, linkedToken2);
+        var contextualCts = new ContextualCancellationTokenSource(cts);
+        contextualCts.SetContext(linkedToken1.GetContext<DownloadPriorityContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<DownloadPriorityContext>());
+        contextualCts.SetContext(linkedToken1.GetContext<StreamingSchedulingContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<StreamingSchedulingContext>());
+        contextualCts.SetContext(linkedToken1.GetContext<StreamingTimeoutContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<StreamingTimeoutContext>());
+        contextualCts.SetContext(linkedToken1.GetContext<QueueDownloadContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<QueueDownloadContext>());
+        contextualCts.SetContext(linkedToken1.GetContext<MaintenanceDownloadContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<MaintenanceDownloadContext>());
+        contextualCts.SetContext(linkedToken1.GetContext<HealthCheckAdmissionContext>());
+        contextualCts.SetContext(linkedToken2.GetContext<HealthCheckAdmissionContext>());
+        return contextualCts;
+    }
+
+    private void SetContext<T>(T? value)
+    {
+        if (value == null) return;
+        ObjectDisposedException.ThrowIf(_disposed, nameof(ContextualCancellationTokenSource));
+        _contexts.Add(CancellationTokenContext.SetContext(_cts.Token, value));
+    }
+
+    public void Cancel()
+    {
+        _cts.Cancel();
+    }
+
+    public void CancelAfter(TimeSpan delay)
+    {
+        _cts.CancelAfter(delay);
+    }
+
+    public Task CancelAsync()
+    {
+        return _cts.CancelAsync();
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, true)) return;
+        foreach (var context in _contexts) context.Dispose();
+        _contexts.Clear();
+        _cts.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}

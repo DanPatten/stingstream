@@ -1,0 +1,9 @@
+.git
+.cursor
+**/bin
+**/obj
+**/node_modules
+backend/publish
+frontend/build
+frontend/dist-node
+tests/
