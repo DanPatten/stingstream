@@ -127,6 +127,18 @@ public sealed class InventoryPublisher : BackgroundService
             return;
         }
 
+        var now = DateTime.UtcNow;
+
+        // Capacity first, and regardless of group membership. It is a property of the node, not of
+        // a group, and the mesh fills in its own stream limits when it stores it -- so a node that
+        // has not joined anything yet still answers `GET /mesh/v1/capacity` with the truth rather
+        // than with zeroes, which is what the Node status screen reads.
+        if (now >= _nextCapacityUtc)
+        {
+            await PublishCapacityAsync(cancellationToken).ConfigureAwait(false);
+            _nextCapacityUtc = now + CapacityInterval;
+        }
+
         if (groups.Count == 0)
         {
             // Not in a group yet. Drop whatever the feed accumulated rather than growing it
@@ -134,8 +146,6 @@ public sealed class InventoryPublisher : BackgroundService
             _changes.Drain();
             return;
         }
-
-        var now = DateTime.UtcNow;
 
         if (now >= _nextSnapshotUtc)
         {
@@ -147,12 +157,6 @@ public sealed class InventoryPublisher : BackgroundService
         else if (_changes.HasChanges)
         {
             await PublishDeltaAsync(groups, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (now >= _nextCapacityUtc)
-        {
-            await PublishCapacityAsync(cancellationToken).ConfigureAwait(false);
-            _nextCapacityUtc = now + CapacityInterval;
         }
     }
 
