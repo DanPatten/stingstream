@@ -27,15 +27,22 @@ COPY mesh/Cargo.toml mesh/Cargo.lock ./mesh/
 COPY mesh/crates/stingstream/Cargo.toml ./mesh/crates/stingstream/
 COPY mesh/crates/stingstream-mesh/Cargo.toml ./mesh/crates/stingstream-mesh/
 COPY mesh/crates/stingstream-relay/Cargo.toml ./mesh/crates/stingstream-relay/
+# Every workspace member, not only the ones this image builds: cargo loads the whole workspace
+# manifest before it builds any of it, so a member whose Cargo.toml is absent fails the build
+# outright. `stingstream-mesh-ffi` joined the workspace in M3c and was not added here.
+COPY mesh/crates/stingstream-mesh-ffi/Cargo.toml ./mesh/crates/stingstream-mesh-ffi/
 RUN mkdir -p mesh/crates/stingstream/src \
              mesh/crates/stingstream-mesh/src \
              mesh/crates/stingstream-relay/src \
+             mesh/crates/stingstream-mesh-ffi/src \
  && echo 'fn main() {}' > mesh/crates/stingstream/src/main.rs \
  && echo '' > mesh/crates/stingstream/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh/src/main.rs \
  && echo '' > mesh/crates/stingstream-mesh/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-relay/src/main.rs \
  && echo '' > mesh/crates/stingstream-relay/src/lib.rs \
+ && echo 'fn main() {}' > mesh/crates/stingstream-mesh-ffi/src/bindgen.rs \
+ && echo '' > mesh/crates/stingstream-mesh-ffi/src/lib.rs \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-relay \
  && rm -rf mesh/crates/*/src
 

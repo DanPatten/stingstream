@@ -205,15 +205,24 @@ taken that key — the hash has to match.
 * A multi-range request is answered with the whole file. RFC 9110 permits it and no media player
   asks for one.
 * `ETag` is `W/"b3-<file_hash>"` when a hash is known, so **two nodes holding the same file produce
-  the same tag** — which is what makes M4's same-hash failover resumable across holders. It falls
-  back to size and mtime otherwise.
+  the same tag** — which is what makes same-hash failover resumable across holders, and what
+  `PlaybackInfo` hands the app as each source's `stingstream:file_hash`. It falls back to size and
+  mtime otherwise.
 * `If-None-Match` gives `304`; `If-Range` that does not match the tag serves the whole file rather
   than a range, as the RFC asks.
 * `peer.max_concurrent_streams` caps concurrent file streams; over it, `503` with `Retry-After`,
-  which is honest about load rather than letting every stream stutter.
+  which is honest about load rather than letting every stream stutter. A reader that gets one moves
+  on to the next holder, so the cap is a real limit rather than a queue.
+* `peer.throttle_bytes_per_sec` (`0` = none) paces the bytes this node writes onto a peer's stream.
+  It exists for a seedbox on a metered line, and it is what `tools/e2e-m4.ps1` uses to make one link
+  genuinely, measurably slow — bandwidth being the input the scorer weighs, simulating it with a
+  smaller file would prove nothing.
+* `peer.stream_stall_secs` (15) is how long a *reader* waits on a silent holder before continuing
+  from another one. See `/stream` below.
 
 Each completed range logs bytes, seconds and the achieved rate, and each connection logs its iroh
-path type (`direct` / `relay` / `mixed`) and RTT. M3a only records these; M4's scorer reads them.
+path type (`direct` / `relay` / `mixed`) and RTT. Since M4 the reader also folds each transfer into
+the peer's rolling throughput average, which is what the scorer reads.
 
 ### ALPN `stingstream/tcp/1`
 
@@ -314,12 +323,18 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 | Table | |
 |---|---|
 | `groups` | `group_id, name, secret, coordinator, created_at` |
-| `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space` — both the membership list and the liveness state |
+| `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
 | `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, jellyfin_item_id, updated_at` |
 | `meta` | schema version and the per-group gossip sequence number |
 
 `local_path` is populated only for this node's own rows. Indexes on `(group_id, item_key)` — what
-M4's scorer will read — and `(group_id, file_hash)` — what same-hash failover will.
+the source scorer reads — and `(group_id, file_hash)` — what same-hash failover reads.
+
+**`throughput_bps` is a measurement, not an advertisement.** Every completed range read this node
+pulls from a peer is folded into a per-peer exponentially-weighted moving average (α = 0.4), and
+transfers under 256 KiB or 100 ms are **discarded rather than averaged in**: a 64 KiB seek that
+finished in 8 ms is arithmetically 65 Mbit/s and says nothing about whether a film will stream. Null
+until a real transfer has happened, which the scorer treats as "unknown", not as "fast" or "slow".
 
 ---
 
@@ -343,11 +358,32 @@ member's index.
 | `GET`/`PUT` | `/mesh/v1/capacity` | this node's advertised capacity, which rides the heartbeat |
 | `GET` | `/mesh/v1/image/{group}/{item_key}/{node}/{kind}` | one artwork file from a peer |
 | `GET` | `/mesh/v1/index?group=` | the merged index: every node's records with name and liveness |
-| `GET` | `/mesh/v1/peers?group=` | membership, liveness, last observed path and RTT, advertised capacity |
-| `GET` | `/stream/{group}/{item_key}/{node}` | **the playback endpoint** |
+| `GET` | `/mesh/v1/peers?group=` | membership, liveness, last observed path and RTT, advertised capacity, measured throughput |
+| `GET` | `/mesh/v1/peers/{node}/stats?group=` | one peer's row — the measurement, rather than the membership |
+| `GET` | `/mesh/v1/sources/{group}/{item_key}[?policy=]` | every holder, scored, best first, with reasons |
+| `GET` | `/stream/{group}/{item_key}/{node}[?any=1][&policy=]` | **the playback endpoint** |
 
 Errors are JSON (`{"error": "…"}`) with the full context chain, because the caller is a program and
 the message is the whole point.
+
+### `/mesh/v1/sources/{group}/{item_key}`
+
+The mesh's own copy of the source-selection answer:
+
+```json
+{ "group": "…", "item_key": "movie:tmdb:10378", "policy": "speed_first",
+  "sources": [ { "node": "…", "node_name": "loft", "online": true, "file_hash": "…",
+                 "bitrate": 2000000, "height": 1080, "resolution": "1080p",
+                 "path": "direct", "rtt_ms": 4, "throughput_bps": 31200000,
+                 "score": 92.4, "needed_bps": 2500000, "fits": true, "measured": true,
+                 "reasons": ["direct path, 4 ms", "measured 31.2 Mbit/s against 2.5 Mbit/s needed",
+                             "1080p", "0 of 8 stream slots in use"] } ] }
+```
+
+`StingStream.Core` scores the same candidates in C# for `PlaybackInfo`, under the *user's* stored
+policy. One formula, two implementations, same weights and same test cases — the alternative is the
+mesh asking a .NET process which source to use inside every seek and every failover. See
+`docs/ARCHITECTURE.md`, "The scoring formula, as built".
 
 ### `/mesh/v1/capacity`
 
@@ -379,8 +415,29 @@ under the same key is caught rather than played — dials the peer, and forwards
 `ETag` and `Accept-Ranges` are passed back verbatim, because a player's seek behaviour depends on
 all of them.
 
-M3a always uses the node named in the URL. M4 replaces that with the scored candidate list and adds
-same-hash failover by byte offset.
+**Source choice.** The node named in the path is used, and used first, because a `.strm` names the
+holder it was written for and second-guessing a "Play from…" choice would make the menu a lie. The
+literal segment `any`, or `?any=1` on any request, hands the choice to the same scorer
+`/mesh/v1/sources` uses — which is how Jellyfin's own proxying path, a cast receiver and a client
+recovering from a pointer whose holder has left the group all get the same selection the app gets.
+`?policy=speed_first|quality_first` picks the weights; Speed first is the default.
+
+**Failover.** The response body survives its holder. When the chosen holder fails mid-transfer, the
+mesh asks the next holder of the **same `file_hash`** for `bytes=<already delivered>-` and keeps
+yielding on the same HTTP response — the reader sees one uninterrupted body, because the `ETag` is
+hash-derived and both holders are therefore serving the same representation by definition. Three
+things count as failure: an error on the body, a body that ends before its promised
+`Content-Length`, and a body that produces nothing for `peer.stream_stall_secs`. The third is what
+makes it prompt — a holder whose process is *killed* closes nothing at all, and QUIC would not call
+that a failure until its own idle timeout, tens of seconds later.
+
+A `503` from a saturated holder is handled before any bytes are committed to the wire, so the client
+never sees it: the next candidate is tried instead, which is how a holder's advertised
+`max_direct_streams` is honoured rather than every stream stuttering.
+
+A holder with a *different* encode is never used as a substitute. Resuming into different bytes at a
+byte offset produces garbage; that case is a restart by timestamp on the next `MediaSource`, which
+is the client's job.
 
 ---
 

@@ -520,6 +520,18 @@ describe("node ids", () => {
     expect(z).toBe("y".repeat(52));
   });
 
+  test("it agrees with iroh on a real node id", () => {
+    // Taken from a live node in `tools/e2e-sidedoor.ps1`: the hex is what the mesh reports at
+    // /mesh/v1/status, the z-base-32 is the label iroh put in the certificate it went on to get.
+    // This is the load-bearing case -- an encoder that is merely self-consistent would build
+    // hostnames for a node that does not exist, and every candidate would fail to resolve.
+    const hex =
+      "78a02697a3bdb3235b358b000eddf8794c4f9ded15b672163759a1aeed775a24";
+    const z32 = "xnonpf7dzs31gs3itcyy7zxaxfgr98xpns58rftzmgo475mzme1y";
+    expect(nodeIdToZ32(hex)).toBe(z32);
+    expect(z32ToNodeId(z32)).toBe(hex);
+  });
+
   test("the encoding round-trips", () => {
     const hex =
       "0123456789abcdeffedcba98765432100123456789abcdeffedcba9876543210";

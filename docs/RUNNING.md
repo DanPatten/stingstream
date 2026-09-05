@@ -133,6 +133,28 @@ curl -H "Authorization: MediaBrowser Token=\"$token\"" `
 which is how you attach a debugger to just the mesh. `[children] mesh = false` turns the mesh off
 entirely; the node is then a complete single-node server with no group.
 
+### The HTTPS side door
+
+A node with a coordinator behind it also serves HTTPS on the same port, under three hostnames a
+browser can reach it at — see [`SIDEDOOR.md`](SIDEDOOR.md). Two things about that are worth knowing
+before they surprise you:
+
+* **`http://127.0.0.1:8790` keeps working.** The gateway looks at the first byte of each connection
+  and answers TLS or plain HTTP accordingly, so everything in this document, every `tools/e2e-*.ps1`
+  and every `curl` habit is unaffected by a node that has a certificate. A plain request from
+  *another machine* is redirected to `https://` once one exists.
+* **Nothing happens without a coordinator that serves a zone.** With none — the zero-server default
+  — `/healthz` reports `"side_door": {"state": "no_zone"}` and the node carries on. That is not a
+  fault. `[sidedoor] enabled = false` turns the whole thing off.
+
+```powershell
+# What the side door is doing, and why it is not doing more.
+(Invoke-RestMethod http://127.0.0.1:8790/healthz).side_door | ConvertTo-Json -Depth 5
+
+# The end-to-end acceptance: a coordinator, a local Pebble, a real certificate, a real tunnel.
+powershell -File tools/e2e-sidedoor.ps1
+```
+
 ---
 
 ## Running two nodes on one machine
@@ -218,6 +240,10 @@ logs/
   radarr.jsonl         likewise
   sonarr.jsonl
   nzbget.jsonl
+tls/
+  cert.pem             the node's own certificate chain, and its key next to it
+  key.pem              generated here, never sent anywhere (see SIDEDOOR.md)
+  account.json         the ACME account
 jellyfin/{config,data,cache,log}/
 radarr/                Radarr's data directory, including its config.xml
 sonarr/
@@ -370,6 +396,65 @@ writes two versions of one episode into one Season folder and reports whether th
 with two MediaSources. The answer is printed under **Findings** at the end of the run and recorded
 in `docs/ARCHITECTURE.md`.
 
+### `tools/e2e-m4.ps1` — source selection, failover and pin
+
+The M4 test: three nodes, two encodes of one film, and a source choice that has to be right.
+
+```powershell
+powershell tools\e2e-m4.ps1                                    # the whole thing
+powershell tools\e2e-m4.ps1 -SkipBuild                         # when iterating
+powershell tools\e2e-m4.ps1 -PrivateCopy E:\...\m4-run         # see below
+powershell tools\e2e-m4.ps1 -KeepRunning                       # leave all three nodes up
+```
+
+Node A watches and holds nothing. Node B is a fast holder with three films, one of them Big Buck
+Bunny at 1080p. Node C is a *deliberately slow* holder — capped at 1 MB/s and one concurrent stream
+by the mesh's own `[peer] throttle_bytes_per_sec` and `max_concurrent_streams` — with the same film
+at 2160p and a byte-identical copy of one of B's, so same-hash failover has somewhere to go.
+
+Two things about it are worth knowing before reading a failure.
+
+**No arrs.** All three nodes run Jellyfin and the mesh and nothing else. B and C are pure holders
+whose media is placed on disk with a `movie.nfo` carrying the TMDB id, which makes the item key
+deterministic without a metadata provider having to be reachable, and A's only add is one the group
+already satisfies, which never reaches an arr. That takes the run from twelve child processes to
+six. The consequence is that the pin step exercises the *direct Jellyfin import* branch rather than
+the arr rescan; both are real paths and `PinService` documents when each applies.
+
+**The media is encoded constant-bitrate, and that is load-bearing.** A colour-bar test pattern is a
+static image, so with an ordinary `-b:v 20M` x264 compresses twelve seconds of 4K to a couple of
+hundred kilobytes. The bitrate the scorer then reads out of the group index is fiction, every source
+"fits" every link, and Speed-first and Quality-first return the same answer — a green run that
+proves nothing. `-minrate` with `nal-hrd=cbr` is what makes a 4K source really need 20 Mbit/s. The
+harness fails the generation step outright if a clip comes out at less than half its target size.
+
+Gateway ports default to 8880 (A), 8980 (B) and 9080 (C), with ephemeral child ports, so it does not
+collide with a development node or with the M3 harness.
+
+`tools/e2e-common.ps1` holds the shared plumbing — steps, process management, HTTP, node lifecycle.
+`tools/e2e-m3.ps1` still carries its own copies on purpose: it is a passing acceptance record for a
+shipped milestone and it runs in CI, and switching it over would mean re-running the whole
+800-second M3 acceptance to prove the move changed nothing. When M3's harness next needs to change
+for another reason, that is when its helpers move.
+
+### `-PrivateCopy`: not holding the repository's build outputs open
+
+A running node holds `mesh/target/debug/` and `server/*/bin/` open, so nobody can rebuild while it is
+up — including you, and including whoever else is working in the checkout. On a machine several
+people (or several agents) share, that is not a nicety.
+
+`-PrivateCopy <dir>` makes the M4 harness copy the supervisor, Jellyfin's build output and ffmpeg
+into `<dir>` laid out as an install root, and run the nodes from there with `--install-root`:
+
+```powershell
+powershell tools\e2e-m4.ps1 -SkipBuild `
+    -PrivateCopy E:\Dan\Documents\Repos\.win-temp\m4-run `
+    -WorkDir     E:\Dan\Documents\Repos\.win-temp\m4-work
+```
+
+The copy is made once and reused; `-Force` remakes it after a rebuild. CI has a checkout to itself
+and does not use it.
+
 ---
 
 ## When something is wrong
@@ -409,18 +494,24 @@ has the truth, and every child was configured from it.
 
 ---
 
-## Known limitations after M3b
+## Known limitations after M4
 
-- **No HTTPS side door on the node yet.** The coordinator half shipped in M3a and is deployed; the
-  node half — its own ACME certificate, rustls on the gateway, `portmapper`, and publishing the
-  candidate hostnames — has not. So a browser away from home cannot reach a node yet, and
-  `stingstream.local` resolves only inside this node's own Jellyfin.
-- **A transcode of a federated source will not work.** Direct play does: Jellyfin fetches the
-  pointer's URL with an `HttpClient`, and `StingStreamLocalHandler` points that at this node's own
-  gateway. ffmpeg does its own DNS and never sees that handler, so the transcode fallback needs the
-  URL rewritten where the encoder input is built. That is M4's work, alongside source scoring.
 - **`/stream/*` on the gateway is unauthenticated.** It has to be — a browser or a cast receiver
   reaching the side door has no Jellyfin token — and a request needs a 32-byte group id, an item
   key and a node id to fetch anything, so it is not enumerable. Tightening it is on M8's list.
-- **One version per title.** M3b materializes one `.strm` per holding node, which with two nodes is
-  one version. Several holders of the same title, and the scoring that picks between them, are M4.
+- **A title held locally still hides its remote copies from the library.** The local file wins and
+  no pointer is written, which is right; but the remote copies are then only reachable through
+  `GET /items/{id}/sources` and the mesh, not as extra Jellyfin versions. Exposing them as versions
+  of an arr-managed file is still deferred, because both arrs treat `.strm` as a video file.
+- **Restart-by-timestamp is the client's half, and the client does not do it yet.** The mesh resumes
+  transparently between holders of the *same* bytes; a different encode needs the player to restart
+  at a timestamp on the next `MediaSource`. Everything it needs is in PlaybackInfo — the ordered
+  list, and each source's hash as its weak `ETag` — but the app work is M5's.
+- **Source-side transcoding is still not a thing.** When a link cannot carry a source, the *home*
+  node transcodes it, pulling the original over the mesh. Asking the holder to transcode instead
+  would save that bandwidth and is the obvious refinement, but it needs the holder's Jellyfin in the
+  path and a way to authenticate to it, which is a later milestone.
+
+Closed since M3b, for the record: the transcode of a federated source now works (see
+`docs/ARCHITECTURE.md`, "The transcode fix"), and a title held by several nodes now materializes one
+`.strm` version per holder.
