@@ -377,16 +377,25 @@ fetch — no React, so `bun:test` can load it), `lib/stingstream/requests.ts` (R
 
 `tools/e2e-m6.ps1`. Two real nodes, a real Torznab indexer, a real BitTorrent swarm, real Sonarr, a
 real group index. Node A runs Jellyfin and the mesh only — no arrs, no indexers — so it advertises
-that it can fulfil nothing by construction rather than by a mock. Node B has both arrs, the indexer
-and one film already on disk.
+that it can fulfil nothing by construction rather than by a mock. Node B has both arrs and one film
+already on disk.
 
-It asserts, in order: the two nodes advertise different capabilities and each sees the other's; a
-non-administrator's request under `admins_only` lands `pending` and notifies every administrator; the
-non-administrator can neither approve it nor see anybody else's; an administrator approves it; B
-adopts, claims and **is the only live claimant**; B grabs and imports; it reaches A's group index and
-Shared TV and A's request flips to `available` on its own; the requester has an unread
-`request_available` notification and Jellyfin's activity log has the entry; and a second request for
-a film B already holds is answered `available` with Radarr on B never hearing about it.
+The indexer is pushed to **Sonarr only**, which is worth knowing before you change it. The stub
+serves one television release and nothing in a movie category, and Radarr refuses an indexer whose
+test search returns nothing in its configured categories — correctly, since such an indexer is
+useless to it. Configuring it `forSeries` and not `forMovies` is what a real TV-only tracker looks
+like, and it makes node B's advertised capability genuinely lopsided: `canFulfilTv: true`,
+`canFulfilMovies: false`. Which is the point of there being two flags rather than one.
 
-Run it with `-PrivateCopy` on a machine where several people share the checkout, per
-`RUNNING.md` — a running node holds the repository's build outputs open.
+It asserts, in order: the two nodes advertise different capabilities, per kind, and each sees the
+other's; a non-administrator's request under `admins_only` lands `pending` and notifies every
+administrator; the non-administrator can neither approve it nor see anybody else's; an administrator
+approves it; B adopts, claims and **is the only live claimant**; B grabs and imports; it reaches A's
+group index and Shared TV and A's request flips to `available` on its own; the requester has an
+unread `request_available` notification and Jellyfin's activity log has the entry; and a second
+request for a film B already holds is answered `available` with Radarr on B never hearing about it.
+
+Run it with `-PrivateCopy <dir>` on a machine where several people share the checkout, per
+`RUNNING.md` — a running node holds the repository's build outputs open. This is the first harness
+whose nodes really grab something, so its private copy needs Radarr and Sonarr in it as well;
+`New-PrivateInstallRoot -WithArrs` copies them, and the harness passes that switch for you.

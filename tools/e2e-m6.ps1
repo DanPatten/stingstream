@@ -20,8 +20,9 @@
 
     What it asserts, in order:
 
-      1. A advertises `canFulfilMovies: false, canFulfilTv: false`; B advertises both true. That is
-         the heartbeat flag M6 added, and every routing decision in the group reads it.
+      1. A advertises `canFulfilMovies: false, canFulfilTv: false`. B, whose only indexer is a
+         television one, advertises `canFulfilTv: true` and `canFulfilMovies: false` -- so the two
+         flags are shown to be independent, which is the whole reason there are two of them.
       2. Under `auto_approve: admins_only`, a non-administrator's request lands `pending` and every
          administrator on the node is notified.
       3. A non-administrator cannot approve their own request (403), and cannot see anybody
@@ -163,7 +164,9 @@ $SeedDir = Join-Path $WorkDir 'seed'
 New-Item -ItemType Directory -Force -Path $DataA, $DataB, $SeedDir | Out-Null
 
 if ($PrivateCopy) {
-    $SupervisorExe = New-PrivateInstallRoot -RepoRoot $RepoRoot -Destination $PrivateCopy -Force:$Force
+    # -WithArrs, unlike M4's copy: node B really grabs the episode, so Radarr and Sonarr have to be
+    # in the copy too. `--install-root` has no repository to fall back on.
+    $SupervisorExe = New-PrivateInstallRoot -RepoRoot $RepoRoot -Destination $PrivateCopy -Force:$Force -WithArrs
     Set-HarnessNodeMode -Arguments @('--install-root', $PrivateCopy)
 }
 Initialize-Harness -RepoRoot $RepoRoot -WorkDir $WorkDir -SupervisorExe $SupervisorExe -DefaultTimeoutSeconds $TimeoutSeconds
@@ -309,18 +312,6 @@ function Get-StatusCode {
         }
         return 0
     }
-}
-
-function Write-EpisodeNfo {
-    param([Parameter(Mandatory)][string]$Folder)
-    Set-Content -Path (Join-Path $Folder 'tvshow.nfo') -Encoding utf8 -Value @"
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<tvshow>
-  <title>$SeriesTitle</title>
-  <year>$SeriesYear</year>
-  <uniqueid type="tvdb" default="true">$SeriesTvdb</uniqueid>
-</tvshow>
-"@
 }
 
 function Write-MovieNfo {
@@ -475,15 +466,23 @@ Invoke-Step 'Start node B (the fulfiller) and give it the film it already has' {
 }
 
 # ============================================================================================
-Invoke-Step 'B: add the Torznab indexer and sync it into both arrs' {
+Invoke-Step 'B: add the Torznab indexer, for television only' {
+    # `forSeries` but not `forMovies`, and that is not a shortcut. The stub serves one TV release
+    # and nothing in a movie category, and Radarr refuses an indexer whose test search returns
+    # nothing in the categories it was configured with -- correctly, since such an indexer is
+    # useless to it. Pushing it to Sonarr alone is what a real deployment of a TV-only tracker
+    # looks like, and it makes node B's advertised capability genuinely lopsided: it can fulfil a
+    # series and cannot fulfil a film, which is exactly the per-kind distinction the routing
+    # decision is supposed to make.
     Invoke-Node $NodeB '/stingstream/api/v1/settings/indexers?sync=true' -Method POST -Body @{
         name = 'E2E Torznab'; baseUrl = "http://127.0.0.1:$IndexerPort"; apiPath = '/api'
         apiKey = 'e2e'; enabled = $true; minimumSeeders = 1; priority = 25
+        forMovies = $false; forSeries = $true
     } -TimeoutSec 300 | Out-Null
 
     $sync = Invoke-Node $NodeB '/stingstream/api/v1/sync' -Method POST -TimeoutSec 300
     foreach ($s in $sync) { if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" } }
-    Write-Host '      both arrs have the indexer'
+    Write-Host '      Sonarr has the indexer; Radarr deliberately does not'
 }
 
 # ============================================================================================
@@ -514,7 +513,13 @@ $Group = Invoke-Step 'A creates a group; B joins by invite' {
 
 # ============================================================================================
 Invoke-Step "B's film reaches A's group index" {
-    Wait-Until -What "the film to appear in A's group index" -Seconds 300 -PollSeconds 5 -Condition {
+    Wait-Until -What "the film to appear in A's group index" -Seconds 420 -PollSeconds 5 -Condition {
+        # A file placed on disk gets scanned by Jellyfin but never passes through the arr import
+        # webhook, which is what normally builds an inventory record. `rebuild` is what turns
+        # "scanned" into "inventoried" without waiting for a hashing pass; it is idempotent and the
+        # M4 harness nudges it the same way for the same reason.
+        try { Invoke-Node $NodeB '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
+
         $index = try {
             Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30
         } catch { $null }
@@ -537,7 +542,12 @@ Invoke-Step 'Each node advertises what it can fulfil, and they disagree' {
         throw "node A has no arrs and no indexers, but says it can fulfil (movies=$($passA.canFulfilMovies) tv=$($passA.canFulfilTv))."
     }
     if (-not $passB.canFulfilTv) { throw 'node B has Sonarr and a TV indexer but says it cannot fulfil a series.' }
-    if (-not $passB.canFulfilMovies) { throw 'node B has Radarr and a movie indexer but says it cannot fulfil a film.' }
+    # And *not* films, because its only indexer is television-only. The two flags are separate for
+    # exactly this reason: a node with a TV tracker is a volunteer for a series and no use at all
+    # for a film, and one "can fulfil" bit could not say so.
+    if ($passB.canFulfilMovies) {
+        throw 'node B has no movie indexer but says it can fulfil a film; the two flags are not independent.'
+    }
     Write-Host "      A: movies=$($passA.canFulfilMovies) tv=$($passA.canFulfilTv);  B: movies=$($passB.canFulfilMovies) tv=$($passB.canFulfilTv)"
 
     $peers = Wait-Until -What "A's peer table to carry B's fulfilment flags" -Seconds 120 -PollSeconds 5 -Condition {
@@ -663,14 +673,20 @@ Invoke-Step 'B adopts the request, claims it, and is the only claimant' {
     # Exactly one claimant, which is the whole point of the protocol. A cannot fulfil a series, so
     # it must never have claimed -- a second claim here would mean the group was about to download
     # the same episode twice.
-    $claims = Invoke-Json -Uri "http://127.0.0.1:$($NodeB.Runtime.mesh.api_port)/mesh/v1/requests/$($SeriesRequest.id)?group=$($Group.group)" `
+    # Straight at the mesh's own loopback API: Core deliberately does not expose the claim table,
+    # because nothing in the product needs it -- but "exactly one node claimed" is the property the
+    # whole protocol exists for, and asserting it through the thing that decides it is the only
+    # honest way to check.
+    $meshPort = Get-Member-Value (Get-Member-Value $NodeB.Runtime 'mesh') 'api_port'
+    if (-not $meshPort) { throw "node B's runtime.json carries no mesh.api_port, so the claim table cannot be read." }
+    $claims = Invoke-Json -Uri "http://127.0.0.1:$meshPort/mesh/v1/requests/$($SeriesRequest.id)?group=$($Group.group)" `
         -TimeoutSec 30
     $live = @($claims.claims | Where-Object { $_.state -notin 'released', 'failed' })
     if ($live.Count -ne 1) {
         throw "the request has $($live.Count) live claim(s): $((@($live | ForEach-Object { "$($_.node_name)=$($_.state)" })) -join ', ')."
     }
     if ($claims.winner -ne $NodeB.MeshId) { throw "the winning claim is $($claims.winner), not B." }
-    Write-Host "      one live claim, winner $($claims.claims[0].node_name), claimed_at $($claims.claims[0].claimed_at)"
+    Write-Host "      one live claim, winner $($live[0].node_name), claimed_at $($live[0].claimed_at)"
     Add-HarnessNote 'Exactly one node claimed the request; the node that could not fulfil it never did.'
 }
 

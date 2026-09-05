@@ -97,14 +97,19 @@ function New-PrivateInstallRoot {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$Destination,
-        [switch]$Force
+        [switch]$Force,
+        [switch]$WithArrs
     )
     $exeSuffix = if ($script:IsWindowsHost) { '.exe' } else { '' }
     $supervisor = Join-Path $Destination "stingstream$exeSuffix"
     $jellyfinBin = Join-Path $Destination 'bin/jellyfin'
     $ffmpegBin = Join-Path $Destination 'bin/ffmpeg'
+    $radarrBin = Join-Path $Destination 'bin/radarr'
+    $sonarrBin = Join-Path $Destination 'bin/sonarr'
 
-    if ((Test-Path $supervisor) -and (Test-Path $jellyfinBin) -and -not $Force) {
+    $complete = (Test-Path $supervisor) -and (Test-Path $jellyfinBin) -and
+        (-not $WithArrs -or ((Test-Path $radarrBin) -and (Test-Path $sonarrBin)))
+    if ($complete -and -not $Force) {
         Write-Host "      reusing the private copy at $Destination"
         return $supervisor
     }
@@ -126,6 +131,24 @@ function New-PrivateInstallRoot {
     if (-not $ffmpeg) { throw 'no ffmpeg under third_party/ffmpeg' }
     # Everything beside it: jellyfin-ffmpeg ships ffprobe and its shared libraries in one directory.
     Copy-Item -Path (Join-Path $ffmpeg.Directory.FullName '*') -Destination $ffmpegBin -Recurse -Force
+
+    # Radarr and Sonarr, for a harness whose nodes actually grab something. Off by default because
+    # most harnesses place their media on disk instead -- which is faster and more deterministic --
+    # and copying two arr build trees is the slowest part of making this copy.
+    if ($WithArrs) {
+        foreach ($arr in @(
+            @{ Name = 'radarr'; Source = 'server/radarr/_output/net8.0'; Bin = $radarrBin; Probe = 'Radarr.Console.dll' },
+            @{ Name = 'sonarr'; Source = 'server/sonarr/_output/net10.0'; Bin = $sonarrBin; Probe = 'Sonarr.Console.dll' }
+        )) {
+            $source = Join-Path $RepoRoot $arr.Source
+            if (-not (Test-Path (Join-Path $source $arr.Probe))) {
+                throw "$($arr.Name) is not built: $source"
+            }
+            New-Item -ItemType Directory -Force -Path $arr.Bin | Out-Null
+            Copy-Item -Path (Join-Path $source '*') -Destination $arr.Bin -Recurse -Force
+            Write-Host "      copied $($arr.Name)"
+        }
+    }
 
     Write-Host "      private copy of the build outputs at $Destination"
     return $supervisor

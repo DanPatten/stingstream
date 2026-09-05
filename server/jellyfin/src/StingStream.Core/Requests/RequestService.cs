@@ -273,7 +273,7 @@ public sealed class RequestService
         // The dedupe rule, applied before anybody is asked to approve anything. A title the group
         // already holds costs nothing to satisfy, so asking an administrator whether it may be
         // downloaded is asking about a download that is not going to happen.
-        var holders = await HoldersAsync(itemKey, isMovie, policy.MinimumHeight, cancellationToken)
+        var holders = await HoldersAsync(itemKey, isMovie, policy.MinimumHeight, row.Seasons, cancellationToken)
             .ConfigureAwait(false);
         if (holders.Count > 0)
         {
@@ -489,6 +489,10 @@ public sealed class RequestService
                     result.ItemKey,
                     result.TmdbId > 0,
                     policy.MinimumHeight,
+                    // A search result is about the whole title, not a season: "the group has some of
+                    // this show" is the right answer to show beside it, and the season picker is
+                    // where the finer question gets asked.
+                    Array.Empty<int>(),
                     cancellationToken)
                 .ConfigureAwait(false);
             result.Holders = holders.Distinct().ToList();
@@ -663,11 +667,20 @@ public sealed class RequestService
         return groups[0].Group;
     }
 
-    /// <summary>Who in the group holds a title at an acceptable quality.</summary>
+    /// <summary>
+    /// Who in the group holds a title at an acceptable quality.
+    /// </summary>
+    /// <remarks>
+    /// For a season-limited series request, only a holder whose episode is in a season that was
+    /// actually asked for counts. Without that, a show whose season 1 the group already had would
+    /// answer a request for season 2 with "you already have this" the moment it was made — the
+    /// dedupe rule turning into a refusal.
+    /// </remarks>
     private async Task<List<string>> HoldersAsync(
         string itemKey,
         bool isMovie,
         int minimumHeight,
+        IReadOnlyList<int> seasons,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<SourceCandidate> candidates = isMovie
@@ -676,6 +689,9 @@ public sealed class RequestService
 
         return candidates
             .Where(c => c.Online && (minimumHeight <= 0 || (c.Height ?? int.MaxValue) >= minimumHeight))
+            .Where(c => isMovie
+                        || seasons.Count == 0
+                        || (RequestWorker.SeasonOf(c.ItemKey) is int s && seasons.Contains(s)))
             .Select(c => string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName)
             .ToList();
     }

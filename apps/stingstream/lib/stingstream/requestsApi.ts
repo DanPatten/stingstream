@@ -1,3 +1,4 @@
+import type { paths } from "@stingstream/api-client";
 import { authHeaders, both, field, readError } from "./meshApi";
 
 /**
@@ -20,9 +21,49 @@ import { authHeaders, both, field, readError } from "./meshApi";
  *
  * Nulls are omitted from the wire, so every optional field may simply be absent rather than null.
  *
- * Hand-written rather than generated, for now: `packages/api-client`'s snapshot of the OpenAPI
- * document predates `RequestsController`, and regenerating it needs a live node.
+ * ## Why the shapes are hand-written and the paths are not
+ *
+ * `packages/api-client` now carries `RequestsController` (regenerated against a live node), so the
+ * *paths* below are pinned to it by [`ROUTES`] and drift is a typecheck failure rather than a 404
+ * a user finds. The response *shapes* stay hand-written on purpose: the generated schemas are
+ * PascalCase because Swashbuckle reads Jellyfin's serializer options, and typing every screen
+ * against that would bake today's answer to the casing question into fifty call sites. The readers
+ * here accept either spelling, and `requestsApi.test.ts` asserts both round-trip identically.
  */
+
+/**
+ * Every route this file calls, as a suffix of the StingStream API root.
+ *
+ * The `satisfies` below is the point: it asks TypeScript to prove that each of these, prefixed with
+ * `/stingstream/api/v1`, is a real path in the node's own OpenAPI document. Rename a route in
+ * `RequestsController`, regenerate, and this file stops compiling — which is the failure everybody
+ * wants, instead of a screen that quietly 404s for whoever updates their node first.
+ */
+const ROUTES = {
+  list: "/requests",
+  one: "/requests/{id}",
+  approve: "/requests/{id}/approve",
+  decline: "/requests/{id}/decline",
+  retry: "/requests/{id}/retry",
+  counts: "/requests/counts",
+  search: "/requests/search",
+  policy: "/requests/policy",
+  users: "/requests/users",
+  user: "/requests/users/{userId}",
+  notifications: "/requests/notifications",
+  markRead: "/requests/notifications/read",
+} as const satisfies Record<string, ApiSuffix>;
+
+/**
+ * A suffix that names a real path in the generated OpenAPI document.
+ *
+ * Distributive on purpose: `Strip<T>` takes a naked type parameter, so the conditional is applied
+ * to each member of `keyof paths` and the result is a union of suffixes. Writing the conditional
+ * inline over `keyof paths` instead checks the whole union at once, infers `string`, and accepts
+ * every typo silently — which it did, until a deliberately broken route failed to fail.
+ */
+type Strip<T> = T extends `/stingstream/api/v1${infer Suffix}` ? Suffix : never;
+type ApiSuffix = Strip<keyof paths>;
 
 /** The states a request moves through. Mirrors `RequestStates` in Core. */
 export type RequestState =
@@ -386,6 +427,26 @@ const json = (accessToken?: string | null): Record<string, string> => ({
   "Content-Type": "application/json",
 });
 
+/**
+ * Build a request URL from a [`ROUTES`] entry, filling in its `{placeholders}`.
+ *
+ * Going through this rather than interpolating a path literal at each call site is what makes the
+ * `satisfies` on `ROUTES` mean anything: a literal typed in here would not be checked against the
+ * OpenAPI document at all.
+ */
+const url = (
+  apiBaseUrl: string,
+  route: (typeof ROUTES)[keyof typeof ROUTES],
+  params: Record<string, string> = {},
+  query?: URLSearchParams,
+): string => {
+  const path = (route as string).replace(/\{(\w+)\}/g, (_match, name: string) =>
+    encodeURIComponent(params[name] ?? ""),
+  );
+  const suffix = query?.toString();
+  return `${apiBaseUrl}${path}${suffix ? `?${suffix}` : ""}`;
+};
+
 /** Requests. `mine` is forced on for a non-administrator by Core, whatever is passed. */
 export async function fetchRequests(
   apiBaseUrl: string,
@@ -395,8 +456,7 @@ export async function fetchRequests(
   const query = new URLSearchParams();
   if (options.mine !== undefined) query.set("mine", String(options.mine));
   if (options.state) query.set("state", options.state);
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  const res = await fetch(`${apiBaseUrl}/requests${suffix}`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.list, {}, query), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, "GET /requests");
@@ -409,7 +469,7 @@ export async function fetchRequest(
   id: string,
   accessToken?: string | null,
 ): Promise<RequestDetail> {
-  const res = await fetch(`${apiBaseUrl}/requests/${encodeURIComponent(id)}`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.one, { id }), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, `GET /requests/${id}`);
@@ -421,7 +481,7 @@ export async function fetchRequestCounts(
   apiBaseUrl: string,
   accessToken?: string | null,
 ): Promise<RequestCounts> {
-  const res = await fetch(`${apiBaseUrl}/requests/counts`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.counts), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, "GET /requests/counts");
@@ -437,7 +497,7 @@ export async function searchRequestable(
 ): Promise<RequestSearchResult[]> {
   const query = new URLSearchParams({ q: term });
   if (kind) query.set("kind", kind);
-  const res = await fetch(`${apiBaseUrl}/requests/search?${query.toString()}`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.search, {}, query), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, "GET /requests/search");
@@ -450,7 +510,7 @@ export async function createRequest(
   input: CreateRequestInput,
   accessToken?: string | null,
 ): Promise<MemberRequest> {
-  const res = await fetch(`${apiBaseUrl}/requests`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.list), {
     method: "POST",
     headers: json(accessToken),
     body: JSON.stringify(input),
@@ -467,14 +527,17 @@ export async function decideRequest(
   reason: string | undefined,
   accessToken?: string | null,
 ): Promise<MemberRequest> {
-  const res = await fetch(
-    `${apiBaseUrl}/requests/${encodeURIComponent(id)}/${decision}`,
-    {
-      method: "POST",
-      headers: json(accessToken),
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
+  const route =
+    decision === "approve"
+      ? ROUTES.approve
+      : decision === "decline"
+        ? ROUTES.decline
+        : ROUTES.retry;
+  const res = await fetch(url(apiBaseUrl, route, { id }), {
+    method: "POST",
+    headers: json(accessToken),
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
   if (!res.ok) throw await readError(res, `POST /requests/${id}/${decision}`);
   return toRequest(await res.json());
 }
@@ -485,7 +548,7 @@ export async function deleteRequest(
   id: string,
   accessToken?: string | null,
 ): Promise<void> {
-  const res = await fetch(`${apiBaseUrl}/requests/${encodeURIComponent(id)}`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.one, { id }), {
     method: "DELETE",
     headers: authHeaders(accessToken),
   });
@@ -498,8 +561,8 @@ export async function fetchRequestPolicy(
   group: string | undefined,
   accessToken?: string | null,
 ): Promise<RequestPolicy> {
-  const suffix = group ? `?group=${encodeURIComponent(group)}` : "";
-  const res = await fetch(`${apiBaseUrl}/requests/policy${suffix}`, {
+  const query = group ? new URLSearchParams({ group }) : undefined;
+  const res = await fetch(url(apiBaseUrl, ROUTES.policy, {}, query), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, "GET /requests/policy");
@@ -511,7 +574,7 @@ export async function saveRequestPolicy(
   policy: RequestPolicy,
   accessToken?: string | null,
 ): Promise<RequestPolicy> {
-  const res = await fetch(`${apiBaseUrl}/requests/policy`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.policy), {
     method: "PUT",
     headers: json(accessToken),
     body: JSON.stringify(policy),
@@ -525,7 +588,7 @@ export async function fetchRequestUsers(
   apiBaseUrl: string,
   accessToken?: string | null,
 ): Promise<RequestUser[]> {
-  const res = await fetch(`${apiBaseUrl}/requests/users`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.users), {
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readError(res, "GET /requests/users");
@@ -538,10 +601,11 @@ export async function saveRequestUser(
   body: { trusted: boolean; weeklyQuota: number },
   accessToken?: string | null,
 ): Promise<RequestUser> {
-  const res = await fetch(
-    `${apiBaseUrl}/requests/users/${encodeURIComponent(userId)}`,
-    { method: "PUT", headers: json(accessToken), body: JSON.stringify(body) },
-  );
+  const res = await fetch(url(apiBaseUrl, ROUTES.user, { userId }), {
+    method: "PUT",
+    headers: json(accessToken),
+    body: JSON.stringify(body),
+  });
   if (!res.ok) throw await readError(res, `PUT /requests/users/${userId}`);
   return toRequestUser(await res.json());
 }
@@ -552,10 +616,10 @@ export async function fetchNotifications(
   unreadOnly: boolean,
   accessToken?: string | null,
 ): Promise<RequestNotification[]> {
-  const res = await fetch(
-    `${apiBaseUrl}/requests/notifications?unreadOnly=${unreadOnly}`,
-    { headers: authHeaders(accessToken) },
-  );
+  const query = new URLSearchParams({ unreadOnly: String(unreadOnly) });
+  const res = await fetch(url(apiBaseUrl, ROUTES.notifications, {}, query), {
+    headers: authHeaders(accessToken),
+  });
   if (!res.ok) throw await readError(res, "GET /requests/notifications");
   return ((await res.json()) as unknown[]).map(toNotification);
 }
@@ -566,7 +630,7 @@ export async function markNotificationsRead(
   ids: number[],
   accessToken?: string | null,
 ): Promise<void> {
-  const res = await fetch(`${apiBaseUrl}/requests/notifications/read`, {
+  const res = await fetch(url(apiBaseUrl, ROUTES.markRead), {
     method: "POST",
     headers: json(accessToken),
     body: JSON.stringify({ ids }),

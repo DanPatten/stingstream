@@ -343,6 +343,14 @@ public sealed class RequestWorker : BackgroundService
         }
 
         await EnsureIdentityAsync(cancellationToken).ConfigureAwait(false);
+        if (_nodeId.Length == 0)
+        {
+            // Without this node's own id, "did I publish this?" cannot be answered -- and answering
+            // it wrongly would adopt this node's own requests as foreign, with `mine = 0`, which
+            // takes them off their author's My requests screen. Wait for the mesh instead.
+            return;
+        }
+
         foreach (var view in views)
         {
             if (string.Equals(view.Origin, _nodeId, StringComparison.OrdinalIgnoreCase))
@@ -396,6 +404,13 @@ public sealed class RequestWorker : BackgroundService
         CancellationToken cancellationToken)
     {
         await EnsureIdentityAsync(cancellationToken).ConfigureAwait(false);
+        if (_nodeId.Length == 0 && group.Length > 0)
+        {
+            // Every claim decision below turns on comparing a node id with this node's own. A
+            // standalone node (no group) never compares anything and is allowed through.
+            return;
+        }
+
         capability.Node = _nodeId;
 
         var open = _store.All()
@@ -462,6 +477,31 @@ public sealed class RequestWorker : BackgroundService
         if (!row.Mine && !DelayElapsed(row))
         {
             return;
+        }
+
+        // Already grabbing, and already the winner: read, do not re-claim. Re-publishing an
+        // unchanged claim every ten seconds would put a gossip message per open request per node on
+        // the wire for nothing, and the repair case it would cover is already covered -- the gossip
+        // snapshot tick re-publishes this node's own claims on its own schedule.
+        if (row.State == RequestStates.Fulfilling
+            && string.Equals(row.FulfillingNode, _nodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            var view = await _requestMesh.GetAsync(group, row.Id, cancellationToken).ConfigureAwait(false);
+            var stillClaimed = view?.Claims.Any(c =>
+                string.Equals(c.Node, _nodeId, StringComparison.OrdinalIgnoreCase)
+                && c.State is not (ClaimStates.Released or ClaimStates.Failed)) ?? false;
+            if (stillClaimed)
+            {
+                await CheckDeadlineAsync(group, row, view!, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            // The claim is gone -- a wiped mesh.db, or a message that never landed anywhere. Fall
+            // through and re-claim rather than carry on grabbing something no other node believes is
+            // taken, which is the one way this loop could still produce two downloads of one title.
+            _logger.LogWarning(
+                "This node is fulfilling request {Id} but the group holds no claim from it; re-claiming",
+                row.Id);
         }
 
         var claimed = await _requestMesh
@@ -875,7 +915,13 @@ public sealed class RequestWorker : BackgroundService
         row.Note = note;
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         await _store.AddEventAsync(row.Id, row.State, _nodeId, note, cancellationToken).ConfigureAwait(false);
-        if (group.Length > 0)
+
+        // Only the node that actually fulfilled it tells the group. The requester's node watches
+        // the index and reaches this same method, and if it claimed here it would add a *second*
+        // claim -- later, so it would not win, but it would make "exactly one node claimed this"
+        // stop being true, which is the property the whole protocol exists to provide.
+        var iFulfilled = string.Equals(row.FulfillingNode, _nodeId, StringComparison.OrdinalIgnoreCase);
+        if (group.Length > 0 && iFulfilled)
         {
             await _requestMesh
                 .ClaimAsync(group, row.Id, ClaimStates.Available, note, cancellationToken)
