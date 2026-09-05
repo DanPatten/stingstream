@@ -91,32 +91,35 @@ export async function checkJellyfinServer(
     })`,
   );
 
-  // Set when something answered 2xx with a body that was not a Jellyfin document, at the root
-  // *and* under /jellyfin. That is a different failure from "nothing answered", and it gets a
-  // different message; see NotAJellyfinServerError.
+  // Set when something answered but was not Jellyfin, at the root *and* under /jellyfin. That is
+  // a different failure from "nothing answered", and it gets a different message; see
+  // NotAJellyfinServerError.
   let answeredButNotJellyfin = false;
 
   for (const protocol of protocols) {
     const url = `${protocol}://${host}`;
-    const probe = await probePublicInfo(url, customHeaders, probeTimeoutMs);
-    if (probe.kind === "ok") return adopt(url, probe.data, customHeaders);
-    if (probe.kind !== "not-json") continue;
+    const root = await probePublicInfo(url, customHeaders, probeTimeoutMs);
+    if (root.kind === "ok") return adopt(url, root.data, customHeaders);
 
-    // Something is there, but the body was not JSON. On a StingStream node that is the gateway's
-    // placeholder page — served at 200 for every path it does not know — and Jellyfin is one
-    // level down. Probing for it costs one request and turns the address a node's owner is most
-    // likely to type into the one that works.
-    if (alreadyNested(host)) {
-      answeredButNotJellyfin = true;
-      continue;
-    }
+    // Nothing answered: wrong address, nothing listening, or an https probe against a plain-HTTP
+    // port. There is no point asking that same nothing about a sub-path, and doing so would double
+    // how long a genuinely unreachable address takes to give up.
+    if (root.kind === "miss") continue;
+
+    // Something answered, and it was not Jellyfin. On a StingStream node it will not be: the
+    // gateway serves Jellyfin under /jellyfin and answers the root itself — with its placeholder
+    // page on an older node, and with a 404 naming the right base on a newer one. **Both have to
+    // lead here**, which is why this turns on "answered at all" rather than on the HTML: the
+    // gateway's own fix would otherwise have quietly undone this one.
+    answeredButNotJellyfin = true;
+    if (alreadyNested(host)) continue;
+
     const nested = `${url}/${JELLYFIN_SUBPATH}`;
     writeInfoLog(
-      `Server check: ${url} answered something that is not Jellyfin; trying ${nested}`,
+      `Server check: ${url} answered, but it is not Jellyfin; trying ${nested}`,
     );
     const under = await probePublicInfo(nested, customHeaders, probeTimeoutMs);
     if (under.kind === "ok") return adopt(nested, under.data, customHeaders);
-    answeredButNotJellyfin = true;
   }
 
   if (answeredButNotJellyfin) throw new NotAJellyfinServerError();
@@ -138,9 +141,13 @@ function alreadyNested(host: string): boolean {
 /** What one `/System/Info/Public` request came back as. */
 type Probe =
   | { kind: "ok"; data: PublicSystemInfo }
-  /** Answered 2xx, but the body was not a JSON object — HTML, most likely a placeholder page. */
-  | { kind: "not-json" }
-  /** Nothing usable: refused, non-2xx, timed out, or the network failed. */
+  /**
+   * An HTTP response came back, but it is not a Jellyfin document: a non-2xx, or a 2xx whose body
+   * is HTML or otherwise not an object. Something is listening, and it is worth asking it about
+   * `/jellyfin`.
+   */
+  | { kind: "answered" }
+  /** Nothing answered: refused, timed out, DNS, or a failed TLS handshake. */
   | { kind: "miss" };
 
 /**
@@ -180,7 +187,7 @@ async function probePublicInfo(
         "WARN",
         `Server check: ${url} answered HTTP ${response.status}`,
       );
-      return { kind: "miss" };
+      return { kind: "answered" };
     }
 
     let body: unknown;
@@ -191,14 +198,14 @@ async function probePublicInfo(
         "WARN",
         `Server check: ${url} answered 200 with a body that is not JSON`,
       );
-      return { kind: "not-json" };
+      return { kind: "answered" };
     }
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       writeToLog(
         "WARN",
         `Server check: ${url} answered 200 with JSON that is not a Jellyfin document`,
       );
-      return { kind: "not-json" };
+      return { kind: "answered" };
     }
 
     const data = body as PublicSystemInfo;

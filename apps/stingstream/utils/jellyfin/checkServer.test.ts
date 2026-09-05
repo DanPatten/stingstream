@@ -371,13 +371,44 @@ describe("checkJellyfinServer finds Jellyfin under /jellyfin", () => {
     ).toBeUndefined();
   });
 
-  test("a non-2xx answer is not mistaken for a placeholder page", async () => {
+  test("a node that 404s the root — the newer gateway — is followed to /jellyfin too", async () => {
+    // The gateway's own half of this fix answers Jellyfin-shaped paths at the root with 404 and
+    // JSON instead of the placeholder page. If the app only followed HTML, that fix would have
+    // silently undone this one, so the rule is "something answered", not "it was HTML".
+    fetchImpl = async (url) =>
+      url.includes("/jellyfin/")
+        ? okResponse({ ServerName: "stingstream-a" })
+        : statusResponse(404);
+
+    const result = await checkJellyfinServer("http://node.local:8890");
+
+    expect(result).toEqual({
+      url: "http://node.local:8890/jellyfin",
+      name: "stingstream-a",
+    });
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "http://node.local:8890/System/Info/Public",
+      "http://node.local:8890/jellyfin/System/Info/Public",
+    ]);
+  });
+
+  test("something that answers but is Jellyfin at neither level is the distinct error", async () => {
     fetchImpl = async () => statusResponse(404);
+
+    await expect(
+      checkJellyfinServer("http://192.168.1.10:8096"),
+    ).rejects.toBeInstanceOf(NotAJellyfinServerError);
+  });
+
+  test("an unreachable address is not probed twice — the timeout must not double", async () => {
+    routes({});
 
     expect(
       await checkJellyfinServer("http://192.168.1.10:8096"),
     ).toBeUndefined();
-    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "http://192.168.1.10:8096/System/Info/Public",
+    ]);
   });
 
   test("headers are carried to the nested probe and persisted against the base that answered", async () => {
