@@ -52,6 +52,12 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # third_party/*/fetch-*.ps1 use this to authenticate to api.github.com -- anonymous requests
+      # share a 60/hour rate limit across every GitHub Actions runner's IP range, which several
+      # concurrent workflows across this repo exhaust quickly; found failing for real, not
+      # hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded" mid-run).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its imports
       # must resolve for `bun run build:web` below to bundle at all (same reasoning as ci.yml's

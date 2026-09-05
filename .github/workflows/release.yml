@@ -84,6 +84,13 @@ jobs:
     needs: version
     runs-on: windows-latest
     timeout-minutes: 90
+    env:
+      # third_party/*/fetch-*.ps1 use this to authenticate to api.github.com -- anonymous
+      # requests share a 60/hour rate limit across every GitHub Actions runner's IP range,
+      # which several concurrent workflows across this repo exhaust quickly; found failing
+      # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
+      # mid-run while proving this workflow out).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
       # imports must resolve for bun run build:web below to bundle at all (same reasoning as
@@ -123,7 +130,16 @@ jobs:
         run: pwsh tools/package-node.ps1 -Rid win-x64 -Version "${{ needs.version.outputs.version }}"
 
       - name: Install Inno Setup
-        run: winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+        # winget on a fresh windows-latest runner occasionally needs its source re-indexed before
+        # the first real install of a session succeeds; Chocolatey (also preinstalled on
+        # windows-latest) is the fallback rather than a retry loop against the same flaky source.
+        shell: pwsh
+        run: |
+          winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "winget install failed (exit $LASTEXITCODE); falling back to choco"
+            choco install innosetup -y --no-progress
+          }
 
       - name: Build the installer
         run: pwsh deploy/windows/build-installer.ps1 -SkipPackage
@@ -140,6 +156,13 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # third_party/*/fetch-*.ps1 use this to authenticate to api.github.com -- anonymous
+      # requests share a 60/hour rate limit across every GitHub Actions runner's IP range,
+      # which several concurrent workflows across this repo exhaust quickly; found failing
+      # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
+      # mid-run while proving this workflow out).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -281,6 +304,13 @@ jobs:
     needs: version
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      # third_party/*/fetch-*.ps1 use this to authenticate to api.github.com -- anonymous
+      # requests share a 60/hour rate limit across every GitHub Actions runner's IP range,
+      # which several concurrent workflows across this repo exhaust quickly; found failing
+      # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
+      # mid-run while proving this workflow out).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
