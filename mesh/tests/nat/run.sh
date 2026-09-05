@@ -172,7 +172,12 @@ echo "ok: both nodes reach the WAN, neither reaches the other"
 configure_offline_discovery() { # container
   # n0's relays and DNS would defeat the point: the scenario is about *this* coordinator carrying
   # the connection, so everything public is switched off and the coordinator is the only relay.
-  docker exec -i "$1" sh -c 'cat > /data/mesh.toml' <<'TOML'
+  #
+  # It goes in as `fallback_coordinator`, not only on the group, because iroh decides at bind time
+  # whether an endpoint has a relay transport at all — one that starts with no relay anywhere
+  # cannot acquire one later. That is how a shipped node behaves too: Dan's fallback coordinator is
+  # baked into the build, so the transport always exists.
+  docker exec -i "$1" sh -c 'cat > /data/mesh.toml' <<TOML
 node_name = "node"
 
 [api]
@@ -183,6 +188,7 @@ port = 8791
 n0_dns = false
 mainline_dht = false
 n0_relays = false
+fallback_coordinator = "http://$COORD_IP:8080"
 
 [peer]
 max_concurrent_streams = 8
@@ -199,7 +205,6 @@ TOML
 
 start_node() { # container name
   docker exec -d -e STINGSTREAM_DATA=/data \
-    -e STINGSTREAM_MESH_FALLBACK_COORDINATOR= \
     -e RUST_LOG=stingstream_mesh=info,iroh=warn,warn \
     "$1" sh -c "/opt/bin/stingstream-mesh serve --node-name $2 --api-port 8791 >> /data/mesh.log 2>&1"
 }

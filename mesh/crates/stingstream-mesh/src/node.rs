@@ -9,10 +9,19 @@
 //!
 //! The endpoint is built from iroh's `presets::N0` — n0's public relays, n0 DNS lookup and pkarr
 //! publishing — plus, by default, mainline-DHT lookup. A group's coordinator (and the shared
-//! fallback coordinator, if the build has one) is *inserted into* the relay map rather than
-//! replacing it. That matters because a Lite-mode coordinator is TCP-only: it is registered without
-//! a QUIC address-discovery port, so iroh keeps using an n0 relay to learn its own external address
-//! and only falls back to the coordinator's relay path when nothing else works. See `docs/MESH.md`.
+//! fallback coordinator, if the build has one) is *added to* the relay map rather than replacing
+//! anything, so the map keeps a UDP-capable relay even when the coordinator is TCP-only.
+//!
+//! The map is assembled **before** `bind`, from the config and from every group already in
+//! `mesh.db`. That is not an optimisation: `RelayMode::Disabled` removes iroh's relay transport
+//! entirely, and a transport that was never created cannot be given entries afterwards — so a node
+//! configured with `n0_relays = false` and a coordinator would otherwise bind with no relay at all
+//! and then silently ignore the one thing it was told to use. A coordinator joined at runtime is
+//! still inserted, and warns if there is no transport to insert it into.
+//!
+//! A coordinator is registered with QUIC address discovery only when its `/healthz` says the
+//! listener is really running; a Lite one is TCP-only and never has it, and asking anyway costs a
+//! timeout per connection attempt. See `docs/MESH.md`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,6 +64,9 @@ pub struct MeshNode {
     /// Kept alongside DNS and DHT lookup so a group still joins with every discovery service off,
     /// which is exactly the zero-infrastructure LAN case and what the integration test exercises.
     addr_book: MemoryLookup,
+    /// Whether the endpoint was bound with a relay transport at all. Adding a relay to an endpoint
+    /// that has none is a no-op, so this is what turns that into a warning the operator can act on.
+    relays_enabled: bool,
     router: Mutex<Option<Router>>,
     groups: Mutex<HashMap<GroupId, RunningGroup>>,
     conns: Mutex<HashMap<(GroupId, EndpointId), PeerConnection>>,
@@ -76,15 +88,24 @@ impl MeshNode {
         let secret_key = crate::identity::load_or_create(&cfg.data_dir)?;
         let db = Arc::new(Db::open(&cfg.db_path())?);
 
+        // The relay map has to be complete *before* the endpoint binds. `RelayMode::Disabled`
+        // removes iroh's relay transport entirely, and a transport that was never created cannot
+        // be given entries later — so a node with `n0_relays = false` would silently have no way
+        // to use its group's coordinator, which is precisely the configuration that depends on it.
+        // Seed the map from the config and from every group already in `mesh.db`.
+        let relay_map = seed_relay_map(&cfg, &db.groups().unwrap_or_default()).await;
+        let relays_enabled = !relay_map.is_empty();
+
         let addr_book = MemoryLookup::new();
         let mut builder = Endpoint::builder(presets::N0)
             .secret_key(secret_key.clone())
             .address_lookup(addr_book.clone());
-        if !cfg.discovery.n0_relays {
-            // Only the group's own coordinator(s) will carry relayed traffic. Direct connections
-            // still work; hole punching just loses n0's help.
-            builder = builder.relay_mode(iroh::RelayMode::Disabled);
-        }
+        builder = if relays_enabled {
+            builder.relay_mode(iroh::RelayMode::Custom(relay_map))
+        } else {
+            // No n0 relays and no coordinator: direct connections only, which is the LAN case.
+            builder.relay_mode(iroh::RelayMode::Disabled)
+        };
         if !cfg.discovery.n0_dns {
             // `clear_address_lookup` drops everything the preset added, so the out-of-band book
             // goes back in afterwards.
@@ -124,16 +145,12 @@ impl MeshNode {
             gossip,
             db,
             addr_book,
+            relays_enabled,
             router: Mutex::new(Some(router)),
             groups: Mutex::new(HashMap::new()),
             conns: Mutex::new(HashMap::new()),
             streams,
         });
-
-        // The shared fallback coordinator applies to every group, so it goes in once.
-        if let Some(url) = node.cfg.fallback_coordinator() {
-            node.add_relay(&url, "fallback coordinator").await;
-        }
 
         for group in node.db.groups()? {
             if let Err(e) = node.start_group(group.clone(), Vec::new()).await {
@@ -222,25 +239,24 @@ impl MeshNode {
     }
 
     async fn add_relay(&self, url: &url::Url, why: &str) {
-        let Ok(relay) = url.as_str().parse::<RelayUrl>() else {
-            tracing::warn!(url = %url, "ignoring an unparseable relay url");
+        let Some(config) = relay_config_for(url).await else {
             return;
         };
-        // Asking a coordinator for QUIC address discovery when it has none costs a timeout on
-        // every connection attempt, and a Lite coordinator never has it — it is TCP-only. So the
-        // coordinator says on `/healthz` whether its listener is actually up, and an unreachable
-        // or unreadable answer falls back to the safe assumption of "no".
-        let quic = coordinator_has_address_discovery(url)
-            .await
-            .then(iroh_relay::RelayQuicConfig::default);
-        let config = Arc::new(RelayConfig::new(relay.clone(), quic.clone()));
+        if !self.relays_enabled {
+            // The endpoint has no relay transport, so this would silently do nothing. That only
+            // happens with `n0_relays = false` on a node that had no coordinator when it started.
+            tracing::warn!(
+                url = %url,
+                why,
+                "this node started with no relay transport (n0_relays is off and no coordinator \
+                 was configured); restart it to use this coordinator's relay"
+            );
+            return;
+        }
+        let relay = config.url.clone();
+        let address_discovery = config.quic.is_some();
         self.endpoint.insert_relay(relay.clone(), config).await;
-        tracing::info!(
-            relay = %relay,
-            why,
-            address_discovery = quic.is_some(),
-            "added a relay to the map"
-        );
+        tracing::info!(relay = %relay, why, address_discovery, "added a relay to the map");
     }
 
     // --- groups -------------------------------------------------------------------------------
@@ -724,6 +740,56 @@ pub struct JoinOutcome {
     pub group: Group,
     pub via: JoinRoute,
     pub contacted: Vec<String>,
+}
+
+/// The relay map an endpoint should bind with: n0's relays if they are wanted, plus the shared
+/// fallback coordinator and every known group's coordinator.
+///
+/// This runs before `bind` because iroh decides at bind time whether the endpoint has a relay
+/// transport at all, and one that was never created cannot be given entries afterwards.
+async fn seed_relay_map(cfg: &MeshConfig, groups: &[Group]) -> iroh::RelayMap {
+    let map = iroh::RelayMap::empty();
+    if cfg.discovery.n0_relays {
+        map.extend(&iroh::endpoint::default_relay_mode().relay_map());
+    }
+    let mut coordinators: Vec<url::Url> = cfg.fallback_coordinator().into_iter().collect();
+    for g in groups {
+        if let Some(u) = &g.coordinator {
+            if !coordinators.contains(u) {
+                coordinators.push(u.clone());
+            }
+        }
+    }
+    for url in &coordinators {
+        if let Some(config) = relay_config_for(url).await {
+            tracing::info!(
+                relay = %config.url,
+                address_discovery = config.quic.is_some(),
+                "seeding a coordinator into the relay map"
+            );
+            map.insert(config.url.clone(), config);
+        }
+    }
+    map
+}
+
+/// Build the [`RelayConfig`] for a coordinator URL, asking it whether it does address discovery.
+async fn relay_config_for(url: &url::Url) -> Option<Arc<RelayConfig>> {
+    let relay: RelayUrl = match url.as_str().parse() {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(url = %url, error = %e, "ignoring an unparseable relay url");
+            return None;
+        }
+    };
+    // Asking a coordinator for QUIC address discovery when it has none costs a timeout on every
+    // connection attempt, and a Lite coordinator never has it — it is TCP-only. So the coordinator
+    // says on `/healthz` whether its listener is actually up, and an unreachable or unreadable
+    // answer falls back to the safe assumption of "no".
+    let quic = coordinator_has_address_discovery(url)
+        .await
+        .then(iroh_relay::RelayQuicConfig::default);
+    Some(Arc::new(RelayConfig::new(relay, quic)))
 }
 
 /// Ask a coordinator whether it answers iroh's QUIC address-discovery probes.
