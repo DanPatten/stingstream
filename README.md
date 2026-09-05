@@ -6,7 +6,9 @@ install, one UI, and one login; every member of a group pools their libraries an
 automatically, playback picks the best available source across the group, and nodes reach each
 other peer-to-peer through NAT with fallback to a self-hostable open-source relay. See
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, decisions, repository layout,
-and milestone plan, and [`NOTICE.md`](NOTICE.md) for the vendored components and their licenses.
+and milestone plan, [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for the handful of
+conventions this shared checkout depends on, and [`NOTICE.md`](NOTICE.md) for the vendored
+components and their licenses.
 
 ## Repository layout
 
