@@ -52,7 +52,8 @@ A new group needs nothing anyone hosts. A node's iroh endpoint is built with:
 * **n0 DNS + pkarr** — the node publishes a signed record of its addresses and resolves peers by
   node id.
 * **mainline DHT** — the same pkarr record, published to and resolved from the BitTorrent DHT. No
-  server at all; slower to converge, so it complements DNS rather than replacing it.
+  server at all; slower to converge, so it complements DNS rather than replacing it. **Best-effort,
+  and never fatal** — see below.
 * **an in-memory address book** — addresses learned out of band, from an invite code or a
   coordinator's rendezvous list. This is what lets a group work with every one of the above turned
   off, which is the LAN case and what the integration tests run.
@@ -75,7 +76,38 @@ n0_dns = true
 mainline_dht = true
 n0_relays = true
 fallback_coordinator = ""   # a shared coordinator baked into the build; empty means none
+dht_bootstrap = []          # override the DHT's bootstrap nodes; empty means the public ones
 ```
+
+### The DHT is allowed to be unavailable
+
+It is the third of three ways a node finds a peer, behind an invite code's addresses and n0's DNS,
+and behind relays for actually connecting. It is worth having — it is the only one of the three that
+needs nothing hosted by anybody — and it is worth nothing at all if its absence stops the node.
+
+It used to. Registering the address lookup on the *endpoint builder* defers its construction to
+`bind()` and propagates the error, and `Dht::new` binds a UDP socket synchronously — so no usable
+interface, a captive network, or an OS that refused the socket failed the bind and the node never
+came up. A node died that way on 2026-09-05 with `Could not bootstrap the routing table` as the last
+line in its log. (That particular message is emitted by the DHT's own background actor and is
+*not* itself fatal; it was simply the most alarming line next to a node that had exited for the
+adjacent reason.)
+
+Since M4.5 the lookup is attached **after** the bind and retried — six attempts on a doubling
+five-second backoff, at WARN, with a message that names both halves: what is degraded and what still
+works. `AddressLookupServices::add` republishes whatever address data the endpoint already has, so a
+lookup that arrives on the fourth attempt is not missing the first three minutes of announcements.
+Ten minutes of retrying covers the failures that resolve themselves — a lid opened before the Wi-Fi
+associated, a machine booted before its network, a captive portal about to be clicked through —
+and past that the network is not coming back on its own.
+
+`GET /mesh/v1/status` carries `dht`, always present, tagged `off` / `up` / `retrying` /
+`unavailable` with the attempt count and the last error. "Off" and "unavailable" are different
+answers, and a support question about a node nobody can find needs to tell them apart.
+
+`dht_bootstrap` exists for a closed network running its own DHT, and for the acceptance test that
+points two nodes at an unroutable address (TEST-NET-1) and asserts a whole group still works — with
+n0 relays and n0 DNS also off, so the invite code is the only route in.
 
 ---
 
@@ -96,7 +128,8 @@ encodings, and the difference matters:
   invite codes and is visible to any relay carrying the topic. It authorises nothing.
 * `group_secret` — 32 random bytes, never sent in the clear. It gates peer connections, seals gossip
   and derives every rendezvous credential.
-* `coordinator` — optional URL. A property of the *group*, so members auto-configure from the invite.
+* `coordinator` — optional URL. A property of the *group*, so members auto-configure from the
+  invite. **Changeable after creation** since M4.5; see "Changing a group's coordinator" below.
 
 Revocation in v1 is secret rotation. Per-member revocation is M8.
 
@@ -263,6 +296,7 @@ whose fields disappear on the way out.
 | `Heartbeat { node_name, heartbeat }` | liveness plus advertised capacity |
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
+| `GroupConfig { coordinator, at, by }` | the group's coordinator, stamped. See "Changing a group's coordinator" |
 
 ### Frame size, and why snapshots are chunked
 
@@ -304,6 +338,74 @@ A neighbour appearing triggers both a snapshot and a `RequestSnapshot`, so a fre
 seconds rather than waiting for the next tick. A peer with no heartbeat for `peer_timeout_secs` is
 marked offline — which is what greys its titles out in the app — and comes back on its next
 heartbeat. Nothing is deleted on going offline; the federated library's grace period handles that.
+
+### Changing a group's coordinator
+
+A group's coordinator used to be fixed at creation, which meant a group whose owner's VPS moved — or
+one that outgrew the shared fallback — had to be rebuilt from scratch and re-joined by every member.
+`PUT /mesh/v1/groups/{group}/coordinator` changes it in place (M4.5).
+
+The whole protocol is one gossip body and one comparison rule.
+
+**The record.** A change is `(coordinator, at, by)`: the new URL (or `null`, meaning the group goes
+back to public infrastructure — a real value, not "no opinion"), the author's wall-clock time in
+milliseconds, and the author's node id. The pair `(at, by)` is a `CoordinatorStamp`, stored beside
+the coordinator in the `groups` table.
+
+**The rule is last-writer-wins, by millisecond, with the node id breaking a tie.** A tie is not
+hypothetical enough to ignore: two administrators pressing the button in the same millisecond is
+unlikely, but a group whose members disagree *forever* because each kept its own value is much worse
+than one that arbitrarily picks the higher node id — and the node id is the only value every member
+already knows and orders identically. The clock is the *author's* and no attempt is made to correct
+for skew, which is the standard cost of last-writer-wins and is accepted here for a field that
+changes perhaps twice in a group's life. A node whose own change loses is told so, with the winning
+author named, rather than left thinking it worked.
+
+**Who may write one.** Anybody who can produce a message a member can open. Sealing needs the group
+secret and the Ed25519 signature is verified against a transcript bound to the group id, and in v1
+the secret *is* the membership credential — so "sealed and signed" and "written by a member" are the
+same statement. There is deliberately no extra check that the author appears in the `peers` table: it
+would buy nothing against somebody who already holds the secret (they could gossip a `Membership`
+first) while rejecting a legitimate change from a member this node has not happened to hear from
+yet.
+
+**The stamp's author comes from the body, never the envelope.** A record has to keep its original
+author and time as every member re-announces it; taking the envelope's author would make the last
+node to repeat it look like the one that made the change, and every repeat look newer than the
+original.
+
+**Applying one is a single SQL statement** (`Db::apply_coordinator`), not a read followed by a
+write. A member rejoining a group receives every neighbour's config record within the same few
+milliseconds, so a read-then-write there is a real race rather than a theoretical one. The statement
+also tells the caller whether the row actually changed, which is what stops two members that already
+agree from re-announcing at each other forever.
+
+**Where it is re-announced:** on every snapshot tick, on `NeighborUp`, and in answer to
+`RequestSnapshot`. A member that was offline during the change therefore adopts it when it returns,
+without anything having to remember that it missed one.
+
+**What the node does besides storing it.** Gossip cannot re-seed a relay map, so a coordinator
+change also adds the new coordinator's relay to the endpoint (no restart needed) and announces this
+node at the new coordinator's rendezvous. The *old* relay is dropped only when no other group points
+at it and it is not the build's fallback coordinator — and only relays this node itself added for a
+coordinator are ever candidates. Stripping a node of n0's public relays to tidy up after one group
+would be a much worse bug than one stale entry in the map.
+
+**Invite codes need no separate regeneration.** `invite()` reads the group fresh, so a code minted
+after the change carries the new value. A code minted *before* it still works: the joiner adopts its
+coordinator **unstamped** — `(0, "")`, which loses to any real record and is **never broadcast**.
+That is the property that stops a stale code, pasted a month after the group moved, from pushing the
+old coordinator back onto everybody. The cost is that a joiner whose only contact is a member that
+is itself stale will briefly follow the stale value; it converges on the first stamped record any
+neighbour sends, which is one gossip round.
+
+`StingStream.Core` exposes this as `PUT /stingstream/api/v1/mesh/groups/{group}/coordinator` behind
+Jellyfin's elevation, and the app's Group screen calls it through M3c's coordinator picker, with the
+same live `/healthz` validation the create screen uses. Core does not arbitrate — it hands the change
+to the mesh.
+
+Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs` and by a step in
+`tools/e2e-m3.ps1`.
 
 ### The inventory record
 
@@ -389,11 +491,12 @@ member's index.
 | Method | Path | |
 |---|---|---|
 | `GET` | `/healthz` | `ok` |
-| `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses |
+| `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses, and the DHT's state |
 | `GET` | `/mesh/v1/groups` | groups this node belongs to |
 | `POST` | `/mesh/v1/groups` | `{name, coordinator?}` → create |
 | `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, coordinator, via, contacted}` |
 | `POST` | `/mesh/v1/groups/{group}/invite` | → `{code}` |
+| `PUT` | `/mesh/v1/groups/{group}/coordinator` | `{coordinator}` (null clears) → the group. Stamps, re-seeds the relay map, announces at the rendezvous, gossips the record |
 | `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret |
 | `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |

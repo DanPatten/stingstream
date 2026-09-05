@@ -533,7 +533,10 @@ TCP mapping and surfaces the manual rule when all three protocols fail; the node
 hostnames ride the gossip heartbeat to every member. The web bundle races them.
 `tools/e2e-sidedoor.ps1` proves the whole path — a real ACME order against a local Pebble, a real
 wildcard certificate, a real TLS handshake against `pub.<nodeid>`, a real tunnel through the SNI
-router, and the `blocked` case — on loopback, in about a minute and a half, on Windows and in CI.
+router, and the `blocked` case — on loopback, in about twelve seconds after the build (about three
+minutes in CI including a cold build), on Windows and in CI. PowerShell 7 is now installed on the
+build machine (user scope), so `pwsh` and Windows PowerShell 5.1 both work for every harness here;
+`docs/RUNNING.md` still recommends `powershell` for the two M3 steps that predate it.
 **What has not happened is a certificate from real Let's Encrypt for a real domain**, because a
 Lite-mode coordinator publishes every one of these names through a DNS provider and there is no
 Cloudflare token yet; Dan's Railway coordinator therefore has no side door today and a node pointed
@@ -1193,6 +1196,55 @@ first — one source where there should have been two, looking from outside exac
 never published. Labels are therefore decided across every holder of a title at once, and when two
 collide, *both* get their short node id appended so the names do not shuffle when a third holder
 appears.
+
+### M4.5 — The UI's server gaps, and changing a group's coordinator (Opus 5) — done
+
+Two unrelated pieces of unfinished business, done together because both were "the screen exists and
+the server does not answer it".
+
+**The ten gaps.** `docs/UI-API-GAPS.md` recorded ten endpoints the M2 screens wanted and Core did
+not expose. All ten are real now — title lookup, monitor toggle, delete, quality-profile CRUD,
+calendar, history, a unified per-download list, external download clients, an indexer test, and
+per-child versions — and every screen that used to render a `GapNotice` renders data. That document
+is now the record of what each one turned out to involve; three of the entries are worth reading
+even if you never touch the code, because they are design decisions rather than plumbing:
+
+* **A quality profile is shared and keyed on its name**, written into both apps, because that is the
+  Omniarr premise. What is *not* shared is the quality vocabulary — Radarr knows 34 names, Sonarr 26,
+  overlapping in 24 — so items travel by name, each app gets the subset it recognises, and the
+  response reports per app what it could not take rather than letting the two drift silently.
+* **Bring-your-own download client is supported.** Not because the embedded engines are
+  insufficient, but because somebody migrating already has a seedbox with a queue in it.
+* **The Downloads list merges four sources into one.** A film grabbed through the qBittorrent shim
+  exists as a MonoTorrent manager, a Radarr queue row and an import; listing all three would lie
+  about how many downloads there are. Engine rows are the spine and arr rows fold onto them by
+  `downloadId`.
+
+Also fixed at the source: the OpenAPI document's duplicate `operationId`s, which had been worked
+around client-side since M2. Jellyfin configures Swashbuckle to take the attribute route's name, so
+naming five actions was the whole fix; the document is now 79 operations with zero duplicates.
+
+**Changing a group's coordinator.** A group's coordinator was fixed at creation, so a group whose
+owner's server moved had to be rebuilt and re-joined by everybody. `PUT
+/mesh/v1/groups/{id}/coordinator` changes it in place: the node stamps the change
+`(url, now, node id)`, re-seeds its relay map, announces at the new coordinator's rendezvous, and
+gossips a signed `GroupConfig` record that every member applies under **last-writer-wins by
+millisecond, node id breaking a tie**. `docs/MESH.md` has the protocol and, more usefully, the two
+non-obvious parts: the stamp's author comes from the record rather than the envelope (or every
+re-announcement would look newer than the original), and a joiner adopts an invite code's
+coordinator *unstamped* and never re-broadcasts it — which is what stops a stale code, pasted a
+month after the group moved, from pushing the old value back onto the whole group.
+
+**And one crash.** The mainline DHT was registered on the endpoint builder, which meant a DHT that
+could not bind its UDP socket failed `bind()` and took the whole node down — an optional third
+discovery service killing a server whose other two worked. It is attached after the bind now and
+retried, with its state on `/mesh/v1/status`.
+
+**Verified** against two real nodes from a private copy of the build outputs: every gap driven
+through the web bundle in a browser against live Radarr and Sonarr (including a real TMDB lookup, a
+profile created in both apps at once, and both arrs' own refusals rendered verbatim), and a
+coordinator change on node A adopted by node B in 0.2 s over gossip alone. `tools/e2e-m1.ps1` 21/21
+and `tools/e2e-m3.ps1` re-run afterwards.
 
 ### M5 — Android phone and TV release readiness, offline (Sonnet 5)
 

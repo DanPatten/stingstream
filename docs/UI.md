@@ -2,8 +2,9 @@
 
 How the StingStream screens are built, what talks to what, and how to add another one. Companion
 to `docs/RUNNING.md` (how a node runs) and `docs/M2-web-spike.md` (why the web target works the
-way it does). `docs/UI-API-GAPS.md` lists what these screens want that the server doesn't expose
-yet.
+way it does). `docs/UI-API-GAPS.md` was the list of what these screens wanted and the server did not
+expose; M4.5 closed all ten, and that document is now the record of what each one turned out to
+involve.
 
 ---
 
@@ -169,25 +170,50 @@ Radarr's/Sonarr's JSON straight through, so their real shape is hand-typed (loos
 
 ---
 
-## What's live vs. stubbed (short version — `docs/UI-API-GAPS.md` has the full detail)
+## What's live (M4.5: everything — nothing on these screens is stubbed)
 
-| Area | Live | Stubbed (gap notice, no fake data) |
-|---|---|---|
-| Manage → Movies/Series | list, add by TMDB/TVDB id | title search, monitor toggle, delete, per-item quality-profile edit |
-| Manage → Calendar | — | everything (no server data at all) |
-| Manage → Activity | Queue (both apps) | History |
-| Downloads | aggregate engine health (torrent engine + NZBGet + hashing queue, from `/status` and `/healthz`) | per-item list, pause/resume/remove |
-| Server settings → Indexers | full CRUD | connectivity test |
-| Server settings → Download clients | embedded-engine toggles, DHT, categories, housekeeping | adding an external client |
-| Server settings → Quality profiles | default-profile-name field | listing/creating/editing actual profiles |
-| Server settings → Root folders / Naming / Notifications (incl. extra webhooks) | full CRUD | — |
-| Admin → Users / Libraries / Transcoding / Logs | all of it (Jellyfin's own API) | — |
-| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count); side door candidates + a live per-candidate reachability/DNS-rebinding test (M5, `components/stingstream/node/SideDoorSection.tsx`, `docs/APP-RELEASE.md` §8) | per-child version numbers |
+All ten gaps `docs/UI-API-GAPS.md` recorded are closed, and every screen below is live against real
+server data. `GapNotice` still exists as a component and is still the right thing to render for a
+feature with no endpoint — there is simply no such feature on these screens any more.
 
-A stubbed feature never shows fabricated rows presented as real data — it shows `GapNotice` with a
-one-line reason and a pointer to `docs/UI-API-GAPS.md`. The one partial exception is Manage's add
-forms, which are fully functional (add by id) with a small note that title search specifically
-isn't wired up yet.
+| Area | Live |
+|---|---|
+| Manage → Movies/Series | list; **search-as-you-type add** (`/movies/lookup`, `/series/lookup`) with add-by-id kept as an escape hatch; **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation |
+| Manage → Calendar | merged Radarr + Sonarr calendar, grouped by day, week/month window |
+| Manage → Activity | Queue (both apps) and **History**, merged and paged |
+| Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
+| Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
+| Server settings → Download clients | embedded-engine toggles, DHT, categories, housekeeping, and **your own external clients** — add, test, remove, pushed into both arrs |
+| Server settings → Quality profiles | the default-profile-name field, and **full CRUD across both apps**: create, edit qualities and cutoff, delete |
+| Server settings → Root folders / Naming / Notifications (incl. extra webhooks) | full CRUD |
+| Admin → Users / Libraries / Transcoding / Logs | all of it (Jellyfin's own API) |
+| Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count); side door candidates + a live per-candidate reachability/DNS-rebinding test (M5, `components/stingstream/node/SideDoorSection.tsx`, `docs/APP-RELEASE.md` §8), and **per-child version numbers** |
+| Group → Coordinator | **change it after creation**, with M3c's live `/healthz` validation; every member follows over gossip |
+
+Four things about these screens are worth knowing before reading the code.
+
+**Manage → Movies and Manage → Series are one component.** They were a file each in M2, when both
+only listed and added by id. Now that both do search, a monitor toggle, a profile change and a
+delete, the only differences left are four words and whether a title is keyed on a TMDB or a TVDB
+id — so they are `manage/LibrarySection.tsx` with a `kind`, and `MoviesSection`/`SeriesSection` are
+two-line wrappers that keep the file map above honest.
+
+**Core answers PascalCase**, because Swashbuckle reads Jellyfin's own serializer options and
+StingStream's controllers are hosted inside Jellyfin's process. Every property read in
+`lib/stingstream/hooks.ts` is capitalised for that reason; it is not a mistake, and it is not worth
+"fixing" without deciding the question for the whole API at once.
+
+**`confirmDestructive` exists because `Alert` renders nothing on react-native-web.** Not a
+fallback, not an error — nothing. A destructive action guarded by `Alert.alert` in the web bundle
+therefore loses both the guard *and* the action. `components/stingstream/shared/confirm.ts` is the
+one place that knows this; every delete and remove added in M4.5 goes through it.
+
+**A screen says which engines answered, not just what they returned.** The Downloads list names any
+engine that did not report, because an empty list otherwise means two completely different things
+— nothing is downloading, or the thing that would have said so is down — and a screen that cannot
+tell them apart sends somebody hunting a bug that is not there. The same instinct is why a quality
+profile says when the two apps disagree about it rather than showing one app's answer as if it were
+both.
 
 ---
 

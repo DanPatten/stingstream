@@ -327,11 +327,15 @@ that happens to answer `/healthz`. A bare hostname is normalised to `https://`, 
 plain-HTTP coordinator would hand every member's rendezvous traffic to the network. "Host your own"
 opens `deploy/coordinator/README.md` on GitHub.
 
-**The coordinator is fixed when the group is created.** It is a property of the group that travels
-in every invite code, and the mesh exposes no way to change it afterwards: doing so would have to
-reach every member, and there is no gossip message for a membership-config change. The detail
-screen therefore shows it read-only. Changing it later means creating a new group — or a future
-`PATCH /mesh/v1/groups/{id}` plus a config gossip body, which is an M4/M8 question.
+**The coordinator can be changed after the group is created** (M4.5). It is still a property of the
+group that travels in every invite code, but it is no longer permanent: the detail screen's
+Coordinator row opens the same picker, with the same live `/healthz` validation, and
+`PUT /stingstream/api/v1/mesh/groups/{id}/coordinator` hands the change to the mesh — which stamps
+it, re-seeds its own relay map, announces at the new coordinator's rendezvous and gossips a signed
+`GroupConfig` record every other member applies under a last-writer-wins rule. Members that are
+offline adopt it when they return; codes already handed out still work. See `docs/MESH.md`,
+"Changing a group's coordinator", for the conflict rule and why a stale invite cannot push the old
+value back onto the group.
 
 The player's info overlay carries a status pill, from `useMeshSourceStatus`: **Direct** (green),
 **Relayed** (amber), **Via home node** (amber), or **Connecting**. It appears only for mesh
@@ -531,11 +535,10 @@ which is why it is not done here.
 
 ## 10. Open items
 
-* **The coordinator cannot be changed after a group is created** (see §7). It is a property of the
-  group that travels in every invite code, and changing it has to reach every member — so it needs
-  an endpoint *and* a gossip body, not just a screen. Scheduled as a "change coordinator"
-  operation in M4.5; the picker here is create-time only until that lands, and the detail screen
-  shows the current value read-only.
+* ~~**The coordinator cannot be changed after a group is created**~~ — **done in M4.5.** It needed
+  an endpoint *and* a gossip body, which is what it got: `PUT .../groups/{id}/coordinator` and a
+  stamped `GroupConfig` record, last-writer-wins by timestamp with the node id breaking a tie. The
+  picker is no longer create-time only; the detail screen's Coordinator row opens it. See §7.
 * **No iOS.** The FFI crate builds a `staticlib` and uniffi can emit Swift, but there is no iOS
   code here by decision.
 * **Re-sharing from a phone is deliberately impossible.** A light node serves nothing. If phones

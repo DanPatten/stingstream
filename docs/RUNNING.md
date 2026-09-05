@@ -215,7 +215,20 @@ irm -Method POST http://127.0.0.1:8890/stingstream/api/v1/mesh/federated/refresh
 ```
 
 Add `"coordinator": "https://…"` to the create body for a group that uses one; the invite carries
-it to every member, so nobody else has to type it.
+it to every member, so nobody else has to type it. It is not permanent — since M4.5 a group's
+coordinator can be changed, and every member follows over gossip within a second:
+
+```powershell
+# Point the group somewhere else. `"coordinator": null` puts it back on public infrastructure.
+irm -Method PUT "http://127.0.0.1:8890/stingstream/api/v1/mesh/groups/$($g.group)/coordinator" `
+    -Headers $authA -ContentType application/json `
+    -Body (@{ coordinator = "https://coord.example.org" } | ConvertTo-Json)
+
+# B follows without being asked. (Codes already handed out still work; new ones carry the new value.)
+irm "http://127.0.0.1:8990/stingstream/api/v1/mesh/groups" -Headers $authB
+```
+
+See `docs/MESH.md`, "Changing a group's coordinator", for the conflict rule.
 
 > **Run from a private copy of the build outputs.** A running node holds `mesh/target/debug/` and
 > `server/*/bin/` open, which means nobody can rebuild while it is up — including you, and
@@ -351,7 +364,17 @@ pwsh tools/e2e-m1.ps1 -KeepRunning          # leave the node up afterwards to po
 ```
 
 It uses gateway port 8791 and ephemeral child ports, so it does not collide with a development
-node you already have running. Its work directory lives beside the repository, not inside it, and
+node you already have running.
+
+> **It has no `-PrivateCopy`, unlike `tools/e2e-m4.ps1`** — its node runs straight out of the
+> repository's build outputs, so while it is up (and especially with `-KeepRunning`) nobody can
+> `dotnet build server/jellyfin/Jellyfin.Server`. Worse on Windows: stopping the *supervisor* by
+> name orphans its children rather than taking them with it (see "Known limitations in M1"), so a
+> node you believe you have stopped can still be holding `StingStream.Core.dll`. If a build fails
+> with `MSB3027 … locked by: Jellyfin.Server`, look for orphaned `jellyfin.exe`, `Radarr.Console.exe`
+> and `nzbget.exe` whose *paths* are under `server/**` and `third_party/**` and stop those too. Giving
+> this harness the same `-PrivateCopy` treatment M4's has — `New-PrivateInstallRoot -WithArrs` in
+> `tools/e2e-common.ps1` copies the arrs as well — is the real fix and is still to do. Its work directory lives beside the repository, not inside it, and
 it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
 was rejected, and the logs it leaves behind are the whole point when a step fails.
 
