@@ -1319,6 +1319,136 @@ protocol, the endpoint table. The parts worth knowing from here:
 watch in sync through the bridge with under 1 s drift. New import gets subtitles in the group's
 languages within a scan cycle. A DVR recording on B plays on A's TV.
 
+**M7 status (2026-09-05): done.** `tools/e2e-m7.ps1`, three nodes. The two bugs M5 handed on are
+fixed, watch-together crosses nodes, subtitles travel with a title, and DVR recordings federate.
+
+#### The bug that made a holder answer 404 for an item the scorer had just offered
+
+`/items/{id}/sources` named a holder that then 404'd, `failover_candidates=0`, and nothing anywhere
+was corrected, so the next attempt made the same mistake (`docs/APP-RELEASE.md` §11). One cause and
+three faults, all of them ours.
+
+**The cause was not in the mesh.** `InventoryService.RebuildAllAsync` queries every library on the
+server with no ancestor restriction, and the federated materializer writes peers' titles into Shared
+Movies and Shared TV as `.strm` files that Jellyfin resolves into ordinary Movies. So the node built
+inventory records for **its own pointers** — `LocalPath` pointing at a `.strm` — and announced itself
+to the group as a holder of films it does not have. Worse, the next materialization pass saw those
+item keys in `IInventoryService.Keys`, read that as "held locally, the local file wins", and deleted
+its own pointer files, leaving inventory rows naming paths that no longer existed. `FirstRunService`
+calls `RebuildAllAsync` on every start, so a restart was all it took.
+
+`InventoryService.IsServableLocally` now gates every record on three independent tests — a `.strm`
+extension, the `stingstream:federated` tag, and living under the federated root — so a pointer whose
+`.nfo` had not been read yet is still caught. Deliberately **not** a `File.Exists` check:
+`RebuildAllAsync` prunes what it does not rebuild, so that would empty a node's whole inventory the
+first time a NAS was slow to mount.
+
+The three faults are in `docs/MESH.md`, "A holder's answer, and a holder's failure": a `404` was
+treated as a successful open (`is_server_error()` is false for a 404), the failover set was
+same-hash-only even before a byte was on the wire, and nothing was corrected. Between them they are
+why the class of failure is now survivable rather than only that instance of it: a holder retracts a
+row whose file is gone, a reader re-reads that holder's inventory before trying the next candidate,
+and the opening attempt walks every online holder rather than only the ones sharing a hash.
+
+#### Downloads take the original
+
+M5's download of a 4K federated source asked the home node to pull the whole film over the mesh and
+re-encode it in real time so the phone could save a worse copy of a file it could have fetched
+itself — and it timed out at sixty seconds. Dan's decision, implemented in `getDownloadUrl`: a
+download takes the **original** regardless of `MediaSource.TranscodingUrl`, and only an explicit
+choice may ask for a transcode. Two things count as asking — a Download quality other than
+"Original quality" (a Streamyfin setting that had never been read by anything) and a bitrate cap
+below Max — and that path now gets a fifteen-minute read timeout and a real progress bar instead of
+the sixty seconds that killed it. See `docs/APP-RELEASE.md` §6.
+
+#### The SyncPlay bridge
+
+**No patch to Jellyfin.** The bridge holds an ordinary SyncPlay session seat in its own node's group
+with an `ISessionController` of its own: every `SendCommand` the group issues is delivered to every
+session's controllers, so the outbound half arrives as a typed object with the position already
+computed by Jellyfin's own state machine, and the inbound half is
+`ISyncPlayManager.HandleRequest`, which is public and takes any `SessionInfo`. Three things the seat
+is careful about — it never reports playback, it sends `IgnoreWait(true)`, and it suppresses its own
+echo — are in `SyncPlay/WatchBridge.cs` with the reason for each.
+
+The protocol is in `docs/MESH.md` §5a. In short: one leader owns every position, discovery rides
+gossip and commands do not, positions are pairs of (position, instant) on the leader's clock, and a
+follower converts with an NTP-style offset whose *lowest-RTT* sample wins. Measured on two nodes over
+a real QUIC connection: under 250 ms after play, exactly 0 while paused, under 250 ms after a seek.
+
+The one thing v1 does not do is let a *follower's* users pause: the leader owns every position, and a
+follower issuing commands would be a second writer. It is logged rather than silently dropped,
+because the symptom — the film carrying on — needs an explanation somewhere.
+
+#### Subtitles
+
+Jellyfin already has a scheduled task that downloads missing subtitles, and it would work — on every
+node independently, each asking OpenSubtitles for the same file, each spending a download from a
+daily quota measured in single digits, each ending up with a slightly different sidecar. So the
+**holder** fetches, once, and publishes the result with its inventory record: `local_subtitles`
+beside `local_images`, never gossiped as paths, fetched by *index* into the list the holder
+published rather than by filename. The materialising node writes each sidecar next to the `.strm`
+under Jellyfin's own naming, which is what makes it a selectable track with no scan.
+
+Wanted languages default to the node's own UI language via `CultureInfo`, written down at first run
+so the group's policy is visible in the settings API rather than an invisible fallback. First run
+also installs the OpenSubtitles plugin, because Jellyfin ships with **no** subtitle provider at all
+and a user's first search otherwise returns an empty list with no explanation. No account is
+committed: the plugin works anonymously, and a user adds theirs under Server settings → Subtitles for
+a larger quota.
+
+#### Live TV and DVR
+
+Most recordings already federate and always did: one whose EPG supplied a TMDB or TVDB id gets an
+ordinary `movie:`/`episode:` key and materialises beside every other copy of that title, which is
+what makes dedupe and same-hash failover work between a recording and a download. Two gaps closed.
+Jellyfin's default recordings folder has no collection type, so a recording resolves as a bare
+`Video` and the inventory query was not asking for those — it is now, restricted to items under a
+Live TV recording path so nobody's home videos are published to the group by surprise. And a
+recording the providers could not name got no item key at all: it now gets
+`recording:{programme}:{yyyyMMddTHHmm}`, both halves chosen so **two nodes recording the same
+broadcast agree** — the programme name is what the EPG gave both of them and the air date is the
+broadcast's, which is what turns two copies into one item with two sources.
+
+They land in a third library, `Shared Recordings`, rather than being forced into the other two:
+Shared Movies needs the year in both the folder and the filename and needs holders to agree on it,
+which a recording with no `ProductionYear` cannot do, and Shared TV groups on a parsed `SxxEyy`,
+which a recording named by its air date does not have.
+
+**Live channels stay per-node in v1, and the UI says so rather than offering something that will
+not work.** A tuner is a piece of hardware with a finite number of them; sharing one across the mesh
+is a different feature with its own failure modes (a viewer changing channel under another viewer,
+a tuner count that has to be advertised and respected, an EPG that has to be merged) and it is not
+this milestone's. What federates is the *recording*, which is a file like any other.
+
+#### Storage-node polish
+
+The review of M8a's `storage-node` profile produced ten changes. The seven compose, Dockerfile and
+README ones went to M8a. The three that were code came here:
+
+* **`stingstream-relay --healthcheck`.** The profile's health check ran `--check --mode full`, which
+  validates configuration in a *fresh process* and never opens a socket to the running coordinator —
+  so a coordinator whose relay, SNI router or DNS responder had hung reported healthy forever. The
+  new flag does a real loopback `GET /healthz`, hand-rolled for the same reason the node's own is
+  (the runtime image carries neither curl nor wget), and a listener that accepts and says nothing —
+  what a hung coordinator looks like from outside — fails.
+* **`STINGSTREAM_JOIN_CODE_FILE`.** An invite code carries the group *secret*, and an environment
+  variable is visible in `docker inspect` and `/proc/<pid>/environ`. A path can be a compose secret
+  or a systemd `LoadCredential=`. The file wins over the variable, and a *named* file that cannot be
+  read is fatal.
+* **A join that reached nobody now says so.** It succeeds — correctly; the group exists locally and a
+  member appearing later is found — but the usual reason is a wrong code or a coordinator that has
+  not finished starting, and logging that at `info` beside a real success meant a headless seedbox
+  could report healthy and share nothing. It is retried for about half an hour on a backoff (a
+  malformed code is not retried; it will not decode on the eighth try either), warned about in a
+  sentence that says what to check, and reported on `/healthz` as `off` / `joining` / `joined` /
+  `local_only` / `failed`.
+
+Verified locally rather than in Docker: `tools/e2e-m7.ps1` restarts node B with
+`STINGSTREAM_JOIN_CODE` in its environment and asserts it joins, reaches a member, and converges the
+index — the code path the profile depends on, without needing a container runtime this machine does
+not have.
+
 ### M8 — Packaging, updates, hardening (Sonnet 5, then `/security-review`)
 
 - Installers: Windows (winget/MSIX), macOS pkg, Linux deb + AppImage, Docker. Self-contained .NET

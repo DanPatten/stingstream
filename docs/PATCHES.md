@@ -192,6 +192,39 @@ order in an MVC result filter (`PlaybackInfoOrderFilter`), which runs after the 
 vendored change at all. The order is therefore applied twice, deliberately: in the decorator for
 everything the server does with the sources, and in the filter for the list the client reads.
 
+### Not a patch: the SyncPlay bridge needed none (M7)
+
+Watch-together across nodes looked like the most likely thing in this milestone to need a patch --
+observing what a SyncPlay group decides, and injecting a decision into it, are both things a plugin
+would normally have to reach inside for. It turned out to need neither.
+
+**Outbound.** `SessionInfo.AddController(ISessionController)` is public, and
+`SessionManager.SendMessageToSession` iterates *every* controller a session has. So the bridge
+attaches a controller of its own to an ordinary session seat, and every `SendCommand` the group
+issues -- Unpause, Pause, Seek, Stop, with the position and the play-at instant already computed by
+Jellyfin's own state machine -- arrives as a typed CLR object. Nothing to parse, nothing to guess,
+and no socket.
+
+**Inbound.** `ISyncPlayManager.HandleRequest(SessionInfo, IGroupPlaybackRequest, CancellationToken)`
+is public and takes an arbitrary `SessionInfo`, so applying the leader's command is one call.
+
+Two things were considered and rejected. **Decorating `ISyncPlayManager` in DI** would work --
+`AddStingStreamCore` runs after `ApplicationHost.Init`, so a later registration wins -- and would
+add the *inbound* view ("who asked for what", before the state machine runs). It also means owning
+the lifetime of the real `SyncPlayManager`, which is `IDisposable` and subscribes to
+`ISessionManager.SessionEnded` in its constructor; getting that wrong produces a second live
+instance and two handlers for every session that ends. The seat alone turned out to be enough.
+**An `ISyncPlayObserver` hook on `Group`** (two call sites, the same shape as items 7 and 8 below)
+would give every command regardless of broadcast filter, and a real read of the group's live
+`PositionTicks`. Worth having if the drift bar is ever missed; it is additive and can be introduced
+later without reworking the bridge, because it feeds the same shape the controller already produces.
+
+One thing to know if that day comes: `SyncPlayQueueItem.PlaylistItemId` is `Guid.NewGuid()` in a
+field initialiser and is re-minted on every `SetPlaylist`, so it is **per-node and not stable**.
+`Buffer`, `Ready`, `NextItem`, `PreviousItem` and `SetPlaylistItem` all carry it and are *silently
+dropped* on mismatch. Everything crossing a node boundary is keyed on StingStream's own `item_key`
+for exactly that reason.
+
 ### Not a patch: the transcode fix uses `EncoderPath`, which upstream already has
 
 Worth recording because it is the *absence* of a patch that was expected. A transcode of a federated

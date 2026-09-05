@@ -581,3 +581,98 @@ jobs:
           name: e2e-m6-requests
           path: .e2e-m6-artifacts/
           if-no-files-found: warn
+
+  # The M7 acceptance harness: watch together across nodes, subtitles that travel with a title, DVR
+  # recordings that federate, and the two bugs M5 handed on.
+  #
+  # Three nodes, no arrs and no NZBGet -- B and C are pure holders whose media is placed on disk
+  # with an NFO carrying the TMDB id, and nothing here grabs anything -- so like the M4 job this
+  # builds the supervisor and Jellyfin and nothing else.
+  #
+  # The subtitle provider is deliberately mocked: the sidecar is written onto the holder's disk, and
+  # what the run asserts is the publish-and-fetch half. A job that depended on OpenSubtitles
+  # answering would go red for reasons that have nothing to do with this repository.
+  #
+  # See tools/e2e-m7.ps1 and docs/RUNNING.md.
+  e2e-m7:
+    name: e2e (M7 acceptance)
+    runs-on: ubuntu-latest
+    # Three Jellyfins, and a watch-together sequence that waits for real settling time between
+    # commands rather than asserting on an instant that has not arrived yet.
+    timeout-minutes: 75
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK (10.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      # The harness generates its clips with it, and Jellyfin needs it to probe them.
+      - name: Fetch jellyfin-ffmpeg
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build the supervisor
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream
+
+      - name: Build Jellyfin (with StingStream.Core)
+        run: dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj -c Debug
+
+      - name: Run the M7 acceptance harness
+        run: >
+          pwsh tools/e2e-m7.ps1 -SkipBuild
+          -WorkDir "${{ github.workspace }}/.e2e-m7-work"
+
+      # All three nodes' logs. The watch-together steps are decided by numbers that appear only in
+      # A's and B's mesh logs -- the scheduled play-at instant, the measured round trip, and the
+      # drift each report carried.
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m7-logs
+          path: |
+            .e2e-m7-work/logs/
+            .e2e-m7-work/node-a/logs/
+            .e2e-m7-work/node-b/logs/
+            .e2e-m7-work/node-c/logs/
+            .e2e-m7-work/node-a/runtime.json
+            .e2e-m7-work/node-b/runtime.json
+            .e2e-m7-work/node-c/runtime.json
+          if-no-files-found: warn
+
+      # What A materialized: the pointers, the subtitle sidecars beside them, and the Shared
+      # Recordings tree. A failure in the subtitle or recording steps is nearly always visible in
+      # this listing alone -- a missing `.srt`, or a `.strm` in the wrong library.
+      - name: Collect node A's federated tree
+        if: always()
+        run: |
+          mkdir -p .e2e-m7-artifacts
+          if [ -d .e2e-m7-work/node-a/federated ]; then
+            find .e2e-m7-work/node-a/federated -type f -exec ls -l {} + > .e2e-m7-artifacts/federated-listing.txt
+            # -print0, because every path here is a film title and every film title has spaces in
+            # it. See the M3 job for the afternoon that taught us.
+            find .e2e-m7-work/node-a/federated \( -name '*.strm' -o -name '*.srt' \) -print0 |
+              while IFS= read -r -d '' f; do
+                echo "===== $f" >> .e2e-m7-artifacts/federated-pointers.txt
+                cat "$f" >> .e2e-m7-artifacts/federated-pointers.txt
+                echo >> .e2e-m7-artifacts/federated-pointers.txt
+              done
+          fi
+
+      - name: Upload the federated listing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-m7-federated
+          path: .e2e-m7-artifacts/
+          if-no-files-found: warn

@@ -12,11 +12,12 @@ This document is the reference for both: the wire protocol, the invite format, t
 every API. `docs/ARCHITECTURE.md` is the wider system picture and is owned by M1; where the two
 disagree about the mesh, this file is the newer one.
 
-**Status: M3b.** Groups, discovery, the index, peer streaming and the coordinator are implemented
-and tested; the mesh now also runs **inside the supervisor's process** rather than as a child, and
-serves artwork and a capacity heartbeat for the federated library. M3c adds the app's embedded node
-and the URL rewrite; M4 adds source scoring and same-hash failover. Both are called out where they
-touch something here.
+**Status: M7.** Groups, discovery, the index, peer streaming and the coordinator are implemented
+and tested; the mesh runs **inside the supervisor's process** rather than as a child, and serves
+artwork and a capacity heartbeat for the federated library. M3c adds the app's embedded node and the
+URL rewrite; M4 adds source scoring and same-hash failover; M7 adds watch-together across nodes,
+subtitle sidecars, and the index correction that makes a holder's answer and the group's index
+unable to disagree for more than one request. Each is called out where it touches something here.
 
 ### Where the mesh runs
 
@@ -212,8 +213,20 @@ Frames are `u32` length-prefixed postcard, capped at 64 KiB.
 | `GET` | `/peer/v1/inventory` | this node's full inventory for the group, as JSON. Used on join, before gossip converges. |
 | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | the file, with full `Range` support |
 | `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | one artwork file, whole |
+| `GET`/`HEAD` | `/peer/v1/subtitle/{item_key}/{index}` | one subtitle sidecar, whole (M7) |
+| `GET` | `/peer/v1/watch` | the watch-together sessions this node leads (M7) |
+| `GET` | `/peer/v1/watch/clock` | two timestamps, for an NTP-style clock offset (M7) |
+| `POST` | `/peer/v1/watch/{join,leave,report,command}` | the watch bridge itself (M7) |
 
 `file_hash` may be the literal `any` when the caller has not learned the hash yet.
+
+**Which of these a light node refuses.** `light_node_refuses` covers `file`, `image` and `subtitle`
+— everything that reads content off a disk. It does **not** cover the watch routes, and that is a
+decision rather than an oversight: a phone joining a watch party is exactly what that feature is
+for, it costs the phone a few hundred bytes and no disk at all, and refusing them would leave a
+member of the group who cannot be in the room. The rule is still "no content route", so a content
+route added later is refused by default; a route that serves no content has to be added to the test
+that says so.
 
 `kind` is one of `primary`, `backdrop`, `logo`, `thumb`, `banner` — an allow-list, so a peer cannot
 name something the serving node would not know where to find. The image route has **no range
@@ -224,6 +237,17 @@ because a poster does not change.
 
 Both routes resolve through the serving node's own index, so a peer names an `item_key` and a
 `kind` and never a path — see [`local_images`](#the-inventory-record).
+
+**The subtitle route names an *index*, not a filename.** A peer asks for
+`/peer/v1/subtitle/{item_key}/{n}`, where `n` is a position in the list the holder published in its
+own inventory record — the same shape as the image route's `kind`, and for the same reason. A
+filename in a fetch route is a filename a hostile peer gets to choose; a position is resolved
+through the serving node's own index and cannot be anything else.
+
+The materialising node writes each sidecar next to the `.strm` under **Jellyfin's own naming**
+(`{video}.{lang}[.forced][.sdh].{format}`), which is what makes it a selectable external track with
+no scan and no database entry — and what stops a subtitle fetched over the mesh and one Jellyfin
+downloaded itself appearing twice under two names.
 
 **There is deliberately no path that takes a filesystem path.** A peer names an `item_key` and a
 `file_hash`; the serving node resolves that to a path through its own index. A hostile peer cannot
@@ -432,6 +456,12 @@ Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs`
   "local_images": [                    // serving side ONLY — see below
     { "kind": "primary", "path": "/srv/media/…/poster.jpg" }
   ],
+  "local_subtitles": [                 // serving side ONLY (M7)
+    { "path": "/srv/media/…/film.eng.srt", "language": "eng", "format": "srt" }
+  ],
+  "subtitles": [                       // what a peer gets: described, fetched by index
+    { "index": 0, "language": "eng", "format": "srt" }
+  ],
   "updated_at": "2026-09-05T00:00:00Z"
 }
 ```
@@ -440,9 +470,9 @@ Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs`
 (`movie:tmdb:1234`, `episode:tvdb:73739:s02e05`). The mesh only requires that it is non-empty and
 free of path separators.
 
-**`local_path` and `local_images` cannot be gossiped by accident.** Neither is a field of the wire
-record at all: the conversion is `InventoryRecord::to_wire()`, and `WireRecord` simply has no such
-fields. A test asserts the serialised wire form contains neither the keys nor the paths, and
+**`local_path`, `local_images` and `local_subtitles` cannot be gossiped by accident.** None is a
+field of the wire record at all: the conversion is `InventoryRecord::to_wire()`, and `WireRecord`
+simply has no such fields. A test asserts the serialised wire form contains neither the keys nor the paths, and
 `tools/e2e-m3.ps1` asserts the same thing about a real index that has crossed a real connection.
 
 What *does* travel is `image_urls` — peer *routes*, not paths. `StingStream.Core` publishes one per
@@ -462,7 +492,7 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 |---|---|
 | `groups` | `group_id, name, secret, coordinator, created_at` |
 | `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
-| `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, jellyfin_item_id, updated_at` |
+| `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, local_images, local_subtitles, jellyfin_item_id, updated_at` |
 | `meta` | schema version and the per-group gossip sequence number |
 
 `local_path` is populated only for this node's own rows. Indexes on `(group_id, item_key)` — what
@@ -502,6 +532,10 @@ member's index.
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
 | `GET`/`PUT` | `/mesh/v1/capacity` | this node's advertised capacity, which rides the heartbeat |
 | `GET` | `/mesh/v1/image/{group}/{item_key}/{node}/{kind}` | one artwork file from a peer |
+| `GET` | `/mesh/v1/subtitle/{group}/{item_key}/{node}/{index}` | one subtitle sidecar from a peer (M7) |
+| `GET`/`POST` | `/mesh/v1/watch` | open watch sessions in a group; start one (M7) |
+| `GET` | `/mesh/v1/watch/{session}` | one session, and where it is right now |
+| `POST` | `/mesh/v1/watch/{session}/{join,leave,command,report}` | the four things a member does |
 | `GET` | `/mesh/v1/index?group=` | the merged index: every node's records with name and liveness |
 | `GET` | `/mesh/v1/peers?group=` | membership, liveness, last observed path and RTT, advertised capacity, measured throughput |
 | `GET` | `/mesh/v1/peers/{node}/stats?group=` | one peer's row — the measurement, rather than the membership |
@@ -580,9 +614,168 @@ A `503` from a saturated holder is handled before any bytes are committed to the
 never sees it: the next candidate is tried instead, which is how a holder's advertised
 `max_direct_streams` is honoured rather than every stream stuttering.
 
-A holder with a *different* encode is never used as a substitute. Resuming into different bytes at a
-byte offset produces garbage; that case is a restart by timestamp on the next `MediaSource`, which
-is the client's job.
+A holder with a *different* encode is never used as a substitute **mid-body**. Resuming into
+different bytes at a byte offset produces garbage; that case is a restart by timestamp on the next
+`MediaSource`, which is the client's job.
+
+**Before any byte is on the wire, though, a different encode is a perfectly good answer** — it is
+exactly what `?any=1` would have chosen. So the *opening* attempt walks three tiers: the holder the
+caller named, then every other online holder of the same file, then every remaining online holder in
+scored order, each asked for **its own** hash. That widening is M7's, and it is the difference
+between a stale pointer being a dead end and being a detour. See "A holder's answer, and a holder's
+failure" below.
+
+### A holder's answer, and a holder's failure (M7)
+
+M5's phone found this from the far end: `/items/{id}/sources` named a holder, the phone dialled it,
+and the log read `status=404 failover_candidates=0`. Nothing anywhere was corrected, so the next
+attempt made the same mistake. Three faults produced that one line.
+
+**A `404` was treated as a successful open.** `is_server_error()` is false for a `404`, so the
+reader forwarded the holder's refusal to the player instead of trying anybody else. The rule is now
+an allow-list — `is_an_answer()` — naming the statuses that are answers to the *client's* request:
+`2xx`, `304`, and `416`, whose `Content-Range: bytes */len` is what lets a player correct itself.
+Everything else — a `403` from a light node, a `404` or `410` from a holder whose copy has gone, a
+`503` from a saturated one — is that *holder* failing, and the next candidate gets a turn.
+
+**The failover set was same-hash-only even before a byte had been sent**, which is the widening
+above.
+
+**Nothing was corrected.** A holder that answers `404` now says so with the header
+`x-stingstream-not-held`, which is an authoritative statement about the only thing a node is
+authoritative for. Two things follow from it:
+
+* the **holder** retracts the row itself the moment it looks and finds nothing on disk — only for
+  `NotFound`, never for a permission or IO error, because retracting on those would empty a node's
+  inventory the first time a NAS hiccupped;
+* the **reader** re-reads that holder's whole inventory over `/peer/v1/inventory` before trying the
+  next candidate, so the correction covers anything else that had drifted in the same window, in one
+  round trip on a connection that is already open. If the holder cannot be reached at all — the
+  ordinary case for a node that has just gone — the single offending row is dropped instead, because
+  a row we have just been told is wrong is worse than no row: it is what the scorer ranks, what
+  `PlaybackInfo` returns and what the materializer writes a pointer for.
+
+The *cause* was not in the mesh at all: `StingStream.Core`'s inventory rebuild queried every library
+on the server, including the Shared ones, and published its own federated `.strm` pointers as if it
+held the films. `InventoryService.IsServableLocally` is the fix, and the mesh's half above is what
+makes the class of failure survivable rather than only that instance of it.
+
+---
+
+## 5a. Watch together, across nodes (M7)
+
+**Within one node, Jellyfin already does this.** A federated title is an ordinary library item — a
+`.strm` whose bytes happen to come off somebody else's disk — so SyncPlay synchronises two people
+signed in to the same node without knowing the mesh exists. Verified in `tools/e2e-m7.ps1`, and
+nothing in the mesh touches it.
+
+What it cannot do is cross a node. A SyncPlay group is a set of `SessionInfo`s on one server, and
+two friends on two nodes have no server in common. The bridge is the smallest thing that fixes that:
+each node keeps running its **own** native group for its own users, and the mesh carries state
+between those groups.
+
+### The record
+
+```jsonc
+{
+  "id": "…",                     // 16 random bytes, hex, minted by the leader
+  "item_key": "movie:tmdb:22820",
+  "title": "Sita Sings the Blues",
+  "leader": "…",                 // node id
+  "participants": [
+    { "node": "…", "node_name": "loft", "viewers": 2,
+      "rtt_ms": 8, "drift_ms": 40, "buffering": false, "last_seen_ms": 1788… }
+  ],
+  "state": "playing",            // idle | paused | playing
+  "position_ms": 41_000,
+  "at_ms": 1788638697580,        // the instant position_ms is true, on the LEADER's clock
+  "seq": 7,                      // monotonic, minted by the leader
+  "closed": false,
+  "updated_at_ms": 1788638697580
+}
+```
+
+Held in memory, not in `mesh.db`. A watch party is a conversation, not a library: a node that
+restarts mid-film has dropped out of it, and the friendly thing is for the invite to disappear
+rather than for a stale session to be resurrected pointing at a group that no longer exists.
+
+### One writer
+
+The **leader** is the node whose user pressed play first. It owns the record and every position in
+it; followers report where their own local group has got to and apply what the leader sends. There
+is no election and no merge, and that is the point: with one writer, the interesting failure — two
+nodes each convinced they are authoritative, sawing a film back and forth — cannot happen. The cost
+is that a leader going away ends the session, which is what a watch party does when the person who
+started it leaves anyway.
+
+The leader on any command is the **authenticated peer**, never what the body says. QUIC/TLS already
+proves which node is on the other end, so the check is free; without it any member could seek
+everybody else's film.
+
+### Gossip carries discovery, not commands
+
+`Body::Watch { session }` is announced by the leader on every snapshot tick and on `NeighborUp`, so
+a member that joins mid-film is offered the invite without anything having to remember it was not
+there, and a closed session is announced once more before it is swept.
+
+Everything else goes point to point over the peer HTTP API. Gossip is a broadcast tree with a
+signing and sealing pass per message and no delivery guarantee — right for "there is a session for
+this film, led by that node", quite wrong for "be at 00:41:33 at this instant". A command rides a
+QUIC connection that is already open, to a node whose round trip the bridge has measured.
+
+### The clock
+
+Every position is a pair: a position and the instant it was true, on the leader's clock. A follower
+converts with a **measured** offset rather than trusting two machines to agree, because they do not:
+an unsynchronised desktop drifts seconds a week and the whole budget is one second.
+
+`GET /peer/v1/watch/clock` answers with the two timestamps NTP needs, and the caller has the other
+two:
+
+```text
+offset = ((t1 - t0) + (t2 - t3)) / 2      // add to our clock to get theirs
+rtt    = (t3 - t0) - (t2 - t1)
+```
+
+**The lowest-RTT sample wins, rather than an average.** That is what NTP does and it is not an
+optimisation: queuing delay is one-sided and unbounded, so a sample that took longer is a sample
+whose offset is *more wrong*, and averaging mixes the good ones into the bad. The fastest exchange
+seen is the one whose two legs were most nearly equal, which is the assumption the formula rests on.
+
+### Scheduling a resume
+
+A resume is scheduled `max(2 × worst follower RTT, 500 ms)` in the future, capped at 3 s — the same
+rule Jellyfin applies inside a single server (`PlayingGroupState.HandleRequest(Unpause…)`), over the
+hop this is actually compensating for. Two round trips: one for the command to arrive, one for that
+node's own SyncPlay group to reach its members. A **pause** is not scheduled ahead at all: it has to
+be obeyed as soon as it lands, or everybody watches a second of film the person who pressed pause
+has already stopped seeing.
+
+Jellyfin's own equivalent has a units bug worth not copying — `WaitingGroupState.cs:504` compares a
+tick count against `DefaultPing`, which is milliseconds, so its 500 ms floor is really 50
+microseconds and never binds. Jellyswarrm's independent reimplementation of the same state machine
+gets it right, which is what confirmed it is a bug rather than a deliberate choice.
+
+### Sequence numbers
+
+Monotonic per session, minted by the leader. A command or an announcement whose sequence is not
+*greater* than the one already applied is ignored, which is what makes a duplicated or reordered
+delivery harmless rather than a seek backwards. On a tie — a leader that restarted and began
+counting again — the timestamp breaks it.
+
+### What Core does with it
+
+`StingStream.Core` holds an ordinary SyncPlay **session seat** in its own node's group, with an
+`ISessionController` of its own. That is the whole attachment, and it needs no patch to Jellyfin:
+every `SendCommand` the group issues is delivered to every session's controllers, and
+`ISyncPlayManager.HandleRequest` is public and takes any `SessionInfo`. See
+`server/jellyfin/src/StingStream.Core/SyncPlay/WatchBridge.cs` for the three things that seat has to
+be careful about, and `WatchRelay.IsEcho` for the rule that stops a command the bridge applied from
+being relayed straight back at the node it came from.
+
+Measured on two nodes over a real QUIC connection: under 250 ms after play, exactly 0 while paused,
+under 250 ms after a seek. The milestone's bar is one second, end to end through two Jellyfins, and
+`tools/e2e-m7.ps1` asserts it there.
 
 ---
 

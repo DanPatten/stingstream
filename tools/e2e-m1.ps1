@@ -48,6 +48,19 @@
 .PARAMETER KeepData
     Do not wipe WorkDir on start.
 
+.PARAMETER PrivateCopy
+    Run the node out of a private copy of the build outputs at this path instead of out of the
+    repository. A running node holds `mesh/target/debug/` and `server/*/bin/` open, so on a machine
+    where several people -- or several agents -- share one checkout, nobody, including you, can
+    rebuild while the harness is up. The copy is made once and reused; pass -Force to remake it.
+    CI has one checkout to itself and does not need it.
+
+    M1's node grabs from real Radarr and Sonarr, so the copy includes both, which is the slow part
+    of making it: about a gigabyte, and a minute the first time.
+
+.PARAMETER Force
+    Remake the private copy even if one is already there.
+
 .PARAMETER TimeoutSeconds
     Overall budget for a single wait step. The whole run is roughly three of these in the worst
     case.
@@ -57,6 +70,9 @@
 
 .EXAMPLE
     pwsh tools/e2e-m1.ps1 -SkipBuild -KeepRunning
+
+.EXAMPLE
+    pwsh tools/e2e-m1.ps1 -PrivateCopy E:\stingstream-e2e-m1-bin
 #>
 [CmdletBinding()]
 param(
@@ -65,11 +81,21 @@ param(
     [switch]$SkipBuild,
     [switch]$KeepRunning,
     [switch]$KeepData,
+    [string]$PrivateCopy,
+    [switch]$Force,
     [int]$TimeoutSeconds = 600
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# Dot-sourced **first**, and only for `New-PrivateInstallRoot`. This harness predates
+# tools/e2e-common.ps1 and carries its own copies of Start-Tool, Wait-Until, Invoke-Json and the
+# rest; those are defined further down and, because a later definition wins in PowerShell, they
+# shadow the shared ones. Loading it here rather than beside the code that uses it is what makes
+# that true -- the other way round, the shared versions would silently replace this harness's,
+# which is a large behavioural change to a passing acceptance record in exchange for one function.
+. "$PSScriptRoot/e2e-common.ps1"
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
@@ -334,6 +360,19 @@ if ((Test-Path $WorkDir) -and -not $KeepData) {
     Remove-Item -Recurse -Force $WorkDir -ErrorAction SilentlyContinue
 }
 
+# Where the supervisor and its children are run from. `--dev --repo-root` is CI's answer: one
+# checkout, one build, nothing else running. On a shared machine it is the wrong default, because a
+# node started this way holds the repository's build outputs open for as long as the harness runs.
+$script:NodeArgs = @('--dev', '--repo-root', $RepoRoot)
+if ($PrivateCopy) {
+    Write-Host '  making a private copy of the build outputs'
+    $script:PrivateSupervisor = New-PrivateInstallRoot `
+        -RepoRoot $RepoRoot -Destination $PrivateCopy -Force:$Force -WithArrs
+    $script:NodeArgs = @('--install-root', $PrivateCopy)
+} else {
+    $script:PrivateSupervisor = $null
+}
+
 $DataDir = Join-Path $WorkDir 'data'
 $SeedDir = Join-Path $WorkDir 'seed'
 $LogDir = Join-Path $WorkDir 'logs'
@@ -523,12 +562,16 @@ console = true
 "@
     Set-Content -Path (Join-Path $DataDir 'config.toml') -Value $config -Encoding utf8
 
-    $exe = Join-Path $RepoRoot "mesh/target/debug/stingstream$ExeSuffix"
+    $exe = if ($script:PrivateSupervisor) {
+        $script:PrivateSupervisor
+    } else {
+        Join-Path $RepoRoot "mesh/target/debug/stingstream$ExeSuffix"
+    }
     if (-not (Test-Path $exe)) { throw "The supervisor is not built: $exe" }
 
     $script:SupervisorExe = $exe
-    $tool = Start-Tool -Name 'stingstream' -FilePath $exe -LogDir $LogDir -Arguments @(
-        '--dev', '--repo-root', $RepoRoot, '--data-dir', $DataDir
+    $tool = Start-Tool -Name 'stingstream' -FilePath $exe -LogDir $LogDir -Arguments (
+        $script:NodeArgs + @('--data-dir', $DataDir)
     )
     $script:Supervisor = $tool
 
@@ -806,8 +849,8 @@ Invoke-Step 'Restart: everything comes back' {
     Start-Sleep -Seconds 5
 
     Write-Host '      starting it again'
-    $tool = Start-Tool -Name 'stingstream-restart' -FilePath $script:SupervisorExe -LogDir $LogDir -Arguments @(
-        '--dev', '--repo-root', $RepoRoot, '--data-dir', $DataDir
+    $tool = Start-Tool -Name 'stingstream-restart' -FilePath $script:SupervisorExe -LogDir $LogDir -Arguments (
+        $script:NodeArgs + @('--data-dir', $DataDir)
     )
     $script:Supervisor = $tool
 

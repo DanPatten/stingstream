@@ -104,11 +104,12 @@ function New-PrivateInstallRoot {
     $supervisor = Join-Path $Destination "stingstream$exeSuffix"
     $jellyfinBin = Join-Path $Destination 'bin/jellyfin'
     $ffmpegBin = Join-Path $Destination 'bin/ffmpeg'
+    $nzbgetBin = Join-Path $Destination 'bin/nzbget'
     $radarrBin = Join-Path $Destination 'bin/radarr'
     $sonarrBin = Join-Path $Destination 'bin/sonarr'
 
     $complete = (Test-Path $supervisor) -and (Test-Path $jellyfinBin) -and
-        (-not $WithArrs -or ((Test-Path $radarrBin) -and (Test-Path $sonarrBin)))
+        (-not $WithArrs -or ((Test-Path $radarrBin) -and (Test-Path $sonarrBin) -and (Test-Path $nzbgetBin)))
     if ($complete -and -not $Force) {
         Write-Host "      reusing the private copy at $Destination"
         return $supervisor
@@ -131,6 +132,23 @@ function New-PrivateInstallRoot {
     if (-not $ffmpeg) { throw 'no ffmpeg under third_party/ffmpeg' }
     # Everything beside it: jellyfin-ffmpeg ships ffprobe and its shared libraries in one directory.
     Copy-Item -Path (Join-Path $ffmpeg.Directory.FullName '*') -Destination $ffmpegBin -Recurse -Force
+
+    # NZBGet, when it has been fetched. `--install-root` has no repository to fall back on, and a
+    # node with `children.nzbget = true` and no binary does not start at all -- it is a hard error,
+    # not a disabled child. So a harness whose node enables NZBGet gets nothing but a timeout unless
+    # it is copied, which is exactly how M7 found this: e2e-m1 ran perfectly out of the repository
+    # and would not start out of a private copy.
+    $nzbget = Get-ChildItem -Path (Join-Path $RepoRoot 'third_party/nzbget/bin') -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq "nzbget$exeSuffix" } | Select-Object -First 1
+    if ($nzbget) {
+        New-Item -ItemType Directory -Force -Path $nzbgetBin | Out-Null
+        Copy-Item -Path (Join-Path $nzbget.Directory.FullName '*') -Destination $nzbgetBin -Recurse -Force
+        Write-Host '      copied nzbget'
+    } else {
+        # Not fatal here: a harness whose nodes run `children.nzbget = false` -- which is most of
+        # them -- does not need it, and saying so beats a copy that fails for something unused.
+        Write-Host '      no nzbget under third_party/nzbget/bin; a node that enables it will not start'
+    }
 
     # Radarr and Sonarr, for a harness whose nodes actually grab something. Off by default because
     # most harnesses place their media on disk instead -- which is faster and more deterministic --

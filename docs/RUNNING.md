@@ -509,6 +509,52 @@ shipped milestone and it runs in CI, and switching it over would mean re-running
 800-second M3 acceptance to prove the move changed nothing. When M3's harness next needs to change
 for another reason, that is when its helpers move.
 
+### `tools/e2e-m7.ps1` — watch together, subtitles, recordings, and two bugs
+
+```powershell
+pwsh tools/e2e-m7.ps1 -SkipBuild -PrivateCopy E:\stingstream-e2e-m7-bin
+```
+
+Three nodes, no arrs and no NZBGet -- nothing here grabs anything, and B's and C's media is placed
+on disk with an NFO carrying the TMDB id, so the run needs no metadata provider to be reachable.
+
+| | |
+|---|---|
+| A | watches, and leads the watch party. Holds nothing. |
+| B | holds the film, its English subtitle sidecar, and a DVR recording. Joins from `STINGSTREAM_JOIN_CODE`. |
+| C | holds byte-identical copies, so a stream that has to fail over has somewhere to go. |
+
+What it asserts, in order:
+
+1. B's recordings folder is a *recordings* folder as far as Live TV's own configuration is
+   concerned, and the recording resolves into an item.
+2. B publishes a subtitle sidecar with its inventory record, and the index carries it as a
+   described track.
+3. **B joins from an invite code in its environment** -- the path
+   `deploy/coordinator/compose.yml`'s `storage-node` profile depends on -- and `/healthz` says
+   `join.state = joined` with a `via` that is not `none`.
+4. A materializes the film and **the subtitle lands beside the `.strm`**, named the way Jellyfin
+   finds an external track.
+5. The recording appears in A's **Shared Recordings** and plays.
+6. **A publishes nothing it only points at.** This is the cause of the M5 bug asserted directly:
+   A's own inventory must contain neither the film's nor the recording's item key, because A holds
+   only pointers to them -- and A's pointers must survive a rebuild, because the old loop deleted
+   them.
+7. **A holder that lost its file is walked past.** B's film is deleted with nobody told; a stream
+   naming B still arrives byte-exact from C, and A stops offering B for that title.
+8. Two sessions on **one** node share a native SyncPlay group on a peer's recording, which is the
+   half Jellyfin already does and M7 only had to verify.
+9. A leads a watch-together session, B joins, each seats the bridge in its own SyncPlay group, and
+   after play, pause and seek **both nodes' positions stay inside one second** -- read from each
+   node's own API, which is the same question a viewer in each room would be asking.
+10. The leader knows its follower's drift and round trip, and ending the session takes the invite
+    down on the other node.
+
+The subtitle provider is mocked -- the sidecar is written onto B's disk -- because what is under
+test is the publish-and-fetch half. Whether OpenSubtitles answers today is OpenSubtitles' business,
+and an acceptance run that depended on it would fail for reasons that have nothing to do with this
+repository.
+
 ### `-PrivateCopy`: not holding the repository's build outputs open
 
 A running node holds `mesh/target/debug/` and `server/*/bin/` open, so nobody can rebuild while it is
