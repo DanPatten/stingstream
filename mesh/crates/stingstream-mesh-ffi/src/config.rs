@@ -115,14 +115,29 @@ impl MeshConfigInput {
                 .unwrap_or(defaults.gossip.peer_timeout_secs),
             snapshot_interval_secs: defaults.gossip.snapshot_interval_secs,
         };
+        let node_name = self
+            .node_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or(defaults.node_name);
+        let fallback_coordinator = match self.fallback_coordinator.as_deref().map(str::trim) {
+            // Absent means "keep the built-in default"; present-but-empty means "none".
+            None => defaults.discovery.fallback_coordinator,
+            Some("") => None,
+            Some(u) => Some(u.to_string()),
+        };
+        let join_dial_timeout_secs = self
+            .join_dial_timeout_secs
+            .unwrap_or(defaults.peer.join_dial_timeout_secs);
+
+        // `..MeshConfig::default()` rather than naming every field: `MeshConfig` belongs to
+        // `stingstream-mesh` and grows as the node does — a `sidedoor` section arrived while this
+        // was being written — and a light node has no opinion about anything it does not set here.
+        // Spreading the defaults means a new section is inherited rather than breaking this build.
         MeshConfig {
-            node_name: self
-                .node_name
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or(defaults.node_name),
+            node_name,
             api: ApiConfig {
                 port: self.api_port,
                 ..ApiConfig::default()
@@ -131,24 +146,18 @@ impl MeshConfigInput {
                 n0_dns: self.n0_dns,
                 mainline_dht: self.mainline_dht,
                 n0_relays: self.n0_relays,
-                fallback_coordinator: match self.fallback_coordinator.as_deref().map(str::trim) {
-                    // Absent means "keep the built-in default"; present-but-empty means "none".
-                    None => defaults.discovery.fallback_coordinator,
-                    Some("") => None,
-                    Some(u) => Some(u.to_string()),
-                },
+                fallback_coordinator,
             },
             peer: PeerConfig {
                 light: self.light,
                 // A light node serves nothing, so the file-stream semaphore is beside the point;
                 // leave the rest of the peer defaults alone.
-                join_dial_timeout_secs: self
-                    .join_dial_timeout_secs
-                    .unwrap_or(defaults.peer.join_dial_timeout_secs),
+                join_dial_timeout_secs,
                 ..PeerConfig::default()
             },
             gossip,
             data_dir: data_dir.to_path_buf(),
+            ..MeshConfig::default()
         }
     }
 }
