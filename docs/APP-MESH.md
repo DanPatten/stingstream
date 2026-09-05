@@ -418,6 +418,21 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
 * **The reverse direction is refused.** The desktop asking the emulator's light node for the same
   file got `403 this node is a light member of the group and serves no files`.
 
+* **The TV APK carries the library.** `EXPO_TV=1 prebuild` + `assembleDebug` produced a 364 MB
+  debug APK containing all three `libstingstream_mesh_ffi.so` (23.0 / 15.5 / 24.9 MB) alongside
+  JNA's `libjnidispatch.so`, with `LEANBACK_LAUNCHER` in the manifest. Installed and launched on
+  the emulator; the generated uniffi bindings are in the app's dex (97 references in
+  `classes2.dex`).
+
+  **Not** yet exercised in-app: JNA's `Native.register` binding the uniffi symbols at runtime.
+  That needs the JS bundle, and Metro would not answer HTTP on this machine — the same pathology
+  that left a twelve-hour-old instance listening and unresponsive on port 8081. The library itself
+  is already proven on this emulator by the `cargo ndk-test` run above, which drove
+  `MeshHandle::start`, `join_group`, `/stream` and the `403` through the real `.so` on the same
+  ABI, so what is untested is the Kotlin-to-Rust hop rather than anything about the mesh. It fails
+  loudly and immediately when it fails — an `UnsatisfiedLinkError` naming the missing symbol on
+  the first `startMesh()` — so it is a check to repeat rather than a risk to carry quietly.
+
 The transcript is in the M3c scratch directory.
 
 ### One thing Android does differently
