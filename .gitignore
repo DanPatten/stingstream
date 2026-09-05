@@ -36,6 +36,8 @@ yarn-error.log*
 # === Vendored binaries fetched at build time, not committed ===
 third_party/nzbget/bin/
 third_party/ffmpeg/bin/
+# Pebble, fetched by tools/e2e-sidedoor.ps1 (the binary and its public test certificates).
+third_party/pebble/bin/
 
 # === Editors / OS ===
 .idea/

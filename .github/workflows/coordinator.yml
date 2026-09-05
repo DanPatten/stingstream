@@ -7,6 +7,8 @@
 #   * `nat`    — two nodes behind separate NATted Docker networks, with a coordinator in Full mode
 #                as the relay. Runs the same join-and-stream path over a real NAT, then again with
 #                UDP blocked so the connection has to fall back to the relay on TCP.
+#   * `sidedoor` — the HTTPS side door end to end against a local Pebble: a real ACME order, a real
+#                certificate, a real TLS handshake and a real tunnel through the SNI router.
 #   * `image`  — builds the coordinator image, and publishes it to GHCR on master.
 name: coordinator
 
@@ -103,6 +105,43 @@ jobs:
           path: |
             /tmp/stingstream-nat/*.log
             /tmp/stingstream-nat/*/*.log
+          if-no-files-found: warn
+
+  sidedoor:
+    name: HTTPS side door (Pebble)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mesh
+
+      # Pebble is fetched by the harness itself (binary + the three test certificates its HTTPS
+      # listener needs) into third_party/pebble/bin. Caching it turns a GitHub download into a
+      # cache hit; a miss just fetches again, so this is an optimisation and not a dependency.
+      - name: Cache Pebble
+        uses: actions/cache@v4
+        with:
+          path: third_party/pebble/bin
+          key: pebble-v2.10.1-${{ runner.os }}
+
+      # `pwsh` is preinstalled on the GitHub ubuntu image and is the same shell Dan runs locally,
+      # so the harness has one code path rather than two.
+      - name: Run the side-door acceptance
+        run: pwsh tools/e2e-sidedoor.ps1
+        env:
+          RUST_LOG: stingstream=info,stingstream_mesh=info,stingstream_relay=info,warn
+
+      - name: Upload the side-door logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidedoor-logs
+          path: /tmp/stingstream-sidedoor/logs/*.log
           if-no-files-found: warn
 
   image:
