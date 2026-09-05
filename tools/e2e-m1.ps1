@@ -477,7 +477,12 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
     )
     Wait-ForLine -Tool $tool -Pattern '(?m)^ready\s*$' -Seconds 120 | Out-Null
 
-    $caps = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api?t=caps" -UseBasicParsing -TimeoutSec 20
+    # Retry the first request rather than trusting one attempt: "ready" is the tool's word, and a
+    # listener that has just come up can still refuse a connection for a moment.
+    $caps = Wait-Until -What 'the Torznab stub to answer t=caps' -Seconds 30 -PollSeconds 1 -Condition {
+        try { Invoke-WebRequest -Uri "http://127.0.0.1:$port/api?t=caps" -UseBasicParsing -TimeoutSec 10 }
+        catch { $null }
+    }
     if ($caps.Content -notmatch 'movie-search') { throw 'The Torznab stub did not answer t=caps correctly.' }
     Write-Host "      http://127.0.0.1:$port/api"
     return $port

@@ -71,6 +71,12 @@ public static class Program
                 $"{release.Title}.torrent");
         });
 
+        // StartAsync, not RunAsync: RunAsync does not return until shutdown, so anything printed
+        // before it is printed before Kestrel has bound the port. The harness treats "ready" as
+        // permission to send the first request, and on a Linux runner that raced into a connection
+        // refused. Start first, announce second.
+        await app.StartAsync().ConfigureAwait(false);
+
         Console.WriteLine($"torznab-stub: http://127.0.0.1:{options.Port.ToString(CultureInfo.InvariantCulture)}/api");
         foreach (var release in options.Releases)
         {
@@ -80,7 +86,7 @@ public static class Program
         Console.WriteLine("ready");
         Console.Out.Flush();
 
-        await app.RunAsync().ConfigureAwait(false);
+        await app.WaitForShutdownAsync().ConfigureAwait(false);
         return 0;
     }
 
