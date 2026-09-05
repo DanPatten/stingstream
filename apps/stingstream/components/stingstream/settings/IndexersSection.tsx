@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, TextInput, TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
@@ -52,16 +52,29 @@ export function IndexersSection() {
     }
   };
 
-  const remove = async (indexer: IndexerSettings) => {
+  const remove = (indexer: IndexerSettings) => {
     if (!indexer.Id) return;
-    try {
-      await deleteIndexer.mutateAsync(indexer.Id);
-      toast.success(`Removed "${indexer.Name}"`);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Could not remove indexer",
-      );
-    }
+    Alert.alert(
+      "Remove indexer?",
+      `"${indexer.Name}" will be removed from both Radarr and Sonarr.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteIndexer.mutateAsync(indexer.Id!);
+              toast.success(`Removed "${indexer.Name}"`);
+            } catch (err) {
+              toast.error(
+                err instanceof Error ? err.message : "Could not remove indexer",
+              );
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
