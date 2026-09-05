@@ -121,10 +121,8 @@ public static class WatchRelay
         => localPositionMs - sessionPositionMs;
 
     /// <summary>
-    /// Whether a difference is worth correcting with a seek.
+    /// How far apart two nodes have to be before a seek is worth its own cost.
     /// </summary>
-    /// <param name="driftMs">The measured drift.</param>
-    /// <returns>True when the bridge should seek its local group.</returns>
     /// <remarks>
     /// <para>
     /// A seek is expensive and visible: it takes Jellyfin's group through

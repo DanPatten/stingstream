@@ -773,9 +773,18 @@ every `SendCommand` the group issues is delivered to every session's controllers
 be careful about, and `WatchRelay.IsEcho` for the rule that stops a command the bridge applied from
 being relayed straight back at the node it came from.
 
-Measured on two nodes over a real QUIC connection: under 250 ms after play, exactly 0 while paused,
-under 250 ms after a seek. The milestone's bar is one second, end to end through two Jellyfins, and
-`tools/e2e-m7.ps1` asserts it there.
+**A seat cannot hear quite everything, and the leader asks about the rest.** When a group that is
+already `Playing` is told to unpause — which is what a seek followed by a resume looks like from
+inside `PlayingGroupState` — Jellyfin reads it as one client having got lost and answers the
+*asking* session only. The seat is not that session, so it never hears, and the session record
+would stay paused while the film ran. So once a pass the leader reads its own group's state through
+`ISyncPlayManager.GetGroup` and relays any difference. State only, never position: every position
+change does reach the seat, and one it has not been told about is one it should not invent.
+
+Measured on two nodes over a real QUIC connection: 24 ms after play, exactly 0 while paused, 0 after
+a seek and 11 ms after resuming from one. The milestone's bar is one second, end to end through two
+Jellyfins, and `tools/e2e-m7.ps1` asserts it there — along with the position having actually moved,
+because two nodes agreeing on a still picture would otherwise read as perfect synchronisation.
 
 ---
 

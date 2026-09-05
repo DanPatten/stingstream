@@ -264,7 +264,7 @@ public sealed class WatchMeshClient : IWatchMeshClient
     private async Task PostVoidAsync(
         string url, object body, string what, CancellationToken cancellationToken)
     {
-        using var _ = await SendAsync(url, body, what, cancellationToken).ConfigureAwait(false);
+        using var response = await SendAsync(url, body, what, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<HttpResponseMessage> SendAsync(
@@ -279,11 +279,12 @@ public sealed class WatchMeshClient : IWatchMeshClient
             // The mesh answers `{"error": "..."}` with the whole context chain, precisely so a
             // caller can show it. Losing that and reporting "the mesh returned 400" is the
             // difference between a user fixing something and a user filing a bug.
+            var status = (int)response.StatusCode;
             var raw = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             response.Dispose();
             throw new InvalidOperationException(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{what} failed ({(int)response.StatusCode}): {raw.Trim()}"));
+                $"{what} failed ({status}): {raw.Trim()}"));
         }
 
         return response;

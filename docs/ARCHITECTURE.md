@@ -1371,10 +1371,18 @@ computed by Jellyfin's own state machine, and the inbound half is
 is careful about — it never reports playback, it sends `IgnoreWait(true)`, and it suppresses its own
 echo — are in `SyncPlay/WatchBridge.cs` with the reason for each.
 
+There is a fourth, and the harness found it: an Unpause of a group that is *already* playing —
+a seek, then a resume — is answered to the asking session alone, so the seat never hears it and both
+nodes go on agreeing about a position that has stopped moving. Agreeing about the wrong thing is the
+failure a synchronisation feature is least likely to notice, so `ReconcileLeaderAsync` reads the
+leader's own group state once a pass and relays the difference, and the harness refuses to accept a
+still picture as a pass.
+
 The protocol is in `docs/MESH.md` §5a. In short: one leader owns every position, discovery rides
 gossip and commands do not, positions are pairs of (position, instant) on the leader's clock, and a
 follower converts with an NTP-style offset whose *lowest-RTT* sample wins. Measured on two nodes over
-a real QUIC connection: under 250 ms after play, exactly 0 while paused, under 250 ms after a seek.
+a real QUIC connection: 24 ms after play, exactly 0 while paused, 0 after a seek, 11 ms after
+resuming from one.
 
 The one thing v1 does not do is let a *follower's* users pause: the leader owns every position, and a
 follower issuing commands would be a second writer. It is logged rather than silently dropped,
