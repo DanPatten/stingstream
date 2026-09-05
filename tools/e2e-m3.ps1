@@ -220,6 +220,35 @@ function Get-Member-Value {
     return $Object.$Name
 }
 
+function Find-Group {
+    <#
+    .SYNOPSIS
+        One group out of a `GET /mesh/groups` response, or $null.
+    .DESCRIPTION
+        Not `@($response) | Where-Object { $_.group -eq $id }`, and the reason is a PowerShell trap
+        worth naming: **`@($null)` is an array of length one**, holding $null. `Invoke-Json` returns
+        $null for a body of `[]` -- `ConvertFrom-Json '[]'` emits nothing, and a function that emits
+        nothing returns null -- so wrapping an empty response in `@()` produces one element that is
+        $null, and the filter then reads `.group` off it.
+
+        In this file that does not throw; it silently fails to match. Which is worse than throwing,
+        because a polling loop built on it does not report "the list was empty", it reports
+        "B never adopted the new coordinator" a hundred and twenty seconds later, and sends whoever
+        reads that looking for a fault in the gossip protocol.
+
+        M6 hit the same shape counting Radarr's movies (`@(Invoke-Node …/movies).Count -eq 0` reads
+        an empty library as holding one film). Worth lifting into `e2e-common.ps1` next time
+        somebody is in there; this harness deliberately carries its own helpers, see docs/RUNNING.md.
+    #>
+    param($Response, [string]$GroupId)
+    if ($null -eq $Response) { return $null }
+    foreach ($g in @($Response)) {
+        if ($null -eq $g) { continue }
+        if ((Get-Member-Value $g 'group') -eq $GroupId) { return $g }
+    }
+    return $null
+}
+
 function Start-Tool {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -858,9 +887,8 @@ Invoke-Step "A changes the group's coordinator and B follows" {
     $deadline = (Get-Date).AddSeconds(120)
     $adopted = $false
     while ((Get-Date) -lt $deadline) {
-        $groups = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups'
-        $mine = @($groups) | Where-Object { $_.group -eq $Group.group }
-        if ($mine -and (Test-SameUrl (Get-Member-Value $mine[0] 'coordinator') $wanted)) {
+        $mine = Find-Group (Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups') $Group.group
+        if ($mine -and (Test-SameUrl (Get-Member-Value $mine 'coordinator') $wanted)) {
             $adopted = $true
             break
         }
@@ -887,9 +915,8 @@ Invoke-Step "A changes the group's coordinator and B follows" {
     $deadline = (Get-Date).AddSeconds(120)
     $back = $false
     while ((Get-Date) -lt $deadline) {
-        $groups = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups'
-        $mine = @($groups) | Where-Object { $_.group -eq $Group.group }
-        if ($mine -and -not (Get-Member-Value $mine[0] 'coordinator')) {
+        $mine = Find-Group (Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups') $Group.group
+        if ($mine -and -not (Get-Member-Value $mine 'coordinator')) {
             $back = $true
             break
         }
