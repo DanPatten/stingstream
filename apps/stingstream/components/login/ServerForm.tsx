@@ -94,7 +94,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
   return (
     <View>
       <Text variant='title' weight='bold'>
-        {t("server.add_server")}
+        {t("login.connect_to_server")}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
         {t("server.enter_url_to_jellyfin_server")}

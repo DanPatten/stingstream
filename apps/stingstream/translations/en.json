@@ -7,7 +7,6 @@
     "invalid_url": "Enter a valid address"
   },
   "login": {
-    "error_title": "Error",
     "login_title": "Log in",
     "login_to_title": "Log in to",
     "select_user": "Select a user to log in",
@@ -45,6 +44,7 @@
     "sign_in_to": "to {{server}}",
     "connecting_to": "Connecting to {{server}}…",
     "connecting": "Connecting…",
+    "connect_to_server": "Connect to your server",
     "keep_signed_in": "Keep me signed in",
     "use_different_server": "Use a different server",
     "show_password": "Show password",
