@@ -34,13 +34,33 @@
 .PARAMETER Force
     Regenerate every clip and every image even if it already exists at the expected path and size.
 
+.PARAMETER RealArtwork
+    Off by default (agents get the offline gradients above, always, so a screenshot pass never
+    depends on the internet). When set, this script does NOT write poster.jpg/fanart.jpg at all,
+    so a Jellyfin library scan has nothing local to prefer and identifies + downloads real
+    poster/backdrop art from TMDB/TVDB using the uniqueid already in each NFO -- for a human
+    reviewer who wants the review build to look like real media, not gradients.
+
+    Confirmed live (2026-09-06): StingStream.Core's first-run wiring creates the Movies/TV Shows
+    libraries with `EnableInternetProviders: false` (docs/UI-LOOP.md has the finding). Local image
+    files also take priority over any fetched image regardless of that setting, once one exists in
+    the item's folder -- so -RealArtwork has to do two things, not one: skip writing the local
+    files, AND (via -RefreshNodeUrl, below, since this needs a running node's API) flip
+    EnableInternetProviders on for both libraries before triggering the refresh that actually goes
+    and fetches something. tools/ui-node.ps1 -Seed -RealArtwork drives both halves in the right
+    order; calling this script by hand with -RealArtwork before a node has ever started only does
+    the first half (skipping local images) -- pair it with a second call using -RefreshNodeUrl
+    once the node is up, or the library will simply have no images until you do.
+
 .PARAMETER RefreshNodeUrl
     Optional. If the media root belongs to a node that is already running (a re-seed, not the
     normal "seed before first start" path), pass its gateway URL (e.g. http://127.0.0.1:8795) and
     this script will authenticate with the admin credentials in <DataDir>\runtime.json, POST
     /jellyfin/Library/Refresh, and poll the item count so a re-seed's new titles actually show up
     without a manual restart. Reads the password from runtime.json itself -- never printed, never
-    passed on a command line.
+    passed on a command line. Combine with -RealArtwork to also enable internet image providers on
+    the Movies/TV Shows libraries first (idempotent -- only PATCHes a library that needs it) and to
+    poll for a real image landing on the catalogue's first movie, reporting how long the fetch took.
 
 .PARAMETER RuntimeJson
     Path to runtime.json, when -RefreshNodeUrl is used and it is not simply
@@ -52,11 +72,18 @@
 .EXAMPLE
     # Re-seed into a node that is already up, and ask it to notice.
     powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RefreshNodeUrl http://127.0.0.1:8795
+
+.EXAMPLE
+    # Real artwork end to end -- see tools/ui-node.ps1 -Seed -RealArtwork, which does exactly this.
+    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RealArtwork
+    # ... start the node, wait for first-run wiring ...
+    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RealArtwork -RefreshNodeUrl http://127.0.0.1:8795
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$MediaRoot,
     [switch]$Force,
+    [switch]$RealArtwork,
     [string]$RefreshNodeUrl,
     [string]$RuntimeJson
 )
@@ -193,8 +220,14 @@ function New-SeedArtwork {
         diagonal gradient (hue from the title) plus the title text, rendered entirely offline with
         System.Drawing so a UI screenshot pass never depends on an image CDN being reachable or
         consistent between runs.
+    .DESCRIPTION
+        Title only -- no subtitle/studio-style caption. An earlier version drew a second line
+        ("StingStream UI loop seed") under the title; that text sits exactly where a real Jellyfin
+        card's own subtitle line renders, so on Home it read as if it were the item's own metadata
+        rather than a mark on generated placeholder art. Confirmed in pass-00's screenshots and
+        removed rather than reworded -- a seed image should look like a poster, not like a label.
     #>
-    param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)][string]$Title, [string]$Subtitle = 'StingStream UI loop seed')
+    param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)][string]$Title)
 
     $posterPath = Join-Path $Folder 'poster.jpg'
     $fanartPath = Join-Path $Folder 'fanart.jpg'
@@ -208,7 +241,7 @@ function New-SeedArtwork {
     $colorB = ConvertTo-HsvColor -H (($hue + 40) % 360) -S 0.55 -V 0.80
 
     function Write-GradientImage {
-        param([string]$Path, [int]$Width, [int]$Height, [string]$Title, [string]$Subtitle, [float]$TitleScale)
+        param([string]$Path, [int]$Width, [int]$Height, [string]$Title, [float]$TitleScale)
         $bmp = New-Object System.Drawing.Bitmap $Width, $Height
         $gfx = [System.Drawing.Graphics]::FromImage($bmp)
         try {
@@ -226,23 +259,20 @@ function New-SeedArtwork {
 
             $fontSize = [Math]::Max(18, [int]($Width * $TitleScale))
             $font = New-Object System.Drawing.Font('Arial', $fontSize, [System.Drawing.FontStyle]::Bold)
-            $subFont = New-Object System.Drawing.Font('Arial', [Math]::Max(10, [int]($fontSize * 0.4)), [System.Drawing.FontStyle]::Regular)
             $format = New-Object System.Drawing.StringFormat
             $format.Alignment = [System.Drawing.StringAlignment]::Center
             $format.LineAlignment = [System.Drawing.StringAlignment]::Center
             try {
-                $titleRect = New-Object System.Drawing.RectangleF 20, ([float]$Height * 0.58), ([float]$Width - 40), ([float]$Height * 0.30)
+                $titleRect = New-Object System.Drawing.RectangleF 20, ([float]$Height * 0.58), ([float]$Width - 40), ([float]$Height * 0.35)
                 $gfx.DrawString($Title, $font, [System.Drawing.Brushes]::White, $titleRect, $format)
-                $subRect = New-Object System.Drawing.RectangleF 20, ([float]$Height * 0.90), ([float]$Width - 40), ([float]$Height * 0.08)
-                $gfx.DrawString($Subtitle, $subFont, [System.Drawing.Brushes]::White, $subRect, $format)
-            } finally { $font.Dispose(); $subFont.Dispose() }
+            } finally { $font.Dispose() }
 
             $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Jpeg)
         } finally { $gfx.Dispose(); $bmp.Dispose() }
     }
 
-    Write-GradientImage -Path $posterPath -Width 600 -Height 900 -Title $Title -Subtitle $Subtitle -TitleScale 0.10
-    Write-GradientImage -Path $fanartPath -Width 1920 -Height 1080 -Title $Title -Subtitle $Subtitle -TitleScale 0.07
+    Write-GradientImage -Path $posterPath -Width 600 -Height 900 -Title $Title -TitleScale 0.10
+    Write-GradientImage -Path $fanartPath -Width 1920 -Height 1080 -Title $Title -TitleScale 0.07
     Write-Host "      wrote poster.jpg + fanart.jpg for $Title (hue $hue)"
 }
 
@@ -299,11 +329,18 @@ function Install-Movie {
     $target = Join-Path $folder "$($Title.Title) ($($Title.Year)).mkv"
     New-SeedClip -Path $target -Seconds $MovieClipSeconds -Bitrate $MovieBitrate
     Write-MovieNfo -Folder $folder -Title $Title
-    # -Title $Title.Title, not $Title (the whole record) -- New-SeedArtwork's -Title is typed
-    # [string], so passing the record coerces via its default ToString() and bakes literal
-    # "@{Title=...; Year=...; Tmdb=...}" text into the poster/fanart art instead of the movie's
-    # name. Confirmed live in pass-00's 02-home screenshots before this fix.
-    New-SeedArtwork -Folder $folder -Title $Title.Title
+    if ($RealArtwork) {
+        # No local poster.jpg/fanart.jpg at all -- a local image file wins over any fetched one
+        # regardless of library settings, so -RealArtwork mode has to never create one in the
+        # first place. See the -RealArtwork parameter help.
+        Write-Host "      -RealArtwork: no local poster/fanart for $($Title.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
+    } else {
+        # -Title $Title.Title, not $Title (the whole record) -- New-SeedArtwork's -Title is typed
+        # [string], so passing the record coerces via its default ToString() and bakes literal
+        # "@{Title=...; Year=...; Tmdb=...}" text into the poster/fanart art instead of the movie's
+        # name. Confirmed live in pass-00's 02-home screenshots before this fix.
+        New-SeedArtwork -Folder $folder -Title $Title.Title
+    }
 }
 
 function Install-Series {
@@ -317,7 +354,11 @@ function Install-Series {
     $seasonFolder = Join-Path $seriesFolder 'Season 01'
     New-Item -ItemType Directory -Force -Path $seasonFolder | Out-Null
     Write-SeriesNfo -Folder $seriesFolder -Series $Series
-    New-SeedArtwork -Folder $seriesFolder -Title $Series.Title
+    if ($RealArtwork) {
+        Write-Host "      -RealArtwork: no local poster/fanart for $($Series.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
+    } else {
+        New-SeedArtwork -Folder $seriesFolder -Title $Series.Title
+    }
 
     for ($i = 0; $i -lt $Series.Episodes.Count; $i++) {
         $ep = $i + 1
@@ -376,10 +417,42 @@ if ($RefreshNodeUrl) {
         $beforeCount = @($before.Items).Count
         Write-Host "  items before refresh: $beforeCount"
 
+        if ($RealArtwork) {
+            # Confirmed live (2026-09-06): StingStream.Core's first-run wiring creates both
+            # libraries with EnableInternetProviders = false (docs/UI-LOOP.md). Idempotent: only
+            # PATCHes a library whose setting is not already true, via Jellyfin's own
+            # /Library/VirtualFolders/LibraryOptions endpoint (confirmed 204 on a real node).
+            Write-Head '-RealArtwork: enabling internet image/metadata providers'
+            $folders = Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Library/VirtualFolders" -Headers $headers -TimeoutSec 30
+            foreach ($folder in $folders) {
+                if ($folder.Name -notin @('Movies', 'TV Shows')) { continue }
+                if ($folder.LibraryOptions.EnableInternetProviders) {
+                    Write-Host "  $($folder.Name): internet providers already on"
+                    continue
+                }
+                # The whole existing LibraryOptions object (a PSCustomObject, whose properties are
+                # settable in place -- no need for ConvertFrom-Json -AsHashtable, which does not
+                # exist on Windows PowerShell 5.1), with only EnableInternetProviders changed --
+                # POSTing a partial object here would deserialize into a fresh LibraryOptions on
+                # the server side, silently resetting every field this script does not name
+                # (EnableRealtimeMonitor, EnablePhotos, ...) to its C# default rather than leaving
+                # them alone.
+                $folder.LibraryOptions.EnableInternetProviders = $true
+                $patch = @{ Id = $folder.ItemId; LibraryOptions = $folder.LibraryOptions }
+                Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Library/VirtualFolders/LibraryOptions" -Method POST -Body $patch -Headers $headers -TimeoutSec 30 | Out-Null
+                Write-Host "  $($folder.Name): internet providers turned on" -ForegroundColor Green
+            }
+        }
+
         Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Library/Refresh" -Method POST -Headers $headers -TimeoutSec 30 | Out-Null
 
         $wanted = $Movies.Count + $Series.Count
-        $after = Wait-Until -What 'the refreshed library to include every seeded title' -Seconds 180 -PollSeconds 5 -Condition {
+        # 180s is enough for a deterministic NFO-only scan; -RealArtwork just turned internet
+        # providers on for the first time, and a real TMDB/TVDB identification pass across all 10
+        # titles is a genuinely slower, network-bound operation -- confirmed live: 180s was not
+        # enough (7/10 items) under real network conditions, so -RealArtwork gets a longer budget.
+        $itemCountBudget = if ($RealArtwork) { 420 } else { 180 }
+        $after = Wait-Until -What 'the refreshed library to include every seeded title' -Seconds $itemCountBudget -PollSeconds 5 -Condition {
             $r = try { Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Items?Recursive=true&IncludeItemTypes=Movie,Series&userId=$($auth.User.Id)" -Headers $headers -TimeoutSec 30 } catch { $null }
             if ($r -and @($r.Items).Count -ge $wanted) { return $r }
             return $null
@@ -388,5 +461,24 @@ if ($RefreshNodeUrl) {
             if ($r) { "$(@($r.Items).Count) / $wanted item(s) so far" } else { 'no answer yet' }
         }
         Write-Host "  items after refresh: $(@($after.Items).Count) (wanted at least $wanted)" -ForegroundColor Green
+
+        if ($RealArtwork) {
+            # The catalogue's first movie is the timing signal: -RealArtwork mode wrote no local
+            # poster for it, so ANY Primary image tag showing up can only have come from a fetch.
+            Write-Head '-RealArtwork: waiting for a real poster to be fetched'
+            $sample = $Movies[0]
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                Wait-Until -What "a fetched poster for $($sample.Title)" -Seconds 300 -PollSeconds 5 -Condition {
+                    $r = try { Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Items?Recursive=true&IncludeItemTypes=Movie&SearchTerm=$([Uri]::EscapeDataString($sample.Title))&userId=$($auth.User.Id)" -Headers $headers -TimeoutSec 30 } catch { $null }
+                    $item = $r.Items | Select-Object -First 1
+                    if ($item -and (Get-Member-Value $item.ImageTags 'Primary')) { return $item }
+                    return $null
+                } -Describe { 'no fetched image yet' } | Out-Null
+                Write-Host ("  fetched a real poster for {0} after {1:N1}s" -f $sample.Title, $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+            } catch {
+                Write-Host ("  no fetched poster for {0} after {1:N1}s -- check network access to TMDB and the node's logs" -f $sample.Title, $sw.Elapsed.TotalSeconds) -ForegroundColor Yellow
+            }
+        }
     }
 }

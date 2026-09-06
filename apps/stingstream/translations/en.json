@@ -7,8 +7,6 @@
     "invalid_url": "Enter a valid address"
   },
   "login": {
-    "username_required": "Username is required",
-    "error_title": "Error",
     "login_title": "Log in",
     "login_to_title": "Log in to",
     "select_user": "Select a user to log in",
@@ -19,7 +17,12 @@
     "login_button": "Log in",
     "quick_connect": "Sign in with a code",
     "sign_in_with_code": "Sign in with a code",
-    "enter_code_to_login": "Enter code {{code}} to log in",
+    "sign_in_with_password": "Sign in with password",
+    "link_code_instructions": "On your phone or computer, open StingStream, go to Settings, choose Link a device, and enter this code.",
+    "link_code_waiting": "Waiting for you to enter this code…",
+    "link_code_unavailable": "Code sign-in is turned off on this server.",
+    "logging_in": "Logging in...",
+    "logging_in_description": "Connecting to your server",
     "quick_connect_instructions": "Enter this code on a signed-in device. You'll be logged in automatically.",
     "tap_code_to_copy": "Tap the code to copy it",
     "code_copied": "Code copied",
@@ -27,10 +30,8 @@
     "got_it": "Got it",
     "connection_failed": "Connection failed",
     "could_not_connect_to_server": "Could not connect to the server. Please check the URL and your network connection.",
-    "not_a_jellyfin_server_title": "That is not a StingStream server",
     "not_a_jellyfin_server_description": "The address answered, but it is not a StingStream server. Check the address and try again.",
     "an_unexpected_error_occurred": "An unexpected error occurred",
-    "change_server": "Change server",
     "invalid_username_or_password": "Invalid username or password",
     "user_does_not_have_permission_to_log_in": "User does not have permission to log in",
     "server_is_taking_too_long_to_respond_try_again_later": "Server is taking too long to respond, try again later",
@@ -38,10 +39,23 @@
     "there_is_a_server_error": "There is a server error",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "An unexpected error occurred. Did you enter the server URL correctly?",
     "too_old_server_text": "This server needs an update",
-    "too_old_server_description": "Update StingStream on the server, then try again."
+    "too_old_server_description": "Update StingStream on the server, then try again.",
+    "sign_in": "Sign in",
+    "sign_in_to": "to {{server}}",
+    "connecting_to": "Connecting to {{server}}…",
+    "connecting": "Connecting…",
+    "connect_to_server": "Connect to your server",
+    "keep_signed_in": "Keep me signed in",
+    "use_different_server": "Use a different server",
+    "show_password": "Show password",
+    "hide_password": "Hide password",
+    "advanced": "Advanced"
   },
   "server": {
     "enter_url_to_jellyfin_server": "Enter the address of your StingStream server",
+    "enter_node_address": "Enter your StingStream server's address",
+    "found_on_network": "Found on your network",
+    "enter_address": "Enter an address",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "Connect",
     "previous_servers": "Previous servers",
@@ -64,9 +78,32 @@
     "remove_server_description": "This will remove {{server}} and all saved accounts from your list.",
     "select_your_server": "Select your server",
     "add_server_to_get_started": "Add a server to get started",
-    "add_server": "Add server",
     "change_server": "Change server",
     "swipe_for_options": "Swipe a server for options"
+  },
+  "setup": {
+    "title": "Create your StingStream account",
+    "description": "This is the only account you need. It lives on this computer.",
+    "username": "Username",
+    "password": "Password",
+    "confirm_password": "Confirm password",
+    "password_hint": "At least {{min}} characters.",
+    "create_account": "Create account",
+    "username_required": "Choose a username.",
+    "username_invalid": "Use letters, digits, dots, underscores or dashes.",
+    "username_too_long": "Use at most {{max}} characters.",
+    "password_too_short": "Use at least {{min}} characters.",
+    "passwords_do_not_match": "The passwords do not match.",
+    "error_invalid": "That username or password cannot be used. Try another.",
+    "error_starting": "Your server is still starting up. Try again in a moment.",
+    "error_already_claimed": "This server already has an account. Sign in instead.",
+    "error_not_local": "The account can only be created on the computer running StingStream.",
+    "error_unreachable": "Could not reach your server. Check that it is still running.",
+    "error_unexpected": "Something went wrong. Try again.",
+    "elsewhere_title": "Finish setup on the computer running StingStream",
+    "elsewhere_description": "Open this address in a browser on that computer to create your account, then come back here to sign in.",
+    "elsewhere_retry": "Check again",
+    "elsewhere_still_pending": "No account has been created yet."
   },
   "save_account": {
     "title": "Save account",
@@ -221,22 +258,14 @@
         "token": "Token",
         "app_version": "App version"
       },
-      "quick_connect": {
-        "quick_connect_title": "Link a device",
-        "authorize_button": "Authorize a device",
-        "enter_the_quick_connect_code": "Enter the code shown on the other device...",
-        "success": "Success",
-        "quick_connect_authorized": "Device linked",
-        "error": "Error",
-        "invalid_code": "Invalid code",
-        "authorize": "Authorize",
-        "paste_code": "Paste code"
-      },
       "link_device": {
         "title": "Link a device",
         "enter_code": "Enter the code shown on the other device",
         "description": "Enter the 6-digit code shown on the device you want to link.",
-        "linked": "Device linked"
+        "linked": "Device linked",
+        "paste_code": "Paste code",
+        "authorize": "Authorize",
+        "invalid_code": "That code did not work. Check it and try again."
       },
       "media_controls": {
         "media_controls_title": "Media controls",
@@ -653,7 +682,6 @@
     }
   },
   "common": {
-    "app_name": "StingStream",
     "no_results": "No results",
     "no_trailer_available": "No trailer available",
     "video": "Video",
@@ -1162,36 +1190,6 @@
       "show": "This show",
       "all": "All media (default)"
     }
-  },
-  "companion_login": {
-    "title": "Pair with TV",
-    "align_qr": "Align the QR code within the frame",
-    "enter_code_manually": "Enter code manually",
-    "pairing_enter_credentials": "Enter credentials for TV",
-    "pairing_code_label": "Pairing code",
-    "server": "Server",
-    "authorize_button": "Authorize",
-    "authorizing": "Authorizing...",
-    "scan_again": "Scan again",
-    "done": "Done",
-    "success_title": "Authorization sent",
-    "pairing_tv_connecting": "The TV is connecting to your account",
-    "error_title": "Authorization failed",
-    "error_invalid_qr": "Invalid QR code. Please scan the TV pairing code.",
-    "error_generic": "Something went wrong. Please try again.",
-    "error_permission_denied": "Camera permission is required to scan QR codes.",
-    "login_as": "Log in as {{username}}?",
-    "on_server": "on {{server}}",
-    "use_different_user": "Use a different user",
-    "open_settings": "Open Settings"
-  },
-  "pairing": {
-    "pair_with_phone": "Pair with phone",
-    "pair_with_phone_title": "Log in on TV",
-    "waiting_for_phone": "Waiting for phone...",
-    "scan_with_phone": "Scan with the StingStream app on your phone",
-    "logging_in": "Logging in...",
-    "logging_in_description": "Connecting to your server"
   },
   "custom_headers": {
     "title": "Custom headers",

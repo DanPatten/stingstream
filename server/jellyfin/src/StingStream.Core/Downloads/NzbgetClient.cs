@@ -127,7 +127,7 @@ public sealed class NzbgetClient
         var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode)
         {
-            throw new NzbgetException($"NZBGet {method} failed: {(int)res.StatusCode} {res.ReasonPhrase}");
+            throw new NzbgetException($"The Usenet engine failed {method}: {(int)res.StatusCode} {res.ReasonPhrase}");
         }
 
         JsonNode? parsed;
@@ -137,7 +137,7 @@ public sealed class NzbgetClient
         }
         catch (System.Text.Json.JsonException ex)
         {
-            throw new NzbgetException($"NZBGet {method} returned unparseable JSON", ex);
+            throw new NzbgetException($"The Usenet engine returned unparseable JSON for {method}", ex);
         }
 
         if (parsed is JsonObject envelope)
@@ -147,7 +147,7 @@ public sealed class NzbgetClient
             if (envelope["error"] is JsonObject error)
             {
                 var message = error["message"]?.GetValue<string>() ?? "unknown error";
-                throw new NzbgetException($"NZBGet {method} failed: {message}");
+                throw new NzbgetException($"The Usenet engine failed {method}: {message}");
             }
 
             return envelope["result"];

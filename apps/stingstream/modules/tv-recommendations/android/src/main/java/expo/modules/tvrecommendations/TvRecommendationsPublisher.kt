@@ -26,15 +26,24 @@ internal object TvRecommendationsPublisher {
   private const val KEY_PROGRAM_IDS = "programIds"
   // Matches the app-side copy (`home.tv_channel_title` in en.json). Only a fallback used
   // when a sync payload's section carries no "title" -- the app is expected to always
-  // send one, in which case this value is never read. Note for whoever wires
-  // `home.tv_channel_title` into the actual payload: getChannelKey() below hashes the
-  // *displayName string itself*, so changing what title the app sends (not just this
-  // fallback) creates a second channel rather than renaming the existing one -- an
-  // existing install's old "Continue and Next Up" channel would be orphaned, not
-  // updated. PREFS_NAME (this file's SharedPreferences name) is unrelated to that and is
-  // deliberately left alone here either way, so whatever *is* already stored under it
-  // survives this change untouched.
+  // send one, in which case this value is never read.
   private const val DEFAULT_CHANNEL_NAME = "StingStream: Continue watching"
+  // getChannelKey() used to hash the *display name string itself*, so a rename (this
+  // fallback's own "Continue and Next Up" -> "StingStream: Continue watching", or
+  // whatever title WP-TV-SHELL eventually sends from Home.tv.tsx) produced a brand new
+  // key and therefore a brand new channel -- the existing one just sat there orphaned,
+  // never found again by this code, never cleaned up. There is exactly one channel this
+  // app ever publishes, so its key does not need to depend on what it happens to be
+  // titled this week: a fixed identifier, unrelated to PREFS_NAME (this file's
+  // SharedPreferences name, also untouched) or to any display name past or future.
+  private const val CHANNEL_IDENTIFIER = "stingstream-continue-watching"
+  private const val CHANNEL_KEY = KEY_CHANNEL_ID_PREFIX + CHANNEL_IDENTIFIER
+  // Every display name this channel has ever shipped under, oldest first -- each one was,
+  // until this fix, also the channel's *key* (its hashCode()). Deleted on the next sync
+  // after an upgrade so a rename never leaves a stale, unbrowsable duplicate channel
+  // sitting in the system launcher forever. Append here, never remove, if the title
+  // changes again.
+  private val LEGACY_CHANNEL_NAMES = listOf("Continue and Next Up", "StingStream: Continue watching")
 
   fun sync(context: Context, payloadJson: String): Boolean {
     val payload = try {
@@ -203,6 +212,8 @@ internal object TvRecommendationsPublisher {
       return false
     }
 
+    migrateLegacyChannel(context)
+
     val prefs = preferences(context)
     val allNextProgramIds = JSONObject()
     var totalActive = 0
@@ -341,7 +352,7 @@ internal object TvRecommendationsPublisher {
 
   private fun getOrCreateChannel(context: Context, displayName: String): Long {
     val prefs = preferences(context)
-    val channelKey = getChannelKey(displayName)
+    val channelKey = getChannelKey()
     val existingChannelId = prefs.getLong(channelKey, -1L)
     val contentResolver = context.contentResolver
 
@@ -412,8 +423,58 @@ internal object TvRecommendationsPublisher {
     return channelId
   }
 
-  private fun getChannelKey(displayName: String): String {
-    return KEY_CHANNEL_ID_PREFIX + displayName.hashCode()
+  private fun getChannelKey(): String {
+    return CHANNEL_KEY
+  }
+
+  /**
+   * One-time (per legacy name, effectively once ever) cleanup: delete whatever channel
+   * this app previously published under a *display-name-derived* key, now that the key
+   * is fixed (CHANNEL_KEY) and no longer moves when the title does. Without this, every
+   * past rename leaves its old channel behind forever -- unbrowsable, never updated,
+   * never found again by this code (nothing is stored under its key any more once the
+   * title changes again), just a stale duplicate sitting in the system launcher. Cheap
+   * and idempotent: after the first run following an upgrade, none of LEGACY_CHANNEL_NAMES
+   * resolve to a stored channel id any more, so every later call is two no-op prefs reads.
+   */
+  private fun migrateLegacyChannel(context: Context) {
+    val prefs = preferences(context)
+    val contentResolver = context.contentResolver
+
+    for (name in LEGACY_CHANNEL_NAMES) {
+      val legacyKey = KEY_CHANNEL_ID_PREFIX + name.hashCode()
+      val legacyChannelId = prefs.getLong(legacyKey, -1L)
+      if (legacyChannelId <= 0L) continue
+
+      Log.d(TAG, "migrateLegacyChannel(): found legacy channelId=$legacyChannelId under the old name-derived key for \"$name\", removing")
+
+      // Delete this channel's own preview programs first (same order clear() uses),
+      // in case deleting the channel row does not cascade on every OS version.
+      val programIdsJson = prefs.getString("programIds_$legacyChannelId", null)
+      if (programIdsJson != null) {
+        try {
+          val programIds = JSONObject(programIdsJson)
+          val keys = programIds.keys()
+          while (keys.hasNext()) {
+            val programId = programIds.optLong(keys.next(), -1L)
+            if (programId > 0L) deletePreviewProgram(contentResolver, programId)
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "migrateLegacyChannel(): failed to parse programIds for legacy channelId=$legacyChannelId", e)
+        }
+      }
+
+      try {
+        contentResolver.delete(TvContractCompat.buildChannelUri(legacyChannelId), null, null)
+      } catch (e: SecurityException) {
+        Log.w(TAG, "migrateLegacyChannel(): lost provider permission deleting legacy channelId=$legacyChannelId", e)
+      }
+
+      prefs.edit()
+        .remove(legacyKey)
+        .remove("programIds_$legacyChannelId")
+        .apply()
+    }
   }
 
   private fun upsertPreviewProgram(
@@ -593,8 +654,11 @@ internal object TvRecommendationsPublisher {
     return bitmap
   }
 
+  // `displayName` no longer affects which channel is looked up -- there is exactly one
+  // channel, at CHANNEL_KEY -- but the parameter is kept so any existing caller compiles
+  // unchanged.
   fun getChannelId(context: Context, displayName: String = DEFAULT_CHANNEL_NAME): Long {
-    return preferences(context).getLong(getChannelKey(displayName), -1L)
+    return preferences(context).getLong(getChannelKey(), -1L)
   }
 
   private fun preferences(context: Context): SharedPreferences {

@@ -5,6 +5,7 @@
     "app",
     "components",
     "hooks",
+    "lib",
     "providers",
     "utils",
     "modules",
