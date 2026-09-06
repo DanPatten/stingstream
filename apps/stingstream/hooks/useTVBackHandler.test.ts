@@ -8,7 +8,9 @@ mock.module("expo-router", () => ({
   useSegments: () => [],
 }));
 
-const { isAtTabRoot, isTabRoute } = await import("./useTVBackHandler");
+const { TAB_ROUTES, isAtTabRoot, isTabRoute } = await import(
+  "./useTVBackHandler"
+);
 
 describe("isAtTabRoot", () => {
   test("true at the root of a tab", () => {
@@ -39,5 +41,34 @@ describe("isTabRoute", () => {
     expect(isTabRoute("(home)")).toBe(true);
     expect(isTabRoute("(tabs)")).toBe(false);
     expect(isTabRoute("index")).toBe(false);
+  });
+});
+
+describe("TAB_ROUTES", () => {
+  // Requests is a real tab on phone and TV. While it was missing from this
+  // list, `useTVTabRootBackHandler` did not recognise the Requests root as a
+  // tab root, so BACK there popped the Stack and left the tab navigator
+  // instead of going Home.
+  test("includes every tab group the navigator renders", () => {
+    expect([...TAB_ROUTES].sort()).toEqual(
+      [
+        "(custom-links)",
+        "(favorites)",
+        "(home)",
+        "(libraries)",
+        "(requests)",
+        "(search)",
+        "(settings)",
+        "(watchlists)",
+      ].sort(),
+    );
+  });
+
+  test("the Requests root is a tab root, so BACK there goes Home", () => {
+    expect(isTabRoute("(requests)")).toBe(true);
+    expect(isAtTabRoot(["(auth)", "(tabs)", "(requests)"])).toBe(true);
+    expect(
+      isAtTabRoot(["(auth)", "(tabs)", "(requests)", "details", "42"]),
+    ).toBe(false);
   });
 });

@@ -38,7 +38,7 @@ import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useFilterReset } from "@/hooks/useFilterReset";

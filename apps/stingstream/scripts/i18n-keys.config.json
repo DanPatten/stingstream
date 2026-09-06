@@ -11,7 +11,14 @@
     "packages",
     "constants"
   ],
-  "srcExtensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+  "srcExtensions": [
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs"
+  ],
   "excludeDirs": [
     "node_modules",
     "ios",
@@ -46,6 +53,8 @@
     "custom_headers.header_count_one",
     "custom_headers.header_count_other",
     "login.sign_in_with_code",
-    "home.settings.link_device.*"
+    "home.settings.link_device.*",
+    "tv.track_count_one",
+    "tv.track_count_other"
   ]
 }

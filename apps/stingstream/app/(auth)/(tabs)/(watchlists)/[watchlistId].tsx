@@ -24,7 +24,7 @@ import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useOrientation } from "@/hooks/useOrientation";

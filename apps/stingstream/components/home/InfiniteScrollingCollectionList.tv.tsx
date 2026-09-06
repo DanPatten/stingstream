@@ -18,7 +18,7 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { TVFocusablePoster } from "@/components/tv/TVFocusablePoster";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes } from "@/constants/TVSizes";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";

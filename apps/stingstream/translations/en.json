@@ -1034,7 +1034,8 @@
     "library": "Library",
     "custom_links": "Custom links",
     "favorites": "Favorites",
-    "settings": "Settings"
+    "settings": "Settings",
+    "requests": "Requests"
   },
   "music": {
     "title": "Music",
@@ -1220,5 +1221,14 @@
     "header_count_one": "{{count}} header",
     "header_count_other": "{{count}} headers",
     "header_count": "{{count}} headers"
+  },
+  "tv": {
+    "now_playing": "Now playing",
+    "track_count": "{{count}} tracks",
+    "track_count_one": "{{count}} track",
+    "track_count_other": "{{count}} tracks",
+    "nav": {
+      "account": "Account"
+    }
   }
 }

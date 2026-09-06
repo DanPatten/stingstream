@@ -29,7 +29,7 @@ import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes } from "@/constants/TVSizes";
 import useRouter from "@/hooks/useAppRouter";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
