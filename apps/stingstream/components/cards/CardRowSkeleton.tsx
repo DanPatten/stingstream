@@ -1,12 +1,13 @@
 import { View } from "react-native";
-import { CARD_LAYOUTS, type CardKind } from "./CardData";
+import type { CardKind } from "./CardData";
+import { useCardLayout } from "./useCardLayout";
 
 /** Placeholder cards shown while a row loads, sized like the real ones. */
 export const CardRowSkeleton: React.FC<{ kind: CardKind; count?: number }> = ({
   kind,
   count = 3,
 }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
 
   return (
     <View

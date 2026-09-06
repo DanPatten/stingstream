@@ -1,15 +1,25 @@
-import { Ionicons } from "@expo/vector-icons";
-import { TouchableOpacity, type TouchableOpacityProps } from "react-native";
+import { useTranslation } from "react-i18next";
+import {
+  Pressable,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import { Icon } from "@/components/common/Icon";
+import { radius, tokens } from "@/constants/theme";
 import { useFilterReset } from "@/hooks/useFilterReset";
 
-interface Props extends TouchableOpacityProps {
+interface Props extends Omit<PressableProps, "children" | "style"> {
   libraryId: string;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const ResetFiltersButton: React.FC<Props> = ({
   libraryId,
+  style,
   ...props
 }) => {
+  const { t } = useTranslation();
   const { hasActiveFilters, resetAllFilters } = useFilterReset(libraryId);
 
   if (!hasActiveFilters) {
@@ -17,13 +27,26 @@ export const ResetFiltersButton: React.FC<Props> = ({
   }
 
   return (
-    <TouchableOpacity
-      className='bg-purple-600 rounded-full w-[30px] h-[30px] flex items-center justify-center mr-1'
+    <Pressable
+      accessibilityRole='button'
+      accessibilityLabel={t("library.filters.reset")}
+      style={[
+        {
+          width: 32,
+          height: 32,
+          borderRadius: radius.pill,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: tokens.color.bg["3"],
+          marginRight: 4,
+        },
+        style,
+      ]}
       {...props}
       // After the spread so a forwarded onPress can't disable the reset.
       onPress={resetAllFilters}
     >
-      <Ionicons name='close' size={20} color='white' />
-    </TouchableOpacity>
+      <Icon name='close' size={16} tone='secondary' />
+    </Pressable>
   );
 };

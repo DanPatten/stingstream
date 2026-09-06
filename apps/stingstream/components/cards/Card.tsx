@@ -1,14 +1,19 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { TouchableOpacity, View } from "react-native";
+import { useState } from "react";
+import { Platform, Pressable, View, type ViewStyle } from "react-native";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
-import { CardArtwork } from "./CardArtwork";
 import {
-  CARD_LAYOUTS,
-  type CardData,
-  type CardKind,
-  type CardSlots,
-} from "./CardData";
+  elevation,
+  motion,
+  rgba,
+  tokens,
+  webFocusRing,
+} from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { CardArtwork } from "./CardArtwork";
+import type { CardData, CardKind, CardSlots } from "./CardData";
+import { useCardLayout } from "./useCardLayout";
 
 type CardProps = {
   card: CardData;
@@ -26,10 +31,18 @@ type CardProps = {
   onLongPress?: () => void;
 };
 
+const isWeb = Platform.OS === "web";
+
 /**
  * A media card: artwork edge to edge, the title and subtitle over a frosted
  * band at the bottom, and the progress bar under them but still on the card.
  * Everything it draws comes from `CardData` — see `buildItemCards`.
+ *
+ * On web the card lifts on hover (scale + shadow) with a play-glyph overlay
+ * so a row of stills reads as playable rather than as a photo grid, and a
+ * keyboard tab shows the same accent focus ring every other control does.
+ * Touch platforms get none of that: hover doesn't exist there, and a
+ * `Pressable`'s own press-opacity already answers "did my tap land".
  */
 export const Card: React.FC<CardProps> = ({
   card,
@@ -40,11 +53,15 @@ export const Card: React.FC<CardProps> = ({
   onPress,
   onLongPress,
 }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
+  const { accent } = useTheme();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   const cardWidth = width ?? layout.cardWidth;
   const height = cardWidth / (card.aspectRatio ?? layout.aspectRatio);
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const isOver = textPlacement === "over";
+  const lifted = isWeb && hovered;
 
   const progressBar = progress > 0 && (
     <View
@@ -60,17 +77,68 @@ export const Card: React.FC<CardProps> = ({
           height: 3,
           borderRadius: 2,
           width: `${progress * 100}%`,
-          backgroundColor: Colors.primary,
+          backgroundColor: accent[500],
         }}
       />
     </View>
   );
 
+  // The disc reads as "this plays" without a caption; it only makes sense once
+  // a pointer is actually hovering, since touch has no equivalent gesture.
+  const hoverPlayGlyph = lifted ? (
+    <View
+      pointerEvents='none'
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <View
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: rgba("#000000", 0.5),
+        }}
+      >
+        <Icon name='play' size={20} color='#FFFFFF' />
+      </View>
+    </View>
+  ) : null;
+
   return (
-    <TouchableOpacity
+    <Pressable
+      testID='library-card'
+      accessibilityRole='button'
+      accessibilityLabel={card.title}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={{ width: cardWidth, opacity: card.dimmed ? 0.5 : 1 }}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={[
+        {
+          width: cardWidth,
+          opacity: card.dimmed ? 0.5 : 1,
+          transform: [{ scale: lifted ? tokens.motion.hoverScale : 1 }],
+        },
+        isWeb
+          ? ({
+              cursor: "pointer",
+              transitionDuration: `${motion.fast}ms`,
+              ...(lifted ? elevation(1) : null),
+              ...webFocusRing(focused),
+            } as ViewStyle)
+          : null,
+      ]}
     >
       <View>
         <CardArtwork
@@ -78,7 +146,12 @@ export const Card: React.FC<CardProps> = ({
           width={cardWidth}
           height={height}
           cornerRadius={layout.cornerRadius}
-          overlay={slots?.overlay?.(card)}
+          overlay={
+            <>
+              {hoverPlayGlyph}
+              {slots?.overlay?.(card)}
+            </>
+          }
         />
 
         {isOver && (
@@ -107,17 +180,11 @@ export const Card: React.FC<CardProps> = ({
                 paddingBottom: 9,
               }}
             >
-              <Text
-                numberOfLines={1}
-                style={{ fontSize: 13, fontWeight: "600" }}
-              >
+              <Text variant='caption' weight='semibold' numberOfLines={1}>
                 {card.title}
               </Text>
               {Boolean(card.subtitle) && (
-                <Text
-                  numberOfLines={1}
-                  style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}
-                >
+                <Text variant='micro' tone='secondary' numberOfLines={1}>
                   {card.subtitle}
                 </Text>
               )}
@@ -131,24 +198,20 @@ export const Card: React.FC<CardProps> = ({
         <View style={{ paddingTop: 6 }}>
           {progressBar}
           <Text
+            variant='caption'
+            weight='semibold'
             numberOfLines={2}
-            style={{ fontSize: 13, fontWeight: "600", marginTop: 2 }}
+            style={{ marginTop: 2 }}
           >
             {card.title}
           </Text>
           {Boolean(card.subtitle) && (
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}
-            >
+            <Text variant='micro' tone='secondary' numberOfLines={1}>
               {card.subtitle}
             </Text>
           )}
           {Boolean(card.detail) && (
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}
-            >
+            <Text variant='micro' tone='tertiary' numberOfLines={1}>
               {card.detail}
             </Text>
           )}
@@ -156,6 +219,6 @@ export const Card: React.FC<CardProps> = ({
       )}
 
       {slots?.footer?.(card)}
-    </TouchableOpacity>
+    </Pressable>
   );
 };

@@ -2,15 +2,30 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useCallback, useMemo } from "react";
 import { useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { Card } from "./Card";
-import { CARD_LAYOUTS, type CardData, type CardKind } from "./CardData";
+import { autoGridColumns, type CardData, type CardKind } from "./CardData";
+import { useCardLayout } from "./useCardLayout";
 import { useItemCardBehavior } from "./useItemCardBehavior";
 
 type Options = {
   items: BaseItemDto[];
-  /** Cards per row, as the screen's own breakpoints decide. */
-  columns: number;
+  /**
+   * Cards per row. Omit to fill the available width automatically: as many
+   * columns of at least `gridMinCardWidth` as fit, the way CSS grid's
+   * `auto-fill` would — so a browser resize changes the column count instead
+   * of stretching a fixed number of cards across an arbitrary width.
+   */
+  columns?: number;
   kind?: CardKind;
+  /**
+   * Override the measured window width — a page whose content is capped by
+   * `PageContainer` (a "media" page tops out at 1440 regardless of how wide
+   * the browser window is) should compute columns from its own rendered
+   * width, not the full window, or a wide monitor gets more columns than the
+   * capped container actually has room for.
+   */
+  containerWidth?: number;
   /** Replaces the default navigation. */
   onPressItem?: (item: BaseItemDto) => void;
   /** Replaces the long-press action sheet. */
@@ -28,34 +43,43 @@ type Options = {
  */
 export function useCardGrid({
   items,
-  columns,
+  columns: requestedColumns,
   kind = "portrait",
+  containerWidth,
   onPressItem,
   onLongPressItem,
   enableActionSheet,
 }: Options) {
-  const { width } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const layout = useCardLayout(kind);
+  const { gutter } = useBreakpoint();
+  const width = containerWidth ?? windowWidth;
+
+  // The page's own gutter, not the kind's fixed inset — a grid's first and
+  // last column line up with the page's other content at every width, the
+  // way `CardRow` already does for a horizontal row.
+  const available = width - insets.left - insets.right - gutter * 2;
+
+  const columns = useMemo(() => {
+    if (requestedColumns) return Math.max(requestedColumns, 1);
+    return autoGridColumns(available, layout.gridMinCardWidth, layout.spacing);
+  }, [requestedColumns, available, layout.spacing, layout.gridMinCardWidth]);
+
+  const cardWidth = useMemo(() => {
+    const usable = available - layout.spacing * (columns - 1);
+    return Math.floor(usable / columns);
+  }, [available, columns, layout.spacing]);
+
   const { cards, handlePress, handleLongPress, actionSheet } =
     useItemCardBehavior({
       items,
       kind,
+      cardWidth,
       onPressItem,
       onLongPressItem,
       enableActionSheet,
     });
-
-  const layout = CARD_LAYOUTS[kind];
-  const cardWidth = useMemo(() => {
-    const safeColumns = Math.max(columns, 1);
-    const available =
-      width -
-      insets.left -
-      insets.right -
-      layout.contentInset * 2 -
-      layout.spacing * (safeColumns - 1);
-    return Math.floor(available / safeColumns);
-  }, [width, insets.left, insets.right, columns, layout]);
 
   // A library can mix poster art with square album art, and a grid row is as
   // tall as its tallest cell — so without a common height the short cards
@@ -77,14 +101,10 @@ export function useCardGrid({
   // rather than padding the list keeps a header spanning the full width.
   const columnOffset = useCallback(
     (index: number) => {
-      const safeColumns = Math.max(columns, 1);
-      const column = index % safeColumns;
-      return (
-        layout.contentInset +
-        (column * (layout.spacing - layout.contentInset * 2)) / safeColumns
-      );
+      const column = index % columns;
+      return gutter + (column * (layout.spacing - gutter * 2)) / columns;
     },
-    [columns, layout],
+    [columns, gutter, layout.spacing],
   );
 
   const renderItem = useCallback(
@@ -119,6 +139,14 @@ export function useCardGrid({
     keyExtractor,
     /** Vertical gap between rows. */
     rowGap: layout.spacing,
+    /**
+     * The column count actually in use — the caller's own `columns` when
+     * given, otherwise what the auto-fill formula picked for the current
+     * width. Key a `FlashList`/`FlatList` on this: React Native does not
+     * re-layout a list's `numColumns` on its own when the value changes, so a
+     * browser resize that crosses a column boundary needs a remount to show it.
+     */
+    columns,
     /** Mount alongside the list; renders nothing until a long press. */
     actionSheet,
   };

@@ -1,7 +1,7 @@
 import { View } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
+import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
 
 type Props = {
@@ -33,6 +33,7 @@ export const CardArtwork: React.FC<Props> = ({
   edgeProgress = false,
   overlay,
 }) => {
+  const { accent } = useTheme();
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const unplayed = card.unplayedCount ?? 0;
   const badgeLabel =
@@ -56,10 +57,14 @@ export const CardArtwork: React.FC<Props> = ({
           source={{ uri: card.imageUrl }}
           cachePolicy='memory-disk'
           contentFit='cover'
+          accessibilityLabel={card.imageAlt ?? card.title}
           style={{ width: "100%", height: "100%" }}
         />
       ) : (
-        <View style={{ flex: 1, backgroundColor: "#1a1a1a" }} />
+        <View
+          accessibilityLabel={card.imageAlt ?? card.title}
+          style={{ flex: 1, backgroundColor: "#1a1a1a" }}
+        />
       )}
 
       {overlay}
@@ -79,7 +84,7 @@ export const CardArtwork: React.FC<Props> = ({
             style={{
               height: 3,
               width: `${progress * 100}%`,
-              backgroundColor: Colors.primary,
+              backgroundColor: accent[500],
             }}
           />
         </View>
@@ -97,10 +102,12 @@ export const CardArtwork: React.FC<Props> = ({
             borderRadius: 10,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: Colors.primary,
+            backgroundColor: accent[500],
           }}
         >
-          <Text style={{ fontSize: 11, fontWeight: "700" }}>{badgeLabel}</Text>
+          <Text variant='micro' weight='bold' tone='onAccent'>
+            {badgeLabel}
+          </Text>
         </View>
       ) : (
         card.unwatched && (
@@ -112,7 +119,7 @@ export const CardArtwork: React.FC<Props> = ({
               width: 13,
               height: 13,
               borderRadius: 6.5,
-              backgroundColor: Colors.primary,
+              backgroundColor: accent[500],
             }}
           />
         )

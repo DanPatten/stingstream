@@ -1,11 +1,19 @@
-import { FontAwesome, Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { TouchableOpacity, View, type ViewProps } from "react-native";
+import {
+  Pressable,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { radius, rgba, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import { FilterSheetContent } from "./FilterSheetContent";
 
-interface FilterButtonProps<T> extends ViewProps {
+interface FilterButtonProps<T>
+  extends Omit<PressableProps, "children" | "style"> {
   id: string;
   queryKey: string;
   values: T[];
@@ -15,8 +23,15 @@ interface FilterButtonProps<T> extends ViewProps {
   renderItemLabel: (item: T) => string;
   multiple?: boolean;
   icon?: "filter" | "sort";
+  style?: StyleProp<ViewStyle>;
 }
 
+/**
+ * One chip in the library filter/sort bar. Visually a `Pill` (rounded, tinted
+ * when a value is selected) that is actually pressable — `Pill` itself is a
+ * static display component, so this borrows its palette rather than wrapping
+ * it in a second touchable.
+ */
 export const FilterButton = <T,>({
   id,
   queryFn,
@@ -27,9 +42,12 @@ export const FilterButton = <T,>({
   renderItemLabel,
   multiple = false,
   icon = "filter",
+  style,
   ...props
 }: FilterButtonProps<T>) => {
   const { showModal, hideModal } = useGlobalModal();
+  const { accent } = useTheme();
+  const active = values.length > 0;
 
   const { data: filters } = useQuery<T[]>({
     queryKey: ["filters", title, queryKey, id],
@@ -37,6 +55,8 @@ export const FilterButton = <T,>({
     staleTime: 0,
     enabled: !!id && !!queryFn && !!queryKey,
   });
+
+  const disabled = filters?.length === 0;
 
   const openSheet = () => {
     if (!filters?.length) return;
@@ -56,42 +76,38 @@ export const FilterButton = <T,>({
   };
 
   return (
-    <TouchableOpacity onPress={openSheet}>
-      <View
-        className={`
-          px-3 py-1.5 rounded-full flex flex-row items-center space-x-1
-          ${
-            values.length > 0
-              ? "bg-purple-600  border border-purple-700"
-              : "bg-neutral-900 border border-neutral-900"
-          }
-          ${filters?.length === 0 ? "opacity-50" : ""}
-        `}
-        {...props}
+    <Pressable
+      onPress={openSheet}
+      disabled={disabled}
+      accessibilityRole='button'
+      accessibilityLabel={title}
+      accessibilityState={{ selected: active, disabled }}
+      style={[
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingHorizontal: 12,
+          paddingVertical: 7,
+          borderRadius: radius.pill,
+          backgroundColor: active
+            ? rgba(accent[500], 0.16)
+            : tokens.color.bg["2"],
+          opacity: disabled ? 0.5 : 1,
+        },
+        style,
+      ]}
+      {...props}
+    >
+      <Text
+        variant='caption'
+        weight='semibold'
+        tone={active ? "accent" : "secondary"}
+        numberOfLines={1}
       >
-        <Text
-          className={`
-            ${values.length > 0 ? "text-purple-100" : "text-neutral-100"}
-            text-xs font-semibold`}
-        >
-          {title}
-        </Text>
-        {icon === "filter" ? (
-          <Ionicons
-            name='filter'
-            size={14}
-            color='white'
-            style={{ opacity: 0.5 }}
-          />
-        ) : (
-          <FontAwesome
-            name='sort'
-            size={14}
-            color='white'
-            style={{ opacity: 0.5 }}
-          />
-        )}
-      </View>
-    </TouchableOpacity>
+        {title}
+      </Text>
+      <Icon name={icon} size={14} tone={active ? "accent" : "secondary"} />
+    </Pressable>
   );
 };

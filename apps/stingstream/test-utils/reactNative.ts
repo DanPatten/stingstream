@@ -51,5 +51,10 @@ export const stubReactNative = (overrides: PlatformOverrides = {}) => {
     },
     NativeModules: {},
     TurboModuleRegistry: { get: () => null, getEnforcing: () => ({}) },
+    // Never rendered by anything under `bun:test` (there is no test renderer
+    // here) — these exist only so a component file that imports them for its
+    // real (unexercised) JSX can still be *loaded* for the plain function it
+    // also exports.
+    View: () => null,
   }));
 };

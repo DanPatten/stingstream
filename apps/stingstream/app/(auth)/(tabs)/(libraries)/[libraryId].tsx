@@ -30,6 +30,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CardData } from "@/components/cards/CardData";
 import { useCardGrid } from "@/components/cards/useCardGrid";
+import { EmptyState } from "@/components/common/EmptyState";
+import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
@@ -40,7 +42,9 @@ import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
 import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { maxWidth } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useFilterReset } from "@/hooks/useFilterReset";
 import { useOrientation } from "@/hooks/useOrientation";
 import { useRefreshLibraryOnFocus } from "@/hooks/useRefreshLibraryOnFocus";
@@ -94,6 +98,7 @@ const Page = () => {
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const { width: screenWidth } = useWindowDimensions();
+  const { isWebWide } = useBreakpoint();
 
   const [selectedGenres, setSelectedGenres] = useAtom(genreFilterAtom);
   const [selectedYears, setSelectedYears] = useAtom(yearFilterAtom);
@@ -323,19 +328,6 @@ const Page = () => {
     [libraryId, tagPreference, setTagPreference, setSelectedTags],
   );
 
-  const nrOfCols = useMemo(() => {
-    if (Platform.isTV) {
-      // TV uses flexWrap, so nrOfCols is just for mobile
-      return 1;
-    }
-    if (screenWidth < 300) return 2;
-    if (screenWidth < 500) return 3;
-    if (screenWidth < 800) return 5;
-    if (screenWidth < 1000) return 6;
-    if (screenWidth < 1500) return 7;
-    return 6;
-  }, [screenWidth, orientation]);
-
   const { data: library, isLoading: isLibraryLoading } = useQuery({
     queryKey: ["library", libraryId],
     queryFn: async () => {
@@ -512,9 +504,16 @@ const Page = () => {
     }
   }, [isFetching, flatData]);
 
+  // A "media" page's content tops out at `maxWidth.media` regardless of the
+  // browser window, so the grid's auto-column formula has to size against
+  // that capped width too — otherwise a 2560px monitor gets more columns than
+  // the (narrower, centered) page actually has room for.
+  const gridContainerWidth = Math.min(screenWidth, maxWidth.media);
+
   const grid = useCardGrid({
     items: flatData,
-    columns: nrOfCols,
+    kind: "portrait",
+    containerWidth: gridContainerWidth,
     enableActionSheet: true,
   });
 
@@ -603,10 +602,12 @@ const Page = () => {
   const ListHeaderComponent = useCallback(
     () => (
       <FlatList
+        testID='library-filter-bar'
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           display: "flex",
+          gap: 8,
           paddingHorizontal: 15,
           paddingVertical: 16,
           flexDirection: "row",
@@ -620,7 +621,6 @@ const Page = () => {
             key: "genre",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='genreFilter'
                 queryFn={async () => {
@@ -644,7 +644,6 @@ const Page = () => {
             key: "year",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='yearFilter'
                 queryFn={async () => {
@@ -668,7 +667,6 @@ const Page = () => {
             key: "tags",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='tagsFilter'
                 queryFn={async () => {
@@ -692,13 +690,13 @@ const Page = () => {
             key: "sortBy",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='sortBy'
                 queryFn={async () => sortOptions.map((s) => s.key)}
                 set={setSortBy}
                 values={sortBy}
                 title={t("library.filters.sort_by")}
+                icon='sort'
                 renderItemLabel={(item) =>
                   sortOptions.find((i) => i.key === item)?.value || ""
                 }
@@ -709,13 +707,13 @@ const Page = () => {
             key: "sortOrder",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='sortOrder'
                 queryFn={async () => sortOrderOptions.map((s) => s.key)}
                 set={setSortOrder}
                 values={sortOrder}
                 title={t("library.filters.sort_order")}
+                icon='sort'
                 renderItemLabel={(item) =>
                   sortOrderOptions.find((i) => i.key === item)?.value || ""
                 }
@@ -726,7 +724,6 @@ const Page = () => {
             key: "filterOptions",
             component: (
               <FilterButton
-                className='mr-1'
                 id={libraryId}
                 queryKey='filters'
                 queryFn={async () => generalFilters.map((s) => s.key)}
@@ -946,26 +943,33 @@ const Page = () => {
       </View>
     );
 
-  // Mobile return
+  // Mobile / web return
   if (!Platform.isTV) {
     return (
-      <>
+      <PageContainer width='media' bleed style={{ flex: 1 }}>
         <FlashList
+          testID='library-grid'
           ref={flashListRef}
-          key={orientation}
+          // Columns change with a browser resize (auto-fill from the
+          // available width, bug 4) as well as with orientation — React
+          // Native does not re-layout `numColumns` on its own, so both have
+          // to remount the list.
+          key={`${orientation}-${grid.columns}`}
           ListEmptyComponent={
-            <View className='flex flex-col items-center justify-center h-full'>
-              <Text className='font-bold text-xl text-neutral-500'>
-                {t("library.no_results")}
-              </Text>
-            </View>
+            <EmptyState
+              title={t("library.no_results")}
+              style={{ paddingTop: "20%" }}
+            />
           }
+          // The filter bar rides along on a phone but stays put at the top of
+          // the page once there's room for a sidebar/topbar shell around it.
+          stickyHeaderIndices={isWebWide ? [0] : undefined}
           contentInsetAdjustmentBehavior='automatic'
           data={grid.data}
           renderItem={grid.renderItem}
-          extraData={[orientation, nrOfCols]}
+          extraData={[orientation, grid.columns]}
           keyExtractor={grid.keyExtractor}
-          numColumns={nrOfCols}
+          numColumns={grid.columns}
           onEndReached={() => {
             if (hasNextPage) {
               fetchNextPage();
@@ -983,7 +987,7 @@ const Page = () => {
           )}
         />
         {grid.actionSheet}
-      </>
+      </PageContainer>
     );
   }
 

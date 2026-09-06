@@ -11,6 +11,13 @@ export type CardData = {
   title: string;
   subtitle?: string | null;
   imageUrl?: string | null;
+  /**
+   * Screen-reader label for the artwork — "Title" or "Title (Year)". Falls
+   * back to `title` at the render site when unset, so every caller that
+   * doesn't go through `buildItemCards` still gets an accessible image
+   * instead of a silently blank `alt` on web.
+   */
+  imageAlt?: string | null;
   /** Watch progress in 0...1. Draws the progress bar when > 0. */
   progress?: number;
   /** Unwatched movie or episode — draws the accent dot. */
@@ -56,14 +63,30 @@ export type CardSlots = {
 /** Breathing room above/below the cards so their shadow isn't clipped. */
 export const CARD_VERTICAL_PADDING = 6;
 
+/** A size that changes with the window — compact phone, medium tablet, expanded desktop. */
+export type CardWidthByBreakpoint = {
+  compact: number;
+  medium: number;
+  expanded: number;
+};
+
 /**
  * Card geometry — the single source of truth for every kind of row, so a card
  * and the space reserved for it can never drift apart.
+ *
+ * `cardWidth` and `gridMinCardWidth` are per breakpoint: a fixed row grows its
+ * cards at wider windows instead of just showing more of the same size, and a
+ * grid's minimum cell shrinks a little less than the row card does, so a grid
+ * fills the page with whole cards rather than leaving a half-column gap.
+ * Resolve either one for the current window with `useCardLayout` — reading
+ * `CARD_LAYOUTS[kind].cardWidth` directly gets you the breakpoint object, not
+ * a number.
  */
 export const CARD_LAYOUTS: Record<
   CardKind,
   {
-    cardWidth: number;
+    cardWidth: CardWidthByBreakpoint;
+    gridMinCardWidth: CardWidthByBreakpoint;
     aspectRatio: number;
     cornerRadius: number;
     spacing: number;
@@ -74,7 +97,8 @@ export const CARD_LAYOUTS: Record<
 > = {
   // Landscape stills.
   wide: {
-    cardWidth: 200,
+    cardWidth: { compact: 200, medium: 260, expanded: 300 },
+    gridMinCardWidth: { compact: 110, medium: 140, expanded: 160 },
     aspectRatio: 16 / 9,
     cornerRadius: 14,
     spacing: 10,
@@ -85,7 +109,8 @@ export const CARD_LAYOUTS: Record<
   // Portrait posters. The title sits on the card, and a shallower frost covers
   // less of a tall poster.
   portrait: {
-    cardWidth: 118,
+    cardWidth: { compact: 118, medium: 150, expanded: 170 },
+    gridMinCardWidth: { compact: 110, medium: 140, expanded: 160 },
     aspectRatio: 10 / 15,
     cornerRadius: 12,
     spacing: 10,
@@ -96,7 +121,8 @@ export const CARD_LAYOUTS: Record<
   // The thumbnail on a list row, where the text sits beside the artwork
   // rather than on it — so no frost band.
   rowWide: {
-    cardWidth: 128,
+    cardWidth: { compact: 128, medium: 144, expanded: 160 },
+    gridMinCardWidth: { compact: 110, medium: 140, expanded: 160 },
     aspectRatio: 16 / 9,
     cornerRadius: 8,
     spacing: 12,
@@ -106,11 +132,41 @@ export const CARD_LAYOUTS: Record<
   },
 };
 
-/** Height a row of this kind occupies, shadow padding included. */
-export const cardRowHeight = (kind: CardKind) => {
-  const { cardWidth, aspectRatio, verticalPadding } = CARD_LAYOUTS[kind];
+/** A kind's geometry with `cardWidth`/`gridMinCardWidth` resolved to one number — see `useCardLayout`. */
+export type ResolvedCardLayout = Omit<
+  (typeof CARD_LAYOUTS)[CardKind],
+  "cardWidth" | "gridMinCardWidth"
+> & {
+  cardWidth: number;
+  gridMinCardWidth: number;
+};
+
+/** Height a row of this kind occupies at its resolved width, shadow padding included. */
+export const cardRowHeight = (layout: ResolvedCardLayout) => {
+  const { cardWidth, aspectRatio, verticalPadding } = layout;
   return cardWidth / aspectRatio + verticalPadding * 2;
 };
+
+/**
+ * How many columns of at least `minCardWidth` fit in `availableWidth`, the
+ * way CSS grid's `repeat(auto-fill, minmax(minCardWidth, 1fr))` would.
+ *
+ * Pulled out of `useCardGrid` so it's testable as plain arithmetic — no
+ * window, no React — and so `cardLayout.test.ts` can pin the exact formula
+ * bug 4 replaces (a hard-coded `screenWidth` switch that returned *fewer*
+ * columns at >= 1500px than it did at 1000–1500px, because each branch's
+ * threshold was picked independently rather than derived from one rule).
+ * Never returns fewer than one column, even narrower than the minimum.
+ */
+export const autoGridColumns = (
+  availableWidth: number,
+  minCardWidth: number,
+  spacing: number,
+): number =>
+  Math.max(
+    1,
+    Math.floor((availableWidth + spacing) / (minCardWidth + spacing)),
+  );
 
 /**
  * The second line under a title: which episode this is, or when it came out.
@@ -123,6 +179,16 @@ export const cardSubtitle = (item: BaseItemDto): string | null => {
   }
   return item.ProductionYear ? String(item.ProductionYear) : null;
 };
+
+/**
+ * The artwork's screen-reader label — "Title" or "Title (Year)". Exported so
+ * anything building cards outside `buildItemCards` labels its artwork the
+ * same way `Card`'s default (`card.imageAlt ?? card.title`) would.
+ */
+export const cardImageAlt = (item: BaseItemDto): string =>
+  item.ProductionYear
+    ? `${item.Name ?? ""} (${item.ProductionYear})`
+    : (item.Name ?? "");
 
 const isMovieOrEpisode = (item: BaseItemDto) =>
   item.Type === "Movie" || item.Type === "Episode";
@@ -170,7 +236,18 @@ type BuildOptions = {
   useEpisodePoster?: boolean;
   /** Item to keep at full opacity; every other card is faded back. */
   selectedId?: string | null;
+  /**
+   * The width the card will actually render at, so the image request matches
+   * it (capped at 2x for pixel density) instead of always asking for a fixed
+   * default size regardless of how big the card ends up being. Omit to keep
+   * the helpers' own defaults.
+   */
+  cardWidth?: number;
 };
+
+/** Never request more image than 2x the card's own rendered width. */
+const imageRequestWidth = (cardWidth: number | undefined) =>
+  cardWidth ? Math.round(cardWidth * 2) : undefined;
 
 /**
  * `BaseItemDto` → card. The one place the labels, image selection and badge
@@ -178,9 +255,11 @@ type BuildOptions = {
  */
 export function buildItemCards(
   items: BaseItemDto[],
-  { api, kind, useEpisodePoster = false, selectedId }: BuildOptions,
+  { api, kind, useEpisodePoster = false, selectedId, cardWidth }: BuildOptions,
 ): CardData[] {
   if (!api) return [];
+
+  const width = imageRequestWidth(cardWidth);
 
   return items.flatMap((item) => {
     if (!item.Id) return [];
@@ -190,8 +269,8 @@ export function buildItemCards(
     const unplayed = item.UserData?.UnplayedItemCount ?? 0;
     const imageUrl =
       kind === "portrait"
-        ? getPortraitImageUrl({ api, item })
-        : getWideImageUrl({ api, item, useEpisodePoster });
+        ? getPortraitImageUrl({ api, item, width })
+        : getWideImageUrl({ api, item, useEpisodePoster, width });
 
     const progress = itemProgressFraction(item);
     // Strict === false: items without UserData (unknown state) get no dot.
@@ -209,6 +288,7 @@ export function buildItemCards(
         title: item.Name ?? "",
         subtitle,
         imageUrl,
+        imageAlt: cardImageAlt(item),
         progress,
         unwatched,
         unplayedCount,
