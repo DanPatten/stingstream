@@ -622,9 +622,28 @@ public sealed class FirstRunService : BackgroundService
             {
                 PathInfos = new[] { new MediaPathInfo(path) },
                 EnableRealtimeMonitor = true,
-                // Metadata comes from the arrs' own naming plus Jellyfin's providers, exactly as a
-                // stock install would do it. The federated Shared libraries in M3 are the ones
-                // that turn internet lookups off and read NFOs only.
+                // Metadata comes from the arrs' own naming plus the server's own providers --
+                // TMDB, TVDB, OMDb -- exactly as a stock install would do it. The federated Shared
+                // libraries are the ones that turn internet lookups off and read NFOs only.
+                //
+                // **Leaving TypeOptions empty is what keeps the providers on**, and it is worth
+                // saying so because the API reads as if the opposite were true. `LibraryOptions`
+                // still carries an `EnableInternetProviders` bool, so `GET Library/VirtualFolders`
+                // reports `EnableInternetProviders: false` for these two libraries and looks like a
+                // node that will never fetch a poster. That field is `[Obsolete]` upstream ("Disable
+                // remote providers in TypeOptions instead") and has **no reader anywhere in the
+                // server** -- it is a leftover the DTO still serializes. What decides is
+                // `BaseItemManager.IsMetadataFetcherEnabled`: given a `TypeOptions` entry for the
+                // item's type it treats that entry's `MetadataFetchers` as an *allow-list*, and
+                // given none -- which is what an empty array yields, since `GetTypeOptions` returns
+                // null -- it falls back to the server's own metadata options, which disable
+                // nothing. So an explicit allow-list here would be the thing that turned the
+                // internet off, which is exactly how `FederatedLibraryService.BuildLibraryOptions`
+                // turns it off on purpose.
+                //
+                // Verified on a running node rather than reasoned about: a film dropped into this
+                // library came back with its TMDB and IMDb ids, a poster, a logo, a thumb, a
+                // backdrop and its overview.
                 SaveLocalMetadata = false,
             };
             await _library.AddVirtualFolder(name, collectionType, options, refreshLibrary: true)
