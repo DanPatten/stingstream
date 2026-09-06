@@ -1,10 +1,25 @@
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 
+/**
+ * `EmptyState` now lives in `components/common` so every screen shares one, not
+ * just the StingStream ones. Re-exported here so the existing imports keep
+ * working; it gained an optional icon and action, both of which default to
+ * nothing.
+ */
+export { EmptyState } from "@/components/common/EmptyState";
+
 export function LoadingState() {
   return (
-    <View className='items-center justify-center py-16'>
+    <View
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 64,
+      }}
+    >
       <Loader />
     </View>
   );
@@ -17,34 +32,38 @@ export function ErrorState({
   message: string;
   onRetry?: () => void;
 }) {
-  return (
-    <View className='items-center justify-center py-16 px-6'>
-      <Text className='text-red-500 text-center font-semibold'>
-        Something went wrong
-      </Text>
-      <Text className='text-[#9899A1] text-xs text-center mt-1'>{message}</Text>
-      {onRetry && (
-        <Text className='text-[#0584FE] mt-3' onPress={onRetry}>
-          Tap to retry
-        </Text>
-      )}
-    </View>
-  );
-}
+  const { t } = useTranslation();
 
-export function EmptyState({
-  title,
-  detail,
-}: {
-  title: string;
-  detail?: string;
-}) {
   return (
-    <View className='items-center justify-center py-16 px-6'>
-      <Text className='text-white font-semibold text-center'>{title}</Text>
-      {detail && (
-        <Text className='text-[#9899A1] text-xs text-center mt-1'>
-          {detail}
+    <View
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 64,
+        paddingHorizontal: 24,
+      }}
+    >
+      <Text variant='body' weight='semibold' tone='danger' align='center'>
+        {t("common.something_went_wrong")}
+      </Text>
+      <Text
+        variant='caption'
+        tone='secondary'
+        align='center'
+        style={{ marginTop: 4 }}
+      >
+        {message}
+      </Text>
+      {onRetry && (
+        <Text
+          variant='caption'
+          weight='semibold'
+          tone='accent'
+          style={{ marginTop: 12 }}
+          onPress={onRetry}
+          accessibilityRole='button'
+        >
+          {t("common.retry")}
         </Text>
       )}
     </View>

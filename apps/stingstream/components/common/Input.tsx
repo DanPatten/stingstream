@@ -6,21 +6,48 @@ import {
   Easing,
   Platform,
   Pressable,
+  type StyleProp,
   TextInput,
   type TextInputProps,
   View,
+  type ViewStyle,
 } from "react-native";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { radius, resolveTextStyle, tokens } from "@/constants/theme";
+import { useBreakpointName } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
+import { FormError } from "./FormError";
+import { Icon, type IconName } from "./Icon";
 
-interface InputProps extends TextInputProps {
+interface InputProps extends Omit<TextInputProps, "style"> {
+  /** Legacy: extra classes for the field box. */
   extraClassName?: string;
+  /** Applied to the field box, which is what `className` used to reach. */
+  style?: StyleProp<ViewStyle>;
+  /** A glyph inside the field, before the text. */
+  icon?: IconName;
+  /**
+   * An error message. Renders a `FormError` under the field and turns the rule
+   * red — `Alert.alert` shows nothing at all on web, so a form that reports
+   * failures any other way is silent in a browser.
+   */
+  error?: string | null;
 }
 
 export function Input(props: InputProps) {
-  const { style, extraClassName = "", ...otherProps } = props;
+  const {
+    style,
+    extraClassName = "",
+    icon,
+    error,
+    editable = true,
+    ...otherProps
+  } = props;
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
+  const { accent } = useTheme();
+  const breakpoint = useBreakpointName();
   // TV-only: scales the input font with the tvTypographyScale setting.
   // Not consumed by the mobile branch below.
   const tvTypography = useScaledTVTypography();
@@ -80,17 +107,14 @@ export function Input(props: InputProps) {
           ref={inputRef}
           allowFontScaling={false}
           placeholderTextColor='#666'
-          style={[
-            {
-              flex: 1,
-              height,
-              fontSize,
-              fontWeight: "400",
-              color: "#FFFFFF",
-              backgroundColor: "transparent",
-            },
-            style,
-          ]}
+          style={{
+            flex: 1,
+            height,
+            fontSize,
+            fontWeight: "400",
+            color: "#FFFFFF",
+            backgroundColor: "transparent",
+          }}
           onFocus={handleFocus}
           onBlur={handleBlur}
           {...otherProps}
@@ -104,11 +128,7 @@ export function Input(props: InputProps) {
         onFocus={handleFocus}
         onBlur={handleBlur}
       >
-        <Animated.View
-          style={{
-            transform: [{ scale }],
-          }}
-        >
+        <Animated.View style={{ transform: [{ scale }] }}>
           {Platform.OS === "ios" ? (
             <BlurView
               intensity={isFocused ? 90 : 80}
@@ -136,16 +156,67 @@ export function Input(props: InputProps) {
     );
   }
 
-  // Mobile version unchanged
+  // The rule is the whole focus affordance: an input on bg2 sitting on bg1 is
+  // already distinct, so focus brightens the edge rather than adding a ring
+  // that would fight the button's.
+  const borderColor = error
+    ? tokens.color.state.danger
+    : isFocused
+      ? accent[400]
+      : tokens.color.border.subtle;
+
   return (
-    <TextInput
-      ref={inputRef}
-      className={`p-4 rounded-xl bg-neutral-900 ${extraClassName}`}
-      allowFontScaling={false}
-      style={[{ color: "white" }, style]}
-      placeholderTextColor={"#9CA3AF"}
-      clearButtonMode='while-editing'
-      {...otherProps}
-    />
+    <View>
+      <View
+        className={extraClassName}
+        style={[
+          {
+            minHeight: tokens.control.minTouchTarget,
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 14,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor,
+            backgroundColor: tokens.color.bg["2"],
+            opacity: editable ? 1 : tokens.control.disabledOpacity,
+          },
+          style,
+        ]}
+      >
+        {icon ? (
+          <Icon
+            name={icon}
+            size={18}
+            tone={isFocused ? "secondary" : "tertiary"}
+            style={{ marginRight: 8 }}
+          />
+        ) : null}
+        <TextInput
+          ref={inputRef}
+          allowFontScaling={false}
+          editable={editable}
+          placeholderTextColor={tokens.color.text.tertiary}
+          clearButtonMode='while-editing'
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          style={[
+            resolveTextStyle("body", "primary", "regular", breakpoint),
+            {
+              flex: 1,
+              paddingVertical: 10,
+              // react-native-web draws its own focus ring on a text input,
+              // which sits inside the rounded rule and looks like a second
+              // border. The rule above is the focus indicator here.
+              ...(Platform.OS === "web"
+                ? ({ outlineStyle: "none" } as object)
+                : null),
+            },
+          ]}
+          {...otherProps}
+        />
+      </View>
+      <FormError message={error} />
+    </View>
   );
 }

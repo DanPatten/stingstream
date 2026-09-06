@@ -21,6 +21,8 @@ import { Platform } from "react-native";
 import { GlobalModal } from "@/components/GlobalModal";
 import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin";
 import { PendingAccountSaveModal } from "@/components/PendingAccountSaveModal";
+import { useInterFonts } from "@/constants/fonts";
+import { tokens } from "@/constants/theme";
 import { enableTVMenuKeyInterception } from "@/hooks/useTVBackHandler";
 import i18n from "@/i18n";
 import { DownloadProvider } from "@/providers/DownloadProvider";
@@ -249,6 +251,35 @@ const checkAndRequestPermissions = async () => {
   }
 };
 
+/**
+ * The navigation theme, built from the design tokens.
+ *
+ * `DarkTheme` is React Navigation's own dark palette — a #1C1C1E card on a
+ * #000 background with the iOS system blue as its accent — and it paints every
+ * native stack header, back chevron and screen background in the app. Left
+ * alone it is the one surface the design system does not reach, and it shows:
+ * a header one shade off the page it sits above is exactly the kind of seam
+ * that reads as "not quite an app".
+ *
+ * Spread from `DarkTheme` rather than written out, so a future React Navigation
+ * release that adds a colour gets a sensible default instead of a crash.
+ */
+const NAVIGATION_THEME = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: tokens.color.bg["0"],
+    card: tokens.color.bg["1"],
+    text: tokens.color.text.primary,
+    border: tokens.color.border.subtle,
+    // The brand accent, not the user-selected one: this object is read once,
+    // outside React, and a header tint that changed under the navigator would
+    // not repaint anyway.
+    primary: tokens.color.accent[tokens.defaultAccent as "teal"]["500"],
+    notification: tokens.color.state.danger,
+  },
+};
+
 function RootLayout() {
   Appearance.setColorScheme("dark");
 
@@ -382,6 +413,7 @@ const mmkvPersister = createSyncStoragePersister({
 });
 
 function Layout() {
+  useInterFonts();
   const { settings } = useSettings();
   const [user] = useAtom(userAtom);
   const [api] = useAtom(apiAtom);
@@ -422,8 +454,11 @@ function Layout() {
 
   const registerNotifications = useCallback(async () => {
     if (Platform.OS === "android") {
+      // The id stays "default" (changing it would orphan the channel and its
+      // user-set importance on every existing install); only the label a user
+      // sees in Android settings changes.
       await Notifications?.setNotificationChannelAsync("default", {
-        name: "default",
+        name: "StingStream",
       });
 
       // Create dedicated channel for download notifications
@@ -559,7 +594,7 @@ function Layout() {
                               <GlobalModalProvider>
                                 <BottomSheetModalProvider>
                                   <IntroSheetProvider>
-                                    <ThemeProvider value={DarkTheme}>
+                                    <ThemeProvider value={NAVIGATION_THEME}>
                                       <SystemBars
                                         style='light'
                                         hidden={false}
@@ -668,12 +703,17 @@ function Layout() {
                                         duration={4000}
                                         toastOptions={{
                                           style: {
-                                            backgroundColor: "#262626",
-                                            borderColor: "#363639",
+                                            backgroundColor:
+                                              tokens.color.bg["2"],
+                                            borderColor:
+                                              tokens.color.border.strong,
                                             borderWidth: 1,
                                           },
                                           titleStyle: {
-                                            color: "white",
+                                            color: tokens.color.text.primary,
+                                          },
+                                          descriptionStyle: {
+                                            color: tokens.color.text.secondary,
                                           },
                                         }}
                                         closeButton

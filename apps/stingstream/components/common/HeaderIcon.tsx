@@ -6,10 +6,17 @@
  * why six icons side by side never looked like a set.
  *
  * `SymbolView` resolves one name per platform to that platform's own icon
- * system: SF Symbols on iOS, Material Symbols on Android. Each is internally
- * consistent by construction, and the iOS side matches the SF Symbols the tab
- * bar already uses. The Android font ships bundled with `expo-symbols`, so
- * nothing is fetched at runtime and offline mode is unaffected.
+ * system: SF Symbols on iOS, Material Symbols on Android and on web. Each is
+ * internally consistent by construction, and the iOS side matches the SF
+ * Symbols the tab bar already uses. The Material Symbols font ships bundled
+ * with `expo-symbols`, so nothing is fetched at runtime and offline mode is
+ * unaffected.
+ *
+ * **Every entry needs a `web` name, and it is the Android one.**
+ * `expo-symbols`' cross-platform build reads `props.name[Platform.OS ===
+ * "android" ? "android" : "web"]` and renders `props.fallback` — usually
+ * nothing — when that key is absent. Entries carried only `ios` and `android`,
+ * which is why every header icon in the browser was an empty box.
  *
  * Deployment target is iOS 16.4, so every SF Symbol here must exist in iOS 16
  * or earlier — a symbol added later renders as a blank box on older devices.
@@ -18,6 +25,7 @@
 import { Feather } from "@expo/vector-icons";
 import { SymbolView } from "expo-symbols";
 import type { ColorValue } from "react-native";
+import { tokens } from "@/constants/theme";
 import { HEADER_ICON_SIZE } from "./HeaderButton";
 
 /**
@@ -30,31 +38,56 @@ const HEADER_ICONS = {
   // equivalent, and every near-miss reads as something else — `airplayvideo` is
   // AirPlay, which the app offers separately in now-playing. iOS falls back to
   // the Feather glyph below; Android has the real mark in Material Symbols.
-  cast: { android: "cast" },
-  sessions: { ios: "play.circle", android: "play_circle" },
-  settings: { ios: "gearshape", android: "settings" },
+  cast: { android: "cast", web: "cast" },
+  sessions: { ios: "play.circle", android: "play_circle", web: "play_circle" },
+  settings: { ios: "gearshape", android: "settings", web: "settings" },
   // `downloaded` is the filled counterpart of `downloads`, not a checkmark —
   // the state being shown is "this is downloaded", and a tick reads as "done"
   // (a finished transfer) rather than as a property of the item.
-  downloads: { ios: "arrow.down.circle", android: "download" },
+  downloads: { ios: "arrow.down.circle", android: "download", web: "download" },
   downloaded: {
     ios: "arrow.down.circle.fill",
     android: "download_for_offline",
+    web: "download_for_offline",
   },
-  queued: { ios: "hourglass", android: "hourglass" },
-  remoteSession: { ios: "play.rectangle", android: "personal_video" },
-  played: { ios: "checkmark.circle.fill", android: "check_circle" },
-  unplayed: { ios: "checkmark.circle", android: "check_circle" },
-  favorited: { ios: "heart.fill", android: "favorite" },
-  favorite: { ios: "heart", android: "favorite_border" },
-  watchlisted: { ios: "bookmark.fill", android: "bookmark" },
-  watchlist: { ios: "bookmark", android: "bookmark_border" },
-  more: { ios: "ellipsis", android: "more_horiz" },
-  add: { ios: "plus", android: "add" },
-  edit: { ios: "pencil", android: "edit" },
-  delete: { ios: "trash", android: "delete" },
-  trailer: { ios: "film", android: "movie" },
-  back: { ios: "chevron.backward", android: "chevron_backward" },
+  queued: { ios: "hourglass", android: "hourglass", web: "hourglass" },
+  remoteSession: {
+    ios: "play.rectangle",
+    android: "personal_video",
+    web: "personal_video",
+  },
+  played: {
+    ios: "checkmark.circle.fill",
+    android: "check_circle",
+    web: "check_circle",
+  },
+  unplayed: {
+    ios: "checkmark.circle",
+    android: "check_circle",
+    web: "check_circle",
+  },
+  favorited: { ios: "heart.fill", android: "favorite", web: "favorite" },
+  favorite: {
+    ios: "heart",
+    android: "favorite_border",
+    web: "favorite_border",
+  },
+  watchlisted: { ios: "bookmark.fill", android: "bookmark", web: "bookmark" },
+  watchlist: {
+    ios: "bookmark",
+    android: "bookmark_border",
+    web: "bookmark_border",
+  },
+  more: { ios: "ellipsis", android: "more_horiz", web: "more_horiz" },
+  add: { ios: "plus", android: "add", web: "add" },
+  edit: { ios: "pencil", android: "edit", web: "edit" },
+  delete: { ios: "trash", android: "delete", web: "delete" },
+  trailer: { ios: "film", android: "movie", web: "movie" },
+  back: {
+    ios: "chevron.backward",
+    android: "chevron_backward",
+    web: "chevron_backward",
+  },
 } as const;
 
 export type HeaderIconName = keyof typeof HEADER_ICONS;
@@ -75,7 +108,7 @@ const FALLBACK_GLYPHS: Partial<
 
 interface Props {
   name: HeaderIconName;
-  /** Defaults to white; pass a colour to signal a toggle's "on" state. */
+  /** Defaults to primary text; pass a colour to signal a toggle's "on" state. */
   tintColor?: ColorValue;
   /** Only override for icons rendered outside a header. */
   size?: number;
@@ -83,7 +116,7 @@ interface Props {
 
 export const HeaderIcon: React.FC<Props> = ({
   name,
-  tintColor = "white",
+  tintColor = tokens.color.text.primary,
   size = HEADER_ICON_SIZE,
 }) => {
   const fallbackGlyph = FALLBACK_GLYPHS[name];

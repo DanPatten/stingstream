@@ -1,0 +1,168 @@
+{
+  "$comment": [
+    "The single source of truth for StingStream's visual language.",
+    "Consumed by tailwind.config.js (utility classes) and constants/theme.ts",
+    "(typed values for inline styles). Nothing else may hardcode a colour, a",
+    "radius, a font size or a shadow. NativeWind v2 compiles Tailwind at build",
+    "time and has no CSS variables, so Tailwind is given the DEFAULT accent",
+    "(teal) statically; the runtime-selected accent reaches components through",
+    "useTheme().accent as an inline style. Run Metro with -c after editing."
+  ],
+  "color": {
+    "bg": {
+      "0": "#0B0C0F",
+      "1": "#141518",
+      "2": "#1C1E23",
+      "3": "#26292F"
+    },
+    "text": {
+      "primary": "#F2F3F5",
+      "secondary": "#B4B7BD",
+      "tertiary": "#7C808A",
+      "disabled": "#555962",
+      "onAccent": "#04201D"
+    },
+    "accent": {
+      "teal": {
+        "400": "#4FD9CA",
+        "500": "#1FC7B5",
+        "600": "#17A99A",
+        "onAccent": "#04201D"
+      },
+      "violet": {
+        "400": "#B37DF5",
+        "500": "#9334E9",
+        "600": "#7A22C7",
+        "onAccent": "#FFFFFF"
+      },
+      "amber": {
+        "400": "#FFC24D",
+        "500": "#F5A524",
+        "600": "#D48A12",
+        "onAccent": "#04201D"
+      }
+    },
+    "state": {
+      "success": "#3DDC97",
+      "warning": "#F5C451",
+      "danger": "#FF5C5C",
+      "info": "#5FA8FF"
+    },
+    "border": {
+      "subtle": "rgba(255,255,255,0.08)",
+      "strong": "rgba(255,255,255,0.16)"
+    },
+    "scrim": {
+      "backdrop": "rgba(0,0,0,0.6)"
+    }
+  },
+  "defaultAccent": "teal",
+  "radius": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "pill": 999
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "8": 32,
+    "10": 40,
+    "12": 48,
+    "16": 64
+  },
+  "gutter": {
+    "compact": 16,
+    "medium": 24,
+    "expanded": 32
+  },
+  "breakpoint": {
+    "compact": 0,
+    "medium": 768,
+    "expanded": 1280
+  },
+  "maxWidth": {
+    "media": 1440,
+    "settings": 960,
+    "prose": 720
+  },
+  "type": {
+    "display": {
+      "size": { "compact": 34, "medium": 41, "expanded": 48 },
+      "lineHeight": 1.15
+    },
+    "title": {
+      "size": { "compact": 26, "medium": 29, "expanded": 32 },
+      "lineHeight": 1.2
+    },
+    "heading": {
+      "size": { "compact": 20, "medium": 21, "expanded": 22 },
+      "lineHeight": 1.3
+    },
+    "body": {
+      "size": { "compact": 15, "medium": 16, "expanded": 16 },
+      "lineHeight": 1.45
+    },
+    "caption": {
+      "size": { "compact": 13, "medium": 13, "expanded": 13 },
+      "lineHeight": 1.4
+    },
+    "micro": {
+      "size": { "compact": 11, "medium": 12, "expanded": 12 },
+      "lineHeight": 1.3
+    }
+  },
+  "fontFamily": {
+    "regular": "Inter-Regular",
+    "medium": "Inter-Medium",
+    "semibold": "Inter-SemiBold",
+    "bold": "Inter-Bold"
+  },
+  "fontWeight": {
+    "regular": "400",
+    "medium": "500",
+    "semibold": "600",
+    "bold": "700"
+  },
+  "elevation": {
+    "1": {
+      "offsetY": 4,
+      "blur": 12,
+      "opacity": 0.35,
+      "android": 4
+    },
+    "2": {
+      "offsetY": 8,
+      "blur": 24,
+      "opacity": 0.5,
+      "android": 12
+    }
+  },
+  "motion": {
+    "fast": 120,
+    "base": 200,
+    "slow": 320,
+    "crossfade": 500,
+    "hoverScale": 1.03
+  },
+  "focus": {
+    "web": {
+      "width": 2,
+      "offset": 2
+    },
+    "tv": {
+      "color": "#FFFFFF",
+      "width": 2
+    }
+  },
+  "control": {
+    "minTouchTarget": 44,
+    "disabledOpacity": 0.45
+  }
+}

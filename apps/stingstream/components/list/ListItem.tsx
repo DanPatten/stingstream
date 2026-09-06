@@ -1,7 +1,16 @@
-import { Ionicons } from "@expo/vector-icons";
 import type { PropsWithChildren, ReactNode } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, TouchableOpacity, View, type ViewProps } from "react-native";
+import {
+  Platform,
+  Pressable,
+  View,
+  type ViewProps,
+  type ViewStyle,
+} from "react-native";
+import { motion, radius, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { Icon, type IconName } from "../common/Icon";
 import { Text } from "../common/Text";
 
 interface Props extends ViewProps {
@@ -11,8 +20,9 @@ interface Props extends ViewProps {
   value?: string | null | undefined;
   children?: ReactNode;
   iconAfter?: ReactNode;
-  icon?: keyof typeof Ionicons.glyphMap;
+  icon?: IconName;
   showArrow?: boolean;
+  /** `blue` is the legacy name for "this row is an action"; it is the accent. */
   textColor?: "default" | "blue" | "red";
   onPress?: () => void;
   disabled?: boolean;
@@ -31,57 +41,75 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   onPress,
   disabled = false,
   disabledByAdmin = false,
+  style,
   ...viewProps
 }) => {
   const { t } = useTranslation();
+  const [hovered, setHovered] = useState(false);
   const effectiveSubtitle = disabledByAdmin
     ? t("home.settings.disabled_by_admin")
     : subtitle;
   const isDisabled = disabled || disabledByAdmin;
+
   // Keep the row floor uniform; Android trims padding slightly (its native
   // controls sit taller). Switch height is capped via SettingSwitch so toggle
   // rows match non-toggle rows.
-  const rowSizing =
-    Platform.OS === "android" ? "min-h-[42px] py-1.5" : "min-h-[42px] py-2";
+  const row: ViewStyle = {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 44,
+    paddingVertical: Platform.OS === "android" ? 6 : 8,
+    paddingHorizontal: 16,
+    backgroundColor:
+      hovered && onPress && !isDisabled
+        ? tokens.color.bg["2"]
+        : tokens.color.bg["1"],
+    opacity: isDisabled ? tokens.control.disabledOpacity : 1,
+  };
+
+  const content = (
+    <ListItemContent
+      title={title}
+      subtitle={effectiveSubtitle}
+      subtitleColor={disabledByAdmin ? "red" : undefined}
+      value={value}
+      icon={icon}
+      textColor={textColor}
+      showArrow={showArrow}
+      iconAfter={iconAfter}
+    >
+      {children}
+    </ListItemContent>
+  );
+
   if (onPress)
     return (
-      <TouchableOpacity
+      <Pressable
+        accessibilityRole='button'
         disabled={isDisabled}
         onPress={onPress}
-        className={`flex flex-row items-center justify-between bg-neutral-900 ${rowSizing} pr-4 pl-4 ${isDisabled ? "opacity-50" : ""}`}
-        {...(viewProps as any)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={[
+          row,
+          Platform.OS === "web"
+            ? ({
+                cursor: isDisabled ? "default" : "pointer",
+                transitionDuration: `${motion.fast}ms`,
+              } as ViewStyle)
+            : null,
+          style,
+        ]}
+        {...(viewProps as object)}
       >
-        <ListItemContent
-          title={title}
-          subtitle={effectiveSubtitle}
-          subtitleColor={disabledByAdmin ? "red" : undefined}
-          value={value}
-          icon={icon}
-          textColor={textColor}
-          showArrow={showArrow}
-          iconAfter={iconAfter}
-        >
-          {children}
-        </ListItemContent>
-      </TouchableOpacity>
+        {content}
+      </Pressable>
     );
+
   return (
-    <View
-      className={`flex flex-row items-center justify-between bg-neutral-900 ${rowSizing} pr-4 pl-4 ${isDisabled ? "opacity-50" : ""}`}
-      {...viewProps}
-    >
-      <ListItemContent
-        title={title}
-        subtitle={effectiveSubtitle}
-        subtitleColor={disabledByAdmin ? "red" : undefined}
-        value={value}
-        icon={icon}
-        textColor={textColor}
-        showArrow={showArrow}
-        iconAfter={iconAfter}
-      >
-        {children}
-      </ListItemContent>
+    <View style={[row, style]} {...viewProps}>
+      {content}
     </View>
   );
 };
@@ -97,12 +125,26 @@ const ListItemContent = ({
   iconAfter,
   children,
 }: Props) => {
+  const { accent } = useTheme();
+
   return (
     <>
-      <View className='flex flex-row items-center w-full'>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", width: "100%" }}
+      >
         {icon && (
-          <View className='border border-neutral-800 rounded-md h-8 w-8 flex items-center justify-center mr-2'>
-            <Ionicons name='person-circle-outline' size={18} color='white' />
+          <View
+            style={{
+              borderRadius: radius.sm,
+              height: 32,
+              width: 32,
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 10,
+              backgroundColor: tokens.color.bg["3"],
+            }}
+          >
+            <Icon name={icon} size={18} tone='secondary' />
           </View>
         )}
         {/* The label sizes to its content and only shrinks if it alone
@@ -111,22 +153,25 @@ const ListItemContent = ({
             value (the dev build string, say) collapsed it to an ellipsis, while
             the value itself had no shrink of its own and ran straight past the
             row to be clipped by the screen edge. */}
-        <View className='shrink'>
+        <View style={{ flexShrink: 1 }}>
           <Text
-            className={
-              textColor === "blue"
-                ? "text-[#0584FE]"
-                : textColor === "red"
-                  ? "text-red-600"
-                  : "text-white"
-            }
+            style={{
+              color:
+                textColor === "blue"
+                  ? accent[500]
+                  : textColor === "red"
+                    ? tokens.color.state.danger
+                    : tokens.color.text.primary,
+            }}
             numberOfLines={1}
           >
             {title}
           </Text>
           {subtitle && (
             <Text
-              className={`text-[12px] mt-0.5 ${subtitleColor === "red" ? "text-red-600" : "text-[#9899A1]"}`}
+              variant='caption'
+              tone={subtitleColor === "red" ? "danger" : "secondary"}
+              style={{ marginTop: 2 }}
               numberOfLines={2}
             >
               {subtitle}
@@ -137,16 +182,16 @@ const ListItemContent = ({
           // Values here are diagnostics — build string, token, server URL —
           // that are only useful in full, so wrap rather than truncate. The row
           // has a min height, not a fixed one, so it grows to fit.
-          <View className='flex-1 items-end pl-3'>
-            <Text selectable className='text-right text-[#9899A1]'>
+          <View style={{ flex: 1, alignItems: "flex-end", paddingLeft: 12 }}>
+            <Text selectable tone='secondary' align='right'>
               {value}
             </Text>
           </View>
         )}
-        {children && <View className='ml-auto'>{children}</View>}
+        {children && <View style={{ marginLeft: "auto" }}>{children}</View>}
         {showArrow && (
-          <View className={children ? "ml-1" : "ml-auto"}>
-            <Ionicons name='chevron-forward' size={18} color='#5A5960' />
+          <View style={{ marginLeft: children ? 4 : "auto" }}>
+            <Icon name='chevronRight' size={18} tone='tertiary' />
           </View>
         )}
       </View>
