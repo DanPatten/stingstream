@@ -11,6 +11,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { SearchField } from "./SearchField";
 import { UserMenu } from "./UserMenu";
+import { useFocusVisible } from "./useFocusVisible";
 import { useScreenTitle } from "./useScreenTitle";
 
 export const TOP_BAR_HEIGHT = 56;
@@ -90,13 +91,17 @@ const SessionsButton: React.FC = () => {
   const { sessions = [] } = useSessions({} as useSessionsProps);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
 
   return (
     <Pressable
       testID='shell-sessions'
       accessibilityRole='button'
       accessibilityLabel={t("home.sessions.title")}
-      onPress={() => router.push("/(auth)/(tabs)/(home)/sessions")}
+      // `navigate` rather than `push`: see the note in `WebShellLayout` — the
+      // top bar is not a screen, so `useAppRouter`'s push guard, which resets
+      // on the calling screen's focus event, would never release again.
+      onPress={() => router.navigate("/(auth)/(tabs)/(home)/sessions")}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -110,7 +115,7 @@ const SessionsButton: React.FC = () => {
           borderRadius: radius.sm,
           backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(focused, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
             : null),
         } as ViewStyle
       }

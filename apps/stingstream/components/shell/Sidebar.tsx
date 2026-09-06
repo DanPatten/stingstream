@@ -15,8 +15,9 @@ import type {
   SidebarItem as SidebarItemModel,
   SidebarSection,
 } from "./buildSidebarItems";
-import { SidebarItem } from "./SidebarItem";
+import { RailTooltip, SidebarItem } from "./SidebarItem";
 import { UserMenu } from "./UserMenu";
+import { useFocusVisible } from "./useFocusVisible";
 
 /** 240 at `expanded`, a 72 px icon rail at `medium`. */
 export const SIDEBAR_WIDTH = 240;
@@ -50,6 +51,14 @@ export const Sidebar: React.FC<Props> = ({
 }) => {
   const body = sections.filter((section) => section.key !== "footer");
   const footer = sections.filter((section) => section.key === "footer");
+  // The rail's hover label. It belongs here, not in the row: the rows sit in a
+  // ScrollView, whose overflow clip is 72 px wide, and a tooltip drawn inside
+  // it was invisible however far it was offset.
+  const [tooltip, setTooltip] = useState<{ label: string; top: number } | null>(
+    null,
+  );
+  const onHoverChange = (label: string | null, top: number) =>
+    setTooltip(label ? { label, top } : null);
 
   return (
     <View
@@ -81,6 +90,7 @@ export const Sidebar: React.FC<Props> = ({
                 active={item.key === activeKey}
                 collapsed={collapsed}
                 onPress={() => onSelect(item)}
+                onHoverChange={onHoverChange}
               />
             ))}
           </View>
@@ -104,6 +114,7 @@ export const Sidebar: React.FC<Props> = ({
               active={item.key === activeKey}
               collapsed={collapsed}
               onPress={() => onSelect(item)}
+              onHoverChange={onHoverChange}
             />
           )),
         )}
@@ -111,6 +122,10 @@ export const Sidebar: React.FC<Props> = ({
           <UserMenu variant='row' collapsed={collapsed} />
         </View>
       </View>
+
+      {collapsed && tooltip ? (
+        <RailTooltip label={tooltip.label} top={tooltip.top + 8} />
+      ) : null}
     </View>
   );
 };
@@ -164,6 +179,7 @@ const BrandButton: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
   const { t } = useTranslation();
   const { accentName } = useTheme();
   const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
 
   return (
     <Pressable
@@ -182,7 +198,7 @@ const BrandButton: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
           marginBottom: 8,
           borderRadius: radius.sm,
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(focused, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
             : null),
         } as ViewStyle
       }

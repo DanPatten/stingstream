@@ -112,6 +112,9 @@ function WebTabBar({ state, descriptors, navigation }: any) {
             key={route.key}
             accessibilityRole='tab'
             accessibilityState={{ selected: focused }}
+            // react-native-web 0.21 no longer maps `accessibilityState` onto
+            // the DOM, so the selected state needs the W3C prop as well.
+            aria-selected={focused}
             accessibilityLabel={options?.tabBarAccessibilityLabel ?? label}
             testID={options?.tabBarButtonTestID ?? tabTestID(route.name)}
             onPress={onPress}

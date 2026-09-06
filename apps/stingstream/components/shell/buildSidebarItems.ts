@@ -10,6 +10,7 @@ import {
   libraryIcon,
   type TabKey,
   tabIcon,
+  tabLabelKey,
   tabTestID,
 } from "./tabIcons";
 
@@ -88,11 +89,11 @@ const TABS_ROOT = "/(auth)/(tabs)";
 
 const tabItem = (
   tab: TabKey,
-  label: string,
+  t: Translate,
   overrides: Partial<SidebarItem> = {},
 ): SidebarItem => ({
   key: tab,
-  label,
+  label: t(tabLabelKey(tab) ?? "tabs.home"),
   icon: { set: "semantic", name: tabIcon(tab) },
   testID: tabTestID(tab),
   route: { pathname: `${TABS_ROOT}/${tab}` },
@@ -163,12 +164,10 @@ export function buildSidebarItems(
     Boolean(settings?.streamyStatsServerUrl) && !settings?.hideWatchlistsTab;
 
   const secondary: SidebarItem[] = [
-    tabItem("(favorites)", t("tabs.favorites")),
-    ...(showWatchlists ? [tabItem("(watchlists)", t("watchlists.title"))] : []),
-    ...(settings?.showCustomMenuLinks
-      ? [tabItem("(custom-links)", t("tabs.custom_links"))]
-      : []),
-    tabItem("(requests)", t("tabs.requests")),
+    tabItem("(favorites)", t),
+    ...(showWatchlists ? [tabItem("(watchlists)", t)] : []),
+    ...(settings?.showCustomMenuLinks ? [tabItem("(custom-links)", t)] : []),
+    tabItem("(requests)", t),
     {
       key: "sharing",
       label: t("shell.sharing"),
@@ -182,16 +181,11 @@ export function buildSidebarItems(
     // requires Jellyfin's RequiresElevation policy — a non-administrator who
     // opened them would get a permanently blocked screen, so they are not
     // offered at all. Same gate as the tab bar's `tabBarItemHidden`.
-    ...(isAdmin
-      ? [
-          tabItem("(manage)", t("tabs.manage")),
-          tabItem("(downloads)", t("tabs.transfers")),
-        ]
-      : []),
+    ...(isAdmin ? [tabItem("(manage)", t), tabItem("(downloads)", t)] : []),
   ];
 
   return [
-    { key: "primary", items: [tabItem("(home)", t("tabs.home"))] },
+    { key: "primary", items: [tabItem("(home)", t)] },
     ...(libraries.length > 0
       ? [
           {

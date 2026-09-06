@@ -73,9 +73,33 @@ const TAB_TEST_IDS: Record<TabKey, string> = {
   "(settings)": "tab-settings",
 };
 
+/**
+ * What a tab is *called*, as an `en.json` key.
+ *
+ * Both navigators and the top bar's fallback title read this, so "the Downloads
+ * group is called Transfers" is written down once. `(watchlists)` reaches
+ * outside the `tabs.*` namespace because its screen owns that string already.
+ */
+const TAB_LABEL_KEYS: Record<TabKey, string> = {
+  "(home)": "tabs.home",
+  "(search)": "tabs.search",
+  "(favorites)": "tabs.favorites",
+  "(watchlists)": "watchlists.title",
+  "(libraries)": "tabs.library",
+  "(custom-links)": "tabs.custom_links",
+  "(requests)": "tabs.requests",
+  "(manage)": "tabs.manage",
+  "(downloads)": "tabs.transfers",
+  "(settings)": "tabs.settings",
+};
+
 /** The glyph for a tab group, falling back to a neutral one for a new group. */
 export const tabIcon = (routeName: string): IconName =>
   isTabKey(routeName) ? TAB_ICONS[routeName] : "more";
+
+/** The translation key for a tab group's name, or `undefined` for a new group. */
+export const tabLabelKey = (routeName: string): string | undefined =>
+  isTabKey(routeName) ? TAB_LABEL_KEYS[routeName] : undefined;
 
 /** The `testID` for a tab group's sidebar row or tab-bar button. */
 export const tabTestID = (routeName: string): string =>

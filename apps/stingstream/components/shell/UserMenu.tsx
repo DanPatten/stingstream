@@ -15,6 +15,7 @@ import { elevation, radius, tokens, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import { useFocusVisible } from "./useFocusVisible";
 
 const MENU_WIDTH = 248;
 /** Enough to decide whether the card fits below its trigger before it renders. */
@@ -54,6 +55,7 @@ export const UserMenu: React.FC<Props> = ({
   const [anchor, setAnchor] = useState<ViewStyle | null>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
 
   const close = useCallback(() => setAnchor(null), []);
 
@@ -95,10 +97,14 @@ export const UserMenu: React.FC<Props> = ({
   const name = user?.Name ?? "";
   const serverName = nodeName();
 
+  // `navigate`, not `push`: the menu lives in the top bar, outside the
+  // navigator, and `useAppRouter`'s push guard only releases when the screen
+  // that pushed regains focus — which a persistent chrome never does, so the
+  // second push from here would be dropped. See `WebShellLayout`.
   const go = useCallback(
     (pathname: string) => {
       close();
-      router.push(pathname);
+      router.navigate(pathname as never);
     },
     [close, router],
   );
@@ -133,7 +139,7 @@ export const UserMenu: React.FC<Props> = ({
                 ? tokens.color.bg["3"]
                 : "transparent",
             ...(Platform.OS === "web"
-              ? { cursor: "pointer", ...webFocusRing(focused, accentName) }
+              ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
               : null),
           } as ViewStyle
         }
@@ -286,6 +292,7 @@ const MenuRow: React.FC<{
   const { accentName } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
 
   return (
     <Pressable
@@ -305,7 +312,7 @@ const MenuRow: React.FC<{
           paddingHorizontal: 12,
           backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(focused, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
             : null),
         } as ViewStyle
       }

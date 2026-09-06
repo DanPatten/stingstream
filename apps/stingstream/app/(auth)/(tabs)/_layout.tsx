@@ -253,7 +253,7 @@ export default function TabLayout() {
         <NativeTabs.Screen
           name='(manage)'
           options={{
-            title: "Manage",
+            title: t("tabs.manage"),
             tabBarItemHidden: Platform.isTV || !isStingStreamAdmin,
             tabBarIcon:
               Platform.OS === "android"
@@ -264,7 +264,7 @@ export default function TabLayout() {
         <NativeTabs.Screen
           name='(downloads)'
           options={{
-            title: "Downloads",
+            title: t("tabs.transfers"),
             tabBarItemHidden: Platform.isTV || !isStingStreamAdmin,
             tabBarIcon:
               Platform.OS === "android"
@@ -275,7 +275,7 @@ export default function TabLayout() {
         <NativeTabs.Screen
           name='(requests)'
           options={{
-            title: "Requests",
+            title: t("tabs.requests"),
             // Visible to every member, not only administrators: asking the node for something
             // needs nothing but a Jellyfin account, and the elevated half of the screen simply
             // is not offered to anybody else.

@@ -21,6 +21,7 @@ import {
 } from "./buildSidebarItems";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { isTabKey, tabLabelKey } from "./tabIcons";
 
 // Music is stubbed on web (docs/M2-web-spike.md §7) but still mounts, exactly
 // as it does in the phone branch of `(tabs)/_layout.tsx` — the shell must not
@@ -88,6 +89,15 @@ export const WebShellLayout: React.FC = () => {
     (item) => item.key === activeKey,
   );
 
+  // Not every tab has a sidebar row — Search is reached from the field in the
+  // top bar, a library the user hid is still reachable from a card — so the
+  // title falls back to the tab group's own name before it falls back to Home.
+  // Without this the Search screen was headed "Home".
+  const currentTabLabelKey = tabLabelKey(segments.find(isTabKey) ?? "");
+  const pageTitle =
+    activeItem?.label ??
+    (currentTabLabelKey ? t(currentTabLabelKey) : t("tabs.home"));
+
   const goHome = useCallback(() => {
     eventBus.emit("scrollToTop");
     router.replace("/(auth)/(tabs)/(home)");
@@ -118,7 +128,15 @@ export const WebShellLayout: React.FC = () => {
         router.replace(href as never);
         return;
       }
-      router.push(href as never);
+      // `navigate`, not `push`. `useAppRouter`'s `push` is guarded against
+      // double taps by a ref that only resets when the *calling screen* regains
+      // focus — and the sidebar is not a screen: it lives outside the navigator
+      // and never blurs, so the second push from it, and every one after that,
+      // was silently dropped. Confirmed by clicking Settings after Sharing.
+      // `navigate` is expo-router's own, ungated, and reuses a matching route
+      // rather than stacking a second copy of it, which is what a persistent
+      // nav should do anyway.
+      router.navigate(href as never);
     },
     [router, segments, activeKey],
   );
@@ -143,7 +161,7 @@ export const WebShellLayout: React.FC = () => {
           column out instead of scrolling inside it, and the page grows a
           horizontal scrollbar. */}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <TopBar fallbackTitle={activeItem?.label ?? t("tabs.home")} />
+        <TopBar fallbackTitle={pageTitle} />
         <View style={{ flex: 1, backgroundColor: tokens.color.bg["0"] }}>
           <Stack
             screenOptions={{ headerShown: false, animation: "none" }}
