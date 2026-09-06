@@ -1,8 +1,10 @@
 # The UI iterate loop (WP-TOOLS)
 
 Tooling for v0.2.0's "iterate loop" (the plan's Part 2, section "The iterate loop"): run a private
-StingStream node, seed it with deterministic offline test media, screenshot every screen at every
-viewport, sweep each one for real problems, and drive the golden-startup budgets end to end. All of
+StingStream node, seed it with deterministic test media carrying real TMDB/TVDB movie artwork by
+default (F-12, Dan: "tests must use real movie images, never placeholders" -- offline gradients
+are opt-in, see `-OfflineArtwork` below), screenshot every screen at every viewport, sweep each one
+for real problems, and drive the golden-startup budgets end to end. All of
 it lives under `tools/ui-node.ps1`, `tools/ui-seed-media.ps1`, `tools/ui-startup.ps1` and
 `tools/ui-shots/**`. This package owns those files and this document; it does not own any
 `apps/stingstream/**` source file -- every screen this loop screenshots belongs to another work
@@ -106,7 +108,9 @@ radarr/sonarr/nzbget = false`, the same shape `tools/e2e-m4.ps1` uses for a pure
 restrict to this machine), `-WebDist <dir>`, `-DevServer <url>` (passes `--web-dev-server <url>` --
 see "The `--web-dev-server` flag" below), `-Seed` (runs `ui-seed-media.ps1` into the data dir's
 media root **before** the node's first start, so the first library scan finds the files already
-there -- confirmed to matter, see "Does first-run wiring scan pre-placed files?" below), `-Stop`.
+there -- confirmed to matter, see "Does first-run wiring scan pre-placed files?" below; real
+TMDB/TVDB artwork by default, F-12 -- see "Real artwork by default" below), `-OfflineArtwork`
+(with `-Seed`: fall back to the old offline gradients instead), `-Stop`.
 
 `config.toml` is written once (first start only, matching the supervisor's own "written with
 defaults, never rewritten" contract for this file -- delete it, or pass `-Fresh`, to regenerate):
@@ -144,15 +148,16 @@ explicit `-RefreshNodeUrl` for the one case this does not cover -- re-seeding *n
 data dir whose node is already running (a library that already exists does not re-scan itself on a
 timer fast enough to be useful for an interactive loop).
 
-### `-RealArtwork`: real posters for a human reviewer, still offline gradients for agents
+### Real artwork by default (F-12), offline gradients only behind `-OfflineArtwork`
 
-Off by default -- agents always get the deterministic offline gradients above, so a screenshot pass
-never depends on the internet or on TMDB serving the same image twice. `tools/ui-node.ps1 -Seed
--RealArtwork` (which passes `-RealArtwork` through to `ui-seed-media.ps1`) is for a human reviewer
-who wants the handoff build to look like real media.
+**F-12 (Dan): "tests must use real movie images, never placeholders."** Real TMDB/TVDB artwork is
+the default for everyone -- agents included -- in `tools/ui-seed-media.ps1`,
+`tools/ui-node.ps1 -Seed` and `tools/ui-startup.ps1`. Pass `-OfflineArtwork` to any of the three to
+fall back to the old deterministic gradients instead (no network dependency at all, at the cost of
+not being a real image) -- e.g. no network access, or a deliberate no-network smoke test.
 
-Two things had to be confirmed live (2026-09-06) before this could work at all, both now handled
-automatically:
+Two things had to be confirmed live (2026-09-06) before real artwork could work at all, both now
+handled automatically:
 
 1. **StingStream.Core's first-run wiring creates the Movies/TV Shows libraries with
    `EnableInternetProviders: false`** (confirmed via `GET /jellyfin/Library/VirtualFolders`) --
@@ -162,36 +167,39 @@ automatically:
 2. **A local image file wins over any fetched one, regardless of that setting.** Forcing a full
    image refresh (`replaceAllImages=true`) on an item that already had a local `poster.jpg`
    produced no change at all after 90+ seconds of polling -- Jellyfin's local-file image provider
-   is simply higher priority. So `-RealArtwork` has to do two things, not one: never write
+   is simply higher priority. So real-artwork mode has to do two things, not one: never write
    `poster.jpg`/`fanart.jpg` in the first place (the pre-start placement pass), **and** flip
    `EnableInternetProviders` on for both libraries once they exist (which needs the node's API, so
    it cannot happen before the node's first start creates them).
 
-`ui-node.ps1 -Seed -RealArtwork` therefore seeds with no local images, waits for first-run wiring
-exactly as it always does, and then calls `ui-seed-media.ps1 -RealArtwork -RefreshNodeUrl <url>` --
-which PATCHes `/Library/VirtualFolders/LibraryOptions` for each library (idempotent: skips a
-library that already has providers on; preserves every other field on the existing `LibraryOptions`
-object rather than POSTing a partial one, which would otherwise silently reset
-`EnableRealtimeMonitor`/`EnablePhotos`/etc. to their C# defaults -- confirmed this matters, and
-confirmed the fix preserves them), triggers `/Library/Refresh`, and polls the catalogue's first
-movie for a real `ImageTags.Primary` to appear as the signal that a fetch actually happened,
-reporting how long it took. If `-Seed -RealArtwork`'s wiring wait itself times out (the same
-shared-machine contention documented under "Verification" below), it warns and skips the follow-up
-automatically -- run `ui-seed-media.ps1 -RealArtwork -RefreshNodeUrl <url>` by hand once the node
-finishes wiring.
+`ui-node.ps1 -Seed` therefore seeds with no local images by default, waits for first-run wiring
+exactly as it always did, and then calls `ui-seed-media.ps1 -RefreshNodeUrl <url>` -- which PATCHes
+`/Library/VirtualFolders/LibraryOptions` for each library (idempotent: skips a library that already
+has providers on; preserves every other field on the existing `LibraryOptions` object rather than
+POSTing a partial one, which would otherwise silently reset `EnableRealtimeMonitor`/`EnablePhotos`/
+etc. to their C# defaults -- confirmed this matters, and confirmed the fix preserves them), triggers
+`/Library/Refresh`, and polls the catalogue's first movie for a real `ImageTags.Primary` to appear
+as the signal that a fetch actually happened, reporting how long it took. If the wiring wait itself
+times out (the same shared-machine contention documented under "Verification" below), it warns and
+skips the follow-up automatically -- run `ui-seed-media.ps1 -RefreshNodeUrl <url>` by hand once the
+node finishes wiring. `tools/ui-startup.ps1` does the equivalent as its own step, and deliberately
+places it **before** Playwright ever opens the page: T_home is meant to measure how fast Home shows
+a poster that is already there, not how long a TMDB round trip takes, so the real-artwork wait is
+its own untimed-budget step ahead of the Playwright step rather than folded into T_home.
 
 **Measured on this machine, both modes confirmed end to end (2026-09-06):** offline mode's posters
 carry the title only now (no caption); real mode's fetched `Big Buck Bunny` poster byte-matches the
-film's actual theatrical artwork. Timing is genuinely conditions-dependent, not a fixed number --
-enabling providers is always an immediate `204`, but the identification-and-download pass that
-follows raced this machine's other concurrent load across three runs: one clean run reached all 10
-real images within about 20-40 seconds of enabling providers (the item-count poll went 4 -> 5 -> 7
--> 9 -> 10 across four 5-second cycles, and the sample movie already had its image by the time that
-finished); one heavily-loaded run had not finished identifying all 10 titles after 180 seconds and
-needed a second, longer wait budget (`-RealArtwork` now uses 420s here, not 180s, for exactly this
-reason). Expect anywhere from under a minute to several minutes -- this is a real network round
-trip to TMDB for every title, not a local operation, and shares the network/CPU with whatever else
-is running on the machine.
+film's actual theatrical artwork, and all 10 seeded titles fetched real images in every run tried.
+Timing is genuinely conditions-dependent, not a fixed number -- enabling providers is always an
+immediate `204`, but the identification-and-download pass that follows races this machine's other
+concurrent load: one clean run reached all 10 real images within about 20-40 seconds of enabling
+providers (the item-count poll went 4 -> 5 -> 7 -> 9 -> 10 across four 5-second cycles, and the
+sample movie already had its image by the time that finished); one heavily-loaded run had not
+finished identifying all 10 titles after 180 seconds and needed a second, longer wait budget (the
+item-count wait is 420s under real artwork, kept at 180s only for `-OfflineArtwork`'s deterministic
+NFO-only scan). Expect anywhere from under a minute to several minutes -- this is a real network
+round trip to TMDB for every title, not a local operation, and shares the network/CPU with whatever
+else is running on the machine.
 
 ---
 
@@ -220,14 +228,18 @@ encoded constant-bitrate the same way `e2e-m4.ps1`'s `New-Clip` does (`-minrate`
 `-bufsize` with `nal-hrd=cbr`) -- real, playable, non-trivial media, not a few-hundred-kilobyte
 artifact of an ordinary `-b:v` target on a static test pattern.
 
-**Artwork is rendered entirely offline** with `System.Drawing` (GDI+, built into Windows): a
-600x900 `poster.jpg` and a 1920x1080 `fanart.jpg` per title, a diagonal gradient whose two colours
-are derived from a hash of the title (so the same title always renders the same gradient and
-different titles are visibly distinct, with no hand-maintained colour table) plus the title text.
-No screenshot pass ever depends on TMDB's image CDN being reachable or serving the same poster
-twice. Deterministic and idempotent: a second run with no `-Force` makes no changes (every clip and
-every image is skipped once it already exists at the expected path/size), so `tools/ui-node.ps1
--Seed` is cheap on every start after the first.
+**Artwork is real by default (F-12)**: no local `poster.jpg`/`fanart.jpg` is written at all, so
+Jellyfin identifies each title from the `uniqueid` already in its NFO and fetches real TMDB/TVDB
+poster/backdrop art -- see "Real artwork by default" below for what that actually takes (it is not
+just "don't write the file"). Pass `-OfflineArtwork` for the old behaviour instead: a 600x900
+`poster.jpg` and a 1920x1080 `fanart.jpg` per title, rendered entirely offline with `System.Drawing`
+(GDI+, built into Windows) -- a diagonal gradient whose two colours are derived from a hash of the
+title (so the same title always renders the same gradient and different titles are visibly
+distinct, with no hand-maintained colour table) plus the title text, so a screenshot pass in this
+mode never depends on TMDB's image CDN being reachable or serving the same poster twice. Both modes
+are deterministic and idempotent: a second run with no `-Force` makes no changes (every clip, and
+every `-OfflineArtwork` image, is skipped once it already exists at the expected path/size), so
+`tools/ui-node.ps1 -Seed` is cheap on every start after the first.
 
 ---
 
@@ -248,6 +260,12 @@ printed) until it exists. With `-Lan`, a second Playwright context opens the LAN
 whichever of the marker-based check or the pre-marker "finish setup on the computer" text it found.
 Finally the node is restarted on the same data dir and an ordinary sign-in -> Home pass is timed
 again as **T_home2** ("second-launch home").
+
+Seeds with real TMDB/TVDB artwork by default (F-12; `-OfflineArtwork` falls back to the old
+gradients). With `-DriveUi` and real artwork, once `T_wired` clears this script runs its own
+untimed step -- enabling the libraries' internet image providers and waiting for a real poster --
+**before** Playwright opens the page, so that step's own network time is never charged against
+`T_home`; see "Real artwork by default" above for why and for the measured timing range.
 
 Budgets, from the plan's own "Golden startup" acceptance section:
 
@@ -533,12 +551,16 @@ different signing/build configuration and not what this check calls for.
 uninitialized `$script:tool2` under `Set-StrictMode` crashed the cleanup `finally` block whenever
 the Playwright phase failed, masking the real error and leaking the node process; `New-SeedArtwork`
 drew a second caption line ("StingStream UI loop seed") that rendered exactly where a real card's
-own subtitle sits, reading as the item's own metadata on Home (removed, not reworded -- see
-"`-RealArtwork`" above); and a partial `POST` to `/Library/VirtualFolders/LibraryOptions` would
-have silently reset every library field it did not name to its C# default, caught before it ever
-shipped by preserving the whole existing options object instead. Also found, in the app rather than
-this package: first-run wiring's `Movies`/`TV Shows` libraries are created with
-`EnableInternetProviders: false`, contradicted by their own source comment (see `-RealArtwork`
-above) -- not fixed here, since disabling internet metadata by default is very likely deliberate
-for an offline-first iterate loop, but worth someone confirming that's intentional. See the commit
-history for `tools/ui-node.ps1` and `tools/ui-seed-media.ps1` for the fixes themselves.
+own subtitle sits, reading as the item's own metadata on Home (removed, not reworded -- see "Real
+artwork by default" above); a partial `POST` to `/Library/VirtualFolders/LibraryOptions` would have
+silently reset every library field it did not name to its C# default, caught before it ever shipped
+by preserving the whole existing options object instead; and (F-12 follow-up) a second, later call
+to `ui-startup.ps1`'s enable-providers step referenced `$mediaRoot`, a variable local to a different
+step's own scriptblock scope under PowerShell's `&`-creates-a-new-scope rule -- the same class of
+bug as the `$shotsDir`/`$ShotsDir` collision, rebuilt from `$DataDir` instead of relying on it. Also
+found, in the app rather than this package: first-run wiring's `Movies`/`TV Shows` libraries are
+created with `EnableInternetProviders: false`, contradicted by their own source comment -- not
+fixed here (Core's own default is not this package's to change), but no longer something a tester
+has to work around by hand either, since real-artwork mode enables it itself. See the commit
+history for `tools/ui-node.ps1`, `tools/ui-seed-media.ps1` and `tools/ui-startup.ps1` for the fixes
+themselves.
