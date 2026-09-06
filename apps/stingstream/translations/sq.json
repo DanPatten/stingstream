@@ -8,7 +8,6 @@
     "password_placeholder": "Fjalëkalimi",
     "login_button": "Hyr",
     "quick_connect": "Lidhje e shpejtë",
-    "enter_code_to_login": "Shkruani fajlëkalimin {{code}} për kyçje",
     "failed_to_initiate_quick_connect": "Dështojë niset lidhja e shpejtë",
     "got_it": "E kuptova",
     "connection_failed": "Lidhja dështojë",

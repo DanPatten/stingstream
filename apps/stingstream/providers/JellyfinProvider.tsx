@@ -41,6 +41,7 @@ import {
 } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
 import { onAppForeground } from "@/utils/onAppForeground";
+import { nextQuickConnectAction } from "@/utils/quickConnect/nextAction";
 import {
   type AccountSecurityType,
   addAccountToServer,
@@ -61,6 +62,15 @@ import { APP_VERSION } from "@/utils/version";
 interface Server {
   address: string;
 }
+
+/**
+ * Where a "sign in with a code" screen is in its Quick Connect lifecycle.
+ * `expired` is transient: the 400 branch of `pollQuickConnect` regenerates a
+ * fresh code automatically rather than leaving a dead one on screen, so a
+ * consumer normally only ever sees it flash past on the way back to
+ * `waiting`.
+ */
+export type QuickConnectStatus = "idle" | "waiting" | "expired" | "authorized";
 
 // Compact wire-level description of a failed request for the in-app log —
 // the user-facing alert only shows a translated message, which hides whether
@@ -156,6 +166,8 @@ interface JellyfinContextValue {
   logout: () => Promise<void>;
   initiateQuickConnect: () => Promise<string | undefined>;
   stopQuickConnectPolling: () => void;
+  quickConnectStatus: QuickConnectStatus;
+  quickConnectCode: string | null;
   loginWithSavedCredential: (
     serverUrl: string,
     userId: string,
@@ -206,6 +218,9 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   const [user, setUser] = useAtom(userAtom);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [secret, setSecret] = useState<string | null>(null);
+  const [quickConnectStatus, setQuickConnectStatus] =
+    useState<QuickConnectStatus>("idle");
+  const [quickConnectCode, setQuickConnectCode] = useState<string | null>(null);
   const { settings, setPluginSettings, refreshStreamyfinPluginSettings } =
     useSettings();
   const { clearAllJellyseerData, jellyseerrUser, setJellyseerrUser } =
@@ -330,31 +345,44 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     };
   }, [deviceId]);
 
-  const initiateQuickConnect = useCallback(async () => {
+  // Shared by the public `initiateQuickConnect` and by `pollQuickConnect`'s
+  // own automatic retry when a code expires — both need the exact same
+  // "ask the server for a code, remember its secret" request.
+  const requestQuickConnectCode = useCallback(async (): Promise<
+    string | undefined
+  > => {
     if (!api || !deviceId) return;
+    const response = await api.axiosInstance.post(
+      `${api.basePath}/QuickConnect/Initiate`,
+      null,
+      {
+        headers,
+      },
+    );
+    if (response?.status === 200) {
+      setSecret(response?.data?.Secret);
+      setQuickConnectCode(response?.data?.Code);
+      setQuickConnectStatus("waiting");
+      setIsPolling(true);
+      return response.data?.Code;
+    }
+    throw new Error("Failed to initiate quick connect");
+  }, [api, deviceId, headers]);
+
+  const initiateQuickConnect = useCallback(async () => {
     try {
-      const response = await api.axiosInstance.post(
-        `${api.basePath}/QuickConnect/Initiate`,
-        null,
-        {
-          headers,
-        },
-      );
-      if (response?.status === 200) {
-        setSecret(response?.data?.Secret);
-        setIsPolling(true);
-        return response.data?.Code;
-      }
-      throw new Error("Failed to initiate quick connect");
+      return await requestQuickConnectCode();
     } catch (error) {
       console.error(error);
       throw error;
     }
-  }, [api, deviceId, headers]);
+  }, [requestQuickConnectCode]);
 
   const stopQuickConnectPolling = useCallback(() => {
     setIsPolling(false);
     setSecret(null);
+    setQuickConnectStatus("idle");
+    setQuickConnectCode(null);
   }, []);
 
   const pollQuickConnect = useCallback(async () => {
@@ -366,8 +394,15 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       );
 
       if (response.status === 200) {
-        if (response.data.Authenticated) {
+        const action = nextQuickConnectAction(
+          response.data.Authenticated
+            ? { kind: "authenticated" }
+            : { kind: "pending" },
+        );
+
+        if (action === "authenticate") {
           setIsPolling(false);
+          setQuickConnectStatus("authorized");
 
           const authResponse = await api.axiosInstance.post(
             `${api.basePath}/Users/AuthenticateWithQuickConnect`,
@@ -392,19 +427,36 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       return false;
     } catch (error) {
       if (error instanceof AxiosError) {
-        if (error.response?.status === 400 || error.response?.status === 404) {
+        if (error.response?.status === 400) {
+          const action = nextQuickConnectAction({ kind: "expired" });
+          if (action === "regenerate") {
+            setQuickConnectStatus("expired");
+            setIsPolling(false);
+            setSecret(null);
+            // The code timed out before anyone entered it. Ask for a fresh
+            // one instead of leaving a dead code on screen and an error for
+            // the caller to catch — this used to throw here.
+            requestQuickConnectCode().catch((regenerateError) => {
+              console.error(
+                "Failed to regenerate Quick Connect code:",
+                regenerateError,
+              );
+              setQuickConnectStatus("idle");
+            });
+            return false;
+          }
+        }
+        if (error.response?.status === 404) {
           setIsPolling(false);
           setSecret(null);
-          if (error.response?.status === 400) {
-            throw new Error("The code has expired. Please try again.");
-          }
+          setQuickConnectStatus("idle");
           return false;
         }
       }
       console.error("Error polling Quick Connect:", error);
       throw error;
     }
-  }, [api, secret, headers, jellyfin]);
+  }, [api, secret, headers, jellyfin, requestQuickConnectCode]);
 
   useEffect(() => {
     (async () => {
@@ -1005,6 +1057,8 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     logout: () => logoutMutation.mutateAsync(),
     initiateQuickConnect,
     stopQuickConnectPolling,
+    quickConnectStatus,
+    quickConnectCode,
     loginWithSavedCredential: (serverUrl, userId) =>
       loginWithSavedCredentialMutation.mutateAsync({ serverUrl, userId }),
     loginWithPassword: (serverUrl, username, password) =>
