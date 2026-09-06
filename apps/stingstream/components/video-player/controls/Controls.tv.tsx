@@ -1257,6 +1257,14 @@ export const Controls: FC<Props> = ({
   const canChooseSource =
     !!onSwitchMediaSource && (sourceChoices?.length ?? 0) > 1;
 
+  const currentSourceChoice = useMemo(
+    () =>
+      sourceChoices?.find(
+        (choice) => choice.mediaSourceId === mediaSource?.Id,
+      ) ?? null,
+    [sourceChoices, mediaSource?.Id],
+  );
+
   const handleOpenSourceChooser = useCallback(() => {
     if (!canChooseSource || !sourceChoices) return;
     showSourceChooser({
@@ -1493,6 +1501,7 @@ export const Controls: FC<Props> = ({
               <View style={styles.sourcePillSlot}>
                 <TVSourcePill
                   mediaSource={mediaSource}
+                  choice={currentSourceChoice}
                   onPress={
                     canChooseSource ? handleOpenSourceChooser : undefined
                   }

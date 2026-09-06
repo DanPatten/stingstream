@@ -32,6 +32,7 @@ import { Text } from "@/components/common/Text";
 import { useTVFocusAnimation } from "@/components/tv/hooks/useTVFocusAnimation";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { radius, rgba, tokens } from "@/constants/theme";
+import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
 import {
   type MeshConnectionKind,
   useMeshSourceStatus,
@@ -61,6 +62,17 @@ export const meshDotColor = (kind: MeshConnectionKind): string => {
 
 interface SourcePillProps {
   mediaSource?: MediaSourceInfo | null;
+  /**
+   * The chooser's row for what is playing.
+   *
+   * Load-bearing, not decoration. `useMeshSourceStatus` can only grade a hop **this device** made,
+   * and a browser, a phone and a television are not mesh members — the home node is, and it
+   * proxies. So on every surface a person actually watches on, the mesh has nothing to say beyond
+   * "via your server", while the node's own scored source list knows perfectly well that these
+   * bytes are coming from Attic PC over a direct hop measured at five milliseconds. That is the
+   * sentence the pill exists to say, so it comes from here when the mesh cannot say it.
+   */
+  choice?: SourceChoice | null;
   /** Opens the chooser. Absent when there is nothing else to play from. */
   onPress?: () => void;
 }
@@ -68,28 +80,100 @@ interface SourcePillProps {
 /** The dot for a local file: white, the same "not a mesh grade" colour the home node gets. */
 const LOCAL_KIND: MeshConnectionKind = "home-node";
 
-/** `Direct · Kitchen · 18 ms`, with whichever halves the mesh actually knows. */
-const usePillLabel = (
-  status: ReturnType<typeof useMeshSourceStatus>,
-): string => {
-  return useMemo(() => {
-    if (!status) return "";
-    const parts = [status.label];
-    if (status.nodeName) parts.push(status.nodeName);
-    if (status.rttMs != null) parts.push(`${Math.round(status.rttMs)} ms`);
-    return parts.join(" · ");
-  }, [status]);
+/** The route a choice reports, in the vocabulary the mesh status already uses. */
+const kindForChoice = (choice: SourceChoice): MeshConnectionKind => {
+  if (choice.local) return "home-node";
+  if (choice.route === "direct") return "direct";
+  if (choice.route === "relayed") return "relayed";
+  return "connecting";
 };
 
-export const SourcePill: FC<SourcePillProps> = ({ mediaSource, onPress }) => {
+/** `Direct · Kitchen · 18 ms`, with whichever thirds are actually known. */
+const pillLabel = (
+  label: string,
+  nodeName: string | null,
+  rttMs: number | null,
+): string => {
+  const parts = [label];
+  if (nodeName) parts.push(nodeName);
+  if (rttMs != null) parts.push(`${Math.round(rttMs)} ms`);
+  return parts.join(" · ");
+};
+
+/** The three route words, memoised so the content hook's dependency stays stable. */
+const useRouteLabels = () => {
+  const { t } = useTranslation();
+  return useMemo(
+    () => ({
+      direct: t("player.source.direct"),
+      relayed: t("player.source.relayed"),
+      connecting: t("player.source.connecting"),
+    }),
+    [t],
+  );
+};
+
+/**
+ * What the pill says and what colour its dot is, from the two sources of truth in priority order:
+ * this device's own measured hop first, the node's scored list second.
+ */
+const usePillContent = (
+  status: ReturnType<typeof useMeshSourceStatus>,
+  choice: SourceChoice | null | undefined,
+  routeLabels: Record<"direct" | "relayed" | "connecting", string>,
+  localLabel: string,
+  viaServerLabel: string,
+): { kind: MeshConnectionKind; label: string } =>
+  useMemo(() => {
+    // This device is in the group and measured the hop itself: nothing beats that.
+    if (status && status.kind !== "home-node") {
+      return {
+        kind: status.kind,
+        label: pillLabel(status.label, status.nodeName, status.rttMs),
+      };
+    }
+
+    if (choice && !choice.local) {
+      return {
+        kind: kindForChoice(choice),
+        label: pillLabel(
+          routeLabels[choice.route === "local" ? "direct" : choice.route],
+          choice.nodeName,
+          choice.rttMs,
+        ),
+      };
+    }
+
+    // A mesh URL whose holder nothing can name — the sources call failed, or the pointer is
+    // stale. "Via your server" is still true, and still more than the old silence.
+    if (status) {
+      return {
+        kind: status.kind,
+        label: pillLabel(viaServerLabel, status.nodeName, status.rttMs),
+      };
+    }
+
+    // No mesh URL at all: the copy on the server this device is signed in to.
+    return { kind: LOCAL_KIND, label: localLabel };
+  }, [status, choice, routeLabels, localLabel, viaServerLabel]);
+
+export const SourcePill: FC<SourcePillProps> = ({
+  mediaSource,
+  choice,
+  onPress,
+}) => {
   const status = useMeshSourceStatus(mediaSource);
   const { t } = useTranslation();
-  const meshLabel = usePillLabel(status);
+  const routeLabels = useRouteLabels();
+  const { kind, label } = usePillContent(
+    status,
+    choice,
+    routeLabels,
+    t("player.source.this_server"),
+    t("player.source.via_your_server"),
+  );
 
   if (!status && !onPress) return null;
-
-  const kind = status?.kind ?? LOCAL_KIND;
-  const label = status ? meshLabel : t("player.source.this_server");
 
   const body = (
     <View style={styles.pill}>
@@ -141,6 +225,7 @@ interface TVSourcePillProps extends SourcePillProps {
  */
 export const TVSourcePill: FC<TVSourcePillProps> = ({
   mediaSource,
+  choice,
   onPress,
   refSetter,
   focusable = true,
@@ -148,14 +233,18 @@ export const TVSourcePill: FC<TVSourcePillProps> = ({
   const status = useMeshSourceStatus(mediaSource);
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
-  const meshLabel = usePillLabel(status);
+  const routeLabels = useRouteLabels();
+  const { kind, label } = usePillContent(
+    status,
+    choice,
+    routeLabels,
+    t("player.source.this_server"),
+    t("player.source.via_your_server"),
+  );
   const { focused, handleFocus, handleBlur, animatedStyle } =
     useTVFocusAnimation({ scaleAmount: 1.05, duration: 150 });
 
   if (!status && !onPress) return null;
-
-  const kind = status?.kind ?? LOCAL_KIND;
-  const label = status ? meshLabel : t("player.source.this_server");
 
   return (
     <Pressable

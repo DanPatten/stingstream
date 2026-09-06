@@ -11,6 +11,7 @@ import useRouter from "@/hooks/useAppRouter";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useOrientation } from "@/hooks/useOrientation";
+import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
 import { OrientationLock } from "@/packages/expo-screen-orientation";
 import {
   onFullscreenChange,
@@ -39,6 +40,8 @@ interface HeaderControlsProps {
   onZoomToggle?: () => void;
   /** The source playing, so the pill can say how its bytes are arriving. */
   mediaSource?: MediaSourceInfo | null;
+  /** The chooser's row for that source: where the pill gets the holder's name and latency. */
+  sourceChoice?: SourceChoice | null;
   /** Opens "Play from…". Absent when there is nothing else to play this from. */
   onOpenSourceChooser?: () => void;
   /** Web only: the page is the mixer, so muting needs a control and an indicator. */
@@ -142,6 +145,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
   isZoomedToFill = false,
   onZoomToggle,
   mediaSource,
+  sourceChoice,
   onOpenSourceChooser,
   isMuted = false,
   onToggleMute,
@@ -240,6 +244,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <View style={styles.pillSlot}>
             <SourcePill
               mediaSource={mediaSource}
+              choice={sourceChoice}
               onPress={onOpenSourceChooser}
             />
           </View>

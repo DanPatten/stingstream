@@ -910,7 +910,8 @@
       "none_description": "Only this server has a copy you can play right now.",
       "selected": "Selected",
       "policy_speed": "Speed first",
-      "policy_quality": "Quality first"
+      "policy_quality": "Quality first",
+      "via_your_server": "Via your server"
     },
     "next_up": "Next up",
     "fullscreen": "Full screen",

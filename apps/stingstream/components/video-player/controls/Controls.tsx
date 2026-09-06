@@ -746,7 +746,8 @@ export const Controls: FC<Props> = ({
     isSliding: isSliding || isRemoteSliding,
     episodeView,
     onHideControls: hideControls,
-    timeout: CONTROLS_TIMEOUT_MS.phone,
+    // No explicit timeout: the hook resolves the surface's own number, so the tap timer and the
+    // pointer timer below agree about how long "idle" is on the web.
     disabled: showAudioSlider || showSubtitleScale || sourceChooserOpen,
   });
 
@@ -769,6 +770,16 @@ export const Controls: FC<Props> = ({
   // button when there is somewhere else to play from *and* the player knows how to move.
   const canChooseSource =
     !!onSwitchMediaSource && (sourceChoices?.length ?? 0) > 1;
+
+  // The row for what is playing, so the pill can name the holder even on a device that is not
+  // itself in the mesh -- which is every phone, browser and television.
+  const currentSourceChoice = useMemo(
+    () =>
+      sourceChoices?.find(
+        (choice) => choice.mediaSourceId === mediaSource?.Id,
+      ) ?? null,
+    [sourceChoices, mediaSource?.Id],
+  );
 
   const openSourceChooser = useCallback(() => setSourceChooserOpen(true), []);
   const closeSourceChooser = useCallback(() => setSourceChooserOpen(false), []);
@@ -835,6 +846,7 @@ export const Controls: FC<Props> = ({
             <HeaderControls
               item={item}
               mediaSource={mediaSource}
+              sourceChoice={currentSourceChoice}
               isMuted={isMuted}
               onToggleMute={onToggleMute}
               onOpenSourceChooser={

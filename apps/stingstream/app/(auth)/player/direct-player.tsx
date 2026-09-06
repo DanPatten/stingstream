@@ -747,7 +747,13 @@ export default function DirectPlayerPage() {
     // screensaver. activateKeepAwakeAsync() is tag-scoped to this module
     // and only released on the "paused" event; without this, navigating
     // away mid-play leaves FLAG_KEEP_SCREEN_ON set on the window.
-    deactivateKeepAwake();
+    //
+    // Rejections swallowed: on the web this is `navigator.wakeLock`, which
+    // refuses the request outright on a hidden or unfocused document and then
+    // throws "has not activated yet" on release. That is the browser's answer,
+    // not a fault, and an unhandled rejection here is a console error over a
+    // film that is playing perfectly well.
+    deactivateKeepAwake().catch(() => {});
   }, [
     videoRef,
     reportPlaybackStopped,
@@ -1143,7 +1149,8 @@ export default function DirectPlayerPage() {
         setHasPlaybackStarted(true);
         // Pause inactivity timer during playback (TV only)
         pauseInactivityTimer();
-        await activateKeepAwakeAsync();
+        // Same reason as the release above: a browser may simply refuse the lock.
+        await activateKeepAwakeAsync().catch(() => {});
         return;
       }
 
@@ -1151,7 +1158,7 @@ export default function DirectPlayerPage() {
         setPlaying(false);
         // Resume inactivity timer when paused (TV only)
         resumeInactivityTimer();
-        await deactivateKeepAwake();
+        await deactivateKeepAwake().catch(() => {});
         return;
       }
 
