@@ -7,7 +7,6 @@
     "invalid_url": "Enter a valid address"
   },
   "login": {
-    "username_required": "Username is required",
     "error_title": "Error",
     "login_title": "Log in",
     "login_to_title": "Log in to",
@@ -27,10 +26,8 @@
     "got_it": "Got it",
     "connection_failed": "Connection failed",
     "could_not_connect_to_server": "Could not connect to the server. Please check the URL and your network connection.",
-    "not_a_jellyfin_server_title": "That is not a StingStream server",
     "not_a_jellyfin_server_description": "The address answered, but it is not a StingStream server. Check the address and try again.",
     "an_unexpected_error_occurred": "An unexpected error occurred",
-    "change_server": "Change server",
     "invalid_username_or_password": "Invalid username or password",
     "user_does_not_have_permission_to_log_in": "User does not have permission to log in",
     "server_is_taking_too_long_to_respond_try_again_later": "Server is taking too long to respond, try again later",
@@ -38,7 +35,16 @@
     "there_is_a_server_error": "There is a server error",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "An unexpected error occurred. Did you enter the server URL correctly?",
     "too_old_server_text": "This server needs an update",
-    "too_old_server_description": "Update StingStream on the server, then try again."
+    "too_old_server_description": "Update StingStream on the server, then try again.",
+    "sign_in": "Sign in",
+    "sign_in_to": "to {{server}}",
+    "connecting_to": "Connecting to {{server}}…",
+    "connecting": "Connecting…",
+    "keep_signed_in": "Keep me signed in",
+    "use_different_server": "Use a different server",
+    "show_password": "Show password",
+    "hide_password": "Hide password",
+    "advanced": "Advanced"
   },
   "server": {
     "enter_url_to_jellyfin_server": "Enter the address of your StingStream server",
@@ -67,6 +73,29 @@
     "add_server": "Add server",
     "change_server": "Change server",
     "swipe_for_options": "Swipe a server for options"
+  },
+  "setup": {
+    "title": "Create your StingStream account",
+    "description": "This is the only account you need. It lives on this computer.",
+    "username": "Username",
+    "password": "Password",
+    "confirm_password": "Confirm password",
+    "password_hint": "At least {{min}} characters.",
+    "create_account": "Create account",
+    "username_required": "Choose a username.",
+    "username_invalid": "Use letters, digits, dots, underscores or dashes.",
+    "username_too_long": "Use at most {{max}} characters.",
+    "password_too_short": "Use at least {{min}} characters.",
+    "passwords_do_not_match": "The passwords do not match.",
+    "error_invalid": "That username or password cannot be used. Try another.",
+    "error_already_claimed": "This server already has an account. Sign in instead.",
+    "error_not_local": "The account can only be created on the computer running StingStream.",
+    "error_unreachable": "Could not reach your server. Check that it is still running.",
+    "error_unexpected": "Something went wrong. Try again.",
+    "elsewhere_title": "Finish setup on the computer running StingStream",
+    "elsewhere_description": "Open this address in a browser on that computer to create your account, then come back here to sign in.",
+    "elsewhere_retry": "Check again",
+    "elsewhere_still_pending": "No account has been created yet."
   },
   "save_account": {
     "title": "Save account",
@@ -221,22 +250,14 @@
         "token": "Token",
         "app_version": "App version"
       },
-      "quick_connect": {
-        "quick_connect_title": "Link a device",
-        "authorize_button": "Authorize a device",
-        "enter_the_quick_connect_code": "Enter the code shown on the other device...",
-        "success": "Success",
-        "quick_connect_authorized": "Device linked",
-        "error": "Error",
-        "invalid_code": "Invalid code",
-        "authorize": "Authorize",
-        "paste_code": "Paste code"
-      },
       "link_device": {
         "title": "Link a device",
         "enter_code": "Enter the code shown on the other device",
         "description": "Enter the 6-digit code shown on the device you want to link.",
-        "linked": "Device linked"
+        "linked": "Device linked",
+        "paste_code": "Paste code",
+        "authorize": "Authorize",
+        "invalid_code": "That code did not work. Check it and try again."
       },
       "media_controls": {
         "media_controls_title": "Media controls",
