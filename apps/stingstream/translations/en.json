@@ -19,7 +19,12 @@
     "login_button": "Log in",
     "quick_connect": "Sign in with a code",
     "sign_in_with_code": "Sign in with a code",
-    "enter_code_to_login": "Enter code {{code}} to log in",
+    "sign_in_with_password": "Sign in with password",
+    "link_code_instructions": "On your phone or computer, open StingStream, go to Settings, choose Link a device, and enter this code.",
+    "link_code_waiting": "Waiting for you to enter this code…",
+    "link_code_unavailable": "Code sign-in is turned off on this server.",
+    "logging_in": "Logging in...",
+    "logging_in_description": "Connecting to your server",
     "quick_connect_instructions": "Enter this code on a signed-in device. You'll be logged in automatically.",
     "tap_code_to_copy": "Tap the code to copy it",
     "code_copied": "Code copied",
@@ -42,6 +47,9 @@
   },
   "server": {
     "enter_url_to_jellyfin_server": "Enter the address of your StingStream server",
+    "enter_node_address": "Enter your StingStream server's address",
+    "found_on_network": "Found on your network",
+    "enter_address": "Enter an address",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "Connect",
     "previous_servers": "Previous servers",
@@ -64,7 +72,6 @@
     "remove_server_description": "This will remove {{server}} and all saved accounts from your list.",
     "select_your_server": "Select your server",
     "add_server_to_get_started": "Add a server to get started",
-    "add_server": "Add server",
     "change_server": "Change server",
     "swipe_for_options": "Swipe a server for options"
   },
@@ -653,7 +660,6 @@
     }
   },
   "common": {
-    "app_name": "StingStream",
     "no_results": "No results",
     "no_trailer_available": "No trailer available",
     "video": "Video",
@@ -1161,36 +1167,6 @@
       "show": "This show",
       "all": "All media (default)"
     }
-  },
-  "companion_login": {
-    "title": "Pair with TV",
-    "align_qr": "Align the QR code within the frame",
-    "enter_code_manually": "Enter code manually",
-    "pairing_enter_credentials": "Enter credentials for TV",
-    "pairing_code_label": "Pairing code",
-    "server": "Server",
-    "authorize_button": "Authorize",
-    "authorizing": "Authorizing...",
-    "scan_again": "Scan again",
-    "done": "Done",
-    "success_title": "Authorization sent",
-    "pairing_tv_connecting": "The TV is connecting to your account",
-    "error_title": "Authorization failed",
-    "error_invalid_qr": "Invalid QR code. Please scan the TV pairing code.",
-    "error_generic": "Something went wrong. Please try again.",
-    "error_permission_denied": "Camera permission is required to scan QR codes.",
-    "login_as": "Log in as {{username}}?",
-    "on_server": "on {{server}}",
-    "use_different_user": "Use a different user",
-    "open_settings": "Open Settings"
-  },
-  "pairing": {
-    "pair_with_phone": "Pair with phone",
-    "pair_with_phone_title": "Log in on TV",
-    "waiting_for_phone": "Waiting for phone...",
-    "scan_with_phone": "Scan with the StingStream app on your phone",
-    "logging_in": "Logging in...",
-    "logging_in_description": "Connecting to your server"
   },
   "custom_headers": {
     "title": "Custom headers",
