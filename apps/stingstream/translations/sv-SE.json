@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Servern har fått för många förfrågningar, försök igen senare.",
     "there_is_a_server_error": "Ett serverfel uppstod",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Ett oväntat fel uppstod. Har du angett serverns URL korrekt?",
-    "too_old_server_text": "Jellyfin Servern Stöds Inte",
-    "too_old_server_description": "Var God Uppdatera Jellyfin Till Den Senaste Versionen"
+    "too_old_server_text": "StingStream Servern Stöds Inte",
+    "too_old_server_description": "Var God Uppdatera StingStream Till Den Senaste Versionen"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Ange webbadressen till din Jellyfin server",
+    "enter_url_to_jellyfin_server": "Ange webbadressen till din StingStream server",
     "server_url_placeholder": "http(s)://din-server.se",
     "connect_button": "Anslut",
     "previous_servers": "Tidigare Servrar",
@@ -114,16 +114,16 @@
     "suggested_movies": "Filmförslag",
     "suggested_episodes": "Föreslagna avsnitt",
     "intro": {
-      "welcome_to_streamyfin": "Välkommen till Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "En gratis klient för Jellyfin med öppen källkod.",
+      "welcome_to_streamyfin": "Välkommen till StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "En gratis klient för StingStream med öppen källkod.",
       "features_title": "Funktioner",
-      "features_description": "Streamyfin har en massa funktioner och fungerar med annan programvara. Du hittar dem i inställningsmenyn:",
+      "features_description": "StingStream har en massa funktioner och fungerar med annan programvara. Du hittar dem i inställningsmenyn:",
       "jellyseerr_feature_description": "Anslut till din Seerr instans och begär filmer direkt i appen.",
       "downloads_feature_title": "Nedladdningar",
       "downloads_feature_description": "Ladda ner filmer och tv-program för att titta på offline. Använd antingen standardmetoden eller installera optimera servern för att ladda ner filer i bakgrunden.",
       "chromecast_feature_description": "Strömma filmer och tv-program till dina Chromecast-enheter.",
       "centralised_settings_plugin_title": "Plugin för centraliserade inställningar",
-      "centralised_settings_plugin_description": "Konfigurera inställningar centralt på din Jellyfin-server. Alla användares klientinställningar synkroniseras automatiskt.",
+      "centralised_settings_plugin_description": "Konfigurera inställningar centralt på din StingStream-server. Alla användares klientinställningar synkroniseras automatiskt.",
       "done_button": "Klar",
       "go_to_settings_button": "Gå till Inställningar",
       "read_more": "Läs mer"
@@ -275,7 +275,6 @@
         "audio_title": "Ljudinställningar",
         "set_audio_track": "Ställ in ljudspår från tidigare video",
         "audio_language": "Ljudspråk",
-        "audio_hint": "Välj ett standardspråk för ljud.",
         "none": "Inga",
         "original_language": "Originalspråk",
         "language": "Språk",
@@ -290,7 +289,6 @@
       },
       "subtitles": {
         "subtitle_title": "Undertexter",
-        "subtitle_hint": "Konfigurera hur undertexter ser ut och beter sig.",
         "subtitle_language": "Språk för undertexter",
         "subtitle_mode": "Undertextläge",
         "set_subtitle_track": "Ställ in undertextspråk från tidigare video",
@@ -298,7 +296,6 @@
         "subtitle_size": "Undertextstorlek",
         "none": "Inga",
         "language": "Språk",
-        "loading": "Läser in",
         "modes": {
           "Default": "Förval",
           "Smart": "Smart",
@@ -307,18 +304,10 @@
           "OnlyForced": "Bara Tvingande"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Ange din OpenSubtitles API-nyckel för att aktivera klientbaserad undertextsökning som reserv när din Jellyfin-server inte har en undertextleverantör konfigurerad.",
+        "opensubtitles_hint": "Ange din OpenSubtitles API-nyckel för att aktivera klientbaserad undertextsökning som reserv när din StingStream-server inte har en undertextleverantör konfigurerad.",
         "opensubtitles_api_key": "API-nyckel",
         "opensubtitles_api_key_placeholder": "Ange API-nyckel...",
         "opensubtitles_get_key": "Skaffa din gratis API-nyckel på opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "Undertextskala",
-        "mpv_subtitle_margin_y": "Vertikal marginal",
-        "mpv_subtitle_align_x": "Horisontell justering",
-        "mpv_subtitle_align_y": "Vertikal justering",
-        "mpv_settings_title": "MPV-undertextinställningar",
-        "mpv_settings_description": "Avancerad anpassning av undertexter för MPV-spelaren",
-        "opaque_background": "Ogenomskinlig bakgrund",
-        "background_opacity": "Bakgrundsopacitet",
         "align": {
           "left": "Vänster",
           "center": "Mitten",
@@ -371,15 +360,15 @@
       "plugins": {
         "plugins_title": "Tillägg",
         "wikidata_awards": "Utmärkelser från Wikidata",
-        "wikidata_awards_hint": "Visa Oscars- och utmärkelsestatus på film- och seriesidor. Enheten frågar Wikidata direkt, inte din Jellyfin-server.",
+        "wikidata_awards_hint": "Visa Oscars- och utmärkelsestatus på film- och seriesidor. Enheten frågar Wikidata direkt, inte din StingStream-server.",
         "opensubtitles_enabled": "Sök på OpenSubtitles",
-        "opensubtitles_enabled_hint": "Låt den här enheten söka direkt hos OpenSubtitles när din Jellyfin-server saknar undertextleverantör. Om du stänger av detta sker undertextsökningar på servern och en sparad API-nyckel lämnas orörd.",
+        "opensubtitles_enabled_hint": "Låt den här enheten söka direkt hos OpenSubtitles när din StingStream-server saknar undertextleverantör. Om du stänger av detta sker undertextsökningar på servern och en sparad API-nyckel lämnas orörd.",
         "jellyseerr": {
           "server_url": "Serveradress",
           "server_url_hint": "Exempel: http(s)://your-host.url\n(lägg till port vid behov)",
           "server_url_placeholder": "Seerr URL",
           "password": "Lösenord",
-          "password_placeholder": "Ange lösenord för Jellyfin användare {{username}}",
+          "password_placeholder": "Ange lösenord för StingStream användare {{username}}",
           "login_button": "Login",
           "total_media_requests": "Totalt antal mediaförfrågningar",
           "movie_quota_limit": "Gräns för filmkvot",
@@ -387,7 +376,7 @@
           "tv_quota_limit": "Gräns för TV-kvot",
           "tv_quota_days": "Tv-kvot Dagar",
           "auto_login_title": "Logga in automatiskt",
-          "auto_login_description": "Logga in på Seerr vid start med ditt Jellyfin-lösenord. Lösenordet sparas i enhetens säkra lagring och tas bort när du loggar ut.",
+          "auto_login_description": "Logga in på Seerr vid start med ditt StingStream-lösenord. Lösenordet sparas i enhetens säkra lagring och tas bort när du loggar ut.",
           "reset_jellyseerr_config_button": "Återställ Seerr Konfiguration",
           "unlimited": "Obegränsat",
           "plus_n_more": "+{{n}} mer",
@@ -438,7 +427,7 @@
       },
       "storage": {
         "storage_title": "Lagringsutrymme",
-        "app_usage": "Streamyfin {{usedSpace}}%",
+        "app_usage": "StingStream {{usedSpace}}%",
         "device_usage": "Telefon {{availableSpace}}%",
         "size_used": "{{used}} av {{total}} används",
         "delete_all_downloaded_files": "Ta bort alla nerladdade filer",
@@ -521,7 +510,7 @@
       "delete": "Radera",
       "delete_download": "Ta bort nedladdning",
       "something_went_wrong": "Något Gick Fel",
-      "could_not_get_stream_url_from_jellyfin": "Det gick inte att hämta strömadressen från Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Det gick inte att hämta strömadressen från StingStream",
       "eta": "ETA {{eta}}",
       "live_activity": {
         "downloading": "Laddar ner",
@@ -729,7 +718,7 @@
     "subtitle_search": "Sök & ladda ner",
     "download": "Ladda ner",
     "subtitle_download_hint": "Nedladdade undertexter sparas i ditt bibliotek",
-    "using_jellyfin_server": "Använder Jellyfin-server",
+    "using_jellyfin_server": "Använder StingStream-server",
     "language": "Språk",
     "results": "Resultat",
     "search_failed": "Sökningen misslyckades",
@@ -805,8 +794,7 @@
     "resume_playback": "Återuppta uppspelning",
     "resume_playback_description": "Vill du fortsätta där du slutade eller börja om från början?",
     "play_from_start": "Spela från början",
-    "continue_from": "Fortsätt från {{time}}",
-    "no_data_available": "Inga data tillgängliga"
+    "continue_from": "Fortsätt från {{time}}"
   },
   "live_tv": {
     "title": "Live TV",
@@ -1075,7 +1063,7 @@
     "pair_with_phone": "Parkoppla med telefon",
     "pair_with_phone_title": "Logga in på TV:n",
     "waiting_for_phone": "Väntar på telefonen...",
-    "scan_with_phone": "Skanna med Streamyfin-appen på din telefon",
+    "scan_with_phone": "Skanna med StingStream-appen på din telefon",
     "logging_in": "Loggar in...",
     "logging_in_description": "Ansluter till din server"
   }

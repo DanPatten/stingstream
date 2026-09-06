@@ -30,9 +30,11 @@ export class ServerTooOldError extends Error {
  */
 export class NotAJellyfinServerError extends Error {
   constructor() {
+    // Never shown to the user directly — Login.tsx catches this by `instanceof` and displays
+    // login.not_a_jellyfin_server_title/description instead. Worded the same way regardless,
+    // so a stack trace or Sentry report reads the same as what the user saw.
     super(
-      "That address answered, but it is not a Jellyfin server. StingStream nodes serve Jellyfin " +
-        "under /jellyfin - try adding it to the address.",
+      "That address answered, but it is not a StingStream server. Check the address and try again.",
     );
     this.name = "NotAJellyfinServerError";
   }

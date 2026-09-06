@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "サーバーにリクエストが多すぎます。後でもう一度お試しください。",
     "there_is_a_server_error": "サーバーエラーが発生しました",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "予期しないエラーが発生しました。サーバーのURLを正しく入力しましたか？",
-    "too_old_server_text": "サポートされていないJellyfinサーバー発見",
-    "too_old_server_description": "Jellyfinを最新バージョンにアップデートしてください"
+    "too_old_server_text": "サポートされていないStingStreamサーバー発見",
+    "too_old_server_description": "StingStreamを最新バージョンにアップデートしてください"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "JellyfinサーバーのURLを入力してください",
+    "enter_url_to_jellyfin_server": "StingStreamサーバーのURLを入力してください",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "接続",
     "previous_servers": "前のサーバー",
@@ -114,16 +114,16 @@
     "suggested_movies": "おすすめ映画",
     "suggested_episodes": "おすすめエピソード",
     "intro": {
-      "welcome_to_streamyfin": "Streamyfinへようこそ",
-      "a_free_and_open_source_client_for_jellyfin": "Jellyfinのためのフリーでオープンソースのクライアント。",
+      "welcome_to_streamyfin": "StingStreamへようこそ",
+      "a_free_and_open_source_client_for_jellyfin": "StingStreamのためのフリーでオープンソースのクライアント。",
       "features_title": "特長",
-      "features_description": "Streamyfinには多くの機能があり、他のソフトウェアとも連携します。設定メニューで確認できます：",
+      "features_description": "StingStreamには多くの機能があり、他のソフトウェアとも連携します。設定メニューで確認できます：",
       "jellyseerr_feature_description": "Jellyseerrインスタンスに接続し、アプリ内で直接映画をリクエストします。",
       "downloads_feature_title": "ダウンロード",
       "downloads_feature_description": "映画やテレビ番組をダウンロードしてオフラインで視聴します。デフォルトの方法を使用するか、バックグラウンドでファイルをダウンロードするために最適化されたサーバーをインストールしてください。",
       "chromecast_feature_description": "映画とテレビ番組をChromecastデバイスにキャストします。",
       "centralised_settings_plugin_title": "集中設定プラグイン",
-      "centralised_settings_plugin_description": "Jellyfinサーバーで設定を一元管理できます。すべてのユーザーのクライアント設定が自動的に同期されます。",
+      "centralised_settings_plugin_description": "StingStreamサーバーで設定を一元管理できます。すべてのユーザーのクライアント設定が自動的に同期されます。",
       "done_button": "完了",
       "go_to_settings_button": "設定に移動",
       "read_more": "続きを読む"
@@ -274,7 +274,6 @@
         "audio_title": "オーディオ",
         "set_audio_track": "前のアイテムからオーディオトラックを設定",
         "audio_language": "オーディオ言語",
-        "audio_hint": "デフォルトのオーディオ言語を選択します。",
         "none": "なし",
         "original_language": "オリジナル言語",
         "language": "言語",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "字幕",
-        "subtitle_hint": "字幕設定を構成します。",
         "subtitle_language": "字幕の言語",
         "subtitle_mode": "字幕モード",
         "set_subtitle_track": "前のアイテムから字幕トラックを設定",
@@ -297,7 +295,6 @@
         "subtitle_size": "字幕サイズ",
         "none": "なし",
         "language": "言語",
-        "loading": "ロード中",
         "modes": {
           "Default": "デフォルト",
           "Smart": "スマート",
@@ -306,18 +303,10 @@
           "OnlyForced": "強制のみ"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "OpenSubtitlesのAPIキーを入力すると、Jellyfinサーバーに字幕プロバイダーが設定されていない場合に、この端末から字幕を検索できます。",
+        "opensubtitles_hint": "OpenSubtitlesのAPIキーを入力すると、StingStreamサーバーに字幕プロバイダーが設定されていない場合に、この端末から字幕を検索できます。",
         "opensubtitles_api_key": "APIキー",
         "opensubtitles_api_key_placeholder": "APIキーを入力...",
         "opensubtitles_get_key": "無料のAPIキーは opensubtitles.com/en/consumers で取得できます",
-        "mpv_subtitle_scale": "字幕の大きさ",
-        "mpv_subtitle_margin_y": "垂直方向の余白",
-        "mpv_subtitle_align_x": "水平方向の配置",
-        "mpv_subtitle_align_y": "垂直方向の配置",
-        "mpv_settings_title": "MPV字幕設定",
-        "mpv_settings_description": "MPVプレーヤー向けの高度な字幕カスタマイズ",
-        "opaque_background": "不透明な背景",
-        "background_opacity": "背景の不透明度",
         "align": {
           "left": "左",
           "center": "中央",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "プラグイン",
         "wikidata_awards": "Wikidataの受賞歴",
-        "wikidata_awards_hint": "映画やシリーズのページにアカデミー賞や受賞状況を表示します。このデバイスはJellyfinサーバーではなくWikidataに直接問い合わせます。",
+        "wikidata_awards_hint": "映画やシリーズのページにアカデミー賞や受賞状況を表示します。このデバイスはStingStreamサーバーではなくWikidataに直接問い合わせます。",
         "opensubtitles_enabled": "OpenSubtitlesを検索",
-        "opensubtitles_enabled_hint": "Jellyfinサーバーに字幕プロバイダーがない場合、このデバイスから直接OpenSubtitlesを検索できるようにします。オフにすると字幕検索はサーバー側のままになり、保存済みのAPIキーはそのまま残ります。",
+        "opensubtitles_enabled_hint": "StingStreamサーバーに字幕プロバイダーがない場合、このデバイスから直接OpenSubtitlesを検索できるようにします。オフにすると字幕検索はサーバー側のままになり、保存済みのAPIキーはそのまま残ります。",
         "jellyseerr": {
           "server_url": "サーバーURL",
           "server_url_hint": "例: http(s)://your-host.url\n(必要に応じてポートを追加)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "パスワード",
-          "password_placeholder": "Jellyfinユーザー {{username}} のパスワードを入力してください",
+          "password_placeholder": "StingStreamユーザー {{username}} のパスワードを入力してください",
           "login_button": "ログイン",
           "total_media_requests": "メディアリクエストの合計",
           "movie_quota_limit": "映画のクオータ制限",
@@ -518,7 +507,7 @@
       "delete": "削除",
       "delete_download": "ダウンロードを削除",
       "something_went_wrong": "問題が発生しました",
-      "could_not_get_stream_url_from_jellyfin": "JellyfinからストリームURLを取得できませんでした",
+      "could_not_get_stream_url_from_jellyfin": "StingStreamからストリームURLを取得できませんでした",
       "eta": "残り {{eta}}",
       "live_activity": {
         "downloading": "ダウンロード中",
@@ -726,7 +715,7 @@
     "subtitle_search": "検索してダウンロード",
     "download": "ダウンロード",
     "subtitle_download_hint": "ダウンロードした字幕はライブラリに保存されます",
-    "using_jellyfin_server": "Jellyfinサーバーを使用中",
+    "using_jellyfin_server": "StingStreamサーバーを使用中",
     "language": "言語",
     "results": "結果",
     "search_failed": "検索に失敗しました",
@@ -801,8 +790,7 @@
     "resume_playback": "続きから再生",
     "resume_playback_description": "続きから再生しますか？それとも最初から再生しますか？",
     "play_from_start": "最初から再生",
-    "continue_from": "{{time}} から再生",
-    "no_data_available": "データがありません"
+    "continue_from": "{{time}} から再生"
   },
   "live_tv": {
     "title": "ライブTV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "スマートフォンとペアリング",
     "pair_with_phone_title": "テレビでログイン",
     "waiting_for_phone": "スマートフォンを待っています...",
-    "scan_with_phone": "スマートフォンのStreamyfinアプリでスキャンしてください",
+    "scan_with_phone": "スマートフォンのStingStreamアプリでスキャンしてください",
     "logging_in": "ログイン中...",
     "logging_in_description": "サーバーに接続しています"
   }

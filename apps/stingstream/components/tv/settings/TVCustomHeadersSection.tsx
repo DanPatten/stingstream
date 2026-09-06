@@ -70,7 +70,7 @@ export function TVCustomHeadersSection({
       </Text>
 
       <TVCustomHeaderEditor
-        serviceLabel='Jellyfin'
+        serviceLabel='Server'
         headers={jellyfinHeaders}
         onHeadersChange={setJellyfinHeaders}
         onCommit={saveJellyfinHeaders}

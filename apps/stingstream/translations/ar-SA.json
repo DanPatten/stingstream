@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "تلقى الخادم عددًا كبيرًا جدًا من الطلبات، يرجى المحاولة مرة أخرى لاحقًا.",
     "there_is_a_server_error": "هناك خطأ في الخادم",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "حدث خطأ غير متوقع. هل أدخلت رابط الخادم بشكل صحيح؟",
-    "too_old_server_text": "تم اكتشاف خادم Jellyfin غير مدعوم",
-    "too_old_server_description": "يرجى تحديث Jellyfin إلى أحدث إصدار"
+    "too_old_server_text": "تم اكتشاف خادم StingStream غير مدعوم",
+    "too_old_server_description": "يرجى تحديث StingStream إلى أحدث إصدار"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "أدخل رابط خادم Jellyfin الخاص بك",
+    "enter_url_to_jellyfin_server": "أدخل رابط خادم StingStream الخاص بك",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "اتصل",
     "previous_servers": "الخوادم السابقة",
@@ -114,16 +114,16 @@
     "suggested_movies": "أفلام مقترحة",
     "suggested_episodes": "حلقات مقترحة",
     "intro": {
-      "welcome_to_streamyfin": "مرحبًا بك في Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "عميل مجاني ومفتوح المصدر لـJellyfin.",
+      "welcome_to_streamyfin": "مرحبًا بك في StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "عميل مجاني ومفتوح المصدر لـStingStream.",
       "features_title": "المزايا",
-      "features_description": "يحتوي Streamyfin على مجموعة من المزايا ويعمل مع برامج أخرى. ستجدها في قائمة الإعدادات:",
+      "features_description": "يحتوي StingStream على مجموعة من المزايا ويعمل مع برامج أخرى. ستجدها في قائمة الإعدادات:",
       "jellyseerr_feature_description": "اتصل بخادم Seerr الخاص بك واطلب الأفلام مباشرةً من التطبيق.",
       "downloads_feature_title": "التنزيلات",
       "downloads_feature_description": "نزل الأفلام والمسلسلات التلفزيونية لمشاهدتها في وضع عدم الاتصال. استخدم إما الطريقة الافتراضية أو قم بتثبيت الخادم المحسن لتنزيل الملفات في الخلفية.",
       "chromecast_feature_description": "بث الأفلام والبرامج التلفزيونية إلى أجهزة Chromecast الخاصة بك.",
       "centralised_settings_plugin_title": "إضافة الإعدادات المركزية",
-      "centralised_settings_plugin_description": "قم بتكوين الإعدادات مركزيًا على خادم Jellyfin الخاص بك. تتم مزامنة إعدادات العميل الخاصة بكل مستخدم تلقائيًا.",
+      "centralised_settings_plugin_description": "قم بتكوين الإعدادات مركزيًا على خادم StingStream الخاص بك. تتم مزامنة إعدادات العميل الخاصة بكل مستخدم تلقائيًا.",
       "done_button": "تم",
       "go_to_settings_button": "الذهاب إلى الإعدادات",
       "read_more": "اقرأ المزيد"
@@ -274,7 +274,6 @@
         "audio_title": "الصوت",
         "set_audio_track": "تعيين مسار الصوت من العنصر السابق",
         "audio_language": "لغة الصوت",
-        "audio_hint": "اختر لغة صوت افتراضية.",
         "none": "لا شيء",
         "original_language": "اللغة الأصلية",
         "language": "اللغة",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "الترجمة",
-        "subtitle_hint": "إعداد مظهر وسلوك الترجمة.",
         "subtitle_language": "لغة الترجمة",
         "subtitle_mode": "وضع الترجمة",
         "set_subtitle_track": "استخدام ترجمة العنصر السابق",
@@ -297,7 +295,6 @@
         "subtitle_size": "حجم الترجمة",
         "none": "لا شيء",
         "language": "اللغة",
-        "loading": "جار التحميل",
         "modes": {
           "Default": "افتراضي",
           "Smart": "ذكي",
@@ -306,18 +303,10 @@
           "OnlyForced": "فقط الإجبارية"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "أدخل مفتاح API الخاص بـ OpenSubtitles لتفعيل البحث عن الترجمات من الجهاز عندما لا يكون لدى خادم Jellyfin مزوّد ترجمات مُعدّ.",
+        "opensubtitles_hint": "أدخل مفتاح API الخاص بـ OpenSubtitles لتفعيل البحث عن الترجمات من الجهاز عندما لا يكون لدى خادم StingStream مزوّد ترجمات مُعدّ.",
         "opensubtitles_api_key": "مفتاح API",
         "opensubtitles_api_key_placeholder": "أدخل مفتاح API...",
         "opensubtitles_get_key": "احصل على مفتاح API المجاني من opensubtitles.com/ar/consumers",
-        "mpv_subtitle_scale": "حجم الترجمة",
-        "mpv_subtitle_margin_y": "الهامش الرأسي",
-        "mpv_subtitle_align_x": "المحاذاة الأفقية",
-        "mpv_subtitle_align_y": "المحاذاة الرأسية",
-        "mpv_settings_title": "إعدادات ترجمة MPV",
-        "mpv_settings_description": "تخصيص متقدم للترجمة في مشغل MPV",
-        "opaque_background": "خلفية غير شفافة",
-        "background_opacity": "عتامة الخلفية",
         "align": {
           "left": "يسار",
           "center": "وسط",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "الإضافات",
         "wikidata_awards": "الجوائز من Wikidata",
-        "wikidata_awards_hint": "إظهار جوائز الأوسكار وحالة الجوائز في صفحات الأفلام والمسلسلات. يستعلم هذا الجهاز من Wikidata مباشرةً، وليس من خادم Jellyfin الخاص بك.",
+        "wikidata_awards_hint": "إظهار جوائز الأوسكار وحالة الجوائز في صفحات الأفلام والمسلسلات. يستعلم هذا الجهاز من Wikidata مباشرةً، وليس من خادم StingStream الخاص بك.",
         "opensubtitles_enabled": "البحث في OpenSubtitles",
-        "opensubtitles_enabled_hint": "السماح لهذا الجهاز بالبحث في OpenSubtitles مباشرةً عندما لا يتوفر لدى خادم Jellyfin مزوّد ترجمات. عند التعطيل، تبقى عمليات البحث عن الترجمات على الخادم ولا يُمسّ مفتاح API المحفوظ.",
+        "opensubtitles_enabled_hint": "السماح لهذا الجهاز بالبحث في OpenSubtitles مباشرةً عندما لا يتوفر لدى خادم StingStream مزوّد ترجمات. عند التعطيل، تبقى عمليات البحث عن الترجمات على الخادم ولا يُمسّ مفتاح API المحفوظ.",
         "jellyseerr": {
           "server_url": "رابط الخادم",
           "server_url_hint": "مثال: http(s)://your-host.url\n(أضف المنفذ إذا لزم الأمر)",
           "server_url_placeholder": "رابط Seerr...",
           "password": "كلمة المرور",
-          "password_placeholder": "أدخل كلمة المرور لمستخدم Jellyfin {{username}}",
+          "password_placeholder": "أدخل كلمة المرور لمستخدم StingStream {{username}}",
           "login_button": "تسجيل الدخول",
           "total_media_requests": "إجمالي طلبات الوسائط",
           "movie_quota_limit": "حد حصة الأفلام",
@@ -518,7 +507,7 @@
       "delete": "حذف",
       "delete_download": "حذف التنزيل",
       "something_went_wrong": "حدث خطأ ما",
-      "could_not_get_stream_url_from_jellyfin": "تعذر الحصول على رابط البث من Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "تعذر الحصول على رابط البث من StingStream",
       "eta": "الوقت المتبقي {{eta}}",
       "live_activity": {
         "downloading": "جارٍ التنزيل",
@@ -726,7 +715,7 @@
     "subtitle_search": "بحث وتنزيل",
     "download": "تنزيل",
     "subtitle_download_hint": "سيتم حفظ الترجمات المنزّلة في مكتبتك",
-    "using_jellyfin_server": "استخدام خادم Jellyfin",
+    "using_jellyfin_server": "استخدام خادم StingStream",
     "language": "اللغة",
     "results": "النتائج",
     "search_failed": "فشل البحث",
@@ -801,8 +790,7 @@
     "resume_playback": "استئناف التشغيل",
     "resume_playback_description": "هل تريد المتابعة من حيث توقفت أم البدء من البداية؟",
     "play_from_start": "التشغيل من البداية",
-    "continue_from": "المتابعة من {{time}}",
-    "no_data_available": "لا توجد بيانات متاحة"
+    "continue_from": "المتابعة من {{time}}"
   },
   "live_tv": {
     "title": "البث المباشر",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "الاقتران بالهاتف",
     "pair_with_phone_title": "تسجيل الدخول على التلفاز",
     "waiting_for_phone": "في انتظار الهاتف...",
-    "scan_with_phone": "امسح باستخدام تطبيق Streamyfin على هاتفك",
+    "scan_with_phone": "امسح باستخدام تطبيق StingStream على هاتفك",
     "logging_in": "جارٍ تسجيل الدخول...",
     "logging_in_description": "جارٍ الاتصال بخادمك"
   }

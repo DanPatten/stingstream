@@ -20,7 +20,7 @@ export function RequiresAdmin({ children }: { children: React.ReactNode }) {
     return (
       <EmptyState
         title='Administrators only'
-        detail='This node manages Radarr, Sonarr and downloads through your Jellyfin admin account — sign in as an administrator to use it.'
+        detail='This server manages the movie manager, the series manager and downloads under your admin account — sign in as an administrator to use it.'
       />
     );
   }

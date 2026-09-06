@@ -13,17 +13,15 @@
     "got_it": "Komprenita",
     "connection_failed": "Konekto malsukcesis",
     "could_not_connect_to_server": "Ne povis konekti al la servilo. Bonvolu kontroli la URL-on kaj vian retan konekton.",
-    "an_unexpected_error_occured": "Neatendita eraro okazis",
     "change_server": "Ŝanĝi servilon",
     "invalid_username_or_password": "Nevalida uzantnomo aŭ pasvorto",
     "user_does_not_have_permission_to_log_in": "Uzanto ne havas permeson ensaluti",
     "server_is_taking_too_long_to_respond_try_again_later": "Servilo respondas tro malrapide, provu denove poste",
     "server_received_too_many_requests_try_again_later": "Servilo ricevis tro multajn petojn, provu denove poste.",
-    "there_is_a_server_error": "Estas servila eraro",
-    "an_unexpected_error_occured_did_you_enter_the_correct_url": "Neatendita eraro okazis. Ĉu vi enigis la ĝustan servilan URL-on?"
+    "there_is_a_server_error": "Estas servila eraro"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Enigu la URL-on al via Jellyfin-servilo",
+    "enter_url_to_jellyfin_server": "Enigu la URL-on al via StingStream-servilo",
     "server_url_placeholder": "http(s)://via-servilo.com",
     "connect_button": "Konekti",
     "previous_servers": "antaŭaj serviloj",
@@ -45,16 +43,16 @@
     "suggested_movies": "Sugestitaj Filmoj",
     "suggested_episodes": "Sugestitaj Epizodoj",
     "intro": {
-      "welcome_to_streamyfin": "Bonvenon al Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Senpaga kaj malfermfonta kliento por Jellyfin.",
+      "welcome_to_streamyfin": "Bonvenon al StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Senpaga kaj malfermfonta kliento por StingStream.",
       "features_title": "Trajtoj",
-      "features_description": "Streamyfin havas multajn trajtojn kaj integriĝas kun vasta gamo de programaroj, kiujn vi povas trovi en la agorda menuo, tiuj inkluzivas:",
+      "features_description": "StingStream havas multajn trajtojn kaj integriĝas kun vasta gamo de programaroj, kiujn vi povas trovi en la agorda menuo, tiuj inkluzivas:",
       "jellyseerr_feature_description": "Konekti al via Jellyseerr-instanco kaj peti filmojn rekte en la aplikaĵo.",
       "downloads_feature_title": "Elŝutoj",
       "downloads_feature_description": "Elŝutu filmojn kaj televidajn seriojn por vidi senkonekte. Uzu aŭ la defaŭltan metodon aŭ instalu la optimumigan servilon por elŝuti dosierojn en la fono.",
       "chromecast_feature_description": "Ĵetu filmojn kaj televidajn seriojn al viaj Chromecast-aparatoj.",
       "centralised_settings_plugin_title": "Centralizita Agorda Kromprogramo",
-      "centralised_settings_plugin_description": "Agordu agordojn de centralizita loko sur via Jellyfin-servilo. Ĉiuj klientaj agordoj por ĉiuj uzantoj estos sinkronigitaj aŭtomate.",
+      "centralised_settings_plugin_description": "Agordu agordojn de centralizita loko sur via StingStream-servilo. Ĉiuj klientaj agordoj por ĉiuj uzantoj estos sinkronigitaj aŭtomate.",
       "done_button": "Farite",
       "go_to_settings_button": "Iri al agordoj",
       "read_more": "Legu pli"
@@ -74,7 +72,6 @@
         "authorize_button": "Aŭtorizi Rapidan Konekton",
         "enter_the_quick_connect_code": "Enigu la rapidan konektan kodon...",
         "success": "Sukceso",
-        "quick_connect_autorized": "Rapida Konekto aŭtorizita",
         "error": "Eraro",
         "invalid_code": "Nevalida kodo",
         "authorize": "Aŭtorizi"
@@ -89,7 +86,6 @@
         "audio_title": "Audio",
         "set_audio_track": "Agordi Aŭdian Trakon De Antaŭa Ero",
         "audio_language": "Aŭdia lingvo",
-        "audio_hint": "Elektu defaŭltan aŭdian lingvon.",
         "none": "Neniu",
         "language": "Lingvo"
       },
@@ -99,10 +95,8 @@
         "subtitle_mode": "Subteksta Reĝimo",
         "set_subtitle_track": "Agordi Subtekstan Trakon De Antaŭa Ero",
         "subtitle_size": "Subteksta Grandeco",
-        "subtitle_hint": "Agordu subtekstan preferon.",
         "none": "Neniu",
         "language": "Lingvo",
-        "loading": "Ŝarĝante",
         "modes": {
           "Default": "Defaŭlta",
           "Smart": "Inteligenta",
@@ -128,40 +122,19 @@
           "UNKNOWN": "Nekonata"
         },
         "safe_area_in_controls": "Sekura areo en kontroloj",
-        "video_player": "Video-ludilo",
-        "video_players": {
-          "VLC_3": "VLC 3",
-          "VLC_4": "VLC 4 (Eksperimenta + PiP)"
-        },
         "show_custom_menu_links": "Montri Proprajn Menuajn Ligilojn",
         "hide_libraries": "Kaŝi Bibliotekojn",
-        "select_liraries_you_want_to_hide": "Elektu la bibliotekojn, kiujn vi volas kaŝi de la Biblioteka langeto kaj hejmpaĝaj sekcioj.",
         "disable_haptic_feedback": "Malŝalti Haptan Rimarkon",
         "default_quality": "Defaŭlta kvalito"
-      },
-      "downloads": {
-        "downloads_title": "Elŝutoj",
-        "optimized_versions_server": "Optimumigitaj versioj servilo",
-        "save_button": "Konservi",
-        "optimized_server": "Optimumigita Servilo",
-        "optimized": "Optimumigita",
-        "default": "Defaŭlta",
-        "optimized_version_hint": "Enigu la URL-on por la optimumiga servilo. La URL devus inkluzivi http aŭ https kaj laŭvole la pordon.",
-        "read_more_about_optimized_server": "Legu pli pri la optimumiga servilo.",
-        "url": "URL",
-        "server_url_placeholder": "http(s)://domajno.org:pordo"
       },
       "plugins": {
         "plugins_title": "Kromprogramoj",
         "jellyseerr": {
-          "jellyseerr_warning": "Ĉi tiu integriĝo estas en siaj fruaj stadioj. Atendu ŝanĝojn.",
           "server_url": "Servila URL",
           "server_url_hint": "Ekzemplo: http(s)://via-gastiganto.url\n(aldonu pordon se necese)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "Pasvorto",
-          "password_placeholder": "Enigu pasvorton por Jellyfin-uzanto {{username}}",
-          "save_button": "Konservi",
-          "clear_button": "Forviŝi",
+          "password_placeholder": "Enigu pasvorton por StingStream-uzanto {{username}}",
           "login_button": "Ensaluti",
           "total_media_requests": "Totalaj mediaj petoj",
           "movie_quota_limit": "Filma kvota limo",
@@ -211,16 +184,10 @@
       "languages": {
         "title": "Lingvoj",
         "app_language": "Aplikaĵa lingvo",
-        "app_language_description": "Elektu la lingvon por la aplikaĵo.",
         "system": "Sistemo"
       },
       "toasts": {
-        "error_deleting_files": "Eraro forigante dosierojn",
-        "background_downloads_enabled": "Fonaj elŝutoj ebligitaj",
-        "background_downloads_disabled": "Fonaj elŝutoj malŝaltitaj",
-        "connected": "Konektita",
-        "could_not_connect": "Ne povis konekti",
-        "invalid_url": "Nevalida URL"
+        "error_deleting_files": "Eraro forigante dosierojn"
       }
     },
     "sessions": {
@@ -231,9 +198,6 @@
       "downloads_title": "Elŝutoj",
       "series": "Televidaj serioj",
       "movies": "Filmoj",
-      "queue": "Vico",
-      "queue_hint": "Vico kaj elŝutoj perdiĝos ĉe aplikaĵa rekomenco",
-      "no_items_in_queue": "Neniuj eroj en vico",
       "no_downloaded_items": "Neniuj elŝutitaj eroj",
       "delete_all_movies_button": "Forigi ĉiujn Filmojn",
       "delete_all_series_button": "Forigi ĉiujn Televidajn Seriojn",
@@ -246,9 +210,8 @@
       "back": "Reen",
       "delete": "Forigi",
       "something_went_wrong": "Io misfunkciis",
-      "could_not_get_stream_url_from_jellyfin": "Ne povis akiri la fluan URL-on de Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Ne povis akiri la fluan URL-on de StingStream",
       "eta": "ETA {{eta}}",
-      "methods": "Metodoj",
       "toasts": {
         "you_are_not_allowed_to_download_files": "Vi ne rajtas elŝuti dosierojn.",
         "deleted_all_movies_successfully": "Sukcese forigis ĉiujn filmojn!",
@@ -256,27 +219,13 @@
         "deleted_all_series_successfully": "Sukcese forigis ĉiujn Televidajn Seriojn!",
         "failed_to_delete_all_series": "Malsukcesis forigi ĉiujn Televidajn Seriojn",
         "download_cancelled": "Elŝuto nuligita",
-        "could_not_cancel_download": "Ne povis nuligi elŝuton",
         "download_completed": "Elŝuto finita",
-        "download_started_for": "Elŝuto komenciĝis por {{item}}",
-        "item_is_ready_to_be_downloaded": "{{item}} estas preta por esti elŝutita",
-        "download_stated_for_item": "Elŝuto komenciĝis por {{item}}",
         "download_failed_for_item": "Elŝuto malsukcesis por {{item}} - {{error}}",
-        "download_completed_for_item": "Elŝuto finita por {{item}}",
-        "queued_item_for_optimization": "Envicigis {{item}} por optimumigo",
-        "failed_to_start_download_for_item": "Malsukcesis komenci elŝutadon por {{item}}: {{message}}",
-        "server_responded_with_status_code": "Servilo respondis kun statuskodo {{statusCode}}",
-        "no_response_received_from_server": "Neniu respondo ricevita de la servilo",
-        "error_setting_up_the_request": "Eraro starigante la peton",
-        "failed_to_start_download_for_item_unexpected_error": "Malsukcesis komenci elŝutadon por {{item}}: Neatendita eraro",
-        "all_files_folders_and_jobs_deleted_successfully": "Ĉiuj dosieroj, dosierujoj kaj taskoj sukcese forigitaj",
-        "an_error_occured_while_deleting_files_and_jobs": "Eraro okazis dum forigo de dosieroj kaj taskoj",
-        "go_to_downloads": "Iri al elŝutoj"
+        "download_completed_for_item": "Elŝuto finita por {{item}}"
       }
     }
   },
   "search": {
-    "search_here": "Serĉu ĉi tie...",
     "search": "Serĉi...",
     "x_items": "{{count}} eroj",
     "library": "Biblioteko",
@@ -313,7 +262,6 @@
     "tmdb_tv_streaming_services": "TMDB Televidaj Fluservoj"
   },
   "library": {
-    "no_items_found": "Neniuj eroj trovitaj",
     "no_results": "Neniuj rezultoj",
     "no_libraries_found": "Neniuj bibliotekoj trovitaj",
     "item_types": {
@@ -358,19 +306,11 @@
   "player": {
     "error": "Eraro",
     "failed_to_get_stream_url": "Malsukcesis akiri la fluan URL-on",
-    "an_error_occured_while_playing_the_video": "Eraro okazis dum ludado de la video. Kontrolu protokolojn en agordoj.",
     "client_error": "Klienta eraro",
     "could_not_create_stream_for_chromecast": "Ne povis krei fluon por Chromecast",
     "message_from_server": "Mesaĝo de servilo: {{message}}",
-    "video_has_finished_playing": "Video finis ludi!",
-    "no_video_source": "Neniu video-fonto...",
     "next_episode": "Sekva Epizodo",
-    "refresh_tracks": "Refreŝigi Trakojn",
-    "subtitle_tracks": "Subtekstaj Trakoj:",
-    "audio_tracks": "Aŭdiaj Trakoj:",
-    "playback_state": "Ludada Stato:",
-    "no_data_available": "Neniuj datumoj disponeblaj",
-    "index": "Indekso:"
+    "subtitle_tracks": "Subtekstaj Trakoj:"
   },
   "item_card": {
     "next_up": "Sekva",
@@ -400,15 +340,12 @@
       "download_episode": "Elŝuti Epizodon",
       "download_movie": "Elŝuti Filmon",
       "download_x_item": "Elŝuti {{item_count}} erojn",
-      "download_button": "Elŝuti",
-      "using_optimized_server": "Uzante optimumigitan servilon",
-      "using_default_method": "Uzante defaŭltan metodon"
+      "download_button": "Elŝuti"
     }
   },
   "live_tv": {
     "next": "Sekva",
     "previous": "Antaŭa",
-    "live_tv": "Viva Televido",
     "coming_soon": "Baldaŭ",
     "on_now": "Nun",
     "shows": "Spektakloj",
@@ -457,7 +394,6 @@
     "born": "Naskiĝis",
     "appearances": "Aperoj",
     "toasts": {
-      "jellyseer_does_not_meet_requirements": "Jellyseerr-servilo ne plenumas minimumajn versiajn postulojn! Bonvolu ĝisdatigi al almenaŭ 2.0.0",
       "jellyseerr_test_failed": "Jellyseerr-testo malsukcesis. Bonvolu provi denove.",
       "failed_to_test_jellyseerr_server_url": "Malsukcesis testi jellyseerr-servilan url-on",
       "issue_submitted": "Problemo sendita!",

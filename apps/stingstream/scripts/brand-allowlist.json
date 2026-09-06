@@ -1,0 +1,32 @@
+[
+  {
+    "file": "providers/JellyfinProvider.tsx",
+    "substring": "Failed to initialize Jellyfin synchronously in state",
+    "reason": "console.error diagnostic (Sentry/dev console only) describing the underlying Jellyfin SDK client object failing to construct — never rendered in the app UI."
+  },
+  {
+    "file": "providers/JellyfinProvider.tsx",
+    "substring": "Jellyfin not initialized",
+    "reason": "Internal guard-clause Error thrown when the Jellyfin SDK client instance is missing — an invariant violation surfaced only in a stack trace / Sentry report, never shown to the user."
+  },
+  {
+    "file": "providers/JellyfinProvider.tsx",
+    "substring": "Jellyfin startup initialization failed",
+    "reason": "logAndCaptureError diagnostic message (Sentry), not user-visible UI text."
+  },
+  {
+    "file": "utils/jellyfin/checkServer.ts",
+    "substring": "answered, but it is not Jellyfin; trying",
+    "reason": "writeInfoLog diagnostic line (app log file), not shown to the user — the user-facing text for this situation is login.not_a_jellyfin_server_title/description in translations/en.json."
+  },
+  {
+    "file": "utils/jellyfin/checkServer.ts",
+    "substring": "answered 200 with JSON that is not a Jellyfin document",
+    "reason": "writeToLog diagnostic line (app log file), not shown to the user."
+  },
+  {
+    "file": "utils/serverUrl/probes/jellyfin.ts",
+    "substring": "Jellyfin Server",
+    "reason": "Matched against the real, hardcoded `ProductName` field Jellyfin's own /System/Info/Public endpoint returns — a technical fact about the upstream API this probe verifies, not a name StingStream chose or can rename."
+  }
+]

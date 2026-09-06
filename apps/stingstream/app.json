@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "StingStream",
-    "slug": "streamyfin",
+    "slug": "stingstream",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "streamyfin",
+    "scheme": "stingstream",
     "userInterfaceStyle": "dark",
     "platforms": ["ios", "android", "web"],
     "web": {
@@ -24,8 +24,8 @@
         "NSCameraUsageDescription": "The app needs access to your camera to scan barcodes.",
         "NSMicrophoneUsageDescription": "The app needs access to your microphone.",
         "UIBackgroundModes": ["audio", "fetch"],
-        "NSLocalNetworkUsageDescription": "The app needs access to your local network to connect to your Jellyfin server.",
-        "NSLocationWhenInUseUsageDescription": "Streamyfin uses your location to detect your home WiFi network for automatic local server switching.",
+        "NSLocalNetworkUsageDescription": "The app needs access to your local network to connect to your StingStream server.",
+        "NSLocationWhenInUseUsageDescription": "StingStream uses your location to detect your home WiFi network for automatic local server switching.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
@@ -43,7 +43,7 @@
       "entitlements": {
         "com.apple.developer.networking.wifi-info": true
       },
-      "bundleIdentifier": "com.fredrikburmester.streamyfin",
+      "bundleIdentifier": "org.stingstream.app",
       "icon": "./assets/images/icon-ios-liquid-glass.icon",
       "appleTeamId": "MWD5K362T8"
     },
@@ -176,7 +176,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification.png",
-          "color": "#9333EA"
+          "color": "#1FC7B5"
         }
       ],
       "expo-web-browser",

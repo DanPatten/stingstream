@@ -22,7 +22,7 @@
     "build",
     "translations"
   ],
-  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704).",
+  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3's LoginScreen/SignInForm and WP-TV-LOGIN's TVLinkCodeScreen and settings.tv.tsx).",
   "ignoreUnused": [
     "watchlists.add_to_watchlist",
     "watchlists.remove_from_watchlist",
@@ -43,6 +43,8 @@
     "home.settings.logs.delete_all_logs",
     "home.suggested_episodes",
     "custom_headers.header_count_one",
-    "custom_headers.header_count_other"
+    "custom_headers.header_count_other",
+    "login.sign_in_with_code",
+    "home.settings.link_device.*"
   ]
 }

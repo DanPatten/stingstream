@@ -372,7 +372,7 @@ export function useMeshSourceStatus(
       // The URL was left alone, so the home node's gateway is proxying it through its own mesh.
       return {
         kind: "home-node",
-        label: "Via home node",
+        label: "Via your server",
         nodeName: null,
         rttMs: null,
       };

@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Ho'Do' veS lutlh ngeb petlh law'. pItlh yIHaD.",
     "there_is_a_server_error": "Ho'Do' veS ghIq maS",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "num ghIq Doch. URL mej Danej'a'?",
-    "too_old_server_text": "Server Jellyfin ngoq lo'laHbe'lu'bogh tu'lu'",
-    "too_old_server_description": "**Jellyfin chu'qu' Dotlh yIchoHmoH**"
+    "too_old_server_text": "Server StingStream ngoq lo'laHbe'lu'bogh tu'lu'",
+    "too_old_server_description": "**StingStream chu'qu' Dotlh yIchoHmoH**"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Jellyfin Ho'Do' veS URL yI'el",
+    "enter_url_to_jellyfin_server": "StingStream Ho'Do' veS URL yI'el",
     "server_url_placeholder": "http(s)://HoDo-veS.com",
     "connect_button": "yIngoq!",
     "previous_servers": "namen Ho'Do' veS",
@@ -114,16 +114,16 @@
     "suggested_movies": "rutlh DIS",
     "suggested_episodes": "rutlh Hem",
     "intro": {
-      "welcome_to_streamyfin": "Streamyfin yI'el!",
-      "a_free_and_open_source_client_for_jellyfin": "Jellyfin lut 'el je'be' 'ej wang.",
+      "welcome_to_streamyfin": "StingStream yI'el!",
+      "a_free_and_open_source_client_for_jellyfin": "StingStream lut 'el je'be' 'ej wang.",
       "features_title": "mIw",
-      "features_description": "Streamyfin mIw law' tu'. men menuDaq yISam:",
+      "features_description": "StingStream mIw law' tu'. men menuDaq yISam:",
       "jellyseerr_feature_description": "Jellyseerr yIngoq 'ej DIS pe'vIl yISov.",
       "downloads_feature_title": "Qaw' Doch",
       "downloads_feature_description": "DIS 'ej Hem Qaw'laH. Qaw' mIw tu'lu'.",
       "chromecast_feature_description": "DIS 'ej Hem Chromecast vI' ghoS.",
       "centralised_settings_plugin_title": "wa'DIch men mIw",
-      "centralised_settings_plugin_description": "Jellyfin Ho'Do' veSDaq men yISeH. tlhIngan chIch.",
+      "centralised_settings_plugin_description": "StingStream Ho'Do' veSDaq men yISeH. tlhIngan chIch.",
       "done_button": "Qapla'",
       "go_to_settings_button": "men yIghoS",
       "read_more": "yIlaDqa'"
@@ -274,7 +274,6 @@
         "audio_title": "QoQ",
         "set_audio_track": "namen Doch QoQ ret yISeH",
         "audio_language": "QoQ Hol",
-        "audio_hint": "QoQ Hol wa' yIwIv.",
         "none": "pagh",
         "original_language": "mung Hol",
         "language": "Hol",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "De' chu'",
-        "subtitle_hint": "De' chu' wIvlaw' yISeH.",
         "subtitle_language": "De' chu' Hol",
         "subtitle_mode": "De' chu' mIw",
         "set_subtitle_track": "namen Doch De' chu' ret yISeH",
@@ -297,7 +295,6 @@
         "subtitle_size": "De' chu' qIt",
         "none": "pagh",
         "language": "Hol",
-        "loading": "tlha'... ",
         "modes": {
           "Default": "wa'",
           "Smart": "SonchIy",
@@ -306,18 +303,10 @@
           "OnlyForced": "Dun je'"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Jellyfin ServerlIjvaD De' chu' nobwI' tu'be'lu'chugh, De'wI'vamvo' De' chu' Samlu'meH OpenSubtitles API ngoq yIghItlh.",
+        "opensubtitles_hint": "StingStream ServerlIjvaD De' chu' nobwI' tu'be'lu'chugh, De'wI'vamvo' De' chu' Samlu'meH OpenSubtitles API ngoq yIghItlh.",
         "opensubtitles_api_key": "API ngoq",
         "opensubtitles_api_key_placeholder": "API ngoq yIghItlh...",
         "opensubtitles_get_key": "opensubtitles.com/en/consumers-Daq API ngoq Huch Hutlhbogh yISuq",
-        "mpv_subtitle_scale": "De' chu' 'ab",
-        "mpv_subtitle_margin_y": "Dung bIng chev",
-        "mpv_subtitle_align_x": "poS nIH Daq",
-        "mpv_subtitle_align_y": "Dung bIng Daq",
-        "mpv_settings_title": "MPV De' chu' men",
-        "mpv_settings_description": "MPV chu'wI'vaD De' chu' nab qub",
-        "opaque_background": "tey bIng",
-        "background_opacity": "bIng teyghach",
         "align": {
           "left": "poS",
           "center": "botlh",
@@ -370,9 +359,9 @@
       "plugins": {
         "plugins_title": "mIwHom",
         "wikidata_awards": "Wikidata quv",
-        "wikidata_awards_hint": "DIS Hem je HaStaDaq Oscar quv je 'ang. De'wI'vam Wikidata ghel; Jellyfin Server ghelbe'.",
+        "wikidata_awards_hint": "DIS Hem je HaStaDaq Oscar quv je 'ang. De'wI'vam Wikidata ghel; StingStream Server ghelbe'.",
         "opensubtitles_enabled": "OpenSubtitles yISam",
-        "opensubtitles_enabled_hint": "Jellyfin ServerlIjvaD De' chu' nobwI' pagh 'e' qaSchugh, De'wI'vam OpenSubtitles Sam 'e' chaw'. Dachu'Ha'chugh Server Sam 'ej API ngoq polta' choHbe'.",
+        "opensubtitles_enabled_hint": "StingStream ServerlIjvaD De' chu' nobwI' pagh 'e' qaSchugh, De'wI'vam OpenSubtitles Sam 'e' chaw'. Dachu'Ha'chugh Server Sam 'ej API ngoq polta' choHbe'.",
         "jellyseerr": {
           "server_url": "Ho'Do' veS URL",
           "server_url_hint": "ghu': http(s)://HoDo-veS.url\n(pord yIbel)",
@@ -518,7 +507,7 @@
       "delete": "yIQaw'",
       "delete_download": "Doch Suqta' yIQaw'",
       "something_went_wrong": "Doch rurbe'",
-      "could_not_get_stream_url_from_jellyfin": "Jellyfin tlhol ret URL tu'laHbe'",
+      "could_not_get_stream_url_from_jellyfin": "StingStream tlhol ret URL tu'laHbe'",
       "eta": "poH {{eta}}",
       "live_activity": {
         "downloading": "SuqlI'",
@@ -726,7 +715,7 @@
     "subtitle_search": "yISam 'ej yISuq",
     "download": "Suq",
     "subtitle_download_hint": "De' chu' Suqta' De'wI' bomDaq pollu'",
-    "using_jellyfin_server": "Jellyfin Server lo'lu'",
+    "using_jellyfin_server": "StingStream Server lo'lu'",
     "language": "Hol",
     "results": "De'",
     "search_failed": "Sam luj",
@@ -801,8 +790,7 @@
     "resume_playback": "chu' yItaH",
     "resume_playback_description": "DamevDaqvo' DataH'a', pagh yItagh'a'?",
     "play_from_start": "taghDaqvo' yIchu'",
-    "continue_from": "{{time}}vo' yItaH",
-    "no_data_available": "De' pagh"
+    "continue_from": "{{time}}vo' yItaH"
   },
   "live_tv": {
     "title": "Live TV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "De'wI' yIrar",
     "pair_with_phone_title": "TVDaq yI'el",
     "waiting_for_phone": "De'wI' loStaH...",
-    "scan_with_phone": "De'wI'lIjDaq Streamyfin yIlo' 'ej yIlaD",
+    "scan_with_phone": "De'wI'lIjDaq StingStream yIlo' 'ej yIlaD",
     "logging_in": "'ellI'...",
     "logging_in_description": "ServerlIjDaq rarlI'"
   }

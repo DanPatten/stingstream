@@ -123,7 +123,7 @@ export function DiscoverSection() {
           {(search.data ?? []).length === 0 ? (
             <EmptyState
               title='Nothing found'
-              detail={`Neither Radarr nor Sonarr found anything for "${debounced.trim()}". Both have to be configured on this node for search to work.`}
+              detail={`Neither the movie manager nor the series manager found anything for "${debounced.trim()}". Both have to be configured on this server for search to work.`}
             />
           ) : (
             (search.data ?? []).map((result) => {

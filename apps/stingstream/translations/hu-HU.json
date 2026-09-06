@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "A szerver túl sok kérést kapott, próbáld újra később.",
     "there_is_a_server_error": "Szerverhiba történt",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Váratlan hiba történt. Helyesen adtad meg a szerver URL-jét?",
-    "too_old_server_text": "Nem Támogatott Jellyfin-szerver",
-    "too_old_server_description": "Frissítsd a Jellyfint a legújabb verzióra"
+    "too_old_server_text": "Nem Támogatott StingStream-szerver",
+    "too_old_server_description": "Frissítsd a StingStreamt a legújabb verzióra"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Add meg a Jellyfin szerver URL-jét",
+    "enter_url_to_jellyfin_server": "Add meg a StingStream szerver URL-jét",
     "server_url_placeholder": "http(s)://a-te-szervered.hu",
     "connect_button": "Csatlakozás",
     "previous_servers": "Előző Szerverek",
@@ -114,16 +114,16 @@
     "suggested_movies": "Javasolt Filmek",
     "suggested_episodes": "Javasolt Epizódok",
     "intro": {
-      "welcome_to_streamyfin": "Üdvözöljük a Streamyfinben",
-      "a_free_and_open_source_client_for_jellyfin": "Egy Ingyenes és Nyílt Forráskódú Jellyfin Kliens.",
+      "welcome_to_streamyfin": "Üdvözöljük a StingStreamben",
+      "a_free_and_open_source_client_for_jellyfin": "Egy Ingyenes és Nyílt Forráskódú StingStream Kliens.",
       "features_title": "Funkciók",
-      "features_description": "A Streamyfin számos funkcióval rendelkezik, és együttműködik más szoftverekkel is. Ezeket a beállítások menüben találod:",
+      "features_description": "A StingStream számos funkcióval rendelkezik, és együttműködik más szoftverekkel is. Ezeket a beállítások menüben találod:",
       "jellyseerr_feature_description": "Csatlakozz a Jellyseerrhez és kérj filmeket közvetlenül az alkalmazásból.",
       "downloads_feature_title": "Letöltések",
       "downloads_feature_description": "Töltsd le a filmeket és sorozatokat az offline megtekintéshez. Használhatod az alapértelmezett módszert, vagy telepítheted az 'optimise server'-t a háttérben történő letöltéshez.",
       "chromecast_feature_description": "Játszd le a filmeket és sorozatokat a  Chromecast eszközeiden.",
       "centralised_settings_plugin_title": "Központosított Beállítások Bővítmény",
-      "centralised_settings_plugin_description": "Konfiguráld a beállításokat központilag a Jellyfin szervereden. Minden felhasználó kliensbeállításai automatikusan szinkronizálódnak.",
+      "centralised_settings_plugin_description": "Konfiguráld a beállításokat központilag a StingStream szervereden. Minden felhasználó kliensbeállításai automatikusan szinkronizálódnak.",
       "done_button": "Kész",
       "go_to_settings_button": "Ugrás a Beállításokhoz",
       "read_more": "Bővebben"
@@ -274,7 +274,6 @@
         "audio_title": "Hang",
         "set_audio_track": "Hangsáv Beállítása az Előző Elemből",
         "audio_language": "Hangsáv Nyelve",
-        "audio_hint": "Válassz Alapértelmezett Hangsávnyelvet.",
         "none": "Nincs",
         "original_language": "Eredeti nyelv",
         "language": "Nyelv",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Feliratok",
-        "subtitle_hint": "Feliratbeállítások Megadása",
         "subtitle_language": "Felirat Nyelve",
         "subtitle_mode": "Felirat Módja",
         "set_subtitle_track": "Feliratsáv Beállítása az Előző Elemből",
@@ -297,7 +295,6 @@
         "subtitle_size": "Felirat Mérete",
         "none": "Nincs",
         "language": "Nyelv",
-        "loading": "Betöltés",
         "modes": {
           "Default": "Alapértelmezett",
           "Smart": "Intelligens",
@@ -306,18 +303,10 @@
           "OnlyForced": "Csak Kényszerített"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Add meg az OpenSubtitles API-kulcsodat, hogy erről az eszközről is lehessen feliratot keresni, ha a Jellyfin-kiszolgálódon nincs beállítva feliratszolgáltató.",
+        "opensubtitles_hint": "Add meg az OpenSubtitles API-kulcsodat, hogy erről az eszközről is lehessen feliratot keresni, ha a StingStream-kiszolgálódon nincs beállítva feliratszolgáltató.",
         "opensubtitles_api_key": "API-kulcs",
         "opensubtitles_api_key_placeholder": "Add meg az API-kulcsot...",
         "opensubtitles_get_key": "Szerezz ingyenes API-kulcsot: opensubtitles.com/hu/consumers",
-        "mpv_subtitle_scale": "Felirat mérete",
-        "mpv_subtitle_margin_y": "Függőleges margó",
-        "mpv_subtitle_align_x": "Vízszintes igazítás",
-        "mpv_subtitle_align_y": "Függőleges igazítás",
-        "mpv_settings_title": "MPV Feliratbeállítások",
-        "mpv_settings_description": "Fejlett felirat-testreszabás az MPV lejátszóhoz",
-        "opaque_background": "Átlátszatlan háttér",
-        "background_opacity": "Háttér átlátszatlansága",
         "align": {
           "left": "Balra",
           "center": "Középre",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Bővítmények",
         "wikidata_awards": "Díjak a Wikidatából",
-        "wikidata_awards_hint": "Oscar- és díjadatok megjelenítése a filmek és sorozatok oldalán. Ez az eszköz közvetlenül a Wikidatát kérdezi le, nem a Jellyfin-kiszolgálódat.",
+        "wikidata_awards_hint": "Oscar- és díjadatok megjelenítése a filmek és sorozatok oldalán. Ez az eszköz közvetlenül a Wikidatát kérdezi le, nem a StingStream-kiszolgálódat.",
         "opensubtitles_enabled": "Keresés az OpenSubtitles-ön",
-        "opensubtitles_enabled_hint": "Engedélyezi, hogy ez az eszköz közvetlenül az OpenSubtitles-ön keressen, ha a Jellyfin-kiszolgálódon nincs feliratszolgáltató. Kikapcsolva a feliratkeresés a kiszolgálón marad, és a mentett API-kulcs érintetlen marad.",
+        "opensubtitles_enabled_hint": "Engedélyezi, hogy ez az eszköz közvetlenül az OpenSubtitles-ön keressen, ha a StingStream-kiszolgálódon nincs feliratszolgáltató. Kikapcsolva a feliratkeresés a kiszolgálón marad, és a mentett API-kulcs érintetlen marad.",
         "jellyseerr": {
           "server_url": "Szerver URL",
           "server_url_hint": "Példa: http(s)://a-te-szolgáltatód.url\n(adj meg portot, ha szükséges)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "Jelszó",
-          "password_placeholder": "Add meg a {{username}} Jellyfin felhasználó jelszavát",
+          "password_placeholder": "Add meg a {{username}} StingStream felhasználó jelszavát",
           "login_button": "Bejelentkezés",
           "total_media_requests": "Összes Média Kérés",
           "movie_quota_limit": "Film Kvóta Limit",
@@ -518,7 +507,7 @@
       "delete": "Törlés",
       "delete_download": "Letöltés törlése",
       "something_went_wrong": "Hiba Történt",
-      "could_not_get_stream_url_from_jellyfin": "Nem sikerült lekérni a stream URL-t a Jellyfinből",
+      "could_not_get_stream_url_from_jellyfin": "Nem sikerült lekérni a stream URL-t a StingStreamből",
       "eta": "Várható Idő: {{eta}}",
       "live_activity": {
         "downloading": "Letöltés folyamatban",
@@ -726,7 +715,7 @@
     "subtitle_search": "Keresés és letöltés",
     "download": "Letöltés",
     "subtitle_download_hint": "A letöltött feliratok a könyvtáradba kerülnek",
-    "using_jellyfin_server": "Jellyfin-kiszolgáló használata",
+    "using_jellyfin_server": "StingStream-kiszolgáló használata",
     "language": "Nyelv",
     "results": "Találatok",
     "search_failed": "A keresés sikertelen",
@@ -801,8 +790,7 @@
     "resume_playback": "Lejátszás folytatása",
     "resume_playback_description": "Onnan folytatod, ahol abbahagytad, vagy elölről kezded?",
     "play_from_start": "Lejátszás elölről",
-    "continue_from": "Folytatás innen: {{time}}",
-    "no_data_available": "Nincs elérhető adat"
+    "continue_from": "Folytatás innen: {{time}}"
   },
   "live_tv": {
     "title": "Élő TV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Párosítás telefonnal",
     "pair_with_phone_title": "Bejelentkezés a tévén",
     "waiting_for_phone": "Várakozás a telefonra...",
-    "scan_with_phone": "Olvasd be a telefonodon lévő Streamyfin alkalmazással",
+    "scan_with_phone": "Olvasd be a telefonodon lévő StingStream alkalmazással",
     "logging_in": "Bejelentkezés...",
     "logging_in_description": "Csatlakozás a kiszolgálódhoz"
   }

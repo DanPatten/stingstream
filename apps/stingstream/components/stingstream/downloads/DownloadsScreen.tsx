@@ -48,7 +48,7 @@ export function DownloadsScreen() {
           textColor={torrents?.Running ? "default" : "red"}
         />
         <ListItem
-          title='Usenet engine (NZBGet)'
+          title='Usenet engine'
           subtitle={
             nzbget
               ? `${nzbget.state}${nzbget.restarts ? ` • ${nzbget.restarts} restart(s)` : ""}`
@@ -259,8 +259,8 @@ const STATES: Record<string, string> = {
 const ENGINES: Record<string, string> = {
   torrent: "torrent",
   usenet: "usenet",
-  radarr: "tracked by radarr",
-  sonarr: "tracked by sonarr",
+  radarr: "tracked by the movie manager",
+  sonarr: "tracked by the series manager",
 };
 
 function eta(seconds: number): string {

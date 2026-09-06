@@ -1,5 +1,6 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useQuery } from "@tanstack/react-query";
+import { BRAND } from "@/constants/brand";
 import { useSettings } from "@/utils/atoms/settings";
 import { markExpectedError } from "@/utils/errors";
 
@@ -13,7 +14,7 @@ const P_IMDB_ID = "P345";
 const STALE_TIME_MS = 24 * 60 * 60 * 1000;
 
 /** Wikimedia asks that clients identify themselves. */
-const USER_AGENT = "Streamyfin (https://github.com/streamyfin/streamyfin)";
+const USER_AGENT = BRAND.userAgent;
 
 const SEARCH_TIMEOUT_MS = 15000;
 /** The awards query walks award statements and is routinely slower. */
