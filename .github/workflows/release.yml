@@ -12,10 +12,19 @@
 #                              additionally installs its own .deb on the runner (a real Ubuntu VM
 #                              with real systemd -- see that job's own comment) and checks the
 #                              service actually starts.
-#   * `macos`               -- macos-14 (Apple Silicon) + macos-13 (Intel): real Mac hardware, so
-#                              this actually builds and smoke-tests the binary, unlike anything
-#                              possible on Dan's own machine. Unsigned, unnotarized -- see
-#                              docs/INSTALL.md "macOS" for exactly what that means for a user.
+#   * `macos`               -- both legs on macos-14 (Apple Silicon): real Mac hardware, so this
+#                              actually builds and smoke-tests the binary, unlike anything possible
+#                              on Dan's own machine. osx-x64 is cross-compiled here (rustup target
+#                              x86_64-apple-darwin; .NET's self-contained publish cross-publishes
+#                              for any RID regardless of host) and smoke-tested under Rosetta 2,
+#                              rather than natively -- GitHub retired the macos-13 (Intel) hosted
+#                              runner image in question during 2025 (github.blog/changelog/
+#                              2025-09-19-github-actions-macos-13-runner-image-is-closing-down),
+#                              which is what actually broke the v0.1.0-rc1 release run: the
+#                              osx-x64 job queued for over an hour against a runner label GitHub no
+#                              longer schedules, and never got a chance to fail loudly. Unsigned,
+#                              unnotarized -- see docs/INSTALL.md "macOS" for exactly what that
+#                              means for a user.
 #   * `android-unsigned`    -- best-effort, no rebuild: downloads the unsigned APKs app.yml's own
 #                              `android-release-unsigned` job already produces, if a run exists
 #                              for this commit (or, failing that, the most recent one on master).
@@ -335,7 +344,15 @@ jobs:
         include:
           - os: macos-14
             rid: osx-arm64
-          - os: macos-13
+          # Also macos-14, not macos-13: GitHub retired the macos-13 (Intel) hosted runner image
+          # during 2025 (github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-
+          # closing-down), so a job pinned to it no longer gets scheduled at all -- it just queues
+          # forever, which is what actually happened to v0.1.0-rc1's release run (over an hour
+          # queued, never started, this job's own 90-minute timeout-minutes never began counting
+          # because that budget only covers a *running* job, not time spent queued waiting for a
+          # runner). osx-x64 is cross-compiled on Apple Silicon instead -- see the steps below --
+          # and smoke-tested under Rosetta 2 rather than on native Intel silicon.
+          - os: macos-14
             rid: osx-x64
     steps:
       # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
@@ -347,6 +364,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch HEAD as of 2026-09-03
 
+      # Only osx-x64 needs this: dtolnay/rust-toolchain installs the host's own target
+      # (aarch64-apple-darwin) by default, and tools/package-node.sh already knows how to add
+      # `--target x86_64-apple-darwin` to its own `cargo build` when it detects a non-native RID
+      # (its `RUST_NATIVE` check) -- it just needs the target itself to already be installed.
+      - name: Add the x86_64-apple-darwin Rust target (osx-x64 cross-build)
+        if: matrix.rid == 'osx-x64'
+        run: rustup target add x86_64-apple-darwin
+
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: |
@@ -354,6 +379,10 @@ jobs:
             9.0.x
             10.0.x
 
+      # One asset either way: jellyfin-ffmpeg and nzbget both publish a single universal (multi-
+      # arch) macOS binary -- third_party/*/fetch-*.ps1's own PlatformPatterns has exactly one
+      # 'macos' entry, not one per architecture -- so this needs no RID-specific selection for
+      # either leg.
       - name: Fetch jellyfin-ffmpeg and nzbget (macos)
         run: |
           pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform macos
@@ -374,8 +403,17 @@ jobs:
       - name: Package the node
         run: bash tools/package-node.sh --rid ${{ matrix.rid }} --version "${{ needs.version.outputs.version }}"
 
+      # GitHub's Apple Silicon runner images ship Rosetta 2 already, but installing is idempotent
+      # and near-instant when it is -- cheap insurance against the osx-x64 smoke test below failing
+      # with an opaque "Bad CPU type in executable" instead of a clear step name.
+      - name: Ensure Rosetta 2 is available (osx-x64 runs under emulation on this arm64 runner)
+        if: matrix.rid == 'osx-x64'
+        run: softwareupdate --install-rosetta --agree-to-license
+
       # Real Mac hardware, unlike anywhere else in this project (docs/INSTALL.md) -- so this is a
       # genuine (if partial) proof the binary runs on macOS, not just that it cross-compiles.
+      # osx-arm64 runs natively; osx-x64 runs under Rosetta 2 on the same Apple Silicon runner
+      # (see the matrix comment above for why it is no longer built on real Intel silicon).
       # --print-runtime resolves config and exits without starting any child, which is what a
       # locally-built, non-quarantined binary can do here without hitting Gatekeeper at all; a
       # downloaded release tarball is a different story -- see docs/INSTALL.md for what that means
