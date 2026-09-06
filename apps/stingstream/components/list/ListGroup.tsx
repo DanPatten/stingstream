@@ -6,6 +6,7 @@ import React, {
   type ReactElement,
 } from "react";
 import { StyleSheet, View, type ViewProps, type ViewStyle } from "react-native";
+import { radius, tokens } from "@/constants/theme";
 import { Text } from "../common/Text";
 
 interface Props extends ViewProps {
@@ -13,6 +14,14 @@ interface Props extends ViewProps {
   description?: ReactElement;
 }
 
+/**
+ * A card of rows: the settings idiom the whole app is built out of.
+ *
+ * bg1 on the page's bg0, one hairline between rows and none at the ends, so a
+ * group reads as a single object rather than a stack of lines. The rules are
+ * cloned onto the children rather than drawn by each row, which is what keeps
+ * the last row's edge clean without every call site knowing its own index.
+ */
 export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
   title,
   children,
@@ -24,13 +33,27 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
   return (
     <View {...props}>
       {title ? (
-        <Text className='ml-4 mb-1 uppercase text-[#8E8D91] text-xs'>
+        <Text
+          variant='micro'
+          weight='semibold'
+          tone='tertiary'
+          style={{
+            marginLeft: 16,
+            marginBottom: 6,
+            textTransform: "uppercase",
+            letterSpacing: 0.6,
+          }}
+        >
           {title}
         </Text>
       ) : null}
       <View
-        style={[]}
-        className='flex flex-col rounded-xl overflow-hidden pl-0 bg-neutral-900'
+        style={{
+          flexDirection: "column",
+          borderRadius: radius.md,
+          overflow: "hidden",
+          backgroundColor: tokens.color.bg["1"],
+        }}
       >
         {Children.map(childrenArray, (child, index) => {
           if (isValidElement<{ style?: ViewStyle }>(child)) {
@@ -46,7 +69,9 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
           return child;
         })}
       </View>
-      {description && <View className='pl-4 mt-1'>{description}</View>}
+      {description && (
+        <View style={{ paddingLeft: 16, marginTop: 6 }}>{description}</View>
+      )}
     </View>
   );
 };
@@ -54,6 +79,6 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
 const styles = StyleSheet.create({
   borderBottom: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#3D3C40",
+    borderBottomColor: tokens.color.border.subtle,
   },
 });

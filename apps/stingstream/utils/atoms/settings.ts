@@ -11,6 +11,7 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import { BITRATES, type Bitrate } from "@/components/BitrateSelector";
+import { type AccentName, DEFAULT_ACCENT } from "@/constants/theme";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { logAndCaptureError, writeInfoLog } from "@/utils/log";
@@ -474,6 +475,14 @@ export type Settings = {
   // Appearance
   hideRemoteSessionButton: boolean;
   hideWatchlistsTab: boolean;
+  /**
+   * The accent colour, picked in Appearance. Teal is the brand colour and the
+   * default; the other two exist so the palette can be sanity-checked against
+   * real screens. NativeWind v2 compiles classes at build time, so this value
+   * only reaches the UI through `useTheme()` as an inline style — see
+   * `constants/theme.ts`.
+   */
+  accent: AccentName;
   // Audio look-ahead caching
   audioLookaheadEnabled: boolean;
   audioLookaheadCount: number;
@@ -631,6 +640,7 @@ export const defaultValues: Settings = {
   // Appearance
   hideRemoteSessionButton: false,
   hideWatchlistsTab: false,
+  accent: DEFAULT_ACCENT,
   // Audio look-ahead caching defaults
   audioLookaheadEnabled: true,
   audioLookaheadCount: 1,
