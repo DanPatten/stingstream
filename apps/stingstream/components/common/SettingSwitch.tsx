@@ -1,5 +1,9 @@
 import type React from "react";
-import { Platform, Switch, type SwitchProps, View } from "react-native";
+import { Platform, type SwitchProps, View } from "react-native";
+// The token-coloured wrapper, not react-native's own: RN's Switch defaults to
+// the platform accent, which is how the settings screens ended up green on iOS
+// and purple on Android. This file is about the Android layout box below.
+import { Switch } from "./Switch";
 
 /**
  * Settings toggle. Android's native Switch lays out ~40px tall / ~56px wide and

@@ -22,6 +22,7 @@ import { GlobalModal } from "@/components/GlobalModal";
 import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin";
 import { PendingAccountSaveModal } from "@/components/PendingAccountSaveModal";
 import { useInterFonts } from "@/constants/fonts";
+import { TVImageBudget } from "@/constants/TVImageBudget";
 import { tokens } from "@/constants/theme";
 import { enableTVMenuKeyInterception } from "@/hooks/useTVBackHandler";
 import i18n from "@/i18n";
@@ -147,14 +148,16 @@ SplashScreen.setOptions({
 // Cap expo-image's in-memory cache. Default is unbounded (maxMemoryCost=0),
 // which on a 2GB Android TV box leads to ~200MB of decoded backdrops/posters
 // pinned in RAM after browsing. Caps are intentionally tighter on TV (which
-// has less RAM and runs alongside libmpv/MediaCodec) than on mobile.
+// has less RAM and runs alongside libmpv/MediaCodec) than on mobile; the TV
+// numbers, and the disk-only rule the screens follow above 1 MiB decoded, live
+// in constants/TVImageBudget.ts.
 // Cost is measured in bytes of decoded bitmap (ARGB8888 = 4 bytes/pixel).
 try {
   Image.configureCache({
     maxMemoryCost: Platform.isTV
-      ? 8 * 1024 * 1024 // ~8 MB on TV
+      ? TVImageBudget.memoryCacheBytes
       : 128 * 1024 * 1024, // ~128 MB on mobile
-    maxDiskSize: 200 * 1024 * 1024, // 200 MB disk cache on all platforms
+    maxDiskSize: TVImageBudget.diskCacheBytes,
   });
 } catch {
   // configureCache is a no-op on some platforms/versions; safe to ignore.
@@ -684,6 +687,14 @@ function Layout() {
                                         />
                                         <Stack.Screen
                                           name='tv-account-select-modal'
+                                          options={{
+                                            headerShown: false,
+                                            presentation: "transparentModal",
+                                            animation: "fade",
+                                          }}
+                                        />
+                                        <Stack.Screen
+                                          name='(auth)/tv-link-device-modal'
                                           options={{
                                             headerShown: false,
                                             presentation: "transparentModal",

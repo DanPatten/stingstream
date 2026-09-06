@@ -10,11 +10,10 @@ import { TVChannelsGrid } from "@/components/livetv/TVChannelsGrid";
 import { TVLiveTVGuide } from "@/components/livetv/TVLiveTVGuide";
 import { TVLiveTVPlaceholder } from "@/components/livetv/TVLiveTVPlaceholder";
 import { TVTabButton } from "@/components/tv/TVTabButton";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
-const HORIZONTAL_PADDING = 60;
-const TOP_PADDING = 100;
 const SECTION_GAP = 24;
 
 type TabId =
@@ -43,6 +42,7 @@ export const TVLiveTVPage: React.FC = () => {
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
 
@@ -178,7 +178,8 @@ export const TVLiveTVPage: React.FC = () => {
       <View
         style={{
           gap: SECTION_GAP,
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
         }}
       >
         {sections.map((section) => (
@@ -221,8 +222,9 @@ export const TVLiveTVPage: React.FC = () => {
       {/* Header with Title and Tabs */}
       <View
         style={{
-          paddingTop: insets.top + TOP_PADDING,
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
           paddingBottom: 24,
         }}
       >

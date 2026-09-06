@@ -164,5 +164,22 @@
   "control": {
     "minTouchTarget": 44,
     "disabledOpacity": 0.45
+  },
+  "interaction": {
+    "$comment": [
+      "How a control answers a pointer, a key and a disabled flag.",
+      "Overlays are white at these alphas, laid over whatever surface the",
+      "control already has, so one pair of numbers covers every variant.",
+      "A disabled *filled* control fades its fill and its label by different",
+      "amounts on purpose: fading the whole thing uniformly leaves a legible",
+      "label on an almost-invisible fill, which reads as a link, not a",
+      "switched-off button."
+    ],
+    "hoverOverlay": 0.06,
+    "pressedOverlay": 0.1,
+    "disabledFillAlpha": 0.35,
+    "disabledLabelAlpha": 0.6,
+    "skeletonMinOpacity": 0.55,
+    "skeletonPulse": 1100
   }
 }

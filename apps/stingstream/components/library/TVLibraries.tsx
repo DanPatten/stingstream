@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -22,7 +23,6 @@ import { useSettings } from "@/utils/atoms/settings";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { scaleSize } from "@/utils/scaleSize";
 
-const HORIZONTAL_PADDING = scaleSize(80);
 const CARD_HEIGHT = scaleSize(220);
 const CARD_GAP = scaleSize(24);
 const SCALE_PADDING = scaleSize(20);
@@ -244,6 +244,7 @@ export const TVLibraries: React.FC = () => {
   const [user] = useAtom(userAtom);
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const router = useRouter();
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
@@ -402,7 +403,8 @@ export const TVLibraries: React.FC = () => {
         removeClippedSubviews={false}
         contentContainerStyle={{
           paddingBottom: scaleSize(40),
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
           paddingVertical: SCALE_PADDING,
         }}
       />

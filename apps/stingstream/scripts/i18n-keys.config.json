@@ -53,6 +53,10 @@
     "sharing.member_removed_result_one",
     "sharing.member_removed_result_other",
     "sharing.rotate_secret_result_one",
-    "sharing.rotate_secret_result_other"
+    "sharing.rotate_secret_result_other",
+    "tv.track_count_one",
+    "tv.track_count_other",
+    "tv.library.item_count_one",
+    "tv.library.item_count_other"
   ]
 }

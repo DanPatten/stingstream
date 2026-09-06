@@ -23,6 +23,7 @@ import { TVEpisodeList } from "@/components/series/TVEpisodeList";
 import { TVSeriesHeader } from "@/components/series/TVSeriesHeader";
 import { TVButton } from "@/components/tv/TVButton";
 import { TVFavoriteButton } from "@/components/tv/TVFavoriteButton";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useShuffleQueue } from "@/hooks/useShuffleQueue";
@@ -43,8 +44,6 @@ import { scaleSize } from "@/utils/scaleSize";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const HORIZONTAL_PADDING = scaleSize(80);
-const TOP_PADDING = scaleSize(140);
 const POSTER_WIDTH_PERCENT = 0.22;
 const SCALE_PADDING = scaleSize(20);
 
@@ -65,6 +64,7 @@ export const TVSeriesPage: React.FC<TVSeriesPageProps> = ({
   const typography = useScaledTVTypography();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const router = useRouter();
   const segments = useSegments();
   const from = (segments as string[])[2] || "(home)";
@@ -418,8 +418,9 @@ export const TVSeriesPage: React.FC<TVSeriesPageProps> = ({
         ref={mainScrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingTop: insets.top + TOP_PADDING,
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
           paddingBottom: insets.bottom + scaleSize(60),
         }}
         showsVerticalScrollIndicator={false}
@@ -586,7 +587,7 @@ export const TVSeriesPage: React.FC<TVSeriesPageProps> = ({
             scrollViewRef={episodeListRef}
             firstEpisodeRefSetter={setFirstEpisodeRef}
             emptyText={t("item_card.no_episodes_for_this_season")}
-            horizontalPadding={HORIZONTAL_PADDING}
+            horizontalPadding={sizes.layout.contentInsetLeft}
           />
         </View>
       </ScrollView>

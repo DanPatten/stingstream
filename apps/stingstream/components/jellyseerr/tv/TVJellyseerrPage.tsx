@@ -22,6 +22,7 @@ import { Loader } from "@/components/Loader";
 import { JellyserrRatings } from "@/components/Ratings";
 import { TVButton } from "@/components/tv";
 import { useTVFocusAnimation } from "@/components/tv/hooks/useTVFocusAnimation";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
@@ -161,6 +162,7 @@ const TVCastCard: React.FC<TVCastCardProps> = ({
 export const TVJellyseerrPage: React.FC = () => {
   const typography = useScaledTVTypography();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const params = useLocalSearchParams();
   const { t } = useTranslation();
   const router = useRouter();
@@ -483,9 +485,10 @@ export const TVJellyseerrPage: React.FC = () => {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingTop: insets.top + 140,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
           paddingBottom: insets.bottom + 60,
-          paddingHorizontal: insets.left + 80,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
         }}
         showsVerticalScrollIndicator={false}
       >

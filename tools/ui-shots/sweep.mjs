@@ -144,7 +144,17 @@ export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile
         return false;
       };
 
-      const all = Array.from(document.querySelectorAll("*"));
+      // F-36 (pass-02 critique): WP-GATE's injected `<script>window.__STINGSTREAM_NODE__={...
+      // "jellyfin":"/jellyfin" ...}</script>` marker has a text-node child (its own source code) --
+      // `hasDirectText` sees that exactly like any other element's text, so without this exclusion
+      // the brand-word and i18n-key checks below flag the marker's "jellyfin" *path value* as if it
+      // were visible copy. `<meta name="stingstream-node">` is included too per the critique, even
+      // though a <meta> has no text-node children today (its brand-relevant data lives in an
+      // attribute, not text) -- excluded outright so a future change to what it carries can't
+      // resurface this. `style`/`noscript`/`title` are the same class of "has text, never rendered
+      // as copy" element and are excluded for the same reason, not just for this one marker.
+      const IGNORED_SELECTOR = 'script, style, noscript, title, meta[name="stingstream-node"]';
+      const all = Array.from(document.querySelectorAll("*")).filter((el) => !el.matches(IGNORED_SELECTOR));
 
       // Per-element overflow: an element whose own content is wider than its box, on an element
       // that actually carries text (a wrapper with an overflowing child is that child's finding,

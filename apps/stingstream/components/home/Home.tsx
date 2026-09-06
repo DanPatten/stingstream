@@ -12,7 +12,7 @@ import {
   getUserViewsApi,
 } from "@jellyfin/sdk/lib/utils/api";
 import { type QueryFunction, useQuery } from "@tanstack/react-query";
-import { useNavigation, useSegments } from "expo-router";
+import { useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,8 +25,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
-import { HeaderButton } from "@/components/common/HeaderButton";
-import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { Text } from "@/components/common/Text";
 import { HomeHeroCarousel } from "@/components/home/HomeHeroCarousel";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList";
@@ -34,7 +32,6 @@ import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPr
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations";
 import { Loader } from "@/components/Loader";
 import { MediaListSection } from "@/components/medialists/MediaListSection";
-import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useRefreshLibraryOnFocus } from "@/hooks/useRefreshLibraryOnFocus";
@@ -76,9 +73,8 @@ const HomeMobile = () => {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const { settings, refreshStreamyfinPluginSettings } = useSettings();
-  const navigation = useNavigation();
   const scrollRef = useRef<ScrollView>(null);
-  const { downloadedItems, cleanCacheDirectory } = useDownload();
+  const { cleanCacheDirectory } = useDownload();
   const prevIsConnected = useRef<boolean | null>(false);
   const {
     isConnected,
@@ -104,34 +100,11 @@ const HomeMobile = () => {
     prevIsConnected.current = isConnected;
   }, [isConnected, invalidateCache]);
 
-  const hasDownloads = useMemo(() => {
-    if (Platform.isTV) return false;
-    return downloadedItems.length > 0;
-  }, [downloadedItems]);
-
-  useEffect(() => {
-    if (Platform.isTV) {
-      navigation.setOptions({
-        headerLeft: () => null,
-      });
-      return;
-    }
-    navigation.setOptions({
-      headerLeft: () => (
-        <HeaderButton
-          placement='left'
-          onPress={() => {
-            router.push("/(auth)/downloads");
-          }}
-        >
-          <HeaderIcon
-            name='downloads'
-            tintColor={hasDownloads ? Colors.primary : "white"}
-          />
-        </HeaderButton>
-      ),
-    });
-  }, [navigation, router, hasDownloads]);
+  // The downloads shortcut this screen used to install into its own
+  // `headerLeft` now lives in `(home)/_layout.tsx`'s header button group. The
+  // leading edge of a phone header is the app mark's (pass-01 F-13), and a
+  // screen reaching up through `navigation.setOptions` to claim it was always
+  // the wrong way round.
 
   useEffect(() => {
     cleanCacheDirectory().catch((_e) =>

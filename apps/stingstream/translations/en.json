@@ -1025,13 +1025,27 @@
     "title": "This screen doesn't exist.",
     "go_home": "Go to home screen!"
   },
+  "shell": {
+    "libraries": "Libraries",
+    "sharing": "Sharing",
+    "account": "Account",
+    "sign_out": "Sign out",
+    "more_browse": "Browse",
+    "more_admin": "Administration",
+    "more_app": "App",
+    "cast_to_device": "Cast to a device"
+  },
   "tabs": {
     "home": "Home",
     "search": "Search",
     "library": "Library",
     "custom_links": "Custom links",
     "favorites": "Favorites",
-    "settings": "Settings"
+    "settings": "Settings",
+    "requests": "Requests",
+    "manage": "Manage",
+    "transfers": "Transfers",
+    "more": "More"
   },
   "music": {
     "title": "Music",
@@ -1307,5 +1321,43 @@
     "summary_not_available": "Not on this platform",
     "summary_online_direct": "{{count}} online, direct",
     "summary_online_relayed": "{{count}} online, relayed"
+  },
+  "tv": {
+    "now_playing": "Now playing",
+    "track_count": "{{count}} tracks",
+    "track_count_one": "{{count}} track",
+    "track_count_other": "{{count}} tracks",
+    "nav": {
+      "account": "Account"
+    },
+    "hero": {
+      "resume": "Resume",
+      "details": "Details"
+    },
+    "library": {
+      "item_count": "{{count}} items",
+      "item_count_one": "{{count}} item",
+      "item_count_other": "{{count}} items"
+    },
+    "details": {
+      "read_more": "More"
+    },
+    "requests": {
+      "discover": "Discover",
+      "mine": "My requests",
+      "alerts": "Alerts",
+      "alerts_count": "Alerts ({{count}})"
+    },
+    "settings": {
+      "sharing": "Sharing",
+      "groups": "Groups",
+      "this_device": "This device",
+      "playback": "Playback",
+      "play_from": "Play from",
+      "play_from_speed": "Speed first",
+      "play_from_quality": "Quality first",
+      "account": "Account",
+      "sign_out": "Sign out of this TV"
+    }
   }
 }

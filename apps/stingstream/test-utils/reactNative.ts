@@ -37,6 +37,12 @@ export const stubReactNative = (overrides: PlatformOverrides = {}) => {
       select: (spec: Record<string, unknown>) => spec[OS] ?? spec.default,
     },
     BackHandler: { addEventListener: () => ({ remove() {} }) },
+    // A 1920x1080 window, which is the resolution every TV base value is
+    // authored against, so scaleSize() is the identity in specs.
+    Dimensions: {
+      get: () => ({ width: 1920, height: 1080, scale: 1, fontScale: 1 }),
+      addEventListener: () => ({ remove() {} }),
+    },
     AppState: {
       addEventListener: (event: string, listener: AppStateListener) => {
         if (event === "change") appStateListeners.push(listener);

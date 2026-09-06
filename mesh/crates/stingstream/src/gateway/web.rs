@@ -197,23 +197,105 @@ fn escape_for_script(json: &str) -> String {
     out
 }
 
-/// Splice the marker into an HTML document, before `</head>`.
+// --- the splash ------------------------------------------------------------------------------
+
+/// What the page shows between the first byte and React's first render.
 ///
-/// A document with no `</head>` (a hand-written test fixture, or whatever a future bundler emits)
-/// gets it at the very top instead: a browser hoists a `<meta>`/`<script>` found before `<html>`
-/// into the head anyway, and having the marker in the wrong place beats not having it.
-pub fn inject_marker(html: &str, marker: &Marker<'_>) -> String {
-    let block = marker.html();
-    match find_ignore_ascii_case(html, "</head>") {
+/// The app's own first paint takes about three seconds on a cold load, and until now every one of
+/// them was a blank `#0B0C0F` rectangle — indistinguishable, to somebody who has just installed
+/// this, from a server that is not answering. This is the same serve-time injection the marker
+/// uses, for the same reason: it has to be in the very first bytes of the document, before any
+/// script has run, or it is not a first paint at all.
+///
+/// **It hides itself with no cooperation from the app**, which matters because the app is exactly
+/// the thing that might fail to start. React mounts into `#root`, so `#root:not(:empty)` flips the
+/// moment there is anything to see, and the adjacent-sibling selector takes the splash out with
+/// it. No `load` event, no framework hook, nothing to remember to call. The ten-second timeout
+/// below is the second belt: if the app never mounts, the splash still goes away rather than
+/// sitting over an error the user cannot see.
+const SPLASH_STYLE: &str = "<style id=\"ss-splash-style\">\
+#ss-splash{position:fixed;inset:0;z-index:2147483647;margin:0;display:flex;flex-direction:column;\
+align-items:center;justify-content:center;gap:20px;background:#0B0C0F;color:#F2F3F5;\
+font:600 20px/1.25 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;letter-spacing:.02em}\
+#ss-splash svg{display:block;width:72px;height:72px;fill:#fff}\
+#root:not(:empty)+#ss-splash{opacity:0;pointer-events:none;transition:opacity 200ms}\
+@media (prefers-reduced-motion:reduce){#root:not(:empty)+#ss-splash{transition:none}}\
+</style>";
+
+/// The splash element itself, built once: the mark is 15 KB of path data and there is no reason to
+/// format it per request.
+fn splash_body() -> &'static str {
+    static HTML: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HTML.get_or_init(|| {
+        format!(
+            // `aria-hidden` because it says nothing a screen reader needs -- the app announces
+            // itself when it mounts -- and it must not be read out over whatever replaces it.
+            "<div id=\"ss-splash\" aria-hidden=\"true\">\
+             <svg viewBox=\"{viewbox}\" width=\"72\" height=\"72\" focusable=\"false\">\
+             <path d=\"{mark}\" fill=\"#ffffff\"/></svg>\
+             <span>StingStream</span></div>\
+             <script>setTimeout(function(){{var e=document.getElementById(\"ss-splash\");\
+             if(e&&e.parentNode){{e.parentNode.removeChild(e)}}}},10000)</script>",
+            viewbox = super::brand::MARK_VIEWBOX,
+            mark = super::brand::MARK_PATH_D,
+        )
+    })
+}
+
+/// Where `<div id="root"></div>` ends, when the document has an empty one.
+///
+/// The splash has to be the **immediate next sibling** of `#root` or the `+` selector that hides
+/// it never matches, so this is not a "roughly in the body somewhere" insertion: it finds the
+/// element and returns the index just past its `</div>`. A document whose root element is missing,
+/// or already has content in it, gets no splash at all — which is the right failure. A splash that
+/// cannot hide itself for ten seconds would be worse than the blank page it replaced.
+fn root_div_end(html: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(rel) = html[from..].find("<div") {
+        let open = from + rel;
+        // An unterminated tag means the document is truncated; there is nothing to insert after.
+        let gt = html[open..].find('>').map(|i| open + i)?;
+        let tag = &html[open..gt];
+        if tag.contains("id=\"root\"") || tag.contains("id='root'") {
+            let after = &html[gt + 1..];
+            let trimmed = after.trim_start();
+            // Only an *empty* root: anything already inside it would make `#root:not(:empty)`
+            // true from the first byte, and the splash would flash rather than show.
+            if trimmed.starts_with("</div>") {
+                let skipped = after.len() - trimmed.len();
+                return Some(gt + 1 + skipped + "</div>".len());
+            }
+            return None;
+        }
+        from = gt + 1;
+    }
+    None
+}
+
+/// Splice everything the gateway adds into an `index.html` it is serving: the node marker and the
+/// splash.
+///
+/// The marker and the splash's stylesheet go before `</head>`; the splash element goes immediately
+/// after `<div id="root"></div>`. A document with no `</head>` (a hand-written fixture, or whatever
+/// a future bundler emits) gets the head block at the very top instead — a browser hoists a
+/// `<meta>`/`<script>`/`<style>` found before `<html>` into the head anyway, and having them in the
+/// wrong place beats not having them.
+pub fn inject(html: &str, marker: &Marker<'_>) -> String {
+    let head = format!("{}{SPLASH_STYLE}", marker.html());
+    let mut out = match find_ignore_ascii_case(html, "</head>") {
         Some(i) => {
-            let mut out = String::with_capacity(html.len() + block.len());
+            let mut out = String::with_capacity(html.len() + head.len() + splash_body().len());
             out.push_str(&html[..i]);
-            out.push_str(&block);
+            out.push_str(&head);
             out.push_str(&html[i..]);
             out
         }
-        None => format!("{block}{html}"),
+        None => format!("{head}{html}"),
+    };
+    if let Some(at) = root_div_end(&out) {
+        out.insert_str(at, splash_body());
     }
+    out
 }
 
 /// Byte index of the first case-insensitive occurrence of `needle` (which must be ASCII).
@@ -344,7 +426,7 @@ async fn file_response(path: &Path, cache: &'static str, marker: Option<&Marker<
                 // Only a document that is valid UTF-8 can be spliced. One that is not is not an
                 // HTML page, whatever its name says, and is served untouched rather than mangled.
                 Some(m) => match String::from_utf8(bytes) {
-                    Ok(html) => inject_marker(&html, m).into_bytes(),
+                    Ok(html) => inject(&html, m).into_bytes(),
                     Err(e) => e.into_bytes(),
                 },
                 None => bytes,
@@ -483,9 +565,14 @@ mod tests {
 
     fn bundle() -> (tempfile::TempDir, WebBundle) {
         let td = tempfile::tempdir().unwrap();
+        // The shape `bunx expo export --platform web` actually emits, because two of the things
+        // being asserted -- where the splash goes and what hides it -- depend on it.
         std::fs::write(
             td.path().join("index.html"),
-            "<!doctype html><html><head><title>app</title></head><body></body></html>",
+            "<!doctype html><html><head><title>app</title></head><body>\
+             <div id=\"root\"></div>\
+             <script src=\"/_expo/static/js/web/index-abc.js\" defer></script>\
+             </body></html>",
         )
         .unwrap();
         std::fs::create_dir_all(td.path().join("_expo/static/js/web")).unwrap();
@@ -649,13 +736,96 @@ mod tests {
 
     #[test]
     fn the_marker_is_spliced_before_the_closing_head_tag() {
-        let out = inject_marker("<html><HEAD><title>a</title></HEAD><body>b</body></html>", &marker("n", true, None));
+        let out = inject("<html><HEAD><title>a</title></HEAD><body>b</body></html>", &marker("n", true, None));
         let at = out.find("stingstream-node").unwrap();
         assert!(at < out.find("</HEAD>").unwrap());
         assert!(at > out.find("<title>").unwrap());
         // A document with no head at all still gets it, at the top.
-        let none = inject_marker("<!doctype html><title>a</title>", &marker("n", true, None));
+        let none = inject("<!doctype html><title>a</title>", &marker("n", true, None));
         assert!(none.starts_with("<meta name=\"stingstream-node\""));
+    }
+
+    // --- the splash ---------------------------------------------------------------------------
+
+    /// The splash must be the *immediate next sibling* of `#root`, because that is the only thing
+    /// that hides it: `#root:not(:empty) + #ss-splash`. Anywhere else in the body and it sits over
+    /// the app until the ten-second timeout fires.
+    #[test]
+    fn the_splash_lands_immediately_after_an_empty_root_and_is_hidden_by_a_mounted_one() {
+        let out = inject(
+            "<html><head><title>a</title></head><body><div id=\"root\"></div><script src=\"x.js\"></script></body></html>",
+            &marker("attic", true, None),
+        );
+        assert!(
+            out.contains("<div id=\"root\"></div><div id=\"ss-splash\" aria-hidden=\"true\">"),
+            "the splash is not root's next sibling:\n{}",
+            &out[out.find("<body>").unwrap()..out.find("<script").unwrap_or(out.len())]
+        );
+        // The rule that takes it away with no help from the app.
+        assert!(out.contains("#root:not(:empty)+#ss-splash{opacity:0;pointer-events:none;transition:opacity 200ms}"));
+        // ...and the belt for an app that never mounts at all.
+        assert!(out.contains("getElementById(\"ss-splash\")"));
+        assert!(out.contains("},10000)"));
+        // The mark, mono white at 72px, and the word.
+        assert!(out.contains("viewBox=\"0 0 1024 1024\""));
+        assert!(out.contains("fill=\"#ffffff\""));
+        assert!(out.contains("<span>StingStream</span>"));
+        assert!(out.contains("background:#0B0C0F"));
+        assert!(out.contains(super::super::brand::MARK_PATH_D));
+        // The style goes in the head, the element in the body.
+        assert!(out.find("ss-splash-style").unwrap() < out.find("</head>").unwrap());
+        assert!(out.find("id=\"ss-splash\"").unwrap() > out.find("<body>").unwrap());
+    }
+
+    /// The whole design rests on `#root` being empty at first byte, so a document that does not
+    /// have one gets the marker and **no splash** -- rather than one that can never hide.
+    #[test]
+    fn a_document_the_splash_cannot_hide_itself_in_does_not_get_one() {
+        for html in [
+            // No root at all.
+            "<html><head></head><body><div id=\"app\"></div></body></html>",
+            // A root with something already in it: `:not(:empty)` would be true from the start.
+            "<html><head></head><body><div id=\"root\"><p>loading</p></div></body></html>",
+            "<html><head></head><body></body></html>",
+        ] {
+            let out = inject(html, &marker("n", true, None));
+            assert!(out.contains("__STINGSTREAM_NODE__"), "the marker still goes in: {html}");
+            assert!(!out.contains("id=\"ss-splash\""), "no splash for: {html}");
+        }
+
+        // Attribute order and quoting a bundler might change, and whitespace inside the element.
+        for html in [
+            "<html><head></head><body><div class=\"x\" id=\"root\"></div></body></html>",
+            "<html><head></head><body><div id='root'></div></body></html>",
+            "<html><head></head><body><div id=\"root\">\n  </div></body></html>",
+        ] {
+            let out = inject(html, &marker("n", true, None));
+            assert!(out.contains("id=\"ss-splash\""), "should still find root in: {html}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_splash_is_in_index_html_and_the_spa_fallback_and_never_in_an_asset() {
+        let (_td, b) = bundle();
+        let m = marker("attic", true, Some(true));
+
+        for path in ["/", "/index.html", "/manage/movies"] {
+            let body = body_string(serve(&b, path, Some(&m)).await).await;
+            assert!(body.contains("id=\"ss-splash\""), "{path} should carry the splash");
+            assert!(
+                body.contains("<div id=\"root\"></div><div id=\"ss-splash\""),
+                "{path} put it somewhere the hide rule cannot reach it"
+            );
+            assert!(body.contains("#root:not(:empty)+#ss-splash"), "{path} lost the hide rule");
+        }
+
+        let js = body_string(serve(&b, "/_expo/static/js/web/entry-4f1c2a9b0e.js", Some(&m)).await).await;
+        assert!(!js.contains("ss-splash"), "the splash leaked into a script");
+        assert_eq!(js, "//", "a content-hashed asset must be served byte for byte");
+
+        let ico = serve(&b, "/favicon.ico", Some(&m)).await;
+        let bytes = axum::body::to_bytes(ico.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(&bytes[..], &[0u8; 4], "a binary asset must be served byte for byte");
     }
 
     #[tokio::test]
@@ -702,6 +872,7 @@ mod tests {
         let (_td, b) = bundle();
         let body = body_string(serve(&b, "/", None).await).await;
         assert!(!body.contains("__STINGSTREAM_NODE__"));
-        assert_eq!(body, "<!doctype html><html><head><title>app</title></head><body></body></html>");
+        assert!(!body.contains("ss-splash"), "no marker means no splash either");
+        assert_eq!(body, std::fs::read_to_string(b.index()).unwrap());
     }
 }
