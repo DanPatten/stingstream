@@ -1,174 +1,142 @@
 # StingStream
 
-**One app for your whole media library, and for the people you share it with.**
+**Your movies and shows, on every screen you own, shared with the people you choose.**
 
-Most people running their own media library end up with four or five programs that do not know
-about each other: something to play files, something to find them, something to download them, and
-something to manage all of it from the sofa. StingStream is one install, one interface and one
-login for all of it — and then it lets you pool that library with people you invite, so their films
-appear in yours as extra sources for the same title, streamed peer-to-peer, encrypted, with nothing
-in between.
+StingStream is a free app that turns a computer in your home into your own private streaming
+service. It plays your films and series on your phone, your tablet, your TV and in a web browser.
+It finds and downloads the titles you ask for. And it lets you pool your collection with friends
+and family: their films show up in your library, your films show up in theirs, and everything
+streams directly between your homes.
 
-No accounts with us. No subscription. No cloud. **No server anybody has to host** — a brand new
-group works with nothing running anywhere but the members' own computers.
-
-* **Install a node** → [`docs/INSTALL.md`](docs/INSTALL.md) — Windows, macOS, Linux, Docker
-* **Understand it** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-* **Run one from a checkout** → [`docs/RUNNING.md`](docs/RUNNING.md)
-* **Work on it** → [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) (six conventions, each of which
-  exists because ignoring it cost somebody a day)
+There is no company in the middle. No account to create with us, no subscription, no cloud storage,
+and nothing you have to rent or host. Two homes with an internet connection are enough.
 
 ---
 
-## What it does
+## What you can do
 
-### Your own library, everywhere
+- **Watch anywhere.** Your collection on the sofa, on the train, or in the garden. Pick up where you
+  left off on any device.
+- **Share with a small circle.** Create a group, send a friend an invite code, and their titles
+  appear in your library within seconds, with posters and descriptions, as if they were your own.
+  You can remove someone at any time and they lose access immediately.
+- **Ask for something new.** Search for a film or a show and add it. StingStream fetches it for you
+  and tells you when it's ready. Anyone in your group can make a request; you decide whether
+  requests need your approval.
+- **Never download twice.** If someone in your group already has a title, you simply watch theirs.
+- **Watch together.** Start a film with a friend in another house and stay in sync, with pauses
+  and skips shared between you.
+- **Take it offline.** Download to your phone and watch on a plane.
+- **Use your TV.** A full remote-controlled interface for Google TV and Android TV. Sign in on the
+  TV by approving a code on your phone, no typing.
+- **Subtitles, sorted.** Pick the languages your group wants and they arrive with the film.
 
-Your media, on your phone, your tablet and your television, from a server you own. Direct play of
-the original file wherever the device can manage it, transcoding when it cannot. Watched state,
-resume points and favourites live on your own node and go nowhere else.
+---
 
-### Sharing that is actually private
+## Getting it
 
-Create a group, send an invite code, and that is the whole of it. Their titles appear in *your*
-library — real items, with posters, overviews and quality badges, because they really are extra
-versions of the same film — and playback streams directly from their computer to yours.
+Everything is on the **[Releases page](https://github.com/DanPatten/stingstream/releases)**.
 
-There is no public directory, no discovery and no way for a stranger to find your node. A group is
-people who chose each other. And you can remove one of them at any time: access ends immediately,
-the group's key is replaced, and every invite code that existed before it stops working
-([`docs/SECURITY.md`](docs/SECURITY.md) §3).
-
-### Grabbing, without four more programs
-
-Radarr and Sonarr run inside the node, configured for you, driven from one interface. A built-in
-BitTorrent engine and a bundled NZBGet, or your existing download client if you would rather.
-Requests: anyone in the group can ask for something, and whichever node is best placed to fetch it
-does — exactly once, without anybody coordinating it.
-
-### The rest of what shipped
-
-| | |
+| Where it runs | What to download |
 |---|---|
-| **Source selection** | Several people hold the same film; the node scores them on connectivity, measured throughput, quality fit and load. Speed-first or quality-first, per person. |
-| **Failover** | The node serving you goes away mid-film; another holder of the same bytes takes over by byte offset, in about three seconds. |
-| **Offline** | Download to a phone and watch it on a plane. The original file, over the mesh. |
-| **Watch together** | Synchronised playback across the group, under 25 ms of drift measured. |
-| **Google TV / Android TV** | Full remote control, ten-foot layout, and pairing by approving a code on your phone. |
-| **Chromecast** | Over the HTTPS side door, at home and away. |
-| **Subtitles** | Fetched once in the languages your group asked for, and shared with the file. |
-| **Live TV and DVR** | Recordings federate like anything else. |
-| **Pin a title** | Copy a peer's film onto your own disk; the group's index then shows two copies. |
+| **Windows** (the computer that holds your collection) | `StingStream-Setup-…-win-x64.exe` — a normal installer. It runs in the background and starts with Windows. |
+| **Linux** | The `.deb` for Debian and Ubuntu, or the `.AppImage` for anything else. |
+| **Docker** | `ghcr.io/danpatten/stingstream-node` — see [`docs/INSTALL.md`](docs/INSTALL.md). |
+| **macOS** | A `.tar.gz` for Apple Silicon and Intel Macs. Not yet signed, so macOS will ask you to allow it the first time. |
+| **Android phone or tablet** | `stingstream-phone-….apk` |
+| **Google TV / Android TV** | `stingstream-tv-….apk` |
+
+The Windows, Linux, Docker and macOS downloads are the **home server** part: install one of those
+on the computer where your files live. The Android downloads are the **app**: install it on the
+devices you watch on. You can also open the server's address in any web browser and watch there
+with nothing installed.
+
+> Currently pre-release. It works end to end and is used daily, but expect rough edges and please
+> report anything odd (see below).
 
 ---
 
-## Zero-server by default
+## Your first five minutes
 
-A new group needs nothing that anybody hosts. Nodes find each other through public infrastructure —
-iroh's relays, its DNS discovery, and the BitTorrent mainline DHT — and an invite code carries the
-inviter's address so the first connection works with no lookup at all. Two computers on one LAN can
-form a group with the internet unplugged.
-
-**A group may nominate a coordinator**, and there are two reasons to. One: joining works even when
-the person who sent the invite has closed their laptop, because members leave an encrypted note at
-a rendezvous. Two: it is what the HTTPS side door needs, which is how a browser away from home and
-a Chromecast reach your node.
-
-The Group screen has the picker — *Default* (public infrastructure, plus the project's shared
-fallback) or *My own server*, taking a hostname. The choice is a property of the group, so it rides
-in every invite and every member follows it, and it can be changed later without rebuilding the
-group. A coordinator you run is the same binary in Lite mode (one click on Railway) or Full mode (a
-VPS); see [`docs/MESH.md`](docs/MESH.md) and [`docs/SIDEDOOR.md`](docs/SIDEDOOR.md).
-
-**A coordinator is never trusted with the group.** Its rendezvous path, its bearer token and its
-encryption key are all derived from the group's secret, so it stores opaque blobs at an address it
-cannot connect to a group, and it never sees a group id, a member's name, a title, or any content.
+1. **Install the server** on your home computer and open `http://localhost:8790` in a browser.
+2. **Create your account.** This is the only login you will ever need; it lives on your own computer.
+3. **Point it at your media**, if you already have some: choose the folders that hold your films
+   and shows. They appear in the library with artwork within a few minutes.
+4. **Set up downloading**, if you want it: add the sources you use under Settings, and add a film
+   to see it arrive.
+5. **Install the app** on your phone or TV and enter your server's address. On the TV, approve the
+   code it shows from your phone instead of typing.
+6. **Invite someone.** Open Groups, create a group, and send the invite code to a friend who has
+   done steps one and two. Their library and yours merge; each of you keeps your own account,
+   your own history and your own settings.
 
 ---
 
-## The app
+## How sharing works, in plain terms
 
-One codebase for web, Android phone and Android TV, built on a fork of
-[Streamyfin](https://github.com/streamyfin/streamyfin). Every node serves the web build at its own
-address; the phone and TV builds are on the
-[releases page](https://github.com/DanPatten/stingstream/releases/latest).
+A **group** is a handful of people who chose each other. Each person keeps their own StingStream
+on their own computer. When you join a group, the others' titles are listed in your library, and
+when you press play the film streams straight from their computer to your screen, encrypted the
+whole way. Nobody's files are copied unless you choose to keep a personal copy.
 
-The native app embeds its own mesh endpoint, so it dials the node holding the film **directly** —
-the bytes do not take a second hop through your own node. See
-[`docs/APP-MESH.md`](docs/APP-MESH.md).
+Groups are private by design. There is no public list, no search for strangers, and no way for
+someone outside a group to see what's in it. An invite code is the only way in, and removing a
+member also makes every old invite code stop working.
 
-iOS is not built. The codebase keeps it buildable in principle and there is no Apple account; see
-[`docs/APP-RELEASE.md`](docs/APP-RELEASE.md).
-
----
-
-## Screenshots
-
-In [`docs/screenshots/`](docs/screenshots/), and used by the store listing in
-[`deploy/play/`](deploy/play/).
+Your watch history, favourites and resume points never leave your own computer.
 
 ---
 
-## Repository layout
+## Do I need to run a server somewhere?
 
-```
-StingStream/
-├─ apps/stingstream/         # Expo app  (subtree: streamyfin/streamyfin)  web + phone + TV
-├─ server/jellyfin/          # subtree: jellyfin/jellyfin  + src/StingStream.Core (ours)
-├─ server/radarr/            # subtree: Radarr/Radarr
-├─ server/sonarr/            # subtree: Sonarr/Sonarr  (v5-develop)
-├─ server/infinidysk/        # subtree: nzbdav/nzbdav  (optional usenet streaming, not wired up)
-├─ mesh/                     # Rust — TWO Cargo workspaces (see docs/ARCHITECTURE.md)
-│  ├─ jellyswarrm/           # subtree: LLukas22/Jellyswarrm — reference only, its own workspace
-│  └─ crates/                # mesh/Cargo.toml is the OTHER workspace
-│     ├─ stingstream/        # entry binary: supervisor + gateway + side door
-│     ├─ stingstream-mesh/   # iroh transport, groups, gossip index, source selection
-│     ├─ stingstream-mesh-ffi/ # uniffi bindings, for the app's embedded light node
-│     └─ stingstream-relay/  # the coordinator: relay, rendezvous, DNS, SNI router
-├─ packages/api-client/      # TS client generated from the StingStream OpenAPI document
-├─ third_party/              # nzbget and jellyfin-ffmpeg fetch scripts (not vendored)
-├─ deploy/                   # installers, Docker, compose, Play Store listing
-├─ tools/                    # e2e-m*.ps1 acceptance harnesses, upstream-pull.ps1, packaging
-└─ docs/                     # the documents linked above
-```
+No. Two homes with ordinary internet can form a group with nothing else involved: StingStream
+finds the other computer and connects directly, and it uses well-known public relays only when a
+direct connection is impossible. If you want, a group can nominate its own helper server for two
+extras: joining a group while the person who invited you is offline, and reaching your library from
+a plain web browser away from home. Setting one up is documented in
+[`deploy/coordinator/README.md`](deploy/coordinator/README.md), but it is optional.
 
-## Building it
+---
 
-```powershell
-# The node: Rust supervisor + mesh, and the Jellyfin fork that carries StingStream.Core.
-cargo build --manifest-path mesh/Cargo.toml
-dotnet build server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj
+## Frequently asked questions
 
-# The arrs, which we do not patch (see docs/PATCHES.md) -- each pins its own SDK band in its
-# own global.json, and the .NET SDK installs side by side.
-dotnet build server/radarr/src/Radarr.sln     # SDK 8
-dotnet build server/sonarr/src/Sonarr.sln     # SDK 10
+**Is it really free?** Yes. StingStream is open source under the GPL. There is nothing to buy and
+no premium tier.
 
-# The app. bun only -- yarn's hoisting introduces a second react-native-screens that crashes
-# Android at startup, which no bundler check catches. docs/CONTRIBUTING.md rule 5.
-cd apps/stingstream && bun install && bun run typecheck && bun test
-```
+**Where do my files and my account live?** On your own computer, in a folder you control. Nothing
+is uploaded to us because there is no "us".
 
-Then `pwsh tools/e2e-m1.ps1` for one node end to end, or any of `e2e-m3` (two nodes and a
-federated library), `e2e-m4` (source selection and failover), `e2e-m6` (requests), `e2e-m7` (watch
-together), `e2e-m8` (revocation) and `e2e-sidedoor` (ACME and the HTTPS side door). Each one starts
-real nodes and asserts against them; none of them mocks the sharing path.
+**What does it play?** Almost anything. Files play in their original quality when your device can
+handle them, and are converted on the fly when it can't.
 
-Full instructions, including the private-build-copy dance that lets several people work in one
-checkout, are in [`docs/RUNNING.md`](docs/RUNNING.md).
+**Does it work on iPhone or Apple TV?** Not yet. The web browser works on both in the meantime.
 
-## Security
+**Does it work on older TV sticks?** It needs a 64-bit device. Google TV, recent Android TVs and
+the 4K Fire TV sticks are fine; the oldest 32-bit Fire TV sticks are not supported.
 
-[`docs/SECURITY.md`](docs/SECURITY.md) has the threat model, what the M8b review found and fixed,
-the authorization table for every endpoint, and the residual risks written down rather than rounded
-off. [`docs/UPGRADING.md`](docs/UPGRADING.md) has the protocol version policy and what a group does
-when its members are on different builds.
+**Can I use my own downloader or an existing collection?** Yes. Point it at folders you already
+have, and use the built-in downloading or connect the tools you already run.
 
-## License
+**What does StingStream not do?** It does not provide any content. It plays and shares media you
+already have, with people you already know.
 
-New StingStream code is **GPL-3.0-or-later** ([`LICENSE`](LICENSE)); the mesh binary is
-GPL-2.0-or-later. Vendored components keep their own upstream licences — [`NOTICE.md`](NOTICE.md)
-lists every one of them, and every third-party binary a release bundles.
+---
 
-StingStream provides no content. It is a player and a server for media you already have, and a way
-to share it with people you already know.
+## Help and problems
+
+Something not working? Open an issue on the
+[issues page](https://github.com/DanPatten/stingstream/issues) and describe what you did and what
+you saw. The server has a **Node status** page in Settings that shows what's running; a screenshot
+of it helps a lot.
+
+---
+
+## For developers
+
+The design, the build instructions, the security review and the test harnesses live under
+[`docs/`](docs/), starting with [`docs/DEVELOPING.md`](docs/DEVELOPING.md). StingStream is built
+on the shoulders of [Jellyfin](https://jellyfin.org), [Radarr](https://radarr.video),
+[Sonarr](https://sonarr.tv), [Streamyfin](https://github.com/streamyfin/streamyfin) and
+[iroh](https://iroh.computer); [`NOTICE.md`](NOTICE.md) credits every component.
+
+New StingStream code is licensed GPL-3.0-or-later. See [`LICENSE`](LICENSE).
