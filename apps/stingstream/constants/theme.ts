@@ -84,6 +84,18 @@ export const rgba = (hex: string, alpha: number): string => {
   return `rgba(${r},${g},${b},${alpha})`;
 };
 
+/**
+ * The same colour at a different alpha, `"transparent"` left alone.
+ *
+ * A disabled filled button fades its fill rather than the whole control, so
+ * `fade(accent[500], 0.35)` is the fill and `fade(onAccent, 0.6)` the label —
+ * see `interaction` in the token JSON for why the two alphas differ.
+ */
+export const fade = (color: string, alpha: number): string =>
+  color === "transparent" || !color.startsWith("#")
+    ? color
+    : rgba(color, alpha);
+
 // ---------------------------------------------------------------------------
 // Elevation
 // ---------------------------------------------------------------------------
@@ -232,3 +244,4 @@ export const maxWidth = rawTokens.maxWidth;
 export const motion = rawTokens.motion;
 export const fontFamily = rawTokens.fontFamily;
 export const control = rawTokens.control;
+export const interaction = rawTokens.interaction;

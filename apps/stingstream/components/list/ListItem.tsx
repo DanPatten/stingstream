@@ -1,5 +1,4 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Platform,
@@ -8,7 +7,8 @@ import {
   type ViewProps,
   type ViewStyle,
 } from "react-native";
-import { motion, radius, tokens } from "@/constants/theme";
+import { radius, tokens } from "@/constants/theme";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { Icon, type IconName } from "../common/Icon";
 import { Text } from "../common/Text";
@@ -45,15 +45,19 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   ...viewProps
 }) => {
   const { t } = useTranslation();
-  const [hovered, setHovered] = useState(false);
   const effectiveSubtitle = disabledByAdmin
     ? t("home.settings.disabled_by_admin")
     : subtitle;
   const isDisabled = disabled || disabledByAdmin;
+  const states = usePressableStates({ disabled: isDisabled });
 
   // Keep the row floor uniform; Android trims padding slightly (its native
   // controls sit taller). Switch height is capped via SettingSwitch so toggle
   // rows match non-toggle rows.
+  //
+  // A row that cannot be pressed never changes colour: the whole point of the
+  // hover and pressed tints is to say "this does something", and a settings row
+  // that only holds a switch does not.
   const row: ViewStyle = {
     flexDirection: "row",
     alignItems: "center",
@@ -62,9 +66,11 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
     paddingVertical: Platform.OS === "android" ? 6 : 8,
     paddingHorizontal: 16,
     backgroundColor:
-      hovered && onPress && !isDisabled
-        ? tokens.color.bg["2"]
-        : tokens.color.bg["1"],
+      onPress && states.pressed
+        ? tokens.color.bg["3"]
+        : onPress && states.hovered
+          ? tokens.color.bg["2"]
+          : tokens.color.bg["1"],
     opacity: isDisabled ? tokens.control.disabledOpacity : 1,
   };
 
@@ -87,20 +93,11 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
     return (
       <Pressable
         accessibilityRole='button'
+        accessibilityState={{ disabled: isDisabled }}
         disabled={isDisabled}
         onPress={onPress}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        style={[
-          row,
-          Platform.OS === "web"
-            ? ({
-                cursor: isDisabled ? "default" : "pointer",
-                transitionDuration: `${motion.fast}ms`,
-              } as ViewStyle)
-            : null,
-          style,
-        ]}
+        {...states.handlers}
+        style={[row, states.webStyle, style]}
         {...(viewProps as object)}
       >
         {content}
