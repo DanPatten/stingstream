@@ -130,7 +130,6 @@ export const SkeletonGrid: React.FC<{
         {
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: layout.spacing,
           paddingHorizontal: gutter,
           paddingVertical: layout.verticalPadding,
         },
@@ -146,6 +145,15 @@ export const SkeletonGrid: React.FC<{
             width: `${100 / safeColumns}%`,
             maxWidth: `${100 / safeColumns}%`,
             flexGrow: 0,
+            flexShrink: 0,
+            // The gap lives *inside* the cell, not on the wrapper: with
+            // `gap` on a wrap container, N cells of 100/N% plus N-1 gaps is
+            // wider than the row, so the last column wraps and a three-column
+            // grid draws a two-column skeleton — the reflow this is here to
+            // prevent.
+            paddingRight:
+              index % safeColumns === safeColumns - 1 ? 0 : layout.spacing,
+            paddingBottom: layout.spacing,
           }}
         >
           <Skeleton

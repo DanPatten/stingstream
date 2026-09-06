@@ -305,6 +305,48 @@ export const cardPlaceholder = (item: BaseItemDto): CardPlaceholder => {
   }
 };
 
+/**
+ * Does this item have artwork of the shape this card wants — really?
+ *
+ * `getPrimaryImageUrl` (and so `getPortraitImageUrl`/`getWideImageUrl`) builds
+ * a URL for any item at all, tag or no tag: for an item the server holds no
+ * image for, that URL is a 404 the card then renders as an empty rectangle,
+ * which is exactly the "generic block instead of a poster" the review calls
+ * out. The image tags are the only honest answer to "is there a picture", so
+ * they are checked here and `imageUrl` is left unset when there is not one —
+ * which is what puts the placeholder tile on screen instead.
+ *
+ * The conditions mirror the URL builders' own branches, so the two can't
+ * disagree about which image a card is going to ask for.
+ */
+const hasArtwork = (
+  item: BaseItemDto,
+  kind: CardKind,
+  useEpisodePoster: boolean,
+): boolean => {
+  // Whatever `getPrimaryImageUrl` would find a tag for.
+  const primaryish = Boolean(
+    item.ImageTags?.Primary ??
+      item.BackdropImageTags?.[0] ??
+      item.ParentBackdropImageTags?.[0],
+  );
+
+  if (kind === "portrait") {
+    // An episode borrows its series' poster.
+    return item.Type === "Episode"
+      ? Boolean(item.SeriesPrimaryImageTag)
+      : primaryish;
+  }
+
+  if (item.Type === "Episode" && !useEpisodePoster) {
+    return (
+      Boolean(item.ParentThumbItemId && item.ParentThumbImageTag) || primaryish
+    );
+  }
+
+  return Boolean(item.ImageTags?.Thumb) || primaryish;
+};
+
 /** Anything that holds other items rather than being watchable itself. */
 const isContainer = (item: BaseItemDto) =>
   item.Type === "Series" ||
@@ -377,8 +419,9 @@ export function buildItemCards(
     const subtitle = cardSubtitle(item);
 
     const unplayed = item.UserData?.UnplayedItemCount ?? 0;
-    const imageUrl =
-      kind === "portrait"
+    const imageUrl = !hasArtwork(item, kind, useEpisodePoster)
+      ? undefined
+      : kind === "portrait"
         ? getPortraitImageUrl({ api, item, width })
         : getWideImageUrl({ api, item, useEpisodePoster, width });
 

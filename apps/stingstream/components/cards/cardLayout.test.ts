@@ -11,9 +11,11 @@ stubReactNative();
 
 const {
   autoGridColumns,
+  buildItemCards,
   CARD_LAYOUTS,
   CARD_TEXT_GAP,
   CARD_TITLE_LINES,
+  cardPlaceholder,
   cardRowHeight,
   cardTextBlockHeight,
   defaultTextPlacement,
@@ -256,5 +258,111 @@ describe("card title placement", () => {
   test("never shrinks as the breakpoint widens", () => {
     const heights = BREAKPOINTS.map(cardTextBlockHeight);
     expect(heights).toEqual([...heights].sort((a, b) => a - b));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Artwork, and what stands in when there is none
+// ---------------------------------------------------------------------------
+
+describe("card artwork", () => {
+  // Only `basePath` is read by the URL builders.
+  const api = { basePath: "http://node.test/jellyfin" } as never;
+
+  const movie = (extra: Record<string, unknown> = {}) =>
+    ({
+      Id: "movie-1",
+      Name: "A Film",
+      Type: "Movie",
+      ProductionYear: 1997,
+      ...extra,
+    }) as never;
+
+  test("an item the server holds no image for gets no image URL at all", () => {
+    // `getPrimaryImageUrl` builds a URL for any item, tag or no tag, so the
+    // card used to point at a 404 and render an empty rectangle — the review's
+    // "generic gradient block instead of a poster".
+    const [card] = buildItemCards([movie()], { api, kind: "portrait" });
+    expect(card.imageUrl).toBeUndefined();
+  });
+
+  test("an item with a primary tag keeps its poster", () => {
+    const [card] = buildItemCards([movie({ ImageTags: { Primary: "abc" } })], {
+      api,
+      kind: "portrait",
+    });
+    expect(card.imageUrl).toContain("/Items/movie-1/Images/Primary");
+  });
+
+  test("a backdrop counts as artwork when there is no poster", () => {
+    const [card] = buildItemCards([movie({ BackdropImageTags: ["bd"] })], {
+      api,
+      kind: "portrait",
+    });
+    expect(card.imageUrl).toBeDefined();
+  });
+
+  test("an episode's poster is its series', and it needs that tag", () => {
+    const episode = (extra: Record<string, unknown> = {}) =>
+      ({
+        Id: "ep-1",
+        Name: "Pilot",
+        Type: "Episode",
+        SeriesId: "series-1",
+        ...extra,
+      }) as never;
+
+    expect(
+      buildItemCards([episode()], { api, kind: "portrait" })[0].imageUrl,
+    ).toBeUndefined();
+    expect(
+      buildItemCards([episode({ SeriesPrimaryImageTag: "t" })], {
+        api,
+        kind: "portrait",
+      })[0].imageUrl,
+    ).toContain("/Items/series-1/Images/Primary");
+  });
+
+  test("every card carries the placeholder its type calls for", () => {
+    const [card] = buildItemCards([movie()], { api, kind: "portrait" });
+    expect(card.placeholder).toBe("movie");
+    expect(cardPlaceholder({ Type: "Series" } as never)).toBe("series");
+    expect(cardPlaceholder({ Type: "MusicAlbum" } as never)).toBe("music");
+    expect(cardPlaceholder({ Type: "Person" } as never)).toBe("person");
+    expect(cardPlaceholder({} as never)).toBe("unknown");
+  });
+
+  test("no movie carries an unwatched flag any more, only series a count", () => {
+    // F-05: the accent dot on every unplayed movie is gone; a series says how
+    // many episodes are left, which is a number a viewer can act on.
+    const [film] = buildItemCards(
+      [movie({ UserData: { Played: false, UnplayedItemCount: 3 } })],
+      { api, kind: "portrait" },
+    );
+    expect(film.unplayedCount).toBe(0);
+    expect("unwatched" in film).toBe(false);
+
+    const [series] = buildItemCards(
+      [
+        {
+          Id: "s1",
+          Name: "A Show",
+          Type: "Series",
+          UserData: { Played: false, UnplayedItemCount: 3 },
+        } as never,
+      ],
+      { api, kind: "portrait" },
+    );
+    expect(series.unplayedCount).toBe(3);
+  });
+
+  test("the image request follows the card's real width, capped at 2x", () => {
+    // `getPrimaryImageUrl` only adds sizing params to something its own
+    // `isBaseItemDto` guard recognises — which is "has both image-tag keys".
+    const [card] = buildItemCards(
+      [movie({ ImageTags: { Primary: "abc" }, BackdropImageTags: [] })],
+      { api, kind: "portrait", cardWidth: 170 },
+    );
+    expect(card.imageUrl).toContain("fillWidth=340");
   });
 });
