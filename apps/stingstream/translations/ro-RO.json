@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Serverul a primit prea multe solicitări, încercați din nou mai târziu.",
     "there_is_a_server_error": "Eroare de server",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "A apărut o eroare neașteptată. Ați introdus corect adresa URL a serverului?",
-    "too_old_server_text": "Serverul Jellyfin Neacceptat Descoperit",
-    "too_old_server_description": "Vă rugăm să actualizați Jellyfin la cea mai recentă versiune"
+    "too_old_server_text": "Serverul StingStream Neacceptat Descoperit",
+    "too_old_server_description": "Vă rugăm să actualizați StingStream la cea mai recentă versiune"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Introduceți adresa URL a serverul dvs. Jellyfin",
+    "enter_url_to_jellyfin_server": "Introduceți adresa URL a serverul dvs. StingStream",
     "server_url_placeholder": "http(s)://server-dvs.ro",
     "connect_button": "Conectare",
     "previous_servers": "Servere anterioare",
@@ -114,16 +114,16 @@
     "suggested_movies": "Filme sugerate",
     "suggested_episodes": "Episoade sugerate",
     "intro": {
-      "welcome_to_streamyfin": "Bun venit la Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Un client gratuit și open-source pentru Jellyfin.",
+      "welcome_to_streamyfin": "Bun venit la StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Un client gratuit și open-source pentru StingStream.",
       "features_title": "Caracteristici",
-      "features_description": "Streamyfin are o mulțime de funcții și funcționează cu alte aplicații software. Le găsiți în meniul de setări:",
+      "features_description": "StingStream are o mulțime de funcții și funcționează cu alte aplicații software. Le găsiți în meniul de setări:",
       "jellyseerr_feature_description": "Conectează-te la Jellyseerr și solicită filme direct în aplicație.",
       "downloads_feature_title": "Descărcări",
       "downloads_feature_description": "Descarcă filme și seriale pentru a le viziona offline. Folosește fie metoda implicită, fie instalează serverul de optimizare pentru a descărca fișiere în fundal.",
       "chromecast_feature_description": "Transmiteți filme și seriale pe dispozitivele dvs. Chromecast.",
       "centralised_settings_plugin_title": "Plugin de setări centralizate",
-      "centralised_settings_plugin_description": "Configurați setările central pe serverul Jellyfin. Setările clientului fiecărui utilizator se sincronizează automat.",
+      "centralised_settings_plugin_description": "Configurați setările central pe serverul StingStream. Setările clientului fiecărui utilizator se sincronizează automat.",
       "done_button": "Efectuat",
       "go_to_settings_button": "Accesați setările",
       "read_more": "Citeşte mai mult"
@@ -274,7 +274,6 @@
         "audio_title": "Audio",
         "set_audio_track": "Setează pista audio de la elementul anterior",
         "audio_language": "Limba audio",
-        "audio_hint": "Alege o limbă audio implicită.",
         "none": "Niciuna",
         "original_language": "Limba originală",
         "language": "Limba",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Subtitrări",
-        "subtitle_hint": "Configurați preferințele pentru subtitrări.",
         "subtitle_language": "Limbă subtitrări",
         "subtitle_mode": "Modalitate subtitrare",
         "set_subtitle_track": "Aplică subtitrarea folosită anterior.",
@@ -297,7 +295,6 @@
         "subtitle_size": "Mărime subtitrare",
         "none": "Niciuna",
         "language": "Limba",
-        "loading": "Încărcare",
         "modes": {
           "Default": "Implicit",
           "Smart": "Inteligent",
@@ -306,18 +303,10 @@
           "OnlyForced": "Doar forțate"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Introdu cheia ta API OpenSubtitles pentru a căuta subtitrări direct de pe acest dispozitiv atunci când serverul tău Jellyfin nu are configurat un furnizor de subtitrări.",
+        "opensubtitles_hint": "Introdu cheia ta API OpenSubtitles pentru a căuta subtitrări direct de pe acest dispozitiv atunci când serverul tău StingStream nu are configurat un furnizor de subtitrări.",
         "opensubtitles_api_key": "Cheie API",
         "opensubtitles_api_key_placeholder": "Introdu cheia API...",
         "opensubtitles_get_key": "Obține cheia API gratuită la opensubtitles.com/ro/consumers",
-        "mpv_subtitle_scale": "Dimensiunea subtitrării",
-        "mpv_subtitle_margin_y": "Margine verticală",
-        "mpv_subtitle_align_x": "Aliniere orizontală",
-        "mpv_subtitle_align_y": "Aliniere verticală",
-        "mpv_settings_title": "Setări subtitrări MPV",
-        "mpv_settings_description": "Personalizare avansată a subtitrărilor pentru playerul MPV",
-        "opaque_background": "Fundal opac",
-        "background_opacity": "Opacitatea fundalului",
         "align": {
           "left": "Stânga",
           "center": "Centru",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Plugin-uri",
         "wikidata_awards": "Premii de la Wikidata",
-        "wikidata_awards_hint": "Afișează premiile Oscar și celelalte premii pe paginile filmelor și serialelor. Acest dispozitiv interoghează Wikidata direct, nu serverul tău Jellyfin.",
+        "wikidata_awards_hint": "Afișează premiile Oscar și celelalte premii pe paginile filmelor și serialelor. Acest dispozitiv interoghează Wikidata direct, nu serverul tău StingStream.",
         "opensubtitles_enabled": "Caută pe OpenSubtitles",
-        "opensubtitles_enabled_hint": "Permite acestui dispozitiv să caute direct pe OpenSubtitles când serverul tău Jellyfin nu are niciun furnizor de subtitrări. Dacă dezactivezi, căutările de subtitrări rămân pe server, iar cheia API salvată nu este modificată.",
+        "opensubtitles_enabled_hint": "Permite acestui dispozitiv să caute direct pe OpenSubtitles când serverul tău StingStream nu are niciun furnizor de subtitrări. Dacă dezactivezi, căutările de subtitrări rămân pe server, iar cheia API salvată nu este modificată.",
         "jellyseerr": {
           "server_url": "URL Server",
           "server_url_hint": "Exemplu: http(s)://your-host.url\n(adăugați portul dacă este necesar)",
           "server_url_placeholder": "URL Seerr",
           "password": "Parolă",
-          "password_placeholder": "Introduceți parola pentru utilizatorul Jellyfin {{username}}",
+          "password_placeholder": "Introduceți parola pentru utilizatorul StingStream {{username}}",
           "login_button": "Autentificare",
           "total_media_requests": "Total solicitări media",
           "movie_quota_limit": "Limită solicitări filme",
@@ -518,7 +507,7 @@
       "delete": "Șterge",
       "delete_download": "Șterge descărcarea",
       "something_went_wrong": "Ceva nu a mers bine.",
-      "could_not_get_stream_url_from_jellyfin": "Nu s-a putut obține adresa URL a fluxului de la Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Nu s-a putut obține adresa URL a fluxului de la StingStream",
       "eta": "Estimat {{eta}}",
       "live_activity": {
         "downloading": "Se descarcă",
@@ -726,7 +715,7 @@
     "subtitle_search": "Caută și descarcă",
     "download": "Descarcă",
     "subtitle_download_hint": "Subtitrările descărcate vor fi salvate în biblioteca ta",
-    "using_jellyfin_server": "Se folosește serverul Jellyfin",
+    "using_jellyfin_server": "Se folosește serverul StingStream",
     "language": "Limbă",
     "results": "Rezultate",
     "search_failed": "Căutarea a eșuat",
@@ -801,8 +790,7 @@
     "resume_playback": "Reia redarea",
     "resume_playback_description": "Vrei să continui de unde ai rămas sau să începi de la început?",
     "play_from_start": "Redă de la început",
-    "continue_from": "Continuă de la {{time}}",
-    "no_data_available": "Nu există date disponibile"
+    "continue_from": "Continuă de la {{time}}"
   },
   "live_tv": {
     "title": "TV în direct",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Asociază cu telefonul",
     "pair_with_phone_title": "Autentificare pe televizor",
     "waiting_for_phone": "Se așteaptă telefonul...",
-    "scan_with_phone": "Scanează cu aplicația Streamyfin de pe telefon",
+    "scan_with_phone": "Scanează cu aplicația StingStream de pe telefon",
     "logging_in": "Se autentifică...",
     "logging_in_description": "Se conectează la serverul tău"
   }

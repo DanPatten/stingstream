@@ -753,11 +753,11 @@ public sealed class RequestWorker : BackgroundService
         var lookup = await client
             .LookupAsync("tmdb:" + row.ProviderId.ToString(CultureInfo.InvariantCulture), cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new ArrApiException($"Radarr's lookup found no movie with TMDB id {row.ProviderId}.");
+            ?? throw new ArrApiException($"The movie manager's lookup found no movie with TMDB id {row.ProviderId}.");
         var profile = await client
             .ResolveQualityProfileAsync(settings.DefaultQualityProfileName, cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new ArrApiException("Radarr has no quality profiles.");
+            ?? throw new ArrApiException("The movie manager has no quality profiles.");
 
         var body = lookup.DeepClone().AsObject();
         body["qualityProfileId"] = profile;
@@ -801,11 +801,11 @@ public sealed class RequestWorker : BackgroundService
         var lookup = await client
             .LookupAsync("tvdb:" + row.ProviderId.ToString(CultureInfo.InvariantCulture), cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new ArrApiException($"Sonarr's lookup found no series with TVDB id {row.ProviderId}.");
+            ?? throw new ArrApiException($"The series manager's lookup found no series with TVDB id {row.ProviderId}.");
         var profile = await client
             .ResolveQualityProfileAsync(settings.DefaultQualityProfileName, cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new ArrApiException("Sonarr has no quality profiles.");
+            ?? throw new ArrApiException("The series manager has no quality profiles.");
 
         var body = lookup.DeepClone().AsObject();
         body["qualityProfileId"] = profile;

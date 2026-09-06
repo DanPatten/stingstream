@@ -752,6 +752,31 @@ credentials, the Jellyfin bootstrap administrator, resolved paths, and a `first_
 clears once wiring succeeds. Generated secrets are carried forward across restarts, so a restart
 never invalidates configuration already pushed into a child. Owner-only where the OS supports it.
 
+**First run is one screen.** Wiring creates a bootstrap administrator named and passworded from
+`runtime.json`, and records a `first-run-setup` document in `core.db` saying the account has not
+been claimed yet. While that flag is set, `POST /stingstream/api/v1/setup/admin` renames the
+account and sets the password somebody typed, and answers with a session — so the first thing a new
+install shows is "create your account", not a wizard and not a password hunt through a file. The
+flag ends the moment the node is claimed, by that call or by the account simply signing in (a
+`LastLoginDate`, or a second account existing, settles it on the next `setup/state`), and once it
+is clear nothing re-applies `runtime.json` over the account again: neither a restart nor
+`POST /setup/run`.
+
+Three things gate it. The gateway refuses `setup/admin` from any peer that is not on this machine,
+which is the real control because it is the only place that sees the true socket peer; the flag
+itself closes the window the moment somebody uses it; and Core repeats the loopback check as a
+second condition, as the arr webhook does. `GET /stingstream/api/v1/setup/state` is deliberately
+ungated and answers from anywhere, because a phone has to be able to learn that a node is unclaimed
+in order to say "finish setup on the computer running StingStream" — it reveals one boolean, which
+`/healthz` already reveals as `first_run`.
+
+Once setup is complete the supervisor **scrubs `jellyfin_admin.password` from `runtime.json`**.
+Nothing in Core authenticates with it — the arrs hold their own API keys, the download clients
+their own credentials, the webhook its own token, and library, inventory and plugin work is all
+in-process — so its only remaining purpose was to be a plaintext administrator password sitting in
+a file under `%ProgramData%` for the life of the install (`docs/SECURITY.md` R1). It exists for the
+first few minutes of a node's life and then it does not.
+
 **StingStream API** at `/stingstream/api/v1`, authenticated with Jellyfin's own tokens and
 policies, self-described at `/stingstream/api/v1/openapi.json`:
 
@@ -759,6 +784,8 @@ policies, self-described at `/stingstream/api/v1/openapi.json`:
 |---|---|
 | `GET /status`, `GET /status/arrs` | node, engine, hashing, children, sync results, recent arr events |
 | `POST /setup/run` | re-run first-run wiring (idempotent) |
+| `GET /setup/state` | whether this node still needs its first account, and whether you are on its machine (anonymous) |
+| `POST /setup/admin` | claim that account: name, password, and a session back (anonymous, pending-only, loopback) |
 | `GET/PUT /settings` | the Omniarr shared settings document |
 | `GET/POST /settings/indexers`, `DELETE /settings/indexers/{id}` | indexer CRUD |
 | `POST /sync`, `GET /sync` | push into both arrs; last result per app |

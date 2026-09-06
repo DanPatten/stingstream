@@ -36,7 +36,7 @@ export function NamingSection({
         />
       </ListGroup>
       <View className='h-3' />
-      <ListGroup title='Movies (Radarr)'>
+      <ListGroup title='Movies'>
         <TextFieldRow
           title='Movie folder format'
           value={draft.MovieFolderFormat ?? ""}
@@ -51,7 +51,7 @@ export function NamingSection({
         />
       </ListGroup>
       <View className='h-3' />
-      <ListGroup title='Series (Sonarr)'>
+      <ListGroup title='Series'>
         <TextFieldRow
           title='Series folder format'
           value={draft.SeriesFolderFormat ?? ""}

@@ -324,7 +324,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   const headers = useMemo(() => {
     if (!deviceId) return {};
     return {
-      authorization: `MediaBrowser Client="Streamyfin", Device=${
+      authorization: `MediaBrowser Client="StingStream", Device=${
         Platform.OS === "android" ? "Android" : "iOS"
       }, DeviceId="${deviceId}", Version="${APP_VERSION}"`,
     };

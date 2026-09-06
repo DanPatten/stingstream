@@ -1184,7 +1184,7 @@ export default function SettingsTV() {
             }}
           >
             {t("home.settings.subtitles.opensubtitles_hint") ||
-              "Enter your OpenSubtitles API key to enable client-side subtitle search as a fallback when your Jellyfin server doesn't have a subtitle provider configured."}
+              "Enter your OpenSubtitles API key to enable client-side subtitle search as a fallback when your server doesn't have a subtitle provider configured."}
           </Text>
           <TVSettingsTextInput
             label={

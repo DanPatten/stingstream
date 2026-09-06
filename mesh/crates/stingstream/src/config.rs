@@ -93,6 +93,21 @@ pub struct GatewayConfig {
     /// `expo export` leaves behind, and is a better answer than a wall of 404s. `--web-dist`
     /// overrides this for one run.
     pub web_dist: String,
+
+    /// **Development only.** Proxy `/` to a running Metro dev server instead of serving a built
+    /// bundle, e.g. `http://127.0.0.1:8081`.
+    ///
+    /// This is the iterate loop: `bunx expo start --web --port 8081` in `apps/stingstream`, a node
+    /// started with this pointed at it, and an edit to a component is on screen in seconds —
+    /// including hot reload, whose WebSocket rides the same upgrade splice Jellyfin's `/socket`
+    /// does. It has to be the *node's* origin rather than Metro's own, because the app talks to
+    /// the node's API on every screen and there is no CORS anywhere on this server by design.
+    ///
+    /// Empty is off, and this key is **ignored outside `--dev`** unless `--web-dev-server` named it
+    /// on the command line: an installed server proxying its front page to a developer's laptop is
+    /// not a thing a stale config file should be able to arrange. Every other route — `/jellyfin`,
+    /// `/stingstream`, `/healthz`, `/stream` — is untouched by it.
+    pub web_dev_server: String,
 }
 
 /// The mesh half of a node.
@@ -279,9 +294,44 @@ impl Default for GatewayConfig {
             tls: true,
             https_port: 0,
             web_dist: String::new(),
+            web_dev_server: String::new(),
             require_signed_stream_urls: true,
         }
     }
+}
+
+/// Parse a web dev server address into the `host:port` a proxy dials.
+///
+/// Accepts `http://127.0.0.1:8081`, `127.0.0.1:8081` and `localhost:8081`, with or without a
+/// trailing slash or path. Returns `Err` with something a person can act on, because the only way
+/// to reach this function is to have typed the value.
+pub fn parse_dev_server(input: &str) -> Result<String> {
+    let raw = input.trim();
+    anyhow::ensure!(!raw.is_empty(), "a web dev server address must not be empty");
+    let rest = match raw.split_once("://") {
+        Some(("http", rest)) => rest,
+        // Metro serves plain HTTP. Accepting `https://` here would produce a proxy that dials it
+        // in the clear and fails with something unrelated ten minutes later.
+        Some((scheme, _)) => anyhow::bail!(
+            "the web dev server address must be http:// (got {scheme}://) -- Metro serves plain \
+             HTTP on loopback"
+        ),
+        None => raw,
+    };
+    // Anything after the authority is dropped: the dev server is mounted at the gateway's root, so
+    // a path here has nowhere to go and silently ignoring it would be worse than saying so.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    anyhow::ensure!(
+        !authority.is_empty() && authority.contains(':'),
+        "the web dev server address needs a host and a port, e.g. http://127.0.0.1:8081 (got {raw:?})"
+    );
+    let (host, port) = authority.rsplit_once(':').expect("checked above");
+    anyhow::ensure!(!host.is_empty(), "the web dev server address has no host: {raw:?}");
+    let port: u16 = port.parse().with_context(|| {
+        format!("the web dev server address has no usable port: {raw:?}")
+    })?;
+    anyhow::ensure!(port != 0, "the web dev server port must not be 0");
+    Ok(format!("{host}:{port}"))
 }
 
 impl Default for MeshSection {
@@ -566,6 +616,36 @@ embedded = false
         cfg.supervisor.restart_backoff_initial_ms = 5_000;
         cfg.supervisor.restart_backoff_max_ms = 1_000;
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn a_dev_server_address_is_accepted_in_the_shapes_people_type() {
+        for (input, expected) in [
+            ("http://127.0.0.1:8081", "127.0.0.1:8081"),
+            ("http://127.0.0.1:8081/", "127.0.0.1:8081"),
+            ("127.0.0.1:8081", "127.0.0.1:8081"),
+            ("  http://localhost:8082  ", "localhost:8082"),
+            ("http://127.0.0.1:8081/index.html?x=1", "127.0.0.1:8081"),
+        ] {
+            assert_eq!(parse_dev_server(input).unwrap(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn a_dev_server_address_without_a_port_or_over_tls_is_refused_with_a_reason() {
+        for bad in ["", "   ", "127.0.0.1", "http://127.0.0.1", "http://:8081", "http://a:b", "http://a:0"] {
+            assert!(parse_dev_server(bad).is_err(), "{bad:?} should be refused");
+        }
+        let err = parse_dev_server("https://127.0.0.1:8081").unwrap_err().to_string();
+        assert!(err.contains("http://"), "{err}");
+    }
+
+    #[test]
+    fn the_dev_server_is_off_by_default() {
+        assert_eq!(Config::default().gateway.web_dev_server, "");
+        // And an existing config.toml written before this key existed still loads.
+        let cfg: Config = toml::from_str("[gateway]\nport = 8790\n").unwrap();
+        assert_eq!(cfg.gateway.web_dev_server, "");
     }
 
     #[test]

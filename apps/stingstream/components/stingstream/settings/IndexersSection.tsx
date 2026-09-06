@@ -86,7 +86,7 @@ export function IndexersSection() {
     if (!indexer.Id) return;
     const ok = await confirmDestructive(
       "Remove indexer?",
-      `"${indexer.Name}" is removed from StingStream's settings. It stays configured inside Radarr and Sonarr until it is removed there too — sync only ever adds and updates.`,
+      `"${indexer.Name}" is removed from StingStream's settings. It stays configured inside the movie manager and the series manager until it is removed there too — sync only ever adds and updates.`,
       "Remove",
     );
     if (!ok) return;
@@ -114,10 +114,10 @@ export function IndexersSection() {
       {formOpen && (
         <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
           <Text className='text-[#9899A1] text-xs mb-2'>
-            "Test" asks Radarr and Sonarr to try it, using exactly the resource
-            a save would store. The two send different category lists, so both
-            are asked: an endpoint with films but no television passes one and
-            fails the other.
+            "Test" asks the movie manager and the series manager to try it,
+            using exactly the resource a save would store. The two send
+            different category lists, so both are asked: an endpoint with films
+            but no television passes one and fails the other.
           </Text>
           <TextInput
             placeholder='Name'
@@ -183,7 +183,7 @@ export function IndexersSection() {
         {!indexers || indexers.length === 0 ? (
           <EmptyState
             title='No indexers configured'
-            detail='Add a Torznab indexer above — it is pushed into both Radarr and Sonarr.'
+            detail='Add a Torznab indexer above — it is pushed into both the movie manager and the series manager.'
           />
         ) : (
           <ListGroup>

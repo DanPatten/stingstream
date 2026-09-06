@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "서버가 너무 많은 요청을 받았습니다. 나중에 다시 시도하세요.",
     "there_is_a_server_error": "서버 에러",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "예기치 않은 오류가 발생했습니다. 서버 URL을 올바르게 입력하셨습니까?",
-    "too_old_server_text": "지원되지 않는 Jellyfin 서버가 발견되었습니다",
-    "too_old_server_description": "Jellyfin을 최신 버전으로 업데이트 해 주세요"
+    "too_old_server_text": "지원되지 않는 StingStream 서버가 발견되었습니다",
+    "too_old_server_description": "StingStream을 최신 버전으로 업데이트 해 주세요"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Jellyfin 서버 URL을 입력하세요",
+    "enter_url_to_jellyfin_server": "StingStream 서버 URL을 입력하세요",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "연결",
     "previous_servers": "이전 서버",
@@ -114,16 +114,16 @@
     "suggested_movies": "추천 영화",
     "suggested_episodes": "추천 에피소드",
     "intro": {
-      "welcome_to_streamyfin": "Streamyfin에 오신 것을 환영합니다",
-      "a_free_and_open_source_client_for_jellyfin": "Jellyfin을 위한 무료 오픈소스 클라이언트입니다.",
+      "welcome_to_streamyfin": "StingStream에 오신 것을 환영합니다",
+      "a_free_and_open_source_client_for_jellyfin": "StingStream을 위한 무료 오픈소스 클라이언트입니다.",
       "features_title": "기능",
-      "features_description": "Streamyfin은 다양한 기능을 제공하며 다른 소프트웨어와도 연동됩니다. 설정 메뉴에서 확인할 수 있습니다:",
+      "features_description": "StingStream은 다양한 기능을 제공하며 다른 소프트웨어와도 연동됩니다. 설정 메뉴에서 확인할 수 있습니다:",
       "jellyseerr_feature_description": "Seerr 서버에 연결하여 앱에서 바로 영화를 요청할 수 있습니다.",
       "downloads_feature_title": "다운로드된 컨텐츠",
       "downloads_feature_description": "영화와 시리즈를 다운로드하여 오프라인으로 시청.",
       "chromecast_feature_description": "영화와 TV 프로그램을 Chromecast 기기로 전송하기",
       "centralised_settings_plugin_title": "중앙 설정 플러그인",
-      "centralised_settings_plugin_description": "Jellyfin 서버에서 설정을 중앙 관리할 수 있습니다. 모든 사용자의 클라이언트 설정이 자동으로 동기화됩니다.",
+      "centralised_settings_plugin_description": "StingStream 서버에서 설정을 중앙 관리할 수 있습니다. 모든 사용자의 클라이언트 설정이 자동으로 동기화됩니다.",
       "done_button": "완료",
       "go_to_settings_button": "설정으로 이동",
       "read_more": "자세히 보기"
@@ -274,7 +274,6 @@
         "audio_title": "오디오",
         "set_audio_track": "이전 영상의 음성 언어 유지",
         "audio_language": "오디오 언어",
-        "audio_hint": "기본 오디오 언어를 선택하세요.",
         "none": "없음",
         "original_language": "원어",
         "language": "언어",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "자막",
-        "subtitle_hint": "자막의 표시 방식과 동작을 설정합니다.",
         "subtitle_language": "자막 언어",
         "subtitle_mode": "자막 모드",
         "set_subtitle_track": "이전 영상의 자막 설정 유지",
@@ -297,7 +295,6 @@
         "subtitle_size": "자막 크기",
         "none": "없음",
         "language": "언어",
-        "loading": "불러오는 중",
         "modes": {
           "Default": "기본",
           "Smart": "스마트",
@@ -306,18 +303,10 @@
           "OnlyForced": "강제 자막만"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Jellyfin 서버에 자막 제공자가 설정되어 있지 않은 경우, 클라이언트에서 자막을 검색할 수 있도록 OpenSubtitles API 키를 입력하세요.",
+        "opensubtitles_hint": "StingStream 서버에 자막 제공자가 설정되어 있지 않은 경우, 클라이언트에서 자막을 검색할 수 있도록 OpenSubtitles API 키를 입력하세요.",
         "opensubtitles_api_key": "API 키",
         "opensubtitles_api_key_placeholder": "API 키 입력...",
         "opensubtitles_get_key": "opensubtitles.com/en/consumers에서 무료 API 키를 받으세요",
-        "mpv_subtitle_scale": "자막 크기 비율",
-        "mpv_subtitle_margin_y": "세로 여백",
-        "mpv_subtitle_align_x": "가로 정렬",
-        "mpv_subtitle_align_y": "세로 정렬",
-        "mpv_settings_title": "MPV 자막 설정",
-        "mpv_settings_description": "MPV 플레이어의 고급 자막 설정",
-        "opaque_background": "불투명 배경",
-        "background_opacity": "배경 불투명도",
         "align": {
           "left": "왼쪽",
           "center": "가운데",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "플러그인",
         "wikidata_awards": "Wikidata 수상 정보",
-        "wikidata_awards_hint": "영화와 시리즈 페이지에 아카데미상 및 수상 내역을 표시합니다. 이 기기는 Jellyfin 서버가 아니라 Wikidata에 직접 요청합니다.",
+        "wikidata_awards_hint": "영화와 시리즈 페이지에 아카데미상 및 수상 내역을 표시합니다. 이 기기는 StingStream 서버가 아니라 Wikidata에 직접 요청합니다.",
         "opensubtitles_enabled": "OpenSubtitles 검색",
-        "opensubtitles_enabled_hint": "Jellyfin 서버에 자막 제공자가 없을 때 이 기기가 OpenSubtitles에서 직접 검색하도록 허용합니다. 끄면 자막 검색은 서버에서만 이루어지며 저장된 API 키는 그대로 유지됩니다.",
+        "opensubtitles_enabled_hint": "StingStream 서버에 자막 제공자가 없을 때 이 기기가 OpenSubtitles에서 직접 검색하도록 허용합니다. 끄면 자막 검색은 서버에서만 이루어지며 저장된 API 키는 그대로 유지됩니다.",
         "jellyseerr": {
           "server_url": "서버 URL",
           "server_url_hint": "예: http(s)://your-host.url\n(필요하다면 포트번호를 추가하세요)",
           "server_url_placeholder": "Seerr URL",
           "password": "비밀번호",
-          "password_placeholder": "Jellyfin 사용자 {{username}}의 비밀번호 입력하세요",
+          "password_placeholder": "StingStream 사용자 {{username}}의 비밀번호 입력하세요",
           "login_button": "로그인",
           "total_media_requests": "전체 미디어 요청 수",
           "movie_quota_limit": "영화 요청 한도",
@@ -518,7 +507,7 @@
       "delete": "삭제",
       "delete_download": "다운로드된 항목 삭제",
       "something_went_wrong": "문제가 발생했습니다",
-      "could_not_get_stream_url_from_jellyfin": "Jellyfin에서 스트림 URL을 가져올 수 없습니다",
+      "could_not_get_stream_url_from_jellyfin": "StingStream에서 스트림 URL을 가져올 수 없습니다",
       "eta": "예상 남은 시간 {{eta}}",
       "live_activity": {
         "downloading": "다운로드 중",
@@ -726,7 +715,7 @@
     "subtitle_search": "검색 및 다운로드",
     "download": "다운로드",
     "subtitle_download_hint": "다운로드한 자막은 라이브러리에 저장됩니다",
-    "using_jellyfin_server": "Jellyfin 서버 사용",
+    "using_jellyfin_server": "StingStream 서버 사용",
     "language": "언어",
     "results": "검색 결과",
     "search_failed": "검색에 실패했습니다",
@@ -801,8 +790,7 @@
     "resume_playback": "계속 재생하기",
     "resume_playback_description": "이어서 시청하시겠습니까, 아니면 처음부터 재생하시겠습니까?",
     "play_from_start": "처음부터 재생",
-    "continue_from": "{{time}}부터 이어서 재생",
-    "no_data_available": "사용 가능한 데이터가 없습니다"
+    "continue_from": "{{time}}부터 이어서 재생"
   },
   "live_tv": {
     "title": "실시간 TV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "휴대폰과 페어링",
     "pair_with_phone_title": "TV에서 로그인",
     "waiting_for_phone": "휴대폰 연결 대기 중...",
-    "scan_with_phone": "휴대폰의 Streamyfin 앱으로 스캔하세요",
+    "scan_with_phone": "휴대폰의 StingStream 앱으로 스캔하세요",
     "logging_in": "로그인 중...",
     "logging_in_description": "서버에 연결 중"
   }

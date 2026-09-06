@@ -5799,6 +5799,163 @@
         ]
       }
     },
+    "/stingstream/api/v1/setup/admin": {
+      "post": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Create the account this node will be used with.",
+        "description": "Renames the bootstrap administrator rather than creating a second account, so the libraries,\r\nthe policies and the item that first-run wiring already attached to it stay attached. The\r\nanswer is the same shape as a sign-in, so the app moves straight to the home screen instead\r\nof showing a login form to somebody who has just typed their password.",
+        "operationId": "StingStreamSetupAdmin",
+        "requestBody": {
+          "description": "The name and password somebody chose.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetupAdminRequest"
+                  }
+                ],
+                "description": "The account somebody chose on the first-run screen."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetupAdminRequest"
+                  }
+                ],
+                "description": "The account somebody chose on the first-run screen."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetupAdminRequest"
+                  }
+                ],
+                "description": "The account somebody chose on the first-run screen."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The account is yours, and here is a session for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name or the password is not usable; the sentence says which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The caller is not on this machine.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This node already has an account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
+    "/stingstream/api/v1/setup/state": {
+      "get": {
+        "tags": [
+          "Setup"
+        ],
+        "summary": "Whether this node still needs its first account, and whether you are on the machine that\r\ncan create it.",
+        "description": "Anonymous and ungated on purpose, and it answers from anywhere: a phone on the sofa has to\r\nbe able to learn that a node is unclaimed so it can say \"finish setup on the computer\r\nrunning StingStream\" rather than a login form nobody can get through. It reveals one\r\nboolean, which `/healthz`'s public body already reveals as `first_run`.",
+        "operationId": "StingStreamSetupState",
+        "responses": {
+          "200": {
+            "description": "The two booleans.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupState"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        }
+      }
+    },
     "/stingstream/api/v1/setup/run": {
       "post": {
         "tags": [
@@ -7326,6 +7483,41 @@
         },
         "additionalProperties": false,
         "description": "One audio track."
+      },
+      "AuthenticationResult": {
+        "type": "object",
+        "properties": {
+          "User": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserDto"
+              }
+            ],
+            "description": "Class UserDto.",
+            "nullable": true
+          },
+          "SessionInfo": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SessionInfoDto"
+              }
+            ],
+            "description": "Session info DTO.",
+            "nullable": true
+          },
+          "AccessToken": {
+            "type": "string",
+            "description": "Gets or sets the access token.",
+            "nullable": true
+          },
+          "ServerId": {
+            "type": "string",
+            "description": "Gets or sets the server id.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A class representing an authentication result."
       },
       "AvailabilityResponse": {
         "type": "object",
@@ -16822,6 +17014,49 @@
         "additionalProperties": false,
         "description": "Body of `PUT /mesh/groups/{group}/coordinator`."
       },
+      "SetupAdminRequest": {
+        "type": "object",
+        "properties": {
+          "Username": {
+            "type": "string",
+            "description": "The name for the account. Letters, digits, dots, underscores and dashes.",
+            "nullable": true
+          },
+          "Password": {
+            "type": "string",
+            "description": "The password for the account. At least eight characters.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "The account somebody chose on the first-run screen."
+      },
+      "SetupError": {
+        "type": "object",
+        "properties": {
+          "Error": {
+            "type": "string",
+            "description": "The sentence, written for the person who typed it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One sentence saying why a setup request was refused."
+      },
+      "SetupState": {
+        "type": "object",
+        "properties": {
+          "Pending": {
+            "type": "boolean",
+            "description": "True while nobody has created an account on this node yet."
+          },
+          "Loopback": {
+            "type": "boolean",
+            "description": "True when this request came from the machine the node runs on, which is the only place the\r\naccount can be created."
+          }
+        },
+        "additionalProperties": false,
+        "description": "Whether this node still needs its first account."
+      },
       "SharedSettings": {
         "type": "object",
         "properties": {
@@ -19458,6 +19693,9 @@
     },
     {
       "name": "Settings"
+    },
+    {
+      "name": "Setup"
     },
     {
       "name": "Status"

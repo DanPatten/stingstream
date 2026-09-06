@@ -56,7 +56,7 @@ export function CalendarSection() {
         {days.length === 0 ? (
           <EmptyState
             title='Nothing scheduled'
-            detail='Neither Radarr nor Sonarr has a release or an episode in this window. Add a title, or widen the range.'
+            detail='Neither the movie manager nor the series manager has a release or an episode in this window. Add a title, or widen the range.'
           />
         ) : (
           days.map(([day, entries]) => (

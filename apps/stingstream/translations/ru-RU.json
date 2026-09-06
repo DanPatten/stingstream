@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Сервер получил слишком много запросов, попробуйте позже.",
     "there_is_a_server_error": "Возникла ошибка сервера",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Возникла непредвиденная ошибка. Вы правильно ввели URL?",
-    "too_old_server_text": "Обнаружен неподдерживаемый сервер Jellyfin",
-    "too_old_server_description": "Пожалуйста, обновите Jellyfin до последней версии"
+    "too_old_server_text": "Обнаружен неподдерживаемый сервер StingStream",
+    "too_old_server_description": "Пожалуйста, обновите StingStream до последней версии"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Укажите URL на ваш Jellyfin сервер",
+    "enter_url_to_jellyfin_server": "Укажите URL на ваш StingStream сервер",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "Подключиться",
     "previous_servers": "Предыдущие серверы",
@@ -114,16 +114,16 @@
     "suggested_movies": "Предложенные фильмы",
     "suggested_episodes": "Предложенные серии",
     "intro": {
-      "welcome_to_streamyfin": "Добро пожаловать в Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Бесплатный клиент для Jellyfin с открытым кодом.",
+      "welcome_to_streamyfin": "Добро пожаловать в StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Бесплатный клиент для StingStream с открытым кодом.",
       "features_title": "Функции",
-      "features_description": "У Streamyfin много функций, и он работает с другим программным обеспечением. Вы найдёте их в меню настроек:",
+      "features_description": "У StingStream много функций, и он работает с другим программным обеспечением. Вы найдёте их в меню настроек:",
       "jellyseerr_feature_description": "Подключитесь к Jellyseerr и запрашивайте фильмы прямо в приложении.",
       "downloads_feature_title": "Загрузки",
       "downloads_feature_description": "Скачивайте фильмы и сериалы для просмотра без интернета. Используйте стандартный способ или установите сервер оптимизации для загрузки файлов в фоновом режиме.",
       "chromecast_feature_description": "Транслируйте фильмы и сериалы на ваши устройства с поддержкой Chromecast.",
       "centralised_settings_plugin_title": "Плагин для централизованной настройки",
-      "centralised_settings_plugin_description": "Настраивайте параметры централизованно на сервере Jellyfin. Клиентские настройки каждого пользователя синхронизируются автоматически.",
+      "centralised_settings_plugin_description": "Настраивайте параметры централизованно на сервере StingStream. Клиентские настройки каждого пользователя синхронизируются автоматически.",
       "done_button": "Готово",
       "go_to_settings_button": "Перейти в настройки",
       "read_more": "Узнать больше"
@@ -274,7 +274,6 @@
         "audio_title": "Аудио",
         "set_audio_track": "Устанавливать аудио дорожку из предыдущего элемента",
         "audio_language": "Язык аудио",
-        "audio_hint": "Выберите стандартный язык аудио.",
         "none": "Отсутствует",
         "original_language": "Язык оригинала",
         "language": "Язык",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Субтитры",
-        "subtitle_hint": "Настройки отображения субтитров.",
         "subtitle_language": "Язык субтитров",
         "subtitle_mode": "Режим субтитров",
         "set_subtitle_track": "Устанавливать субтитры из предыдущего элемента",
@@ -297,7 +295,6 @@
         "subtitle_size": "Размер субтитров",
         "none": "Отсутствует",
         "language": "Язык",
-        "loading": "Загрузка",
         "modes": {
           "Default": "Стандартный",
           "Smart": "Умный",
@@ -306,18 +303,10 @@
           "OnlyForced": "Только принудительные"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Введите Ваш API-ключ OpenSubtitles, чтобы разрешить пользователям поиск субтитров, в качестве запасного варианта, если на сервере JellyFin не настроен их провайдер.",
+        "opensubtitles_hint": "Введите Ваш API-ключ OpenSubtitles, чтобы разрешить пользователям поиск субтитров, в качестве запасного варианта, если на сервере StingStream не настроен их провайдер.",
         "opensubtitles_api_key": "Ключ API",
         "opensubtitles_api_key_placeholder": "Введите API-ключ...",
         "opensubtitles_get_key": "Получите бесплатный API-ключ OpenSubtitles на opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "Масштаб субтитров",
-        "mpv_subtitle_margin_y": "Вертикальный отступ",
-        "mpv_subtitle_align_x": "Горизонтальное выравнивание",
-        "mpv_subtitle_align_y": "Вертикальное выравнивание",
-        "mpv_settings_title": "Настройки субтитров MPV",
-        "mpv_settings_description": "Расширенные настройки субтитров",
-        "opaque_background": "Непрозрачный фон",
-        "background_opacity": "Непрозрачность фона",
         "align": {
           "left": "Влево",
           "center": "Центрировать",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Плагины",
         "wikidata_awards": "Награды из Wikidata",
-        "wikidata_awards_hint": "Показывать «Оскары» и награды на страницах фильмов и сериалов. Это устройство обращается напрямую к Wikidata, а не к вашему серверу Jellyfin.",
+        "wikidata_awards_hint": "Показывать «Оскары» и награды на страницах фильмов и сериалов. Это устройство обращается напрямую к Wikidata, а не к вашему серверу StingStream.",
         "opensubtitles_enabled": "Искать на OpenSubtitles",
-        "opensubtitles_enabled_hint": "Разрешить этому устройству искать субтитры напрямую на OpenSubtitles, когда на вашем сервере Jellyfin нет поставщика субтитров. Если отключить, поиск субтитров останется на сервере, а сохранённый ключ API не будет затронут.",
+        "opensubtitles_enabled_hint": "Разрешить этому устройству искать субтитры напрямую на OpenSubtitles, когда на вашем сервере StingStream нет поставщика субтитров. Если отключить, поиск субтитров останется на сервере, а сохранённый ключ API не будет затронут.",
         "jellyseerr": {
           "server_url": "URL сервера",
           "server_url_hint": "Пример: http(s)://your-host.url\n(добавьте порт если необходимо)",
           "server_url_placeholder": "Seerr URL...",
           "password": "Пароль",
-          "password_placeholder": "Введите пароль для пользователя Jellyfin {{username}}",
+          "password_placeholder": "Введите пароль для пользователя StingStream {{username}}",
           "login_button": "Войти",
           "total_media_requests": "Всего запросов на медиа",
           "movie_quota_limit": "Ограничение квоты на фильмы",
@@ -518,7 +507,7 @@
       "delete": "Удалить",
       "delete_download": "Удалить загрузку",
       "something_went_wrong": "Что-то пошло не так",
-      "could_not_get_stream_url_from_jellyfin": "Не удалось получить ссылку трансляции из Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Не удалось получить ссылку трансляции из StingStream",
       "eta": "Осталось {{eta}}",
       "live_activity": {
         "downloading": "Загрузка",
@@ -726,7 +715,7 @@
     "subtitle_search": "Поиск и загрузка",
     "download": "Загрузить",
     "subtitle_download_hint": "Загруженные субтитры будут сохранены в библиотеке",
-    "using_jellyfin_server": "Используется сервер Jellyfin",
+    "using_jellyfin_server": "Используется сервер StingStream",
     "language": "Язык",
     "results": "Результаты поиска",
     "search_failed": "Ничего не найдено",
@@ -801,8 +790,7 @@
     "resume_playback": "Продолжить просмотр",
     "resume_playback_description": "Вы хотите продолжить просмотр или начать сначала?",
     "play_from_start": "Смотреть сначала",
-    "continue_from": "Продолжить с {{time}}",
-    "no_data_available": "Данные отсутствуют"
+    "continue_from": "Продолжить с {{time}}"
   },
   "live_tv": {
     "title": "Прямой Эфир",

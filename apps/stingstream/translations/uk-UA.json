@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Сервер отримав забагато запитів, будь ласка спробуйте пізніше.",
     "there_is_a_server_error": "Відбулася помилка на стороні сервера",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Відбулася несподівана помилка. Чи введений URL сервера правильний?",
-    "too_old_server_text": "Виявлено непідтримуваний сервер Jellyfin",
-    "too_old_server_description": "Оновіть Jellyfin до найновішої версії"
+    "too_old_server_text": "Виявлено непідтримуваний сервер StingStream",
+    "too_old_server_description": "Оновіть StingStream до найновішої версії"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Введіть URL вашого Jellyfin сервера",
+    "enter_url_to_jellyfin_server": "Введіть URL вашого StingStream сервера",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "Підʼєднатися",
     "previous_servers": "попередні сервери",
@@ -114,16 +114,16 @@
     "suggested_movies": "Рекомендовані Фільми",
     "suggested_episodes": "Рекомендовані Епізоди",
     "intro": {
-      "welcome_to_streamyfin": "Вітаємо у Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Вільний і open-source клієнт для Jellyfin.",
+      "welcome_to_streamyfin": "Вітаємо у StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Вільний і open-source клієнт для StingStream.",
       "features_title": "Функції",
-      "features_description": "Streamyfin має безліч функцій і працює з іншим програмним забезпеченням. Ви знайдете їх у меню налаштувань:",
+      "features_description": "StingStream має безліч функцій і працює з іншим програмним забезпеченням. Ви знайдете їх у меню налаштувань:",
       "jellyseerr_feature_description": "Підключіться до вашого екземпляру Jellyseerr і запитуватуйте фільми безпосередньо в застосунку.",
       "downloads_feature_title": "Завантаження",
       "downloads_feature_description": "Завантажуйте фільми і серіали для перегляду офлайн. Використовуйте або метод за замовчуванням або встановіть оптимізований сервер для завантаження файлів у фоні.",
       "chromecast_feature_description": "Транслюйте фільми і серіали на ваші Chromecast прилади.",
       "centralised_settings_plugin_title": "Плагін централізованих налаштувань",
-      "centralised_settings_plugin_description": "Налаштуйте параметри централізовано на вашому сервері Jellyfin. Клієнтські налаштування кожного користувача синхронізуються автоматично.",
+      "centralised_settings_plugin_description": "Налаштуйте параметри централізовано на вашому сервері StingStream. Клієнтські налаштування кожного користувача синхронізуються автоматично.",
       "done_button": "Готово",
       "go_to_settings_button": "Перейти до параметрів",
       "read_more": "Прочитати більше"
@@ -274,7 +274,6 @@
         "audio_title": "Аудіо",
         "set_audio_track": "Аудіо доріжка як в попередньому епізоді",
         "audio_language": "Мова аудіо",
-        "audio_hint": "Вибрати мову аудіо за замовчуванням.",
         "none": "Ніяка",
         "original_language": "Мова оригіналу",
         "language": "Мова",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Субтитри",
-        "subtitle_hint": "Налаштуйте параметри субтитрів.",
         "subtitle_language": "Мова субтитрів",
         "subtitle_mode": "Режим субтитрів",
         "set_subtitle_track": "Виставити доріжку субтитрів як в попередньому епізоду",
@@ -297,7 +295,6 @@
         "subtitle_size": "Розмір субтитрів",
         "none": "Ніякі",
         "language": "Мова",
-        "loading": "Завантаження",
         "modes": {
           "Default": "За замовчування",
           "Smart": "Розумний",
@@ -306,18 +303,10 @@
           "OnlyForced": "Виключно Форсовані"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Введіть свій ключ API OpenSubtitles, щоб шукати субтитри з цього пристрою, коли на сервері Jellyfin не налаштовано постачальника субтитрів.",
+        "opensubtitles_hint": "Введіть свій ключ API OpenSubtitles, щоб шукати субтитри з цього пристрою, коли на сервері StingStream не налаштовано постачальника субтитрів.",
         "opensubtitles_api_key": "Ключ API",
         "opensubtitles_api_key_placeholder": "Введіть ключ API...",
         "opensubtitles_get_key": "Отримайте безкоштовний ключ API на opensubtitles.com/uk/consumers",
-        "mpv_subtitle_scale": "Масштаб субтитрів",
-        "mpv_subtitle_margin_y": "Вертикальний відступ",
-        "mpv_subtitle_align_x": "Горизонтальне вирівнювання",
-        "mpv_subtitle_align_y": "Вертикальне вирівнювання",
-        "mpv_settings_title": "Налаштування субтитрів MPV",
-        "mpv_settings_description": "Розширене налаштування субтитрів для плеєра MPV",
-        "opaque_background": "Непрозорий фон",
-        "background_opacity": "Непрозорість фону",
         "align": {
           "left": "Ліворуч",
           "center": "По центру",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Плагіни",
         "wikidata_awards": "Нагороди з Wikidata",
-        "wikidata_awards_hint": "Показувати «Оскари» та нагороди на сторінках фільмів і серіалів. Цей пристрій звертається безпосередньо до Wikidata, а не до вашого сервера Jellyfin.",
+        "wikidata_awards_hint": "Показувати «Оскари» та нагороди на сторінках фільмів і серіалів. Цей пристрій звертається безпосередньо до Wikidata, а не до вашого сервера StingStream.",
         "opensubtitles_enabled": "Шукати на OpenSubtitles",
-        "opensubtitles_enabled_hint": "Дозволити цьому пристрою шукати субтитри безпосередньо на OpenSubtitles, коли на вашому сервері Jellyfin немає постачальника субтитрів. Якщо вимкнути, пошук субтитрів залишиться на сервері, а збережений ключ API не буде змінено.",
+        "opensubtitles_enabled_hint": "Дозволити цьому пристрою шукати субтитри безпосередньо на OpenSubtitles, коли на вашому сервері StingStream немає постачальника субтитрів. Якщо вимкнути, пошук субтитрів залишиться на сервері, а збережений ключ API не буде змінено.",
         "jellyseerr": {
           "server_url": "URL Сервера",
           "server_url_hint": "Наприклад: http(s)://your-host.url\n(додайте порт якщо необхідно)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "Пароль",
-          "password_placeholder": "Введіть Jellyfin пароль для користувача {{username}}",
+          "password_placeholder": "Введіть StingStream пароль для користувача {{username}}",
           "login_button": "Вхід",
           "total_media_requests": "Загальна кількість медіа запитів",
           "movie_quota_limit": "Дні квоти на фільми",
@@ -518,7 +507,7 @@
       "delete": "Видалити",
       "delete_download": "Видалити завантаження",
       "something_went_wrong": "Щось пішло не так",
-      "could_not_get_stream_url_from_jellyfin": "Не вдалося отримати URL-адресу потоку від Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Не вдалося отримати URL-адресу потоку від StingStream",
       "eta": "Залишилось {{eta}}",
       "live_activity": {
         "downloading": "Завантаження",
@@ -726,7 +715,7 @@
     "subtitle_search": "Пошук і завантаження",
     "download": "Завантажити",
     "subtitle_download_hint": "Завантажені субтитри буде збережено у вашій бібліотеці",
-    "using_jellyfin_server": "Використовується сервер Jellyfin",
+    "using_jellyfin_server": "Використовується сервер StingStream",
     "language": "Мова",
     "results": "Результати",
     "search_failed": "Пошук не вдався",
@@ -801,8 +790,7 @@
     "resume_playback": "Продовжити відтворення",
     "resume_playback_description": "Продовжити з місця зупинки чи почати спочатку?",
     "play_from_start": "Відтворити спочатку",
-    "continue_from": "Продовжити з {{time}}",
-    "no_data_available": "Немає даних"
+    "continue_from": "Продовжити з {{time}}"
   },
   "live_tv": {
     "title": "Телебачення наживо",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Підключити телефон",
     "pair_with_phone_title": "Увійти на ТБ",
     "waiting_for_phone": "Очікування телефона...",
-    "scan_with_phone": "Відскануйте застосунком Streamyfin на телефоні",
+    "scan_with_phone": "Відскануйте застосунком StingStream на телефоні",
     "logging_in": "Вхід...",
     "logging_in_description": "Підключення до вашого сервера"
   }

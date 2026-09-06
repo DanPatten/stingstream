@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "เซิร์ฟเวอร์ได้รับคำขอมากเกินไป กรุณาลองใหม่ภายหลัง",
     "there_is_a_server_error": "เกิดข้อผิดพลาดของเซิร์ฟเวอร์",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "เกิดข้อผิดพลาดที่ไม่คาดคิด คุณใส่ URL ของเซิร์ฟเวอร์ถูกต้องหรือไม่",
-    "too_old_server_text": "พบเซิร์ฟเวอร์ Jellyfin ที่ไม่รองรับ",
-    "too_old_server_description": "กรุณาอัปเดต Jellyfin เป็นเวอร์ชันล่าสุด"
+    "too_old_server_text": "พบเซิร์ฟเวอร์ StingStream ที่ไม่รองรับ",
+    "too_old_server_description": "กรุณาอัปเดต StingStream เป็นเวอร์ชันล่าสุด"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "ใส่ URL ของเซิร์ฟเวอร์ Jellyfin ของคุณ",
+    "enter_url_to_jellyfin_server": "ใส่ URL ของเซิร์ฟเวอร์ StingStream ของคุณ",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "เชื่อมต่อ",
     "previous_servers": "เซิร์ฟเวอร์ก่อนหน้า",
@@ -114,16 +114,16 @@
     "suggested_movies": "ภาพยนตร์แนะนำ",
     "suggested_episodes": "ตอนแนะนำ",
     "intro": {
-      "welcome_to_streamyfin": "ยินดีต้อนรับสู่ Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "ไคลเอนต์ Jellyfin แบบฟรีและโอเพนซอร์ส",
+      "welcome_to_streamyfin": "ยินดีต้อนรับสู่ StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "ไคลเอนต์ StingStream แบบฟรีและโอเพนซอร์ส",
       "features_title": "คุณสมบัติ",
-      "features_description": "Streamyfin มีฟีเจอร์มากมายและทำงานร่วมกับซอฟต์แวร์อื่น ๆ ได้ คุณจะพบฟีเจอร์เหล่านี้ในเมนูการตั้งค่า:",
+      "features_description": "StingStream มีฟีเจอร์มากมายและทำงานร่วมกับซอฟต์แวร์อื่น ๆ ได้ คุณจะพบฟีเจอร์เหล่านี้ในเมนูการตั้งค่า:",
       "jellyseerr_feature_description": "เชื่อมต่อกับ Seerr ของคุณและขอภาพยนตร์ได้โดยตรงในแอป",
       "downloads_feature_title": "ดาวน์โหลด",
       "downloads_feature_description": "ดาวน์โหลดภาพยนตร์และซีรีส์เพื่อดูแบบออฟไลน์",
       "chromecast_feature_description": "แคสต์ภาพยนตร์และซีรีส์ไปยังอุปกรณ์ Chromecast ของคุณ",
       "centralised_settings_plugin_title": "ปลั๊กอินตั้งค่าแบบรวมศูนย์",
-      "centralised_settings_plugin_description": "ตั้งค่าแบบรวมศูนย์บนเซิร์ฟเวอร์ Jellyfin ของคุณ การตั้งค่าไคลเอนต์ของผู้ใช้ทุกคนจะซิงค์กันโดยอัตโนมัติ.",
+      "centralised_settings_plugin_description": "ตั้งค่าแบบรวมศูนย์บนเซิร์ฟเวอร์ StingStream ของคุณ การตั้งค่าไคลเอนต์ของผู้ใช้ทุกคนจะซิงค์กันโดยอัตโนมัติ.",
       "done_button": "เสร็จสิ้น",
       "go_to_settings_button": "ไปที่การตั้งค่า",
       "read_more": "อ่านเพิ่มเติม"
@@ -274,7 +274,6 @@
         "audio_title": "เสียง",
         "set_audio_track": "ใช้แทร็กเสียงจากรายการก่อนหน้า",
         "audio_language": "ภาษาเสียง",
-        "audio_hint": "เลือกภาษาเสียงเริ่มต้น",
         "none": "ไม่มี",
         "original_language": "ภาษาต้นฉบับ",
         "language": "ภาษา",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "คำบรรยาย",
-        "subtitle_hint": "ตั้งค่าลักษณะและการทำงานของคำบรรยาย",
         "subtitle_language": "ภาษาคำบรรยาย",
         "subtitle_mode": "โหมดคำบรรยาย",
         "set_subtitle_track": "ใช้แทร็กคำบรรยายจากรายการก่อนหน้า",
@@ -297,7 +295,6 @@
         "subtitle_size": "ขนาดคำบรรยาย",
         "none": "ไม่มี",
         "language": "ภาษา",
-        "loading": "กำลังโหลด",
         "modes": {
           "Default": "ค่าเริ่มต้น",
           "Smart": "อัจฉริยะ",
@@ -306,18 +303,10 @@
           "OnlyForced": "เฉพาะที่บังคับ"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "ใส่คีย์ API ของ OpenSubtitles เพื่อเปิดใช้การค้นหาคำบรรยายจากอุปกรณ์นี้ เมื่อเซิร์ฟเวอร์ Jellyfin ของคุณไม่มีผู้ให้บริการคำบรรยาย",
+        "opensubtitles_hint": "ใส่คีย์ API ของ OpenSubtitles เพื่อเปิดใช้การค้นหาคำบรรยายจากอุปกรณ์นี้ เมื่อเซิร์ฟเวอร์ StingStream ของคุณไม่มีผู้ให้บริการคำบรรยาย",
         "opensubtitles_api_key": "คีย์ API",
         "opensubtitles_api_key_placeholder": "ใส่คีย์ API...",
         "opensubtitles_get_key": "รับคีย์ API ฟรีได้ที่ opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "ขนาดคำบรรยาย",
-        "mpv_subtitle_margin_y": "ระยะขอบแนวตั้ง",
-        "mpv_subtitle_align_x": "การจัดแนวนอน",
-        "mpv_subtitle_align_y": "การจัดแนวตั้ง",
-        "mpv_settings_title": "การตั้งค่าคำบรรยาย MPV",
-        "mpv_settings_description": "ปรับแต่งคำบรรยายขั้นสูงสำหรับเครื่องเล่น MPV",
-        "opaque_background": "พื้นหลังทึบแสง",
-        "background_opacity": "ความทึบของพื้นหลัง",
         "align": {
           "left": "ซ้าย",
           "center": "กึ่งกลาง",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "ปลั๊กอิน",
         "wikidata_awards": "รางวัลจาก Wikidata",
-        "wikidata_awards_hint": "แสดงรางวัลออสการ์และสถานะรางวัลในหน้าภาพยนตร์และซีรีส์ อุปกรณ์นี้สอบถาม Wikidata โดยตรง ไม่ใช่เซิร์ฟเวอร์ Jellyfin ของคุณ",
+        "wikidata_awards_hint": "แสดงรางวัลออสการ์และสถานะรางวัลในหน้าภาพยนตร์และซีรีส์ อุปกรณ์นี้สอบถาม Wikidata โดยตรง ไม่ใช่เซิร์ฟเวอร์ StingStream ของคุณ",
         "opensubtitles_enabled": "ค้นหาใน OpenSubtitles",
-        "opensubtitles_enabled_hint": "ให้อุปกรณ์นี้ค้นหาใน OpenSubtitles ได้โดยตรงเมื่อเซิร์ฟเวอร์ Jellyfin ของคุณไม่มีผู้ให้บริการคำบรรยาย เมื่อปิด การค้นหาคำบรรยายจะยังอยู่บนเซิร์ฟเวอร์ และคีย์ API ที่บันทึกไว้จะไม่ถูกแตะต้อง",
+        "opensubtitles_enabled_hint": "ให้อุปกรณ์นี้ค้นหาใน OpenSubtitles ได้โดยตรงเมื่อเซิร์ฟเวอร์ StingStream ของคุณไม่มีผู้ให้บริการคำบรรยาย เมื่อปิด การค้นหาคำบรรยายจะยังอยู่บนเซิร์ฟเวอร์ และคีย์ API ที่บันทึกไว้จะไม่ถูกแตะต้อง",
         "jellyseerr": {
           "server_url": "URL เซิร์ฟเวอร์",
           "server_url_hint": "ตัวอย่าง: http(s)://your-host.url\n(เพิ่มพอร์ตหากจำเป็น)",
           "server_url_placeholder": "Seerr URL",
           "password": "รหัสผ่าน",
-          "password_placeholder": "ใส่รหัสผ่านสำหรับผู้ใช้ Jellyfin {{username}}",
+          "password_placeholder": "ใส่รหัสผ่านสำหรับผู้ใช้ StingStream {{username}}",
           "login_button": "เข้าสู่ระบบ",
           "total_media_requests": "คำขอสื่อทั้งหมด",
           "movie_quota_limit": "ขีดจำกัดโควตาภาพยนตร์",
@@ -518,7 +507,7 @@
       "delete": "ลบ",
       "delete_download": "ลบรายการดาวน์โหลด",
       "something_went_wrong": "เกิดข้อผิดพลาดบางอย่าง",
-      "could_not_get_stream_url_from_jellyfin": "ไม่สามารถรับ URL สตรีมจาก Jellyfin ได้",
+      "could_not_get_stream_url_from_jellyfin": "ไม่สามารถรับ URL สตรีมจาก StingStream ได้",
       "eta": "เหลืออีก {{eta}}",
       "live_activity": {
         "downloading": "กำลังดาวน์โหลด",
@@ -726,7 +715,7 @@
     "subtitle_search": "ค้นหาและดาวน์โหลด",
     "download": "ดาวน์โหลด",
     "subtitle_download_hint": "คำบรรยายที่ดาวน์โหลดจะถูกบันทึกไว้ในไลบรารีของคุณ",
-    "using_jellyfin_server": "ใช้เซิร์ฟเวอร์ Jellyfin",
+    "using_jellyfin_server": "ใช้เซิร์ฟเวอร์ StingStream",
     "language": "ภาษา",
     "results": "ผลลัพธ์",
     "search_failed": "ค้นหาไม่สำเร็จ",
@@ -801,8 +790,7 @@
     "resume_playback": "เล่นต่อ",
     "resume_playback_description": "คุณต้องการเล่นต่อจากที่ค้างไว้ หรือเริ่มใหม่ตั้งแต่ต้น?",
     "play_from_start": "เล่นตั้งแต่ต้น",
-    "continue_from": "เล่นต่อจาก {{time}}",
-    "no_data_available": "ไม่มีข้อมูล"
+    "continue_from": "เล่นต่อจาก {{time}}"
   },
   "live_tv": {
     "title": "ทีวีสด",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "จับคู่กับโทรศัพท์",
     "pair_with_phone_title": "เข้าสู่ระบบบนทีวี",
     "waiting_for_phone": "กำลังรอโทรศัพท์...",
-    "scan_with_phone": "สแกนด้วยแอป Streamyfin บนโทรศัพท์ของคุณ",
+    "scan_with_phone": "สแกนด้วยแอป StingStream บนโทรศัพท์ของคุณ",
     "logging_in": "กำลังเข้าสู่ระบบ...",
     "logging_in_description": "กำลังเชื่อมต่อกับเซิร์ฟเวอร์ของคุณ"
   }

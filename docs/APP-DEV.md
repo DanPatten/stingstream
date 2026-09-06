@@ -158,7 +158,7 @@ $env:EXPO_TV = "1"
 npx expo start --dev-client
 adb reverse tcp:8081 tcp:8081
 adb shell am start -a android.intent.action.VIEW `
-  -d "streamyfin://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
+  -d "stingstream://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081"
 ```
 
 Drive it over ADB without a physical remote: `adb shell input keyevent <code>` — `20` = DPAD_DOWN,

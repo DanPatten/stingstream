@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Palvelin sai liian monta pyyntöä, yritä myöhemmin uudelleen.",
     "there_is_a_server_error": "Palvelimessa on virhe",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Odottamaton virhe tapahtui. Syötitkö palvelimen URL-osoitteen oikein?",
-    "too_old_server_text": "Ei-tuettu Jellyfin-palvelin löydetty",
-    "too_old_server_description": "Ole hyvä ja päivitä Jellyfin uusimpaan versioon"
+    "too_old_server_text": "Ei-tuettu StingStream-palvelin löydetty",
+    "too_old_server_description": "Ole hyvä ja päivitä StingStream uusimpaan versioon"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Syötä URL-osoite Jellyfin-palvelimellesi",
+    "enter_url_to_jellyfin_server": "Syötä URL-osoite StingStream-palvelimellesi",
     "server_url_placeholder": "http(s)://oma-palvelin.com",
     "connect_button": "Yhdistä",
     "previous_servers": "Edelliset palvelimet",
@@ -114,16 +114,16 @@
     "suggested_movies": "Ehdotetut elokuvat",
     "suggested_episodes": "Ehdotetut jaksot",
     "intro": {
-      "welcome_to_streamyfin": "Tervetuloa Streamyfiniin",
-      "a_free_and_open_source_client_for_jellyfin": "Ilmainen ja avoimen lähdekoodin asiakas Jellyfinille.",
+      "welcome_to_streamyfin": "Tervetuloa StingStreamiin",
+      "a_free_and_open_source_client_for_jellyfin": "Ilmainen ja avoimen lähdekoodin asiakas StingStreamille.",
       "features_title": "Ominaisuudet",
-      "features_description": "Streamyfinissä on useita ominaisuuksia, ja se toimii muiden ohjelmistojen kanssa. Löydät ne asetukset-valikosta:",
+      "features_description": "StingStreamissä on useita ominaisuuksia, ja se toimii muiden ohjelmistojen kanssa. Löydät ne asetukset-valikosta:",
       "jellyseerr_feature_description": "Yhdistä Jellyseerr-instanssiisi ja pyydä elokuvia suoraan sovelluksessa.",
       "downloads_feature_title": "Lataukset",
       "downloads_feature_description": "Lataa elokuvia ja TV-sarjoja katsottavaksi offline-tilassa. Käytä joko oletusmenetelmää tai asenna optimoitu palvelin ladataksesi tiedostoja taustalla.",
       "chromecast_feature_description": "Toista elokuvia ja TV-sarjoja Chromecast-laitteillesi.",
       "centralised_settings_plugin_title": "Keskitetty asetusten liitännäinen",
-      "centralised_settings_plugin_description": "Määritä asetukset keskitetysti Jellyfin-palvelimellasi. Jokaisen käyttäjän asiakasasetukset synkronoidaan automaattisesti.",
+      "centralised_settings_plugin_description": "Määritä asetukset keskitetysti StingStream-palvelimellasi. Jokaisen käyttäjän asiakasasetukset synkronoidaan automaattisesti.",
       "done_button": "Valmis",
       "go_to_settings_button": "Siirry asetuksiin",
       "read_more": "Lue lisää"
@@ -274,7 +274,6 @@
         "audio_title": "Ääni",
         "set_audio_track": "Aseta ääniura edellisestä kohteesta",
         "audio_language": "Äänen kieli",
-        "audio_hint": "Valitse oletusäänen kieli.",
         "none": "Ei mitään",
         "original_language": "Alkuperäinen kieli",
         "language": "Kieli",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Tekstitykset",
-        "subtitle_hint": "Määritä tekstitysasetukset.",
         "subtitle_language": "Tekstityksen kieli",
         "subtitle_mode": "Tekstitysmoodi",
         "set_subtitle_track": "Aseta tekstitys edellisestä kohteesta",
@@ -297,7 +295,6 @@
         "subtitle_size": "Tekstityksen koko",
         "none": "Ei mitään",
         "language": "Kieli",
-        "loading": "Ladataan",
         "modes": {
           "Default": "Oletus",
           "Smart": "Älykäs",
@@ -306,18 +303,10 @@
           "OnlyForced": "Vain pakotettu"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Anna OpenSubtitles-API-avaimesi, jotta tekstityksiä voi hakea tältä laitteelta, kun Jellyfin-palvelimellasi ei ole tekstityspalvelua määritettynä.",
+        "opensubtitles_hint": "Anna OpenSubtitles-API-avaimesi, jotta tekstityksiä voi hakea tältä laitteelta, kun StingStream-palvelimellasi ei ole tekstityspalvelua määritettynä.",
         "opensubtitles_api_key": "API-avain",
         "opensubtitles_api_key_placeholder": "Anna API-avain...",
         "opensubtitles_get_key": "Hanki ilmainen API-avain osoitteesta opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "Tekstityksen koko",
-        "mpv_subtitle_margin_y": "Pystysuora marginaali",
-        "mpv_subtitle_align_x": "Vaakasuora tasaus",
-        "mpv_subtitle_align_y": "Pystysuora tasaus",
-        "mpv_settings_title": "MPV:n tekstitysasetukset",
-        "mpv_settings_description": "MPV-soittimen kehittynyt tekstitysten mukautus",
-        "opaque_background": "Läpinäkymätön tausta",
-        "background_opacity": "Taustan peittävyys",
         "align": {
           "left": "Vasen",
           "center": "Keskitetty",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Liitännäiset",
         "wikidata_awards": "Palkinnot Wikidatasta",
-        "wikidata_awards_hint": "Näytä Oscarit ja palkinnot elokuvien ja sarjojen sivuilla. Tämä laite kysyy tiedot suoraan Wikidatasta, ei Jellyfin-palvelimeltasi.",
+        "wikidata_awards_hint": "Näytä Oscarit ja palkinnot elokuvien ja sarjojen sivuilla. Tämä laite kysyy tiedot suoraan Wikidatasta, ei StingStream-palvelimeltasi.",
         "opensubtitles_enabled": "Hae OpenSubtitlesista",
-        "opensubtitles_enabled_hint": "Anna tämän laitteen hakea tekstityksiä suoraan OpenSubtitlesista, kun Jellyfin-palvelimellasi ei ole tekstityspalvelua. Kun tämä on pois päältä, tekstityshaut tehdään palvelimella eikä tallennettuun API-avaimeen kosketa.",
+        "opensubtitles_enabled_hint": "Anna tämän laitteen hakea tekstityksiä suoraan OpenSubtitlesista, kun StingStream-palvelimellasi ei ole tekstityspalvelua. Kun tämä on pois päältä, tekstityshaut tehdään palvelimella eikä tallennettuun API-avaimeen kosketa.",
         "jellyseerr": {
           "server_url": "Palvelimen URL",
           "server_url_hint": "Esimerkki: http(s)://verkkotunnus.url\n(lisää portti tarvittaessa)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "Salasana",
-          "password_placeholder": "Syötä salasana Jellyfin-käyttäjälle {{username}}",
+          "password_placeholder": "Syötä salasana StingStream-käyttäjälle {{username}}",
           "login_button": "Kirjaudu sisään",
           "total_media_requests": "Yhteensä mediapyynnöt",
           "movie_quota_limit": "Elokuvakiintiön raja",
@@ -518,7 +507,7 @@
       "delete": "Poista",
       "delete_download": "Poista lataus",
       "something_went_wrong": "Jotain meni pieleen",
-      "could_not_get_stream_url_from_jellyfin": "Ei voitu saada suoratoiston URL:ia Jellyfinilta",
+      "could_not_get_stream_url_from_jellyfin": "Ei voitu saada suoratoiston URL:ia StingStreamilta",
       "eta": "Arvio {{eta}}",
       "live_activity": {
         "downloading": "Ladataan",
@@ -726,7 +715,7 @@
     "subtitle_search": "Hae ja lataa",
     "download": "Lataa",
     "subtitle_download_hint": "Ladatut tekstitykset tallennetaan kirjastoosi",
-    "using_jellyfin_server": "Käytössä Jellyfin-palvelin",
+    "using_jellyfin_server": "Käytössä StingStream-palvelin",
     "language": "Kieli",
     "results": "Tulokset",
     "search_failed": "Haku epäonnistui",
@@ -801,8 +790,7 @@
     "resume_playback": "Jatka toistoa",
     "resume_playback_description": "Haluatko jatkaa siitä, mihin jäit, vai aloittaa alusta?",
     "play_from_start": "Toista alusta",
-    "continue_from": "Jatka kohdasta {{time}}",
-    "no_data_available": "Ei tietoja saatavilla"
+    "continue_from": "Jatka kohdasta {{time}}"
   },
   "live_tv": {
     "title": "Live TV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Pariliitos puhelimen kanssa",
     "pair_with_phone_title": "Kirjaudu televisiossa",
     "waiting_for_phone": "Odotetaan puhelinta...",
-    "scan_with_phone": "Skannaa puhelimesi Streamyfin-sovelluksella",
+    "scan_with_phone": "Skannaa puhelimesi StingStream-sovelluksella",
     "logging_in": "Kirjaudutaan...",
     "logging_in_description": "Yhdistetään palvelimeesi"
   }
