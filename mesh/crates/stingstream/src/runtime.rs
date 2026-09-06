@@ -208,11 +208,7 @@ impl Runtime {
         let Some(mut r) = Self::load(path) else {
             return Ok(false);
         };
-        let held = r
-            .jellyfin_admin
-            .as_ref()
-            .is_some_and(|a| a.password.is_some());
-        if !held {
+        if !r.holds_admin_password() {
             return Ok(false);
         }
         if let Some(admin) = r.jellyfin_admin.as_mut() {
@@ -225,10 +221,19 @@ impl Runtime {
 
     /// Whether `runtime.json` still holds a generated bootstrap password, i.e. whether setup has
     /// not yet been completed as far as the supervisor can tell without asking Core.
+    ///
+    /// **An empty string counts as absent**, and that is not defensive programming: `StingStream.
+    /// Core` reads this file and writes it back (it clears `first_run` at the end of first-run
+    /// wiring), and its `AdminRuntime.Password` is a non-nullable `string` defaulting to
+    /// `string.Empty` — so a *scrubbed* file that has been through Core once comes back with
+    /// `"password": ""` rather than no key at all. Treating that as a held password would put the
+    /// node back into "setup is pending" on its next start, print the first-run banner again, and
+    /// re-poll a question that has already been answered.
     pub fn holds_admin_password(&self) -> bool {
         self.jellyfin_admin
             .as_ref()
-            .is_some_and(|a| a.password.is_some())
+            .and_then(|a| a.password.as_deref())
+            .is_some_and(|p| !p.is_empty())
     }
 
     pub fn child(&self, name: &str) -> Option<&ChildRuntime> {
@@ -497,6 +502,19 @@ mod tests {
         assert_eq!(back, without);
         assert_eq!(back.jellyfin_admin.as_ref().unwrap().username, "stingstream");
         assert!(!back.holds_admin_password());
+
+        // And the third shape, which is what `StingStream.Core` writes back after it has read a
+        // scrubbed file: an empty string rather than no key. It is not a password.
+        let mut emptied = with.clone();
+        emptied.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: Some(String::new()),
+        });
+        emptied.save(&p).unwrap();
+        let back = Runtime::load(&p).unwrap();
+        assert_eq!(back, emptied);
+        assert!(!back.holds_admin_password());
+        assert!(!Runtime::scrub_admin_password(&p).unwrap());
     }
 
     /// A file written by an older node — where `password` was a plain string — still loads.

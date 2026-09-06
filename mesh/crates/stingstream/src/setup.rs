@@ -105,14 +105,28 @@ pub fn spawn(
             }
         };
         // 404 is the ordinary answer from a Core that predates the endpoint. Logging it every
-        // fifteen seconds forever would drown the log, so it is said once.
+        // fifteen seconds forever would drown the log, so it is said once. Same for the
+        // wiring-not-finished window below.
         let mut said_missing = false;
+        let mut said_early = false;
         loop {
             match client.get(&url).send().await {
                 Ok(resp) if resp.status().is_success() => match resp.json::<SetupState>().await {
-                    Ok(state) => {
-                        handle.set(state.pending);
-                        if !state.pending && finish(&runtime_json) {
+                    Ok(state) if state.pending => handle.set(true),
+                    // A `false` while first-run wiring is still outstanding does not mean setup is
+                    // done. See `wiring_incomplete`.
+                    Ok(_) if wiring_incomplete(&runtime_json) => {
+                        if !said_early {
+                            said_early = true;
+                            tracing::debug!(
+                                "setup state: Core says not pending, but first-run wiring has not \
+                                 finished, so nobody has decided yet; still asking"
+                            );
+                        }
+                    }
+                    Ok(_) => {
+                        handle.set(false);
+                        if finish(&runtime_json) {
                             return;
                         }
                     }
@@ -141,6 +155,23 @@ pub fn spawn(
             }
         }
     });
+}
+
+/// Whether first-run wiring has yet to finish, read fresh from `runtime.json` each time.
+///
+/// This exists because of a race that cost a real node its bootstrap password before setup had
+/// even started. Core's flag is a stored document, and **"never written" reads as not pending** —
+/// which is right for a node upgraded from a build that had no flag, and wrong for the sixty
+/// seconds of a fresh node's first start *before* `EnsureAdminUserAsync` has run and written it.
+/// Asking in that window gets `Pending: false` from a Core that has not decided anything yet, and
+/// acting on it scrubbed the password Core was about to need.
+///
+/// `first_run` is the fact that separates the two: Core clears it in `runtime.json` only at the
+/// end of a first-run wiring pass that succeeded, and the same pass is what sets the flag. So
+/// while `first_run` is set, a `false` means "not yet decided" and the honest cached answer is
+/// `None`; once it is clear, `false` means what it says.
+fn wiring_incomplete(runtime_json: &std::path::Path) -> bool {
+    crate::runtime::Runtime::load(runtime_json).is_some_and(|r| r.first_run)
 }
 
 /// Setup is complete: take the bootstrap password out of `runtime.json`. Returns whether the
@@ -204,13 +235,8 @@ mod tests {
         assert!(serde_json::from_str::<SetupState>(r#"{"pending":false}"#).is_err());
     }
 
-    #[test]
-    fn finishing_scrubs_the_password_and_is_idempotent() {
-        use crate::runtime::{AdminRuntime, Runtime};
-        let td = tempfile::tempdir().unwrap();
-        let p = td.path().join("runtime.json");
-        // A minimal but real runtime.json, built the way the gateway's own test does.
-        let mut rt: Runtime = serde_json::from_value(serde_json::json!({
+    fn sample_runtime() -> crate::runtime::Runtime {
+        serde_json::from_value(serde_json::json!({
             "version": crate::runtime::RUNTIME_VERSION,
             "node_id": "abc123",
             "node_name": "attic",
@@ -228,15 +254,73 @@ mod tests {
             "mesh": { "api_port": 8791 },
             "updated_at": "2026-09-06T00:00:00Z"
         }))
-        .unwrap();
+        .expect("a minimal runtime")
+    }
+
+    fn write_runtime(dir: &std::path::Path, first_run: bool, password: Option<&str>) -> std::path::PathBuf {
+        use crate::runtime::AdminRuntime;
+        let p = dir.join("runtime.json");
+        let mut rt = sample_runtime();
+        rt.first_run = first_run;
         rt.jellyfin_admin = Some(AdminRuntime {
             username: "stingstream".into(),
-            password: Some("bootstrap-password".into()),
+            password: password.map(str::to_string),
         });
         rt.save(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn finishing_scrubs_the_password_and_is_idempotent() {
+        let td = tempfile::tempdir().unwrap();
+        let p = write_runtime(td.path(), false, Some("bootstrap-password"));
 
         assert!(finish(&p));
         assert!(!std::fs::read_to_string(&p).unwrap().contains("bootstrap-password"));
         assert!(finish(&p), "nothing left to do is still done");
+    }
+
+    /// The race this cost a real node its password to. Core's flag is a stored document and
+    /// "never written" reads as *not* pending, so a fresh node answers `Pending: false` for the
+    /// minute before `EnsureAdminUserAsync` has run and written it. `first_run` is what tells the
+    /// two apart.
+    #[test]
+    fn a_not_pending_before_first_run_wiring_has_finished_is_not_an_answer() {
+        let td = tempfile::tempdir().unwrap();
+        let mid_wiring = write_runtime(td.path(), true, Some("bootstrap-password"));
+        assert!(
+            wiring_incomplete(&mid_wiring),
+            "first_run is still set, so nobody has decided anything yet"
+        );
+
+        let td2 = tempfile::tempdir().unwrap();
+        let wired = write_runtime(td2.path(), false, Some("bootstrap-password"));
+        assert!(!wiring_incomplete(&wired));
+
+        // A runtime.json that cannot be read is not evidence that wiring finished.
+        assert!(!wiring_incomplete(&td.path().join("nope.json")));
+    }
+
+    /// `StingStream.Core` reads `runtime.json` and writes it back when it clears `first_run`, and
+    /// its `Password` property is a non-nullable string defaulting to `""` -- so a scrubbed file
+    /// that has been through Core once comes back with an empty password rather than none. It must
+    /// not read as "this node still has a bootstrap password", or every later start would announce
+    /// a first run that already happened.
+    #[test]
+    fn an_empty_password_written_back_by_core_counts_as_scrubbed() {
+        let td = tempfile::tempdir().unwrap();
+        let p = write_runtime(td.path(), false, Some(""));
+        let rt = crate::runtime::Runtime::load(&p).unwrap();
+        assert_eq!(
+            rt.jellyfin_admin.as_ref().unwrap().password.as_deref(),
+            Some(""),
+            "the file really does say empty, not absent"
+        );
+        assert!(!rt.holds_admin_password());
+        assert!(
+            !crate::runtime::Runtime::scrub_admin_password(&p).unwrap(),
+            "there is nothing left to remove, so the file must not be rewritten"
+        );
+        assert!(finish(&p), "and the poller is done either way");
     }
 }
