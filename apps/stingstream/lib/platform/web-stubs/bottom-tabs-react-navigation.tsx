@@ -20,14 +20,21 @@
  * `webModuleStubs` in `metro.config.js`).
  */
 
+import { useRouter } from "expo-router";
 import { createBottomTabNavigator } from "expo-router/js-tabs";
 import type { ComponentProps } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { tabIcon, tabTestID } from "@/components/shell/tabIcons";
+import {
+  TAB_LABEL_FONT_SIZE,
+  tabIcon,
+  tabPath,
+  tabTestID,
+} from "@/components/shell/tabIcons";
 import { tokens } from "@/constants/theme";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
 const { Navigator: JsBottomTabNavigator } = createBottomTabNavigator();
@@ -43,14 +50,35 @@ type NativeOnlyNavigatorProps = {
   hapticFeedbackEnabled?: boolean;
   disablePageAnimations?: boolean;
   labeled?: boolean;
+  tabLabelStyle?: {
+    fontSize?: number;
+    fontFamily?: string;
+    fontWeight?: string;
+  };
   rippleColor?: string;
   tabBarStyle?: { backgroundColor?: string } & Record<string, unknown>;
   tabBarActiveTintColor?: string;
   tabBarInactiveTintColor?: string;
+  /**
+   * Real in the native package, and load bearing here: above 768 px the web
+   * shell puts a sidebar where the bar would be, and the navigator underneath
+   * has to be the same one it was at 767 — see `WebShellLayout`.
+   */
+  tabBarHidden?: boolean;
 };
 
 /** The bar's own height, before the device's bottom inset is added. */
 const TAB_BAR_HEIGHT = 56;
+
+/**
+ * The width below which the labels go and the glyphs stand alone.
+ *
+ * Kept in step with `ICON_ONLY_BELOW` in `app/(auth)/(tabs)/_layout.tsx`, which
+ * is the same rule for the native bar: five items across 360 px is 72 px each,
+ * and below that a label would have to be cut short — which pass-01 F-08 says
+ * it may not be.
+ */
+const ICON_ONLY_BELOW = 360;
 
 /**
  * The compact web tab bar.
@@ -66,10 +94,14 @@ const TAB_BAR_HEIGHT = 56;
 function WebTabBar({ state, descriptors, navigation }: any) {
   const insets = useSafeAreaInsets();
   const { accent } = useTheme();
+  const { width } = useBreakpoint();
+  const router = useRouter();
+  const labelled = width >= ICON_ONLY_BELOW;
 
   return (
     <View
       accessibilityRole='tablist'
+      testID='shell-tabbar'
       style={[
         styles.bar,
         {
@@ -93,18 +125,15 @@ function WebTabBar({ state, descriptors, navigation }: any) {
             canPreventDefault: true,
           });
           if (focused || event.defaultPrevented) return;
-          // `target: state.key` is load bearing. Without it the action bubbles
-          // to the parent navigator, which has no route called `(favorites)`,
-          // and the press does nothing at all — the bug WP-TOOLS recorded in
-          // docs/UI-LOOP.md ("the desktop-width bottom tab bar does not
-          // navigate"). Written out rather than built with
-          // `CommonActions.navigate` because expo-router's Metro check rejects
-          // a direct `@react-navigation/*` import.
-          navigation.dispatch({
-            type: "NAVIGATE",
-            payload: { name: route.name, params: route.params, merge: true },
-            target: state.key,
-          });
+          // By URL, not by a NAVIGATE action aimed at this navigator.
+          //
+          // A dispatch switches the tab but leaves the group on its `index`,
+          // and a group's index is `/` — so the address bar said `/` whatever
+          // you pressed, the browser's back button had nothing to go back to,
+          // and a refresh landed on Home (pass-02 F-20). `tabPath` gives each
+          // section the address of its named route, and expo-router does the
+          // rest, history included.
+          router.navigate(tabPath(route.name) as never);
         };
 
         return (
@@ -125,19 +154,23 @@ function WebTabBar({ state, descriptors, navigation }: any) {
               size={22}
               color={focused ? accent[500] : tokens.color.text.tertiary}
             />
-            <Text
-              // `caption`, not `micro`: micro is 11 px on a phone and the
-              // acceptance bar for the 390 viewport is nothing under 12.
-              variant='caption'
-              weight={focused ? "semibold" : "medium"}
-              numberOfLines={1}
-              style={{
-                marginTop: 2,
-                color: focused ? accent[500] : tokens.color.text.tertiary,
-              }}
-            >
-              {label}
-            </Text>
+            {labelled ? (
+              <Text
+                // 11 px, per pass-01 F-08. Five labels have to fit a 360 px bar
+                // without one of them being cut short, and "Requests" is the
+                // long one; `numberOfLines` is a backstop, not the plan.
+                variant='micro'
+                weight={focused ? "semibold" : "medium"}
+                numberOfLines={1}
+                style={{
+                  marginTop: 2,
+                  fontSize: TAB_LABEL_FONT_SIZE,
+                  color: focused ? accent[500] : tokens.color.text.tertiary,
+                }}
+              >
+                {label}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}
@@ -170,11 +203,15 @@ function NativeBottomTabsWebNavigator({
   translucent: _translucent,
   hapticFeedbackEnabled: _hapticFeedbackEnabled,
   disablePageAnimations: _disablePageAnimations,
+  // The bar below decides for itself whether it can afford labels, from the
+  // same width rule the native navigator is given.
   labeled: _labeled,
+  tabLabelStyle: _tabLabelStyle,
   rippleColor: _rippleColor,
   tabBarStyle: _tabBarStyle,
   tabBarActiveTintColor: _tabBarActiveTintColor,
   tabBarInactiveTintColor: _tabBarInactiveTintColor,
+  tabBarHidden,
   screenOptions,
   ...rest
 }: NativeOnlyNavigatorProps & Record<string, any>) {
@@ -187,7 +224,9 @@ function NativeBottomTabsWebNavigator({
           ...(typeof screenOptions === "object" ? screenOptions : null),
         } as any
       }
-      tabBar={(props: any) => <WebTabBar {...props} />}
+      tabBar={
+        tabBarHidden ? () => null : (props: any) => <WebTabBar {...props} />
+      }
     />
   );
 }

@@ -1,12 +1,10 @@
 import { getUserViewsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
-import { Stack, useGlobalSearchParams, useSegments } from "expo-router";
+import { useGlobalSearchParams, usePathname, useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
-import { useCallback, useMemo } from "react";
+import { type PropsWithChildren, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, View } from "react-native";
-import { SystemBars } from "react-native-edge-to-edge";
-import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
+import { View } from "react-native";
 import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -23,38 +21,28 @@ import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { isTabKey, tabLabelKey } from "./tabIcons";
 
-// Music is stubbed on web (docs/M2-web-spike.md §7) but still mounts, exactly
-// as it does in the phone branch of `(tabs)/_layout.tsx` — the shell must not
-// be the reason a provider stops running.
-const MiniPlayerBar = Platform.isTV
-  ? () => null
-  : require("@/components/music/MiniPlayerBar").MiniPlayerBar;
-const MusicPlaybackEngine = Platform.isTV
-  ? () => null
-  : require("@/components/music/MusicPlaybackEngine").MusicPlaybackEngine;
-
 /**
- * The desktop shell: a sidebar and a top bar around the tab groups.
+ * The desktop chrome: a sidebar and a top bar around the tab navigator.
  *
- * Structurally this is `TVTabLayout` with a different chrome, and deliberately
- * so — that layout already proves the shape works. The ten tab groups become a
- * `Stack` with animations off and `(home)` as the initial route, switching tab
- * is `router.replace` into the group, and which one is current comes from
- * `useSegments()`. No new route, no new group, so `CLAUDE.test.ts` stays green
- * and every screen keeps the URL it already had.
+ * **It wraps the navigator; it is not one.** The first version of this replaced
+ * the bottom-tab navigator with a `Stack` above 768 px, which meant dragging a
+ * window across that width handed a Stack's navigation state to a TabRouter (or
+ * the other way round) — and react-navigation reads fields off it that the
+ * other kind has never had. The app did not just lose its place: it rendered
+ * "Something went wrong". So there is one navigator at every width now, the
+ * same one, and crossing the breakpoint changes nothing but the furniture: the
+ * bottom bar goes, the sidebar and top bar arrive, and the tab you were on and
+ * the page you were on both survive.
  *
- * **Crossing 768 px remounts the navigator.** The compact branch is a bottom-tab
- * navigator and this one is a `Stack`; they cannot be the same element, so a
- * drag-resize across the breakpoint throws away the navigation state and lands
- * on the tab you were in, at its root. That is accepted (the plan says so): the
- * alternative is one navigator with two skins, which would mean the bottom tab
- * bar's route state on a desktop and a `Stack`'s on a phone — worse in both
- * places for a case that only happens while somebody is dragging a window edge.
+ * Everything it needs it works out from the route (`useSegments`,
+ * `usePathname`) and from `buildSidebarItems`, so it holds no navigation state
+ * of its own and can be mounted and unmounted freely.
  */
-export const WebShellLayout: React.FC = () => {
+export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const router = useRouter();
   const segments = useSegments() as string[];
+  const pathname = usePathname();
   const { isExpanded } = useBreakpoint();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
@@ -116,13 +104,10 @@ export const WebShellLayout: React.FC = () => {
 
       // "Already there" means *exactly* there, not "somewhere in this tab".
       // Clicking Home from a detail page has to go home — that is most of what
-      // a persistent sidebar is for — so only the row's own leaf route is a
-      // no-op, and anything deeper navigates back up to it.
-      const leaf =
-        item.tab ?? item.route.pathname.split("/").filter(Boolean).pop();
-      if (item.key === activeKey && segments[segments.length - 1] === leaf) {
-        return;
-      }
+      // a persistent sidebar is for — so only the row's own URL is a no-op, and
+      // anything deeper navigates back up to it. Comparing addresses rather
+      // than route segments is what every row having a real URL buys us.
+      if (item.route.pathname === pathname) return;
 
       if (item.navigate === "replace") {
         router.replace(href as never);
@@ -138,7 +123,7 @@ export const WebShellLayout: React.FC = () => {
       // nav should do anyway.
       router.navigate(href as never);
     },
-    [router, segments, activeKey],
+    [router, pathname],
   );
 
   return (
@@ -149,7 +134,6 @@ export const WebShellLayout: React.FC = () => {
         backgroundColor: tokens.color.bg["0"],
       }}
     >
-      <SystemBars hidden={false} style='light' />
       <Sidebar
         sections={sections}
         activeKey={activeKey}
@@ -162,22 +146,7 @@ export const WebShellLayout: React.FC = () => {
           horizontal scrollbar. */}
       <View style={{ flex: 1, minWidth: 0 }}>
         <TopBar fallbackTitle={pageTitle} />
-        <View style={{ flex: 1, backgroundColor: tokens.color.bg["0"] }}>
-          <Stack
-            screenOptions={{ headerShown: false, animation: "none" }}
-            initialRouteName='(home)'
-          >
-            <Stack.Screen name='index' redirect />
-          </Stack>
-        </View>
-        {/*
-          Kept mounted exactly as the phone branch keeps them: a watch-together
-          invite arrives while you are doing something else, and the music
-          engine is the thing that plays.
-        */}
-        <WatchTogetherBanner />
-        <MiniPlayerBar />
-        <MusicPlaybackEngine />
+        {children}
       </View>
     </View>
   );

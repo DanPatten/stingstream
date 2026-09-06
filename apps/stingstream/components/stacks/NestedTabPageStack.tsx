@@ -2,6 +2,8 @@ import { Stack } from "expo-router";
 import { type ComponentProps, useMemo } from "react";
 import { Platform } from "react-native";
 import { HeaderGradient } from "@/components/common/HeaderGradient";
+import { HeaderMark } from "@/components/shell/HeaderMark";
+import { MoreBackButton } from "@/components/shell/MoreBackButton";
 import { resolveTextStyle, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
@@ -80,6 +82,45 @@ export function useStackScreenOptions(): ICommonScreenOptions {
       contentStyle: { backgroundColor: tokens.color.bg["0"] },
     } satisfies ICommonScreenOptions;
   }, [isWebWide, name, accent]);
+}
+
+/**
+ * The extra options a *tab root* takes on a phone or a narrow browser window.
+ *
+ * Pass-01 F-13, Dan: "a standard app mark belongs in the top-left corner
+ * (modern SaaS app practice), even if it is just the S for now". So the five
+ * top-level screens — Home, Search, Library, Requests, More — put the mark in
+ * `headerLeft`, ahead of the title, and keep their right-side actions exactly
+ * as they were. Spread it into the `index` screen's options, after the title.
+ *
+ * Nothing on web wide (the sidebar carries the wordmark and the root headers
+ * are gone) and nothing on television, which has no header at all.
+ */
+export function useTabRootScreenOptions(): ICommonScreenOptions {
+  const { isWebWide } = useBreakpoint();
+
+  return useMemo(() => {
+    if (isWebWide || Platform.isTV) return {};
+    return { headerLeft: () => <HeaderMark /> };
+  }, [isWebWide]);
+}
+
+/**
+ * The extra options for a tab root that the More list opens.
+ *
+ * Favorites, Watchlists, Manage, Transfers and Custom links lost their tab
+ * buttons to F-08's five-icon bar, so on a phone they are reached from More and
+ * nowhere else — and being tab roots, the native stack gives them no back
+ * button. This puts one there. On web wide they are sidebar rows with no header
+ * at all, so it returns nothing.
+ */
+export function useMoreChildScreenOptions(): ICommonScreenOptions {
+  const { isWebWide } = useBreakpoint();
+
+  return useMemo(() => {
+    if (isWebWide || Platform.isTV) return {};
+    return { headerLeft: () => <MoreBackButton /> };
+  }, [isWebWide]);
 }
 
 export const commonScreenOptions: ICommonScreenOptions = {

@@ -1060,7 +1060,11 @@
     "libraries": "Libraries",
     "sharing": "Sharing",
     "account": "Account",
-    "sign_out": "Sign out"
+    "sign_out": "Sign out",
+    "more_browse": "Browse",
+    "more_admin": "Administration",
+    "more_app": "App",
+    "cast_to_device": "Cast to a device"
   },
   "tabs": {
     "home": "Home",
@@ -1071,7 +1075,8 @@
     "settings": "Settings",
     "requests": "Requests",
     "manage": "Manage",
-    "transfers": "Transfers"
+    "transfers": "Transfers",
+    "more": "More"
   },
   "music": {
     "title": "Music",

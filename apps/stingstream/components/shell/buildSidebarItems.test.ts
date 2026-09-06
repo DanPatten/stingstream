@@ -5,10 +5,12 @@ import type {
 } from "@jellyfin/sdk/lib/generated-client/models";
 import {
   activeSidebarKey,
+  buildMoreItems,
   buildSidebarItems,
   flattenSidebar,
   type SidebarSettings,
 } from "./buildSidebarItems";
+import { TAB_KEYS, tabPath } from "./tabIcons";
 
 // Everything here is the *rules* of the sidebar, which is the only part of the
 // shell with rules in it: who sees which row, in what order, and which row is
@@ -73,7 +75,38 @@ describe("buildSidebarItems", () => {
 
     expect(transfers?.label).toBe("tabs.transfers");
     expect(transfers?.testID).toBe("tab-transfers");
-    expect(transfers?.route.pathname).toBe("/(auth)/(tabs)/(downloads)");
+    expect(transfers?.route.pathname).toBe("/transfers");
+  });
+
+  test("every section row carries its own URL, not a route-group path", () => {
+    // pass-02 F-20: a group's `index` is `/`, so navigating by
+    // `/(auth)/(tabs)/(requests)` left every section sharing one address and
+    // none of them surviving a refresh.
+    const paths = Object.fromEntries(
+      flattenSidebar(
+        buildSidebarItems(
+          admin,
+          settings({
+            streamyStatsServerUrl: "http://stats",
+            showCustomMenuLinks: true,
+          }),
+          [],
+          t,
+        ),
+      ).map((item) => [item.key, item.route.pathname]),
+    );
+
+    expect(paths).toMatchObject({
+      "(home)": "/",
+      "(favorites)": "/favorites",
+      "(watchlists)": "/watchlists",
+      "(custom-links)": "/links",
+      "(requests)": "/requests",
+      "(manage)": "/manage",
+      "(downloads)": "/transfers",
+      sharing: "/sharing",
+      settings: "/settings",
+    });
   });
 
   test("Watchlists needs Streamystats configured and the tab not hidden", () => {
@@ -219,9 +252,7 @@ describe("activeSidebarKey", () => {
   });
 
   test("Sharing beats Home, though it lives inside the Home stack", () => {
-    expect(
-      at(["(auth)", "(tabs)", "(home)", "settings", "groups", "page"]),
-    ).toBe("sharing");
+    expect(at(["(auth)", "(tabs)", "(home)", "sharing"])).toBe("sharing");
   });
 
   test("Settings wins on its own, and loses to the longer match", () => {
@@ -233,5 +264,108 @@ describe("activeSidebarKey", () => {
 
   test("a route in no tab at all lights nothing", () => {
     expect(at(["(auth)", "player", "direct-player"])).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The phone's More tab (pass-01 F-08)
+// ---------------------------------------------------------------------------
+
+const moreKeys = (...args: Parameters<typeof buildMoreItems>): string[] =>
+  buildMoreItems(...args).flatMap((group) => group.items.map((i) => i.key));
+
+describe("buildMoreItems", () => {
+  test("a member gets Favorites, Sharing and Settings and no admin group", () => {
+    expect(moreKeys(member, settings(), t)).toEqual([
+      "(favorites)",
+      "sharing",
+      "settings",
+    ]);
+    expect(buildMoreItems(member, settings(), t).map((g) => g.key)).toEqual([
+      "browse",
+      "app",
+    ]);
+  });
+
+  test("an administrator gets Manage and Transfers, in their own group", () => {
+    const groups = buildMoreItems(admin, settings(), t);
+
+    expect(groups.map((group) => group.key)).toEqual([
+      "browse",
+      "admin",
+      "app",
+    ]);
+    expect(
+      groups.find((group) => group.key === "admin")?.items.map((i) => i.key),
+    ).toEqual(["(manage)", "(downloads)", "sessions"]);
+  });
+
+  test("everything the five-icon bar hides is reachable from here", () => {
+    // The point of the list: a group with no tab button and no row is a screen
+    // a phone cannot open at all.
+    const all = moreKeys(
+      admin,
+      settings({
+        streamyStatsServerUrl: "http://stats",
+        showCustomMenuLinks: true,
+      }),
+      t,
+    );
+
+    for (const hidden of [
+      "(favorites)",
+      "(watchlists)",
+      "(custom-links)",
+      "(manage)",
+      "(downloads)",
+    ]) {
+      expect(all).toContain(hidden);
+    }
+  });
+
+  test("it applies the same gates the sidebar does", () => {
+    const configured = settings({ streamyStatsServerUrl: "http://stats" });
+
+    expect(moreKeys(member, configured, t)).toContain("(watchlists)");
+    expect(
+      moreKeys(member, { ...configured, hideWatchlistsTab: true }, t),
+    ).not.toContain("(watchlists)");
+    expect(moreKeys(member, settings(), t)).not.toContain("(custom-links)");
+    expect(moreKeys(member, settings(), t)).not.toContain("(manage)");
+  });
+
+  test("rows carry a route and a testID of their own", () => {
+    const rows = buildMoreItems(admin, settings(), t).flatMap((g) => g.items);
+
+    for (const row of rows) {
+      expect(row.route.pathname.startsWith("/")).toBe(true);
+      expect(row.route.pathname).not.toContain("(");
+      expect(row.testID).toBeTruthy();
+      expect(row.icon.set).toBe("semantic");
+    }
+  });
+
+  test("no user and no settings still produces a usable list", () => {
+    expect(moreKeys(null, null, t)).toEqual([
+      "(favorites)",
+      "sharing",
+      "settings",
+    ]);
+  });
+});
+
+describe("tab paths", () => {
+  test("every tab group has an address of its own", () => {
+    // Two sections sharing a path means one of them cannot be linked to, and a
+    // section with no path at all falls through to `(libraries)/[libraryId]`,
+    // which is the spinner pass-02 F-20 caught.
+    const paths = TAB_KEYS.map(tabPath);
+    expect(new Set(paths).size).toBe(TAB_KEYS.length);
+    expect(tabPath("(home)")).toBe("/");
+    for (const path of paths) expect(path.startsWith("/")).toBe(true);
+  });
+
+  test("an unknown route name falls back to Home rather than a bad path", () => {
+    expect(tabPath("(something-new)")).toBe("/");
   });
 });
