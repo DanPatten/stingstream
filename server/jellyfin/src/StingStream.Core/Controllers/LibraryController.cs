@@ -322,7 +322,10 @@ public sealed class LibraryController : StingStreamControllerBase
     /// identifiers the app matches on rather than text it shows.
     /// </remarks>
     private static string ManagerName(ArrKind kind)
-        => kind == ArrKind.Radarr ? "The movie manager" : "The series manager";
+    {
+        var name = ArrClient.DisplayName(kind);
+        return char.ToUpperInvariant(name[0]) + name[1..];
+    }
 
     // --- movies ------------------------------------------------------------
 
