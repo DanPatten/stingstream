@@ -582,6 +582,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Mesh/groups/{group}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every member of a group, removed ones included.
+         * @description Elevated, unlike M:StingStream.Core.Controllers.MeshController.Groups(System.Threading.CancellationToken): the list is node ids and last-seen times for every
+         *     machine in the group, which is more than a member needs in order to watch a film, and it is
+         *     the screen the Remove button lives on.
+         */
+        get: operations["Mesh_Members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/members/{node}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from a group and rotate the group's secret.
+         * @description This is a group-wide, irreversible act performed from one member's node: every remaining
+         *     member gets a new secret, every invite code minted before now stops working, and the removed
+         *     node is refused from this moment. There is no un-remove — the node re-joins from a fresh
+         *     invite like anybody else. See `docs/MESH.md`.
+         *
+         *     The call can take minutes on a group where several members are asleep, because it waits to
+         *     report who actually took the new secret. The ones it could not reach are not a failure: they
+         *     catch up on their next connection through the grace window.
+         */
+        delete: operations["Mesh_RemoveMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate a group's secret, keeping every member.
+         * @description For when a code leaked rather than when a person left. Nobody is removed; every invite
+         *     minted before now stops working, and every member has to be handed the new secret, which
+         *     happens automatically for the ones that are reachable and on their next dial for the rest.
+         */
+        post: operations["Mesh_RotateSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Mesh/groups/{group}/sources/{itemKey}": {
         parameters: {
             query?: never;
@@ -1225,7 +1296,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What this user would rather have when several nodes hold the same title. */
+        /**
+         * What this user would rather have when several nodes hold the same title.
+         * @description The same self-or-administrator rule the setter has always had. It was missing here, so any
+         *     authenticated user could read any other user's stored preference by id. The value is only
+         *     speed-versus-quality, so nothing dramatic leaked — but "who else has an account on this
+         *     node, and have they configured it" is not a question a member gets to ask, and an
+         *     unguarded `{userId}` read is the shape of a mistake that grows.
+         */
         get: operations["Users_GetPlaybackPolicy"];
         /** Choose speed or quality. */
         put: operations["Users_SetPlaybackPolicy"];
@@ -3729,6 +3807,38 @@ export interface components {
             AudioTracks?: components["schemas"]["MeshTrack"][];
             SubtitleTracks?: components["schemas"]["MeshTrack"][];
         };
+        /** @description One member of a group, as `GET /mesh/v1/groups/{group}/members` reports it. */
+        MeshMember: {
+            /** @description The member's node id, hex. */
+            Node?: string;
+            /** @description What the member calls itself. Empty until it has said. */
+            NodeName?: string;
+            Online?: boolean;
+            LastSeen?: string | null;
+            /** @description This is the node answering the request. */
+            IsSelf?: boolean;
+            /**
+             * @description Removed from the group. Kept on the list rather than deleted, so an administrator can see
+             *     that the removal happened rather than wondering where somebody went.
+             */
+            Revoked?: boolean;
+        };
+        /** @description The answer to `GET /mesh/v1/groups/{group}/members`. */
+        MeshMembers: {
+            Members?: components["schemas"]["MeshMember"][];
+            /**
+             * Format: int64
+             * @description How many times this group's secret has been rotated. 0 is a group that never has.
+             */
+            Epoch?: number;
+            /**
+             * Format: int64
+             * @description Milliseconds since the epoch at the last rotation, from the author's clock.
+             */
+            RotatedAt?: number;
+            /** @description The node that made the last rotation. */
+            RotatedBy?: string;
+        };
         /** @description Enough metadata for the receiving node to write a complete `.nfo`. */
         MeshMetadata: {
             Title?: string;
@@ -3805,6 +3915,22 @@ export interface components {
             Role?: string | null;
             /** @description Actor, Director, Writer, ... Named `kind` on the wire. */
             Kind?: string | null;
+        };
+        /** @description The answer to a removal or a rotation. */
+        MeshRotation: {
+            Group?: string;
+            /**
+             * Format: int64
+             * @description The epoch the group is now at.
+             */
+            Epoch?: number;
+            /** @description The node removed, when the rotation was a removal. */
+            Removed?: string | null;
+            /**
+             * @description The members that took the new secret before the call returned. The rest pick it up from the
+             *     grace window the next time they dial anybody, so a short list is not a failure.
+             */
+            Reached?: string[];
         };
         /** @description One scored candidate from `GET /mesh/v1/sources/{group}/{item_key}`. */
         MeshScoredSource: {
@@ -8093,6 +8219,158 @@ export interface operations {
             };
         };
     };
+    Mesh_Members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id, hex. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The membership. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshMembers"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The mesh is not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Mesh_RemoveMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id, hex. */
+                group: string;
+                /** @description The member's node id, hex. */
+                node: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the rotation did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshRotation"];
+                };
+            };
+            /** @description This node is not in that group, or that is not a node id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The mesh is not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Mesh_RotateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id, hex. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the rotation did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshRotation"];
+                };
+            };
+            /** @description This node is not in that group. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The mesh is not answering. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Mesh_GetMeshSources: {
         parameters: {
             query?: {
@@ -10438,12 +10716,14 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Forbidden */
+            /** @description A non-administrator asked for somebody else's. */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
@@ -10875,6 +11155,8 @@ export interface operations {
             query?: {
                 /** @description Which app sent it. Inferred from the payload when absent. */
                 app?: string;
+                /** @description This node's webhook secret. See StingStream.Core.Webhooks.WebhookToken. */
+                token?: string;
             };
             header?: never;
             path?: never;
@@ -10904,7 +11186,7 @@ export interface operations {
                     "text/xml": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description The caller is not on the loopback interface. */
+            /** @description The token is wrong, or the caller is not on the loopback interface. */
             403: {
                 headers: {
                     [name: string]: unknown;
