@@ -37,8 +37,6 @@ import { getUserItemData } from "@/utils/jellyfin/user-library/getUserItemData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-const HORIZONTAL_PADDING = 80;
-const TOP_PADDING = 140;
 const ACTOR_IMAGE_SIZE = 250;
 const SCALE_PADDING = 20;
 

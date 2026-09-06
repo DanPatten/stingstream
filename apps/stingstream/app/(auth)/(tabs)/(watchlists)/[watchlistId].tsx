@@ -40,7 +40,6 @@ import {
 import { userAtom } from "@/providers/JellyfinProvider";
 
 const TV_ITEM_GAP = 20;
-const TV_HORIZONTAL_PADDING = 60;
 
 export default function WatchlistDetailScreen() {
   const typography = useScaledTVTypography();

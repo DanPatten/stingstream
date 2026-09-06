@@ -23,7 +23,6 @@ import { useSettings } from "@/utils/atoms/settings";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { scaleSize } from "@/utils/scaleSize";
 
-const HORIZONTAL_PADDING = scaleSize(80);
 const CARD_HEIGHT = scaleSize(220);
 const CARD_GAP = scaleSize(24);
 const SCALE_PADDING = scaleSize(20);

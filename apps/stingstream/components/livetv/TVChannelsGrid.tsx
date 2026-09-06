@@ -12,7 +12,6 @@ import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { TVChannelCard } from "./TVChannelCard";
 
-const HORIZONTAL_PADDING = 60;
 const GRID_GAP = 16;
 
 export const TVChannelsGrid: React.FC = () => {
