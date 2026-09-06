@@ -88,6 +88,7 @@
     "password_too_short": "Use at least {{min}} characters.",
     "passwords_do_not_match": "The passwords do not match.",
     "error_invalid": "That username or password cannot be used. Try another.",
+    "error_starting": "Your server is still starting up. Try again in a moment.",
     "error_already_claimed": "This server already has an account. Sign in instead.",
     "error_not_local": "The account can only be created on the computer running StingStream.",
     "error_unreachable": "Could not reach your server. Check that it is still running.",

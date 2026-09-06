@@ -33,6 +33,17 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const STATE_ATTEMPTS = 4;
 const STATE_RETRY_DELAY_MS = 500;
 
+/**
+ * How hard to try when a brand-new node answers `setup/admin` with 409 "still starting up".
+ *
+ * Core creates the bootstrap account at the front of its wiring pass, so a submit that beats it
+ * gets a 409 meaning "not yet", not "already claimed" (WP-CORE). Falling through to the sign-in
+ * card there would be the worst possible answer: a password prompt for an account that does not
+ * exist. Bounded, so a node that is genuinely stuck still says so rather than spinning.
+ */
+const ADMIN_ATTEMPTS = 3;
+const ADMIN_RETRY_DELAY_MS = 2_000;
+
 /** Whether this node still needs its first account, and whether we may create it here. */
 export interface SetupState {
   /** True while nobody has created an account on this node yet. */
@@ -45,6 +56,8 @@ export interface SetupState {
  * Why a setup request was refused, in terms the screen can act on rather than an HTTP status.
  *
  * - `invalid` — the name or the password is not usable; the message says which.
+ * - `starting` — the node has not finished wiring itself up. Worth trying again in a moment, and
+ *   the one refusal the first-run screen must *not* treat as final.
  * - `not_pending` — somebody already claimed this node. The sign-in card is the right screen.
  * - `not_local` — the request did not come from the node's own machine.
  * - `unreachable` — nothing answered.
@@ -52,6 +65,7 @@ export interface SetupState {
  */
 export type SetupErrorKind =
   | "invalid"
+  | "starting"
   | "not_pending"
   | "not_local"
   | "unreachable"
@@ -129,6 +143,13 @@ export type FetchLike = typeof fetch;
 
 export interface SetupRequestOptions {
   fetch?: FetchLike;
+}
+
+export interface SetupAdminOptions extends SetupRequestOptions {
+  /** Total tries at a node that says it is still starting. */
+  attempts?: number;
+  /** Pause between those tries. Tests pass 0. */
+  retryDelayMs?: number;
 }
 
 export interface SetupStateOptions extends SetupRequestOptions {
@@ -245,7 +266,35 @@ export interface CreatedAdmin {
 export async function createAdmin(
   origin: string,
   credentials: { username: string; password: string },
-  options: SetupRequestOptions = {},
+  options: SetupAdminOptions = {},
+): Promise<CreatedAdmin> {
+  const {
+    fetch: fetchImpl = fetch,
+    attempts = ADMIN_ATTEMPTS,
+    retryDelayMs = ADMIN_RETRY_DELAY_MS,
+  } = options;
+
+  let last: SetupRequestError | undefined;
+  for (let attempt = 1; attempt <= Math.max(1, attempts); attempt++) {
+    try {
+      return await postAdmin(origin, credentials, fetchImpl);
+    } catch (error) {
+      // Only "the node is still starting" is worth a second go. A refused password stays refused.
+      if (!(error instanceof SetupRequestError) || error.kind !== "starting") {
+        throw error;
+      }
+      last = error;
+      if (attempt < attempts) await sleep(retryDelayMs);
+    }
+  }
+  throw last;
+}
+
+/** One `POST setup/admin`, with every answer it can give mapped onto a typed error. */
+async function postAdmin(
+  origin: string,
+  credentials: { username: string; password: string },
+  fetchImpl: FetchLike,
 ): Promise<CreatedAdmin> {
   const response = await request(
     `${origin}${SETUP_ADMIN_PATH}`,
@@ -260,7 +309,7 @@ export async function createAdmin(
         Password: credentials.password,
       }),
     },
-    options.fetch ?? fetch,
+    fetchImpl,
   );
 
   if (response.status === 400) {
@@ -270,6 +319,21 @@ export async function createAdmin(
     );
   }
   if (response.status === 409) {
+    const sentence = await refusalSentence(response);
+    // A 409 means one of two opposite things, and the sentence that distinguishes them is English
+    // prose from the server. So ask the endpoint that answers in booleans instead: still pending
+    // means the node had not finished wiring itself up; no longer pending means somebody claimed
+    // it between this screen loading and this submit.
+    const state = await getSetupState(origin, {
+      fetch: fetchImpl,
+      attempts: 1,
+    }).catch(() => null);
+    if (state?.pending !== false) {
+      throw new SetupRequestError(
+        "starting",
+        sentence ?? t("setup.error_starting"),
+      );
+    }
     throw new SetupRequestError(
       "not_pending",
       t("setup.error_already_claimed"),

@@ -7,7 +7,6 @@ import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { tokens } from "@/constants/theme";
-import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   isSetupFormValid,
   PASSWORD_MIN_LENGTH,
@@ -33,7 +32,6 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   onSubmit,
 }) => {
   const { t } = useTranslation();
-  const { isCompact } = useBreakpoint();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -103,7 +101,9 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
 
   return (
     <View testID='firstrun-create-account'>
-      <Text variant={isCompact ? "title" : "display"} weight='bold'>
+      {/* `title`, not `display`: this heading is a whole sentence and wraps to three lines in a
+          420 px card at the larger step, which reads as a poster rather than as a form. */}
+      <Text variant='title' weight='bold'>
         {t("setup.title")}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>

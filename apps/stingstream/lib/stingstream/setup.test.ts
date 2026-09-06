@@ -259,16 +259,105 @@ describe("createAdmin", () => {
     expect((error as SetupRequestError).message.length).toBeGreaterThan(0);
   });
 
-  test("409 is somebody already claimed this node", async () => {
-    const { impl } = stubFetch(() => json(409, { Error: "Already set up." }));
+  test("409 with setup no longer pending is somebody already claimed this node", async () => {
+    const { impl } = stubFetch((url) =>
+      url.endsWith("/setup/state")
+        ? json(200, { Pending: false, Loopback: true })
+        : json(409, { Error: "Already set up." }),
+    );
 
     const error = await createAdmin(
       ORIGIN,
       { username: "dan", password: "hunter22" },
-      { fetch: impl },
+      { fetch: impl, retryDelayMs: 0 },
     ).catch((e) => e);
 
     expect((error as SetupRequestError).kind).toBe("not_pending");
+  });
+
+  test("409 while setup is still pending means the node is still starting", async () => {
+    // Core creates the bootstrap account at the front of its wiring pass, so a submit that beats
+    // it gets a 409 that means "not yet". Reading that as "already claimed" would send somebody
+    // to a password prompt for an account that does not exist — the exact opposite answer.
+    let admins = 0;
+    const { impl } = stubFetch((url) => {
+      if (url.endsWith("/setup/state")) {
+        return json(200, { Pending: true, Loopback: true });
+      }
+      admins += 1;
+      return json(409, {
+        Error: "This server is still starting up; try again in a moment.",
+      });
+    });
+
+    const error = await createAdmin(
+      ORIGIN,
+      { username: "dan", password: "hunter22" },
+      { fetch: impl, attempts: 3, retryDelayMs: 0 },
+    ).catch((e) => e);
+
+    expect((error as SetupRequestError).kind).toBe("starting");
+    // Core's own sentence, not ours: it is the one that knows what it is waiting for.
+    expect((error as SetupRequestError).message).toBe(
+      "This server is still starting up; try again in a moment.",
+    );
+    expect(admins).toBe(3);
+  });
+
+  test("a node that finishes starting mid-retry gets the account", async () => {
+    let admins = 0;
+    const { impl } = stubFetch((url) => {
+      if (url.endsWith("/setup/state")) {
+        return json(200, { Pending: true, Loopback: true });
+      }
+      admins += 1;
+      return admins < 3
+        ? json(409, { Error: "This server is still starting up." })
+        : json(200, { AccessToken: "tok", User: { Id: "uid", Name: "dan" } });
+    });
+
+    expect(
+      await createAdmin(
+        ORIGIN,
+        { username: "dan", password: "hunter22" },
+        { fetch: impl, retryDelayMs: 0 },
+      ),
+    ).toEqual({ accessToken: "tok", userId: "uid", username: "dan" });
+    expect(admins).toBe(3);
+  });
+
+  test("a state endpoint that will not answer errs on the side of retrying", async () => {
+    // Unknown is not "already claimed": a first-run screen that gives up on a node it cannot
+    // question strands the only person who can set it up.
+    const { impl } = stubFetch((url) =>
+      url.endsWith("/setup/state")
+        ? new Response(null, { status: 503 })
+        : json(409, {}),
+    );
+
+    const error = await createAdmin(
+      ORIGIN,
+      { username: "dan", password: "hunter22" },
+      { fetch: impl, attempts: 1 },
+    ).catch((e) => e);
+
+    expect((error as SetupRequestError).kind).toBe("starting");
+  });
+
+  test("a refused password is not retried", async () => {
+    let admins = 0;
+    const { impl } = stubFetch(() => {
+      admins += 1;
+      return json(400, { Error: "That name is already taken." });
+    });
+
+    await createAdmin(
+      ORIGIN,
+      { username: "dan", password: "hunter22" },
+      { fetch: impl, retryDelayMs: 0 },
+    ).catch(() => {});
+
+    expect(admins).toBe(1);
   });
 
   test("404 is the gateway refusing an off-machine caller", async () => {

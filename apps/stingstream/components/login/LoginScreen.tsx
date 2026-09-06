@@ -208,12 +208,23 @@ export const LoginScreen: React.FC = () => {
     [t],
   );
 
+  // The two callbacks the run below needs, held where a re-render cannot change their identity.
+  //
+  // `useJellyfin()` rebuilds its context value every render, so `connectTo` — which closes over
+  // `setServer` — is a new function on every render, and `resolvePhase` with it. Listing either
+  // in the dependency array below re-runs the effect on every render: the `startedRef` guard then
+  // makes each new run return immediately while its own cleanup cancels the *one* run that was
+  // actually in flight, and the card sits on "Connecting…" for ever. Observed, not theorised.
+  const latest = useRef({ connectTo, resolvePhase });
+  latest.current = { connectTo, resolvePhase };
+
   useEffect(() => {
     if (!nodeContext || startedRef.current) return;
     startedRef.current = true;
 
     let cancelled = false;
     (async () => {
+      const { connectTo, resolvePhase } = latest.current;
       const target = jellyfinUrlFor(nodeContext);
 
       // The connection is what makes whichever card lands able to do anything, so it is waited
@@ -251,7 +262,9 @@ export const LoginScreen: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [nodeContext, connectTo, resolvePhase]);
+    // `nodeContext` alone: it is read once at module scope and never changes. Everything else the
+    // run needs comes from `latest`, above.
+  }, [nodeContext]);
 
   /** Deep link: `/login?apiUrl=…&username=…&password=…` still works, and still bypasses all this. */
   useEffect(() => {
@@ -296,6 +309,10 @@ export const LoginScreen: React.FC = () => {
         // Somebody claimed the node between this screen loading and this submit — a second
         // browser tab, or the machine's owner. Say so, and put them on the sign-in card rather
         // than leaving them on a form that can only fail from here on.
+        //
+        // `starting` is the opposite case and deliberately falls through to the form: the node is
+        // still wiring itself up, `createAdmin` has already retried, and the honest thing is to
+        // leave what they typed where it is with the reason under it and the button live again.
         if (e instanceof SetupRequestError && e.kind === "not_pending") {
           setPhase("signIn");
           toast.error(e.message);
