@@ -132,7 +132,8 @@ encodings, and the difference matters:
 * `coordinator` — optional URL. A property of the *group*, so members auto-configure from the
   invite. **Changeable after creation** since M4.5; see "Changing a group's coordinator" below.
 
-Revocation in v1 is secret rotation. Per-member revocation is M8.
+* `secret_epoch` — how many times the secret has been rotated. `0` is a group that never has. See
+  "Rotating the secret, and removing a member" below (M8b).
 
 ### Invite codes
 

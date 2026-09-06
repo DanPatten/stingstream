@@ -194,8 +194,13 @@ pub enum Body {
         node_name: String,
         heartbeat: Heartbeat,
     },
-    /// The membership list as this node knows it. Every member gossips its own view; the union is
-    /// what each node stores, which is enough for v1 (revocation lands in M8).
+    /// The membership list as this node knows it. Every member gossips its own view, and the union
+    /// is what each node stores.
+    ///
+    /// A union, and never a subtraction: nothing here can take a member *off* a list, because a
+    /// message that could would be a message anybody holding the group secret could use to split a
+    /// group in half. Removing a member is [`Body::Revocation`] plus a signed rotation carried
+    /// point to point — see [`crate::group::RekeyRecord`]. (M8b)
     Membership { members: Vec<Member> },
     /// "I just joined, please re-send your snapshot."
     RequestSnapshot,
