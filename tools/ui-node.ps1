@@ -254,7 +254,7 @@ if ($useDevServer -and $tool.Process.HasExited) {
 
 Wait-Until -What 'the gateway to accept connections' -Seconds 30 -PollSeconds 1 -Condition {
     if ($tool.Process.HasExited) {
-        throw ("stingstream exited with code $($tool.Process.ExitCode)) before the gateway came up.`n" +
+        throw ("stingstream exited with code $($tool.Process.ExitCode) before the gateway came up.`n" +
             (Get-Content $tool.Stdout -Raw -ErrorAction SilentlyContinue) + "`n" +
             (Get-Content $tool.Stderr -Raw -ErrorAction SilentlyContinue))
     }

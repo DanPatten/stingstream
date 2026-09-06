@@ -299,7 +299,11 @@ function Install-Movie {
     $target = Join-Path $folder "$($Title.Title) ($($Title.Year)).mkv"
     New-SeedClip -Path $target -Seconds $MovieClipSeconds -Bitrate $MovieBitrate
     Write-MovieNfo -Folder $folder -Title $Title
-    New-SeedArtwork -Folder $folder -Title $Title
+    # -Title $Title.Title, not $Title (the whole record) -- New-SeedArtwork's -Title is typed
+    # [string], so passing the record coerces via its default ToString() and bakes literal
+    # "@{Title=...; Year=...; Tmdb=...}" text into the poster/fanart art instead of the movie's
+    # name. Confirmed live in pass-00's 02-home screenshots before this fix.
+    New-SeedArtwork -Folder $folder -Title $Title.Title
 }
 
 function Install-Series {
