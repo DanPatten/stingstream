@@ -324,8 +324,7 @@ export class File extends FileSystemPath {
   }
 }
 
-// biome-ignore lint/complexity/noStaticOnlyClass: mirrors expo-file-system's
-// public API, where `Paths` is a static-only class the app calls as `Paths.document`.
+// biome-ignore lint/complexity/noStaticOnlyClass: mirrors expo-file-system's public API, where `Paths` is a static-only class the app calls as `Paths.document`.
 export class Paths {
   static get cache(): Directory {
     return new Directory(`${ROOT}cache`);

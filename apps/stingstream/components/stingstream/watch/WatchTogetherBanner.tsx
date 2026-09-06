@@ -3,6 +3,7 @@ import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { Colors } from "@/constants/Colors";
+import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
   DRIFT_BUDGET_MS,
   invitableSession,
@@ -13,7 +14,6 @@ import {
   type WatchSession,
   worstDriftMs,
 } from "@/lib/stingstream/watch";
-import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 
 /**
  * "Somebody on another node started watching something. Join?"
@@ -53,37 +53,46 @@ export function WatchTogetherBanner() {
   const leave = useLeaveWatchSession();
 
   const open = useMemo(() => sessions ?? [], [sessions]);
-  const invite = useMemo(
-    () => invitableSession(open, nodeId),
-    [open, nodeId],
-  );
+  const invite = useMemo(() => invitableSession(open, nodeId), [open, nodeId]);
   const joined = useMemo(
     () => open.find((s) => isNodeInSession(s, nodeId)) ?? null,
     [open, nodeId],
   );
 
   if (!group) return null;
-  if (joined) return <JoinedRow session={joined} nodeId={nodeId} onLeave={() => {
-    leave
-      .mutateAsync(joined.id)
-      .then(() =>
-        toast.success(
-          joined.leader === nodeId
-            ? "Watch party ended for everybody"
-            : "Left the watch party",
-        ),
-      )
-      .catch((err: unknown) =>
-        toast.error(err instanceof Error ? err.message : "Could not leave"),
-      );
-  }} pending={leave.isPending} />;
+  if (joined)
+    return (
+      <JoinedRow
+        session={joined}
+        nodeId={nodeId}
+        onLeave={() => {
+          leave
+            .mutateAsync(joined.id)
+            .then(() =>
+              toast.success(
+                joined.leader === nodeId
+                  ? "Watch party ended for everybody"
+                  : "Left the watch party",
+              ),
+            )
+            .catch((err: unknown) =>
+              toast.error(
+                err instanceof Error ? err.message : "Could not leave",
+              ),
+            );
+        }}
+        pending={leave.isPending}
+      />
+    );
 
   if (!invite) return null;
 
   const onJoin = () => {
     join
       .mutateAsync({ sessionId: invite.id, group })
-      .then(() => toast.success(`Watching ${invite.title} with ${invite.leaderName}`))
+      .then(() =>
+        toast.success(`Watching ${invite.title} with ${invite.leaderName}`),
+      )
       .catch((err: unknown) =>
         toast.error(err instanceof Error ? err.message : "Could not join"),
       );
@@ -147,7 +156,9 @@ function JoinedRow({
         onPress={onLeave}
         disabled={pending}
         accessibilityRole='button'
-        accessibilityLabel={leading ? "End the watch party" : "Leave the watch party"}
+        accessibilityLabel={
+          leading ? "End the watch party" : "Leave the watch party"
+        }
         className='rounded-lg border border-neutral-700 px-3 py-2'
       >
         <Text className='text-white'>{leading ? "End" : "Leave"}</Text>

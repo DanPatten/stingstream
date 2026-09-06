@@ -6,13 +6,13 @@ import type {
 import { BaseItemKind } from "@jellyfin/sdk/lib/generated-client/models/base-item-kind";
 import { getMediaInfoApi } from "@jellyfin/sdk/lib/utils/api";
 import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
+import { redactUrl } from "@/lib/stingstream/redactUrl";
 import { bestOnlineSource, fetchItemSources } from "@/lib/stingstream/sources";
 import type { DownloadQuality } from "@/utils/atoms/settings";
 import { markExpectedError } from "../../errors";
 import { rewriteStreamUrlForMesh } from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
 import type { AudioTranscodeModeType } from "../../profiles/native";
-import { redactUrl } from "@/lib/stingstream/redactUrl";
 
 interface StreamResult {
   url: string;
@@ -116,7 +116,10 @@ const getPlaybackUrl = (
     mediaSource?.Path
   ) {
     const remote = rewriteStreamUrlForMesh(mediaSource.Path);
-    console.log("Video is remote stream, using direct Path:", redactUrl(remote));
+    console.log(
+      "Video is remote stream, using direct Path:",
+      redactUrl(remote),
+    );
     return remote;
   }
 

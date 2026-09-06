@@ -68,7 +68,8 @@ export function useWatchSession(sessionId: string | null | undefined) {
     queryKey: keys.detail(sessionId ?? ""),
     enabled: Boolean(base && sessionId),
     refetchInterval: 3_000,
-    queryFn: () => fetchWatchSession(base as string, sessionId as string, token),
+    queryFn: () =>
+      fetchWatchSession(base as string, sessionId as string, token),
     retry: false,
   });
 }
@@ -78,8 +79,13 @@ export function useStartWatchSession() {
   const { base, token } = useConnection();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, group }: { itemId: string; group?: string | null }) =>
-      startWatchSession(base as string, itemId, token, group ?? null),
+    mutationFn: ({
+      itemId,
+      group,
+    }: {
+      itemId: string;
+      group?: string | null;
+    }) => startWatchSession(base as string, itemId, token, group ?? null),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.all }),
   });
 }

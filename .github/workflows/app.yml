@@ -285,9 +285,24 @@ jobs:
       - name: Find the unsigned APK
         id: apk
         working-directory: apps/stingstream/android/app/build/outputs/apk/release
+        # Not `apk=$(ls a b 2>/dev/null | head -1)`: under this script's own `set -eo pipefail`,
+        # `ls`'s non-zero exit when NEITHER name exists propagates through the pipe into `head`'s
+        # exit status, which fails the assignment and kills the script right here -- before the
+        # `if [ -z "$apk" ]` diagnostic below ever runs. Found for real: the TV leg's build
+        # succeeded (`BUILD SUCCESSFUL`) and this step still died with exit code 2 and no
+        # "::error::" line and no `ls -la` at all, which is the signature of this exact footgun
+        # (docs/RELEASING.md's own "set -e footgun" section documents the sibling case). `[ -f ]`
+        # as a plain `if` condition is exempt from `errexit` by construction, so this can never
+        # again swallow its own error message.
         run: |
           set -euo pipefail
-          apk=$(ls app-release-unsigned.apk app-release.apk 2>/dev/null | head -1)
+          apk=""
+          for candidate in app-release-unsigned.apk app-release.apk; do
+            if [ -f "$candidate" ]; then
+              apk="$candidate"
+              break
+            fi
+          done
           if [ -z "$apk" ]; then
             echo "::error::No release APK found in $(pwd)"
             ls -la

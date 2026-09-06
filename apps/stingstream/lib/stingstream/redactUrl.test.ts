@@ -17,7 +17,9 @@ describe("redactUrl", () => {
     expect(out).toContain("ApiKey=%3Credacted%3E");
     expect(out).toContain("mediaSourceId=m1");
     expect(out).toContain("userId=u1");
-    expect(out.startsWith("https://jf.example.com/Videos/abc/stream?")).toBe(true);
+    expect(out.startsWith("https://jf.example.com/Videos/abc/stream?")).toBe(
+      true,
+    );
   });
 
   test("catches every spelling Jellyfin uses", () => {
