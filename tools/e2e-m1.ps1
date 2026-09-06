@@ -275,13 +275,15 @@ function Stop-Tools {
             }
         } catch { }
     }
-    # The supervisor spawns its children as separate processes; killing it hard on Windows leaves
-    # them behind, so they are cleaned up by name. Only ever the ones this harness could have
-    # started.
-    foreach ($name in 'jellyfin', 'Radarr.Console', 'Sonarr.Console', 'nzbget') {
-        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch { }
-        }
+    # The supervisor spawns its children as separate processes, and killing it hard on Windows
+    # leaves them behind holding the ports and the files this harness is about to delete. They are
+    # cleaned up by the work directory in their command line, never by bare process name: several
+    # agents share this machine and at least one of them usually has a node up, and a
+    # `Get-Process -Name jellyfin | Stop-Process` takes theirs down with ours. Stop-Owned lives in
+    # e2e-common.ps1, which is dot-sourced at the top of this file for exactly this kind of thing.
+    if ($script:WorkDirFull) {
+        Start-Sleep -Seconds 1
+        Stop-Owned -PathFragment $script:WorkDirFull
     }
 }
 
@@ -396,6 +398,11 @@ Write-Host 'StingStream M1 acceptance harness' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  gateway   http://127.0.0.1:$GatewayPort"
+
+# Resolved once, before the first thing that might want to stop a process inside it: Stop-Owned
+# matches on the literal text of a command line, and a relative or differently-spelled path would
+# quietly match nothing.
+$script:WorkDirFull = [System.IO.Path]::GetFullPath($WorkDir)
 
 if ((Test-Path $WorkDir) -and -not $KeepData) {
     Write-Host '  wiping the work directory'
@@ -952,13 +959,11 @@ Invoke-Step 'Restart: everything comes back' {
     Stop-Process -Id $script:Supervisor.Process.Id -Force
     # Killing the supervisor hard on Windows orphans its children, which would then hold the ports
     # the restarted node wants. A real Ctrl+C stops them cooperatively; this is the harness
-    # simulating a hard crash, so it cleans up after it.
+    # simulating a hard crash, so it cleans up after it -- by this run's work directory, which is
+    # in every child's command line, and never by process name, which would reach into whatever
+    # node another agent has running on the same machine.
     Start-Sleep -Seconds 3
-    foreach ($name in 'jellyfin', 'Radarr.Console', 'Sonarr.Console', 'nzbget') {
-        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch { }
-        }
-    }
+    Stop-Owned -PathFragment $script:WorkDirFull
     Start-Sleep -Seconds 5
 
     Write-Host '      starting it again'
