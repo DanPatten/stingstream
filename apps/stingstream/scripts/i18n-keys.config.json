@@ -23,7 +23,7 @@
     "build",
     "translations"
   ],
-  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx's recommendations sync payload; the key exists ahead of that so WP-BRAND's rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3's LoginScreen/SignInForm and WP-TV-LOGIN's TVLinkCodeScreen and settings.tv.tsx).",
+  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx's recommendations sync payload; the key exists ahead of that so WP-BRAND's rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3's LoginScreen/SignInForm and WP-TV-LOGIN's TVLinkCodeScreen and settings.tv.tsx). (3) i18next PLURAL SUFFIXES: the static scan only sees the base `t(\"sharing.member_count\", {count})` call, not the `_one`/`_other` forms i18next selects from at runtime — same reason custom_headers.header_count_one/_other are listed above.",
   "ignoreUnused": [
     "watchlists.add_to_watchlist",
     "watchlists.remove_from_watchlist",
@@ -47,6 +47,12 @@
     "custom_headers.header_count_one",
     "custom_headers.header_count_other",
     "login.sign_in_with_code",
-    "home.settings.link_device.*"
+    "home.settings.link_device.*",
+    "sharing.member_count_one",
+    "sharing.member_count_other",
+    "sharing.member_removed_result_one",
+    "sharing.member_removed_result_other",
+    "sharing.rotate_secret_result_one",
+    "sharing.rotate_secret_result_other"
   ]
 }
