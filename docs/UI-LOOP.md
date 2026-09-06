@@ -444,6 +444,44 @@ Run 2026-09-06 against a private copy of the then-current build (`mesh/target/de
 `server/jellyfin/.../bin/Debug/net10.0`, `apps/stingstream/dist` as the Tier B web bundle -- the
 pre-WP0/WP1/... UI, on purpose: this is the baseline the plan's review loop measures every later
 pass against). Numbers, findings and screenshots: `.win-temp\ui-loop\pass-00\` (outside the repo,
-per `docs/CONTRIBUTING.md`). See the WP-TOOLS report for the full timing table and finding counts;
-the summary is that the tooling in this document produced real, previously-undocumented bugs (items
-1-6 above) on its very first real run, which is the loop working as intended.
+per `docs/CONTRIBUTING.md`).
+
+**`ui-node.ps1 -Fresh -Seed`**: private copy made, config.toml written, gateway accepting
+connections in ~1.6s, first-run wiring cleared (Jellyfin's own first scan picked up all 16 seeded
+items with no manual refresh -- see above). `-DevServer` confirmed working against WP-GATE's now-
+landed `--web-dev-server` flag (log line: `serving the app from a web dev server ... authority=
+127.0.0.1:9999`).
+
+**`shots.mjs`**, 8 of the 13 screens pinned and reachable (login, home, settings, requests, sharing,
+search, manage, transfers) x 3 viewports = 24 captures, 0 navigation failures, 325 findings (console
+123, response 83, small-text 60, overflow-element 34, tap-target 15, brand-word 9, home-structure
+1) -- the pre-WP0/WP1 baseline this document says to expect, and already includes real,
+previously-undocumented bugs (the six items above), not manufactured noise. 03/04/05/06 (library/
+details/player) were skipped this pass -- their routes are not pinned yet (see "Pinned routes").
+
+**`ui-startup.ps1 -DriveUi`**, HTTP-only phase, two runs after fixing the bugs below: seed+start
+48-63s, T_gateway 1.6-2.6s, T_index 6.7-9.3s (budget 3s -- missed both times), T_healthy 66-88s
+(budget 40s -- missed badly both times), T_wired cleared right after. Both misses track a
+heavily-loaded shared machine at the time (several other agents' nodes and builds running
+concurrently -- confirmed via process count and `Get-Process`), not the harness: the mechanics
+(measurement, PASS/FAIL/MISS reporting, exit code, node cleanup on both the pass and the fail path)
+were all confirmed correct. The Playwright phase (FCP/T_home) hit the same contention and timed out
+around the 15s mark both times; `connectAndSignIn` itself was independently verified reliable (4/4
+clean runs) once fixed and once the machine was less loaded moments earlier. Three-in-a-row budget
+compliance is therefore **not yet demonstrated** and is flagged as open below.
+
+**Android**: `android.ps1 -Emulator start -Variant phone` booted `stingstream-phone` in about a
+minute; the existing debug APK (dev-client build) installed with `adb install -r` and launched with
+no crash (`DevLauncherActivity`, `ReactNativeJS` logcat clean); `android.ps1 -Capture phone`
+produced a real PNG via the binary-safe `Start-Process` redirect. TV skipped: no TV **debug** APK
+exists yet, only the M5 release build under `apps/stingstream/release-builds/tv/`, which is a
+different signing/build configuration and not what this check calls for.
+
+**Three real bugs found and fixed by this verification pass, all in this package's own scripts**:
+`Install-Movie` baked a stringified PowerShell object into every seed poster/fanart's title text
+(`New-SeedArtwork -Title $Title` instead of `$Title.Title`); `ui-startup.ps1`'s own `$shotsDir`/
+`$ShotsDir` case-collision silently redirected screenshots into the wrong directory; and an
+uninitialized `$script:tool2` under `Set-StrictMode` crashed the cleanup `finally` block whenever
+the Playwright phase failed, masking the real error and leaking the node process. See the commit
+history for `tools/ui-node.ps1`, `tools/ui-seed-media.ps1` and `tools/ui-startup.ps1` for the fixes
+themselves.
