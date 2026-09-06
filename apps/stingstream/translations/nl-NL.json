@@ -18,7 +18,6 @@
     "password_placeholder": "Wachtwoord",
     "login_button": "Aanmelden",
     "quick_connect": "Snel Verbinden",
-    "enter_code_to_login": "Vul code {{code}} in om aan te melden",
     "quick_connect_instructions": "Vul deze code in op een apparaat waarop je al bent aangemeld. Je wordt automatisch aangemeld.",
     "tap_code_to_copy": "Tik op de code om deze te kopiëren",
     "code_copied": "Code gekopieerd",
@@ -61,7 +60,6 @@
     "remove_server_description": "Hiermee worden {{server}} en alle opgeslagen accounts uit je lijst verwijderd.",
     "select_your_server": "Kies je server",
     "add_server_to_get_started": "Voeg een server toe om te beginnen",
-    "add_server": "Server toevoegen",
     "change_server": "Server wijzigen"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Deze serie",
       "all": "Alle media (standaard)"
     }
-  },
-  "companion_login": {
-    "title": "Koppelen met tv",
-    "align_qr": "Plaats de QR-code binnen het kader",
-    "enter_code_manually": "Code handmatig invoeren",
-    "pairing_enter_credentials": "Voer inloggegevens voor de tv in",
-    "pairing_code_label": "Koppelcode",
-    "server": "Server",
-    "authorize_button": "Toestaan",
-    "authorizing": "Bezig met toestaan...",
-    "scan_again": "Opnieuw scannen",
-    "done": "Klaar",
-    "success_title": "Autorisatie verzonden",
-    "pairing_tv_connecting": "De tv maakt verbinding met je account",
-    "error_title": "Autorisatie mislukt",
-    "error_invalid_qr": "Ongeldige QR-code. Scan de koppelcode op de tv.",
-    "error_generic": "Er is iets misgegaan. Probeer het opnieuw.",
-    "error_permission_denied": "Toegang tot de camera is vereist om QR-codes te scannen.",
-    "login_as": "Inloggen als {{username}}?",
-    "on_server": "op {{server}}",
-    "use_different_user": "Een andere gebruiker gebruiken",
-    "open_settings": "Instellingen openen"
-  },
-  "pairing": {
-    "pair_with_phone": "Koppelen met telefoon",
-    "pair_with_phone_title": "Inloggen op tv",
-    "waiting_for_phone": "Wachten op telefoon...",
-    "scan_with_phone": "Scan met de StingStream-app op je telefoon",
-    "logging_in": "Bezig met inloggen...",
-    "logging_in_description": "Verbinding maken met je server"
   }
 }

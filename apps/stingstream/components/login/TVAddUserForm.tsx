@@ -17,20 +17,21 @@ interface TVAddUserFormProps {
     password: string,
     saveAccount: boolean,
   ) => Promise<void>;
-  onQuickConnect: () => Promise<void>;
   onBack: () => void;
   loading?: boolean;
   disabled?: boolean;
+  /** Shown above the form -- e.g. why the user landed here instead of on the code screen. */
+  hint?: string;
 }
 
 export const TVAddUserForm: React.FC<TVAddUserFormProps> = ({
   serverName,
   serverAddress,
   onLogin,
-  onQuickConnect,
   onBack,
   loading = false,
   disabled = false,
+  hint,
 }) => {
   const typography = useScaledTVTypography();
   const [credentials, setCredentials] = useState({
@@ -101,6 +102,18 @@ export const TVAddUserForm: React.FC<TVAddUserFormProps> = ({
           {serverAddress}
         </Text>
 
+        {hint && (
+          <Text
+            style={{
+              fontSize: typography.callout,
+              color: "#F5C451",
+              marginBottom: scaleSize(24),
+            }}
+          >
+            {hint}
+          </Text>
+        )}
+
         {/* Username Input */}
         <View
           style={{
@@ -160,7 +173,7 @@ export const TVAddUserForm: React.FC<TVAddUserFormProps> = ({
         </View>
 
         {/* Login Button */}
-        <View style={{ marginBottom: scaleSize(16) }}>
+        <View>
           <Button
             onPress={handleLogin}
             loading={loading}
@@ -170,15 +183,6 @@ export const TVAddUserForm: React.FC<TVAddUserFormProps> = ({
             {t("login.login_button")}
           </Button>
         </View>
-
-        {/* Quick Connect Button */}
-        <Button
-          onPress={onQuickConnect}
-          color='black'
-          className='bg-neutral-800 border border-neutral-700'
-        >
-          {t("login.quick_connect")}
-        </Button>
       </View>
     </ScrollView>
   );

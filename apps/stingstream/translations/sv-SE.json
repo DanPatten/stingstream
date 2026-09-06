@@ -18,7 +18,6 @@
     "password_placeholder": "Lösenord",
     "login_button": "Logga in",
     "quick_connect": "Snabbanslutning",
-    "enter_code_to_login": "Ange koden {{code}} för att logga in",
     "quick_connect_instructions": "Ange koden på en inloggad enhet. Du loggas in automatiskt.",
     "tap_code_to_copy": "Tryck på koden för att kopiera den",
     "code_copied": "Koden kopierad",
@@ -61,7 +60,6 @@
     "remove_server_description": "Detta kommer att ta bort {{server}} och alla sparade konton från din lista.",
     "select_your_server": "Välj din server",
     "add_server_to_get_started": "Lägg till en server för att komma igång",
-    "add_server": "Lägg till server",
     "change_server": "Byt server"
   },
   "save_account": {
@@ -1036,35 +1034,5 @@
       "show": "Denna serie",
       "all": "Alla media (standard)"
     }
-  },
-  "companion_login": {
-    "title": "Parkoppla med TV",
-    "align_qr": "Placera QR-koden inom ramen",
-    "enter_code_manually": "Ange koden manuellt",
-    "pairing_enter_credentials": "Ange inloggningsuppgifter för TV",
-    "pairing_code_label": "Parkopplingskod",
-    "server": "Server",
-    "authorize_button": "Godkänn",
-    "authorizing": "Godkänner...",
-    "scan_again": "Skanna igen",
-    "done": "Klar",
-    "success_title": "Auktorisering skickad",
-    "pairing_tv_connecting": "TV:n ansluter till ditt konto",
-    "error_title": "Auktorisering misslyckades",
-    "error_invalid_qr": "Ogiltig QR-kod. Skanna parkopplingskoden på TV:n.",
-    "error_generic": "Något gick fel. Försök igen.",
-    "error_permission_denied": "Kameraåtkomst krävs för att skanna QR-koder.",
-    "login_as": "Logga in som {{username}}?",
-    "on_server": "på {{server}}",
-    "use_different_user": "Använd en annan användare",
-    "open_settings": "Öppna inställningar"
-  },
-  "pairing": {
-    "pair_with_phone": "Parkoppla med telefon",
-    "pair_with_phone_title": "Logga in på TV:n",
-    "waiting_for_phone": "Väntar på telefonen...",
-    "scan_with_phone": "Skanna med StingStream-appen på din telefon",
-    "logging_in": "Loggar in...",
-    "logging_in_description": "Ansluter till din server"
   }
 }

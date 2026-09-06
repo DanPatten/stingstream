@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { apiAtom } from "@/providers/JellyfinProvider";
+import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   authHeaders,
   type MemberRow,
@@ -91,11 +91,21 @@ export { MeshUnavailableError };
 
 const useMeshApi = () => {
   const api = useAtomValue(apiAtom);
+  const user = useAtomValue(userAtom);
   const base = api?.basePath ? getStingStreamApiBaseUrl(api.basePath) : null;
   const token = api?.accessToken ?? null;
 
   return {
     base,
+    /**
+     * A connected server *and* a session on it.
+     *
+     * Every route under `/mesh` needs Jellyfin's elevated policy, so asking before the user has
+     * signed in can only produce a 401 — and since v0.2.0's auto-connect the server is set the
+     * moment a node-served page loads, which put a pair of red 401s in the console of the login
+     * screen itself. The queries below wait for the session.
+     */
+    authed: !!base && !!user?.Id,
     request: async <T>(
       path: string,
       init?: RequestInit & { expectNoContent?: boolean },
@@ -122,11 +132,11 @@ export const MESH_QUERY_KEY = ["stingstream", "mesh"] as const;
 
 /** The groups the home node belongs to. */
 export function useNodeMeshGroups(): UseQueryResult<MeshNodeGroup[]> {
-  const { base, request } = useMeshApi();
+  const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "groups", base],
     queryFn: async () => (await request<unknown[]>("/groups")).map(toGroup),
-    enabled: !!base,
+    enabled: authed,
     // Membership changes rarely; the peer list below is what needs to be fresh.
     refetchInterval: 30_000,
   });
@@ -136,7 +146,7 @@ export function useNodeMeshGroups(): UseQueryResult<MeshNodeGroup[]> {
 export function useNodeMeshPeers(
   group: string | null | undefined,
 ): UseQueryResult<MeshNodePeer[]> {
-  const { base, request } = useMeshApi();
+  const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "peers", base, group ?? "all"],
     queryFn: async () =>
@@ -145,17 +155,17 @@ export function useNodeMeshPeers(
           group ? `/peers?group=${encodeURIComponent(group)}` : "/peers",
         )
       ).map(toPeer),
-    enabled: !!base,
+    enabled: authed,
     refetchInterval: 10_000,
   });
 }
 
 export function useNodeMeshStatus(): UseQueryResult<MeshNodeStatus> {
-  const { base, request } = useMeshApi();
+  const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "status", base],
     queryFn: async () => toStatus(await request<unknown>("/status")),
-    enabled: !!base,
+    enabled: authed,
     refetchInterval: 15_000,
     retry: 1,
   });
@@ -269,7 +279,7 @@ export function useSetGroupCoordinator() {
 export function useNodeMeshMembers(
   group: string | null | undefined,
 ): UseQueryResult<MeshGroupMembers> {
-  const { base, request } = useMeshApi();
+  const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "members", base, group ?? "none"],
     queryFn: async () =>
@@ -278,7 +288,7 @@ export function useNodeMeshMembers(
           `/groups/${encodeURIComponent(group as string)}/members`,
         ),
       ),
-    enabled: !!base && !!group,
+    enabled: authed && !!group,
     // Slower than the peer list: a roster changes when somebody is invited or removed, not when a
     // laptop goes to sleep.
     refetchInterval: 30_000,

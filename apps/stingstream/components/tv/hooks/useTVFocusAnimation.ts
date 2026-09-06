@@ -1,9 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { Animated, Easing } from "react-native";
+import { TV_FOCUS } from "@/constants/TVCardLayouts";
 import { useInactivity } from "@/providers/InactivityProvider";
 
 export interface UseTVFocusAnimationOptions {
+  /** Defaults to `TV_FOCUS.scale`. Override only for a shape the token cannot describe. */
   scaleAmount?: number;
+  /** Defaults to `TV_FOCUS.durationMs`. */
   duration?: number;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -18,8 +21,8 @@ export interface UseTVFocusAnimationReturn {
 }
 
 export const useTVFocusAnimation = ({
-  scaleAmount = 1.05,
-  duration = 150,
+  scaleAmount = TV_FOCUS.scale,
+  duration = TV_FOCUS.durationMs,
   onFocus,
   onBlur,
 }: UseTVFocusAnimationOptions = {}): UseTVFocusAnimationReturn => {

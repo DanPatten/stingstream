@@ -6,13 +6,13 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { TV_FOCUS } from "@/constants/TVCardLayouts";
 
 export interface TVFocusablePosterProps {
   children: React.ReactNode;
   onPress: () => void;
   onLongPress?: () => void;
   hasTVPreferredFocus?: boolean;
-  glowColor?: "white" | "purple";
   scaleAmount?: number;
   style?: ViewStyle;
   onFocus?: () => void;
@@ -29,8 +29,7 @@ export const TVFocusablePoster: React.FC<TVFocusablePosterProps> = ({
   onPress,
   onLongPress,
   hasTVPreferredFocus = false,
-  glowColor = "white",
-  scaleAmount = 1.05,
+  scaleAmount = TV_FOCUS.scale,
   style,
   onFocus: onFocusProp,
   onBlur: onBlurProp,
@@ -44,12 +43,10 @@ export const TVFocusablePoster: React.FC<TVFocusablePosterProps> = ({
   const animateTo = (value: number) =>
     Animated.timing(scale, {
       toValue: value,
-      duration: 150,
+      duration: TV_FOCUS.durationMs,
       easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
-
-  const shadowColor = glowColor === "white" ? "#ffffff" : "#a855f7";
 
   return (
     <Pressable
@@ -74,10 +71,11 @@ export const TVFocusablePoster: React.FC<TVFocusablePosterProps> = ({
         style={[
           {
             transform: [{ scale }],
-            shadowColor,
+            // Focus is white on TV, never the accent. See docs/conventions/tv.md.
+            shadowColor: TV_FOCUS.borderColor,
             shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: focused ? 0.3 : 0,
-            shadowRadius: focused ? 12 : 0,
+            shadowOpacity: focused ? TV_FOCUS.glowOpacity : 0,
+            shadowRadius: focused ? TV_FOCUS.glowRadius : 0,
           },
           style,
         ]}

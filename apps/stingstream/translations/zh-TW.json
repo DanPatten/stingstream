@@ -18,7 +18,6 @@
     "password_placeholder": "密碼",
     "login_button": "登入",
     "quick_connect": "快速連接",
-    "enter_code_to_login": "輸入代碼 {{code}} 以登入",
     "quick_connect_instructions": "在已登入的裝置上輸入此代碼，即可自動登入。",
     "tap_code_to_copy": "點選代碼即可複製",
     "code_copied": "代碼已複製",
@@ -61,7 +60,6 @@
     "remove_server_description": "這會從您的清單中移除 {{server}} 及其所有已儲存的帳戶。",
     "select_your_server": "Select Your Server",
     "add_server_to_get_started": "新增一個伺服器以開始",
-    "add_server": "Add Server",
     "change_server": "Change Server"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "此影集",
       "all": "所有媒體（預設）"
     }
-  },
-  "companion_login": {
-    "title": "與電視配對",
-    "align_qr": "將 QR code 對準框內",
-    "enter_code_manually": "手動輸入代碼",
-    "pairing_enter_credentials": "輸入電視端的登入資訊",
-    "pairing_code_label": "配對碼",
-    "server": "伺服器",
-    "authorize_button": "授權",
-    "authorizing": "授權中...",
-    "scan_again": "Scan Again",
-    "done": "完成",
-    "success_title": "Authorization Sent",
-    "pairing_tv_connecting": "電視正在連線到您的帳戶",
-    "error_title": "Authorization Failed",
-    "error_invalid_qr": "QR code 無效。請掃描電視上的配對碼。",
-    "error_generic": "發生問題，請重試。",
-    "error_permission_denied": "掃描 QR code 需要相機權限。",
-    "login_as": "以 {{username}} 身分登入？",
-    "on_server": "在 {{server}} 上",
-    "use_different_user": "使用其他使用者",
-    "open_settings": "開啟設定"
-  },
-  "pairing": {
-    "pair_with_phone": "Pair with Phone",
-    "pair_with_phone_title": "Login TV",
-    "waiting_for_phone": "等待手機...",
-    "scan_with_phone": "用手機上的 StingStream 應用程式掃描",
-    "logging_in": "登入中...",
-    "logging_in_description": "正在連線到您的伺服器"
   }
 }

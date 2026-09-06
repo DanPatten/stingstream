@@ -97,16 +97,6 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='companion-login'
-        options={{
-          title: t("companion_login.title"),
-          headerShown: !Platform.isTV,
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
-      <Stack.Screen
         name='settings/playback-controls/page'
         options={{
           title: t("home.settings.playback_controls.title"),

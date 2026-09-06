@@ -18,7 +18,6 @@
     "password_placeholder": "ngoq De'",
     "login_button": "yI'el!",
     "quick_connect": "parmaq ngoQ",
-    "enter_code_to_login": "yI'elDI' De' {{code}} yIlaD",
     "quick_connect_instructions": "'elpu'bogh De'wI'Daq ngoqvam yIghItlh. SIbI' bI'elbej.",
     "tap_code_to_copy": "ngoq yIHot 'ej yIvel",
     "code_copied": "ngoq velta'",
@@ -61,7 +60,6 @@
     "remove_server_description": "tetlhlIjvo' {{server}} 'ej Hoch laH polta' teqlu'.",
     "select_your_server": "ServerlIj yIwIv",
     "add_server_to_get_started": "yItaghmeH Server yIchel",
-    "add_server": "Server yIchel",
     "change_server": "Server yIchoH"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Hemvam",
       "all": "Hoch Doch (motlh)"
     }
-  },
-  "companion_login": {
-    "title": "TV yIrar",
-    "align_qr": "QR ngoq yIlan",
-    "enter_code_manually": "ngoq yIghItlh",
-    "pairing_enter_credentials": "TVvaD 'el De' yIghItlh",
-    "pairing_code_label": "rar ngoq",
-    "server": "Server",
-    "authorize_button": "chaw'",
-    "authorizing": "chaw'lI'...",
-    "scan_again": "yIlaDqa'",
-    "done": "rIn",
-    "success_title": "chaw' ngeHta'",
-    "pairing_tv_connecting": "laHlIjDaq rarlI' TV",
-    "error_title": "chaw' luj",
-    "error_invalid_qr": "QR ngoq lughbe'. TV rar ngoq yIlaD.",
-    "error_generic": "Qagh qaS. yInIDqa'.",
-    "error_permission_denied": "QR ngoq DalaDmeH mIllogh laH poQlu'.",
-    "login_as": "{{username}} 'oS 'el'a'?",
-    "on_server": "{{server}}Daq",
-    "use_different_user": "latlh lo'wI' yIlo'",
-    "open_settings": "men yIpoSmoH"
-  },
-  "pairing": {
-    "pair_with_phone": "De'wI' yIrar",
-    "pair_with_phone_title": "TVDaq yI'el",
-    "waiting_for_phone": "De'wI' loStaH...",
-    "scan_with_phone": "De'wI'lIjDaq StingStream yIlo' 'ej yIlaD",
-    "logging_in": "'ellI'...",
-    "logging_in_description": "ServerlIjDaq rarlI'"
   }
 }

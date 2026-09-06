@@ -104,6 +104,23 @@ public sealed class ArrClient
 
     public string Name => Kind == ArrKind.Radarr ? "radarr" : "sonarr";
 
+    /// <summary>What to call one of these apps in a sentence that reaches a person.</summary>
+    /// <param name="kind">Which app.</param>
+    /// <returns>A mid-sentence name for it.</returns>
+    /// <remarks>
+    /// Somebody using StingStream never chose Radarr or Sonarr and should not have to learn which
+    /// of them owns films in order to read a sync result or an error. <see cref="Name"/> stays the
+    /// real name, because that is an identifier -- the <c>App</c> key on a sync status, a
+    /// dictionary key, a log field -- and renaming it would break every caller that matches on it.
+    /// This is the other half: the half people read. Lower case, because it almost always appears
+    /// mid-sentence; the one caller that needs it first capitalises it there.
+    /// </remarks>
+    public static string DisplayName(ArrKind kind)
+        => kind == ArrKind.Radarr ? "the movie manager" : "the series manager";
+
+    /// <summary>What to call this app in a sentence that reaches a person.</summary>
+    public string Display => DisplayName(Kind);
+
     /// <summary>Radarr's library resource is <c>movie</c>; Sonarr's is <c>series</c>.</summary>
     public string LibraryResource => Kind == ArrKind.Radarr ? "movie" : "series";
 

@@ -18,7 +18,6 @@
     "password_placeholder": "סיסמה",
     "login_button": "התחבר",
     "quick_connect": "התחברות מהירה",
-    "enter_code_to_login": "הקלד קוד {{code}} כדי להתחבר",
     "quick_connect_instructions": "הקלד את הקוד הזה במכשיר שכבר מחובר. תתחבר אוטומטית.",
     "tap_code_to_copy": "הקש על הקוד להעתקה",
     "code_copied": "הקוד הועתק",
@@ -61,7 +60,6 @@
     "remove_server_description": "פעולה זו תסיר את {{server}} ואת כל החשבונות השמורים מהרשימה שלכם.",
     "select_your_server": "בחרו את השרת שלכם",
     "add_server_to_get_started": "הוסיפו שרת כדי להתחיל",
-    "add_server": "הוספת שרת",
     "change_server": "החלפת שרת"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "בסדרה הזו",
       "all": "בכל התכנים (ברירת מחדל)"
     }
-  },
-  "companion_login": {
-    "title": "התאמה לטלוויזיה",
-    "align_qr": "מקמו את קוד ה-QR בתוך המסגרת",
-    "enter_code_manually": "הזנת קוד ידנית",
-    "pairing_enter_credentials": "הזינו פרטי התחברות עבור הטלוויזיה",
-    "pairing_code_label": "קוד התאמה",
-    "server": "שרת",
-    "authorize_button": "אישור",
-    "authorizing": "מאשר...",
-    "scan_again": "סרוק שוב",
-    "done": "סיום",
-    "success_title": "בקשת האישור נשלחה",
-    "pairing_tv_connecting": "הטלוויזיה מתחברת לחשבון שלכם",
-    "error_title": "האישור נכשל",
-    "error_invalid_qr": "קוד QR לא תקין. סרקו את קוד ההתאמה שבטלוויזיה.",
-    "error_generic": "משהו השתבש. נסו שוב.",
-    "error_permission_denied": "נדרשת הרשאת מצלמה כדי לסרוק קודי QR.",
-    "login_as": "להתחבר בתור {{username}}?",
-    "on_server": "בשרת {{server}}",
-    "use_different_user": "שימוש במשתמש אחר",
-    "open_settings": "פתיחת ההגדרות"
-  },
-  "pairing": {
-    "pair_with_phone": "התאמה לטלפון",
-    "pair_with_phone_title": "התחברות בטלוויזיה",
-    "waiting_for_phone": "ממתין לטלפון...",
-    "scan_with_phone": "סרקו באמצעות אפליקציית StingStream בטלפון שלכם",
-    "logging_in": "מתחבר...",
-    "logging_in_description": "מתחבר לשרת שלכם"
   }
 }

@@ -5,8 +5,7 @@ import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { TVFocusablePoster } from "@/components/tv/TVFocusablePoster";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
-import { useScaledTVSizes } from "@/constants/TVSizes";
+import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 
 const SCALE_PADDING = 20;
@@ -40,7 +39,10 @@ export const TVSearchSection: React.FC<TVSearchSectionProps> = ({
   const posterSizes = useScaledTVPosterSizes();
   const sizes = useScaledTVSizes();
   const ITEM_GAP = sizes.gaps.item;
-  const edgePadding = horizontalPadding ?? sizes.padding.horizontal;
+  // Default to the rail inset, not the plain gutter: this section is used on
+  // the search screen, where nothing may start left of the navigation rail.
+  // Callers inside a page that has already inset itself pass their own.
+  const edgePadding = horizontalPadding ?? sizes.layout.contentInsetLeft;
   const flatListRef = useRef<FlatList<BaseItemDto>>(null);
   const [focusedCount, setFocusedCount] = useState(0);
   const prevFocusedCount = useRef(0);

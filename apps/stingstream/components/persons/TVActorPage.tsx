@@ -27,8 +27,7 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { Loader } from "@/components/Loader";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
-import { useScaledTVSizes } from "@/constants/TVSizes";
+import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
@@ -361,8 +360,9 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
           flex: 1,
         }}
         contentContainerStyle={{
-          paddingTop: insets.top + TOP_PADDING,
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
           paddingBottom: 60,
         }}
       >

@@ -231,6 +231,35 @@ client so an unparsable body reports *"this node is older than the app"* instead
 `openapi-fetch` returning neither data nor error. An app older than its node loses whatever the
 node added and keeps working.
 
+### The login screen, v0.2.0
+
+`apps/stingstream/components/login/Login.tsx` is gone. It was one component holding two screens
+keyed on `api?.basePath` — "which server?" and then username/password — and it is replaced by
+`LoginScreen.tsx`, a state machine over `connecting | setup | setupElsewhere | signIn | serverForm`
+with one card component per state (`AuthCard`, `SetupAccountForm`, `SetupElsewhere`, `SignInForm`,
+`ServerForm`). `app/login.tsx` still dispatches TV → `TVLogin` and everything else → the new
+screen; there is no new route and no new tab group.
+
+Three things changed behaviour, not just appearance:
+
+- **A node-served web build never shows the address step.** The gateway splices
+  `window.__STINGSTREAM_NODE__` into the `index.html` it serves (`gateway/web.rs`); the app reads
+  it synchronously in `hooks/useNodeContext.ts`, connects to that node, and shows a card. An app
+  built by anyone else, served by anything else, or running on a phone still starts at the address
+  form. `EXPO_PUBLIC_STINGSTREAM_NODE_URL` stands in for the marker under Metro and on emulators.
+- **Every failure is inline.** The five `Alert.alert` call sites in the old screen (and the three
+  in `PreviousServersList.tsx`) drew *nothing at all* on react-native-web, so a wrong password in a
+  browser did nothing visible whatsoever. They are `FormError` and toasts now.
+- **Quick Connect is gone from the desktop web login** and renamed everywhere else:
+  `components/settings/QuickConnect.tsx` is now `components/settings/LinkDevice.tsx` (same
+  `authorizeQuickConnect` call, same Jellyfin feature underneath), and the `home.settings.
+  quick_connect.*` keys are replaced by `home.settings.link_device.*`. On a phone login the
+  "Sign in with a code" text link remains.
+
+Anything importing `@/components/login/Login`, `@/components/settings/QuickConnect`, or a
+`home.settings.quick_connect.*` / `login.change_server` / `login.username_required` /
+`login.not_a_jellyfin_server_title` key needs updating; nothing else in the app did.
+
 ### Data
 
 `mesh.db` migrates forward on open, every statement idempotent, and never migrates backward. A node
@@ -264,3 +293,36 @@ In order, because the cheap checks rule out the common causes:
 
 A group that is split by protocol version and a group that is split by NAT look identical on the
 Group screen. Step 1 is what tells them apart, and it takes five seconds.
+
+---
+
+## App-level changes (not protocol-versioned)
+
+These do not touch the wire protocol above and so carry no major/minor bump, but they are still
+things a person upgrading the app needs to know. Recorded here, not numbered into §1–6, so this
+section can grow without renumbering anything above it.
+
+### v0.2.0: companion phone-pairing removed
+
+`utils/pairingService.ts` broadcast `{server_url, username, password}` in clear text to
+`255.255.255.255:54322` so a phone could sign a TV in by scanning a QR code. Deleted outright,
+along with the QR code screen, the phone-side companion screen and route, and the "Pair with
+phone" entry under Settings — there is no replacement flow that keeps the same shape, because the
+shape itself (broadcasting a password over UDP) was the bug.
+
+**Replacement:** the TV's sign-in screen now leads with **"Sign in with a code"** (Jellyfin Quick
+Connect, renamed and put first): connecting to a server shows a 6-digit code immediately: enter it
+on the phone or web app under Settings → Link a device (renamed from Quick Connect there too) and
+the TV signs in on its own, generating a fresh code automatically if the old one times out before
+anyone enters it. "Sign in with password" remains as the fallback, including when a server has
+Quick Connect turned off entirely.
+
+**Behaviour change:** an account that reaches the TV through a code sign-in is saved with
+`securityType: "none"` — no PIN or password prompt — on the reasoning that a TV is a household
+device already gated by whoever holds the remote. A PIN can still be added to the saved account
+afterwards through the same account-protection picker a password sign-in gets. Nobody upgrading
+loses anything: existing saved TV accounts are untouched, and this only applies to a sign-in that
+happens after the upgrade.
+
+Nothing here needed a `mesh.db` migration or a protocol bump — it is entirely inside the app and
+the account list already stored on the TV.

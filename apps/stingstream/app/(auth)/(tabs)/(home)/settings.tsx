@@ -9,7 +9,7 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { AppLanguageSelector } from "@/components/settings/AppLanguageSelector";
-import { QuickConnect } from "@/components/settings/QuickConnect";
+import { LinkDevice } from "@/components/settings/LinkDevice";
 import { StorageSettings } from "@/components/settings/StorageSettings";
 import { UserInfo } from "@/components/settings/UserInfo";
 import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
@@ -61,21 +61,7 @@ function SettingsMobile() {
           <UserInfo />
         </View>
 
-        <QuickConnect className='mb-4' />
-
-        {Platform.OS !== "ios" && (
-          <View className='mb-4'>
-            <ListGroup title={t("pairing.pair_with_phone_title")}>
-              <ListItem
-                onPress={() =>
-                  router.push("/(auth)/(tabs)/(home)/companion-login")
-                }
-                title={t("pairing.pair_with_phone")}
-                textColor='blue'
-              />
-            </ListGroup>
-          </View>
-        )}
+        <LinkDevice className='mb-4' />
 
         <View className='mb-4'>
           <AppLanguageSelector />

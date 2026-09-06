@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Platform } from "react-native";
 import { RequestsScreen } from "@/components/stingstream/requests/RequestsScreen";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 
@@ -20,6 +21,14 @@ export default function StingStreamRequestsPage() {
     await queryClient.invalidateQueries({ queryKey: ["stingstream"] });
     setRefreshing(false);
   };
+
+  // The TV screen brings its own ScrollView and its own insets. Nesting it in
+  // RefreshScreen would put two scrollable containers on one screen, which
+  // makes the TV focus engine flicker between them (docs/conventions/tv.md),
+  // and pull-to-refresh means nothing to a remote control anyway.
+  if (Platform.isTV) {
+    return <RequestsScreen />;
+  }
 
   return (
     <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>

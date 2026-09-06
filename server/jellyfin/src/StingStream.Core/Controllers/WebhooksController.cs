@@ -21,11 +21,16 @@ namespace StingStream.Core.Controllers;
 /// secret in the query string (<see cref="WebhookToken"/>), written into each arr's webhook URL by
 /// <c>OmniarrSyncService</c> and compared in constant time here.
 ///
-/// It used to be a loopback check instead, and that check was worth nothing: the gateway proxies
-/// <c>/stingstream/api/*</c> to Jellyfin over 127.0.0.1, so a request from anywhere on the LAN
-/// reaches Core with a loopback remote address and passed. The loopback check is still made, as a
-/// second condition rather than the only one, because the arrs genuinely are on loopback and a
-/// request that is not is worth a log line.
+/// It used to be a loopback check instead, and that check was believed to be worth nothing: the
+/// gateway proxies <c>/stingstream/api/*</c> to Jellyfin over 127.0.0.1, so a request from anywhere
+/// on the LAN was assumed to reach Core with a loopback remote address and pass. Measured on a
+/// running node while the setup endpoints were being built, that is not what happens -- the gateway
+/// <em>overwrites</em> <c>x-forwarded-for</c> with the real socket peer and this server trusts it
+/// (<c>KnownProxies</c> is preseeded with <c>127.0.0.1</c>), so what arrives here is the true client
+/// address, and a spoofed header from the LAN is discarded on the way through. The check does
+/// refuse a LAN caller. It is still the second condition and not the only one, because it holds
+/// only as long as that configuration does: a node whose <c>KnownProxies</c> was cleared would see
+/// every request as loopback again, and nothing here would notice.
 /// </remarks>
 [ApiController]
 [AllowAnonymous]
@@ -122,8 +127,8 @@ public sealed class WebhooksController : ControllerBase
     /// Whether the caller is on this machine.
     /// </summary>
     /// <remarks>
-    /// A weak signal on its own (see the class remarks), kept as a second condition behind the
-    /// token: every legitimate caller really is on loopback, and one that is not is worth a log
+    /// Weaker than the token, and load-bearing anyway -- see the class remarks for what was
+    /// measured. Every legitimate caller really is on loopback, and one that is not is worth a log
     /// line even when it holds the right secret.
     /// </remarks>
     private bool IsLoopback()

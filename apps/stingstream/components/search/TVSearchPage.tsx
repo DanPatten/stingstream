@@ -5,13 +5,12 @@ import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
-import { TVDiscover } from "@/components/jellyseerr/discover/TVDiscover";
+import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { TvSearchView } from "@/modules/tv-search";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
-import type DiscoverSlider from "@/utils/jellyseerr/server/entity/DiscoverSlider";
 import type {
   MovieResult,
   PersonResult,
@@ -22,13 +21,10 @@ import { TVJellyseerrSearchResults } from "./TVJellyseerrSearchResults";
 import { TVSearchSection } from "./TVSearchSection";
 import { TVSearchTabBadges } from "./TVSearchTabBadges";
 
-const TOP_PADDING = 100;
 // Height of the native search bar itself. The tvOS grid keyboard presents as
 // its own overlay when the field is focused, so we only reserve the bar height
 // here — not the whole keyboard. Tunable once seen on device.
 const SEARCH_AREA_HEIGHT = 250;
-const SECTION_GAP = 10;
-const SCALE_PADDING = 20;
 
 // Loading skeleton for TV.
 // Mirrors TVSearchSection's scaled layout (poster width, item gap, edge
@@ -37,7 +33,8 @@ const SCALE_PADDING = 20;
 const TVLoadingSkeleton: React.FC = () => {
   const typography = useScaledTVTypography();
   const sizes = useScaledTVSizes();
-  const itemWidth = sizes.posters.poster;
+  const card = useScaledTVCardLayout("portrait");
+  const itemWidth = card.cardWidth;
   return (
     <View style={{ overflow: "visible" }}>
       {/* Section header placeholder — matches the heading typography + margins */}
@@ -48,15 +45,15 @@ const TVLoadingSkeleton: React.FC = () => {
           backgroundColor: "#262626",
           borderRadius: 8,
           marginBottom: 20,
-          marginLeft: sizes.padding.horizontal,
+          marginLeft: sizes.layout.contentInsetLeft,
         }}
       />
       <View
         style={{
           flexDirection: "row",
-          gap: sizes.gaps.item,
-          paddingLeft: sizes.padding.horizontal,
-          paddingVertical: SCALE_PADDING,
+          gap: card.spacing,
+          paddingLeft: sizes.layout.contentInsetLeft,
+          paddingVertical: sizes.padding.scale,
         }}
       >
         {[1, 2, 3, 4, 5].map((i) => (
@@ -65,8 +62,8 @@ const TVLoadingSkeleton: React.FC = () => {
               style={{
                 backgroundColor: "#262626",
                 width: itemWidth,
-                aspectRatio: 10 / 15,
-                borderRadius: scaleSize(24),
+                aspectRatio: card.aspectRatio,
+                borderRadius: card.borderRadius,
                 marginBottom: scaleSize(8),
               }}
             />
@@ -128,8 +125,6 @@ interface TVSearchPageProps {
   onJellyseerrMoviePress?: (item: MovieResult) => void;
   onJellyseerrTvPress?: (item: TvResult) => void;
   onJellyseerrPersonPress?: (item: PersonResult) => void;
-  // Discover sliders for empty state
-  discoverSliders?: DiscoverSlider[];
 }
 
 export const TVSearchPage: React.FC<TVSearchPageProps> = ({
@@ -159,7 +154,6 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
   onJellyseerrMoviePress,
   onJellyseerrTvPress,
   onJellyseerrPersonPress,
-  discoverSliders,
 }) => {
   const typography = useScaledTVTypography();
   const sizes = useScaledTVSizes();
@@ -228,7 +222,7 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
       {/* Sticky header: search field stays pinned while results scroll below. */}
       <View
         style={{
-          paddingTop: insets.top + TOP_PADDING,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
         }}
       >
         {/* Search bar: native tvOS SwiftUI `.searchable` on Apple TV, standard
@@ -251,18 +245,26 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
         ) : (
           <View
             style={{
-              marginHorizontal: sizes.padding.horizontal,
+              marginLeft: sizes.layout.contentInsetLeft,
+              marginRight: sizes.padding.horizontal,
               marginBottom: 24,
             }}
           >
+            {/*
+              The one preferred-focus element on this screen. Searching is what
+              the screen is for, and a result card taking the initial focus
+              instead would leave the viewer pressing UP to find the field.
+              TVSearchSection deliberately passes isFirstSection={false} for the
+              same reason.
+            */}
             <TextInput
               style={{
-                height: 56,
+                height: scaleSize(84),
                 width: "100%",
                 backgroundColor: "#262626",
-                borderRadius: 12,
-                paddingHorizontal: 20,
-                fontSize: 28,
+                borderRadius: scaleSize(12),
+                paddingHorizontal: scaleSize(24),
+                fontSize: typography.body,
                 color: "#fff",
               }}
               placeholder={t("search.search")}
@@ -270,6 +272,7 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
               onChangeText={setSearch}
               defaultValue=''
               autoFocus={false}
+              hasTVPreferredFocus
             />
           </View>
         )}
@@ -285,7 +288,12 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
       >
         {/* Search Type Tab Badges */}
         {showDiscover && (
-          <View style={{ marginHorizontal: sizes.padding.horizontal }}>
+          <View
+            style={{
+              marginLeft: sizes.layout.contentInsetLeft,
+              marginRight: sizes.padding.horizontal,
+            }}
+          >
             <TVSearchTabBadges
               searchType={searchType}
               setSearchType={setSearchType}
@@ -296,7 +304,7 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
 
         {/* Loading State */}
         {currentLoading && (
-          <View style={{ gap: SECTION_GAP }}>
+          <View style={{ gap: sizes.gaps.section }}>
             <TVLoadingSkeleton />
             <TVLoadingSkeleton />
           </View>
@@ -304,7 +312,7 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
 
         {/* Library Search Results */}
         {isLibraryMode && !loading && (
-          <View style={{ gap: SECTION_GAP }}>
+          <View style={{ gap: sizes.gaps.section }}>
             {sections.map((section) => (
               <TVSearchSection
                 key={section.key}
@@ -345,12 +353,13 @@ export const TVSearchPage: React.FC<TVSearchPageProps> = ({
           />
         )}
 
-        {/* Discover Content (when no search query in Discover mode) */}
-        {isDiscoverMode &&
-          !jellyseerrLoading &&
-          debouncedSearch.length === 0 && (
-            <TVDiscover sliders={discoverSliders} />
-          )}
+        {/*
+          There is no discover feed in Discover mode with an empty query. The
+          block that used to sit here rendered Jellyseerr's TVDiscover, which
+          this build has no configuration path to reach and no endpoint behind:
+          it drew an empty scroller that swallowed focus. Typing is what this
+          mode is for, so the screen says nothing until there is a query.
+        */}
 
         {/* No Results State */}
         {!currentLoading && currentNoResults && debouncedSearch.length > 0 && (

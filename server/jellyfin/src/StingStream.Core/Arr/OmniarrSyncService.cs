@@ -74,7 +74,7 @@ public sealed class OmniarrSyncService
         {
             _logger.LogWarning(
                 "Omniarr sync had nothing to do: no arr is configured in runtime.json. "
-                + "Is this Jellyfin running under the StingStream supervisor?");
+                + "Is this media server running under the StingStream supervisor?");
         }
 
         return results;
@@ -92,7 +92,7 @@ public sealed class OmniarrSyncService
         if (!await client.WaitUntilReachableAsync(waitFor, ct).ConfigureAwait(false))
         {
             status.Ok = false;
-            status.Message = $"{client.Name} did not answer at {client.BaseUrl} within {waitFor.TotalSeconds:0}s";
+            status.Message = $"No answer from {client.Display} at {client.BaseUrl} within {waitFor.TotalSeconds:0}s";
             _logger.LogWarning("{Message}", status.Message);
             return status;
         }
@@ -106,7 +106,7 @@ public sealed class OmniarrSyncService
             await SyncNotificationsAsync(client, shared, status, ct).ConfigureAwait(false);
 
             status.Ok = true;
-            status.Message = $"Synced {status.Detail.Count} change(s) into {client.Name}";
+            status.Message = $"Synced {status.Detail.Count} change(s) into {client.Display}";
             _logger.LogInformation("{Message}", status.Message);
         }
         catch (ArrApiException ex)
@@ -118,7 +118,7 @@ public sealed class OmniarrSyncService
         catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException)
         {
             status.Ok = false;
-            status.Message = $"{client.Name} became unreachable during sync: {ex.Message}";
+            status.Message = $"Lost contact with {client.Display} during the sync: {ex.Message}";
             _logger.LogError(ex, "Omniarr sync into {App} failed", client.Name);
         }
 
@@ -175,7 +175,7 @@ public sealed class OmniarrSyncService
             var jellyfin = _factory.Jellyfin;
             if (jellyfin is null)
             {
-                status.Detail.Add("torrent client: skipped (Jellyfin is not in runtime.json)");
+                status.Detail.Add("torrent client: skipped (the media server is not in runtime.json)");
             }
             else
             {
@@ -225,7 +225,7 @@ public sealed class OmniarrSyncService
             var nzbget = _factory.Nzbget;
             if (nzbget is null)
             {
-                status.Detail.Add("usenet client: skipped (NZBGet is not enabled on this node)");
+                status.Detail.Add("usenet client: skipped (the Usenet engine is not enabled on this node)");
             }
             else
             {

@@ -8,7 +8,6 @@
     "password_placeholder": "Pasvorto",
     "login_button": "Ensaluti",
     "quick_connect": "Rapida Konekto",
-    "enter_code_to_login": "Enigu kodon {{code}} por ensaluti",
     "failed_to_initiate_quick_connect": "Malsukcesis iniciati Rapidan Konekton",
     "got_it": "Komprenita",
     "connection_failed": "Konekto malsukcesis",

@@ -18,7 +18,6 @@
     "password_placeholder": "Mot de passe",
     "login_button": "Se connecter",
     "quick_connect": "Connexion rapide",
-    "enter_code_to_login": "Entrez le code {{code}} pour vous connecter",
     "quick_connect_instructions": "Saisissez ce code sur un appareil déjà connecté. Vous serez connecté automatiquement.",
     "tap_code_to_copy": "Appuyez sur le code pour le copier",
     "code_copied": "Code copié",
@@ -61,7 +60,6 @@
     "remove_server_description": "Ceci supprimera {{server}} et tous les comptes enregistrés de votre liste.",
     "select_your_server": "Sélectionnez votre serveur",
     "add_server_to_get_started": "Ajouter un serveur pour commencer",
-    "add_server": "Ajouter un serveur",
     "change_server": "Changer de serveur"
   },
   "save_account": {
@@ -1064,35 +1062,5 @@
       "show": "Cette série",
       "all": "Tous les médias (par défaut)"
     }
-  },
-  "companion_login": {
-    "title": "Associer à la TV",
-    "align_qr": "Alignez le code QR dans le cadre",
-    "enter_code_manually": "Saisir le code manuellement",
-    "pairing_enter_credentials": "Entrez les identifiants pour le téléviseur",
-    "pairing_code_label": "Code d'appairage",
-    "server": "Serveur",
-    "authorize_button": "Autoriser",
-    "authorizing": "Autorisation en cours...",
-    "scan_again": "Scanner à nouveau",
-    "done": "Terminé",
-    "success_title": "Autorisation envoyée",
-    "pairing_tv_connecting": "La TV se connecte à votre compte",
-    "error_title": "Échec de l'autorisation",
-    "error_invalid_qr": "Code QR invalide. Veuillez scanner le code d'appairage du téléviseur.",
-    "error_generic": "Une erreur s'est produite. Veuillez réessayer.",
-    "error_permission_denied": "L'accès à la caméra est nécessaire pour scanner les QR codes.",
-    "login_as": "Se connecter en tant que {{username}} ?",
-    "on_server": "sur {{server}}",
-    "use_different_user": "Utiliser un autre utilisateur",
-    "open_settings": "Ouvrir les paramètres"
-  },
-  "pairing": {
-    "pair_with_phone": "Associer au téléphone",
-    "pair_with_phone_title": "Se connecter sur la TV",
-    "waiting_for_phone": "En attente du téléphone...",
-    "scan_with_phone": "Scanner avec l'application StingStream sur votre téléphone",
-    "logging_in": "Connexion en cours...",
-    "logging_in_description": "Connexion à votre serveur"
   }
 }

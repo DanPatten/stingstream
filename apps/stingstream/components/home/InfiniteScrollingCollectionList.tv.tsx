@@ -18,7 +18,10 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { TVFocusablePoster } from "@/components/tv/TVFocusablePoster";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import {
+  type ScaledTVCardLayout,
+  useScaledTVCardLayout,
+} from "@/constants/TVCardLayouts";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
@@ -26,9 +29,6 @@ import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { SortByOption, SortOrderOption } from "@/utils/atoms/filters";
 import { useSettings } from "@/utils/atoms/settings";
 import { scaleSize } from "@/utils/scaleSize";
-
-// Extra padding to accommodate scale animation (1.05x) and glow shadow
-const _SCALE_PADDING = scaleSize(20);
 
 interface Props extends ViewProps {
   title?: string | null;
@@ -47,30 +47,19 @@ interface Props extends ViewProps {
 }
 
 type Typography = ReturnType<typeof useScaledTVTypography>;
-type PosterSizes = ReturnType<typeof useScaledTVPosterSizes>;
 
 // TV-specific "See All" card for end of lists
 const TVSeeAllCard: React.FC<{
   onPress: () => void;
-  orientation: "horizontal" | "vertical";
   disabled?: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
   typography: Typography;
-  posterSizes: PosterSizes;
-}> = ({
-  onPress,
-  orientation,
-  disabled,
-  onFocus,
-  onBlur,
-  typography,
-  posterSizes,
-}) => {
+  card: ScaledTVCardLayout;
+}> = ({ onPress, disabled, onFocus, onBlur, typography, card }) => {
   const { t } = useTranslation();
-  const width =
-    orientation === "horizontal" ? posterSizes.episode : posterSizes.poster;
-  const aspectRatio = orientation === "horizontal" ? 16 / 9 : 10 / 15;
+  const width = card.cardWidth;
+  const aspectRatio = card.aspectRatio;
 
   return (
     <View style={{ width }}>
@@ -84,7 +73,7 @@ const TVSeeAllCard: React.FC<{
           style={{
             width,
             aspectRatio,
-            borderRadius: scaleSize(24),
+            borderRadius: card.borderRadius,
             backgroundColor: "rgba(255, 255, 255, 0.08)",
             justifyContent: "center",
             alignItems: "center",
@@ -129,9 +118,13 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
   ...props
 }) => {
   const typography = useScaledTVTypography();
-  const posterSizes = useScaledTVPosterSizes();
   const sizes = useScaledTVSizes();
-  const ITEM_GAP = sizes.gaps.item;
+  // One shape for the whole row, so the skeleton, the cards and the "See all"
+  // tile are the same size and the row does not resize when content lands.
+  const card = useScaledTVCardLayout(
+    orientation === "horizontal" ? "episode" : "portrait",
+  );
+  const ITEM_GAP = card.spacing;
   const effectivePageSize = Math.max(1, pageSize);
   const router = useRouter();
   const { showItemActions } = useTVItemActionModal();
@@ -186,8 +179,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
     return deduped;
   }, [data]);
 
-  const itemWidth =
-    orientation === "horizontal" ? posterSizes.episode : posterSizes.poster;
+  const itemWidth = card.cardWidth;
 
   const handleItemPress = useCallback(
     (item: BaseItemDto) => {
@@ -265,7 +257,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
           fontWeight: "700",
           color: "#FFFFFF",
           marginBottom: scaleSize(20),
-          marginLeft: sizes.padding.horizontal,
+          marginLeft: sizes.layout.contentInsetLeft,
           letterSpacing: 0.5,
         }}
       >
@@ -277,7 +269,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
           style={{
             color: "#737373",
             fontSize: typography.callout,
-            marginLeft: sizes.padding.horizontal,
+            marginLeft: sizes.layout.contentInsetLeft,
           }}
         >
           {t("home.no_items")}
@@ -285,11 +277,15 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
       )}
 
       {isLoading ? (
+        // The skeleton is the row's geometry, not an approximation of it:
+        // same inset, same gap, same card shape, same text metrics. A
+        // placeholder half a poster narrower than the content that replaces it
+        // makes every row jump once the query resolves.
         <View
           style={{
             flexDirection: "row",
             gap: ITEM_GAP,
-            paddingLeft: sizes.padding.horizontal,
+            paddingLeft: sizes.layout.contentInsetLeft,
             paddingRight: sizes.padding.horizontal,
             paddingVertical: sizes.gaps.small,
           }}
@@ -300,8 +296,8 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
                 style={{
                   backgroundColor: "#262626",
                   width: itemWidth,
-                  aspectRatio: orientation === "horizontal" ? 16 / 9 : 10 / 15,
-                  borderRadius: scaleSize(24),
+                  aspectRatio: card.aspectRatio,
+                  borderRadius: card.borderRadius,
                 }}
               />
               <View
@@ -347,7 +343,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
           style={{ overflow: "visible" }}
           contentContainerStyle={{
             paddingVertical: sizes.gaps.small,
-            paddingLeft: sizes.padding.horizontal,
+            paddingLeft: sizes.layout.contentInsetLeft,
             paddingRight: sizes.padding.horizontal,
           }}
           // Below is a work around with the contentInset, same in TVHeroCarousel, if okay on apple remove
@@ -377,10 +373,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
                     marginLeft: itemWidth / 2,
                     marginRight: ITEM_GAP,
                     justifyContent: "center",
-                    height:
-                      orientation === "horizontal"
-                        ? scaleSize(191)
-                        : scaleSize(315),
+                    height: card.cardHeight,
                   }}
                 >
                   <ActivityIndicator size='small' color='white' />
@@ -389,10 +382,9 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
               {parentId && allItems.length > 0 && (
                 <TVSeeAllCard
                   onPress={handleSeeAllPress}
-                  orientation={orientation}
                   disabled={disabled}
                   typography={typography}
-                  posterSizes={posterSizes}
+                  card={card}
                 />
               )}
             </View>

@@ -18,7 +18,6 @@
     "password_placeholder": "Mật khẩu",
     "login_button": "Đăng nhập",
     "quick_connect": "Kết nối nhanh",
-    "enter_code_to_login": "Nhập mã {{code}} để đăng nhập",
     "quick_connect_instructions": "Nhập mã này trên thiết bị đã đăng nhập. Bạn sẽ được đăng nhập tự động.",
     "tap_code_to_copy": "Chạm vào mã để sao chép",
     "code_copied": "Đã sao chép mã",
@@ -61,7 +60,6 @@
     "remove_server_description": "Thao tác này sẽ xóa {{server}} và tất cả tài khoản đã lưu khỏi danh sách của bạn.",
     "select_your_server": "Chọn máy chủ của bạn",
     "add_server_to_get_started": "Thêm một máy chủ để bắt đầu",
-    "add_server": "Thêm máy chủ",
     "change_server": "Đổi máy chủ"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Phim bộ này",
       "all": "Tất cả nội dung (mặc định)"
     }
-  },
-  "companion_login": {
-    "title": "Ghép nối với TV",
-    "align_qr": "Căn mã QR vào trong khung",
-    "enter_code_manually": "Nhập mã thủ công",
-    "pairing_enter_credentials": "Nhập thông tin đăng nhập cho TV",
-    "pairing_code_label": "Mã ghép nối",
-    "server": "Máy chủ",
-    "authorize_button": "Cho phép",
-    "authorizing": "Đang cho phép...",
-    "scan_again": "Quét lại",
-    "done": "Xong",
-    "success_title": "Đã gửi yêu cầu cấp quyền",
-    "pairing_tv_connecting": "TV đang kết nối với tài khoản của bạn",
-    "error_title": "Cấp quyền thất bại",
-    "error_invalid_qr": "Mã QR không hợp lệ. Vui lòng quét mã ghép nối trên TV.",
-    "error_generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
-    "error_permission_denied": "Cần quyền truy cập máy ảnh để quét mã QR.",
-    "login_as": "Đăng nhập với tư cách {{username}}?",
-    "on_server": "trên {{server}}",
-    "use_different_user": "Dùng người dùng khác",
-    "open_settings": "Mở cài đặt"
-  },
-  "pairing": {
-    "pair_with_phone": "Ghép nối với điện thoại",
-    "pair_with_phone_title": "Đăng nhập trên TV",
-    "waiting_for_phone": "Đang chờ điện thoại...",
-    "scan_with_phone": "Quét bằng ứng dụng StingStream trên điện thoại của bạn",
-    "logging_in": "Đang đăng nhập...",
-    "logging_in_description": "Đang kết nối tới máy chủ của bạn"
   }
 }

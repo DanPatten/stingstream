@@ -18,7 +18,6 @@
     "password_placeholder": "Heslo",
     "login_button": "Přihlásit se",
     "quick_connect": "Rychlé připojení",
-    "enter_code_to_login": "Zadejte kód {{code}} pro přihlášení",
     "quick_connect_instructions": "Zadejte tento kód na zařízení, na kterém jste již přihlášeni. Přihlášení proběhne automaticky.",
     "tap_code_to_copy": "Klepnutím na kód jej zkopírujete",
     "code_copied": "Kód zkopírován",
@@ -61,7 +60,6 @@
     "remove_server_description": "Tímto odeberete {{server}} a všechny uložené účty ze svého seznamu.",
     "select_your_server": "Vyberte svůj server",
     "add_server_to_get_started": "Přidejte server a můžete začít",
-    "add_server": "Přidat server",
     "change_server": "Změnit server"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Tento seriál",
       "all": "Všechna média (výchozí)"
     }
-  },
-  "companion_login": {
-    "title": "Spárovat s televizí",
-    "align_qr": "Umístěte QR kód do rámečku",
-    "enter_code_manually": "Zadat kód ručně",
-    "pairing_enter_credentials": "Zadejte přihlašovací údaje pro televizi",
-    "pairing_code_label": "Párovací kód",
-    "server": "Server",
-    "authorize_button": "Autorizovat",
-    "authorizing": "Autorizace...",
-    "scan_again": "Naskenovat znovu",
-    "done": "Hotovo",
-    "success_title": "Autorizace odeslána",
-    "pairing_tv_connecting": "Televize se připojuje k vašemu účtu",
-    "error_title": "Autorizace selhala",
-    "error_invalid_qr": "Neplatný QR kód. Naskenujte párovací kód z televize.",
-    "error_generic": "Něco se pokazilo. Zkuste to znovu.",
-    "error_permission_denied": "Ke skenování QR kódů je potřeba oprávnění k fotoaparátu.",
-    "login_as": "Přihlásit se jako {{username}}?",
-    "on_server": "na {{server}}",
-    "use_different_user": "Použít jiného uživatele",
-    "open_settings": "Otevřít nastavení"
-  },
-  "pairing": {
-    "pair_with_phone": "Spárovat s telefonem",
-    "pair_with_phone_title": "Přihlášení na televizi",
-    "waiting_for_phone": "Čekání na telefon...",
-    "scan_with_phone": "Naskenujte aplikací StingStream v telefonu",
-    "logging_in": "Přihlašování...",
-    "logging_in_description": "Připojování k vašemu serveru"
   }
 }

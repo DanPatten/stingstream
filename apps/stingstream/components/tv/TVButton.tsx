@@ -15,6 +15,16 @@ export interface TVButtonProps {
   refSetter?: (ref: View | null) => void;
   nextFocusDown?: number;
   nextFocusUp?: number;
+  /**
+   * Floor for the button's painted height.
+   *
+   * A row mixing text buttons and square icon buttons ends up ragged, because
+   * this component sizes itself from its padding and an icon is taller than a
+   * line of callout text. Give every button in one row the same `minHeight`
+   * and the row reads as a single control strip -- which is the rule in
+   * docs/conventions/tv.md, not a preference.
+   */
+  minHeight?: number;
 }
 
 const getButtonStyles = (
@@ -69,6 +79,7 @@ export const TVButton: React.FC<TVButtonProps> = ({
   refSetter,
   nextFocusDown,
   nextFocusUp,
+  minHeight,
 }) => {
   const { focused, handleFocus, handleBlur, animatedStyle } =
     useTVFocusAnimation({ scaleAmount });
@@ -94,6 +105,7 @@ export const TVButton: React.FC<TVButtonProps> = ({
             borderWidth: buttonStyles.borderWidth,
             borderColor: buttonStyles.borderColor,
             borderRadius: scaleSize(12),
+            minHeight,
             paddingVertical: scaleSize(18),
             paddingHorizontal: square ? scaleSize(18) : scaleSize(32),
             flexDirection: "row",

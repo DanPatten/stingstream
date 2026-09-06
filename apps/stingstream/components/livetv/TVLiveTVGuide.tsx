@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -62,6 +63,7 @@ export const TVLiveTVGuide: React.FC = () => {
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const router = useRouter();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
@@ -253,7 +255,12 @@ export const TVLiveTVGuide: React.FC = () => {
     <View style={styles.container}>
       {/* Page Navigation */}
       {totalPages > 1 && (
-        <View style={{ paddingHorizontal: insets.left + HORIZONTAL_PADDING }}>
+        <View
+          style={{
+            paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+            paddingRight: sizes.padding.horizontal,
+          }}
+        >
           <TVGuidePageNavigation
             currentPage={currentPage}
             totalPages={totalPages}
@@ -286,7 +293,7 @@ export const TVLiveTVGuide: React.FC = () => {
             styles.channelColumn,
             {
               width: CHANNEL_COLUMN_WIDTH,
-              marginLeft: insets.left + HORIZONTAL_PADDING,
+              marginLeft: insets.left + sizes.layout.contentInsetLeft,
             },
           ]}
         >
@@ -316,7 +323,7 @@ export const TVLiveTVGuide: React.FC = () => {
           showsHorizontalScrollIndicator={false}
           style={styles.horizontalScroll}
           contentContainerStyle={{
-            paddingRight: insets.right + HORIZONTAL_PADDING,
+            paddingRight: insets.right + sizes.padding.horizontal,
           }}
         >
           <View style={{ width: totalWidth, position: "relative" }}>

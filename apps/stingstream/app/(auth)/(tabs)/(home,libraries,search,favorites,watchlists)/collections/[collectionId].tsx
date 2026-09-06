@@ -29,7 +29,7 @@ import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import useRouter from "@/hooks/useAppRouter";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
@@ -69,6 +69,7 @@ const page: React.FC = () => {
 
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
 
   const [selectedGenres, setSelectedGenres] = useAtom(genreFilterAtom);
   const [selectedYears, setSelectedYears] = useAtom(yearFilterAtom);
@@ -657,7 +658,7 @@ const page: React.FC = () => {
         style={{
           flexDirection: "row",
           flexWrap: "nowrap",
-          marginTop: insets.top + 100,
+          marginTop: insets.top + sizes.layout.contentInsetTop,
           paddingBottom: 8,
           paddingHorizontal: TV_SCALE_PADDING,
           gap: 12,

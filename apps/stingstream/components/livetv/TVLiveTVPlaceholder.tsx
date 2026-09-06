@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Text } from "@/components/common/Text";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 
 interface TVLiveTVPlaceholderProps {
@@ -13,6 +14,7 @@ export const TVLiveTVPlaceholder: React.FC<TVLiveTVPlaceholderProps> = ({
 }) => {
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
+  const sizes = useScaledTVSizes();
 
   return (
     <View
@@ -20,7 +22,8 @@ export const TVLiveTVPlaceholder: React.FC<TVLiveTVPlaceholderProps> = ({
         flex: 1,
         justifyContent: "center",
         alignItems: "center",
-        paddingHorizontal: 60,
+        paddingLeft: sizes.layout.contentInsetLeft,
+        paddingRight: sizes.padding.horizontal,
       }}
     >
       <Text

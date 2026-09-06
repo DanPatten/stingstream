@@ -9,7 +9,14 @@ import {
 
 export { enableTVMenuKeyInterception } from "./useTVBackPress";
 
-/** All tab route names used in the bottom tab navigator. */
+/**
+ * All tab route names used in the bottom tab navigator.
+ *
+ * `(requests)` belongs here even though it is a StingStream screen rather than
+ * a Jellyfin one: it is a real tab on both phone and TV, and while it was
+ * missing, BACK at the Requests root fell through to the Stack rather than
+ * going Home, popping the viewer out of the tab navigator entirely.
+ */
 export const TAB_ROUTES = [
   "(home)",
   "(search)",
@@ -17,6 +24,7 @@ export const TAB_ROUTES = [
   "(libraries)",
   "(watchlists)",
   "(custom-links)",
+  "(requests)",
   "(settings)",
 ] as const;
 

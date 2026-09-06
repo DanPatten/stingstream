@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useAtomValue } from "jotai";
 import React, { useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Animated,
   Easing,
@@ -16,7 +17,12 @@ import {
   UnplayedCountBadge,
   WatchedIndicator,
 } from "@/components/WatchedIndicator";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import {
+  TV_FOCUS,
+  type TVCardKind,
+  useScaledTVCardLayout,
+} from "@/constants/TVCardLayouts";
+import { TVImageBudget } from "@/constants/TVImageBudget";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import {
   GlassPosterView,
@@ -66,10 +72,7 @@ export interface TVPosterCardProps {
   /** Custom style for the outer container */
   style?: ViewStyle;
 
-  /** Glow color for focus state */
-  glowColor?: "white" | "purple";
-
-  /** Scale amount for focus animation */
+  /** Scale amount for focus animation. Defaults to the one TV focus scale. */
   scaleAmount?: number;
 
   /** Custom image URL getter - if not provided, uses smart URL logic */
@@ -111,27 +114,31 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
   refSetter,
   width: customWidth,
   style,
-  glowColor = "white",
-  scaleAmount = 1.05,
+  scaleAmount = TV_FOCUS.scale,
   imageUrlGetter,
   preferEpisodeImage = false,
 }) => {
   const api = useAtomValue(apiAtom);
-  const posterSizes = useScaledTVPosterSizes();
+  const { t } = useTranslation();
   const typography = useScaledTVTypography();
+  // One shape per orientation, taken from the card tokens, so this card is the
+  // same size as the same card on every other TV screen.
+  const cardKind: TVCardKind =
+    orientation === "horizontal" ? "episode" : "portrait";
+  const card = useScaledTVCardLayout(cardKind);
 
   const [focused, setFocused] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
 
-  // Determine width based on orientation
-  const width = useMemo(() => {
-    if (customWidth) return customWidth;
-    return orientation === "horizontal"
-      ? posterSizes.episode
-      : posterSizes.poster;
-  }, [customWidth, orientation, posterSizes]);
-
-  const aspectRatio = orientation === "horizontal" ? 16 / 9 : 10 / 15;
+  const width = customWidth ?? card.cardWidth;
+  const aspectRatio = card.aspectRatio;
+  const borderRadius = card.borderRadius;
+  // What to ask the server to render, in pixels: the on-screen height times the
+  // decode multiplier. Anything larger only fills the memory cache faster --
+  // see constants/TVImageBudget.ts.
+  const fillHeight = Math.round(
+    (width / aspectRatio) * TVImageBudget.posterDecodeMultiplier,
+  );
 
   // Smart image URL selection
   const imageUrl = useMemo(() => {
@@ -148,30 +155,30 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
       if (item.Type === "Episode") {
         // Opt-in: use the episode's own image instead of the series thumb.
         if (preferEpisodeImage && item.ImageTags?.Primary) {
-          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=600&quality=80&tag=${item.ImageTags.Primary}`;
+          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=${fillHeight}&quality=80&tag=${item.ImageTags.Primary}`;
         }
         // First try parent/series thumb (horizontal series artwork).
         // Matched pair: ParentThumbItemId owns the Thumb tag, not ParentBackdropItemId.
         if (item.ParentThumbItemId && item.ParentThumbImageTag) {
-          return `${api.basePath}/Items/${item.ParentThumbItemId}/Images/Thumb?fillHeight=700&quality=80&tag=${item.ParentThumbImageTag}`;
+          return `${api.basePath}/Items/${item.ParentThumbItemId}/Images/Thumb?fillHeight=${fillHeight}&quality=80&tag=${item.ParentThumbImageTag}`;
         }
         const parentBackdropTag = item.ParentBackdropImageTags?.[0];
         if (item.ParentBackdropItemId && parentBackdropTag) {
-          return `${api.basePath}/Items/${item.ParentBackdropItemId}/Images/Backdrop?fillHeight=700&quality=80&tag=${parentBackdropTag}`;
+          return `${api.basePath}/Items/${item.ParentBackdropItemId}/Images/Backdrop?fillHeight=${fillHeight}&quality=80&tag=${parentBackdropTag}`;
         }
         // Fall back to episode's own primary image
         if (item.ImageTags?.Primary) {
-          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=600&quality=80&tag=${item.ImageTags.Primary}`;
+          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=${fillHeight}&quality=80&tag=${item.ImageTags.Primary}`;
         }
         // Last resort: try primary without tag
-        return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=700&quality=80`;
+        return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=${fillHeight}&quality=80`;
       }
 
       // Movie/Series/Program: prefer thumb over primary
       if (item.ImageTags?.Thumb) {
-        return `${api.basePath}/Items/${item.Id}/Images/Thumb?fillHeight=700&quality=80&tag=${item.ImageTags.Thumb}`;
+        return `${api.basePath}/Items/${item.Id}/Images/Thumb?fillHeight=${fillHeight}&quality=80&tag=${item.ImageTags.Thumb}`;
       }
-      return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=700&quality=80`;
+      return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=${fillHeight}&quality=80`;
     }
 
     // Vertical orientation: use primary image
@@ -181,15 +188,23 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
       item.SeriesId &&
       item.SeriesPrimaryImageTag
     ) {
-      return `${api.basePath}/Items/${item.SeriesId}/Images/Primary?fillHeight=${width * 3}&quality=80&tag=${item.SeriesPrimaryImageTag}`;
+      return `${api.basePath}/Items/${item.SeriesId}/Images/Primary?fillHeight=${fillHeight}&quality=80&tag=${item.SeriesPrimaryImageTag}`;
     }
 
     return getPrimaryImageUrl({
       api,
       item,
-      width: width * 2, // 2x for quality on large screens
+      width: width * TVImageBudget.posterDecodeMultiplier,
     });
-  }, [api, item, orientation, width, imageUrlGetter, preferEpisodeImage]);
+  }, [
+    api,
+    item,
+    orientation,
+    width,
+    fillHeight,
+    imageUrlGetter,
+    preferEpisodeImage,
+  ]);
 
   // Progress calculation
   const progress = useMemo(() => {
@@ -223,12 +238,10 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
   const animateTo = (value: number) =>
     Animated.timing(scale, {
       toValue: value,
-      duration: 150,
+      duration: TV_FOCUS.durationMs,
       easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
-
-  const shadowColor = glowColor === "white" ? "#ffffff" : "#a855f7";
 
   // Text rendering helpers
   const renderSubtitle = () => {
@@ -356,7 +369,7 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
             marginTop: scaleSize(4),
           }}
         >
-          {item.ChildCount} tracks
+          {t("tv.track_count", { count: item.ChildCount })}
         </Text>
       );
     }
@@ -387,7 +400,7 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
         position: "absolute",
         top: scaleSize(12),
         left: scaleSize(12),
-        backgroundColor: "#FFFFFF",
+        backgroundColor: TV_FOCUS.borderColor,
         borderRadius: scaleSize(8),
         flexDirection: "row",
         alignItems: "center",
@@ -401,11 +414,11 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
       <Text
         style={{
           color: "#000000",
-          fontSize: scaleSize(14),
+          fontSize: typography.callout,
           fontWeight: "700",
         }}
       >
-        Now Playing
+        {t("tv.now_playing")}
       </Text>
     </View>
   ) : null;
@@ -436,10 +449,10 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
           style={{
             width,
             aspectRatio,
-            borderRadius: scaleSize(24),
+            borderRadius,
             backgroundColor: "#1a1a1a",
-            borderWidth: scaleSize(2),
-            borderColor: focused ? "#FFFFFF" : "transparent",
+            borderWidth: scaleSize(TV_FOCUS.borderWidth),
+            borderColor: focused ? TV_FOCUS.borderColor : "transparent",
           }}
         />
       );
@@ -452,7 +465,7 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
           <GlassPosterView
             imageUrl={imageUrl}
             aspectRatio={aspectRatio}
-            cornerRadius={scaleSize(24)}
+            cornerRadius={borderRadius}
             progress={progress}
             showWatchedIndicator={isWatched}
             isFocused={focused}
@@ -478,11 +491,11 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
           position: "relative",
           width,
           aspectRatio,
-          borderRadius: scaleSize(24),
+          borderRadius,
           overflow: "hidden",
           backgroundColor: "#1a1a1a",
-          borderWidth: scaleSize(2),
-          borderColor: focused ? "#FFFFFF" : "transparent",
+          borderWidth: scaleSize(TV_FOCUS.borderWidth),
+          borderColor: focused ? TV_FOCUS.borderColor : "transparent",
         }}
       >
         <Image
@@ -516,7 +529,7 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
       const title = displayShowName ? item.SeriesName || item.Name : item.Name;
       return (
         <Text
-          numberOfLines={displayShowName ? 1 : 2}
+          numberOfLines={displayShowName ? 1 : card.titleLines}
           style={{
             fontSize: typography.callout,
             color: "#FFFFFF",
@@ -548,7 +561,7 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
     // Default: show name
     return (
       <Text
-        numberOfLines={3}
+        numberOfLines={card.titleLines}
         style={{
           fontSize: typography.callout,
           color: "#FFFFFF",
@@ -603,10 +616,18 @@ export const TVPosterCard: React.FC<TVPosterCardProps> = ({
             // Only apply scale transform when not using glass effect
             transform: useGlass ? undefined : [{ scale }],
             // Only apply shadow glow when not using glass (glass has its own glow)
-            shadowColor: useGlass ? undefined : shadowColor,
+            shadowColor: useGlass ? undefined : TV_FOCUS.borderColor,
             shadowOffset: useGlass ? undefined : { width: 0, height: 0 },
-            shadowOpacity: useGlass ? undefined : focused ? 0.3 : 0,
-            shadowRadius: useGlass ? undefined : focused ? scaleSize(12) : 0,
+            shadowOpacity: useGlass
+              ? undefined
+              : focused
+                ? TV_FOCUS.glowOpacity
+                : 0,
+            shadowRadius: useGlass
+              ? undefined
+              : focused
+                ? scaleSize(TV_FOCUS.glowRadius)
+                : 0,
           }}
         >
           {renderPosterImage()}

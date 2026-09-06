@@ -43,6 +43,7 @@ import {
   TVTechnicalDetails,
 } from "@/components/tv";
 import type { Track } from "@/components/video-player/controls/types";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
@@ -71,6 +72,16 @@ import {
 import { formatDuration, runtimeTicksToMinutes } from "@/utils/time";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+/**
+ * The height every button in the action row shares.
+ *
+ * TVButton sizes itself from its padding, and a text button is taller than a
+ * square icon button, so the row used to step up and down across Play,
+ * favourite, played and refresh. Adjacent buttons of different heights read as
+ * a rendering fault at ten feet -- docs/conventions/tv.md has the rule.
+ */
+const TV_ACTION_BUTTON_HEIGHT = scaleSize(84);
 
 export type SelectedOptions = {
   bitrate: Bitrate;
@@ -102,6 +113,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
         : undefined;
     const { settings } = useSettings();
     const insets = useSafeAreaInsets();
+    const sizes = useScaledTVSizes();
     const router = useRouter();
     const { showItemActions } = useTVItemActionModal();
     const { t } = useTranslation();
@@ -601,6 +613,28 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
       }
     }, [router, item?.SeriesId]);
 
+    // The whole synopsis, in the one sanctioned full-screen TV surface: a
+    // route-based modal, never an overlay. One card, no choice to make -- the
+    // modal is being used as a reader here, so the card is wide and allowed
+    // enough lines for prose rather than a picker label.
+    const handleShowOverview = useCallback(() => {
+      if (!item?.Overview) return;
+      showOptions({
+        title: item.Name ?? t("item_card.overview"),
+        options: [
+          {
+            label: item.Overview,
+            value: "dismiss",
+            selected: false,
+            labelLines: 12,
+          },
+        ],
+        onSelect: () => {},
+        cardWidth: Math.round(SCREEN_WIDTH * 0.72),
+        cardHeight: Math.round(SCREEN_HEIGHT * 0.3),
+      });
+    }, [showOptions, item?.Overview, item?.Name, t]);
+
     const handleSeasonPress = useCallback(() => {
       if (item?.SeriesId && item?.ParentIndexNumber) {
         router.push(
@@ -633,9 +667,10 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: insets.top + scaleSize(140),
+            paddingTop: insets.top + sizes.layout.contentInsetTop,
             paddingBottom: insets.bottom + scaleSize(60),
-            paddingHorizontal: insets.left + scaleSize(80),
+            paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+            paddingRight: sizes.padding.horizontal,
           }}
           showsVerticalScrollIndicator={false}
         >
@@ -714,7 +749,16 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                 </View>
               )}
 
-              {/* Overview */}
+              {/*
+                Overview, three lines and a way to read the rest.
+
+                Four lines of a synopsis at ten feet is a wall, and truncating
+                with no way out means the viewer simply cannot read a plot
+                summary on this device. "More" is focusable and opens the
+                existing tv-option-modal with the whole text, which is the one
+                sanctioned full-screen surface on TV (a route, not an overlay --
+                see docs/tv-modal-guide.md).
+              */}
               {item.Overview && (
                 <BlurView
                   intensity={10}
@@ -738,12 +782,28 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                         color: "#E5E7EB",
                         lineHeight: scaleSize(32),
                       }}
-                      numberOfLines={4}
+                      numberOfLines={3}
                     >
                       {item.Overview}
                     </Text>
                   </View>
                 </BlurView>
+              )}
+              {item.Overview && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    marginTop: -scaleSize(12),
+                    marginBottom: scaleSize(20),
+                  }}
+                >
+                  <TVOptionButton
+                    label={t("item_card.overview")}
+                    value={t("tv.details.read_more")}
+                    maxWidth={scaleSize(220)}
+                    onPress={handleShowOverview}
+                  />
+                </View>
               )}
 
               {/* Action buttons */}
@@ -758,6 +818,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                   onPress={handlePlay}
                   hasTVPreferredFocus
                   variant='primary'
+                  minHeight={TV_ACTION_BUTTON_HEIGHT}
                 >
                   <Ionicons
                     name='play'
@@ -777,12 +838,24 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                       : t("common.play")}
                   </Text>
                 </TVButton>
-                <TVFavoriteButton item={item} />
-                <TVPlayedButton item={item} />
-                <TVRefreshButton itemId={item.Id} />
+                <TVFavoriteButton
+                  item={item}
+                  minHeight={TV_ACTION_BUTTON_HEIGHT}
+                />
+                <TVPlayedButton
+                  item={item}
+                  minHeight={TV_ACTION_BUTTON_HEIGHT}
+                />
+                <TVRefreshButton
+                  itemId={item.Id}
+                  minHeight={TV_ACTION_BUTTON_HEIGHT}
+                />
                 {/* Renders nothing unless this is a film or a series with a provider id, which is
                     what an item key -- and therefore a request -- needs. See M6's TVRequestButton. */}
-                <TVRequestButton item={item} />
+                <TVRequestButton
+                  item={item}
+                  minHeight={TV_ACTION_BUTTON_HEIGHT}
+                />
               </View>
 
               {/* Playback options */}
@@ -955,7 +1028,9 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                   onEpisodePress={handleEpisodePress}
                   onEpisodeLongPress={showItemActions}
                   firstEpisodeRefSetter={setFirstEpisodeRef}
-                  horizontalPadding={insets.left + scaleSize(80)}
+                  horizontalPadding={
+                    insets.left + sizes.layout.contentInsetLeft
+                  }
                 />
               </View>
             )}
@@ -976,7 +1051,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                 apiBasePath={api?.basePath}
                 onActorPress={handleActorPress}
                 firstActorRefSetter={setFirstActorCardRef}
-                horizontalPadding={insets.left + scaleSize(80)}
+                horizontalPadding={insets.left + sizes.layout.contentInsetLeft}
               />
             )}
 

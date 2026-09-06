@@ -96,6 +96,9 @@ pub struct GatewayState {
     /// The gateway's cached view of whether first-run setup is still pending, for the marker and
     /// for `/healthz`. See [`crate::setup`].
     pub setup: SetupHandle,
+    /// `first_run` as `runtime.json` says it now. The `Runtime` beside it is a start-up snapshot,
+    /// and Core clears this one field in the file minutes later — see [`crate::runtime::FirstRunFlag`].
+    pub first_run: crate::runtime::FirstRunFlag,
 }
 
 pub fn router(node: Arc<NodeState>) -> Router {
@@ -107,11 +110,13 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
     let dev = node.dev;
     let expose_child_uis = dev && node.config.gateway.expose_child_uis_in_dev;
     let dev_server = web.is_dev_server();
+    let first_run = crate::runtime::FirstRunFlag::for_runtime(&node.runtime);
     let state = GatewayState {
         node,
         client: proxy::client(),
         web,
         setup,
+        first_run,
     };
 
     let mut app = Router::new()
@@ -216,7 +221,7 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
             "id": state.node.runtime.node_id,
             "name": state.node.runtime.node_name,
             "dev": state.node.dev,
-            "first_run": state.node.runtime.first_run,
+            "first_run": state.first_run.get(),
             "data_dir": state.node.runtime.data_dir,
         },
         "gateway": {
@@ -276,7 +281,7 @@ fn public_health(state: &GatewayState, ok: bool, children: usize) -> serde_json:
             "id": state.node.runtime.node_id,
             "name": state.node.runtime.node_name,
             "dev": state.node.dev,
-            "first_run": state.node.runtime.first_run,
+            "first_run": state.first_run.get(),
         },
         // How many, not which, on which port, at which version.
         "children": children,
@@ -951,6 +956,9 @@ mod tests {
             client: proxy::client(),
             web: WebSource::None,
             setup,
+            // No file behind this fixture's data_dir, so the flag is simply what it was told --
+            // which is what `for_runtime` would settle on anyway once the read failed.
+            first_run: crate::runtime::FirstRunFlag::fixed(false),
         }
     }
 
@@ -1032,6 +1040,51 @@ mod tests {
 
         let done = sample_state(SetupHandle::known(false));
         assert_eq!(public_health(&done, true, 1)["setup_pending"], serde_json::json!(false));
+    }
+
+    /// `/healthz` reported `first_run: true` forever on a node that had finished wiring thirty
+    /// seconds in: the gateway holds the `Runtime` it was handed at start-up, and Core clears the
+    /// flag *in the file* minutes later. Both audiences of that field -- the app and the harnesses
+    /// -- read it to decide whether a node is still setting itself up.
+    #[tokio::test]
+    async fn healthz_reports_first_run_from_the_file_not_from_start_up() {
+        use tower::ServiceExt;
+
+        let td = tempfile::tempdir().unwrap();
+        let mut runtime = sample_runtime();
+        runtime.first_run = true;
+        runtime.data_dir = td.path().to_path_buf();
+        runtime.save(&crate::paths::Layout::new(td.path()).runtime_json()).unwrap();
+
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            runtime,
+            false,
+        ));
+
+        async fn first_run_on(node: Arc<NodeState>, peer: &str) -> serde_json::Value {
+            let app = router_with_web(node, WebSource::None, SetupHandle::default());
+            let mut req = Request::builder().uri("/healthz").body(Body::empty()).unwrap();
+            req.extensions_mut()
+                .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+            let resp = app.oneshot(req).await.unwrap();
+            let bytes = axum::body::to_bytes(resp.into_body(), 256 * 1024).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            body["node"]["first_run"].clone()
+        }
+
+        // Both audiences: the full document on loopback and the redacted one from the LAN.
+        assert_eq!(first_run_on(node.clone(), "127.0.0.1:5000").await, serde_json::json!(true));
+        assert_eq!(first_run_on(node.clone(), "192.168.1.20:5000").await, serde_json::json!(true));
+
+        // Core finishes wiring and clears the flag in the file. The gateway's own snapshot still
+        // says true, and that is exactly the bug.
+        crate::runtime::Runtime::clear_first_run(&crate::paths::Layout::new(td.path()).runtime_json())
+            .unwrap();
+        assert!(node.runtime.first_run, "the start-up snapshot is deliberately stale here");
+
+        assert_eq!(first_run_on(node.clone(), "127.0.0.1:5000").await, serde_json::json!(false));
+        assert_eq!(first_run_on(node, "192.168.1.20:5000").await, serde_json::json!(false));
     }
 
     #[test]

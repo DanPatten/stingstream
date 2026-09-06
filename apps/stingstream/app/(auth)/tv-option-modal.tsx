@@ -122,8 +122,16 @@ export default function TVOptionModal() {
   }
 
   const { title, options } = modalState;
-  const scaledCardWidth = scaleSize(160);
-  const scaledCardHeight = scaleSize(75);
+  // The atom has carried cardWidth/cardHeight since it was written, and this
+  // screen ignored both: every sheet was 160x75 whatever the caller asked for,
+  // which is right for a picker of short options and useless for a card holding
+  // a synopsis. Honour them, defaulting to the picker size.
+  const scaledCardWidth = modalState?.cardWidth
+    ? Math.round(modalState.cardWidth)
+    : scaleSize(160);
+  const scaledCardHeight = modalState?.cardHeight
+    ? Math.round(modalState.cardHeight)
+    : scaleSize(75);
   const cardGap = scaleSize(12);
   // Every sheet is the same card strip. Past a few dozen options the plain
   // ScrollView becomes the problem — it mounts a Pressable and a focus
@@ -189,6 +197,7 @@ export default function TVOptionModal() {
                       onPress={() => handleSelect(item.value)}
                       width={scaledCardWidth}
                       height={scaledCardHeight}
+                      labelLines={item.labelLines}
                     />
                   )}
                 />
@@ -212,6 +221,7 @@ export default function TVOptionModal() {
                       selected={option.selected}
                       hasTVPreferredFocus={index === initialSelectedIndex}
                       onPress={() => handleSelect(option.value)}
+                      labelLines={option.labelLines}
                       width={scaledCardWidth}
                       height={scaledCardHeight}
                     />
