@@ -255,54 +255,147 @@ function writeSvg(svg: string, path: string) {
   );
 }
 
+/** Same fit-into-square logic as markSvg, but parametrised over an arbitrary path `d`
+ * and its own ink bounds -- markSvg itself is pinned to MARK_PATH_D/MARK_INK_BOUNDS, and
+ * the candidates preview needs to render the wave_s alternate and a disc treatment too. */
+function previewIconSvg(opts: {
+  d: string;
+  box: Box;
+  canvas: number;
+  bg: string;
+  fill: string;
+  disc?: boolean;
+  boxFrac?: number;
+}): string {
+  const { d, box, canvas, bg, fill, disc, boxFrac = 0.82 } = opts;
+  const inner = canvas * boxFrac;
+  const off = (canvas - inner) / 2;
+  const { scale, tx, ty } = fitBoxIntoSquare(box, off, off, inner);
+  const discRect = disc
+    ? `<rect x="${canvas * 0.06}" y="${canvas * 0.06}" width="${canvas * 0.88}" height="${canvas * 0.88}" rx="${canvas * 0.2}" fill="url(#g)"/>`
+    : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">
+  <defs>${gradientDefs()}</defs>
+  <rect width="${canvas}" height="${canvas}" fill="${bg}"/>
+  ${discRect}
+  <g transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${scale.toFixed(4)})"><path d="${d}" fill="${fill}"/></g>
+</svg>`;
+}
+
+/** 192px app-icon mock: the same art, clipped to a rounded-square (squircle-ish) frame. */
+function roundedIconMockSvg(opts: {
+  d: string;
+  box: Box;
+  bg: string;
+  fill: string;
+  disc?: boolean;
+}): string {
+  const canvas = 1024;
+  const inner = previewIconSvg({
+    ...opts,
+    canvas,
+    boxFrac: opts.disc ? 0.62 : 0.82,
+  }).replace(/<\/?svg[^>]*>/g, "");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">
+  <defs><clipPath id="squircle"><rect x="0" y="0" width="${canvas}" height="${canvas}" rx="${canvas * 0.215}"/></clipPath></defs>
+  <g clip-path="url(#squircle)">${inner}</g>
+</svg>`;
+}
+
 async function runCandidatesPreview(outDir: string) {
   mkdirSync(outDir, { recursive: true });
-  const sets: Record<string, string> = {
-    1: MARK_CANDIDATES.rounder_softer_wing,
-    2: MARK_PATH_D,
-    3: MARK_CANDIDATES.bolder_crisp_wing,
+  // 1 = Ribbon Ray (the chosen mark, gradient on dark/mono-on-light), 2 = Negative-Space
+  // Ray (same path, white cutout on an accent-gradient disc -- works as an app icon
+  // directly), 3 = Wave S (the calmer alternate). See mark.ts's file comment.
+  const candidates: Record<
+    string,
+    { d: string; box: Box; disc: boolean; fillDark: string; fillLight: string }
+  > = {
+    1: {
+      d: MARK_PATH_D,
+      box: MARK_INK_BOUNDS,
+      disc: false,
+      fillDark: "url(#g)",
+      fillLight: BRAND_BG,
+    },
+    2: {
+      d: MARK_PATH_D,
+      box: MARK_INK_BOUNDS,
+      disc: true,
+      fillDark: "#FFFFFF",
+      fillLight: "#FFFFFF",
+    },
+    3: {
+      d: MARK_CANDIDATES.wave_s,
+      box: MARK_INK_BOUNDS,
+      disc: false,
+      fillDark: "url(#g)",
+      fillLight: BRAND_BG,
+    },
   };
-  const svgFor = (
-    d: string,
-    size: number,
-    dark: boolean,
-  ) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1024 1024">
-  <defs>${gradientDefs()}</defs>
-  <rect width="1024" height="1024" fill="${dark ? BRAND_BG : "#FFFFFF"}"/>
-  <path d="${d}" fill="${dark ? "url(#g)" : BRAND_BG}"/>
-</svg>`;
-  for (const [id, d] of Object.entries(sets)) {
+
+  for (const [id, c] of Object.entries(candidates)) {
     for (const size of [48, 512] as const) {
-      for (const dark of [true, false]) {
-        const name = `candidate-${id}-${size}-${dark ? "dark" : "light"}.png`;
-        await sharp(Buffer.from(svgFor(d, 1024, dark)))
-          .resize(size, size)
-          .png()
-          .toFile(join(outDir, name));
-      }
+      const dark = previewIconSvg({
+        d: c.d,
+        box: c.box,
+        canvas: 1024,
+        bg: BRAND_BG,
+        fill: c.fillDark,
+        disc: c.disc,
+        boxFrac: c.disc ? 0.88 : 0.82,
+      });
+      const light = previewIconSvg({
+        d: c.d,
+        box: c.box,
+        canvas: 1024,
+        bg: "#FFFFFF",
+        fill: c.fillLight,
+        disc: c.disc,
+        boxFrac: c.disc ? 0.88 : 0.82,
+      });
+      await sharp(Buffer.from(dark))
+        .resize(size, size)
+        .png()
+        .toFile(join(outDir, `candidate-${id}-${size}-dark.png`));
+      await sharp(Buffer.from(light))
+        .resize(size, size)
+        .png()
+        .toFile(join(outDir, `candidate-${id}-${size}-light.png`));
     }
+    const mock = roundedIconMockSvg({
+      d: c.d,
+      box: c.box,
+      bg: BRAND_BG,
+      fill: c.disc ? "#FFFFFF" : "url(#g)",
+      disc: c.disc,
+    });
+    await sharp(Buffer.from(mock))
+      .resize(192, 192)
+      .png()
+      .toFile(join(outDir, `candidate-${id}-icon192.png`));
   }
-  const cell = 300;
-  const composites = [];
+
+  const cell = 260;
   const ids = ["1", "2", "3"];
+  const composites = [];
   for (let i = 0; i < ids.length; i++) {
-    const darkBuf = await sharp(
-      join(outDir, `candidate-${ids[i]}-512-dark.png`),
-    )
-      .resize(cell, cell)
-      .toBuffer();
-    const lightBuf = await sharp(
-      join(outDir, `candidate-${ids[i]}-512-light.png`),
-    )
-      .resize(cell, cell)
-      .toBuffer();
-    composites.push({ input: darkBuf, left: i * cell, top: 0 });
-    composites.push({ input: lightBuf, left: i * cell, top: cell });
+    const files = [
+      `candidate-${ids[i]}-512-dark.png`,
+      `candidate-${ids[i]}-512-light.png`,
+      `candidate-${ids[i]}-icon192.png`,
+    ];
+    for (let col = 0; col < files.length; col++) {
+      const buf = await sharp(join(outDir, files[col]))
+        .resize(cell, cell)
+        .toBuffer();
+      composites.push({ input: buf, left: col * cell, top: i * cell });
+    }
   }
   await sharp({
     create: {
       width: cell * 3,
-      height: cell * 2,
+      height: cell * ids.length,
       channels: 4,
       background: "#333333",
     },
