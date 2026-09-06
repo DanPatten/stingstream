@@ -175,9 +175,7 @@ export const TVSourcePill: FC<TVSourcePillProps> = ({
           focused ? tvStyles.focused : null,
         ]}
       >
-        <View
-          style={[tvStyles.dot, { backgroundColor: meshDotColor(kind) }]}
-        />
+        <View style={[tvStyles.dot, { backgroundColor: meshDotColor(kind) }]} />
         <Text style={[tvStyles.label, { fontSize: typography.callout }]}>
           {label}
         </Text>

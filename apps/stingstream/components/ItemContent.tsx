@@ -24,6 +24,7 @@ import { SourceChooserButton } from "@/components/stingstream/sources/SourceChoo
 import { type Bitrate } from "@/constants/Playback";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
+import { usePreferredSourcePreselect } from "@/hooks/useItemSources";
 import { useOrientation } from "@/hooks/useOrientation";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -122,6 +123,26 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     defaultMediaSource,
     downloadedTracks,
   ]);
+
+  // WP-PLAYER: the node ranked this title's holders under *its* policy. When this device asks for
+  // the other one, the selection follows before Play is ever pressed — otherwise the setting is
+  // silently ignored by the one button it exists for.
+  const preselectSource = React.useCallback(
+    (mediaSourceId: string) => {
+      const chosen = itemWithSources?.MediaSources?.find(
+        (source) => source.Id === mediaSourceId,
+      );
+      if (!chosen) return;
+      setSelectedOptions((prev) => prev && { ...prev, mediaSource: chosen });
+    },
+    [itemWithSources],
+  );
+
+  usePreferredSourcePreselect(itemWithSources, {
+    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+    onPreselect: preselectSource,
+    enabled: !isOffline,
+  });
 
   useEffect(() => {
     if (!Platform.isTV && itemWithSources) {
@@ -242,15 +263,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
                 <SourceChooserButton
                   item={itemWithSources}
                   currentMediaSourceId={selectedOptions.mediaSource?.Id}
-                  onSelect={(mediaSourceId) => {
-                    const chosen = itemWithSources?.MediaSources?.find(
-                      (source) => source.Id === mediaSourceId,
-                    );
-                    if (!chosen) return;
-                    setSelectedOptions(
-                      (prev) => prev && { ...prev, mediaSource: chosen },
-                    );
-                  }}
+                  onSelect={preselectSource}
                 />
               )}
             </View>

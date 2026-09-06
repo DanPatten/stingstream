@@ -269,6 +269,8 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <TouchableOpacity
             onPress={startPictureInPicture}
             style={styles.iconButton}
+            accessibilityRole='button'
+            accessibilityLabel={t("player.picture_in_picture")}
           >
             <MaterialIcons
               name='picture-in-picture'
@@ -281,6 +283,8 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <TouchableOpacity
             onPress={switchOnEpisodeMode}
             style={styles.iconButton}
+            accessibilityRole='button'
+            accessibilityLabel={t("player.episodes")}
           >
             <Ionicons name='list' size={ICON_SIZES.HEADER} color='white' />
           </TouchableOpacity>
@@ -289,6 +293,8 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <TouchableOpacity
             onPress={goToPreviousItem}
             style={styles.iconButton}
+            accessibilityRole='button'
+            accessibilityLabel={t("player.previous_item")}
           >
             <Ionicons
               name='play-skip-back'
@@ -301,6 +307,8 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <TouchableOpacity
             onPress={() => goToNextItem({ isAutoPlay: false })}
             style={styles.iconButton}
+            accessibilityRole='button'
+            accessibilityLabel={t("player.next_item")}
           >
             <Ionicons
               name='play-skip-forward'

@@ -96,13 +96,12 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
     [t, currentLabel],
   );
 
+  // The short spellings, not the settings page's "Fastest source" / "Best quality": a segmented
+  // control has room for two words and the same two words are what the television's row says.
   const segments = useMemo(
     () => [
-      { key: "speed_first", label: t("home.settings.playback_policy.speed") },
-      {
-        key: "quality_first",
-        label: t("home.settings.playback_policy.quality"),
-      },
+      { key: "speed_first", label: t("player.source.policy_speed") },
+      { key: "quality_first", label: t("player.source.policy_quality") },
     ],
     [t],
   );

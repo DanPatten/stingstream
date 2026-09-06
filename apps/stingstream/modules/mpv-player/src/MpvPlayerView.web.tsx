@@ -526,6 +526,9 @@ const MpvPlayerViewWeb = React.forwardRef<MpvPlayerWebRef, MpvPlayerViewProps>(
             from the Jellyfin item's subtitle streams. */}
         <video
           ref={videoRef}
+          // The one stable handle on the picture itself, for the browser tests that
+          // drive the OSD: everything else on this screen is an overlay above it.
+          data-testid='player-video'
           autoPlay={autoplay !== false}
           loop={Boolean(loop)}
           playsInline

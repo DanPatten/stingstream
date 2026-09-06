@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useHaptic } from "@/hooks/useHaptic";
 import { ICON_SIZES } from "./constants";
@@ -16,6 +17,7 @@ export const ZoomToggle: React.FC<ZoomToggleProps> = ({
   disabled = false,
 }) => {
   const lightHapticFeedback = useHaptic("light");
+  const { t } = useTranslation();
 
   const handlePress = () => {
     if (disabled) return;
@@ -31,6 +33,10 @@ export const ZoomToggle: React.FC<ZoomToggleProps> = ({
       onPress={handlePress}
       disabled={disabled}
       style={styles.button}
+      accessibilityRole='button'
+      accessibilityLabel={
+        isZoomedToFill ? t("player.fit_to_screen") : t("player.zoom_to_fill")
+      }
     >
       <View style={{ opacity: disabled ? 0.5 : 1 }}>
         {/* "Crop", not "expand": this fills the *frame* by cropping the picture, and the

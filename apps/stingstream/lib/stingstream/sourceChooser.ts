@@ -97,7 +97,8 @@ export function buildSourceChoices(
   }
 
   const choices: SourceChoice[] = [];
-  const locals: Array<{ choice: SourceChoice; mediaSource: MediaSourceInfo }> = [];
+  const locals: Array<{ choice: SourceChoice; mediaSource: MediaSourceInfo }> =
+    [];
   for (const mediaSource of mediaSources ?? []) {
     const id = mediaSource.Id;
     if (!id) continue;

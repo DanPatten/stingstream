@@ -908,13 +908,26 @@
       "playing": "Playing",
       "none_title": "Nothing else holds this",
       "none_description": "Only this server has a copy you can play right now.",
-      "selected": "Selected"
+      "selected": "Selected",
+      "policy_speed": "Speed first",
+      "policy_quality": "Quality first"
     },
     "next_up": "Next up",
     "fullscreen": "Full screen",
     "exit_fullscreen": "Exit full screen",
     "mute": "Mute",
-    "unmute": "Unmute"
+    "unmute": "Unmute",
+    "picture_in_picture": "Picture in picture",
+    "episodes": "Episodes",
+    "previous_item": "Previous item",
+    "next_item": "Next item",
+    "previous_chapter": "Previous chapter",
+    "next_chapter": "Next chapter",
+    "play": "Play",
+    "pause": "Pause",
+    "fit_to_screen": "Fit to screen",
+    "skip_back_seconds": "Back {{seconds}} seconds",
+    "skip_forward_seconds": "Forward {{seconds}} seconds"
   },
   "chapters": {
     "title": "Chapters",
@@ -1279,8 +1292,6 @@
       "this_device": "This device",
       "playback": "Playback",
       "play_from": "Play from",
-      "play_from_speed": "Speed first",
-      "play_from_quality": "Quality first",
       "account": "Account",
       "sign_out": "Sign out of this TV"
     }
