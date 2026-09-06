@@ -553,6 +553,37 @@
           "4_hours": "4 hours",
           "24_hours": "24 hours"
         }
+      },
+      "groups": {
+        "members_title": "Members",
+        "members_hint": "\"Direct\" means bytes travel peer to peer; \"relayed\" means they pass through a relay, which still works but costs someone bandwidth. A member with no path yet is simply one nothing has been asked of.",
+        "members_empty_title": "No members yet",
+        "members_empty_hint": "Share an invite code to add one.",
+        "members_unavailable": "This node could not be asked who is in the group: {{message}}",
+        "member_path_direct": "Direct",
+        "member_path_relayed": "Relayed",
+        "member_online": "Online",
+        "member_offline": "Offline",
+        "member_this_node": "This node",
+        "member_removed": "Removed",
+        "member_last_seen": "Last seen {{when}} ago",
+        "member_last_seen_on": "Last seen on {{date}}",
+        "member_never_seen": "Never seen",
+        "remove_member": "Remove",
+        "remove_member_title": "Remove {{name}}?",
+        "remove_member_warning": "{{name}} loses access to {{group}} immediately, and the group's secret is rotated so it cannot get back in. Every invite code handed out before now stops working, including any this screen has already shown. There is no undo: the only way back is a fresh invite.",
+        "remove_member_confirm": "Remove and rotate",
+        "removing_member": "Removing {{name}} and rotating the secret. The new secret is handed to every member that is awake, one at a time, so this can take a few minutes. Leave this screen open.",
+        "member_removed_result": "{{name}} removed. {{n}} members took the new secret; the rest take it the next time they connect.",
+        "rotate_secret": "Rotate secret",
+        "rotate_secret_title": "Rotate the secret for {{group}}?",
+        "rotate_secret_warning": "Every invite code handed out before now stops working, including any this screen has already shown. Nobody is removed: every current member is handed the new secret, and the ones that are asleep take it the next time they connect.",
+        "rotate_secret_confirm": "Rotate",
+        "rotating_secret": "Rotating the secret. The new secret is handed to every member that is awake, one at a time, so this can take a few minutes. Leave this screen open.",
+        "rotate_secret_result": "Secret rotated. {{n}} members took the new one; the rest take it the next time they connect.",
+        "secret_rotated": "Secret rotated {{when}} ago · epoch {{epoch}}",
+        "secret_rotated_on": "Secret rotated on {{date}} · epoch {{epoch}}",
+        "secret_never_rotated": "The secret has never been rotated · epoch {{epoch}}"
       }
     },
     "sessions": {

@@ -7,7 +7,7 @@ import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import useRouter from "@/hooks/useAppRouter";
 import {
-  type MeshNodePeer,
+  canManageMembers,
   useLeaveMeshGroup,
   useNodeMeshGroups,
   useNodeMeshPeers,
@@ -22,6 +22,7 @@ import {
   coordinatorChoiceReady,
   coordinatorChoiceValue,
 } from "./CoordinatorPicker";
+import { GroupMembers } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
 
 /**
@@ -30,7 +31,8 @@ import { InviteCard } from "./InviteCard";
  * The member list is the **home node's** view. That is the right one to show: it is the node that
  * actually holds connections to everyone, whereas this device only dials a peer when something is
  * playing from it. Where this device *does* know better — because it is streaming from that peer
- * right now — its path is shown alongside.
+ * right now — its path is shown alongside. It lives in `GroupMembers`, along with the two ways an
+ * administrator can change who is in the group.
  */
 export function GroupDetailScreen({ group }: { group: string }) {
   const router = useRouter();
@@ -47,14 +49,14 @@ export function GroupDetailScreen({ group }: { group: string }) {
     [groups.data, group],
   );
 
-  const rows = useMemo(
-    () =>
-      [...(peers.data ?? [])].sort((a, b) => {
-        if (a.online !== b.online) return a.online ? -1 : 1;
-        return a.nodeName.localeCompare(b.nodeName);
-      }),
-    [peers.data],
-  );
+  // Removing a member and rotating the secret are elevated on the node and phone/web only, and the
+  // roster they are attached to is elevated too — so this one flag decides whether the member list
+  // is even asked for. See `canManageMembers`.
+  const manageable = canManageMembers(isAdmin, Platform.isTV);
+
+  // The counts stay the peer list's, not the roster's: the roster keeps removed members on it so
+  // the removal is visible, and counting those as members of the group would be a lie.
+  const peerRows = peers.data ?? [];
 
   const onLeave = useCallback(() => {
     const run = async () => {
@@ -100,10 +102,10 @@ export function GroupDetailScreen({ group }: { group: string }) {
     >
       <ListGroup title='Group'>
         <ListItem title='Name' value={info?.name ?? "—"} />
-        <ListItem title='Members' value={String(rows.length)} />
+        <ListItem title='Members' value={String(peerRows.length)} />
         <ListItem
           title='Online'
-          value={String(rows.filter((p) => p.online).length)}
+          value={String(peerRows.filter((p) => p.online).length)}
         />
         <ListItem
           title='Coordinator'
@@ -128,32 +130,12 @@ export function GroupDetailScreen({ group }: { group: string }) {
 
       <View className='h-4' />
 
-      <ListGroup
-        title='Members'
-        description={
-          <Text className='text-[#9899A1] text-xs'>
-            "Direct" means bytes travel peer to peer; "relayed" means they pass
-            through a relay, which still works but costs someone bandwidth. A
-            member with no path yet is simply one nothing has been asked of.
-          </Text>
-        }
-      >
-        {rows.map((peer) => (
-          <ListItem
-            key={peer.node}
-            title={peer.nodeName || shorten(peer.node)}
-            subtitle={describePeer(peer)}
-            subtitleColor={peer.online ? "default" : "red"}
-            value={peer.online ? pathLabel(peer.path) : "Offline"}
-          />
-        ))}
-        {rows.length === 0 && (
-          <ListItem
-            title='No members yet'
-            subtitle='Share an invite code to add one.'
-          />
-        )}
-      </ListGroup>
+      <GroupMembers
+        group={group}
+        groupName={info?.name ?? ""}
+        peers={peers.data}
+        manageable={manageable}
+      />
 
       <View className='h-4' />
 
@@ -262,31 +244,6 @@ function ChangeCoordinator({
     </View>
   );
 }
-
-const describePeer = (peer: MeshNodePeer): string => {
-  const bits: string[] = [];
-  if (peer.rttMs != null) bits.push(`${peer.rttMs} ms`);
-  if (peer.freeSpace) bits.push(`${gib(peer.freeSpace)} free`);
-  bits.push(shorten(peer.node));
-  return bits.join(" • ");
-};
-
-const pathLabel = (path: string | null | undefined): string => {
-  switch (path) {
-    case "direct":
-    case "mixed":
-      return "Direct";
-    case "relay":
-      return "Relayed";
-    default:
-      return "Online";
-  }
-};
-
-const shorten = (nodeId: string): string =>
-  nodeId.length > 16 ? `${nodeId.slice(0, 12)}…` : nodeId;
-
-const gib = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(0)} GB`;
 
 const hostOf = (url: string): string => {
   try {

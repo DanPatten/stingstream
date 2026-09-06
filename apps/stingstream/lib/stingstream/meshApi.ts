@@ -89,6 +89,65 @@ export interface MeshJoinResponse {
 }
 
 /**
+ * One member of a group, from `GET /mesh/groups/{group}/members`.
+ *
+ * Deliberately not the same shape as {@link MeshNodePeer}, even though both describe the same
+ * machines: `/mesh/peers` is the *measurement* — path, round trip, free space — and this is the
+ * *membership*. Only this one knows which row is the node answering the question and which rows
+ * belong to members that have been removed, and only this one is elevated.
+ */
+export interface MeshMember {
+  /** The member's node id, hex. */
+  node: string;
+  /** What the member calls itself. Empty until it has said, which is why the UI falls back. */
+  nodeName: string;
+  online: boolean;
+  lastSeen?: string | null;
+  /**
+   * The node answering the request — the **home node**, never the light node inside this app. A
+   * node cannot remove itself from a group; that is what leaving is for.
+   */
+  isSelf: boolean;
+  /**
+   * Removed from the group. The node stays on the list rather than disappearing from it, so an
+   * administrator can see that a removal happened instead of wondering where somebody went.
+   */
+  revoked: boolean;
+}
+
+/** `GET /mesh/groups/{group}/members`. Elevated. */
+export interface MeshGroupMembers {
+  members: MeshMember[];
+  /** How many times this group's secret has been rotated. `0` is a group that never has. */
+  epoch: number;
+  /**
+   * Milliseconds since the Unix epoch at the last rotation, `0` when there has been none.
+   *
+   * A number rather than the ISO string every other timestamp on this API uses, and taken from the
+   * *rotating* node's clock rather than this one's — so it can sit a little in the future, and the
+   * age {@link ageOf} derives from it is clamped for exactly that reason.
+   */
+  rotatedAt: number;
+  rotatedBy: string;
+}
+
+/**
+ * The answer to a removal or a rotation.
+ *
+ * `reached` is the honest part: a rotation hands the new secret to each member in turn, and the
+ * ones that were asleep are simply not in the list. They take it from the grace window on their
+ * next dial, so a short list is not a failure and the UI says so.
+ */
+export interface MeshRotation {
+  group: string;
+  /** The epoch the group is now at. */
+  epoch: number;
+  /** The node removed. Absent on a plain rotation, where nobody was. */
+  removed?: string | null;
+  reached: string[];
+}
+
+/**
  * Read a field that may arrive in either casing.
  *
  * `StingStreamControllerBase` says the API is "plain camelCase JSON", and it is not: Core is
@@ -170,8 +229,178 @@ export const toJoin = (raw: unknown): MeshJoinResponse => ({
   contacted: field<string[]>(raw, ...both("contacted")) ?? [],
 });
 
+export const toMember = (raw: unknown): MeshMember => ({
+  node: field<string>(raw, ...both("node")) ?? "",
+  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  online: field<boolean>(raw, ...both("online")) ?? false,
+  lastSeen: field<string>(raw, ...both("lastSeen")),
+  isSelf: field<boolean>(raw, ...both("isSelf")) ?? false,
+  revoked: field<boolean>(raw, ...both("revoked")) ?? false,
+});
+
+export const toMembers = (raw: unknown): MeshGroupMembers => ({
+  members: (field<unknown[]>(raw, ...both("members")) ?? []).map(toMember),
+  epoch: field<number>(raw, ...both("epoch")) ?? 0,
+  rotatedAt: field<number>(raw, ...both("rotatedAt")) ?? 0,
+  rotatedBy: field<string>(raw, ...both("rotatedBy")) ?? "",
+});
+
+export const toRotation = (raw: unknown): MeshRotation => ({
+  group: field<string>(raw, ...both("group")) ?? "",
+  epoch: field<number>(raw, ...both("epoch")) ?? 0,
+  removed: field<string>(raw, ...both("removed")),
+  reached: field<string[]>(raw, ...both("reached")) ?? [],
+});
+
 export const toInviteCode = (raw: unknown): string =>
   field<string>(raw, ...both("code")) ?? "";
+
+// --- the Group screen's member management, decided here so it can be tested ---------------------
+//
+// Everything below shapes what the member list shows and what it is allowed to offer. It lives in
+// this module for the same reason the decoders above do: `bun:test` can load it, where anything
+// that reaches `providers/JellyfinProvider` or `react-native` cannot. `watchApi.ts` splits its own
+// view helpers from its hooks the same way.
+
+/**
+ * One row of the member list: the membership, plus whatever the peer list knows about the link.
+ *
+ * The two halves come from different endpoints — `/mesh/groups/{group}/members` is elevated and
+ * knows about removals, `/mesh/peers` is not and knows about paths — so a row is a join of the two
+ * rather than either one on its own.
+ */
+export interface MemberRow extends MeshMember {
+  /** `direct`, `relay`, `mixed`, or absent when nothing has connected yet. */
+  path?: string | null;
+  rttMs?: number | null;
+  freeSpace?: number | null;
+}
+
+/**
+ * Whether this account, on this device, may manage a group's membership.
+ *
+ * Two gates, and both matter. Removing a member and rotating a secret are `RequiresElevation` on
+ * the node, so offering them to anybody else is offering a button that answers 403 — and the
+ * member list itself is elevated too, which is why a non-administrator never even asks for it.
+ * Television is the second gate: management screens stay phone/web-only across this app
+ * (`docs/ARCHITECTURE.md`), and an irreversible, group-wide action confirmed on a remote control
+ * is the last place that rule should be relaxed.
+ */
+export const canManageMembers = (isAdmin: boolean, isTV: boolean): boolean =>
+  isAdmin && !isTV;
+
+/**
+ * Whether a particular row may be removed.
+ *
+ * Never the node answering the request — a node leaves a group, it does not remove itself — and
+ * never one that has already been removed, because a second removal would rotate the secret again
+ * and invalidate everybody's invite codes for no gain.
+ */
+export const canRemoveMember = (
+  member: Pick<MeshMember, "isSelf" | "revoked"> | null | undefined,
+  manageable: boolean,
+): boolean => !!member && manageable && !member.isSelf && !member.revoked;
+
+/**
+ * The member list, ordered the way an administrator wants to read it.
+ *
+ * `members` is authoritative when it is there: it is the only source that knows about removed
+ * members, and the peer list is joined onto it purely for the link detail. When it is *not* there
+ * — a non-administrator, a television, or a node too old to serve the endpoint — the peer list
+ * alone still produces a perfectly good roster, minus the two things only the elevated endpoint
+ * knows. That fallback is what keeps the screen unchanged for everybody who cannot manage.
+ */
+export const memberRoster = (
+  members: readonly MeshMember[] | undefined,
+  peers: readonly MeshNodePeer[] | undefined,
+): MemberRow[] => {
+  const links = new Map(
+    (peers ?? []).map((p) => [
+      p.node.toLowerCase(),
+      { path: p.path, rttMs: p.rttMs, freeSpace: p.freeSpace },
+    ]),
+  );
+
+  const rows: MemberRow[] =
+    members && members.length > 0
+      ? members.map((m) => ({ ...m, ...links.get(m.node.toLowerCase()) }))
+      : (peers ?? []).map((p) => ({
+          node: p.node,
+          nodeName: p.nodeName,
+          online: p.online,
+          lastSeen: p.lastSeen,
+          isSelf: false,
+          revoked: false,
+          path: p.path,
+          rttMs: p.rttMs,
+          freeSpace: p.freeSpace,
+        }));
+
+  // Removed members sink to the bottom: they are kept on the list so the removal is visible, not
+  // because they are still part of the group.
+  return rows.sort((a, b) => {
+    if (a.revoked !== b.revoked) return a.revoked ? 1 : -1;
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return (a.nodeName || a.node).localeCompare(b.nodeName || b.node);
+  });
+};
+
+/** How long ago something happened, in a form the Group screen can put in a sentence. */
+export interface Age {
+  /**
+   * A compact `4m` / `3h` / `2d`, or null once the moment is more than a week old — at which point
+   * an absolute date says more than a growing number of days does.
+   */
+  token: string | null;
+  /** The moment itself, for that absolute fallback. */
+  at: number;
+}
+
+/**
+ * Read a moment that may be an ISO string (`lastSeen`) or milliseconds since the epoch
+ * (`rotatedAt`), and say how old it is. Null when there is no moment at all.
+ *
+ * The age is clamped at zero because `rotatedAt` comes from the clock of whichever node performed
+ * the rotation, not this one's: a couple of seconds of skew between two machines is ordinary, and
+ * "rotated in 3 seconds' time" is not a thing to put on screen.
+ */
+export const ageOf = (
+  value: string | number | null | undefined,
+  now: number = Date.now(),
+): Age | null => {
+  if (value === null || value === undefined || value === "" || value === 0) {
+    return null;
+  }
+  const at = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(at) || at <= 0) return null;
+
+  const ms = Math.max(0, now - at);
+  const hours = ms / 3_600_000;
+  if (hours < 1) {
+    return { token: `${Math.max(1, Math.round(ms / 60_000))}m`, at };
+  }
+  if (hours < 24) return { token: `${Math.round(hours)}h`, at };
+  if (hours < 24 * 7) return { token: `${Math.round(hours / 24)}d`, at };
+  return { token: null, at };
+};
+
+/**
+ * Do something irreversible only once it is both allowed and confirmed.
+ *
+ * The order is the point. Asking first and checking after would put a frightening question in front
+ * of somebody whose answer was going to be a 403 anyway, and checking `allowed` here rather than
+ * only at the call site means a button that should never have rendered still cannot fire. Resolves
+ * to null when either gate refused, which is not an error and should not be reported as one.
+ */
+export async function confirmedAction<T>(input: {
+  allowed: boolean;
+  confirm: () => Promise<boolean>;
+  act: () => Promise<T>;
+}): Promise<T | null> {
+  if (!input.allowed) return null;
+  if (!(await input.confirm())) return null;
+  return await input.act();
+}
 
 /**
  * Read whatever the node said went wrong.

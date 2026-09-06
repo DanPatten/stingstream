@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -132,7 +132,16 @@ public static class SafePath
         }
 
         // A reserved device name, with or without an extension: CON, con.strm, NUL.nfo.
-        var stem = result.Split('.', 2)[0];
+        //
+        // The stem is trimmed of trailing spaces and dots *before* it is compared, and that is not
+        // tidiness -- it is the whole check. Windows resolves a device name after stripping those
+        // characters, so `CON ._ . ; x` is the CON device just as much as `CON` is, and a plain
+        // `Split('.')[0]` compares the string `"CON "` against `"CON"` and finds no match. The
+        // consequence is not cosmetic: `Path.GetFullPath` on a federated path ending in such a
+        // component returns `\.\CON`, which is not under the federated root and is not a file at
+        // all. M8b's fuzz test found this after about forty thousand random titles; nobody was
+        // ever going to think of it.
+        var stem = result.Split('.', 2)[0].TrimEnd(' ', '.');
         if (_reserved.Contains(stem, StringComparer.OrdinalIgnoreCase))
         {
             result = "_" + result;

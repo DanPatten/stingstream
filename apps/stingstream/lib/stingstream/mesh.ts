@@ -9,17 +9,23 @@ import { useAtomValue } from "jotai";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import {
   authHeaders,
+  type MemberRow,
+  type MeshGroupMembers,
   type MeshInvite,
   type MeshJoinResponse,
+  type MeshMember,
   type MeshNodeGroup,
   type MeshNodePeer,
   type MeshNodeStatus,
+  type MeshRotation,
   MeshUnavailableError,
   readError,
   toGroup,
   toInviteCode,
   toJoin,
+  toMembers,
   toPeer,
+  toRotation,
   toStatus,
 } from "./meshApi";
 
@@ -58,19 +64,28 @@ import {
  */
 
 export {
+  ageOf,
+  canManageMembers,
+  canRemoveMember,
+  confirmedAction,
   fetchMeshGroups,
   fetchMeshInvite,
   fetchMeshPeers,
   fetchMeshStatus,
+  memberRoster,
 } from "./meshApi";
 /** Re-exported so a screen can take the record without reaching past this module. */
 export type { SideDoorRecord } from "./sidedoor";
 export type {
+  MemberRow,
+  MeshGroupMembers,
   MeshInvite,
   MeshJoinResponse,
+  MeshMember,
   MeshNodeGroup,
   MeshNodePeer,
   MeshNodeStatus,
+  MeshRotation,
 };
 export { MeshUnavailableError };
 
@@ -237,6 +252,86 @@ export function useSetGroupCoordinator() {
         method: "PUT",
         body: JSON.stringify({ coordinator }),
       }).then(toGroup),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
+  });
+}
+
+/**
+ * Every member of one group, removed ones included. Administrator only.
+ *
+ * Elevated where `useNodeMeshPeers` is not, because the two answer different questions: peers is
+ * liveness and paths, which anybody watching a film has a reason to see, and this is the roster —
+ * node ids, last-seen times and who has been removed — which is the screen the Remove action lives
+ * on. So pass `null` for `group` whenever the account cannot manage the group and the query never
+ * runs at all, rather than firing a request that comes back 403.
+ */
+export function useNodeMeshMembers(
+  group: string | null | undefined,
+): UseQueryResult<MeshGroupMembers> {
+  const { base, request } = useMeshApi();
+  return useQuery({
+    queryKey: [...MESH_QUERY_KEY, "members", base, group ?? "none"],
+    queryFn: async () =>
+      toMembers(
+        await request<unknown>(
+          `/groups/${encodeURIComponent(group as string)}/members`,
+        ),
+      ),
+    enabled: !!base && !!group,
+    // Slower than the peer list: a roster changes when somebody is invited or removed, not when a
+    // laptop goes to sleep.
+    refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Remove a member and rotate the group's secret. Administrator only.
+ *
+ * **This can take minutes.** The node mints the new secret and then hands it to every other member
+ * in turn, each dial bounded but serial, and only answers once it can say who actually took it —
+ * so a group with several sleeping members is a long wait rather than a hung request. Nothing here
+ * imposes a timeout of its own: Core already caps it at three minutes, and giving up earlier would
+ * abandon a rotation that has already happened on the node.
+ *
+ * It is also irreversible. The removed node is refused from this moment, every remaining member
+ * gets a new secret, and **every invite code minted before now stops working** — including one this
+ * screen showed a minute ago. Re-inviting is the only way back, which is why the screen asks first.
+ */
+export function useRemoveMeshMember() {
+  const { request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ group, node }: { group: string; node: string }) =>
+      request<unknown>(
+        `/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(node)}`,
+        { method: "DELETE" },
+      ).then(toRotation),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
+  });
+}
+
+/**
+ * Rotate a group's secret without removing anybody. Administrator only.
+ *
+ * For when a code leaked rather than when a person left. Same cost and same wait as a removal —
+ * the whole group has to be handed the new secret either way — and the same consequence for invite
+ * codes already in circulation.
+ *
+ * The light node inside this app is an ordinary member of the group, so it is rekeyed by the mesh
+ * along with everybody else. That is why this does not call `MeshProvider.syncGroups()` the way
+ * leaving does: the device's *membership* has not changed, only the secret behind it, and that
+ * travels over the mesh rather than through the app.
+ */
+export function useRotateGroupSecret() {
+  const { request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (group: string) =>
+      request<unknown>(`/groups/${encodeURIComponent(group)}/rotate`, {
+        method: "POST",
+      }).then(toRotation),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
   });

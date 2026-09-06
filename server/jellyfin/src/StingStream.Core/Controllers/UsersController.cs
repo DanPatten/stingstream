@@ -81,7 +81,6 @@ public sealed class UsersController : StingStreamControllerBase
 
         return Ok(await _policies.SetAsync(userId, parsed.Value, cancellationToken).ConfigureAwait(false));
     }
-
 }
 
 /// <summary>Body of <c>PUT /users/{userId}/playback-policy</c>.</summary>
