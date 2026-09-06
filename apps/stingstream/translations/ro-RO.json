@@ -18,7 +18,6 @@
     "password_placeholder": "Parola",
     "login_button": "Conectare",
     "quick_connect": "Conectare rapidă",
-    "enter_code_to_login": "Introduceți codul {{code}} pentru a vă conecta",
     "quick_connect_instructions": "Introduceți acest cod pe un dispozitiv pe care sunteți deja conectat. Veți fi conectat automat.",
     "tap_code_to_copy": "Atingeți codul pentru a-l copia",
     "code_copied": "Cod copiat",
@@ -61,7 +60,6 @@
     "remove_server_description": "Aceasta va elimina {{server}} și toate conturile salvate din lista ta.",
     "select_your_server": "Alege-ți serverul",
     "add_server_to_get_started": "Adaugă un server pentru a începe",
-    "add_server": "Adaugă server",
     "change_server": "Schimbă serverul"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Acest serial",
       "all": "Tot conținutul (implicit)"
     }
-  },
-  "companion_login": {
-    "title": "Asociază cu televizorul",
-    "align_qr": "Aliniază codul QR în cadru",
-    "enter_code_manually": "Introdu codul manual",
-    "pairing_enter_credentials": "Introdu datele de autentificare pentru televizor",
-    "pairing_code_label": "Cod de asociere",
-    "server": "Server",
-    "authorize_button": "Autorizează",
-    "authorizing": "Se autorizează...",
-    "scan_again": "Scanează din nou",
-    "done": "Gata",
-    "success_title": "Autorizare trimisă",
-    "pairing_tv_connecting": "Televizorul se conectează la contul tău",
-    "error_title": "Autorizarea a eșuat",
-    "error_invalid_qr": "Cod QR invalid. Scanează codul de asociere de pe televizor.",
-    "error_generic": "Ceva nu a mers bine. Încearcă din nou.",
-    "error_permission_denied": "Este necesară permisiunea pentru cameră pentru a scana coduri QR.",
-    "login_as": "Te autentifici ca {{username}}?",
-    "on_server": "pe {{server}}",
-    "use_different_user": "Folosește alt utilizator",
-    "open_settings": "Deschide setările"
-  },
-  "pairing": {
-    "pair_with_phone": "Asociază cu telefonul",
-    "pair_with_phone_title": "Autentificare pe televizor",
-    "waiting_for_phone": "Se așteaptă telefonul...",
-    "scan_with_phone": "Scanează cu aplicația StingStream de pe telefon",
-    "logging_in": "Se autentifică...",
-    "logging_in_description": "Se conectează la serverul tău"
   }
 }

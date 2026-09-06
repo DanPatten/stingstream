@@ -12,6 +12,8 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -126,7 +128,13 @@ pub struct MeshRuntime {
 ///
 /// It is therefore an `Option`, and **absent is the ordinary steady state of a set-up node**, not
 /// an error. Core already handles it: `FirstRunService.EnsureAdminUserAsync` only changes the
-/// password when one is present, and leaves the account alone once more than one user exists.
+/// password when one is present, and what decides whether it may touch the account at all is
+/// Core's own `FirstRunSetupState` flag — **not** the number of accounts. After setup there is
+/// still exactly one account and it has the name and password the user chose, so a count-based
+/// guard would have let the next wiring pass rename it back to this file's and reset the password
+/// underneath them. Only a successful `POST /stingstream/api/v1/setup/admin` clears that flag;
+/// signing in does not, which is why the harnesses can still authenticate with the generated
+/// password on a node nobody has been through the first-run screen on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminRuntime {
     pub username: String,
@@ -238,6 +246,91 @@ impl Runtime {
 
     pub fn child(&self, name: &str) -> Option<&ChildRuntime> {
         self.children.get(name)
+    }
+}
+
+/// How often [`FirstRunFlag`] will go back to the file while the answer can still change.
+///
+/// `/healthz` is polled every five seconds by every harness and is reachable from the LAN, so the
+/// read has to be bounded rather than per-request. One small file per second, for the first minute
+/// of a node's life only, is not worth optimising further.
+const FIRST_RUN_RECHECK: Duration = Duration::from_secs(1);
+
+/// `first_run` as `runtime.json` says it **now**, not as it said when the gateway started.
+///
+/// The supervisor reads `runtime.json` once at start-up and hands the whole [`Runtime`] to the
+/// gateway, which is right for everything in it except this one field: `StingStream.Core` clears
+/// `first_run` in the file at the end of a successful wiring pass ([`Runtime::clear_first_run`]),
+/// minutes after the gateway's copy was taken. `/healthz` therefore reported `first_run: true`
+/// forever, on a node that had finished wiring in the first thirty seconds — and both the app and
+/// the harnesses read that field to decide whether a node is still setting itself up.
+///
+/// The flag is **monotonic within a process**: nothing sets `first_run` back to true, so once the
+/// file has been seen to clear it, this stops reading the file at all. That is what keeps a
+/// LAN-reachable endpoint from turning into one disk read per request.
+#[derive(Clone)]
+pub struct FirstRunFlag {
+    path: Arc<PathBuf>,
+    state: Arc<RwLock<(bool, Instant)>>,
+    recheck: Duration,
+}
+
+impl FirstRunFlag {
+    /// Track the `runtime.json` that produced `runtime`, seeded with what it said at start-up.
+    pub fn for_runtime(runtime: &Runtime) -> Self {
+        Self::new(
+            Layout::new(&runtime.data_dir).runtime_json(),
+            runtime.first_run,
+            FIRST_RUN_RECHECK,
+        )
+    }
+
+    fn new(path: PathBuf, initial: bool, recheck: Duration) -> Self {
+        Self {
+            path: Arc::new(path),
+            // Dated far enough back that the first `get` reads the file rather than trusting a
+            // start-up snapshot that may already be stale.
+            state: Arc::new(RwLock::new((initial, Instant::now() - recheck))),
+            recheck,
+        }
+    }
+
+    /// A flag for a node with no file behind it, for tests and for `gateway::router`.
+    pub fn fixed(first_run: bool) -> Self {
+        Self::new(PathBuf::new(), first_run, Duration::from_secs(3600))
+    }
+
+    pub fn get(&self) -> bool {
+        {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            // Already cleared, and it cannot come back: nothing to ask the disk.
+            if !state.0 {
+                return false;
+            }
+            if state.1.elapsed() < self.recheck {
+                return true;
+            }
+        }
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        // Somebody else may have refreshed it between the two locks.
+        if !state.0 || state.1.elapsed() < self.recheck {
+            return state.0;
+        }
+        state.1 = Instant::now();
+        // A file that cannot be read right now (mid-rename, gone) is not evidence of anything, so
+        // the last known answer stands.
+        if let Some(r) = Runtime::load(&self.path) {
+            state.0 = r.first_run;
+        }
+        state.0
+    }
+}
+
+impl std::fmt::Debug for FirstRunFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FirstRunFlag")
+            .field("first_run", &self.get())
+            .finish()
     }
 }
 
@@ -553,7 +646,18 @@ mod tests {
         // Everything else survived the rewrite.
         assert_eq!(after.node_id, r.node_id);
         assert_eq!(after.children, r.children);
+
+        // `qbittorrent.password` is the one that must never be caught by this. It is not just the
+        // shim's login: `StingStream.Core` seeds the arr webhook token from it, and
+        // `gateway::streamurl::key` derives this node's signing key for `/stream/*` URLs from it.
+        // Removing it would silently break every federated stream and every arr import on the
+        // node, at the moment somebody finished setting it up.
         assert_eq!(after.qbittorrent, r.qbittorrent);
+        assert_eq!(after.qbittorrent.password, "pw");
+        assert!(std::fs::read_to_string(&p).unwrap().contains("\"password\": \"pw\""));
+        // ...and so are the children's own secrets, for the same reason.
+        assert_eq!(after.children["radarr"].api_key, r.children["radarr"].api_key);
+        assert_eq!(after.children["nzbget"].password, r.children["nzbget"].password);
 
         assert!(
             !Runtime::scrub_admin_password(&p).unwrap(),
@@ -563,6 +667,56 @@ mod tests {
             !Runtime::scrub_admin_password(&td.path().join("nope.json")).unwrap(),
             "a missing file is not an error"
         );
+    }
+
+    /// `/healthz` used to report `first_run: true` forever on a node that had finished wiring in
+    /// its first thirty seconds: the gateway holds the `Runtime` it was handed at start-up, and
+    /// Core clears the flag *in the file* minutes later. Both the app and the harnesses read that
+    /// field to decide whether a node is still setting itself up.
+    #[test]
+    fn first_run_follows_the_file_after_core_clears_it() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("runtime.json");
+        let mut r = sample();
+        r.first_run = true;
+        r.save(&p).unwrap();
+
+        // No throttle in the test: what is being asserted is that it goes back to the file at all.
+        let flag = FirstRunFlag::new(p.clone(), true, Duration::ZERO);
+        assert!(flag.get());
+
+        Runtime::clear_first_run(&p).unwrap();
+        assert!(!flag.get(), "the gateway must follow the file, not its start-up snapshot");
+
+        // Nothing sets first_run back to true, so once it has cleared this stops asking -- which
+        // is what keeps a LAN-reachable /healthz from doing a disk read per request.
+        r.first_run = true;
+        r.save(&p).unwrap();
+        assert!(!flag.get(), "cleared is a one-way door within a process");
+    }
+
+    #[test]
+    fn first_run_is_not_re_read_on_every_call() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("runtime.json");
+        let mut r = sample();
+        r.first_run = true;
+        r.save(&p).unwrap();
+
+        // An hour's throttle: the first call reads (the flag is seeded stale on purpose), and the
+        // second is answered from the cache even though the file has changed underneath it.
+        let flag = FirstRunFlag::new(p.clone(), true, Duration::from_secs(3600));
+        assert!(flag.get());
+        Runtime::clear_first_run(&p).unwrap();
+        assert!(flag.get(), "still inside the recheck window");
+
+        // A file that has gone is not evidence that wiring finished.
+        std::fs::remove_file(&p).unwrap();
+        let gone = FirstRunFlag::new(p, true, Duration::ZERO);
+        assert!(gone.get());
+        // And a flag with no file behind it is simply what it was told.
+        assert!(!FirstRunFlag::fixed(false).get());
+        assert!(FirstRunFlag::fixed(true).get());
     }
 
     /// The scrub has to survive a restart, and it does because the supervisor carries the whole

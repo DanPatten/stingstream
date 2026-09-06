@@ -18,7 +18,6 @@
     "password_placeholder": "Şifre",
     "login_button": "Giriş yap",
     "quick_connect": "Hızlı Bağlan",
-    "enter_code_to_login": "Giriş yapmak için {{code}} kodunu girin",
     "quick_connect_instructions": "Bu kodu, oturum açmış olan bir cihazda girin. Otomatik olarak giriş yapacaksınız.",
     "tap_code_to_copy": "Kopyalamak için koda dokunun",
     "code_copied": "Kod kopyalandı",
@@ -61,7 +60,6 @@
     "remove_server_description": "{{server}} ve tüm kaydedilen hesapları listenizden kaldırır.",
     "select_your_server": "Sunucunuzu Seçin",
     "add_server_to_get_started": "Başlamak için bir sunucu ekleyin",
-    "add_server": "Sunucu Ekle",
     "change_server": "Sunucu değiştir"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Bu dizide",
       "all": "Bütün medyalarda (varsayılan)"
     }
-  },
-  "companion_login": {
-    "title": "TV ile Eşleştir",
-    "align_qr": "QR kodunu çerçeveye hizalayın",
-    "enter_code_manually": "Kodu manuel girin",
-    "pairing_enter_credentials": "TV için kimlik bilgilerini girin",
-    "pairing_code_label": "Eşleştirme kodu",
-    "server": "Sunucu",
-    "authorize_button": "Yetkilendir",
-    "authorizing": "Yetkilendiriliyor...",
-    "scan_again": "Tekrar Tarayın",
-    "done": "Tamam",
-    "success_title": "Yetkilendirme Gönderildi",
-    "pairing_tv_connecting": "TV hesabınıza bağlanıyor",
-    "error_title": "Yetkilendirme Başarısız",
-    "error_invalid_qr": "Geçersiz QR kod. Lütfen TV eşleştirme kodunu tarayın.",
-    "error_generic": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
-    "error_permission_denied": "QR kodlarını taramak için kamera izni gereklidir.",
-    "login_as": "{{username}} olarak giriş yapılsın mı?",
-    "on_server": "{{server}} sunucusunda",
-    "use_different_user": "Farklı bir kullanıcı kullan",
-    "open_settings": "Ayarları Aç"
-  },
-  "pairing": {
-    "pair_with_phone": "Telefonla Eşleştir",
-    "pair_with_phone_title": "TV'de oturum aç",
-    "waiting_for_phone": "Telefon bekleniyor...",
-    "scan_with_phone": "Telefonunuzdaki StingStream uygulamasıyla tarayın",
-    "logging_in": "Giriş yapılıyor...",
-    "logging_in_description": "Sunucunuza bağlanılıyor"
   }
 }

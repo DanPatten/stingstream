@@ -63,20 +63,6 @@ function SettingsMobile() {
 
         <LinkDevice className='mb-4' />
 
-        {Platform.OS !== "ios" && (
-          <View className='mb-4'>
-            <ListGroup title={t("pairing.pair_with_phone_title")}>
-              <ListItem
-                onPress={() =>
-                  router.push("/(auth)/(tabs)/(home)/companion-login")
-                }
-                title={t("pairing.pair_with_phone")}
-                textColor='blue'
-              />
-            </ListGroup>
-          </View>
-        )}
-
         <View className='mb-4'>
           <AppLanguageSelector />
         </View>
