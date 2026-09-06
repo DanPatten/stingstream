@@ -106,8 +106,12 @@ its own review. An app that is fine on phones is rejected for TV over any of the
       `android.hardware.touchscreen` marked `required="false"` in the manifest.
 - [ ] A **launcher activity with the `LEANBACK_LAUNCHER` category**. Without it the app installs on
       a TV and cannot be opened.
-- [ ] **`android:banner` on the application element**, and a **1280 × 720 PNG banner** uploaded in
-      Console. The most commonly missed asset, and the error message does not name it.
+- [x] **`android:banner` on the application element**, and a **1280 × 720 PNG banner** uploaded in
+      Console. The most commonly missed asset, and the error message does not name it. **Closed
+      (v0.2.0):** `apps/stingstream/plugins/withAndroidTVBanner.ts` sets `android:banner` and copies
+      `assets/images/tv-banner-xhdpi.png` into `res/drawable-xhdpi/tv_banner.png` at prebuild time;
+      `apps/stingstream/scripts/brand/generate.ts` also writes the 1280 × 720 PNG straight to
+      `docs/screenshots/tv-banner.png` for the Console upload — take that file, not a screenshot.
 - [ ] **At least one 1920 × 1080 landscape TV screenshot.**
 - [ ] Declare TV support: Console → the release track → *Advanced settings* → *Form factors* →
       **Android TV**, and submit for the separate TV review.

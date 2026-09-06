@@ -11,7 +11,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/icon.png",
+      "favicon": "./assets/images/favicon-32.png",
       "name": "StingStream",
       "shortName": "StingStream",
       "themeColor": "#010101",
@@ -184,6 +184,7 @@
       ["./plugins/withChangeNativeAndroidTextToWhite.ts"],
       ["./plugins/withAndroidAlertColors.ts"],
       ["./plugins/withAndroidManifest.ts"],
+      ["./plugins/withAndroidTVBanner.ts"],
       ["./plugins/withTrustLocalCerts.ts"],
       ["./plugins/withGradleProperties.ts"],
       ["./plugins/withGradleWrapperVersion.ts"],

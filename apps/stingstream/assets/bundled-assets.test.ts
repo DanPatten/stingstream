@@ -87,3 +87,148 @@ describe("assets required by the JS bundle survive an EAS build", () => {
     expect(requiredAssets.filter(droppedByEas)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Brand assets: everything `scripts/brand/generate.ts` writes. Pinned by hand
+// (not scanned like the require()s above, since most of these are referenced
+// only by app.json/native config, not by a JS require) so a partial or
+// forgotten re-run of the generator fails a fast, offline test instead of
+// surfacing as a missing icon in a build days later. Dimensions are read
+// straight from each PNG's IHDR chunk rather than through `sharp` -- `sharp`
+// is a devDependency for the generator, not something this test suite should
+// need to decode a 24-byte header.
+
+type PngSpec = { width: number; height: number; opaque?: boolean };
+
+/** True PNG signature + IHDR at a fixed offset (spec-guaranteed): read once, trust it. */
+function readPngIHDR(path: string): {
+  width: number;
+  height: number;
+  colorType: number;
+} {
+  const fd = readFileSync(path);
+  const signature = fd.subarray(0, 8);
+  const pngSignature = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+  if (!signature.equals(pngSignature)) {
+    throw new Error(`${path}: not a PNG (bad signature)`);
+  }
+  const chunkType = fd.subarray(12, 16).toString("ascii");
+  if (chunkType !== "IHDR") {
+    throw new Error(`${path}: first chunk is "${chunkType}", expected IHDR`);
+  }
+  return {
+    width: fd.readUInt32BE(16),
+    height: fd.readUInt32BE(20),
+    colorType: fd.readUInt8(25),
+  };
+}
+
+// PNG colour types with an alpha channel: 4 (greyscale+alpha), 6 (truecolour+alpha).
+const ALPHA_COLOR_TYPES = new Set([4, 6]);
+
+const BRAND_SVGS = [
+  "assets/brand/stingstream-mark.svg",
+  "assets/brand/stingstream-mark-mono.svg",
+  "assets/brand/stingstream-wordmark.svg",
+  "assets/brand/stingstream-wordmark-stacked.svg",
+  "public/favicon.svg",
+];
+
+const BRAND_PNGS: Record<string, PngSpec> = {
+  "assets/images/icon.png": { width: 1024, height: 1024, opaque: true },
+  "assets/images/icon-android-plain.png": { width: 1024, height: 1024 },
+  "assets/images/icon-android-themed.png": { width: 1024, height: 1024 },
+  "assets/images/icon-ios-plain.png": { width: 1024, height: 1024 },
+  "assets/images/notification.png": { width: 96, height: 96 },
+  "assets/images/tv-banner-xhdpi.png": {
+    width: 320,
+    height: 180,
+    opaque: true,
+  },
+  "assets/images/tv-channel-logo.png": {
+    width: 320,
+    height: 320,
+    opaque: true,
+  },
+  "assets/images/favicon-32.png": { width: 32, height: 32 },
+  "assets/images/favicon-192.png": { width: 192, height: 192 },
+  "assets/images/apple-touch-icon.png": {
+    width: 180,
+    height: 180,
+    opaque: true,
+  },
+  "public/favicon-32.png": { width: 32, height: 32 },
+  "public/favicon-192.png": { width: 192, height: 192 },
+  "public/apple-touch-icon.png": { width: 180, height: 180, opaque: true },
+  "docs/screenshots/tv-banner.png": { width: 1280, height: 720, opaque: true },
+  "docs/screenshots/icon-512.png": { width: 512, height: 512, opaque: true },
+  "docs/screenshots/feature-graphic.png": {
+    width: 1024,
+    height: 500,
+    opaque: true,
+  },
+};
+
+const BRAND_OTHER = ["public/site.webmanifest", "constants/brand/paths.ts"];
+
+// docs/screenshots/ is a top-level, monorepo-wide directory, two levels above `root`
+// (apps/stingstream) -- not apps/stingstream/docs/, which exists separately for
+// app-specific docs. `scripts/brand/generate.ts` writes there via its own `repoOutPath`;
+// mirror that here rather than resolving every brand asset against the same root.
+const repoRoot = join(root, "..", "..");
+const brandAssetPath = (asset: string) =>
+  join(asset.startsWith("docs/screenshots/") ? repoRoot : root, asset);
+
+describe("brand assets `scripts/brand/generate.ts` writes", () => {
+  test("every brand SVG exists", () => {
+    const absent = BRAND_SVGS.filter(
+      (asset) => !existsSync(brandAssetPath(asset)),
+    );
+    expect(absent).toEqual([]);
+  });
+
+  test("every brand PNG exists at its required dimensions", () => {
+    const problems = Object.entries(BRAND_PNGS).flatMap(([asset, spec]) => {
+      const path = brandAssetPath(asset);
+      if (!existsSync(path)) return [`${asset}: missing`];
+      const { width, height } = readPngIHDR(path);
+      return width === spec.width && height === spec.height
+        ? []
+        : [
+            `${asset}: expected ${spec.width}x${spec.height}, got ${width}x${height}`,
+          ];
+    });
+    expect(problems).toEqual([]);
+  });
+
+  test("PNGs that must have no alpha channel (opaque store/launcher assets) don't have one", () => {
+    const problems = Object.entries(BRAND_PNGS)
+      .filter(([, spec]) => spec.opaque)
+      .flatMap(([asset]) => {
+        const { colorType } = readPngIHDR(brandAssetPath(asset));
+        return ALPHA_COLOR_TYPES.has(colorType) ? [asset] : [];
+      });
+    expect(problems).toEqual([]);
+  });
+
+  test("the generated constants file and web manifest exist", () => {
+    const absent = BRAND_OTHER.filter(
+      (asset) => !existsSync(brandAssetPath(asset)),
+    );
+    expect(absent).toEqual([]);
+  });
+
+  test("the old PowerShell generator and its retired assets are gone", () => {
+    expect(existsSync(join(root, "scripts", "generate-brand-assets.ps1"))).toBe(
+      false,
+    );
+    expect(existsSync(join(root, "assets", "images", "splash.png"))).toBe(
+      false,
+    );
+    expect(
+      existsSync(join(root, "assets", "images", "streamyfin-client-badge.png")),
+    ).toBe(false);
+  });
+});

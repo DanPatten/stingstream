@@ -24,7 +24,17 @@ internal object TvRecommendationsPublisher {
   private const val KEY_PAYLOAD = "payload"
   private const val KEY_CHANNEL_ID_PREFIX = "channelId_"
   private const val KEY_PROGRAM_IDS = "programIds"
-  private const val DEFAULT_CHANNEL_NAME = "Continue and Next Up"
+  // Matches the app-side copy (`home.tv_channel_title` in en.json). Only a fallback used
+  // when a sync payload's section carries no "title" -- the app is expected to always
+  // send one, in which case this value is never read. Note for whoever wires
+  // `home.tv_channel_title` into the actual payload: getChannelKey() below hashes the
+  // *displayName string itself*, so changing what title the app sends (not just this
+  // fallback) creates a second channel rather than renaming the existing one -- an
+  // existing install's old "Continue and Next Up" channel would be orphaned, not
+  // updated. PREFS_NAME (this file's SharedPreferences name) is unrelated to that and is
+  // deliberately left alone here either way, so whatever *is* already stored under it
+  // survives this change untouched.
+  private const val DEFAULT_CHANNEL_NAME = "StingStream: Continue watching"
 
   fun sync(context: Context, payloadJson: String): Boolean {
     val payload = try {
@@ -511,7 +521,7 @@ internal object TvRecommendationsPublisher {
   }
 
   private fun storeChannelLogo(context: Context, channelId: Long) {
-    val bitmap = applicationIconBitmap(context) ?: return
+    val bitmap = channelLogoBitmap(context) ?: return
     try {
       val outputStream = context.contentResolver.openOutputStream(
         TvContractCompat.buildChannelLogoUri(channelId)
@@ -524,6 +534,38 @@ internal object TvRecommendationsPublisher {
     } catch (e: SecurityException) {
       Log.w(TAG, "storeChannelLogo(): lost provider permission for channelId=$channelId", e)
     }
+  }
+
+  /**
+   * The mark, as `res/drawable-xhdpi/tv_channel_logo.png` -- copied there from
+   * `assets/images/tv-channel-logo.png` by `plugins/withAndroidTVBanner.ts` at prebuild
+   * time. This module's own Gradle target has no compiled R class entry for a resource
+   * that lives in the *app* module, so it is looked up by name via the app's own
+   * Resources/package name (same reasoning as the `getApplicationIcon` fallback below:
+   * neither can reference `R.drawable.*` directly). `Context.getDrawable` (framework,
+   * API 21+) needs no extra dependency, unlike `ContextCompat`. Falls back to the
+   * launcher icon if the drawable is missing, e.g. an older prebuild from before the
+   * plugin existed.
+   */
+  private fun channelLogoBitmap(context: Context): Bitmap? {
+    val resourceId = context.resources.getIdentifier(
+      "tv_channel_logo",
+      "drawable",
+      context.packageName,
+    )
+    if (resourceId == 0) {
+      Log.w(TAG, "channelLogoBitmap(): tv_channel_logo drawable not found, falling back to the launcher icon")
+      return applicationIconBitmap(context)
+    }
+
+    val drawable = try {
+      context.getDrawable(resourceId)
+    } catch (error: Exception) {
+      Log.w(TAG, "channelLogoBitmap(): failed to load tv_channel_logo drawable", error)
+      null
+    } ?: return applicationIconBitmap(context)
+
+    return drawable.toBitmap()
   }
 
   private fun applicationIconBitmap(context: Context): Bitmap? {
