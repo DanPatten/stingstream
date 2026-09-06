@@ -180,6 +180,8 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/downloads/*` | all | Admin |
 | `/stingstream/api/v1/inventory/*` | all | Admin |
 | `/stingstream/api/v1/qualityprofiles/*` | all | Admin |
+| `/stingstream/api/v1/setup/state` | GET | Anonymous, answers anywhere; one boolean (`Pending`) plus whether the caller is on this machine |
+| `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback + gateway refuses off-machine |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
