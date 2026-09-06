@@ -86,7 +86,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/stingstream/bun.lock', 'packages/api-client/bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
@@ -242,7 +242,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('apps/stingstream/bun.lock', 'packages/api-client/bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 

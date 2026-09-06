@@ -172,7 +172,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('**/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('apps/stingstream/bun.lock', 'packages/api-client/bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-${{ matrix.arch }}-
       - name: Install the API client's dependencies
