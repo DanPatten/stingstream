@@ -166,7 +166,7 @@ export default function TVLinkDeviceModalPage() {
 
             {status === "error" && (
               <Text style={[styles.error, { fontSize: typography.callout }]}>
-                {t("tv.link_device.invalid_code")}
+                {t("home.settings.link_device.invalid_code")}
               </Text>
             )}
 
@@ -188,7 +188,7 @@ export default function TVLinkDeviceModalPage() {
                         color: "#000000",
                       }}
                     >
-                      {t("home.settings.quick_connect.authorize")}
+                      {t("home.settings.link_device.authorize")}
                     </Text>
                   )}
                 </TVButton>

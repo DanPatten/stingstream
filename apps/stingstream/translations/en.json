@@ -1256,9 +1256,6 @@
       "play_from_quality": "Quality first",
       "account": "Account",
       "sign_out": "Sign out of this TV"
-    },
-    "link_device": {
-      "invalid_code": "That code did not work. Check it and try again."
     }
   }
 }
