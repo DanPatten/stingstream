@@ -291,17 +291,23 @@ hand (or from the review-pass agent loop) to get three.
 Own `package.json` + lockfile, runs with plain `node`.
 
 - **`shots.mjs`** -- `--base`, `--out`, `--user` (optional; defaults to the username in
-  `--pass-file`), `--pass-file` (path to `runtime.json`, read silently), `--first-run`, `--lan
-  <url>`, `--only <comma-separated screen ids>`. One browser, **one fresh context per viewport**
-  (dark, reduced-motion), one page per context walked through every requested screen **in order**
-  so a screen that depends on a prior action has something to act on. Every screen's `navigate()`
-  is wrapped in try/catch: a screen this build cannot reach yet records a `navigate-failed` finding
-  and the loop moves on to the next screen rather than losing the rest of the pass. Writes
-  `<out>/<screen>-<viewport>.png`, `<out>/findings.json`, `<out>/report.json`, `<out>/report.md`.
+  `--creds`/`--pass-file`), `--creds <file>` (a `{username,password}` JSON for a node whose
+  first-run setup is already complete -- the normal case, see "F-36" below), `--pass-file`
+  (legacy: `runtime.json`'s generated admin credentials, only usable before setup completes),
+  `--first-run` (drive the real first-run screen to create the account, writing the credentials it
+  used to `--creds` if given), `--lan <url>`, `--only <comma-separated screen ids>`. One browser,
+  **one fresh context per viewport** (dark, reduced-motion), one page per context walked through
+  every requested screen **in order** so a screen that depends on a prior action has something to
+  act on. Every screen's `navigate()` is wrapped in try/catch: a screen this build cannot reach yet
+  records a `navigate-failed` finding and the loop moves on to the next screen rather than losing
+  the rest of the pass. Writes `<out>/<screen>-<viewport>.png` (viewport in the name is the
+  *measured* `page.viewportSize()`, not the nominal config -- F-36), `<out>/findings.json`,
+  `<out>/report.json`, `<out>/report.md`.
 - **`flows/web.mjs`** -- the 13 screens, in order, and how to reach each from a fresh page; see
   "Pinned routes" below. `VIEWPORTS` (1440x900, 1024x768, 390x844 with `isMobile`,
-  `deviceScaleFactor: 2`, `hasTouch: true`) and `connectAndSignIn` (the shared sign-in flow) live
-  here too.
+  `deviceScaleFactor: 2`, `hasTouch: true`), `signIn`/`createFirstRunAccount` (the testID-driven
+  auth flows, `connectAndSignIn` kept as an alias for `signIn`) and `clickTabByTestId` (the
+  tab-bar-by-testID workaround, see "F-36" below) live here too.
 - **`sweep.mjs`** -- `watchPage(page, {screen, viewport})` (call **before** navigating: console
   errors/warnings against `allowlist.json`, failed responses >= 400 against the same file,
   `pageerror`) and `sweepDom(page, {...})` (call once a screen has settled: page/element overflow,
@@ -319,9 +325,12 @@ Own `package.json` + lockfile, runs with plain `node`.
 - **`report.mjs`** -- `buildReport(findings, meta)` (importable) and a standalone CLI
   (`node report.mjs --in findings.json --out <dir>`) producing the same `report.json`/`report.md`
   shape `shots.mjs` writes directly.
-- **`lib/authFile.mjs`** -- `readAdminCredentials(passFilePath)`. The one place any script in this
-  package reads `runtime.json`'s admin password. Every other file imports this rather than parsing
-  `runtime.json` itself.
+- **`lib/authFile.mjs`** -- `readAdminCredentials(passFilePath)` (legacy, pre-setup only -- WP-CORE
+  scrubs the generated password from `runtime.json` once setup completes, so this stops working
+  the moment it does), `readCreds`/`writeCreds(credsFilePath, {username,password})` (the F-36
+  `--creds` file: read to sign in to an already-set-up node, written by `--first-run` after it
+  creates the account). The one place any script in this package reads or writes a credentials
+  file. Every other file imports this rather than parsing one itself.
 - **`scripts/drive-startup.mjs`** / **`scripts/drive-login.mjs`** -- the Playwright drivers
   `tools/ui-startup.ps1 -DriveUi` shells out to. Not one of the six named deliverables, but they
   belong to this package for the same reason `lib/authFile.mjs` does: `ui-startup.ps1` needs
@@ -334,27 +343,33 @@ Own `package.json` + lockfile, runs with plain `node`.
 
 ### Pinned routes
 
-Confirmed live against a running node on 2026-09-06 (signed in as the seeded admin, 1440x900),
-recorded here so nobody re-discovers them from scratch:
+**Updated 2026-09-06 (pass-02 critique, F-36).** WP1's web shell has not landed yet, and merging
+WP3/WP-GATE/WP-CORE/WP-TV-SHELL/WP-TV-LOGIN in the meantime changed what a bare URL resolves to:
+`/requests`, `/groups`, and by the same construction `/search`, `/manage`, `/downloads`, now hit a
+library-by-id catch-all route that spins forever and fires a ~400-request storm at the server in
+about 3 seconds (the plan's F-21). That is not merely stale, it is actively harmful to keep doing,
+so as of this pass **none of the six are pinned to a URL any more** -- `flows/web.mjs` reaches them
+by clicking the bottom tab bar's own testID instead (see "F-36" below), which fails cleanly
+(element not wired up yet) rather than hammering the server.
 
-| Screen | URL | How confirmed |
+| Screen | Reached by | Notes |
 |---|---|---|
-| Login / connect | `/login` | One route for both the server-address and username/password steps; state, not URL |
+| Login / first-run | `/login` | One route for the server-address step, the first-run create-account form, and the sign-in form; which one renders is state, not URL |
 | Home | `/` | |
-| Settings | `/settings` | direct navigation; the desktop tab bar cannot reach it (see below) |
-| Search | `/search` | direct navigation |
-| Requests | `/requests` | direct navigation |
-| Sharing (still "Groups") | `/groups` | direct navigation |
-| Manage | `/manage` | direct navigation |
-| Transfers (still "Downloads") | `/downloads` | direct navigation; real content confirmed ("Engine health", "No active downloads") |
-| Library | **not pinned** | see below |
+| Settings | `/settings` | **Still** direct navigation -- confirmed still correct on pass-02, unlike the six below |
+| Search | tab testID | not a URL -- see "F-36" |
+| Requests | tab testID | not a URL -- see "F-36" |
+| Sharing (still "Groups") | `/settings` then a row click | no bottom tab; reached via Settings, itself still pinned |
+| Manage | tab testID | not a URL -- see "F-36" |
+| Transfers (still "Downloads") | tab testID | not a URL -- see "F-36" |
+| Library | tab testID | not a URL -- see "F-36"; `04-library-movies` stays a best-effort text click after it |
 | Details | **not pinned** | keyed by item id; reached by clicking a poster in the same session |
 | Player | **not pinned** | reached by clicking Play from a reached Details screen |
 
-**Library's real URL was not pinned.** Both `/library` and `/libraries` answer without erroring but
-neither was distinguished from the other, or from the broken-tab-bar no-op below, in the time
-available. `03-library`/`04-library-movies` stay `optional: true` with a best-effort text-based
-click. Confirm by hand or once WP1/WP2 land the sidebar.
+**TODO (WP1):** re-pin Search/Library/Requests/Manage/Transfers/Sharing/Settings to real URLs once
+WP1 lands `/home`, `/search`, `/library`, `/requests`, `/sharing`, `/manage`, `/transfers`,
+`/settings` (the plan's own eventual set) -- tracked in `flows/web.mjs`'s own file header, not just
+here, so whoever picks this up sees it in the code they are editing.
 
 ### Real bugs found pinning these routes (already on the plan's bug list; not fixed here)
 
@@ -477,31 +492,34 @@ setup screen.
 ## The `testID` contract (a request to the other work packages, not implemented here)
 
 WP-TOOLS owns this contract, not the IDs themselves -- every `apps/stingstream/**` file belongs to
-another package this wave (see the plan's ownership table). Until these land, `shots.mjs`'s flows
-fall back to text/role/URL selectors (see "Real bugs found pinning these routes" above for what
-that already cost in reliability). Add each `testID` in the package that already owns the file it
-belongs on:
+another package this wave (see the plan's ownership table). Until an ID lands, `shots.mjs`'s flows
+fall back to text/role/URL selectors (see "Real bugs found pinning these routes" below for what
+that already cost in reliability -- and F-36, "the sign-in step matched two password fields" was
+exactly this: a fuzzy text-match break, fixed the moment a real `testID` existed to match instead).
+Add each `testID` in the package that already owns the file it belongs on:
 
-| `testID` | Screen / element | Owning package (per the plan) |
-|---|---|---|
-| `firstrun-create-account` | The first-run "Create your StingStream account" form | WP3 |
-| `login-server-url` | Server URL field | WP3 |
-| `login-connect` | Connect button | WP3 |
-| `login-username` | Username field | WP3 |
-| `login-password` | Password field | WP3 |
-| `login-submit` | "Sign in" button | WP3 |
-| `tab-home` / `tab-library` / `tab-search` / `tab-favorites` / `tab-settings` / `tab-requests` / `tab-manage` / `tab-transfers` | Sidebar/tab-bar items | WP1 |
-| `home-hero` | The Home hero/spotlight | WP4 |
-| `home-row` | Each Home row container | WP4 |
-| `library-card` | A poster/card in a grid | WP2 |
-| `details-play` | The Play button on Details | WP5 |
-| `player-video` | The `<video>`/player surface | WP-PLAYER |
-| `settings-sharing` | The Sharing entry in Settings | WP10 |
+| `testID` | Screen / element | Owning package | Status |
+|---|---|---|---|
+| `firstrun-create-account` | The first-run "Create your StingStream account" form (container) | WP3 | **Landed** 2026-09-06 |
+| `firstrun-username` / `firstrun-password` / `firstrun-confirm` / `firstrun-submit` | First-run form fields + submit | WP3 | **Landed** |
+| `login-server-url` / `login-connect` | Server URL field + Connect button | WP3 | **Landed** |
+| `login-username` / `login-password` / `login-submit` | Sign-in form fields + submit | WP3 | **Landed** |
+| `tab-home` / `tab-library` / `tab-search` / `tab-favorites` / `tab-settings` / `tab-requests` / `tab-manage` / `tab-transfers` | Sidebar/tab-bar items | WP1 | Not landed. The bottom tab bar today auto-assigns `tab-(home)`, `tab-(search)`, `tab-(favorites)`, `tab-(libraries)`, `tab-(manage)`, `tab-(downloads)`, `tab-(requests)` -- the literal Expo Router group names (parens included) from whatever tab component is in use, not a deliberate `testID='tab-home'` prop. `flows/web.mjs`'s `clickTabByTestId` uses these as an interim measure; F-20 (the tab bar does not navigate) means clicking any of them does not actually change screens yet either. |
+| `home-hero` | The Home hero/spotlight | WP4 | Not landed |
+| `home-row` | Each Home row container | WP4 | Not landed |
+| `library-card` | A poster/card in a grid | WP2 | Not landed |
+| `details-play` | The Play button on Details | WP5 | Not landed |
+| `player-video` | The `<video>`/player surface | WP-PLAYER | Not landed |
+| `settings-sharing` | The Sharing entry in Settings | WP10 | Not landed |
 
 Once one of these lands, tighten the matching selector in `tools/ui-shots/flows/web.mjs` (and,
 where relevant, `sweep.mjs`'s Home-structure heuristic) to match against `[data-testid="..."]`
 instead of text/role -- that is the entire point of the contract: a selector that survives a
 rebrand or a copy change, rather than one that has to be re-pinned every time upstream text moves.
+Confirmed live (2026-09-06): react-native-web's `createDOMProps` maps a component's `testID` prop
+directly onto `data-testid` on the underlying DOM node, so `[data-testid="..."]` is always the
+right web selector once a `testID` exists -- not an assumption, read out of
+`node_modules/react-native-web/dist/cjs/modules/createDOMProps/index.js`.
 
 ---
 
@@ -564,3 +582,70 @@ fixed here (Core's own default is not this package's to change), but no longer s
 has to work around by hand either, since real-artwork mode enables it itself. See the commit
 history for `tools/ui-node.ps1`, `tools/ui-seed-media.ps1` and `tools/ui-startup.ps1` for the fixes
 themselves.
+
+---
+
+## Pass-03 (F-27 / F-36, Fable's pass-02 critique, 2026-09-06)
+
+Run against a fresh node with a fresh `bunx expo export` of then-current master (WP0, WP11,
+WP-BRAND, WP3, WP-TV-SHELL, WP-TV-LOGIN, WP-GATE, WP-CORE, WP-TOOLS merged; not yet WP1/WP2/WP4/
+WP5/WP-PLAYER/WP6-10) -- `.win-temp\ui-loop\pass-03-f36\`.
+
+**F-27, seed overview text -- fixed and confirmed.** `Write-MovieNfo`/`Write-SeriesNfo` no longer
+write a `<plot>` element at all (never wrote `<studio>`/`<tagline>`/`<outline>` either). Confirmed
+live: Nosferatu's `Overview` is TMDB's real synopsis ("The mysterious Count Orlok summons a happily
+married real estate agent..."), `Studios` is the real "Prana-Film", `Taglines` is the real "A
+symphony of horror." -- no `movie.nfo`/`ui-seed-media.ps1` text anywhere in any of the three fields.
+
+**F-36, sweep tooling -- fixed and confirmed:**
+- **testID-driven auth.** `flows/web.mjs` now drives `firstrun-username`/`firstrun-password`/
+  `firstrun-confirm`/`firstrun-submit` and `login-username`/`login-password`/`login-submit` by
+  `[data-testid=...]` (WP3 landed these on master; confirmed react-native-web maps `testID` to
+  `data-testid` by reading its source, not by assuming it). This is what actually fixed pass-02's
+  own reported "the sign-in step matched two password fields" -- a fuzzy accessible-name collision
+  between "Password" and "Confirm password" that a `data-testid` match cannot have.
+- **`--creds`.** `shots.mjs --first-run --creds <file>` creates the account through the real
+  first-run screen and writes `{username,password}` to `<file>`; a later `shots.mjs --creds <file>`
+  (no `--first-run`) signs in with it. Confirmed live: `--first-run` against a truly fresh node,
+  then `--creds` against the by-then-set-up node, both worked. Also caught and fixed in the same
+  pass: `--first-run` was re-attempting account creation on every one of the three viewport
+  contexts (each is a fresh browser context, but they all share the one node/account underneath),
+  which correctly failed on the 2nd/3rd viewport with "this node has already been set up" --
+  `shots.mjs` now creates the account once and signs in with the just-created credentials for the
+  rest. `tools/ui-shots/scripts/drive-startup.mjs` (used by `ui-startup.ps1 -DriveUi`) was also
+  switched from text-matching to the same `firstrun-*` testIDs, reusing `createFirstRunAccount`
+  instead of duplicating the fill/submit logic.
+- **Brand-word sweep false positives -- fixed.** WP-GATE's injected `<script>
+  window.__STINGSTREAM_NODE__={...,"jellyfin":"/jellyfin",...}</script>` marker has a text-node
+  child (its own source), which the sweep's text-carrier scan does not distinguish from visible
+  copy by default -- `sweep.mjs` now excludes `script`, `style`, `noscript`, `title` and
+  `meta[name="stingstream-node"]` from every text-based check. Confirmed live: zero marker-related
+  brand-word findings on this pass; the brand-word findings that remain are real (the literal
+  server URL, "http://127.0.0.1:8795/jellyfin", rendered as visible text on Settings/Requests/
+  Sharing/Search -- matching the critique's own F-30 finding about Settings' data dump).
+- **PNG names carry the real viewport width -- fixed.** `shots.mjs` now names every screenshot (and
+  tags every finding) with `page.viewportSize()`'s actual measured `{width}x{height}`, not the
+  nominal config name, so a filename is never a claim the script did not verify itself.
+- **Section routes re-pinned to tab clicks, with a TODO for WP1.** `/requests`/`/groups`/`/search`/
+  `/manage`/`/downloads` now resolve to a library-by-id catch-all that spins forever and hammers the
+  server (~400 requests in 3s) -- a regression since pass-00, and actively harmful to keep doing.
+  `flows/web.mjs` reaches these by clicking the bottom tab bar's own (pre-contract) testIDs instead
+  -- `tab-(home)`, `tab-(search)`, `tab-(favorites)`, `tab-(libraries)`, `tab-(manage)`,
+  `tab-(downloads)`, `tab-(requests)`, the literal Expo Router group names a tab component
+  auto-assigns today, not yet WP1's clean `tab-home`/`tab-library`/... contract -- and verifies the
+  URL actually changed, throwing an honest F-20 finding if not rather than silently screenshotting
+  Home under the wrong screen's name. `/settings` stays pinned to a direct URL (still confirmed
+  correct on this pass). A `TODO(WP1)` comment sits directly on `clickTabByTestId` in the code.
+
+**Confirmed live, and worth recording precisely because it contradicts the critique's own blanket
+"the tab bar does nothing" line: clicking `tab-(search)` and `tab-(requests)` DOES navigate** (real
+Search and Requests screens captured, tab bar visibly highlighting the active item) **while
+`tab-(manage)` and `tab-(downloads)` do not** (confirmed `navigate-failed`, URL unchanged). F-20 is
+therefore real but partial, not uniform -- worth WP1 knowing which tabs are already half-wired.
+
+**Full run** (`shots.mjs --first-run --creds`, all 13 screens x 3 viewports): **zero
+`navigate-failed` findings on every screen confirmed reachable** (login, home, settings, requests,
+sharing, search) -- the verification bar this pass was held to. 354 findings total, all attributable
+to real, specific causes (console noise matching the critique's own F-23 list, tab-label overflow
+at 390px matching F-20's "every label truncates," the visible `/jellyfin` URL matching F-30), none
+of them the marker false-positive or the fuzzy-selector failures this pass set out to fix.
