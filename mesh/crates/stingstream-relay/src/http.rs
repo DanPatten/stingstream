@@ -439,6 +439,13 @@ struct Health {
     ok: bool,
     mode: String,
     version: String,
+    /// The short git SHA this binary was built from, baked in at compile time by
+    /// `deploy/coordinator/Dockerfile`'s `GIT_SHA` build arg (`.github/workflows/coordinator.yml`
+    /// passes `github.sha`). `"unknown"` for a build that did not set it -- a plain `cargo build`
+    /// outside the image, for instance. This is what proves a Railway auto-deploy actually landed
+    /// a specific push rather than just restarting the same image: watch this field change after
+    /// pushing to master, not just the deployment id.
+    commit: &'static str,
     uptime_secs: u64,
     relay: bool,
     /// Whether this coordinator answers iroh's QUIC address-discovery probes. Lite mode never
@@ -451,11 +458,24 @@ struct Health {
     dns_provider: &'static str,
 }
 
+/// The first 7 characters of `GIT_SHA` (a full 40-character hex commit), or the whole thing if it
+/// is ever shorter than that -- `"unknown"`, the default, included. Slicing a `&'static str` at a
+/// byte offset keeps `'static` and is safe here because a git SHA is plain hex, so every byte
+/// boundary is also a `char` boundary.
+fn short_commit() -> &'static str {
+    let sha = option_env!("GIT_SHA").unwrap_or("unknown");
+    match sha.char_indices().nth(7) {
+        Some((i, _)) => &sha[..i],
+        None => sha,
+    }
+}
+
 async fn healthz(State(state): State<AppState>) -> Json<Health> {
     Json(Health {
         ok: true,
         mode: state.cfg.mode.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        commit: short_commit(),
         uptime_secs: state.started.elapsed().as_secs(),
         relay: state.cfg.relay.enabled,
         quic_address_discovery: state.has_quic_address_discovery(),

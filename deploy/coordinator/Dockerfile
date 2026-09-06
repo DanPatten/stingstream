@@ -13,6 +13,16 @@
 # release cannot change what CI produces from one day to the next.
 FROM rust:1.98-slim-bookworm AS builder
 
+# The short commit SHA baked into `/healthz`'s `commit` field (docs/RELEASING.md's auto-deploy
+# proof), so a live coordinator's build is identifiable without a git checkout in hand. Converted
+# to ENV rather than left as a bare ARG for two reasons: `option_env!` in http.rs reads the
+# compilation process's real environment at build time, which an ARG alone does not populate for a
+# RUN command unless it is referenced there -- and an ENV instruction is unambiguously part of the
+# layer cache key, so a changed SHA always busts the real build's RUN layer below rather than
+# depending on cache heuristics for a bare ARG.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
 # `ring` (rustls' crypto backend) and `redb` need a C toolchain; nothing here needs OpenSSL,
 # because every TLS path in this binary is rustls.
 RUN apt-get update \

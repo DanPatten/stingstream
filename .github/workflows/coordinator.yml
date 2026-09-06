@@ -172,6 +172,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `http.rs`'s `short_commit()` truncates to 7 characters the same way; computed once here so
+      # both the real build's `build-args` and the smoke test's assertion agree with each other and
+      # with what a live coordinator will actually report.
+      - name: Compute the short commit SHA
+        id: short_sha
+        run: echo "value=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -182,6 +189,11 @@ jobs:
           tags: |
             ghcr.io/danpatten/stingstream-coordinator:${{ github.sha }}
             ghcr.io/danpatten/stingstream-coordinator:latest
+          # The short SHA a live coordinator's /healthz reports back (see http.rs's `short_commit`)
+          # -- what makes a Railway auto-deploy provable end to end: push, watch this image publish,
+          # then watch the deployed /healthz's `commit` change to match.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
@@ -192,7 +204,7 @@ jobs:
       - name: Smoke-test the image
         run: |
           set -euo pipefail
-          docker build -f deploy/coordinator/Dockerfile -t coordinator-smoke .
+          docker build -f deploy/coordinator/Dockerfile --build-arg GIT_SHA=${{ github.sha }} -t coordinator-smoke .
           docker run -d --name coordinator-smoke -p 18080:8080 coordinator-smoke --mode lite
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:18080/healthz > /tmp/healthz.json; then break; fi
@@ -201,5 +213,8 @@ jobs:
           cat /tmp/healthz.json
           grep -q '"ok":true' /tmp/healthz.json
           grep -q '"mode":"lite"' /tmp/healthz.json
+          grep -q "\"commit\":\"${SHORT_SHA}\"" /tmp/healthz.json
           docker logs coordinator-smoke
           docker rm -f coordinator-smoke
+        env:
+          SHORT_SHA: ${{ steps.short_sha.outputs.value }}
