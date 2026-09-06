@@ -1,15 +1,9 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { useState } from "react";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import {
-  elevation,
-  motion,
-  rgba,
-  tokens,
-  webFocusRing,
-} from "@/constants/theme";
+import { elevation, rgba, tokens } from "@/constants/theme";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { CardArtwork } from "./CardArtwork";
 import {
@@ -67,13 +61,12 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   const layout = useCardLayout(kind);
   const { accent } = useTheme();
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const states = usePressableStates();
   const cardWidth = width ?? layout.cardWidth;
   const height = cardWidth / (card.aspectRatio ?? layout.aspectRatio);
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const isOver = (textPlacement ?? defaultTextPlacement(kind)) === "over";
-  const lifted = isWeb && hovered;
+  const lifted = isWeb && states.hovered;
 
   // Only the banded card draws its bar here, under the title. The clean-art
   // card puts it on the artwork's bottom edge instead (`edgeProgress`), where
@@ -97,6 +90,23 @@ export const Card: React.FC<CardProps> = ({
       />
     </View>
   );
+
+  // The artwork is a photograph, not a flat surface, so hover and press are a
+  // wash laid over it rather than a background colour swap — the same wash
+  // every other interactive surface uses, from `usePressableStates`.
+  const stateWash = states.overlay ? (
+    <View
+      pointerEvents='none'
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: states.overlay,
+      }}
+    />
+  ) : null;
 
   // The disc reads as "this plays" without a caption; it only makes sense once
   // a pointer is actually hovering, since touch has no equivalent gesture.
@@ -132,27 +142,23 @@ export const Card: React.FC<CardProps> = ({
     <Pressable
       testID='library-card'
       accessibilityRole='button'
-      accessibilityLabel={card.title}
+      // "Title (Year)", the same label the artwork carries — a poster card's
+      // title is drawn text now, but a banded one still has it over the image,
+      // and a screen reader should hear the same thing either way.
+      accessibilityLabel={card.imageAlt ?? card.title}
       onPress={onPress}
       onLongPress={onLongPress}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      {...states.handlers}
       style={[
         {
           width: cardWidth,
           opacity: card.dimmed ? 0.5 : 1,
           transform: [{ scale: lifted ? tokens.motion.hoverScale : 1 }],
         },
-        isWeb
-          ? ({
-              cursor: "pointer",
-              transitionDuration: `${motion.fast}ms`,
-              ...(lifted ? elevation(1) : null),
-              ...webFocusRing(focused),
-            } as ViewStyle)
-          : null,
+        // Cursor, the fast transition and the keyboard focus ring, from the
+        // one hook every interactive surface uses.
+        states.webStyle,
+        isWeb && lifted ? (elevation(1) as ViewStyle) : null,
       ]}
     >
       <View>
@@ -164,6 +170,7 @@ export const Card: React.FC<CardProps> = ({
           edgeProgress={!isOver}
           overlay={
             <>
+              {stateWash}
               {hoverPlayGlyph}
               {slots?.overlay?.(card)}
             </>

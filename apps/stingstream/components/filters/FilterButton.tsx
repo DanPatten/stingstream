@@ -14,6 +14,15 @@ interface FilterButtonProps<T> {
   renderItemLabel: (item: T) => string;
   multiple?: boolean;
   icon?: "filter" | "sort";
+  /**
+   * Overrides "filled when anything is selected".
+   *
+   * A sort chip always has a value — a list is always in *some* order — so
+   * "selected" is not the same as "changed from the default", and without this
+   * the bar opened with Sort by and Sort order filled while nothing had been
+   * chosen at all. Pass the same comparison the Clear chip uses.
+   */
+  active?: boolean;
   style?: StyleProp<ViewStyle>;
   /** For the screens whose own bar still spaces its chips with a utility class. */
   className?: string;
@@ -38,17 +47,23 @@ export const FilterButton = <T,>({
   renderItemLabel,
   multiple = false,
   icon = "filter",
+  active: activeOverride,
   style,
   className,
 }: FilterButtonProps<T>) => {
   const { showModal, hideModal } = useGlobalModal();
-  const active = values.length > 0;
+  const active = activeOverride ?? values.length > 0;
 
   const { data: filters } = useQuery<T[]>({
     queryKey: ["filters", title, queryKey, id],
     queryFn,
     staleTime: 0,
     enabled: !!id && !!queryFn && !!queryKey,
+    // A bar is six of these. When the parent id is wrong the server says so
+    // on the first ask and will say the same thing on the fourth, so the
+    // default three retries turned one bad screen into a burst of two dozen
+    // failed requests. A chip with no values just disables itself.
+    retry: false,
   });
 
   const disabled = filters?.length === 0;

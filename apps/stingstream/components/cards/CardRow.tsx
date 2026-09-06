@@ -276,7 +276,7 @@ export const CardRow: React.FC<Props> = ({
       )}
 
       {loading ? (
-        <CardRowSkeleton kind={kind} belowArtwork={belowArtwork} />
+        <CardRowSkeleton kind={kind} />
       ) : isEmpty ? (
         emptyText ? (
           <View className='px-4'>

@@ -7,7 +7,8 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { CARD_LAYOUTS, type CardKind } from "@/components/cards/CardData";
+import type { CardKind } from "@/components/cards/CardData";
+import { useCardLayout } from "@/components/cards/useCardLayout";
 import { interaction, radius as RADII, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 
@@ -72,7 +73,7 @@ export const SkeletonRow: React.FC<{
   withLabels?: boolean;
   style?: StyleProp<ViewStyle>;
 }> = ({ kind, count = 5, withLabels = false, style }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
   const { gutter } = useBreakpoint();
 
   return (
@@ -117,7 +118,7 @@ export const SkeletonGrid: React.FC<{
   withLabels?: boolean;
   style?: StyleProp<ViewStyle>;
 }> = ({ kind, columns, rows = 3, withLabels = true, style }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
   const { gutter } = useBreakpoint();
   const safeColumns = Math.max(1, Math.floor(columns) || 1);
 

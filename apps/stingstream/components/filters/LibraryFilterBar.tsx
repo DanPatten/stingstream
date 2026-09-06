@@ -15,8 +15,8 @@ import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   type FilterByOption,
-  type SortByOption,
-  type SortOrderOption,
+  SortByOption,
+  SortOrderOption,
   sortOptions,
   sortOrderOptions,
   useFilterOptions,
@@ -140,6 +140,11 @@ export const LibraryFilterBar: React.FC<LibraryFilterBarProps> = ({
         values={sortBy}
         title={t("library.filters.sort_by")}
         icon='sort'
+        // A list is always in some order, so "has a value" would mean this chip
+        // is filled from the moment the screen opens. Filled means "you changed
+        // this" — the same comparison `useFilterReset` makes to decide whether
+        // there is anything to clear.
+        active={sortBy[0] !== SortByOption.SortName}
         renderItemLabel={(item) =>
           sortOptions.find((i) => i.key === item)?.value || ""
         }
@@ -152,6 +157,7 @@ export const LibraryFilterBar: React.FC<LibraryFilterBarProps> = ({
         values={sortOrder}
         title={t("library.filters.sort_order")}
         icon='sort'
+        active={sortOrder[0] !== SortOrderOption.Ascending}
         renderItemLabel={(item) =>
           sortOrderOptions.find((i) => i.key === item)?.value || ""
         }

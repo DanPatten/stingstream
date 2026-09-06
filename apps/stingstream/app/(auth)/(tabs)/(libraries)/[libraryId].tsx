@@ -32,6 +32,7 @@ import { useCardGrid } from "@/components/cards/useCardGrid";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
+import { SkeletonGrid } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
@@ -79,6 +80,19 @@ import type { TVOptionItem } from "@/utils/atoms/tvOptionModal";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
 const TV_PLAYLIST_SQUARE_SIZE = 180;
+
+/**
+ * `Platform.isTV` as an actual boolean.
+ *
+ * react-native-web does not define `isTV` at all, so on web `Platform.isTV` is
+ * `undefined`, and `undefined && somethingTrue` is `undefined` — not `false`.
+ * React Query reads `enabled: undefined` as "not specified", which means
+ * **enabled**: the three TV-only filter queries below were running on every
+ * web library page, and on a path that is not a library at all (`/requests`
+ * falling through to this route) each one retried its 400 three times, which
+ * is where the observed burst of failed `Items/Filters` requests came from.
+ */
+const isTV = Platform.isTV === true;
 
 const Page = () => {
   const searchParams = useLocalSearchParams() as {
@@ -153,7 +167,7 @@ const Page = () => {
       });
       return response.data.Genres || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   const { data: tvYearOptions } = useQuery({
@@ -166,7 +180,7 @@ const Page = () => {
       });
       return response.data.Years || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   const { data: tvTagOptions } = useQuery({
@@ -179,7 +193,7 @@ const Page = () => {
       });
       return response.data.Tags || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   // The "See All" params describe how to open the screen, not a state to hold:
@@ -353,7 +367,11 @@ const Page = () => {
     posterCard.spacing,
   ]);
 
-  const { data: library, isLoading: isLibraryLoading } = useQuery({
+  const {
+    data: library,
+    isLoading: isLibraryLoading,
+    isError: isLibraryError,
+  } = useQuery({
     queryKey: ["library", libraryId],
     queryFn: async () => {
       if (!api) return null;
@@ -365,7 +383,20 @@ const Page = () => {
     },
     enabled: !!api && !!user?.Id && !!libraryId,
     staleTime: 60 * 1000,
+    // Every path the web app cannot route yet — /requests, /search, /manage —
+    // falls through to this screen with its own name as the library id. The
+    // server answers 404 immediately and will answer 404 again; retrying turned
+    // one wrong URL into a burst of failed requests and a spinner that never
+    // stopped. One ask, then say so.
+    retry: false,
   });
+
+  /**
+   * There is no such library. Either the id is not one (an unrouted path
+   * arriving here as `[libraryId]`) or it has been removed since the link was
+   * made. Both are a dead end, not a slow load.
+   */
+  const libraryNotFound = isLibraryError;
 
   const navigation = useNavigation();
   useEffect(() => {
@@ -837,8 +868,9 @@ const Page = () => {
   }, [showOptions, t, tvFilterByOptions, setFilter, _setFilterBy]);
 
   const insets = useSafeAreaInsets();
+  const isGridLoading = isLoading || isLibraryLoading;
 
-  if (isLoading || isLibraryLoading)
+  if (Platform.isTV && isGridLoading)
     return (
       <View className='w-full h-full flex items-center justify-center'>
         <Loader />
@@ -847,6 +879,17 @@ const Page = () => {
 
   // Mobile / web return
   if (!Platform.isTV) {
+    if (libraryNotFound) {
+      return (
+        <PageContainer width='media' style={{ flex: 1 }}>
+          <EmptyState
+            title={t("library.not_found")}
+            style={{ paddingTop: "20%" }}
+          />
+        </PageContainer>
+      );
+    }
+
     return (
       <PageContainer width='media' bleed style={{ flex: 1 }}>
         <FlashList
@@ -858,10 +901,17 @@ const Page = () => {
           // to remount the list.
           key={`${orientation}-${grid.columns}`}
           ListEmptyComponent={
-            <EmptyState
-              title={t("library.no_results")}
-              style={{ paddingTop: "20%" }}
-            />
+            // A grid of tiles at the exact geometry the posters will occupy,
+            // rather than a spinner in the middle of an empty page: nothing
+            // moves when the real cards arrive.
+            isGridLoading ? (
+              <SkeletonGrid kind='portrait' columns={grid.columns} />
+            ) : (
+              <EmptyState
+                title={t("library.no_results")}
+                style={{ paddingTop: "20%" }}
+              />
+            )
           }
           // The filter bar rides along on a phone but stays put at the top of
           // the page once there's room for a sidebar/topbar shell around it.
@@ -878,7 +928,10 @@ const Page = () => {
             }
           }}
           onEndReachedThreshold={1}
-          ListHeaderComponent={ListHeaderComponent}
+          // No library, no filters to offer — and, more to the point, six
+          // chips each asking the server for the values of a filter on a
+          // parent that does not exist.
+          ListHeaderComponent={library ? ListHeaderComponent : undefined}
           contentContainerStyle={{
             paddingBottom: 24,
             paddingLeft: insets.left,
