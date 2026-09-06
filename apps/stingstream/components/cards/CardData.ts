@@ -1,6 +1,7 @@
 import type { Api } from "@jellyfin/sdk";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getItemProgressPercentage } from "@/components/common/ProgressBar";
+import { type BreakpointName, typeStyle } from "@/constants/theme";
 import { getPortraitImageUrl } from "@/utils/jellyfin/image/getPortraitImageUrl";
 import { getWideImageUrl } from "@/utils/jellyfin/image/getWideImageUrl";
 
@@ -20,9 +21,14 @@ export type CardData = {
   imageAlt?: string | null;
   /** Watch progress in 0...1. Draws the progress bar when > 0. */
   progress?: number;
-  /** Unwatched movie or episode — draws the accent dot. */
-  unwatched?: boolean;
-  /** Episodes left on a series/box set — draws the count badge when > 0. */
+  /**
+   * Episodes left on a series/box set — draws the count badge when > 0.
+   *
+   * Deliberately only aggregates. A single unwatched movie used to draw a bare
+   * accent dot in the same corner, which said nothing a viewer could read (a
+   * whole library of films is unwatched; a dot on every poster is noise). A
+   * count on a series does say something: how much of it is left.
+   */
   unplayedCount?: number;
   /**
    * Text for the corner pill when it isn't an unplayed count — the number of
@@ -42,9 +48,33 @@ export type CardData = {
    * the container expects — an album among posters, say.
    */
   aspectRatio?: number;
+  /**
+   * What to draw when there is no artwork — see `CardPlaceholder`. Defaults to
+   * `unknown`, which still gets a real tile rather than an empty rectangle.
+   */
+  placeholder?: CardPlaceholder;
 };
 
 export type CardKind = "wide" | "portrait" | "rowWide";
+
+/**
+ * The shape of thing a card stands for, for the tile drawn when its artwork is
+ * missing. Coarser than `BaseItemDto["Type"]` on purpose: the placeholder only
+ * has room for one glyph, and "which kind of media is this" is all a viewer can
+ * read off it at 118 px wide.
+ */
+export type CardPlaceholder =
+  | "movie"
+  | "series"
+  | "episode"
+  | "person"
+  | "music"
+  | "collection"
+  | "playlist"
+  | "folder"
+  | "photo"
+  | "book"
+  | "unknown";
 
 /**
  * Per-item extras a screen hangs on a card. The card never knows what they
@@ -106,8 +136,9 @@ export const CARD_LAYOUTS: Record<
     frostFraction: 0.45,
     verticalPadding: CARD_VERTICAL_PADDING,
   },
-  // Portrait posters. The title sits on the card, and a shallower frost covers
-  // less of a tall poster.
+  // Portrait posters. The title sits *below* the artwork (see
+  // `defaultTextPlacement`), so the poster is never painted over; the frost
+  // fraction only applies to a caller that forces `textPlacement="over"`.
   portrait: {
     cardWidth: { compact: 118, medium: 150, expanded: 170 },
     gridMinCardWidth: { compact: 110, medium: 140, expanded: 160 },
@@ -141,11 +172,50 @@ export type ResolvedCardLayout = Omit<
   gridMinCardWidth: number;
 };
 
-/** Height a row of this kind occupies at its resolved width, shadow padding included. */
-export const cardRowHeight = (layout: ResolvedCardLayout) => {
+/**
+ * Height a row of this kind occupies at its resolved width, shadow padding
+ * included. `below` is whatever the card draws under its artwork — the title
+ * block of a `textPlacement="below"` card, plus anything a footer slot adds.
+ */
+export const cardRowHeight = (layout: ResolvedCardLayout, below = 0) => {
   const { cardWidth, aspectRatio, verticalPadding } = layout;
-  return cardWidth / aspectRatio + verticalPadding * 2;
+  return cardWidth / aspectRatio + verticalPadding * 2 + below;
 };
+
+/**
+ * Where a kind puts its title.
+ *
+ * Posters get it **below** the artwork, on the page surface: a poster already
+ * has the title painted into the bitmap, so a second title over the art was two
+ * overlapping text layers, and grey secondary text on an arbitrary photograph
+ * has no contrast guarantee at all. Landscape stills keep the frosted band —
+ * a still is not self-labelling, and a band on 16:9 art covers a third of a
+ * shot rather than a third of a face.
+ */
+export const defaultTextPlacement = (kind: CardKind): "over" | "below" =>
+  kind === "portrait" ? "below" : "over";
+
+/** Gap between the artwork and the title below it. */
+export const CARD_TEXT_GAP = 6;
+
+/** How many lines a below-artwork title may wrap to before it ellipses. */
+export const CARD_TITLE_LINES = 2;
+
+/**
+ * Height of the title block a `textPlacement="below"` card draws: the gap, two
+ * lines of `caption` title, and one line of `micro` subtitle.
+ *
+ * A row has to reserve this before it renders — a horizontal `FlashList` is
+ * given one height for every cell and cannot measure the text inside them — so
+ * it is computed from the same type scale `Text` resolves at that breakpoint
+ * rather than guessed at as a magic constant. Two title lines are always
+ * reserved whether or not this particular title wraps, so a row of cards does
+ * not jog up and down as one of them happens to be long.
+ */
+export const cardTextBlockHeight = (breakpoint: BreakpointName): number =>
+  CARD_TEXT_GAP +
+  typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES +
+  typeStyle("micro", breakpoint).lineHeight;
 
 /**
  * How many columns of at least `minCardWidth` fit in `availableWidth`, the
@@ -190,10 +260,50 @@ export const cardImageAlt = (item: BaseItemDto): string =>
     ? `${item.Name ?? ""} (${item.ProductionYear})`
     : (item.Name ?? "");
 
-const isMovieOrEpisode = (item: BaseItemDto) =>
-  item.Type === "Movie" || item.Type === "Episode";
 const isAggregate = (item: BaseItemDto) =>
   item.Type === "Series" || item.Type === "BoxSet";
+
+/**
+ * Which placeholder tile stands in for an item with no artwork.
+ *
+ * Exported alongside `cardSubtitle` and `cardImageAlt` so anything building
+ * cards outside `buildItemCards` — the offline downloads, say — falls back to
+ * the same tile rather than an empty rectangle.
+ */
+export const cardPlaceholder = (item: BaseItemDto): CardPlaceholder => {
+  switch (item.Type) {
+    case "Movie":
+      return "movie";
+    case "Series":
+    case "Season":
+      return "series";
+    case "Episode":
+      return "episode";
+    case "Person":
+      return "person";
+    case "MusicAlbum":
+    case "MusicArtist":
+    case "Audio":
+    case "MusicVideo":
+      return "music";
+    case "BoxSet":
+      return "collection";
+    case "Playlist":
+      return "playlist";
+    case "Folder":
+    case "CollectionFolder":
+    case "UserView":
+      return "folder";
+    case "Photo":
+    case "PhotoAlbum":
+      return "photo";
+    case "Book":
+    case "AudioBook":
+      return "book";
+    default:
+      return "unknown";
+  }
+};
 
 /** Anything that holds other items rather than being watchable itself. */
 const isContainer = (item: BaseItemDto) =>
@@ -273,8 +383,6 @@ export function buildItemCards(
         : getWideImageUrl({ api, item, useEpisodePoster, width });
 
     const progress = itemProgressFraction(item);
-    // Strict === false: items without UserData (unknown state) get no dot.
-    const unwatched = isMovieOrEpisode(item) && item.UserData?.Played === false;
     const unplayedCount =
       isAggregate(item) && !item.UserData?.Played ? unplayed : 0;
     const dimmed = selectedId != null && item.Id !== selectedId;
@@ -290,10 +398,10 @@ export function buildItemCards(
         imageUrl,
         imageAlt: cardImageAlt(item),
         progress,
-        unwatched,
         unplayedCount,
         dimmed,
         aspectRatio,
+        placeholder: cardPlaceholder(item),
       },
     ];
   });

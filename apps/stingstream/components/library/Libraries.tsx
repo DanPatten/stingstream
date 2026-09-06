@@ -110,7 +110,12 @@ export const Libraries: React.FC = () => {
           return (
             <View
               style={{
-                flex: 1,
+                // A stated fraction of the row, not `flex: 1`: a last row of
+                // one library in a three-column grid must sit in the first
+                // column, not stretch itself across all three.
+                width: `${100 / columns}%`,
+                flexGrow: 0,
+                flexShrink: 0,
                 paddingLeft: column === 0 ? 0 : COLUMN_GAP / 2,
                 paddingRight: column === columns - 1 ? 0 : COLUMN_GAP / 2,
               }}

@@ -12,7 +12,14 @@ import {
 } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { CardArtwork } from "./CardArtwork";
-import type { CardData, CardKind, CardSlots } from "./CardData";
+import {
+  CARD_TEXT_GAP,
+  CARD_TITLE_LINES,
+  type CardData,
+  type CardKind,
+  type CardSlots,
+  defaultTextPlacement,
+} from "./CardData";
 import { useCardLayout } from "./useCardLayout";
 
 type CardProps = {
@@ -21,9 +28,9 @@ type CardProps = {
   /** Overrides the kind's card width — a grid sizes cards by its columns. */
   width?: number;
   /**
-   * Where the title goes. "over" is the poster card: text on the artwork
-   * behind a frosted band. "below" leaves the artwork clean and stacks the
-   * text underneath, for rows that carry more than two lines.
+   * Where the title goes. Defaults to the kind's own answer — see
+   * `defaultTextPlacement`: "below" for posters, "over" for landscape stills.
+   * Pass it only to override that.
    */
   textPlacement?: "over" | "below";
   slots?: Pick<CardSlots, "overlay" | "footer">;
@@ -34,9 +41,14 @@ type CardProps = {
 const isWeb = Platform.OS === "web";
 
 /**
- * A media card: artwork edge to edge, the title and subtitle over a frosted
- * band at the bottom, and the progress bar under them but still on the card.
- * Everything it draws comes from `CardData` — see `buildItemCards`.
+ * A media card. Everything it draws comes from `CardData` — see
+ * `buildItemCards`.
+ *
+ * A poster keeps its artwork clean and puts the title and year below it, on the
+ * page's own surface: the poster already carries the title in its bitmap, so a
+ * band over it was two overlapping text layers, and secondary grey on an
+ * arbitrary photograph has no contrast guarantee. A landscape still is not
+ * self-labelling and keeps the frosted band.
  *
  * On web the card lifts on hover (scale + shadow) with a play-glyph overlay
  * so a row of stills reads as playable rather than as a photo grid, and a
@@ -48,7 +60,7 @@ export const Card: React.FC<CardProps> = ({
   card,
   kind,
   width,
-  textPlacement = "over",
+  textPlacement,
   slots,
   onPress,
   onLongPress,
@@ -60,16 +72,19 @@ export const Card: React.FC<CardProps> = ({
   const cardWidth = width ?? layout.cardWidth;
   const height = cardWidth / (card.aspectRatio ?? layout.aspectRatio);
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
-  const isOver = textPlacement === "over";
+  const isOver = (textPlacement ?? defaultTextPlacement(kind)) === "over";
   const lifted = isWeb && hovered;
 
-  const progressBar = progress > 0 && (
+  // Only the banded card draws its bar here, under the title. The clean-art
+  // card puts it on the artwork's bottom edge instead (`edgeProgress`), where
+  // it sits on the thing it describes rather than floating above the title.
+  const bandProgressBar = progress > 0 && (
     <View
       style={{
         height: 3,
         borderRadius: 2,
         marginTop: 5,
-        backgroundColor: "rgba(255,255,255,0.25)",
+        backgroundColor: rgba("#FFFFFF", 0.25),
       }}
     >
       <View
@@ -146,6 +161,7 @@ export const Card: React.FC<CardProps> = ({
           width={cardWidth}
           height={height}
           cornerRadius={layout.cornerRadius}
+          edgeProgress={!isOver}
           overlay={
             <>
               {hoverPlayGlyph}
@@ -188,20 +204,26 @@ export const Card: React.FC<CardProps> = ({
                   {card.subtitle}
                 </Text>
               )}
-              {progressBar}
+              {bandProgressBar}
             </View>
           </>
         )}
       </View>
 
+      {/*
+        Title and year on the page's own surface, under clean artwork. Two lines
+        before the title ellipses: a poster is 118 px wide on a phone, and one
+        line turned most of them into "Sita Sings th…" with the space for a
+        second line sitting empty right underneath. The row above reserves both
+        lines whether or not this title needs them (`cardTextBlockHeight`), so
+        the cards in a row stay aligned.
+      */}
       {!isOver && (
-        <View style={{ paddingTop: 6 }}>
-          {progressBar}
+        <View style={{ paddingTop: CARD_TEXT_GAP }}>
           <Text
             variant='caption'
-            weight='semibold'
-            numberOfLines={2}
-            style={{ marginTop: 2 }}
+            weight='medium'
+            numberOfLines={CARD_TITLE_LINES}
           >
             {card.title}
           </Text>

@@ -1,23 +1,27 @@
 import { useTranslation } from "react-i18next";
-import {
-  Pressable,
-  type PressableProps,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
-import { Icon } from "@/components/common/Icon";
-import { radius, tokens } from "@/constants/theme";
+import type { StyleProp, ViewStyle } from "react-native";
 import { useFilterReset } from "@/hooks/useFilterReset";
+import { FilterChip } from "./FilterChip";
 
-interface Props extends Omit<PressableProps, "children" | "style"> {
+interface Props {
   libraryId: string;
   style?: StyleProp<ViewStyle>;
+  className?: string;
 }
 
+/**
+ * "Clear" — the chip that undoes every filter and sort on this library.
+ *
+ * It says what it does. The bar used to open with a bare round × at its
+ * leading edge, permanently, with nothing to say what it would clear or
+ * whether there was anything to clear at all: an unlabelled destructive
+ * control in front of the controls it destroys. It appears only once a filter
+ * is actually active, and reads as a chip like everything beside it.
+ */
 export const ResetFiltersButton: React.FC<Props> = ({
   libraryId,
   style,
-  ...props
+  className,
 }) => {
   const { t } = useTranslation();
   const { hasActiveFilters, resetAllFilters } = useFilterReset(libraryId);
@@ -27,26 +31,12 @@ export const ResetFiltersButton: React.FC<Props> = ({
   }
 
   return (
-    <Pressable
-      accessibilityRole='button'
-      accessibilityLabel={t("library.filters.reset")}
-      style={[
-        {
-          width: 32,
-          height: 32,
-          borderRadius: radius.pill,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: tokens.color.bg["3"],
-          marginRight: 4,
-        },
-        style,
-      ]}
-      {...props}
-      // After the spread so a forwarded onPress can't disable the reset.
+    <FilterChip
+      label={t("library.filters.clear")}
+      icon='close'
       onPress={resetAllFilters}
-    >
-      <Icon name='close' size={16} tone='secondary' />
-    </Pressable>
+      style={style}
+      className={className}
+    />
   );
 };

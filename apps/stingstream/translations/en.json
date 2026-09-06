@@ -780,6 +780,7 @@
       "tags": "Tags",
       "all": "All",
       "reset": "Reset",
+      "clear": "Clear",
       "asc": "Ascending",
       "desc": "Descending"
     }

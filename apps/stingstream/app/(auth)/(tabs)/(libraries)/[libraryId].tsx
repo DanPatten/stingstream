@@ -21,7 +21,6 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BackHandler,
-  FlatList,
   Platform,
   ScrollView,
   useWindowDimensions,
@@ -35,8 +34,7 @@ import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
-import { FilterButton } from "@/components/filters/FilterButton";
-import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
+import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
@@ -632,150 +630,24 @@ const Page = () => {
   const generalFilters = useFilterOptions();
   const ListHeaderComponent = useCallback(
     () => (
-      <FlatList
-        testID='library-filter-bar'
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{
-          display: "flex",
-          gap: 8,
-          paddingHorizontal: 15,
-          paddingVertical: 16,
-          flexDirection: "row",
-        }}
-        data={[
-          {
-            key: "reset",
-            component: <ResetFiltersButton libraryId={libraryId} />,
-          },
-          {
-            key: "genre",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='genreFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Genres || [];
-                }}
-                set={setGenres}
-                values={selectedGenres}
-                title={t("library.filters.genres")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "year",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='yearFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Years || [];
-                }}
-                set={setYears}
-                values={selectedYears}
-                title={t("library.filters.years")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "tags",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='tagsFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Tags || [];
-                }}
-                set={setTags}
-                values={selectedTags}
-                title={t("library.filters.tags")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "sortBy",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='sortBy'
-                queryFn={async () => sortOptions.map((s) => s.key)}
-                set={setSortBy}
-                values={sortBy}
-                title={t("library.filters.sort_by")}
-                icon='sort'
-                renderItemLabel={(item) =>
-                  sortOptions.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-          {
-            key: "sortOrder",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='sortOrder'
-                queryFn={async () => sortOrderOptions.map((s) => s.key)}
-                set={setSortOrder}
-                values={sortOrder}
-                title={t("library.filters.sort_order")}
-                icon='sort'
-                renderItemLabel={(item) =>
-                  sortOrderOptions.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-          {
-            key: "filterOptions",
-            component: (
-              <FilterButton
-                id={libraryId}
-                queryKey='filters'
-                queryFn={async () => generalFilters.map((s) => s.key)}
-                set={setFilter}
-                values={filterBy}
-                title={t("library.filters.filter_by")}
-                renderItemLabel={(item) =>
-                  generalFilters.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-        ]}
-        renderItem={({ item }) => item.component}
-        keyExtractor={(item) => item.key}
+      <LibraryFilterBar
+        libraryId={libraryId}
+        selectedGenres={selectedGenres}
+        setGenres={setGenres}
+        selectedYears={selectedYears}
+        setYears={setYears}
+        selectedTags={selectedTags}
+        setTags={setTags}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        sortOrder={sortOrder}
+        setSortOrder={setSortOrder}
+        filterBy={filterBy}
+        setFilter={setFilter}
       />
     ),
     [
       libraryId,
-      api,
-      user?.Id,
       selectedGenres,
       setGenres,
       selectedYears,
@@ -788,7 +660,6 @@ const Page = () => {
       setSortOrder,
       filterBy,
       setFilter,
-      generalFilters,
     ],
   );
 

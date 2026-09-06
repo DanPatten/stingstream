@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { breakpoints } from "@/constants/theme";
+import { breakpoints, typeStyle } from "@/constants/theme";
 import { stubReactNative } from "@/test-utils/reactNative";
 
 // `CardData.ts` pulls in `components/common/ProgressBar.tsx` for
@@ -12,7 +12,11 @@ stubReactNative();
 const {
   autoGridColumns,
   CARD_LAYOUTS,
+  CARD_TEXT_GAP,
+  CARD_TITLE_LINES,
   cardRowHeight,
+  cardTextBlockHeight,
+  defaultTextPlacement,
 }: typeof import("./CardData") = await import("./CardData");
 type CardKind = import("./CardData").CardKind;
 type ResolvedCardLayout = import("./CardData").ResolvedCardLayout;
@@ -187,6 +191,22 @@ describe("cardRowHeight", () => {
     }
   });
 
+  test("a portrait row reserves its two title lines on top of the artwork", () => {
+    // The row that regressed: a single-line title clipped to "Sita Sings th…"
+    // with the space for a second line sitting empty right under it. The row
+    // has to know the block is coming before any of it renders.
+    for (const breakpoint of BREAKPOINTS) {
+      const layout = resolve("portrait", breakpoint);
+      const text = cardTextBlockHeight(breakpoint);
+      expect(cardRowHeight(layout, text)).toBeCloseTo(
+        cardRowHeight(layout) + text,
+      );
+      expect(text).toBeGreaterThan(
+        typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES,
+      );
+    }
+  });
+
   test("a wide row is shorter than a portrait row at the same width class", () => {
     // Sanity check on the aspect ratios themselves: landscape stills read
     // wider than they are tall, posters the opposite.
@@ -202,5 +222,39 @@ describe("cardRowHeight", () => {
       const heights = BREAKPOINTS.map((b) => cardRowHeight(resolve(kind, b)));
       expect(heights).toEqual([...heights].sort((a, b) => a - b));
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Text below the artwork
+// ---------------------------------------------------------------------------
+
+describe("card title placement", () => {
+  test("posters put their title below the artwork; stills keep the band", () => {
+    // The rule the review's F-01/F-03 turn on: a poster already carries its
+    // own title in the bitmap, and grey secondary text on an arbitrary
+    // photograph has no contrast guarantee at all.
+    expect(defaultTextPlacement("portrait")).toBe("below");
+    expect(defaultTextPlacement("wide")).toBe("over");
+    expect(defaultTextPlacement("rowWide")).toBe("over");
+  });
+
+  test("the block is the gap, two title lines and one subtitle line", () => {
+    for (const breakpoint of BREAKPOINTS) {
+      expect(cardTextBlockHeight(breakpoint)).toBe(
+        CARD_TEXT_GAP +
+          typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES +
+          typeStyle("micro", breakpoint).lineHeight,
+      );
+    }
+  });
+
+  test("two title lines, not one — the review's F-02", () => {
+    expect(CARD_TITLE_LINES).toBe(2);
+  });
+
+  test("never shrinks as the breakpoint widens", () => {
+    const heights = BREAKPOINTS.map(cardTextBlockHeight);
+    expect(heights).toEqual([...heights].sort((a, b) => a - b));
   });
 });

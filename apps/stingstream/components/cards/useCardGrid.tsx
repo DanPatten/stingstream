@@ -4,7 +4,13 @@ import { useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { Card } from "./Card";
-import { autoGridColumns, type CardData, type CardKind } from "./CardData";
+import {
+  autoGridColumns,
+  type CardData,
+  type CardKind,
+  cardTextBlockHeight,
+  defaultTextPlacement,
+} from "./CardData";
 import { useCardLayout } from "./useCardLayout";
 import { useItemCardBehavior } from "./useItemCardBehavior";
 
@@ -53,13 +59,21 @@ export function useCardGrid({
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const layout = useCardLayout(kind);
-  const { gutter } = useBreakpoint();
+  const { name: breakpoint, gutter } = useBreakpoint();
   const width = containerWidth ?? windowWidth;
+
+  // What the list itself is given to lay columns out in — the container minus
+  // the safe area, before the page gutter is taken out of it. Each cell is
+  // exactly this wide divided by the column count, stated rather than left to
+  // `flex: 1`: a last row holding fewer cards than there are columns would
+  // otherwise stretch its cells across the whole row and leave a ragged gap
+  // where the missing cards should be.
+  const listWidth = width - insets.left - insets.right;
 
   // The page's own gutter, not the kind's fixed inset — a grid's first and
   // last column line up with the page's other content at every width, the
   // way `CardRow` already does for a horizontal row.
-  const available = width - insets.left - insets.right - gutter * 2;
+  const available = listWidth - gutter * 2;
 
   const columns = useMemo(() => {
     if (requestedColumns) return Math.max(requestedColumns, 1);
@@ -81,20 +95,29 @@ export function useCardGrid({
       enableActionSheet,
     });
 
+  // Room under the artwork for the title block, when this kind puts its title
+  // there — the same reservation `CardRow` makes, for the same reason: the
+  // cell is given a height before the text inside it has been measured.
+  const belowArtwork =
+    defaultTextPlacement(kind) === "below"
+      ? cardTextBlockHeight(breakpoint)
+      : 0;
+
   // A library can mix poster art with square album art, and a grid row is as
   // tall as its tallest cell — so without a common height the short cards
   // leave ragged gaps. Reserve the tallest card's height for every cell and
   // let the shorter ones sit at the top of it. A grid of one shape (the usual
   // case) reserves exactly that shape and wastes nothing.
   const cellHeight = useMemo(() => {
-    if (cards.length === 0) return cardWidth / layout.aspectRatio;
+    if (cards.length === 0)
+      return cardWidth / layout.aspectRatio + belowArtwork;
     // A smaller ratio is a taller card.
     const tallest = cards.reduce(
       (min, card) => Math.min(min, card.aspectRatio ?? layout.aspectRatio),
       Number.POSITIVE_INFINITY,
     );
-    return cardWidth / tallest;
-  }, [cards, cardWidth, layout.aspectRatio]);
+    return cardWidth / tallest + belowArtwork;
+  }, [cards, cardWidth, layout.aspectRatio, belowArtwork]);
 
   // A column is wider than the card it holds, so each card is nudged within
   // its column to land on the row inset and keep even gutters. Doing it here
@@ -107,11 +130,18 @@ export function useCardGrid({
     [columns, gutter, layout.spacing],
   );
 
+  const columnWidth = listWidth / columns;
+
   const renderItem = useCallback(
     ({ item, index }: { item: CardData; index: number }) => (
       <View
         style={{
-          width: "100%",
+          // Stated, not `flex: 1`: a last row of two cards in a four-column
+          // grid must sit under the first two columns, not spread itself
+          // across the width of four.
+          width: columnWidth,
+          flexGrow: 0,
+          flexShrink: 0,
           height: cellHeight,
           paddingLeft: columnOffset(index),
         }}
@@ -127,7 +157,15 @@ export function useCardGrid({
         />
       </View>
     ),
-    [cardWidth, cellHeight, columnOffset, kind, handlePress, handleLongPress],
+    [
+      cardWidth,
+      cellHeight,
+      columnWidth,
+      columnOffset,
+      kind,
+      handlePress,
+      handleLongPress,
+    ],
   );
 
   const keyExtractor = useCallback((card: CardData) => card.id, []);

@@ -24,6 +24,8 @@ import {
   type CardKind,
   type CardSlots,
   cardRowHeight,
+  cardTextBlockHeight,
+  defaultTextPlacement,
 } from "./CardData";
 import { CardRowSkeleton } from "./CardRowSkeleton";
 import { useCardLayout } from "./useCardLayout";
@@ -50,15 +52,20 @@ interface Props extends ViewProps {
   scrollToId?: string | null;
 
   /**
-   * Where each card's title goes. "below" leaves the artwork clean, for rows
-   * that carry more than the two lines a frosted band can hold.
+   * Where each card's title goes. Defaults to the kind's own answer — see
+   * `defaultTextPlacement`. Pass it only to override that.
    */
   textPlacement?: "over" | "below";
   /** Per-card extras — see `CardSlots`. Memoize at the call site. */
   slots?: Pick<CardSlots, "overlay" | "footer">;
   /**
-   * Extra height to reserve under each card, for text below the artwork and
-   * whatever `slots.footer` draws. The row can't measure it.
+   * Height to reserve under each card's artwork — a horizontal list is given
+   * one height per cell and cannot measure the text inside it.
+   *
+   * Omit it and the row reserves exactly the title block a below-the-artwork
+   * card draws (two title lines and a subtitle, `cardTextBlockHeight`). A row
+   * whose `slots.footer` adds lines of its own passes the total for the whole
+   * block, text included, since only that caller knows how tall its footer is.
    */
   footerHeight?: number;
 
@@ -107,9 +114,9 @@ export const CardRow: React.FC<Props> = ({
   useEpisodePoster = false,
   selectedId,
   scrollToId,
-  textPlacement = "over",
+  textPlacement,
   slots,
-  footerHeight = 0,
+  footerHeight,
   loading = false,
   loadingMore = false,
   onEndReached,
@@ -124,12 +131,17 @@ export const CardRow: React.FC<Props> = ({
   ...props
 }) => {
   const layout = useCardLayout(kind);
-  const { gutter, isWebWide } = useBreakpoint();
+  const { name: breakpoint, gutter, isWebWide } = useBreakpoint();
   const { accent } = useTheme();
   // The page's own gutter, not the kind's fixed inset — so a row's first and
   // last card line up with the section title above it and the page's other
   // content at every width, the way `PageContainer`/`SectionHeader` already do.
   const contentInset = gutter;
+
+  const placement = textPlacement ?? defaultTextPlacement(kind);
+  const belowArtwork =
+    footerHeight ??
+    (placement === "below" ? cardTextBlockHeight(breakpoint) : 0);
 
   const { cards, handlePress, handleLongPress, actionSheet } =
     useItemCardBehavior({
@@ -235,7 +247,7 @@ export const CardRow: React.FC<Props> = ({
       <Card
         card={item}
         kind={kind}
-        textPlacement={textPlacement}
+        textPlacement={placement}
         slots={slots}
         onPress={() => handlePress(item.id)}
         onLongPress={
@@ -243,7 +255,7 @@ export const CardRow: React.FC<Props> = ({
         }
       />
     ),
-    [kind, textPlacement, slots, handlePress, handleLongPress],
+    [kind, placement, slots, handlePress, handleLongPress],
   );
 
   const isEmpty = cards.length === 0;
@@ -264,7 +276,7 @@ export const CardRow: React.FC<Props> = ({
       )}
 
       {loading ? (
-        <CardRowSkeleton kind={kind} />
+        <CardRowSkeleton kind={kind} belowArtwork={belowArtwork} />
       ) : isEmpty ? (
         emptyText ? (
           <View className='px-4'>
@@ -278,7 +290,7 @@ export const CardRow: React.FC<Props> = ({
           onLayout={handleListLayout}
           style={[
             {
-              height: cardRowHeight(layout) + footerHeight,
+              height: cardRowHeight(layout, belowArtwork),
               position: "relative",
             },
             // `overflow-anchor: none` on an ancestor suppresses scroll
@@ -341,12 +353,14 @@ export const CardRow: React.FC<Props> = ({
                 direction='left'
                 visible={rowHovered}
                 inset={contentInset}
+                bottom={belowArtwork}
                 onPress={() => scrollByPage(-1)}
               />
               <RowArrow
                 direction='right'
                 visible={rowHovered}
                 inset={contentInset}
+                bottom={belowArtwork}
                 onPress={() => scrollByPage(1)}
               />
             </>
@@ -364,8 +378,11 @@ const RowArrow: React.FC<{
   direction: "left" | "right";
   visible: boolean;
   inset: number;
+  /** Room under the artwork the arrow should stay clear of, so it centres on
+   * the posters rather than on the posters-plus-their-titles. */
+  bottom: number;
   onPress: () => void;
-}> = ({ direction, visible, inset, onPress }) => {
+}> = ({ direction, visible, inset, bottom, onPress }) => {
   const sidePosition: ViewStyle =
     direction === "left" ? { left: inset / 2 } : { right: inset / 2 };
 
@@ -379,7 +396,7 @@ const RowArrow: React.FC<{
         {
           position: "absolute",
           top: 0,
-          bottom: 0,
+          bottom,
           width: 36,
           alignItems: "center",
           justifyContent: "center",

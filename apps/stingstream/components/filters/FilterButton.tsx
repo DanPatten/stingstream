@@ -1,19 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  Pressable,
-  type PressableProps,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
-import { Icon } from "@/components/common/Icon";
-import { Text } from "@/components/common/Text";
-import { radius, rgba, tokens } from "@/constants/theme";
-import { useTheme } from "@/hooks/useTheme";
+import type { StyleProp, ViewStyle } from "react-native";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
+import { FilterChip } from "./FilterChip";
 import { FilterSheetContent } from "./FilterSheetContent";
 
-interface FilterButtonProps<T>
-  extends Omit<PressableProps, "children" | "style"> {
+interface FilterButtonProps<T> {
   id: string;
   queryKey: string;
   values: T[];
@@ -24,13 +15,18 @@ interface FilterButtonProps<T>
   multiple?: boolean;
   icon?: "filter" | "sort";
   style?: StyleProp<ViewStyle>;
+  /** For the screens whose own bar still spaces its chips with a utility class. */
+  className?: string;
 }
 
 /**
- * One chip in the library filter/sort bar. Visually a `Pill` (rounded, tinted
- * when a value is selected) that is actually pressable — `Pill` itself is a
- * static display component, so this borrows its palette rather than wrapping
- * it in a second touchable.
+ * One filter or sort chip in the library bar: press it, pick values in a
+ * sheet, and the chip fills in while it is narrowing the list.
+ *
+ * The chip shows the *dimension* ("Genres", "Sort by"), not the values chosen
+ * — a bar of chips reading "Action, Comedy, Documentary • Release date •
+ * Descending" is wider than any phone and tells you nothing you can act on
+ * until you open it anyway. Filled-vs-plain is what carries "this one is on".
  */
 export const FilterButton = <T,>({
   id,
@@ -43,10 +39,9 @@ export const FilterButton = <T,>({
   multiple = false,
   icon = "filter",
   style,
-  ...props
+  className,
 }: FilterButtonProps<T>) => {
   const { showModal, hideModal } = useGlobalModal();
-  const { accent } = useTheme();
   const active = values.length > 0;
 
   const { data: filters } = useQuery<T[]>({
@@ -76,38 +71,14 @@ export const FilterButton = <T,>({
   };
 
   return (
-    <Pressable
-      onPress={openSheet}
+    <FilterChip
+      label={title}
+      icon={icon}
+      active={active}
       disabled={disabled}
-      accessibilityRole='button'
-      accessibilityLabel={title}
-      accessibilityState={{ selected: active, disabled }}
-      style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingHorizontal: 12,
-          paddingVertical: 7,
-          borderRadius: radius.pill,
-          backgroundColor: active
-            ? rgba(accent[500], 0.16)
-            : tokens.color.bg["2"],
-          opacity: disabled ? 0.5 : 1,
-        },
-        style,
-      ]}
-      {...props}
-    >
-      <Text
-        variant='caption'
-        weight='semibold'
-        tone={active ? "accent" : "secondary"}
-        numberOfLines={1}
-      >
-        {title}
-      </Text>
-      <Icon name={icon} size={14} tone={active ? "accent" : "secondary"} />
-    </Pressable>
+      onPress={openSheet}
+      style={style}
+      className={className}
+    />
   );
 };
