@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Seed a StingStream data directory's media root with deterministic, offline test content for
-    the UI iterate loop (WP-TOOLS).
+    Seed a StingStream data directory's media root with deterministic test content for the UI
+    iterate loop (WP-TOOLS) -- real TMDB/TVDB movie artwork by default (F-12, Dan: "tests must use
+    real movie images, never placeholders"), offline gradients only behind -OfflineArtwork.
 
 .DESCRIPTION
     Eight public-domain-titled movies and two public-domain-titled TV series, placed directly on
@@ -11,11 +12,10 @@
     deterministic and offline: no metadata provider has to be reachable for Jellyfin to identify
     anything, which matters for a loop that is meant to be fast and repeatable.
 
-    Every title also gets local poster.jpg (600x900) and fanart.jpg (1920x1080) artwork, rendered
-    offline with System.Drawing (GDI+, built into Windows) -- a deterministic gradient (the two
-    colours are derived from a hash of the title, so the same title always renders the same way)
-    plus the title text. Screenshots of the UI loop never depend on TMDB's image CDN being
-    reachable, or on it serving the same poster twice.
+    By default this script writes no local poster.jpg/fanart.jpg at all, so a Jellyfin library
+    scan has nothing local to prefer and identifies + downloads real poster/backdrop art from
+    TMDB/TVDB using the uniqueid already in each NFO -- see -OfflineArtwork below for what that
+    actually requires (it is not just "skip the local file").
 
     Video: 720p, 24fps colour bars with a 440 Hz tone, encoded constant-bitrate the same way
     e2e-m4's New-Clip does (`-minrate`/`-maxrate`/`-bufsize` with `nal-hrd=cbr`) so the files are
@@ -23,8 +23,8 @@
     `-b:v` target on a static test pattern. Movies run 20 seconds; episodes run 30 seconds.
 
     Deterministic: given the same MediaRoot and no -Force, a second run makes no changes (every
-    clip and image is skipped once it exists at the expected path) -- so calling this from
-    tools/ui-node.ps1 -Seed on every start is cheap after the first time.
+    clip and, in -OfflineArtwork mode, image is skipped once it exists at the expected path) -- so
+    calling this from tools/ui-node.ps1 -Seed on every start is cheap after the first time.
 
 .PARAMETER MediaRoot
     The directory that becomes the node's media root -- i.e. <DataDir>\media. Movies and TV
@@ -32,25 +32,27 @@
     Radarr's/Sonarr's root folders and Jellyfin's libraries.
 
 .PARAMETER Force
-    Regenerate every clip and every image even if it already exists at the expected path and size.
+    Regenerate every clip (and, in -OfflineArtwork mode, every image) even if it already exists at
+    the expected path and size.
 
-.PARAMETER RealArtwork
-    Off by default (agents get the offline gradients above, always, so a screenshot pass never
-    depends on the internet). When set, this script does NOT write poster.jpg/fanart.jpg at all,
-    so a Jellyfin library scan has nothing local to prefer and identifies + downloads real
-    poster/backdrop art from TMDB/TVDB using the uniqueid already in each NFO -- for a human
-    reviewer who wants the review build to look like real media, not gradients.
+.PARAMETER OfflineArtwork
+    Off by default as of F-12 (Dan: "tests must use real movie images, never placeholders") --
+    real TMDB/TVDB artwork is now the default for everyone, agents included. Pass this to fall
+    back to the old deterministic offline gradients (600x900 poster.jpg / 1920x1080 fanart.jpg,
+    hue derived from a hash of the title, title text only, rendered with System.Drawing) for the
+    rare case that matters more than real images -- e.g. no network access at all.
 
-    Confirmed live (2026-09-06): StingStream.Core's first-run wiring creates the Movies/TV Shows
-    libraries with `EnableInternetProviders: false` (docs/UI-LOOP.md has the finding). Local image
-    files also take priority over any fetched image regardless of that setting, once one exists in
-    the item's folder -- so -RealArtwork has to do two things, not one: skip writing the local
-    files, AND (via -RefreshNodeUrl, below, since this needs a running node's API) flip
-    EnableInternetProviders on for both libraries before triggering the refresh that actually goes
-    and fetches something. tools/ui-node.ps1 -Seed -RealArtwork drives both halves in the right
-    order; calling this script by hand with -RealArtwork before a node has ever started only does
-    the first half (skipping local images) -- pair it with a second call using -RefreshNodeUrl
-    once the node is up, or the library will simply have no images until you do.
+    The default (real artwork) needed two things confirmed live and handled, not just assumed
+    (2026-09-06): StingStream.Core's first-run wiring creates the Movies/TV Shows libraries with
+    `EnableInternetProviders: false` (docs/UI-LOOP.md has the finding), and a local image file
+    takes priority over any fetched image regardless of that setting, once one exists in the
+    item's folder. So real-artwork mode does two things, not one: never write poster.jpg/
+    fanart.jpg in the first place, AND (via -RefreshNodeUrl, below, since this needs a running
+    node's API) flip EnableInternetProviders on for both libraries before triggering the refresh
+    that actually fetches something. tools/ui-node.ps1 -Seed drives both halves in the right
+    order; calling this script by hand before a node has ever started only does the first half
+    (skipping local images) -- pair it with a second call using -RefreshNodeUrl once the node is
+    up, or the library will simply have no images until you do.
 
 .PARAMETER RefreshNodeUrl
     Optional. If the media root belongs to a node that is already running (a re-seed, not the
@@ -58,32 +60,34 @@
     this script will authenticate with the admin credentials in <DataDir>\runtime.json, POST
     /jellyfin/Library/Refresh, and poll the item count so a re-seed's new titles actually show up
     without a manual restart. Reads the password from runtime.json itself -- never printed, never
-    passed on a command line. Combine with -RealArtwork to also enable internet image providers on
-    the Movies/TV Shows libraries first (idempotent -- only PATCHes a library that needs it) and to
-    poll for a real image landing on the catalogue's first movie, reporting how long the fetch took.
+    passed on a command line. Unless -OfflineArtwork is also set, this also enables internet image
+    providers on the Movies/TV Shows libraries first (idempotent -- only PATCHes a library that
+    needs it) and polls for a real image landing on the catalogue's first movie, reporting how
+    long the fetch took.
 
 .PARAMETER RuntimeJson
     Path to runtime.json, when -RefreshNodeUrl is used and it is not simply
     "<MediaRoot's parent>\runtime.json" (the normal case: MediaRoot is <DataDir>\media).
 
 .EXAMPLE
-    powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\.win-temp\ui-loop\data\media
+    # Real artwork (the default) -- see tools/ui-node.ps1 -Seed, which does exactly this.
+    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media
+    # ... start the node, wait for first-run wiring ...
+    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RefreshNodeUrl http://127.0.0.1:8795
+
+.EXAMPLE
+    # Offline gradients, no network needed at any point.
+    powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\.win-temp\ui-loop\data\media -OfflineArtwork
 
 .EXAMPLE
     # Re-seed into a node that is already up, and ask it to notice.
     powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RefreshNodeUrl http://127.0.0.1:8795
-
-.EXAMPLE
-    # Real artwork end to end -- see tools/ui-node.ps1 -Seed -RealArtwork, which does exactly this.
-    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RealArtwork
-    # ... start the node, wait for first-run wiring ...
-    powershell tools\ui-seed-media.ps1 -MediaRoot ...\data\media -RealArtwork -RefreshNodeUrl http://127.0.0.1:8795
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$MediaRoot,
     [switch]$Force,
-    [switch]$RealArtwork,
+    [switch]$OfflineArtwork,
     [string]$RefreshNodeUrl,
     [string]$RuntimeJson
 )
@@ -281,8 +285,13 @@ function New-SeedArtwork {
 function Write-MovieNfo {
     <#
     .SYNOPSIS
-        Lifted from tools/e2e-m4.ps1's Write-MovieNfo, unchanged in shape. Pins a film's identity
-        so Jellyfin never has to guess it from a filename.
+        Pins a film's identity so Jellyfin never has to guess it from a filename. No <plot> --
+        F-27 (pass-02 critique): a seed <plot> reaches the UI verbatim as the item's overview
+        (local NFO metadata wins over fetched TMDB metadata for fields it supplies, the same
+        "local wins" rule that made -RealArtwork have to skip local *images* too -- see
+        docs/UI-LOOP.md). Omitting <plot> entirely lets the now-enabled internet metadata
+        provider fill the overview with the real one instead. No <studio>/<tagline>/<outline> is
+        written either, for the same reason -- checked live, see docs/UI-LOOP.md "Verification".
     #>
     param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)]$Title)
     Set-Content -Path (Join-Path $Folder 'movie.nfo') -Encoding utf8 -Value @"
@@ -290,7 +299,6 @@ function Write-MovieNfo {
 <movie>
   <title>$($Title.Title)</title>
   <year>$($Title.Year)</year>
-  <plot>Written by tools/ui-seed-media.ps1 for the StingStream UI iterate loop (WP-TOOLS).</plot>
   <uniqueid type="tmdb" default="true">$($Title.Tmdb)</uniqueid>
 </movie>
 "@
@@ -301,7 +309,7 @@ function Write-SeriesNfo {
     .SYNOPSIS
         The series-level equivalent of Write-MovieNfo: a tvshow.nfo at the series folder root,
         carrying a TVDB uniqueid so Jellyfin/Sonarr never has to identify the show from its
-        folder name.
+        folder name. No <plot> either -- see Write-MovieNfo's own comment (F-27).
     #>
     param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)]$Series)
     Set-Content -Path (Join-Path $Folder 'tvshow.nfo') -Encoding utf8 -Value @"
@@ -309,7 +317,6 @@ function Write-SeriesNfo {
 <tvshow>
   <title>$($Series.Title)</title>
   <year>$($Series.Year)</year>
-  <plot>Written by tools/ui-seed-media.ps1 for the StingStream UI iterate loop (WP-TOOLS).</plot>
   <uniqueid type="tvdb" default="true">$($Series.Tvdb)</uniqueid>
 </tvshow>
 "@
@@ -329,17 +336,17 @@ function Install-Movie {
     $target = Join-Path $folder "$($Title.Title) ($($Title.Year)).mkv"
     New-SeedClip -Path $target -Seconds $MovieClipSeconds -Bitrate $MovieBitrate
     Write-MovieNfo -Folder $folder -Title $Title
-    if ($RealArtwork) {
-        # No local poster.jpg/fanart.jpg at all -- a local image file wins over any fetched one
-        # regardless of library settings, so -RealArtwork mode has to never create one in the
-        # first place. See the -RealArtwork parameter help.
-        Write-Host "      -RealArtwork: no local poster/fanart for $($Title.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
-    } else {
+    if ($OfflineArtwork) {
         # -Title $Title.Title, not $Title (the whole record) -- New-SeedArtwork's -Title is typed
         # [string], so passing the record coerces via its default ToString() and bakes literal
         # "@{Title=...; Year=...; Tmdb=...}" text into the poster/fanart art instead of the movie's
         # name. Confirmed live in pass-00's 02-home screenshots before this fix.
         New-SeedArtwork -Folder $folder -Title $Title.Title
+    } else {
+        # No local poster.jpg/fanart.jpg at all (the default, F-12) -- a local image file wins
+        # over any fetched one regardless of library settings, so real-artwork mode has to never
+        # create one in the first place. See the -OfflineArtwork parameter help.
+        Write-Host "      real artwork: no local poster/fanart for $($Title.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
     }
 }
 
@@ -354,10 +361,10 @@ function Install-Series {
     $seasonFolder = Join-Path $seriesFolder 'Season 01'
     New-Item -ItemType Directory -Force -Path $seasonFolder | Out-Null
     Write-SeriesNfo -Folder $seriesFolder -Series $Series
-    if ($RealArtwork) {
-        Write-Host "      -RealArtwork: no local poster/fanart for $($Series.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
-    } else {
+    if ($OfflineArtwork) {
         New-SeedArtwork -Folder $seriesFolder -Title $Series.Title
+    } else {
+        Write-Host "      real artwork: no local poster/fanart for $($Series.Title) (Jellyfin fetches it)" -ForegroundColor DarkGray
     }
 
     for ($i = 0; $i -lt $Series.Episodes.Count; $i++) {
@@ -417,12 +424,12 @@ if ($RefreshNodeUrl) {
         $beforeCount = @($before.Items).Count
         Write-Host "  items before refresh: $beforeCount"
 
-        if ($RealArtwork) {
+        if (-not $OfflineArtwork) {
             # Confirmed live (2026-09-06): StingStream.Core's first-run wiring creates both
             # libraries with EnableInternetProviders = false (docs/UI-LOOP.md). Idempotent: only
             # PATCHes a library whose setting is not already true, via Jellyfin's own
             # /Library/VirtualFolders/LibraryOptions endpoint (confirmed 204 on a real node).
-            Write-Head '-RealArtwork: enabling internet image/metadata providers'
+            Write-Head 'Real artwork: enabling internet image/metadata providers'
             $folders = Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Library/VirtualFolders" -Headers $headers -TimeoutSec 30
             foreach ($folder in $folders) {
                 if ($folder.Name -notin @('Movies', 'TV Shows')) { continue }
@@ -447,11 +454,11 @@ if ($RefreshNodeUrl) {
         Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Library/Refresh" -Method POST -Headers $headers -TimeoutSec 30 | Out-Null
 
         $wanted = $Movies.Count + $Series.Count
-        # 180s is enough for a deterministic NFO-only scan; -RealArtwork just turned internet
-        # providers on for the first time, and a real TMDB/TVDB identification pass across all 10
-        # titles is a genuinely slower, network-bound operation -- confirmed live: 180s was not
-        # enough (7/10 items) under real network conditions, so -RealArtwork gets a longer budget.
-        $itemCountBudget = if ($RealArtwork) { 420 } else { 180 }
+        # 420s (the default, real-artwork path) because a real TMDB/TVDB identification pass
+        # across all 10 titles is a genuinely slower, network-bound operation -- confirmed live:
+        # 180s was not enough (7/10 items) under real network conditions. -OfflineArtwork is a
+        # deterministic NFO-only scan, no network identification needed, so 180s is plenty there.
+        $itemCountBudget = if ($OfflineArtwork) { 180 } else { 420 }
         $after = Wait-Until -What 'the refreshed library to include every seeded title' -Seconds $itemCountBudget -PollSeconds 5 -Condition {
             $r = try { Invoke-Json -Uri "$RefreshNodeUrl/jellyfin/Items?Recursive=true&IncludeItemTypes=Movie,Series&userId=$($auth.User.Id)" -Headers $headers -TimeoutSec 30 } catch { $null }
             if ($r -and @($r.Items).Count -ge $wanted) { return $r }
@@ -462,10 +469,10 @@ if ($RefreshNodeUrl) {
         }
         Write-Host "  items after refresh: $(@($after.Items).Count) (wanted at least $wanted)" -ForegroundColor Green
 
-        if ($RealArtwork) {
-            # The catalogue's first movie is the timing signal: -RealArtwork mode wrote no local
+        if (-not $OfflineArtwork) {
+            # The catalogue's first movie is the timing signal: real-artwork mode wrote no local
             # poster for it, so ANY Primary image tag showing up can only have come from a fetch.
-            Write-Head '-RealArtwork: waiting for a real poster to be fetched'
+            Write-Head 'Real artwork: waiting for a real poster to be fetched'
             $sample = $Movies[0]
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             try {
