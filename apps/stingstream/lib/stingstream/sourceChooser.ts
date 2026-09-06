@@ -97,6 +97,7 @@ export function buildSourceChoices(
   }
 
   const choices: SourceChoice[] = [];
+  const locals: Array<{ choice: SourceChoice; mediaSource: MediaSourceInfo }> = [];
   for (const mediaSource of mediaSources ?? []) {
     const id = mediaSource.Id;
     if (!id) continue;
@@ -114,7 +115,20 @@ export function buildSourceChoices(
     // Not a mesh pointer. A remote path this node did not write is somebody else's business
     // (a Live TV tuner, an http source added by hand) and has no place in a holder menu.
     if (mediaSource.IsRemote) continue;
-    choices.push(fromLocalSource(id, mediaSource, localLabel));
+    const choice = fromLocalSource(id, mediaSource, localLabel);
+    choices.push(choice);
+    locals.push({ choice, mediaSource });
+  }
+
+  // One server, two files: a folder holding a 1080p and a 720p cut of the same film is an ordinary
+  // library, and two rows both reading "This server" would be a coin toss. Naming them only in
+  // this case keeps the common one — a single local copy — reading as the place rather than the
+  // file.
+  if (locals.length > 1) {
+    for (const { choice, mediaSource } of locals) {
+      const name = localSourceName(mediaSource);
+      if (name) choice.nodeName = `${localLabel} · ${name}`;
+    }
   }
 
   const currentHash = choices.find(
@@ -216,6 +230,12 @@ export const fileHashFromETag = (
 /** Both spellings of the same hash compare equal. */
 const normaliseHash = (hash: string | null | undefined): string | null =>
   hash ? hash.replace(/^b3-/i, "").toLowerCase() : null;
+
+/** What tells one local file from another: what the player's own source picker calls it. */
+const localSourceName = (mediaSource: MediaSourceInfo): string | null => {
+  const video = mediaSource.MediaStreams?.find((s) => s.Type === "Video");
+  return mediaSource.Name || video?.DisplayTitle || null;
+};
 
 const routeOf = (path: string | null | undefined): SourceRoute => {
   if (path === "direct" || path === "mixed") return "direct";

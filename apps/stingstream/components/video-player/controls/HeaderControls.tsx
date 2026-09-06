@@ -5,7 +5,7 @@ import type {
 } from "@jellyfin/sdk/lib/generated-client";
 import { type FC, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, TouchableOpacity, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
@@ -72,6 +72,53 @@ const subtitleFor = (item: BaseItemDto): string | null => {
 };
 
 const isWeb = Platform.OS === "web" && !Platform.isTV;
+
+/**
+ * Laid out with inline styles rather than `className`.
+ *
+ * NativeWind v2's classes are compiled for the native runtime; in the exported web bundle they
+ * reach the DOM as plain strings with no stylesheet behind them, so a `flex-row` there is a
+ * silent no-op and every cluster in this bar stacks into a column. That is a foundation-level
+ * problem for the whole app, but the OSD cannot wait for it: it is drawn over video, where "the
+ * controls are in the wrong place" is not a cosmetic complaint.
+ */
+const styles = StyleSheet.create({
+  bar: {
+    position: "absolute",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: HEADER_LAYOUT.CONTAINER_PADDING,
+  },
+  left: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  identity: {
+    flexDirection: "column",
+    flexShrink: 1,
+    marginLeft: 4,
+    paddingTop: 4,
+  },
+  right: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  iconButton: {
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    padding: 8,
+    marginLeft: 4,
+  },
+  pillSlot: {
+    marginTop: 4,
+  },
+});
 
 /**
  * The top of the OSD: what you are watching and where it came from on the left, what you can do to
@@ -163,24 +210,15 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
   return (
     <View
       style={[
-        {
-          position: "absolute",
-          top: insets.top,
-          left: insets.left,
-          right: insets.right,
-          padding: HEADER_LAYOUT.CONTAINER_PADDING,
-        },
+        styles.bar,
+        { top: insets.top, left: insets.left, right: insets.right },
       ]}
       pointerEvents={showControls ? "auto" : "none"}
-      className='flex flex-row justify-between items-start'
     >
-      <View
-        className='flex flex-row items-start shrink mr-2'
-        pointerEvents='box-none'
-      >
+      <View style={styles.left} pointerEvents='box-none'>
         <TouchableOpacity
           onPress={onClose}
-          className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+          style={[styles.iconButton, { marginLeft: 0 }]}
           accessibilityRole='button'
           accessibilityLabel={t("player.go_back")}
         >
@@ -190,7 +228,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
             color='white'
           />
         </TouchableOpacity>
-        <View className='flex flex-col shrink ml-1 pt-1'>
+        <View style={styles.identity}>
           {subtitle ? (
             <Text variant='caption' tone='secondary' numberOfLines={1}>
               {subtitle}
@@ -199,7 +237,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <Text variant='heading' weight='semibold' numberOfLines={1}>
             {item?.Name}
           </Text>
-          <View className='mt-1'>
+          <View style={styles.pillSlot}>
             <SourcePill
               mediaSource={mediaSource}
               onPress={onOpenSourceChooser}
@@ -208,14 +246,14 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         </View>
       </View>
 
-      <View className='flex flex-row items-center space-x-2 shrink-0'>
+      <View style={styles.right}>
         {/* Rotate toggle is Android-only: iOS does not reliably rotate the
             player back to portrait programmatically. */}
         {Platform.OS === "android" && !Platform.isTV && (
           <TouchableOpacity
             onPress={toggleOrientation}
             disabled={isTogglingOrientation}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
             accessibilityLabel={t("accessibility.toggle_orientation")}
             accessibilityHint={t("accessibility.toggle_orientation_hint")}
           >
@@ -230,7 +268,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         {!Platform.isTV && startPictureInPicture && (
           <TouchableOpacity
             onPress={startPictureInPicture}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
           >
             <MaterialIcons
               name='picture-in-picture'
@@ -242,7 +280,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         {item?.Type === "Episode" && (
           <TouchableOpacity
             onPress={switchOnEpisodeMode}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
           >
             <Ionicons name='list' size={ICON_SIZES.HEADER} color='white' />
           </TouchableOpacity>
@@ -250,7 +288,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         {previousItem && (
           <TouchableOpacity
             onPress={goToPreviousItem}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
           >
             <Ionicons
               name='play-skip-back'
@@ -262,7 +300,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         {nextItem && (
           <TouchableOpacity
             onPress={() => goToNextItem({ isAutoPlay: false })}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
           >
             <Ionicons
               name='play-skip-forward'
@@ -282,7 +320,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
         {isWeb && onToggleMute && (
           <TouchableOpacity
             onPress={onToggleMute}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
             accessibilityRole='button'
             accessibilityLabel={isMuted ? t("player.unmute") : t("player.mute")}
           >
@@ -297,7 +335,7 @@ export const HeaderControls: FC<HeaderControlsProps> = ({
           <TouchableOpacity
             testID='player-fullscreen'
             onPress={onToggleFullscreen}
-            className='aspect-square flex flex-col rounded-xl items-center justify-center p-2'
+            style={styles.iconButton}
             accessibilityRole='button'
             accessibilityLabel={
               fullscreen ? t("player.exit_fullscreen") : t("player.fullscreen")

@@ -44,6 +44,12 @@ export interface SourceChooserSheetProps {
    * its own, which is what the pre-play button wants.
    */
   choices?: readonly SourceChoice[];
+  /**
+   * What the badge on the current row says. "Playing" inside the player, "Selected" before
+   * anything has started — nothing is playing on a details page, and saying so is a small lie the
+   * user notices.
+   */
+  currentLabel?: string;
   /** Called with the chosen `MediaSourceInfo.Id`. Never called for the row already playing. */
   onSelect: (mediaSourceId: string) => void;
 }
@@ -63,6 +69,7 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
   item,
   currentMediaSourceId,
   choices: providedChoices,
+  currentLabel,
   onSelect,
 }) => {
   const { t } = useTranslation();
@@ -84,9 +91,9 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
       offline: t("player.source.offline"),
       recommended: t("player.source.recommended"),
       sameFile: t("player.source.same_file"),
-      playing: t("player.source.playing"),
+      playing: currentLabel ?? t("player.source.playing"),
     }),
-    [t],
+    [t, currentLabel],
   );
 
   const segments = useMemo(

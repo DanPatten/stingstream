@@ -67,6 +67,7 @@ export const SourceChooserButton: FC<SourceChooserButtonProps> = ({
         onClose={() => setOpen(false)}
         item={item}
         currentMediaSourceId={currentMediaSourceId}
+        currentLabel={t("player.source.selected")}
         onSelect={onSelect}
       />
     </>

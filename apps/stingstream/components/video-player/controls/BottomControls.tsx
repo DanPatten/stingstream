@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import type { ChapterInfo } from "@jellyfin/sdk/lib/generated-client";
 import { type FC, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Slider } from "react-native-awesome-slider";
 import { type SharedValue } from "react-native-reanimated";
 import { ChapterList } from "@/components/chapters/ChapterList";
@@ -21,6 +21,52 @@ import { TrickplayBubble } from "./TrickplayBubble";
 // Chapter tick height in dp — matches the slider track height for a clean,
 // flush look (no top/bottom overflow).
 const TICK_HEIGHT = 10;
+
+// Inline rather than `className` for the same reason HeaderControls is: NativeWind v2's classes
+// are inert in the exported web bundle, and a seek bar that stacks into a column is not a seek bar.
+const styles = StyleSheet.create({
+  bar: {
+    position: "absolute",
+    flexDirection: "column",
+    paddingHorizontal: 8,
+  },
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  chapterLabel: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    flexShrink: 1,
+    justifyContent: "flex-end",
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    flexShrink: 0,
+    paddingRight: 8,
+    paddingBottom: 4,
+  },
+  chapterButton: {
+    justifyContent: "center",
+    marginLeft: 16,
+    marginBottom: 4,
+  },
+  sliderBlock: {
+    flexDirection: "column",
+    width: "100%",
+    marginVertical: 8,
+  },
+  track: {
+    height: 10,
+    justifyContent: "center",
+    alignItems: "stretch",
+    // Chapter ticks are taller than the 10px track and must bleed out top and bottom; React
+    // Native defaults to overflow "hidden" on Android.
+    overflow: "visible",
+  },
+});
 
 interface BottomControlsProps {
   /** Item chapters, used for the tick overlay and chapter list. */
@@ -123,28 +169,21 @@ export const BottomControls: FC<BottomControlsProps> = ({
   return (
     <View
       style={[
+        styles.bar,
         {
-          position: "absolute",
           right: insets.right,
           left: insets.left,
           bottom: Math.max(insets.bottom - 17, 0),
         },
       ]}
-      className={"flex flex-col px-2"}
       onTouchStart={handleControlsInteraction}
     >
-      <View
-        className='shrink flex flex-col justify-center'
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-        }}
-      >
+      <View style={styles.topRow}>
         {/* Title, series and year moved to the top-left with the source pill (HeaderControls):
             identity belongs next to the thing that qualifies it, and the bottom bar is for the
             timeline. What is left here is the one label that describes the *position*. */}
         <View
-          className='flex flex-col items-start shrink justify-end'
+          style={styles.chapterLabel}
           pointerEvents={showControls ? "box-none" : "none"}
         >
           {currentChapterName ? (
@@ -153,13 +192,12 @@ export const BottomControls: FC<BottomControlsProps> = ({
             </Text>
           ) : null}
         </View>
-        <View className='flex flex-row items-end space-x-2 shrink-0 pr-2 pb-1'>
+        <View style={styles.actions}>
           {hasChapters && (
             <Pressable
               onPress={() => setChapterListVisible(true)}
               hitSlop={10}
-              // mb centers the bare 24px icon on the taller skip/next buttons
-              className='justify-center ml-4 mb-1'
+              style={styles.chapterButton}
               accessibilityRole='button'
               accessibilityLabel={t("chapters.open")}
             >
@@ -169,19 +207,12 @@ export const BottomControls: FC<BottomControlsProps> = ({
         </View>
       </View>
       <View
-        className={"flex flex-col-reverse rounded-lg items-center my-2"}
+        style={styles.sliderBlock}
         pointerEvents={showControls ? "box-none" : "none"}
       >
-        <View className={"flex flex-col w-full shrink"}>
+        <View>
           <View
-            style={{
-              height: 10,
-              justifyContent: "center",
-              alignItems: "stretch",
-              // Allow chapter ticks taller than the 10px track to bleed out
-              // top/bottom (RN defaults to overflow: "hidden" on Android).
-              overflow: "visible",
-            }}
+            style={styles.track}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
           >

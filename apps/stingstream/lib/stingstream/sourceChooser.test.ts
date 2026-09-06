@@ -145,6 +145,27 @@ describe("buildSourceChoices — the join", () => {
     expect(local?.rttMs).toBeNull();
   });
 
+  test("names two local files apart, and leaves a single one as the place", () => {
+    // A folder holding a 1080p and a 720p cut is an ordinary library; two rows both reading
+    // "This server" would be a coin toss.
+    const hd: MediaSourceInfo = {
+      ...localSource("ms-1080", 1080, 12_000_000),
+      Name: "Title (2020) - 1080p",
+    };
+    const sd: MediaSourceInfo = {
+      ...localSource("ms-720", 720, 4_000_000),
+      Name: "Title (2020) - 720p",
+    };
+    const two = build([hd, sd], null, "quality_first");
+    expect(two.map((c) => c.nodeName)).toEqual([
+      "This server · Title (2020) - 1080p",
+      "This server · Title (2020) - 720p",
+    ]);
+
+    const one = build([hd], null);
+    expect(one.map((c) => c.nodeName)).toEqual(["This server"]);
+  });
+
   test("ignores a remote MediaSource that is not a mesh pointer", () => {
     const tuner: MediaSourceInfo = {
       Id: "ms-tuner",

@@ -879,7 +879,8 @@
       "same_file": "Same file",
       "playing": "Playing",
       "none_title": "Nothing else holds this",
-      "none_description": "Only this server has a copy you can play right now."
+      "none_description": "Only this server has a copy you can play right now.",
+      "selected": "Selected"
     },
     "next_up": "Next up",
     "fullscreen": "Full screen",

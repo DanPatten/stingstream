@@ -9,6 +9,12 @@
  * **Nothing renders for ordinary playback.** `useMeshSourceStatus` returns `null` for a source that
  * is not a mesh URL, and a badge over every local film would be noise that trains people to ignore
  * the badge, which is the one time it matters.
+ *
+ * The exception is the one case where silence would be a dead end: the local copy of a title other
+ * servers also hold. There is no mesh status to report, but the pill is the only way into
+ * "Play from…", and a player that cannot offer the other holders while sitting on the slowest copy
+ * is worse than a slightly busier corner. So the pill appears whenever a chooser exists — which is
+ * exactly when `onPress` is passed — and says where the bytes are coming from: this server.
  */
 
 import type { MediaSourceInfo } from "@jellyfin/sdk/lib/generated-client";
@@ -59,6 +65,9 @@ interface SourcePillProps {
   onPress?: () => void;
 }
 
+/** The dot for a local file: white, the same "not a mesh grade" colour the home node gets. */
+const LOCAL_KIND: MeshConnectionKind = "home-node";
+
 /** `Direct · Kitchen · 18 ms`, with whichever halves the mesh actually knows. */
 const usePillLabel = (
   status: ReturnType<typeof useMeshSourceStatus>,
@@ -75,15 +84,16 @@ const usePillLabel = (
 export const SourcePill: FC<SourcePillProps> = ({ mediaSource, onPress }) => {
   const status = useMeshSourceStatus(mediaSource);
   const { t } = useTranslation();
-  const label = usePillLabel(status);
+  const meshLabel = usePillLabel(status);
 
-  if (!status) return null;
+  if (!status && !onPress) return null;
+
+  const kind = status?.kind ?? LOCAL_KIND;
+  const label = status ? meshLabel : t("player.source.this_server");
 
   const body = (
     <View style={styles.pill}>
-      <View
-        style={[styles.dot, { backgroundColor: meshDotColor(status.kind) }]}
-      />
+      <View style={[styles.dot, { backgroundColor: meshDotColor(kind) }]} />
       <Text variant='caption' weight='medium' numberOfLines={1}>
         {label}
       </Text>
@@ -138,11 +148,14 @@ export const TVSourcePill: FC<TVSourcePillProps> = ({
   const status = useMeshSourceStatus(mediaSource);
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
-  const label = usePillLabel(status);
+  const meshLabel = usePillLabel(status);
   const { focused, handleFocus, handleBlur, animatedStyle } =
     useTVFocusAnimation({ scaleAmount: 1.05, duration: 150 });
 
-  if (!status) return null;
+  if (!status && !onPress) return null;
+
+  const kind = status?.kind ?? LOCAL_KIND;
+  const label = status ? meshLabel : t("player.source.this_server");
 
   return (
     <Pressable
@@ -163,7 +176,7 @@ export const TVSourcePill: FC<TVSourcePillProps> = ({
         ]}
       >
         <View
-          style={[tvStyles.dot, { backgroundColor: meshDotColor(status.kind) }]}
+          style={[tvStyles.dot, { backgroundColor: meshDotColor(kind) }]}
         />
         <Text style={[tvStyles.label, { fontSize: typography.callout }]}>
           {label}
