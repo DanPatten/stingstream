@@ -1230,6 +1230,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/setup/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the account this node will be used with.
+         * @description Renames the bootstrap administrator rather than creating a second account, so the libraries,
+         *     the policies and the item that first-run wiring already attached to it stay attached. The
+         *     answer is the same shape as a sign-in, so the app moves straight to the home screen instead
+         *     of showing a login form to somebody who has just typed their password.
+         */
+        post: operations["Setup_StingStreamSetupAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/setup/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this node still needs its first account, and whether you are on the machine that
+         *     can create it.
+         * @description Anonymous and ungated on purpose, and it answers from anywhere: a phone on the sofa has to
+         *     be able to learn that a node is unclaimed so it can say "finish setup on the computer
+         *     running StingStream" rather than a login form nobody can get through. It reveals one
+         *     boolean, which `/healthz`'s public body already reveals as `first_run`.
+         */
+        get: operations["Setup_StingStreamSetupState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/setup/run": {
         parameters: {
             query?: never;
@@ -1641,6 +1688,17 @@ export interface components {
             BitRate?: number | null;
             IsDefault?: boolean;
             DisplayTitle?: string;
+        };
+        /** @description A class representing an authentication result. */
+        AuthenticationResult: {
+            /** @description Class UserDto. */
+            User?: components["schemas"]["UserDto"] | null;
+            /** @description Session info DTO. */
+            SessionInfo?: components["schemas"]["SessionInfoDto"] | null;
+            /** @description Gets or sets the access token. */
+            AccessToken?: string | null;
+            /** @description Gets or sets the server id. */
+            ServerId?: string | null;
         };
         /** @description The answer to `GET /items/{id}/availability`. */
         AvailabilityResponse: {
@@ -5283,6 +5341,28 @@ export interface components {
         SetCoordinatorRequest: {
             /** @description The new coordinator URL. */
             Coordinator?: string | null;
+        };
+        /** @description The account somebody chose on the first-run screen. */
+        SetupAdminRequest: {
+            /** @description The name for the account. Letters, digits, dots, underscores and dashes. */
+            Username?: string | null;
+            /** @description The password for the account. At least eight characters. */
+            Password?: string | null;
+        };
+        /** @description One sentence saying why a setup request was refused. */
+        SetupError: {
+            /** @description The sentence, written for the person who typed it. */
+            Error?: string;
+        };
+        /** @description Whether this node still needs its first account. */
+        SetupState: {
+            /** @description True while nobody has created an account on this node yet. */
+            Pending?: boolean;
+            /**
+             * @description True when this request came from the machine the node runs on, which is the only place the
+             *     account can be created.
+             */
+            Loopback?: boolean;
         };
         /**
          * @description "Omniarr": the one settings model StingStream keeps, pushed idempotently into both Radarr and
@@ -10526,6 +10606,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Setup_StingStreamSetupAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The name and password somebody chose. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SetupAdminRequest"];
+                "text/json": components["schemas"]["SetupAdminRequest"];
+                "application/*+json": components["schemas"]["SetupAdminRequest"];
+            };
+        };
+        responses: {
+            /** @description The account is yours, and here is a session for it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticationResult"];
+                };
+            };
+            /** @description The name or the password is not usable; the sentence says which. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupError"];
+                };
+            };
+            /** @description The caller is not on this machine. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description This node already has an account. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Setup_StingStreamSetupState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two booleans. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupState"];
+                };
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
