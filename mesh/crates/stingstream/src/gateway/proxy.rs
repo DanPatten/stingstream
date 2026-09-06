@@ -81,7 +81,9 @@ pub struct Upstream {
 
 /// Proxy `req` to `upstream`, preserving the path after `gateway_prefix`.
 ///
-/// `client_addr` is used for `X-Forwarded-For`.
+/// `client_addr` is the **real socket peer**, injected per connection by
+/// [`crate::gateway::listen`]. It is the only trustworthy account of who is calling, and
+/// [`forwarded_headers`] explains why this function refuses to proceed without it.
 pub async fn proxy(
     client: ProxyClient,
     upstream: Upstream,
@@ -116,6 +118,13 @@ pub async fn proxy(
         }
     };
 
+    // Whether the *client's* hop was TLS. The listener knows and the router cannot, because it is
+    // one router on both listeners -- see `gateway::listen::ConnSecure`.
+    let secure = req
+        .extensions()
+        .get::<super::listen::ConnSecure>()
+        .is_some_and(|c| c.0);
+
     // Capture the upgrade future *before* the request is consumed. axum put it in the extensions
     // when it accepted the connection; taking it here is what makes a 101 splice possible below.
     let client_upgrade = req.extensions_mut().remove::<hyper::upgrade::OnUpgrade>();
@@ -138,12 +147,17 @@ pub async fn proxy(
             headers.insert("x-forwarded-host", v);
         }
     }
-    headers.insert("x-forwarded-proto", HeaderValue::from_static("http"));
-    if let Some(addr) = client_addr {
-        if let Ok(v) = HeaderValue::from_str(&addr.ip().to_string()) {
-            headers.insert("x-forwarded-for", v.clone());
-            headers.insert("x-real-ip", v);
-        }
+    if !forwarded_headers(headers, client_addr, secure) {
+        tracing::error!(
+            child = upstream.name,
+            "refusing to proxy a request whose peer address is unknown: the forwarded-for headers \
+             Jellyfin trusts could not be established"
+        );
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the gateway could not determine the client address",
+        )
+            .into_response();
     }
     // Host must name the upstream, not the gateway, or Jellyfin's own base-URL handling and
     // Radarr's CSRF-ish origin checks get confused.
@@ -182,6 +196,58 @@ pub async fn proxy(
     let (mut parts, body) = upstream_res.into_parts();
     strip_hop_by_hop(&mut parts.headers);
     Response::from_parts(parts, Body::new(body))
+}
+
+/// Set `x-forwarded-for`, `x-real-ip` and `x-forwarded-proto` from what this hop actually knows,
+/// discarding whatever the client claimed. Returns `false` when the peer is unknown.
+///
+/// Three things were wrong here, and all three mattered because **Jellyfin trusts these headers**:
+/// `preseed/jellyfin.rs` lists `127.0.0.1` in `KnownProxies`, which is exactly the "believe the
+/// forwarded address from this hop" switch.
+///
+/// 1. **An inbound value was never removed.** The insert only happened *inside* `if let Some(addr)`,
+///    so on any path where the peer was unknown a client's own `X-Forwarded-For: 127.0.0.1` went
+///    through untouched — and Core's loopback checks, and Jellyfin's session log, would have
+///    believed it. Stripping first, unconditionally, is what makes this a gate rather than a
+///    default.
+/// 2. **It failed open.** No peer meant no header rather than no request. A gateway that cannot
+///    say who is calling should refuse, not guess, so this returns `false` and the caller answers
+///    500 — the same "fail closed on absent connect info" stance [`super::is_local`] takes.
+/// 3. **`x-forwarded-proto` was hard-coded `http`.** A node with a side-door certificate serves
+///    the same router over TLS ([`super::listen`]), and telling Jellyfin the connection was plain
+///    makes every absolute URL it generates — image links, the redirects a browser follows — come
+///    back `http://`, which a page loaded over HTTPS then refuses as mixed content.
+fn forwarded_headers(headers: &mut HeaderMap, client_addr: Option<SocketAddr>, secure: bool) -> bool {
+    // Unconditionally, and before anything is decided: a spoofed value must not survive a path
+    // that fails to overwrite it.
+    headers.remove("x-forwarded-for");
+    headers.remove("x-real-ip");
+    headers.remove("x-forwarded-proto");
+
+    let Some(addr) = client_addr else {
+        return false;
+    };
+    // A loopback IPv4 client on a dual-stack listener arrives as `::ffff:127.0.0.1`. Jellyfin's
+    // session log and Core's own checks are written against the dotted form, and it is the same
+    // address, so it is unmapped here for the same reason `super::is_local` unmaps before
+    // deciding.
+    let ip = match addr.ip() {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(std::net::IpAddr::V4)
+            .unwrap_or(std::net::IpAddr::V6(v6)),
+        v4 => v4,
+    };
+    let Ok(ip) = HeaderValue::from_str(&ip.to_string()) else {
+        return false;
+    };
+    headers.insert("x-forwarded-for", ip.clone());
+    headers.insert("x-real-ip", ip);
+    headers.insert(
+        "x-forwarded-proto",
+        HeaderValue::from_static(if secure { "https" } else { "http" }),
+    );
+    true
 }
 
 /// Proxy a request that asked to change protocol, over a connection of its own.
@@ -399,6 +465,81 @@ mod tests {
         assert!(h.get("x-private").is_none(), "Connection-nominated header must go");
         assert!(h.get("keep-alive").is_none());
         assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "text/plain");
+    }
+
+    /// Metro is mounted at the gateway's root, so its prefix is empty on both sides — the one
+    /// combination `rewrite_path` had no test for, and the one `--web-dev-server` depends on.
+    #[test]
+    fn an_empty_prefix_on_both_sides_is_the_identity() {
+        for path in [
+            "/",
+            "/index.html",
+            "/manage/movies",
+            "/hot",
+            "/message",
+            "/_expo/static/js/web/entry.bundle?platform=web&dev=true",
+        ] {
+            assert_eq!(rewrite_path(path, "", "").unwrap(), path, "{path}");
+        }
+        // A bare empty path is not something axum produces, but the "" -> "/" rule still holds.
+        assert_eq!(rewrite_path("", "", "").unwrap(), "/");
+    }
+
+    /// Bug 9, all three halves. Jellyfin is configured to trust these headers from 127.0.0.1
+    /// (`KnownProxies`), so what the gateway writes here is what Core's loopback checks and
+    /// Jellyfin's session log believe.
+    #[test]
+    fn a_clients_own_forwarded_headers_are_replaced_not_appended() {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", HeaderValue::from_static("127.0.0.1"));
+        h.insert("x-real-ip", HeaderValue::from_static("127.0.0.1"));
+        h.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        let peer: SocketAddr = "192.168.1.20:51234".parse().unwrap();
+
+        assert!(forwarded_headers(&mut h, Some(peer), false));
+        assert_eq!(h.get_all("x-forwarded-for").iter().count(), 1);
+        assert_eq!(h.get("x-forwarded-for").unwrap(), "192.168.1.20");
+        assert_eq!(h.get("x-real-ip").unwrap(), "192.168.1.20");
+        assert_eq!(h.get("x-forwarded-proto").unwrap(), "http");
+    }
+
+    #[test]
+    fn an_unknown_peer_leaves_no_forwarded_headers_at_all() {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", HeaderValue::from_static("127.0.0.1"));
+        h.insert("x-real-ip", HeaderValue::from_static("127.0.0.1"));
+
+        assert!(
+            !forwarded_headers(&mut h, None, false),
+            "no peer must fail the request, not pass the client's claim through"
+        );
+        assert!(h.get("x-forwarded-for").is_none());
+        assert!(h.get("x-real-ip").is_none());
+        assert!(h.get("x-forwarded-proto").is_none());
+    }
+
+    #[test]
+    fn the_forwarded_protocol_follows_the_connections_tls_state() {
+        let peer: SocketAddr = "10.0.0.4:443".parse().unwrap();
+        let mut plain = HeaderMap::new();
+        forwarded_headers(&mut plain, Some(peer), false);
+        assert_eq!(plain.get("x-forwarded-proto").unwrap(), "http");
+
+        let mut tls = HeaderMap::new();
+        forwarded_headers(&mut tls, Some(peer), true);
+        assert_eq!(tls.get("x-forwarded-proto").unwrap(), "https");
+    }
+
+    /// A loopback IPv4 client on a dual-stack listener arrives as `::ffff:127.0.0.1`, and what
+    /// goes into the header is the unmapped form Jellyfin's own checks expect.
+    #[test]
+    fn a_loopback_peer_is_forwarded_as_loopback() {
+        let mut h = HeaderMap::new();
+        forwarded_headers(&mut h, Some("[::ffff:127.0.0.1]:5000".parse().unwrap()), false);
+        assert_eq!(h.get("x-forwarded-for").unwrap(), "127.0.0.1");
+        let mut h = HeaderMap::new();
+        forwarded_headers(&mut h, Some("[::1]:5000".parse().unwrap()), false);
+        assert_eq!(h.get("x-forwarded-for").unwrap(), "::1");
     }
 
     #[test]
