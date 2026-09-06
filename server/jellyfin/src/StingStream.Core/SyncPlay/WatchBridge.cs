@@ -200,8 +200,8 @@ public sealed class WatchBridge : BackgroundService
         if (_mesh.BaseUrl is null)
         {
             _logger.LogInformation(
-                "No mesh on this node, so watch-together stays within it. Jellyfin's own SyncPlay "
-                + "already covers that case, federated titles included.");
+                "No mesh on this node, so watch-together stays within it. The server's own "
+                + "watch-together already covers that case, federated titles included.");
             return;
         }
 

@@ -114,10 +114,25 @@ pub struct MeshRuntime {
     pub api_port: u16,
 }
 
+/// The bootstrap Jellyfin administrator the supervisor generates on a node's very first start.
+///
+/// The **password is deliberately temporary**. It exists so that `StingStream.Core` can rename and
+/// re-password the account Jellyfin creates for itself before anybody can reach it, and for nothing
+/// else. Once the person at the keyboard has created their own account through the setup screen —
+/// which is when Core reports `Pending: false` — the supervisor calls
+/// [`Runtime::scrub_admin_password`] and this field is simply gone from `runtime.json`
+/// (`docs/SECURITY.md` R1: on Windows that file inherits the data directory's ACL and nothing
+/// tightens it, so a generated password sitting there forever was a real exposure).
+///
+/// It is therefore an `Option`, and **absent is the ordinary steady state of a set-up node**, not
+/// an error. Core already handles it: `FirstRunService.EnsureAdminUserAsync` only changes the
+/// password when one is present, and leaves the account alone once more than one user exists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminRuntime {
     pub username: String,
-    pub password: String,
+    /// The generated bootstrap password, until setup completes and it is scrubbed.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub password: Option<String>,
 }
 
 impl Runtime {
@@ -178,6 +193,42 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+
+    /// Remove the generated bootstrap administrator password and persist. Idempotent.
+    ///
+    /// Called once, by the setup poller in [`crate::setup`], when `StingStream.Core` first reports
+    /// that first-run setup is no longer pending — i.e. somebody has created their own account.
+    /// The username stays: it is not a secret, and Core's own `EnsureAdminUserAsync` still wants to
+    /// know which account it bootstrapped.
+    ///
+    /// Returns whether anything was actually removed, so the caller can log it once rather than on
+    /// every poll.
+    pub fn scrub_admin_password(path: &Path) -> Result<bool> {
+        let Some(mut r) = Self::load(path) else {
+            return Ok(false);
+        };
+        let held = r
+            .jellyfin_admin
+            .as_ref()
+            .is_some_and(|a| a.password.is_some());
+        if !held {
+            return Ok(false);
+        }
+        if let Some(admin) = r.jellyfin_admin.as_mut() {
+            admin.password = None;
+        }
+        r.updated_at = now_rfc3339();
+        r.save(path)?;
+        Ok(true)
+    }
+
+    /// Whether `runtime.json` still holds a generated bootstrap password, i.e. whether setup has
+    /// not yet been completed as far as the supervisor can tell without asking Core.
+    pub fn holds_admin_password(&self) -> bool {
+        self.jellyfin_admin
+            .as_ref()
+            .is_some_and(|a| a.password.is_some())
     }
 
     pub fn child(&self, name: &str) -> Option<&ChildRuntime> {
@@ -414,5 +465,100 @@ mod tests {
     fn clear_first_run_on_a_missing_file_is_not_an_error() {
         let td = tempfile::tempdir().unwrap();
         Runtime::clear_first_run(&td.path().join("nope.json")).unwrap();
+    }
+
+    /// The password is present before setup and *absent* after, and both shapes have to survive a
+    /// save/load cycle — an absent field is the ordinary steady state of a node somebody has
+    /// finished setting up, not a corrupt file.
+    #[test]
+    fn runtime_round_trips_with_and_without_the_bootstrap_password() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("runtime.json");
+
+        let mut with = sample();
+        with.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: Some("generated-24-characters".into()),
+        });
+        with.save(&p).unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().contains("generated-24-characters"));
+        assert_eq!(Runtime::load(&p).unwrap(), with);
+        assert!(with.holds_admin_password());
+
+        let mut without = with.clone();
+        without.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: None,
+        });
+        without.save(&p).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(!text.contains("password\": \"generated"), "{text}");
+        let back = Runtime::load(&p).unwrap();
+        assert_eq!(back, without);
+        assert_eq!(back.jellyfin_admin.as_ref().unwrap().username, "stingstream");
+        assert!(!back.holds_admin_password());
+    }
+
+    /// A file written by an older node — where `password` was a plain string — still loads.
+    #[test]
+    fn a_runtime_written_before_the_password_became_optional_still_loads() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("runtime.json");
+        let mut r = sample();
+        r.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: Some("old".into()),
+        });
+        // Exactly the JSON v0.1.0 wrote: `password` is a bare string, not an option.
+        let mut value = serde_json::to_value(&r).unwrap();
+        value["jellyfin_admin"]["password"] = serde_json::json!("old");
+        std::fs::write(&p, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+        assert_eq!(Runtime::load(&p).unwrap(), r);
+    }
+
+    #[test]
+    fn scrubbing_the_password_keeps_the_username_and_is_idempotent() {
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("runtime.json");
+        let mut r = sample();
+        r.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: Some("secret".into()),
+        });
+        r.save(&p).unwrap();
+
+        assert!(Runtime::scrub_admin_password(&p).unwrap(), "the first scrub removes it");
+        let after = Runtime::load(&p).unwrap();
+        assert_eq!(after.jellyfin_admin.as_ref().unwrap().username, "stingstream");
+        assert!(after.jellyfin_admin.as_ref().unwrap().password.is_none());
+        assert!(!std::fs::read_to_string(&p).unwrap().contains("secret"));
+        // Everything else survived the rewrite.
+        assert_eq!(after.node_id, r.node_id);
+        assert_eq!(after.children, r.children);
+        assert_eq!(after.qbittorrent, r.qbittorrent);
+
+        assert!(
+            !Runtime::scrub_admin_password(&p).unwrap(),
+            "a second scrub has nothing to do and must not rewrite the file"
+        );
+        assert!(
+            !Runtime::scrub_admin_password(&td.path().join("nope.json")).unwrap(),
+            "a missing file is not an error"
+        );
+    }
+
+    /// The scrub has to survive a restart, and it does because the supervisor carries the whole
+    /// `AdminRuntime` forward rather than regenerating one.
+    #[test]
+    fn a_scrubbed_password_is_not_regenerated_on_the_next_start() {
+        let mut r = sample();
+        r.jellyfin_admin = Some(AdminRuntime {
+            username: "stingstream".into(),
+            password: None,
+        });
+        let carried = CarriedSecrets::from_previous(Some(&r));
+        let admin = carried.jellyfin_admin.expect("carried forward");
+        assert_eq!(admin.username, "stingstream");
+        assert!(admin.password.is_none(), "a restart must not mint a new bootstrap password");
     }
 }

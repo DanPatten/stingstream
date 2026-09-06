@@ -180,6 +180,8 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/downloads/*` | all | Admin |
 | `/stingstream/api/v1/inventory/*` | all | Admin |
 | `/stingstream/api/v1/qualityprofiles/*` | all | Admin |
+| `/stingstream/api/v1/setup/state` | GET | Anonymous, answers anywhere; one boolean (`Pending`) plus whether the caller is on this machine |
+| `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback + gateway refuses off-machine |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
@@ -289,7 +291,11 @@ no-op on Windows, where the file inherits the ACL of `%LOCALAPPDATA%`. That is u
 default data directory and **not** if `$STINGSTREAM_DATA` is redirected to `C:\ProgramData` or a
 shared volume, where `node.key`, `runtime.json` and `tls/key.pem` inherit a permissive ACL and
 nothing tightens it. A real fix is a Win32 ACL rewrite. Until then: keep the data directory under
-your own profile on Windows.
+your own profile on Windows. **Narrowed in v0.2.0:** the generated administrator password no
+longer lives there indefinitely — the supervisor removes `jellyfin_admin.password` from
+`runtime.json` as soon as Core reports first-run setup complete (`crate::setup`), so the one
+credential in that file that was a way *into* the node is gone within seconds of somebody creating
+their own account. The node key and the TLS key still sit under that ACL, so the advice stands.
 
 **R2 — Radarr and Sonarr run with no authentication at all.** `AuthenticationMethod=External` plus
 `AuthenticationRequired=DisabledForLocalAddresses`, which is safe exactly as long as

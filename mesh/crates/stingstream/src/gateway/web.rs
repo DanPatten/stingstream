@@ -27,6 +27,7 @@ use std::path::{Component, Path, PathBuf};
 use axum::body::Body;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use serde::Serialize;
 
 /// `Cache-Control` for a content-hashed asset: it can never change under its own name.
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
@@ -104,10 +105,146 @@ impl WebBundle {
     }
 }
 
+// --- the node marker ------------------------------------------------------------------------
+
+/// What the served page is told about the node serving it.
+///
+/// The web bundle is a plain static artifact: the same files served by `npx serve` are *not* a
+/// node, and must not claim to be. So the facts are spliced in **at serve time**, into
+/// `index.html` responses only, which the gateway already reads per request and already sends
+/// `no-cache` (see [`cache_control`]). That is what lets the marker carry **per-request** facts —
+/// `loopback` is this connection's real socket peer, not a property of the build — and it is what
+/// removes any need for a trusted header from the client.
+///
+/// Synchronous by design: the app decides what to show before first paint rather than flashing the
+/// "which server?" form while a probe is in flight. That flash was the actual complaint.
+///
+/// The rendered shape, exactly (other packages build against it):
+///
+/// ```html
+/// <meta name="stingstream-node" content="1">
+/// <script>window.__STINGSTREAM_NODE__={"node":true,"jellyfin":"/jellyfin",…}</script>
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Marker<'a> {
+    /// This node's display name, for "Sign in to {name}" — never the machine's hostname as seen by
+    /// Jellyfin.
+    pub node_name: &'a str,
+    /// Whether *this request* came from the machine the node runs on. The setup screen is offered
+    /// only to a local browser; everyone else is told where to finish setup.
+    pub loopback: bool,
+    /// The gateway's cached view of Core's first-run setup state: `Some(true)` pending,
+    /// `Some(false)` done, `None` when nobody knows yet (Core not up, or too old to have the
+    /// endpoint). `None` is a real answer and the app must handle it.
+    pub setup_pending: Option<bool>,
+}
+
+/// The JSON payload of the marker. Field order is part of the contract, and `serde` preserves it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkerJson<'a> {
+    node: bool,
+    jellyfin: &'a str,
+    api: &'a str,
+    loopback: bool,
+    setup_pending: Option<bool>,
+    node_name: &'a str,
+    version: &'a str,
+}
+
+impl Marker<'_> {
+    /// The HTML to splice before `</head>`.
+    pub fn html(&self) -> String {
+        let json = serde_json::to_string(&MarkerJson {
+            node: true,
+            jellyfin: super::JELLYFIN_PREFIX,
+            api: "/stingstream/api/v1",
+            loopback: self.loopback,
+            setup_pending: self.setup_pending,
+            node_name: self.node_name,
+            version: env!("CARGO_PKG_VERSION"),
+        })
+        // The only failure mode `to_string` has here is a serializer that cannot fail on these
+        // types; a node without a marker is better than a node that panics serving its own page.
+        .unwrap_or_else(|_| r#"{"node":true}"#.to_string());
+        format!(
+            "<meta name=\"stingstream-node\" content=\"1\">\n<script>window.__STINGSTREAM_NODE__={}</script>\n",
+            escape_for_script(&json)
+        )
+    }
+}
+
+/// Make a JSON document safe to sit inside a `<script>` element.
+///
+/// The one that matters is `<`: a node whose *name* is `</script><script>alert(1)</script>` would
+/// otherwise close the element and run whatever followed, and a node name is attacker-supplied on
+/// any node somebody else configured. `<` is valid JSON *and* valid JavaScript, and parses
+/// back to the same string, so escaping costs nothing. `>` and `&` go too, so the payload is inert
+/// in an HTML-comment or CDATA context as well.
+fn escape_for_script(json: &str) -> String {
+    let mut out = String::with_capacity(json.len());
+    for c in json.chars() {
+        match c {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            // U+2028/U+2029 are line terminators in JavaScript but not in JSON.
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Splice the marker into an HTML document, before `</head>`.
+///
+/// A document with no `</head>` (a hand-written test fixture, or whatever a future bundler emits)
+/// gets it at the very top instead: a browser hoists a `<meta>`/`<script>` found before `<html>`
+/// into the head anyway, and having the marker in the wrong place beats not having it.
+pub fn inject_marker(html: &str, marker: &Marker<'_>) -> String {
+    let block = marker.html();
+    match find_ignore_ascii_case(html, "</head>") {
+        Some(i) => {
+            let mut out = String::with_capacity(html.len() + block.len());
+            out.push_str(&html[..i]);
+            out.push_str(&block);
+            out.push_str(&html[i..]);
+            out
+        }
+        None => format!("{block}{html}"),
+    }
+}
+
+/// Byte index of the first case-insensitive occurrence of `needle` (which must be ASCII).
+fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
+    (0..=h.len() - n.len()).find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
+}
+
+/// Whether a served file is the document the marker belongs in.
+///
+/// The marker goes into pages, never into assets: injecting it into `entry-4f1c2a9b0e.js` would
+/// corrupt a script whose name promises its bytes never change.
+fn is_index_document(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("index.html"))
+}
+
 /// Serve one request out of the bundle, falling back to `index.html` for app routes.
-pub async fn serve(bundle: &WebBundle, url_path: &str) -> Response {
+///
+/// `marker` is spliced into `index.html` responses — the file itself, and the SPA fallback — and
+/// into nothing else.
+pub async fn serve(bundle: &WebBundle, url_path: &str, marker: Option<&Marker<'_>>) -> Response {
     if let Some(path) = bundle.resolve(url_path) {
-        return file_response(&path, cache_control(url_path, &path)).await;
+        let cache = cache_control(url_path, &path);
+        let marker = marker.filter(|_| is_index_document(&path));
+        return file_response(&path, cache, marker).await;
     }
 
     // Not a file. An asset request gets an honest 404; a page request gets the app.
@@ -115,7 +252,7 @@ pub async fn serve(bundle: &WebBundle, url_path: &str) -> Response {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
 
-    file_response(&bundle.index(), NO_CACHE).await
+    file_response(&bundle.index(), NO_CACHE, marker).await
 }
 
 /// Whether a path should 404 rather than fall back to `index.html`.
@@ -200,9 +337,18 @@ fn has_content_hash(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn file_response(path: &Path, cache: &'static str) -> Response {
+async fn file_response(path: &Path, cache: &'static str, marker: Option<&Marker<'_>>) -> Response {
     match tokio::fs::read(path).await {
         Ok(bytes) => {
+            let bytes = match marker {
+                // Only a document that is valid UTF-8 can be spliced. One that is not is not an
+                // HTML page, whatever its name says, and is served untouched rather than mangled.
+                Some(m) => match String::from_utf8(bytes) {
+                    Ok(html) => inject_marker(&html, m).into_bytes(),
+                    Err(e) => e.into_bytes(),
+                },
+                None => bytes,
+            };
             let mut response = Response::new(Body::from(bytes));
             let headers = response.headers_mut();
             headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type(path)));
@@ -337,7 +483,11 @@ mod tests {
 
     fn bundle() -> (tempfile::TempDir, WebBundle) {
         let td = tempfile::tempdir().unwrap();
-        std::fs::write(td.path().join("index.html"), "<!doctype html><title>app</title>").unwrap();
+        std::fs::write(
+            td.path().join("index.html"),
+            "<!doctype html><html><head><title>app</title></head><body></body></html>",
+        )
+        .unwrap();
         std::fs::create_dir_all(td.path().join("_expo/static/js/web")).unwrap();
         std::fs::write(td.path().join("_expo/static/js/web/entry-4f1c2a9b0e.js"), "//").unwrap();
         std::fs::write(td.path().join("favicon.ico"), [0u8; 4]).unwrap();
@@ -425,14 +575,133 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_page_gets_the_app_and_an_unknown_asset_gets_a_404() {
         let (_td, b) = bundle();
-        let page = serve(&b, "/manage/movies").await;
+        let page = serve(&b, "/manage/movies", None).await;
         assert_eq!(page.status(), StatusCode::OK);
         assert_eq!(
             page.headers().get(header::CACHE_CONTROL).unwrap(),
             NO_CACHE
         );
 
-        let missing = serve(&b, "/_expo/static/js/web/gone-0123456789.js").await;
+        let missing = serve(&b, "/_expo/static/js/web/gone-0123456789.js", None).await;
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- the node marker ----------------------------------------------------------------------
+
+    fn marker<'a>(node_name: &'a str, loopback: bool, setup_pending: Option<bool>) -> Marker<'a> {
+        Marker {
+            node_name,
+            loopback,
+            setup_pending,
+        }
+    }
+
+    async fn body_string(r: Response) -> String {
+        let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn the_marker_renders_the_contract_shape() {
+        let html = marker("attic", true, Some(true)).html();
+        assert!(html.contains(r#"<meta name="stingstream-node" content="1">"#));
+        assert!(html.contains("window.__STINGSTREAM_NODE__="));
+        // Field order is part of the contract other packages read.
+        let expected = format!(
+            r#"{{"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1","loopback":true,"setupPending":true,"nodeName":"attic","version":"{}"}}"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        assert!(html.contains(&expected), "{html}");
+    }
+
+    #[test]
+    fn the_marker_reports_loopback_and_setup_state_including_not_knowing() {
+        assert!(marker("n", false, Some(false)).html().contains(r#""loopback":false"#));
+        assert!(marker("n", true, Some(false)).html().contains(r#""setupPending":false"#));
+        // Nobody has asked Core yet, or Core is too old to answer. `null` is a real state and the
+        // app has to be able to tell it from `false`.
+        assert!(marker("n", true, None).html().contains(r#""setupPending":null"#));
+    }
+
+    /// A node name is attacker-supplied on any node somebody else configured, and it lands inside
+    /// a `<script>`. `</script>` must not be able to close the element.
+    #[test]
+    fn a_node_name_cannot_break_out_of_the_script_element() {
+        let html = marker("</script><script>alert(1)</script>", true, None).html();
+        assert_eq!(
+            html.matches("</script>").count(),
+            1,
+            "exactly one closing tag, the one this function wrote: {html}"
+        );
+        assert!(html.contains("\\u003c/script\\u003e"));
+        assert!(!html.contains("alert(1)</script>"));
+        // Still valid JSON, and still the same string once parsed.
+        let json = html
+            .split_once("window.__STINGSTREAM_NODE__=")
+            .unwrap()
+            .1
+            .split_once("</script>")
+            .unwrap()
+            .0;
+        let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed["nodeName"], "</script><script>alert(1)</script>");
+    }
+
+    #[test]
+    fn the_marker_is_spliced_before_the_closing_head_tag() {
+        let out = inject_marker("<html><HEAD><title>a</title></HEAD><body>b</body></html>", &marker("n", true, None));
+        let at = out.find("stingstream-node").unwrap();
+        assert!(at < out.find("</HEAD>").unwrap());
+        assert!(at > out.find("<title>").unwrap());
+        // A document with no head at all still gets it, at the top.
+        let none = inject_marker("<!doctype html><title>a</title>", &marker("n", true, None));
+        assert!(none.starts_with("<meta name=\"stingstream-node\""));
+    }
+
+    #[tokio::test]
+    async fn the_marker_is_in_index_html_and_never_in_an_asset() {
+        let (_td, b) = bundle();
+        let m = marker("attic", true, Some(true));
+
+        for path in ["/index.html", "/"] {
+            let body = body_string(serve(&b, path, Some(&m)).await).await;
+            assert!(body.contains("__STINGSTREAM_NODE__"), "{path} should carry the marker");
+            assert!(body.contains("<title>app</title>"), "{path} kept the page");
+        }
+
+        let js = serve(&b, "/_expo/static/js/web/entry-4f1c2a9b0e.js", Some(&m)).await;
+        assert_eq!(js.status(), StatusCode::OK);
+        let js = body_string(js).await;
+        assert_eq!(js, "//", "a content-hashed asset must be served byte for byte");
+    }
+
+    /// The SPA fallback is how every real app route is loaded — `/manage/movies` is `index.html`
+    /// plus client-side routing — so a marker that only covered `/` would be missing on a reload.
+    #[tokio::test]
+    async fn the_marker_is_present_on_the_spa_fallback_path() {
+        let (_td, b) = bundle();
+        let m = marker("attic", true, Some(true));
+        let body = body_string(serve(&b, "/manage/movies", Some(&m)).await).await;
+        assert!(body.contains("__STINGSTREAM_NODE__"));
+        assert!(body.contains(r#""loopback":true"#));
+    }
+
+    /// `loopback` is a fact about *this connection*, so two requests to the same file differ.
+    #[tokio::test]
+    async fn loopback_is_per_request_not_per_build() {
+        let (_td, b) = bundle();
+        let local = body_string(serve(&b, "/", Some(&marker("attic", true, Some(true)))).await).await;
+        let lan = body_string(serve(&b, "/", Some(&marker("attic", false, Some(true)))).await).await;
+        assert!(local.contains(r#""loopback":true"#));
+        assert!(lan.contains(r#""loopback":false"#));
+        assert!(!lan.contains(r#""loopback":true"#));
+    }
+
+    #[tokio::test]
+    async fn a_bundle_served_without_a_marker_is_untouched() {
+        let (_td, b) = bundle();
+        let body = body_string(serve(&b, "/", None).await).await;
+        assert!(!body.contains("__STINGSTREAM_NODE__"));
+        assert_eq!(body, "<!doctype html><html><head><title>app</title></head><body></body></html>");
     }
 }

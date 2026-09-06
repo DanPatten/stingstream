@@ -436,19 +436,19 @@ public sealed class DownloadsService
         var client = _nzbget.Create();
         if (client is null)
         {
-            return Fail("NZBGet is not enabled on this node.");
+            return Fail("The Usenet engine is not enabled on this node.");
         }
 
         if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var nzbId))
         {
-            return Fail($"\"{id}\" is not an NZBGet id.");
+            return Fail($"\"{id}\" is not an id from the Usenet engine.");
         }
 
         try
         {
             return await action(client, nzbId).ConfigureAwait(false)
                 ? Ok(success)
-                : Fail($"NZBGet refused; is {nzbId} still in the queue?");
+                : Fail($"The Usenet engine refused; is {nzbId} still in the queue?");
         }
         catch (Exception ex) when (ex is NzbgetException or System.Net.Http.HttpRequestException or TaskCanceledException)
         {
