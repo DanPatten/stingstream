@@ -110,14 +110,22 @@ pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> 
 
 // --- gateway's own endpoints ---------------------------------------------------------------
 
-/// `GET /healthz` — full detail on this machine, a liveness answer to everybody else.
+/// `GET /healthz` — the same shape for everybody, with four things told only to this machine.
 ///
 /// The gateway binds `0.0.0.0` so phones and TVs on the LAN can reach the node, and this document
-/// carried the data directory, every child's port and version, the node id and the whole side-door
-/// state to anybody on the same Wi-Fi. None of that is a key, but all of it is reconnaissance, and
-/// the absent CORS header on this route only ever stopped a *browser page* reading it — not a
-/// `curl`. A monitoring check wants the status code; a support question wants the detail; only one
-/// of those has to come from another machine.
+/// carried the data directory, every child's port, pid and version, the whole side-door state —
+/// hostnames, LAN and public addresses, the mapped port — and, once a node had joined from an
+/// invite code, **the group id**. None of that is a key, but the group id is a credential in every
+/// sense that matters before a stream URL is signed, and the rest is reconnaissance. The absent
+/// CORS header on this route only ever stopped a *browser page* reading it, never a `curl`.
+///
+/// **Redacted field by field rather than answered as a stub**, and the difference is not
+/// cosmetic: a node in a container is reached through Docker's NAT, so its `/healthz` arrives from
+/// the bridge gateway rather than from loopback — which means a stub would be what *every*
+/// containerised deployment shows its own operator, and would break the release pipeline's own
+/// smoke tests, which read `join.state` from a port-mapped container. What a stranger loses is the
+/// detail; what everybody keeps is the status, the version, which node answered, and how its join
+/// and side door got on.
 ///
 /// The 503-when-degraded behaviour is unchanged for both audiences, so `curl --fail` and every CI
 /// health gate still work from anywhere.
@@ -131,16 +139,7 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         };
-        return (
-            code,
-            Json(json!({
-                "status": if ok { "ok" } else { "degraded" },
-                "version": env!("CARGO_PKG_VERSION"),
-                // Enough to tell a degraded node from a broken one without naming what is wrong.
-                "children": children.len(),
-            })),
-        )
-            .into_response();
+        return (code, Json(public_health(&state, ok, children.len()))).into_response();
     }
     let body = json!({
         "status": if ok { "ok" } else { "degraded" },
@@ -180,6 +179,45 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         StatusCode::SERVICE_UNAVAILABLE
     };
     (code, Json(body)).into_response()
+}
+
+/// What `/healthz` tells somebody who is not on this machine.
+///
+/// Built by hand rather than derived from the full document, and that is the whole safety property:
+/// a field added to the document below does **not** appear here by accident. The way this leaks
+/// again is somebody adding something useful a page down and never thinking about this function,
+/// so there is a test that pins the key set from the outside.
+///
+/// Four things are held back — the data directory, the per-child ports, pids and versions, the
+/// side door's hostnames and addresses, and the **group id**, which `join` carries once a node has
+/// joined from an invite code and which is a credential in every sense that matters.
+fn public_health(state: &GatewayState, ok: bool, children: usize) -> serde_json::Value {
+    let sd = state.node.side_door.get();
+    // `JoinState` is `#[serde(tag = "state")]` and its variants carry the group id and the error
+    // text. Serialising it and keeping the tag is how the state survives without this function
+    // having to know the enum's shape — which is the point: a variant added later cannot leak its
+    // fields through here by default.
+    let join_state = serde_json::to_value(state.node.join.get())
+        .ok()
+        .and_then(|v| v.get("state").cloned())
+        .unwrap_or(serde_json::Value::Null);
+
+    json!({
+        "status": if ok { "ok" } else { "degraded" },
+        "version": env!("CARGO_PKG_VERSION"),
+        "latest_version": state.node.updates.get(),
+        "node": {
+            // The id is already public: it is the label in `pub.<nodeid>.direct.<host>`.
+            "id": state.node.runtime.node_id,
+            "name": state.node.runtime.node_name,
+            "dev": state.node.dev,
+            "first_run": state.node.runtime.first_run,
+        },
+        // How many, not which, on which port, at which version.
+        "children": children,
+        "side_door": { "enabled": sd.enabled, "state": sd.state },
+        "join": { "state": join_state },
+    })
 }
 
 /// `GET /sidedoor/v1/hello` — the endpoint a racing web client actually calls.
@@ -650,6 +688,85 @@ mod tests {
         assert!(!local("[2001:db8::1]:5000"));
         // No connect info at all fails closed.
         assert!(!is_local(None));
+    }
+
+    /// What a stranger is told, pinned field by field.
+    ///
+    /// Asserted from the outside as a *set of keys*, because a test that re-derived the expected
+    /// shape from the code would agree with any mistake the code made. If this fails because a
+    /// field was added, the question to answer is not "update the list" but "should a stranger see
+    /// this".
+    #[test]
+    fn a_stranger_is_told_the_status_and_none_of_the_addresses() {
+        // The shape rather than a realistic node: what is being asserted is which *keys* leave
+        // this function, and none of them depends on a value.
+        let runtime: crate::runtime::Runtime = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "node_id": "abc123",
+            "node_name": "attic",
+            "first_run": false,
+            "dev": false,
+            "data_dir": "/data/node",
+            "gateway": { "bind": "0.0.0.0", "port": 8790, "local_url": "http://127.0.0.1:8790" },
+            "paths": {
+                "downloads": "/data/node/downloads",
+                "downloads_torrents": "/data/node/downloads/torrents",
+                "downloads_usenet": "/data/node/downloads/usenet",
+                "media_movies": "/data/node/media/Movies",
+                "media_tv": "/data/node/media/TV",
+                "federated": "/data/node/federated",
+                "logs": "/data/node/logs",
+                "core_db": "/data/node/core.db"
+            },
+            "children": {},
+            "qbittorrent": { "username": "u", "password": "p", "url_base": "/stingstream/qbt" },
+            "mesh": { "api_port": 8791 },
+            "updated_at": "2026-09-05T00:00:00Z"
+        }))
+        .expect("a minimal runtime");
+        let node = Arc::new(NodeState::new(crate::config::Config::default(), runtime, false));
+        let state = GatewayState {
+            node,
+            client: proxy::client(),
+            web: None,
+        };
+
+        let body = public_health(&state, true, 5);
+        let mut keys: Vec<&str> = body
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["children", "join", "latest_version", "node", "side_door", "status", "version"]
+        );
+
+        // The four things this redaction exists for.
+        assert!(body["node"].get("data_dir").is_none(), "the data directory leaked");
+        assert!(body.get("gateway").is_none(), "the gateway block leaked");
+        for leaked in ["names", "lan_ips", "public_ip", "certificate", "coordinator"] {
+            assert!(
+                body["side_door"].get(leaked).is_none(),
+                "the side door's {leaked} leaked"
+            );
+        }
+        assert!(
+            body["join"].get("group").is_none(),
+            "the group id leaked — which is a credential, not a label"
+        );
+
+        // `children` is a count here and a list on the full document.
+        assert_eq!(body["children"], serde_json::json!(5));
+
+        // ...and what everybody keeps, including the two fields the release pipeline's own
+        // container smoke tests read from a port-mapped (and therefore non-loopback) node.
+        assert_eq!(body["status"], serde_json::json!("ok"));
+        assert!(body["join"].get("state").is_some());
+        assert_eq!(body["status"], serde_json::json!("ok"));
+        assert_eq!(public_health(&state, false, 0)["status"], serde_json::json!("degraded"));
     }
 
     #[test]
