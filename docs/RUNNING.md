@@ -415,7 +415,22 @@ node you already have running.
 > name orphans its children rather than taking them with it (see "Known limitations in M1"), so a
 > node you believe you have stopped can still be holding `StingStream.Core.dll`. If a build fails
 > with `MSB3027 … locked by: Jellyfin.Server`, look for orphaned `jellyfin.exe`, `Radarr.Console.exe`
-> and `nzbget.exe` whose *paths* are under `server/**` and `third_party/**` and stop those too. Giving
+> and `nzbget.exe` whose *paths* are under `server/**` and `third_party/**` and stop those too.
+>
+> **The same trap catches `tools/seeder` and `tools/torznab-stub`, and it is nastier**, because
+> those two are `dotnet.exe` and so invisible to a search by process name. M8b's regression lost
+> three harness runs to a seeder and a stub left over from an M2-era run *fourteen hours earlier*:
+> every harness that rebuilds them died on
+> `MSB3027 … seeder.dll … locked by ".NET Host"`, and the failure looks like a NuGet problem rather
+> than a locked file unless you read past the first error line. `Stop-Owned` did not catch them,
+> because it only kills processes whose command line mentions *this run's* work directory and theirs
+> named a directory no current harness uses. Find them by command line, not by name:
+>
+> ```powershell
+> Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" |
+>   Where-Object { $_.CommandLine -match 'seeder|torznab' } |
+>   Select-Object ProcessId, CreationDate, CommandLine
+> ``` Giving
 > this harness the same `-PrivateCopy` treatment M4's has — `New-PrivateInstallRoot -WithArrs` in
 > `tools/e2e-common.ps1` copies the arrs as well — is the real fix and is still to do. Its work directory lives beside the repository, not inside it, and
 it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
@@ -554,6 +569,48 @@ The subtitle provider is mocked -- the sidecar is written onto B's disk -- becau
 test is the publish-and-fetch half. Whether OpenSubtitles answers today is OpenSubtitles' business,
 and an acceptance run that depended on it would fail for reasons that have nothing to do with this
 repository.
+
+### `tools/e2e-m8.ps1` — removing a member, and refusing a build you cannot talk to
+
+```powershell
+pwsh tools/e2e-m8.ps1 -SkipBuild
+```
+
+No `-PrivateCopy`, because there is nothing to copy: four **standalone mesh nodes** and no Jellyfin
+at all. Revocation is entirely a mesh concern, and three Jellyfin startups would add four minutes
+and nothing to the assertions. Thirteen steps in under two minutes.
+
+Every node runs with **all discovery off**, written into its own `mesh.toml` before it starts, so
+the only addressing anybody has is what an invite code carried. That is what makes "C could not dial
+A" a statement about revocation rather than about discovery having quietly taken a different route.
+
+What it asserts, in order:
+
+1. All four nodes report the **same protocol version**, on `/mesh/v1/status` and on `/healthz`, and
+   nothing has been refused for its version on a fresh group of one build.
+2. A creates a group, B and C join with one invite code, C publishes a title.
+3. **A removes C**: the epoch advances, and B — which was online — took the new secret before the
+   call returned.
+4. A and B agree on an epoch C is not at.
+5. **C can reach nobody**, and A's refusal is the same sentence a total stranger gets.
+6. **C's title is still in A's index.** A removal greys a member out; it does not eat the catalogue.
+7. The **pre-rotation invite code reaches nobody** and a freshly minted one works, checked with a
+   fourth node that tries both.
+8. **B misses a rotation and comes back.** B is stopped, A rotates without it, B restarts on its own
+   data directory holding the old key, and one dial through the grace window brings it back — after
+   which it can fetch A's bytes again.
+
+Two things about step 8 are worth knowing before you read the code. **A node's address book is in
+memory**: an invite code, a rendezvous answer or a discovery lookup fills it and a restart empties
+it, so with every discovery service off a restarted B knows A's node *id* and not one address to
+reach it at. That is a real property of a node, which is why the recovery is driven by pasting a
+code in again — and the code it uses is *older than the group*, because what a code supplies at
+that point is an address; the secret it carries is ignored by a node whose group has already
+rotated.
+
+The two `cargo test` steps run **before any node is started**, and that is not tidiness: on Windows
+a running `stingstream-mesh.exe` holds the file `cargo test` has to relink, and the failure arrives
+as exit 101 dressed up as a test failure.
 
 ### `-PrivateCopy`: not holding the repository's build outputs open
 

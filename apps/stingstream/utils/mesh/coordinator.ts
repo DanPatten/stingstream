@@ -28,9 +28,20 @@ export interface CoordinatorHealth {
   sni_router: boolean;
   dns_zone: string | null;
   dns_provider: string;
-  nodes: number;
-  groups: number;
-  entries: number;
+  /**
+   * Live counts, on a coordinator old enough to publish them.
+   *
+   * Optional because M8b stopped sending them: `/healthz` on a coordinator has to answer before
+   * anything is configured — it is the container health check, and it has no credentials by design
+   * — so a live census of node, group and rendezvous-entry counts was being handed to anybody who
+   * asked, from a system whose rendezvous store deliberately refuses to be an enumeration oracle.
+   * Nothing here ever read them (`describeCoordinator` uses the capability booleans), so this is a
+   * type correction rather than a behaviour change; they stay declared so a coordinator that still
+   * sends them is not a parse error.
+   */
+  nodes?: number;
+  groups?: number;
+  entries?: number;
 }
 
 export type CoordinatorCheck =

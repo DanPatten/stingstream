@@ -907,7 +907,7 @@ exactly one container port host a complete coordinator.
 
 | Method | Path | Auth | |
 |---|---|---|---|
-| `GET` | `/healthz` | — | mode, what is enabled, counts |
+| `GET` | `/healthz` | — | mode, version, and which capabilities are on. **No counts** since M8b: this route has to answer before anything is configured (it is the container health check, and it holds no credential by design), and a live census of nodes, groups and rendezvous entries is not something to hand anybody who asks — least of all from a store that otherwise refuses to be an enumeration oracle. |
 | `GET` | `/` | — | a human page |
 | `POST` | `/rendezvous/v1/groups/{id}` | bearer | store or refresh one sealed member entry |
 | `GET` | `/rendezvous/v1/groups/{id}` | bearer | the group's live entries |

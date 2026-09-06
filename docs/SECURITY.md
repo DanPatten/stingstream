@@ -235,6 +235,36 @@ table names, `IN` clauses built by `string.Join` — returns nothing.
 
 ---
 
+## 5a. Four things the review checked and did not change
+
+Recorded because "we looked at it" and "we did not look at it" are indistinguishable from a document
+that only lists what changed.
+
+**QuickConnect.** Jellyfin's own flow, unmodified: the TV asks for a six-digit code, a signed-in
+user approves it on their phone, and the TV exchanges it for a token. The code is short-lived, one
+use, server-generated, and only usable by somebody who is *already authenticated* on that node — an
+attacker who guesses a code still has to get a legitimate user to press Approve on a screen that
+names the device. We add nothing to it and take nothing away, and it never crosses the mesh: a
+QuickConnect approval is between one user and one node.
+
+**The light-node guard.** The mesh embedded in the phone and TV app joins a group to dial sources,
+not to be one. `light_node_refuses` is written as "no content route" rather than "not the file
+route", so a route added later is refused by default rather than quietly opening a phone up as an
+origin. M8b added `/peer/v1/group/rekey` to what a light node *does* answer — deliberately, since a
+phone that missed a rotation has to be able to catch up, and the record it fetches costs it a
+hundred bytes — and there is a test asserting exactly which routes fall on which side.
+
+**Body limits and timeouts, listener by listener.** The gateway's public listener has a 15-second
+first-byte and 30-second header-read timeout (`gateway/listen.rs`); the mesh's local API has a 4 MiB
+body limit (M8b) and the coordinator's has 64 KiB (M8b); the peer server has a 30-second header-read
+timeout (M8b); the coordinator's DNS-over-TCP has a 10-second exchange timeout (M8b) and its tunnels
+have idle, duration and concurrency limits (M8b).
+
+**The gateway's proxy path is deliberately unbounded**, and that is the one exception. A request
+body through `/jellyfin/*` is an upload to Jellyfin, and a response body is a film; putting a size
+limit on either would break the product. What bounds them is that both ends are Jellyfin's, and that
+reaching the route at all needs a Jellyfin credential.
+
 ## 6. Residual risks
 
 Things that are true after this review, listed because pretending otherwise would be worse.
