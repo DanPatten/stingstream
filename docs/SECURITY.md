@@ -78,8 +78,8 @@ severity column is about this system's own threat model, not a generic CVSS.
 | N14 | **No explicit body limit on the mesh API**, relying on axum's silent 2 MiB extractor default, which does not apply to handlers with no body extractor. | **Low** | An explicit 4 MiB `DefaultBodyLimit` on the whole router. |
 | N15 | **The peer HTTP server had no header-read timeout**, so an authenticated member whose build was wedged could pin one task per stream on every other node. | **Low** | Thirty seconds, matching the gateway. |
 | N16 | **A re-join from a pre-rotation invite code demoted a member back onto the old secret**, because `upsert_group` wrote `secret` unconditionally. | **Low** | A rotated group takes its secret from `apply_rekey` and nowhere else. |
-| N18 | **Three log lines in the app printed the user's own Jellyfin access token**, from the `ApiKey=` in a direct-play URL, to logcat and to the browser console. | **Low** | `lib/stingstream/redactUrl.ts` at the three call sites; the parameter name is kept and only the value goes. |
 | N17 | **Restarting a group left its old gossip tasks running**, so a rotated node kept publishing heartbeats sealed under the key it had just rotated away from. | **Low** | The tasks are owned and aborted on drop. |
+| N18 | **Three log lines in the app printed the user's own Jellyfin access token**, from the `ApiKey=` in a direct-play URL, to logcat and to the browser console. | **Low** | `lib/stingstream/redactUrl.ts` at the three call sites; the parameter name is kept and only the value goes. |
 
 ### The coordinator (`stingstream-relay`)
 
