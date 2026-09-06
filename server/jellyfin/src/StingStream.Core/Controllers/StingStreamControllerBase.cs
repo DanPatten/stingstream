@@ -1,3 +1,4 @@
+﻿using System;
 using Microsoft.AspNetCore.Mvc;
 
 namespace StingStream.Core.Controllers;
@@ -38,6 +39,40 @@ public abstract class StingStreamControllerBase : ControllerBase
     /// <summary>The authenticated user's id, or an empty string for an API-key caller.</summary>
     /// <returns>The user id as Jellyfin issued it.</returns>
     protected string CurrentUserId() => User?.FindFirst(UserIdClaim)?.Value ?? string.Empty;
+
+    /// <summary>Whether the caller holds Jellyfin's administrator role.</summary>
+    /// <returns>True for an administrator, and for any API key.</returns>
+    /// <remarks>
+    /// True for an API key as well as for a human administrator: Jellyfin's own authentication
+    /// handler stamps <c>role = Administrator</c> on every API-key request. That is Jellyfin's
+    /// decision rather than ours, and it is the reason an API key is a full-power credential on
+    /// this API too, which <c>docs/SECURITY.md</c> spells out.
+    /// </remarks>
+    protected bool IsAdministrator() => User?.IsInRole("Administrator") ?? false;
+
+    /// <summary>Whether a user id names the caller.</summary>
+    /// <param name="userId">A user id from a route, a query string or a stored row.</param>
+    /// <returns>True when it is the caller's own id.</returns>
+    /// <remarks>
+    /// <para>
+    /// Compared as parsed GUIDs, not as strings. Jellyfin issues the same id in <c>N</c> format in
+    /// some responses and <c>D</c> format in others, so an app that passes back whichever it was
+    /// given would otherwise be told it is somebody else — and, worse, a *stored* id in one format
+    /// compared against a claim in the other silently fails an ownership check that was meant to
+    /// pass. This lived on <c>UsersController</c>, correctly, while three other places did a raw
+    /// case-insensitive string compare for the same question; it belongs here so there is one
+    /// answer.
+    /// </para>
+    /// <para>
+    /// An API-key caller's claim is the all-zeros GUID, which matches no real user, so an API key
+    /// is never "self" — it gets what it gets from <see cref="IsAdministrator"/> instead.
+    /// </para>
+    /// </remarks>
+    protected bool IsSelf(string? userId)
+        => Guid.TryParse(userId, out var asked)
+           && Guid.TryParse(CurrentUserId(), out var caller)
+           && !asked.Equals(Guid.Empty)
+           && asked.Equals(caller);
 }
 
 /// <summary>Constants shared by the StingStream API surface.</summary>

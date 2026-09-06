@@ -292,9 +292,22 @@ fn rfc3339(unix: i64) -> Option<String> {
 }
 
 /// Write a file that only this account can read, where the OS supports it.
+///
+/// **Create empty, restrict, then write.** Writing the bytes first and chmodding afterwards — which
+/// is what this did — leaves the file at the default mode for the length of one syscall, and the
+/// bytes in question are an ACME account key and a TLS private key. The window is small and it is
+/// also completely avoidable, and `identity.rs` already had the right shape for `node.key`.
+///
+/// The failure of the restriction is no longer swallowed. It used to be `.ok()`, so a node whose
+/// data directory would not take the permission wrote its private key in the clear and said
+/// nothing; the caller can decide what to do about it, but it has to be told.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    std::fs::write(path, b"").with_context(|| format!("creating {}", path.display()))?;
+    crate::paths::restrict_to_owner(path)?;
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
-    crate::paths::restrict_to_owner(path).ok();
+    // Again after the write: on some filesystems a rewrite can reset the mode, and the second call
+    // costs nothing on the ones where it cannot.
+    crate::paths::restrict_to_owner(path)?;
     Ok(())
 }
 

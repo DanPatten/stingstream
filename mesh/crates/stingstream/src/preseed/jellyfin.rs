@@ -100,9 +100,21 @@ pub fn system_xml(node_name: &str) -> String {
     body.push_str(&xml::element("UICulture", "en-US"));
     body.push_str(&xml::element("EnableMetrics", "false"));
     body.push_str(&xml::element("QuickConnectAvailable", "true"));
-    // The gateway is same-origin for our own UI, and every other caller is a native app, so the
-    // upstream default of "*" is wider than this node needs.
-    body.push_str(&xml::string_array("CorsHosts", &["*"]));
+    // Empty rather than "*", which is what this used to write while its own comment said "*" is
+    // wider than this node needs.
+    //
+    // Jellyfin's `CorsPolicyProvider` turns `["*"]` into `AllowAnyOrigin`, and the gateway proxies
+    // `/jellyfin/*` from a `0.0.0.0` listener — so any page on the internet, open in any browser
+    // that can reach this node, could read every unauthenticated Jellyfin endpoint on it. Nothing
+    // *we* ship needs that: our own UI is served by the same gateway and is therefore same-origin,
+    // and the phone and TV apps are native and not subject to CORS at all. An empty list means no
+    // cross-origin reader is allowed, which is the honest description of who should be reading a
+    // node's Jellyfin API from a web page.
+    //
+    // The one deliberate exception lives on the gateway rather than here: `/sidedoor/v1/hello`
+    // sends its own `Access-Control-Allow-Origin: *` because a racing web client genuinely is
+    // cross-origin, and that document is five fields wide on purpose.
+    body.push_str(&xml::string_array("CorsHosts", &[]));
     body.push_str(&xml::element("IsPortAuthorized", "true"));
     xml::document("ServerConfiguration", &body)
 }

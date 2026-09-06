@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -29,11 +29,22 @@ public sealed class UsersController : StingStreamControllerBase
     /// <summary>What this user would rather have when several nodes hold the same title.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <response code="200">The policy. A user who has never chosen one gets the default.</response>
+    /// <response code="403">A non-administrator asked for somebody else's.</response>
     /// <returns>The policy.</returns>
+    /// <remarks>
+    /// The same self-or-administrator rule the setter has always had. It was missing here, so any
+    /// authenticated user could read any other user's stored preference by id. The value is only
+    /// speed-versus-quality, so nothing dramatic leaked — but "who else has an account on this
+    /// node, and have they configured it" is not a question a member gets to ask, and an
+    /// unguarded <c>{userId}</c> read is the shape of a mistake that grows.
+    /// </remarks>
     [HttpGet("{userId}/playback-policy")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<UserPlaybackPolicy> GetPlaybackPolicy(string userId)
-        => Ok(_policies.Get(userId));
+        => IsSelf(userId) || IsAdministrator()
+            ? Ok(_policies.Get(userId))
+            : Forbid();
 
     /// <summary>Choose speed or quality.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
@@ -63,7 +74,7 @@ public sealed class UsersController : StingStreamControllerBase
             });
         }
 
-        if (!IsSelf(userId) && !User.IsInRole("Administrator"))
+        if (!IsSelf(userId) && !IsAdministrator())
         {
             return Forbid();
         }
@@ -71,18 +82,6 @@ public sealed class UsersController : StingStreamControllerBase
         return Ok(await _policies.SetAsync(userId, parsed.Value, cancellationToken).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Whether the route's user is the caller.
-    /// </summary>
-    /// <remarks>
-    /// Compared as parsed GUIDs, not as strings: Jellyfin issues the same id in <c>N</c> format in
-    /// some responses and <c>D</c> format in others, and an app that passes back whichever it was
-    /// given would otherwise be told it is somebody else.
-    /// </remarks>
-    private bool IsSelf(string userId)
-        => Guid.TryParse(userId, out var asked)
-           && Guid.TryParse(CurrentUserId(), out var caller)
-           && asked.Equals(caller);
 }
 
 /// <summary>Body of <c>PUT /users/{userId}/playback-policy</c>.</summary>

@@ -77,6 +77,14 @@ pub struct GatewayConfig {
     /// a failure to bind it is logged and the node carries on with the port it has.
     pub https_port: u16,
 
+    /// Require a signature on `/stream/*` requests that did not come from this machine.
+    ///
+    /// On, and it should stay on. Off is an escape hatch for somebody debugging with `curl` from
+    /// another box, and it re-opens the hole [`crate::gateway::streamurl`] describes: with it off,
+    /// anybody who knows a group id — which every invite code carries, and which a **removed**
+    /// member knows forever — can stream anything in the group from this node's side door.
+    pub require_signed_stream_urls: bool,
+
     /// Directory holding the built web bundle, served at `/`.
     ///
     /// Empty means "look in the usual places": `<install>/web` for an installed node and
@@ -271,6 +279,7 @@ impl Default for GatewayConfig {
             tls: true,
             https_port: 0,
             web_dist: String::new(),
+            require_signed_stream_urls: true,
         }
     }
 }

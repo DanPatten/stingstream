@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Configuration;
 using StingStream.Core.Webhooks;
 
 namespace StingStream.Core.Controllers;
@@ -16,10 +17,15 @@ namespace StingStream.Core.Controllers;
 /// </summary>
 /// <remarks>
 /// Anonymous by necessity: Radarr and Sonarr have no Jellyfin token to present, and their Webhook
-/// notification only offers HTTP Basic. Instead the endpoint is restricted to callers on the
-/// loopback interface, which is exactly where the arrs live -- the supervisor binds every child to
-/// 127.0.0.1 and configures the webhook URL as <c>http://127.0.0.1:{jellyfinPort}/...</c>. A
-/// request arriving from anywhere else is not one of our children and is refused.
+/// notification only offers HTTP Basic. What stands in for authentication is a per-node shared
+/// secret in the query string (<see cref="WebhookToken"/>), written into each arr's webhook URL by
+/// <c>OmniarrSyncService</c> and compared in constant time here.
+///
+/// It used to be a loopback check instead, and that check was worth nothing: the gateway proxies
+/// <c>/stingstream/api/*</c> to Jellyfin over 127.0.0.1, so a request from anywhere on the LAN
+/// reaches Core with a loopback remote address and passed. The loopback check is still made, as a
+/// second condition rather than the only one, because the arrs genuinely are on loopback and a
+/// request that is not is worth a log line.
 /// </remarks>
 [ApiController]
 [AllowAnonymous]
@@ -28,11 +34,16 @@ namespace StingStream.Core.Controllers;
 public sealed class WebhooksController : ControllerBase
 {
     private readonly ArrWebhookService _service;
+    private readonly INodeRuntimeProvider _runtime;
     private readonly ILogger<WebhooksController> _logger;
 
-    public WebhooksController(ArrWebhookService service, ILogger<WebhooksController> logger)
+    public WebhooksController(
+        ArrWebhookService service,
+        INodeRuntimeProvider runtime,
+        ILogger<WebhooksController> logger)
     {
         _service = service;
+        _runtime = runtime;
         _logger = logger;
     }
 
@@ -41,21 +52,43 @@ public sealed class WebhooksController : ControllerBase
     /// names.
     /// </summary>
     /// <param name="app">Which app sent it. Inferred from the payload when absent.</param>
+    /// <param name="token">This node's webhook secret. See <see cref="WebhookToken"/>.</param>
     /// <response code="200">What the delivery did.</response>
     /// <response code="400">The body was not JSON.</response>
-    /// <response code="403">The caller is not on the loopback interface.</response>
+    /// <response code="403">The token is wrong, or the caller is not on the loopback interface.</response>
     [HttpPost("arr")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> Arr([FromQuery] string? app, CancellationToken cancellationToken)
+    public async Task<IActionResult> Arr(
+        [FromQuery] string? app,
+        [FromQuery] string? token,
+        CancellationToken cancellationToken)
     {
+        var expected = WebhookToken.For(_runtime.Current);
+        if (expected is null)
+        {
+            _logger.LogWarning(
+                "Refused an arr webhook: this node has no webhook secret yet (runtime.json is "
+                + "missing or incomplete)");
+            return StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        if (!WebhookToken.Matches(expected, token))
+        {
+            _logger.LogWarning(
+                "Refused an arr webhook from {Address}: wrong or missing token",
+                HttpContext.Connection.RemoteIpAddress);
+            return StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         if (!IsLoopback())
         {
             _logger.LogWarning(
-                "Refused an arr webhook from {Address}: this endpoint only accepts loopback callers",
+                "Refused an arr webhook from {Address}: the token was right but the caller is not "
+                + "on this machine, which one of our own children always is",
                 HttpContext.Connection.RemoteIpAddress);
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden);
         }
 
         // Read the body by hand rather than binding it: the two apps' payloads differ, both change
@@ -85,6 +118,14 @@ public sealed class WebhooksController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Whether the caller is on this machine.
+    /// </summary>
+    /// <remarks>
+    /// A weak signal on its own (see the class remarks), kept as a second condition behind the
+    /// token: every legitimate caller really is on loopback, and one that is not is worth a log
+    /// line even when it holds the right secret.
+    /// </remarks>
     private bool IsLoopback()
     {
         var address = HttpContext.Connection.RemoteIpAddress;

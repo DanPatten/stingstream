@@ -20,6 +20,7 @@
 pub mod listen;
 pub mod proxy;
 pub mod web;
+pub mod streamurl;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -109,9 +110,38 @@ pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> 
 
 // --- gateway's own endpoints ---------------------------------------------------------------
 
-async fn healthz(State(state): State<GatewayState>) -> Response {
+/// `GET /healthz` — full detail on this machine, a liveness answer to everybody else.
+///
+/// The gateway binds `0.0.0.0` so phones and TVs on the LAN can reach the node, and this document
+/// carried the data directory, every child's port and version, the node id and the whole side-door
+/// state to anybody on the same Wi-Fi. None of that is a key, but all of it is reconnaissance, and
+/// the absent CORS header on this route only ever stopped a *browser page* reading it — not a
+/// `curl`. A monitoring check wants the status code; a support question wants the detail; only one
+/// of those has to come from another machine.
+///
+/// The 503-when-degraded behaviour is unchanged for both audiences, so `curl --fail` and every CI
+/// health gate still work from anywhere.
+async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
+    let local = is_local(peer_addr(&req));
     let children = state.node.all();
     let ok = state.node.all_healthy();
+    if !local {
+        let code = if ok {
+            StatusCode::OK
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        return (
+            code,
+            Json(json!({
+                "status": if ok { "ok" } else { "degraded" },
+                "version": env!("CARGO_PKG_VERSION"),
+                // Enough to tell a degraded node from a broken one without naming what is wrong.
+                "children": children.len(),
+            })),
+        )
+            .into_response();
+    }
     let body = json!({
         "status": if ok { "ok" } else { "degraded" },
         // The running binary's own version, and (M8a's update check) the newest version the
@@ -313,7 +343,24 @@ fn peer_addr(req: &Request) -> Option<SocketAddr> {
     req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0)
 }
 
+/// The arr webhook path, which no client on the LAN has any business reaching.
+///
+/// `POST /stingstream/api/v1/webhooks/arr` is `[AllowAnonymous]` in Core because Radarr and Sonarr
+/// have no Jellyfin token to present. Core authenticates it with a per-node shared secret, which is
+/// the real lock; this is the second one, and it is here rather than there because *this* is the
+/// process that knows where the request came from. Core cannot: everything the gateway proxies
+/// arrives at Jellyfin from 127.0.0.1, so Core's own loopback check saw every LAN caller as local.
+const WEBHOOK_PATH_PREFIX: &str = "/stingstream/api/v1/webhooks";
+
 async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Response {
+    if req.uri().path().starts_with(WEBHOOK_PATH_PREFIX) && !is_local(peer_addr(&req)) {
+        return (
+            StatusCode::NOT_FOUND,
+            "no such route",
+        )
+            .into_response();
+    }
+
     // Jellyfin's BaseUrl is /jellyfin, and ASP.NET maps every route under it, so Core's
     // controllers really live at /jellyfin/stingstream/... upstream.
     forward(
@@ -373,7 +420,51 @@ pub fn is_local(addr: Option<SocketAddr>) -> bool {
 }
 
 /// Ranged reads of a peer's file. Same child, same prefix on both sides.
+/// `/stream/{group}/{item_key}/{node}` — the URL a federated `.strm` resolves to.
+///
+/// Unauthenticated in the sense that it carries no account: a Chromecast receiver holds no
+/// credential of ours and never will, and serving it is the reason the side door exists. What it
+/// does carry is a signature and an expiry that this node minted, which is the whole of
+/// [`streamurl`]'s reason to exist — read that module before changing anything here, and in
+/// particular before deciding that the three path segments are secret enough on their own. They
+/// are not: a removed member knows the group id forever.
+///
+/// Requests from this machine skip the check. Jellyfin's own outbound fetches, ffmpeg's
+/// `EncoderPath` and every harness step are loopback, and a node that could not read its own
+/// library would be a worse outcome than the one being prevented.
 async fn proxy_to_stream(State(state): State<GatewayState>, req: Request) -> Response {
+    // "Local" also covers the escape hatch, because they mean the same thing to this handler: no
+    // signature is required of this request. Clippy calls the two branches identical, which they
+    // are — they are two different *reasons*, and the log line below is the only place that
+    // difference would show, so it is not worth two variants.
+    let exempt = !state.node.config.gateway.require_signed_stream_urls || is_local(peer_addr(&req));
+    let verdict = if exempt {
+        streamurl::Verdict::Local
+    } else {
+        match streamurl::split_path(req.uri().path()) {
+            Some((group, item_key, node)) => streamurl::verify(
+                state.node.stream_key.as_ref(),
+                &group,
+                &item_key,
+                &node,
+                req.uri().query(),
+                streamurl::now_secs(),
+            ),
+            // Not a stream URL at all. The upstream will 404 it; there is nothing to sign.
+            None => streamurl::Verdict::Local,
+        }
+    };
+
+    if !verdict.allowed() {
+        tracing::warn!(
+            path = req.uri().path(),
+            from = ?peer_addr(&req),
+            ?verdict,
+            "refusing an unsigned or expired stream URL"
+        );
+        return (StatusCode::FORBIDDEN, verdict.message()).into_response();
+    }
+
     forward(state, req, "mesh", STREAM_PREFIX, STREAM_PREFIX.to_string()).await
 }
 

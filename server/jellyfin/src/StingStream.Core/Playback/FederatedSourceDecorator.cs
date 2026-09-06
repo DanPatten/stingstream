@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -64,17 +64,20 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     private readonly FederatedSourceService _sources;
     private readonly PlaybackPolicyStore _policies;
     private readonly INodeRuntimeProvider _runtime;
+    private readonly StreamUrlSigner _signer;
     private readonly ILogger<FederatedSourceDecorator> _logger;
 
     public FederatedSourceDecorator(
         FederatedSourceService sources,
         PlaybackPolicyStore policies,
         INodeRuntimeProvider runtime,
+        StreamUrlSigner signer,
         ILogger<FederatedSourceDecorator> logger)
     {
         _sources = sources;
         _policies = policies;
         _runtime = runtime;
+        _signer = signer;
         _logger = logger;
     }
 
@@ -200,6 +203,21 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
         int gatewayPort)
     {
         var candidate = scored.Candidate;
+
+        // The signature and expiry that make this URL usable from anywhere but this machine.
+        //
+        // It goes on `Path`, which is the value every client is handed and every client rewrites
+        // the *host* of — so the query survives the trip through the native app's URL rewrite, the
+        // web bundle's connection racing and the cast sender without any of them knowing it is
+        // there. See StreamUrlSigner for what it is protecting: the three path segments are not a
+        // credential, and a removed member knows the only one with real entropy in it for good.
+        //
+        // Applied to the *client's* URL only. `EncoderPath` below points ffmpeg at loopback, which
+        // the gateway exempts, and signing it would be one more thing to expire mid-transcode.
+        if (!string.IsNullOrEmpty(source.Path))
+        {
+            source.Path = _signer.Sign(source.Path, parsed.Group, parsed.ItemKey, parsed.Node);
+        }
 
         // The file hash, as a weak ETag. Weak because the bytes are what matter and not the exact
         // octet-for-octet representation, and because a hash-derived tag is *stable across nodes

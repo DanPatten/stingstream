@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using MonoTorrent.Client;
 using StingStream.Core.Configuration;
+using StingStream.Core.Federated;
 
 namespace StingStream.Core.Torrents;
 
@@ -146,12 +147,56 @@ public sealed class QbtController : ControllerBase
         var creds = _runtime.Current?.Qbittorrent;
         if (creds is null || string.IsNullOrEmpty(creds.Password))
         {
-            // No credentials configured means no authentication, which is qBittorrent's own
-            // behaviour with an empty username and password.
-            return true;
+            // **Fail closed.** This used to return true, on the reasoning that qBittorrent itself
+            // treats an empty username and password as "no authentication". qBittorrent is a
+            // program a person installed and configured; this is a shim that is always configured,
+            // by the supervisor, in runtime.json. So the only ways to reach this branch are that
+            // runtime.json is missing, unreadable, or has not been written yet -- and every one of
+            // those is a *fault*, not a decision, and the thing on the other side of it is
+            // "add any torrent, to any path, and delete files". A fault must not open the door.
+            //
+            // The cost of being wrong the other way is small and loud: the arrs log a failed
+            // download-client test and the supervisor's log says why.
+            _logger.LogWarning(
+                "Refusing a qBittorrent API call: runtime.json has no credentials for it yet");
+            return false;
         }
 
         return Request.Cookies.TryGetValue(SessionCookie, out var sid) && _sessions.IsValid(sid);
+    }
+
+    /// <summary>
+    /// The save path to use for an add, or null when the caller asked for one it may not have.
+    /// </summary>
+    /// <remarks>
+    /// <c>savepath</c> arrives from the caller and used to be handed to MonoTorrent verbatim, which
+    /// made this endpoint an arbitrary-file-write primitive: an add with
+    /// <c>savepath=C:\Windows\System32</c> would have MonoTorrent create directories and write
+    /// torrent contents there, as whatever account the node runs as. The arrs only ever send a path
+    /// the node itself told them about, so nothing legitimate is lost by requiring it to be inside
+    /// the torrent root.
+    ///
+    /// <see cref="SafePath.IsUnder"/> is the same containment check the federated materializer uses
+    /// on peer-supplied titles, and for the same reason: it canonicalises both sides before
+    /// comparing, so <c>..</c>, a symlink, a UNC path and a short 8.3 name all resolve to what they
+    /// really are first.
+    /// </remarks>
+    private string? ResolveSavePath(string? requested, string? category)
+    {
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return _engine.SavePathFor(category);
+        }
+
+        if (!SafePath.IsUnder(_engine.Root, requested))
+        {
+            _logger.LogWarning(
+                "Refusing a qBittorrent add with a save path outside the torrent root: {Path}",
+                requested);
+            return null;
+        }
+
+        return requested;
     }
 
     private IActionResult? Unauthorised()
@@ -370,10 +415,13 @@ public sealed class QbtController : ControllerBase
         // "paused" -- but accepting both costs nothing and makes the shim usable by other clients.
         var paused = IsTrue(form["paused"]) || IsTrue(form["stopped"]);
 
-        if (string.IsNullOrWhiteSpace(savePath))
+        var resolved = ResolveSavePath(savePath, category);
+        if (resolved is null)
         {
-            savePath = _engine.SavePathFor(category);
+            return Content("Fails.", "text/plain");
         }
+
+        savePath = resolved;
 
         var added = new List<string>();
 
@@ -567,7 +615,17 @@ public sealed class QbtController : ControllerBase
             return BadRequest();
         }
 
+        // Same containment rule as an add: a category is a directory this node will create and
+        // write into, so the caller does not get to name one outside the torrent root.
         var savePath = form["savePath"].ToString();
+        if (!string.IsNullOrWhiteSpace(savePath) && !SafePath.IsUnder(_engine.Root, savePath))
+        {
+            _logger.LogWarning(
+                "Refusing a qBittorrent category with a save path outside the torrent root: {Path}",
+                savePath);
+            return BadRequest();
+        }
+
         await _engine.CreateCategoryAsync(name, string.IsNullOrWhiteSpace(savePath) ? null : savePath, cancellationToken)
             .ConfigureAwait(false);
         return Ok();

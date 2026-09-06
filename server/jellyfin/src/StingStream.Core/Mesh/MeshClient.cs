@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
@@ -78,6 +78,25 @@ public interface IMeshClient
     /// "Changing a group's coordinator".
     /// </remarks>
     Task<MeshGroup> SetCoordinatorAsync(string group, string? coordinator, CancellationToken cancellationToken);
+
+    /// <summary>Every member of a group, removed ones included.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The membership, or null when the mesh is not answering.</returns>
+    Task<MeshMembers?> MembersAsync(string group, CancellationToken cancellationToken);
+
+    /// <summary>Remove a member from a group and rotate the group's secret.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="node">The member's node id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>What the rotation did.</returns>
+    Task<MeshRotation> RemoveMemberAsync(string group, string node, CancellationToken cancellationToken);
+
+    /// <summary>Rotate a group's secret without removing anybody.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>What the rotation did.</returns>
+    Task<MeshRotation> RotateSecretAsync(string group, CancellationToken cancellationToken);
 
     /// <summary>Leave a group.</summary>
     /// <param name="group">The group id.</param>
@@ -413,6 +432,47 @@ public sealed class MeshClient : IMeshClient
         await ThrowIfFailedAsync(response, "changing a group's coordinator", cancellationToken)
             .ConfigureAwait(false);
         return await ReadAsync<MeshGroup>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshMembers?> MembersAsync(string group, CancellationToken cancellationToken)
+        => await TryGetAsync<MeshMembers>(
+                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/members",
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task<MeshRotation> RemoveMemberAsync(
+        string group,
+        string node,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        // A removal mints a new secret and then hands it to every other member in turn, each dial
+        // bounded but serial. On a group of a dozen nodes where several are asleep, that is
+        // minutes -- and the caller has to wait, because the answer says who actually took it.
+        http.Timeout = TimeSpan.FromMinutes(3);
+        using var response = await http.DeleteAsync(
+                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/members/{Uri.EscapeDataString(node)}",
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "removing a member", cancellationToken).ConfigureAwait(false);
+        return await ReadAsync<MeshRotation>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshRotation> RotateSecretAsync(string group, CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        http.Timeout = TimeSpan.FromMinutes(3);
+        using var response = await http.PostAsync(
+                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/rotate",
+                content: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "rotating the group secret", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshRotation>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

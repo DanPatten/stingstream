@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -62,12 +62,16 @@ public sealed class RequestsController : StingStreamControllerBase
         [FromQuery] string? state)
     {
         var me = CurrentUserId();
-        var isAdmin = User.IsInRole("Administrator");
+        var isAdmin = IsAdministrator();
         var rows = _store.All().AsEnumerable();
 
         if (!isAdmin || mine == true)
         {
-            rows = rows.Where(r => string.Equals(r.RequestedBy, me, StringComparison.OrdinalIgnoreCase));
+            // `IsSelf` rather than a string compare, for the reason on `MaySee`: a row written
+            // with the id in one GUID format and a claim issued in the other are the same user.
+            rows = rows.Where(r => IsSelf(r.RequestedBy)
+                || (!Guid.TryParse(r.RequestedBy, out _)
+                    && string.Equals(r.RequestedBy, me, StringComparison.OrdinalIgnoreCase)));
         }
 
         if (!string.IsNullOrWhiteSpace(state))
@@ -91,14 +95,12 @@ public sealed class RequestsController : StingStreamControllerBase
     public ActionResult<RequestDetail> Get(string id)
     {
         var row = _store.Get(id);
-        if (row is null)
+        // "Does not exist" and "is not yours" are the same answer on purpose. The two used to be
+        // 404 and 403, which told anybody with an account which request ids existed on the node
+        // and, by trying a few, roughly how much the other members were asking for.
+        if (row is null || !MaySee(row))
         {
             return NotFound();
-        }
-
-        if (!MaySee(row))
-        {
-            return Forbid();
         }
 
         return Ok(new RequestDetail { Request = row, Events = _store.Events(id).ToList() });
@@ -182,14 +184,10 @@ public sealed class RequestsController : StingStreamControllerBase
     public async Task<ActionResult> Delete(string id, CancellationToken cancellationToken)
     {
         var row = _store.Get(id);
-        if (row is null)
+        // Same 404 for "no such request" and "not yours", for the reason given on `Get`.
+        if (row is null || !MaySee(row))
         {
             return NotFound();
-        }
-
-        if (!MaySee(row))
-        {
-            return Forbid();
         }
 
         await _store.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
@@ -383,9 +381,23 @@ public sealed class RequestsController : StingStreamControllerBase
     public async Task<ActionResult<RequestPassReport>> Pass(CancellationToken cancellationToken)
         => Ok(await _worker.RunPassAsync(cancellationToken).ConfigureAwait(false));
 
+    /// <summary>Whether the caller is allowed to see this request at all.</summary>
+    /// <param name="row">The request.</param>
+    /// <returns>True for an administrator and for the person who made it.</returns>
+    /// <remarks>
+    /// <see cref="StingStreamControllerBase.IsSelf"/> rather than a case-insensitive string
+    /// compare. Both ends of that comparison are Jellyfin user ids, and Jellyfin issues the same id
+    /// in <c>N</c> format in some responses and <c>D</c> format in others — so the string version
+    /// was one client-side formatting choice away from telling a user that their own request was
+    /// somebody else's. The string compare is kept as a fallback for a row whose
+    /// <c>RequestedBy</c> is not a GUID at all, which is what an older row written by a
+    /// pre-M6 build looks like.
+    /// </remarks>
     private bool MaySee(RequestRow row)
-        => User.IsInRole("Administrator")
-           || string.Equals(row.RequestedBy, CurrentUserId(), StringComparison.OrdinalIgnoreCase);
+        => IsAdministrator()
+           || IsSelf(row.RequestedBy)
+           || (!Guid.TryParse(row.RequestedBy, out _)
+               && string.Equals(row.RequestedBy, CurrentUserId(), StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>One request with its event trail.</summary>

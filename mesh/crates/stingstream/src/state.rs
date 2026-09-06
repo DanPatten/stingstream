@@ -108,6 +108,13 @@ pub struct NodeState {
     /// reached nobody succeeds, and the only evidence used to be one field in a log line nobody
     /// is tailing. See `crate::joincode`.
     pub join: crate::joincode::JoinHandle,
+    /// The key this node signs and checks `/stream/*` URLs with (M8b).
+    ///
+    /// Derived once, at construction, from a secret `runtime.json` already carries — see
+    /// [`crate::gateway::streamurl`] for the derivation and for the hole it closes. `None` on a
+    /// node whose `runtime.json` is incomplete, which makes every off-machine stream request fail
+    /// closed rather than open.
+    pub stream_key: Option<[u8; 32]>,
     children: RwLock<BTreeMap<String, ChildStatus>>,
 }
 
@@ -120,6 +127,7 @@ impl NodeState {
                 ChildStatus::new(name, child.enabled, child.port, child.base_url.clone()),
             );
         }
+        let stream_key = crate::gateway::streamurl::key(&runtime.qbittorrent.password);
         Self {
             config,
             runtime,
@@ -127,6 +135,7 @@ impl NodeState {
             side_door: crate::sidedoor::SideDoorHandle::disabled(),
             updates: crate::updatecheck::UpdateCheckHandle::default(),
             join: crate::joincode::JoinHandle::default(),
+            stream_key,
             children: RwLock::new(children),
         }
     }

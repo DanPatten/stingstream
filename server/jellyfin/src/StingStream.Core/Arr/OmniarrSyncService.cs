@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -657,8 +657,18 @@ public sealed class OmniarrSyncService
         }
 
         var app = client.Kind == ArrKind.Radarr ? "radarr" : "sonarr";
+        // The token is what actually authenticates the delivery; see WebhookToken for why the
+        // loopback address in this URL never did. A node with no token yet writes the URL without
+        // one, the receiver refuses it, and the next sync (which runs whenever runtime.json
+        // changes) fixes it.
+        var token = Webhooks.WebhookToken.For(_factory.Runtime);
+        var query = token is null
+            ? string.Create(CultureInfo.InvariantCulture, $"?app={app}")
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"?app={app}&{Webhooks.WebhookToken.QueryName}={token}");
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"http://127.0.0.1:{jellyfin.Port}{jellyfin.UrlBase}/stingstream/api/v1/webhooks/arr?app={app}");
+            $"http://127.0.0.1:{jellyfin.Port}{jellyfin.UrlBase}/stingstream/api/v1/webhooks/arr{query}");
     }
 }

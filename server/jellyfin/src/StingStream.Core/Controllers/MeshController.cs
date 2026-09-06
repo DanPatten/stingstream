@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -48,6 +48,80 @@ public sealed class MeshController : StingStreamControllerBase
         var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
         return status is null ? MeshUnavailable() : Ok(status);
     }
+
+    /// <summary>Every member of a group, removed ones included.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The membership.</response>
+    /// <response code="503">The mesh is not answering.</response>
+    /// <returns>The membership.</returns>
+    /// <remarks>
+    /// Elevated, unlike <see cref="Groups"/>: the list is node ids and last-seen times for every
+    /// machine in the group, which is more than a member needs in order to watch a film, and it is
+    /// the screen the Remove button lives on.
+    /// </remarks>
+    [HttpGet("groups/{group}/members")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshMembers>> Members(
+        [FromRoute] string group,
+        CancellationToken cancellationToken)
+    {
+        var members = await _mesh.MembersAsync(group, cancellationToken).ConfigureAwait(false);
+        return members is null ? MeshUnavailable() : Ok(members);
+    }
+
+    /// <summary>Remove a member from a group and rotate the group's secret.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="node">The member's node id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">What the rotation did.</response>
+    /// <response code="400">This node is not in that group, or that is not a node id.</response>
+    /// <response code="503">The mesh is not answering.</response>
+    /// <returns>What the rotation did.</returns>
+    /// <remarks>
+    /// This is a group-wide, irreversible act performed from one member's node: every remaining
+    /// member gets a new secret, every invite code minted before now stops working, and the removed
+    /// node is refused from this moment. There is no un-remove — the node re-joins from a fresh
+    /// invite like anybody else. See <c>docs/MESH.md</c>.
+    ///
+    /// The call can take minutes on a group where several members are asleep, because it waits to
+    /// report who actually took the new secret. The ones it could not reach are not a failure: they
+    /// catch up on their next connection through the grace window.
+    /// </remarks>
+    [HttpDelete("groups/{group}/members/{node}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshRotation>> RemoveMember(
+        [FromRoute] string group,
+        [FromRoute] string node,
+        CancellationToken cancellationToken)
+        => Ok(await _mesh.RemoveMemberAsync(group, node, cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Rotate a group's secret, keeping every member.</summary>
+    /// <param name="group">The group id, hex.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">What the rotation did.</response>
+    /// <response code="400">This node is not in that group.</response>
+    /// <response code="503">The mesh is not answering.</response>
+    /// <returns>What the rotation did.</returns>
+    /// <remarks>
+    /// For when a code leaked rather than when a person left. Nobody is removed; every invite
+    /// minted before now stops working, and every member has to be handed the new secret, which
+    /// happens automatically for the ones that are reachable and on their next dial for the rest.
+    /// </remarks>
+    [HttpPost("groups/{group}/rotate")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<MeshRotation>> RotateSecret(
+        [FromRoute] string group,
+        CancellationToken cancellationToken)
+        => Ok(await _mesh.RotateSecretAsync(group, cancellationToken).ConfigureAwait(false));
 
     /// <summary>Every group this node belongs to.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

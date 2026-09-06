@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -87,7 +87,15 @@ public sealed class ItemsController : StingStreamControllerBase
             return NotFound($"{id} is neither an item on this node nor an item key.");
         }
 
-        var chosen = PolicyNames.Parse(policy) ?? _policies.Get(userId ?? CurrentUserId()).Parsed();
+        // `?userId=` used to be taken at face value, which made this a second, unguarded way to
+        // read another user's stored preference — the same hole `UsersController` had on its
+        // getter. A caller may ask on behalf of somebody else only if it is an administrator;
+        // anybody else asking about anybody else silently gets their own, because the alternative
+        // (a 403) would break a client that passes its own id in the format Jellyfin did not.
+        var forUser = userId is not null && (IsSelf(userId) || IsAdministrator())
+            ? userId
+            : CurrentUserId();
+        var chosen = PolicyNames.Parse(policy) ?? _policies.Get(forUser).Parsed();
         var candidates = await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken).ConfigureAwait(false);
         var ranked = SourceScorer.Rank(candidates, chosen);
 

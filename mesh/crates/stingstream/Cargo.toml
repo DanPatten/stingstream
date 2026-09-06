@@ -17,6 +17,8 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1"
 data-encoding = "2"
+# HMAC-SHA256 for the signed `/stream/*` URLs -- see gateway::streamurl.
+hmac = "0.12"
 axum = { version = "0.8", features = ["ws", "macros"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }

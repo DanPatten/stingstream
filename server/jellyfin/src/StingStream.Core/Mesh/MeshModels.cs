@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -69,6 +69,62 @@ public sealed class MeshGroup
     public string? Coordinator { get; set; }
 
     public string CreatedAt { get; set; } = string.Empty;
+}
+
+/// <summary>One member of a group, as <c>GET /mesh/v1/groups/{group}/members</c> reports it.</summary>
+public sealed class MeshMember
+{
+    /// <summary>The member's node id, hex.</summary>
+    public string Node { get; set; } = string.Empty;
+
+    /// <summary>What the member calls itself. Empty until it has said.</summary>
+    public string NodeName { get; set; } = string.Empty;
+
+    public bool Online { get; set; }
+
+    public string? LastSeen { get; set; }
+
+    /// <summary>This is the node answering the request.</summary>
+    public bool IsSelf { get; set; }
+
+    /// <summary>
+    /// Removed from the group. Kept on the list rather than deleted, so an administrator can see
+    /// that the removal happened rather than wondering where somebody went.
+    /// </summary>
+    public bool Revoked { get; set; }
+}
+
+/// <summary>The answer to <c>GET /mesh/v1/groups/{group}/members</c>.</summary>
+public sealed class MeshMembers
+{
+    public IReadOnlyList<MeshMember> Members { get; set; } = Array.Empty<MeshMember>();
+
+    /// <summary>How many times this group's secret has been rotated. 0 is a group that never has.</summary>
+    public long Epoch { get; set; }
+
+    /// <summary>Milliseconds since the epoch at the last rotation, from the author's clock.</summary>
+    public long RotatedAt { get; set; }
+
+    /// <summary>The node that made the last rotation.</summary>
+    public string RotatedBy { get; set; } = string.Empty;
+}
+
+/// <summary>The answer to a removal or a rotation.</summary>
+public sealed class MeshRotation
+{
+    public string Group { get; set; } = string.Empty;
+
+    /// <summary>The epoch the group is now at.</summary>
+    public long Epoch { get; set; }
+
+    /// <summary>The node removed, when the rotation was a removal.</summary>
+    public string? Removed { get; set; }
+
+    /// <summary>
+    /// The members that took the new secret before the call returned. The rest pick it up from the
+    /// grace window the next time they dial anybody, so a short list is not a failure.
+    /// </summary>
+    public IReadOnlyList<string> Reached { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>The answer to <c>POST /mesh/v1/groups/join</c>.</summary>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Net.Http;
 using Microsoft.AspNetCore.Builder;
@@ -126,6 +126,8 @@ public static class StingStreamCoreExtensions
         // makes that possible.
         services.AddSingleton<PlaybackPolicyStore>();
         services.AddSingleton<FederatedSourceService>();
+        // Minted here and checked by the gateway; see StreamUrlSigner for the hole it closes.
+        services.AddSingleton<StreamUrlSigner>();
         services.AddSingleton<FederatedSourceDecorator>();
         services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator>(
             sp => sp.GetRequiredService<FederatedSourceDecorator>());
