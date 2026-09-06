@@ -120,9 +120,9 @@ public sealed class SetupController : ControllerBase
     /// </remarks>
     [HttpPost("admin", Name = "StingStreamSetupAdmin")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(SetupError), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(SetupError), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AuthenticationResult>> CreateAdmin(
         [FromBody] SetupAdminRequest request,
         CancellationToken cancellationToken)
