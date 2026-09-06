@@ -12,14 +12,7 @@
     "packages",
     "constants"
   ],
-  "srcExtensions": [
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs"
-  ],
+  "srcExtensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
   "excludeDirs": [
     "node_modules",
     "ios",

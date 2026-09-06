@@ -14,8 +14,6 @@ import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
-const HORIZONTAL_PADDING = 60;
-const TOP_PADDING = 100;
 const SECTION_GAP = 24;
 
 type TabId =

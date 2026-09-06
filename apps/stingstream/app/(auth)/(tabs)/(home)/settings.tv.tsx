@@ -1511,7 +1511,12 @@ export default function SettingsTV() {
             label={t("home.settings.storage.clear_all_cache")}
             value=''
             onPress={handleClearCache}
-            isFirst
+            // Not isFirst: TVSettingsOptionButton turns that into
+            // hasTVPreferredFocus, and the Account row at the top of this
+            // screen already claims it. Two candidates is the focus flicker in
+            // docs/conventions/tv.md -- and the one halfway down the page would
+            // scroll the screen out from under the viewer on arrival.
+            isFirst={false}
           />
 
           {/* User Section */}

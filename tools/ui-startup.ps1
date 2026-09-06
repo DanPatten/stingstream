@@ -7,13 +7,17 @@
     Measures, in order: T_gateway (TCP accept), T_index (GET "/" 200 -- once WP-GATE's node marker
     exists, also asserts <meta name="stingstream-node"> and window.__STINGSTREAM_NODE__ with
     loopback:true; until then, 200 is the whole check), T_healthy (/healthz 200), T_wired
-    (runtime.json's first_run flag clears). With -DriveUi, Playwright then opens the page,
-    records first-contentful-paint, drives the first-run "Create your StingStream account" screen
-    when present (falling back to signing in with the runtime.json admin credentials, read
-    silently, until WP3 builds that screen), and waits for a poster with naturalWidth > 0 on Home
-    (T_home). With -Lan, a second context hits the LAN URL and checks for the "finish setup on
-    the computer" message (or, before the marker exists, just that the page loads). Finally the
-    node is restarted on the same data dir and an ordinary login -> home pass is timed again.
+    (runtime.json's first_run flag clears). Seeds with real TMDB/TVDB artwork by default (F-12;
+    -OfflineArtwork falls back to the old gradients) -- with -DriveUi, once wiring completes this
+    script enables internet image providers and waits for a real poster before Playwright ever
+    opens the page, specifically so that step's own timing does not count against T_home. Playwright
+    then opens the page, records first-contentful-paint, drives the first-run "Create your
+    StingStream account" screen when present (falling back to signing in with the runtime.json
+    admin credentials, read silently, until WP3 builds that screen), and waits for a poster with
+    naturalWidth > 0 on Home (T_home). With -Lan, a second context hits the LAN URL and checks for
+    the "finish setup on the computer" message (or, before the marker exists, just that the page
+    loads). Finally the node is restarted on the same data dir and an ordinary login -> home pass
+    is timed again.
 
     Budgets (docs/UI-LOOP.md, "Golden startup"): T_gateway < 2s, T_index < 3s,
     T_healthy < 40s (arrs off) / 90s (on), T_wired < 60s / 120s, FCP < 1.5s,
@@ -49,6 +53,16 @@
     Requires apps/stingstream/node_modules/playwright to be installed (tools/ui-shots has its own
     copy -- see docs/UI-LOOP.md). Drives the actual browser session described above.
 
+.PARAMETER OfflineArtwork
+    Off by default -- as of F-12 (Dan: "tests must use real movie images, never placeholders")
+    this seeds with real TMDB/TVDB artwork, same as tools/ui-node.ps1 -Seed: no local poster/
+    fanart is written, and once first-run wiring completes (with -DriveUi -- see below) this
+    script enables the Movies/TV Shows libraries' internet image providers and waits for the
+    catalogue's first movie to get a real fetched poster, *before* Playwright ever opens the page,
+    so T_home still measures how fast Home shows a poster that is already there rather than how
+    long a TMDB fetch takes. Pass -OfflineArtwork to fall back to the old deterministic gradients
+    instead (no network dependency at all, at the cost of not being a real image).
+
 .PARAMETER KeepRunning
     Leave the node running afterwards instead of stopping it.
 
@@ -67,6 +81,7 @@ param(
     [string]$WebDist,
     [switch]$Lan,
     [switch]$DriveUi,
+    [switch]$OfflineArtwork,
     [switch]$KeepRunning
 )
 
@@ -151,7 +166,7 @@ Invoke-Step 'Wipe -> seed -> start (fresh data dir, mirrors a first run)' {
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
     $mediaRoot = Join-Path $DataDir 'media'
-    & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot $mediaRoot
+    & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot $mediaRoot -OfflineArtwork:$OfflineArtwork
 
     $supervisor = New-PrivateInstallRoot -RepoRoot $RepoRoot -Destination $PrivateCopy -WithArrs:$WithArrs
     $withArrsBool = if ($WithArrs) { 'true' } else { 'false' }
@@ -270,6 +285,23 @@ $Runtime = Invoke-Step 'T_wired: first-run wiring completes' {
 if (-not $DriveUi) {
     Skip-Step 'FCP / setup screen / T_home / LAN / restart' -Why '-DriveUi not passed'
 } else {
+    if (-not $OfflineArtwork) {
+        # Enable internet providers and wait for a real fetched poster BEFORE Playwright ever
+        # opens the page (F-12: real images, not placeholders) -- deliberately its own step, not
+        # folded into T_home, so T_home keeps measuring how fast Home shows a poster that is
+        # already there rather than how long a TMDB round trip takes. No formal budget: this is a
+        # real network operation and docs/UI-LOOP.md already documents that timing as
+        # conditions-dependent (under a minute to several minutes).
+        Invoke-Step 'Real artwork: enabling internet providers and fetching it' {
+            # Not $mediaRoot -- that was assigned inside the "Wipe -> seed -> start" step's own
+            # scriptblock, invoked with `&`, which creates a new scope; it does not survive past
+            # that step (docs/UI-LOOP.md's case-collision writeup is the same lesson about
+            # PowerShell scoping catching this package out more than once). $DataDir is a
+            # top-level script variable and is safe to rebuild the path from anywhere.
+            & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot (Join-Path $DataDir 'media') -RefreshNodeUrl "http://127.0.0.1:$Port"
+        }
+    }
+
     Invoke-Step 'Playwright: first-contentful-paint, first-run/login, home' {
         # A standalone Node/Playwright script rather than inline PowerShell COM/HTTP juggling --
         # tools/ui-shots ships its own Playwright install (docs/UI-LOOP.md); this reuses it so
