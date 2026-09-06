@@ -451,6 +451,29 @@ Each `MediaSource` also carries its holder's file hash as its weak `ETag` (`W/"b
 `stingstream:file_hash` an app needs to tell "the same bytes elsewhere, resume silently" from "a
 different encode, restart at a timestamp".
 
+#### Core TODO (found while building the chooser, v0.2.0)
+
+`GET /items/{id}/sources` is the fuller list, and that is exactly what makes part of it
+unplayable. A source is played by handing the player a **`MediaSource.Id`**, and a holder only has
+one if this node materialized a `.strm` pointer for it. The endpoint returns holders that were
+never materialized — a title held locally is the common case, since the local file wins and the
+remote copies are never written as pointers — so `lib/stingstream/sourceChooser.ts` joins on the
+node id in `MediaSource.Path` and **drops every source that does not join**. The chooser is
+therefore narrower than the endpoint, and a user with the title on three servers, one of which they
+hold locally, sees the two they can actually switch to.
+
+What would close it, cheapest first:
+
+1. **A `mediaSourceId` on each returned source**, where one exists. Core knows which pointer it
+   wrote; the client is reverse-engineering that from a URL.
+2. **A "materialize on demand" call** — `POST /items/{id}/sources/{node}/pointer` — so choosing an
+   unmaterialized holder writes the `.strm`, and PlaybackInfo has an id for it on the next call.
+   This is the one that would make the whole list playable.
+
+Until then, the join is the honest behaviour: offering a row that cannot be played is worse than
+not offering it. The local copy is still listed, from the ordinary non-remote `MediaSource`, and is
+labelled "This server".
+
 ### The playback policy
 
 ```

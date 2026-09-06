@@ -1,8 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import type {
-  BaseItemDto,
-  ChapterInfo,
-} from "@jellyfin/sdk/lib/generated-client";
+import type { ChapterInfo } from "@jellyfin/sdk/lib/generated-client";
 import { type FC, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
@@ -12,6 +9,7 @@ import { ChapterList } from "@/components/chapters/ChapterList";
 import { ChapterTicks } from "@/components/chapters/ChapterTicks";
 import { Text } from "@/components/common/Text";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
+import { useTheme } from "@/hooks/useTheme";
 import {
   chapterMarkers,
   chapterNameAt,
@@ -25,7 +23,6 @@ import { TrickplayBubble } from "./TrickplayBubble";
 const TICK_HEIGHT = 10;
 
 interface BottomControlsProps {
-  item: BaseItemDto;
   /** Item chapters, used for the tick overlay and chapter list. */
   chapters?: ChapterInfo[] | null;
   /** Total media duration in milliseconds. */
@@ -71,7 +68,6 @@ interface BottomControlsProps {
 }
 
 export const BottomControls: FC<BottomControlsProps> = ({
-  item,
   chapters,
   durationMs,
   showControls,
@@ -96,6 +92,7 @@ export const BottomControls: FC<BottomControlsProps> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useControlsSafeAreaInsets();
+  const { accent } = useTheme();
   const [chapterListVisible, setChapterListVisible] = useState(false);
 
   const chapterMarkerList = useMemo(
@@ -143,24 +140,15 @@ export const BottomControls: FC<BottomControlsProps> = ({
           justifyContent: "space-between",
         }}
       >
+        {/* Title, series and year moved to the top-left with the source pill (HeaderControls):
+            identity belongs next to the thing that qualifies it, and the bottom bar is for the
+            timeline. What is left here is the one label that describes the *position*. */}
         <View
-          className='flex flex-col items-start shrink'
+          className='flex flex-col items-start shrink justify-end'
           pointerEvents={showControls ? "box-none" : "none"}
         >
-          {item?.Type === "Episode" && (
-            <Text className='opacity-50'>
-              {`${item.SeriesName} - ${item.SeasonName} Episode ${item.IndexNumber}`}
-            </Text>
-          )}
-          <Text className='font-bold text-xl'>{item?.Name}</Text>
-          {item?.Type === "Movie" && (
-            <Text className='text-xs opacity-50'>{item?.ProductionYear}</Text>
-          )}
-          {item?.Type === "Audio" && (
-            <Text className='text-xs opacity-50'>{item?.Album}</Text>
-          )}
           {currentChapterName ? (
-            <Text className='text-xs opacity-70 mt-1' numberOfLines={1}>
+            <Text variant='caption' tone='secondary' numberOfLines={1}>
               {currentChapterName}
             </Text>
           ) : null}
@@ -200,7 +188,9 @@ export const BottomControls: FC<BottomControlsProps> = ({
             <Slider
               theme={{
                 maximumTrackTintColor: "rgba(255,255,255,0.2)",
-                minimumTrackTintColor: "#fff",
+                minimumTrackTintColor: accent[500],
+                // The one place the accent belongs on the OSD: watched progress. Everything else
+                // over video stays white, which is the only colour that reads on any frame.
                 cacheTrackTintColor: "rgba(255,255,255,0.3)",
                 bubbleBackgroundColor: "#fff",
                 bubbleTextColor: "#666",

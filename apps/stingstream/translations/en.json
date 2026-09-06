@@ -592,6 +592,13 @@
         "secret_rotated": "Secret rotated {{when}} ago · epoch {{epoch}}",
         "secret_rotated_on": "Secret rotated on {{date}} · epoch {{epoch}}",
         "secret_never_rotated": "The secret has never been rotated · epoch {{epoch}}"
+      },
+      "playback_policy": {
+        "title": "Sharing",
+        "label": "Prefer",
+        "description": "When more than one of your servers has a title, start with the fastest one or with the best copy.",
+        "speed": "Fastest source",
+        "quality": "Best quality"
       }
     },
     "sessions": {
@@ -859,7 +866,26 @@
     "segment_skipped_outro": "Credits skipped",
     "segment_skipped_recap": "Recap skipped",
     "segment_skipped_commercial": "Commercial skipped",
-    "segment_skipped_preview": "Preview skipped"
+    "segment_skipped_preview": "Preview skipped",
+    "source": {
+      "play_from": "Play from",
+      "play_from_description": "Choose which of your servers streams this title.",
+      "this_server": "This server",
+      "direct": "Direct",
+      "relayed": "Relayed",
+      "connecting": "Connecting",
+      "offline": "Offline",
+      "recommended": "Recommended",
+      "same_file": "Same file",
+      "playing": "Playing",
+      "none_title": "Nothing else holds this",
+      "none_description": "Only this server has a copy you can play right now."
+    },
+    "next_up": "Next up",
+    "fullscreen": "Full screen",
+    "exit_fullscreen": "Exit full screen",
+    "mute": "Mute",
+    "unmute": "Unmute"
   },
   "chapters": {
     "title": "Chapters",

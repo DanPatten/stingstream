@@ -21,6 +21,7 @@ import { PlayedStatus } from "@/components/PlayedStatus";
 import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
+import { SourceChooserButton } from "@/components/stingstream/sources/SourceChooserButton";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
 import { useOrientation } from "@/hooks/useOrientation";
@@ -233,6 +234,23 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
                   setSelectedOptions={setSelectedOptions}
                   item={itemWithSources}
                   colors={itemColors}
+                />
+              )}
+              {/* WP-PLAYER: "Play from…" before playback, for a federated title held by more than
+                  one server. Renders nothing otherwise, including on every single-server library. */}
+              {!isOffline && (
+                <SourceChooserButton
+                  item={itemWithSources}
+                  currentMediaSourceId={selectedOptions.mediaSource?.Id}
+                  onSelect={(mediaSourceId) => {
+                    const chosen = itemWithSources?.MediaSources?.find(
+                      (source) => source.Id === mediaSourceId,
+                    );
+                    if (!chosen) return;
+                    setSelectedOptions(
+                      (prev) => prev && { ...prev, mediaSource: chosen },
+                    );
+                  }}
                 />
               )}
             </View>

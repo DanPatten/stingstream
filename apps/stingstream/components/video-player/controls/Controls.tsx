@@ -23,23 +23,31 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { SourceChooserSheet } from "@/components/stingstream/sources/SourceChooserSheet";
 import ContinueWatchingOverlay from "@/components/video-player/controls/ContinueWatchingOverlay";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useMediaSegments } from "@/hooks/useMediaSegments";
 import { usePlaybackManager } from "@/hooks/usePlaybackManager";
 import { useTrickplay } from "@/hooks/useTrickplay";
+import { useWebPointerActivity } from "@/hooks/useWebPointerActivity";
+import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
 import type { TechnicalInfo } from "@/modules/mpv-player";
 import { DownloadedItem } from "@/providers/Downloads/types";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { hasChapterMarkers } from "@/utils/chapters";
 import { getDefaultPlaySettings } from "@/utils/jellyfin/getDefaultPlaySettings";
+import {
+  KEYBOARD_SEEK_SECONDS,
+  mapKeyToPlayerAction,
+} from "@/utils/player/keyboardMap";
 import { SEGMENT_SKIP_KEY, useSegments } from "@/utils/segments";
 import { ticksToMs } from "@/utils/time";
+import { exitFullscreen, toggleFullscreen } from "@/utils/web/fullscreen";
 import { BottomControls } from "./BottomControls";
 import { CenterControls } from "./CenterControls";
-import { CONTROLS_CONSTANTS } from "./constants";
+import { CONTROLS_CONSTANTS, CONTROLS_TIMEOUT_MS } from "./constants";
 import { AndroidSubtitleScaleOverlay } from "./dropdown/DropdownView";
 import { EpisodeList } from "./EpisodeList";
 import { GestureOverlay } from "./GestureOverlay";
@@ -90,6 +98,13 @@ interface Props {
   getTechnicalInfo?: () => Promise<TechnicalInfo>;
   playMethod?: "DirectPlay" | "DirectStream" | "Transcode";
   transcodeReasons?: string[];
+  /** Muting is the player's, not the device's — `m` and the chooser both need it. */
+  isMuted?: boolean;
+  onToggleMute?: () => void;
+  /** Every holder this title can be played from. Empty for ordinary local playback. */
+  sourceChoices?: SourceChoice[];
+  /** Re-negotiate the stream against another holder, keeping the position. */
+  onSwitchMediaSource?: (mediaSourceId: string) => void;
 }
 
 const CONTROLS_ANIMATION_CONFIG = {
@@ -135,6 +150,10 @@ export const Controls: FC<Props> = ({
   getTechnicalInfo,
   playMethod,
   transcodeReasons,
+  isMuted = false,
+  onToggleMute,
+  sourceChoices,
+  onSwitchMediaSource,
 }) => {
   const offline = useOfflineMode();
   const { settings, updateSettings } = useSettings();
@@ -144,6 +163,7 @@ export const Controls: FC<Props> = ({
   const [episodeView, setEpisodeView] = useState(false);
   const [showAudioSlider, setShowAudioSlider] = useState(false);
   const [showSubtitleScale, setShowSubtitleScale] = useState(false);
+  const [sourceChooserOpen, setSourceChooserOpen] = useState(false);
 
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const { previousItem, nextItem } = usePlaybackManager({
@@ -287,6 +307,73 @@ export const Controls: FC<Props> = ({
       handleSkipForward();
     }
   });
+
+  // The browser's keyboard, which `expo-key-event` does not see. Every decision about *which* key
+  // does what lives in `mapKeyToPlayerAction` so it can be tested without a player, and a key the
+  // map does not claim is left alone — the tab order and the browser's own shortcuts still work.
+  useEffect(() => {
+    if (
+      Platform.OS !== "web" ||
+      Platform.isTV ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (episodeView || showAudioSlider || sourceChooserOpen) return;
+      // Typing in a field is not a player shortcut. Without this, "f" in a search box would
+      // fullscreen the page.
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
+        return;
+      }
+
+      const action = mapKeyToPlayerAction(event.key, {
+        platform: Platform.OS,
+        isTV: Boolean(Platform.isTV),
+        hasModifier:
+          event.ctrlKey || event.altKey || event.metaKey || event.shiftKey,
+      });
+      if (!action) return;
+      event.preventDefault();
+
+      switch (action) {
+        case "togglePlay":
+          togglePlay();
+          break;
+        case "seekBack":
+          handleSeekBackward(KEYBOARD_SEEK_SECONDS);
+          break;
+        case "seekForward":
+          handleSeekForward(KEYBOARD_SEEK_SECONDS);
+          break;
+        case "toggleFullscreen":
+          void toggleFullscreen(null);
+          break;
+        case "toggleMute":
+          onToggleMute?.();
+          break;
+        case "exitFullscreen":
+          void exitFullscreen();
+          break;
+      }
+      setShowControls(true);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [
+    episodeView,
+    showAudioSlider,
+    sourceChooserOpen,
+    togglePlay,
+    handleSeekBackward,
+    handleSeekForward,
+    onToggleMute,
+    setShowControls,
+  ]);
 
   // Time management hook
   const { currentTime, remainingTime } = useVideoTime({
@@ -644,17 +731,54 @@ export const Controls: FC<Props> = ({
     setShowControls(false);
     setShowAudioSlider(false);
   }, [setShowControls]);
+  const showControlsNow = useCallback(() => {
+    setShowControls(true);
+  }, [setShowControls]);
   const openSubtitleScale = useCallback(() => setShowSubtitleScale(true), []);
   const closeSubtitleScale = useCallback(() => setShowSubtitleScale(false), []);
 
+  // Auto-hide was switched off here, so on a phone the OSD sat over the film until it was tapped
+  // away — the one behaviour every other player has. It is on now, suspended only while a menu
+  // that lives *inside* the controls is open, since hiding those out from under a finger is worse
+  // than leaving them up.
   const { handleControlsInteraction } = useControlsTimeout({
     showControls,
     isSliding: isSliding || isRemoteSliding,
     episodeView,
     onHideControls: hideControls,
-    timeout: CONTROLS_CONSTANTS.TIMEOUT,
-    disabled: true,
+    timeout: CONTROLS_TIMEOUT_MS.phone,
+    disabled: showAudioSlider || showSubtitleScale || sourceChooserOpen,
   });
+
+  // Web has no tap-to-summon: the pointer is what says "I am still here". Moving it brings the
+  // controls back and resets the timer; stillness takes them away and the cursor with them.
+  useWebPointerActivity({
+    showControls,
+    onShow: showControlsNow,
+    onHide: hideControls,
+    timeout: CONTROLS_TIMEOUT_MS.web,
+    disabled:
+      episodeView ||
+      showAudioSlider ||
+      showSubtitleScale ||
+      sourceChooserOpen ||
+      isSliding,
+  });
+
+  // A chooser with one row in it answers a question nobody asked, so the pill only becomes a
+  // button when there is somewhere else to play from *and* the player knows how to move.
+  const canChooseSource =
+    !!onSwitchMediaSource && (sourceChoices?.length ?? 0) > 1;
+
+  const openSourceChooser = useCallback(() => setSourceChooserOpen(true), []);
+  const closeSourceChooser = useCallback(() => setSourceChooserOpen(false), []);
+  const handleSwitchMediaSource = useCallback(
+    (mediaSourceId: string) => {
+      setSourceChooserOpen(false);
+      onSwitchMediaSource?.(mediaSourceId);
+    },
+    [onSwitchMediaSource],
+  );
 
   const switchOnEpisodeMode = useCallback(() => {
     setEpisodeView(true);
@@ -710,6 +834,12 @@ export const Controls: FC<Props> = ({
           >
             <HeaderControls
               item={item}
+              mediaSource={mediaSource}
+              isMuted={isMuted}
+              onToggleMute={onToggleMute}
+              onOpenSourceChooser={
+                canChooseSource ? openSourceChooser : undefined
+              }
               showControls={showControls}
               startPictureInPicture={startPictureInPicture}
               switchOnEpisodeMode={switchOnEpisodeMode}
@@ -754,7 +884,6 @@ export const Controls: FC<Props> = ({
             pointerEvents={showControls ? "auto" : "none"}
           >
             <BottomControls
-              item={item}
               chapters={item.Chapters}
               durationMs={maxMs}
               showControls={showControls}
@@ -792,6 +921,8 @@ export const Controls: FC<Props> = ({
             remainingTime={remainingTime}
             isPlaying={isPlaying}
             itemId={item.Id}
+            nextItem={nextItem}
+            api={api}
             skipIntro={onSkipSegment}
             skipCredit={onSkipOutro}
             onNextEpisodeFinish={handleNextEpisodeAutoPlay}
@@ -804,6 +935,16 @@ export const Controls: FC<Props> = ({
       )}
       {stillWatchingVisible && (
         <ContinueWatchingOverlay goToNextItem={handleContinueWatching} />
+      )}
+      {canChooseSource && (
+        <SourceChooserSheet
+          visible={sourceChooserOpen}
+          onClose={closeSourceChooser}
+          item={item}
+          choices={sourceChoices}
+          currentMediaSourceId={mediaSource?.Id}
+          onSelect={handleSwitchMediaSource}
+        />
       )}
     </View>
   );

@@ -44,7 +44,9 @@ import { usePlaybackManager } from "@/hooks/usePlaybackManager";
 import type { SegmentType } from "@/hooks/useSegmentSkipper";
 import { useTrickplay } from "@/hooks/useTrickplay";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
+import { useTVSourceChooser } from "@/hooks/useTVSourceChooser";
 import { useTVSubtitleModal } from "@/hooks/useTVSubtitleModal";
+import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
 import type { TechnicalInfo } from "@/modules/mpv-player";
 import type { DownloadedItem } from "@/providers/Downloads/types";
 import { apiAtom } from "@/providers/JellyfinProvider";
@@ -61,12 +63,13 @@ import {
   type TrackMenuRow,
 } from "@/utils/subtitles/trackMenu";
 import { formatTimeString, msToTicks, ticksToMs } from "@/utils/time";
-import { CONTROLS_CONSTANTS } from "./constants";
+import { CONTROLS_CONSTANTS, CONTROLS_TIMEOUT_MS } from "./constants";
 import { useVideoContext } from "./contexts/VideoContext";
 import { useChapterNavigation } from "./hooks/useChapterNavigation";
 import { useRemoteControl } from "./hooks/useRemoteControl";
 import { useVideoTime } from "./hooks/useVideoTime";
 import { SegmentSkippedNotice } from "./SegmentSkippedNotice";
+import { TVSourcePill } from "./SourcePill";
 import { TechnicalInfoOverlay } from "./TechnicalInfoOverlay";
 import { TrickplayBubble } from "./TrickplayBubble";
 import type { Track } from "./types";
@@ -111,10 +114,15 @@ interface Props {
   playMethod?: "DirectPlay" | "DirectStream" | "Transcode";
   transcodeReasons?: string[];
   downloadedFiles?: DownloadedItem[];
+  /** Every holder this title can be played from. Empty for ordinary local playback. */
+  sourceChoices?: SourceChoice[];
+  /** Re-negotiate the stream against another holder, keeping the position. */
+  onSwitchMediaSource?: (mediaSourceId: string) => void;
 }
 
 const TV_SEEKBAR_HEIGHT = 14;
-const TV_AUTO_HIDE_TIMEOUT = 5000;
+/** One OSD, one set of auto-hide numbers: `constants.ts` owns all three surfaces. */
+const TV_AUTO_HIDE_TIMEOUT = CONTROLS_TIMEOUT_MS.tv;
 
 // Trickplay bubble positioning constants
 const TV_TRICKPLAY_SCALE = 1.8;
@@ -242,6 +250,8 @@ export const Controls: FC<Props> = ({
   playMethod,
   transcodeReasons,
   downloadedFiles,
+  sourceChoices,
+  onSwitchMediaSource,
 }) => {
   const typography = useScaledTVTypography();
   const insets = useSafeAreaInsets();
@@ -290,6 +300,7 @@ export const Controls: FC<Props> = ({
   const [progressBarRef, setProgressBarRef] = useState<View | null>(null);
   const [skipSegmentRef, setSkipSegmentRef] = useState<View | null>(null);
   const [nextEpisodeRef, setNextEpisodeRef] = useState<View | null>(null);
+  const [sourcePillRef, setSourcePillRef] = useState<View | null>(null);
 
   // Minimal seek bar state (shows only progress bar when seeking while controls hidden)
   const [showMinimalSeekBar, setShowMinimalSeekBar] = useState(false);
@@ -1239,7 +1250,28 @@ export const Controls: FC<Props> = ({
     goToNextItem({ isAutoPlay: true });
   }, [goToNextItem]);
 
-  const topOverlayFocusTarget = skipSegmentRef ?? nextEpisodeRef;
+  const { showSourceChooser } = useTVSourceChooser();
+
+  // Only a button when there is somewhere else to go: a one-row modal on a television is four
+  // D-pad presses to learn nothing.
+  const canChooseSource =
+    !!onSwitchMediaSource && (sourceChoices?.length ?? 0) > 1;
+
+  const handleOpenSourceChooser = useCallback(() => {
+    if (!canChooseSource || !sourceChoices) return;
+    showSourceChooser({
+      choices: sourceChoices,
+      onSelect: (mediaSourceId) => onSwitchMediaSource?.(mediaSourceId),
+    });
+  }, [canChooseSource, sourceChoices, showSourceChooser, onSwitchMediaSource]);
+
+  // The pill sits above the transport row, so it joins the same upward chain the skip and
+  // next-episode cards use. Without it, UP from the play button jumps past the pill to whichever
+  // card happens to be visible, and the pill is unreachable.
+  const topOverlayFocusTarget =
+    skipSegmentRef ??
+    nextEpisodeRef ??
+    (canChooseSource ? sourcePillRef : null);
 
   return (
     <View style={styles.controlsContainer} pointerEvents='box-none'>
@@ -1458,6 +1490,16 @@ export const Controls: FC<Props> = ({
               >
                 {item?.Name}
               </Text>
+              <View style={styles.sourcePillSlot}>
+                <TVSourcePill
+                  mediaSource={mediaSource}
+                  onPress={
+                    canChooseSource ? handleOpenSourceChooser : undefined
+                  }
+                  refSetter={setSourcePillRef}
+                  focusable={showControls && canChooseSource}
+                />
+              </View>
               {isLiveTV && (
                 <View style={styles.liveBadge}>
                   <Text
@@ -1480,10 +1522,20 @@ export const Controls: FC<Props> = ({
             )}
           </View>
 
-          {/* Upward: control buttons → visible skip segment or next episode card */}
+          {/* Bidirectional guides, stacked in the one slot between the title block and the
+              transport row (docs/tv-focus-guide.md). */}
+          {/* Upward: control buttons → skip card, next-episode card, or the source pill */}
           {topOverlayFocusTarget && (
             <TVFocusGuideView
               destinations={[topOverlayFocusTarget]}
+              style={styles.focusGuide}
+            />
+          )}
+          {/* Downward: the source pill hands focus back to Play rather than to whatever is
+              geometrically below it, which is the progress bar. */}
+          {canChooseSource && playButtonRef && (
+            <TVFocusGuideView
+              destinations={[playButtonRef]}
               style={styles.focusGuide}
             />
           )}
@@ -1687,6 +1739,9 @@ const styles = StyleSheet.create({
   },
   metadataContainer: {
     marginBottom: 16,
+  },
+  sourcePillSlot: {
+    justifyContent: "center",
   },
   titleRow: {
     flexDirection: "row",
