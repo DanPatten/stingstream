@@ -281,6 +281,27 @@ function Get-Member-Value {
     return $Object.$Name
 }
 
+function Get-ShortHash {
+    <#
+    .SYNOPSIS
+        Truncate a hash (or any string) for a log line, without throwing on a short one.
+    .DESCRIPTION
+        `$s.Substring(0, $n)` throws "Index and length must refer to a location within the
+        string" the moment `$s` is shorter than `$n` -- found for real in e2e-m4.ps1's own index-
+        convergence step: a gossiped inventory record can carry a file hash before it is fully
+        computed (an empty string, not an absent field -- `Get-Member-Value` would have returned
+        $null for that, which is a different, unrelated failure mode), and a harness printing a
+        one-line summary should never be what turns a legitimate "not converged yet" into an
+        unhandled exception that aborts the whole run. Prefer fixing *why* a value arrived short at
+        the call site (a stricter Wait-Until condition, most likely) -- this is the backstop for
+        every other place a hash gets truncated for display, not a substitute for that.
+    #>
+    param([string]$Value, [int]$Length = 8)
+    if ([string]::IsNullOrEmpty($Value)) { return '(none)' }
+    if ($Value.Length -le $Length) { return $Value }
+    return $Value.Substring(0, $Length)
+}
+
 # --- processes ------------------------------------------------------------------------------
 
 function Start-Tool {

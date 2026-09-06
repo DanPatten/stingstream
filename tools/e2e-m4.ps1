@@ -577,23 +577,36 @@ $Group = Invoke-Step 'A creates a group with no coordinator; B and C join' {
 
 # ============================================================================================
 Invoke-Step "Both holders' inventories reach A's index" {
-    $entries = Wait-Until -What "A's index to carry both holders" -Seconds 300 -PollSeconds 5 -Condition {
+    # The condition checks for a *hashed* record, not just a present one: a gossiped inventory
+    # entry can arrive with its itemKey set and its file hash still an empty string (not an absent
+    # field -- Get-Member-Value would read that as $null, a different case) while the holder is
+    # still hashing a large file in the background. Counting entries by itemKey alone let this step
+    # declare victory one poll before the hashes actually landed, and the display/uniqueness code
+    # below crashed on an empty string's .Substring(0, N) instead of retrying -- found for real in
+    # CI (not locally reproducible on demand; it is a race, not a deterministic failure). Requiring
+    # a non-empty fileHash on every matching entry here means "converged" now actually means ready
+    # for what the rest of this step does with it.
+    $entries = Wait-Until -What "A's index to carry both holders, hashed" -Seconds 300 -PollSeconds 5 -Condition {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 60 } catch { $null }
         if (-not $index) { return $null }
         $bunny = @($index.entries | Where-Object { $_.itemKey -eq $Bunny.ItemKey })
         $sita = @($index.entries | Where-Object { $_.itemKey -eq $Sita.ItemKey })
-        if ($bunny.Count -ge 2 -and $sita.Count -ge 2) { return $index.entries }
-        return $null
+        if ($bunny.Count -lt 2 -or $sita.Count -lt 2) { return $null }
+        $allHashed = @($bunny + $sita) | ForEach-Object { -not [string]::IsNullOrEmpty((Get-Member-Value $_ 'fileHash')) }
+        if ($allHashed -contains $false) { return $null }
+        return $index.entries
     } -Describe {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30 } catch { $null }
-        if ($index) { "index has $(@($index.entries).Count) entr(ies)" } else { 'no answer' }
+        if (-not $index) { return 'no answer' }
+        $hashed = @($index.entries | Where-Object { -not [string]::IsNullOrEmpty((Get-Member-Value $_ 'fileHash')) })
+        "index has $(@($index.entries).Count) entr(ies), $($hashed.Count) hashed"
     }
 
     foreach ($e in ($entries | Sort-Object itemKey, nodeName)) {
         Write-Host ("      {0} from {1}: {2}, {3:N0} bps, hash {4}" -f `
             $e.itemKey, $e.nodeName, (Get-Member-Value $e.media 'resolution'), `
             [int](Get-Member-Value $e.media 'bitrate'), `
-            ([string](Get-Member-Value $e 'fileHash')).Substring(0, 8))
+            (Get-ShortHash (Get-Member-Value $e 'fileHash')))
     }
 
     # Same title, two encodes, two different hashes -- and the same title in the same bytes twice,
@@ -607,7 +620,7 @@ Invoke-Step "Both holders' inventories reach A's index" {
     if ($sitaHashes.Count -ne 1) {
         throw "B and C hold byte-identical copies of Sita, so they must publish one hash; got $($sitaHashes.Count)."
     }
-    Write-Host "      Sita is the same bytes on both holders: $($sitaHashes[0].Substring(0,16))..."
+    Write-Host "      Sita is the same bytes on both holders: $(Get-ShortHash $sitaHashes[0] 16)..."
 }
 
 # ============================================================================================
