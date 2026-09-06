@@ -632,6 +632,14 @@ impl MeshNode {
             }
         }
 
+        // Re-read the group before starting it. A dial above can discover that *this* node missed a
+        // rotation and adopt the new secret on the spot (see `connect_peer`), and `group` here is
+        // still the copy the invite code produced -- so starting from it would put the running
+        // group straight back onto the key it had just moved off, and the node would be unable to
+        // talk to anybody until it was restarted. That is not hypothetical: it is what a member
+        // does when it comes back from a fortnight away and pastes the code again, which is also
+        // the only way it recovers at all when it has lost the addresses it knew. (M8b)
+        let group = self.db.group(&group.id)?.unwrap_or(group);
         self.start_group(group.clone(), bootstrap).await?;
         self.publish_rendezvous(&group).await;
 

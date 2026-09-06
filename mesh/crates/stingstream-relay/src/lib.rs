@@ -24,6 +24,14 @@
 //! * It never holds a node's TLS key: nodes run ACME themselves and only ask the coordinator to
 //!   publish a `_acme-challenge` TXT record they are entitled to ([`acme`]).
 //! * It never sees plaintext through the SNI router: TLS terminates on the node ([`sni`]).
+//!
+//! ## What it is trusted to survive
+//!
+//! Every route it serves is open to the internet and there is nobody to suspend, so the answer to
+//! "what if somebody just keeps asking" has to be structural. Each store has a ceiling
+//! ([`registry`], [`rendezvous`]), each caller has a token bucket ([`ratelimit`]), each outbound
+//! thing it can be asked to do is fenced to what the asker owns ([`probe`]) and each connection it
+//! holds has a timeout ([`tunnel`], [`dns::server`]).
 
 pub mod acme;
 pub mod config;
@@ -31,6 +39,7 @@ pub mod dns;
 pub mod health;
 pub mod http;
 pub mod probe;
+pub mod ratelimit;
 pub mod registry;
 pub mod rendezvous;
 pub mod service;

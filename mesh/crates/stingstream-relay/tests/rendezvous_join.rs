@@ -45,7 +45,10 @@ async fn start_coordinator() -> Result<(url::Url, Option<tokio::task::JoinHandle
     let addr = listener.local_addr()?;
     let cfg = Config {
         mode: Mode::Lite,
-        http: HttpConfig { bind: addr },
+        http: HttpConfig {
+            bind: addr,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let state = AppState::new(cfg, None)?;

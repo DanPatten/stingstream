@@ -26,6 +26,14 @@ use crate::registry::NodeRegistry;
 const UDP_MAX: usize = 512;
 /// Largest query we will read at all.
 const MAX_QUERY: usize = 4096;
+/// How long one DNS-over-TCP exchange may take, from accept to the last byte of the reply.
+///
+/// A resolver that has opened a connection sends its query immediately — it opened the connection
+/// *to* send it. Anything that connects and then says nothing, or sends one byte of a two-byte
+/// length prefix, is not a resolver, and without this the task blocked in `read_exact` waits for
+/// ever on a public port. Ten seconds is longer than any resolver's own timeout, so a slow but real
+/// client is never cut off by it.
+const TCP_EXCHANGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Where a query that this zone does not own should go.
 #[derive(Debug, Clone, Copy)]
@@ -237,26 +245,33 @@ pub async fn serve(responder: Responder, bind: SocketAddr) -> Result<()> {
             };
             let responder = responder.clone();
             tokio::spawn(async move {
-                // DNS over TCP frames each message with a two-byte length.
-                let mut len = [0u8; 2];
-                if stream.read_exact(&mut len).await.is_err() {
-                    return;
-                }
-                let len = u16::from_be_bytes(len) as usize;
-                if len > MAX_QUERY {
-                    return;
-                }
-                let mut query = vec![0u8; len];
-                if stream.read_exact(&mut query).await.is_err() {
-                    return;
-                }
-                if let Some(reply) = responder.respond(&query).await {
-                    let _ = stream
-                        .write_all(&(reply.len() as u16).to_be_bytes())
-                        .await;
-                    let _ = stream.write_all(&reply).await;
-                    let _ = stream.flush().await;
-                }
+                // One timeout around the whole exchange rather than one per read: the reply is
+                // written to the same socket, so a client that connects and then refuses to read
+                // pins this task just as effectively as one that refuses to write.
+                let exchange = async {
+                    // DNS over TCP frames each message with a two-byte length.
+                    let mut len = [0u8; 2];
+                    if stream.read_exact(&mut len).await.is_err() {
+                        return;
+                    }
+                    let len = u16::from_be_bytes(len) as usize;
+                    if len > MAX_QUERY {
+                        return;
+                    }
+                    let mut query = vec![0u8; len];
+                    if stream.read_exact(&mut query).await.is_err() {
+                        return;
+                    }
+                    if let Some(reply) = responder.respond(&query).await {
+                        let _ = stream
+                            .write_all(&(reply.len() as u16).to_be_bytes())
+                            .await;
+                        let _ = stream.write_all(&reply).await;
+                        let _ = stream.flush().await;
+                    }
+                };
+                // Timing out drops the future and with it the stream, which closes the connection.
+                let _ = tokio::time::timeout(TCP_EXCHANGE_TIMEOUT, exchange).await;
             });
         }
     });
@@ -362,7 +377,7 @@ mod tests {
     async fn a_registered_lan_name_is_answered() {
         let r = responder();
         let n = node();
-        r.registry.set_address(&n, "lan", "192.168.1.20".parse().unwrap());
+        r.registry.set_address(&n, "lan", "192.168.1.20".parse().unwrap()).unwrap();
         let reply = r
             .respond(&query_bytes(&format!("lan.{n}.direct.localhost"), RecordType::A))
             .await
@@ -378,7 +393,7 @@ mod tests {
     async fn an_acme_token_is_answered_as_txt() {
         let r = responder();
         let n = node();
-        r.registry.add_acme_token(&n, "challenge-value");
+        r.registry.add_acme_token(&n, "challenge-value").unwrap();
         let reply = r
             .respond(&query_bytes(
                 &format!("_acme-challenge.{n}.direct.localhost"),

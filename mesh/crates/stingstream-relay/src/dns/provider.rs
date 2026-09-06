@@ -141,12 +141,27 @@ impl DnsProvider for MockProvider {
 ///
 /// The type is generic over its base URL so the request shaping can be tested against a stub
 /// without reaching Cloudflare.
-#[derive(Debug)]
 pub struct CloudflareLike {
     base: String,
     token: String,
     zone_id: String,
     client: reqwest::Client,
+}
+
+/// Written out rather than derived, following `stingstream_mesh::GroupSecret`.
+///
+/// `token` is a live `Zone:DNS:Edit` credential for somebody's domain, and this type sits inside
+/// [`crate::state::AppState`] — one `{:?}` on the state, in a handler or a panic message, and it is
+/// in the logs. Nothing about the coordinator needs it printed; everything about it needs it not to
+/// be.
+impl std::fmt::Debug for CloudflareLike {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudflareLike")
+            .field("base", &self.base)
+            .field("zone_id", &self.zone_id)
+            .field("token", &"<redacted>")
+            .finish()
+    }
 }
 
 impl CloudflareLike {
@@ -338,5 +353,16 @@ mod tests {
         );
         let c = CloudflareLike::with_base("http://localhost:1234/".into(), "t".into(), "z".into());
         assert_eq!(c.records_url(), "http://localhost:1234/zones/z/dns_records");
+    }
+
+    #[test]
+    fn the_api_token_never_reaches_a_log_line() {
+        // The provider is reachable from `AppState`, which is `{:?}`-ed in tracing spans and in
+        // panic messages. A derived `Debug` here puts a live `Zone:DNS:Edit` token in both.
+        let c = CloudflareLike::cloudflare("cf-secret-token".into(), "zone123".into());
+        let rendered = format!("{c:?}");
+        assert!(!rendered.contains("cf-secret-token"), "{rendered}");
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+        assert!(rendered.contains("zone123"), "the zone is not a secret and is worth having");
     }
 }

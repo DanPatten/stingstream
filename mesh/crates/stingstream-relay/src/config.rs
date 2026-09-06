@@ -66,6 +66,8 @@ pub struct Config {
     pub dns: DnsConfig,
     pub sni: SniConfig,
     pub rendezvous: RendezvousConfig,
+    pub registry: RegistryConfig,
+    pub limits: RateLimitConfig,
     /// Where to keep state that benefits from surviving a restart (ACME cache, the DNS store).
     /// Rendezvous entries and node registrations are deliberately in memory only, so a coordinator
     /// needs no volume: members refresh well inside the entry TTL, so a restart self-heals.
@@ -77,6 +79,17 @@ pub struct Config {
 pub struct HttpConfig {
     /// The one port that carries both the relay protocol and the coordinator API.
     pub bind: SocketAddr,
+    /// Believe `X-Forwarded-For` when working out who a request came from.
+    ///
+    /// **Only turn this on when something you run terminates every connection in front of this
+    /// coordinator** — Railway's edge, Fly's proxy, your own nginx. The header is client-supplied
+    /// text: on a directly-reachable coordinator, trusting it hands every caller a fresh identity
+    /// per request and switches the address-keyed rate limits off in all but name.
+    ///
+    /// The other way round matters too, which is why this is a decision rather than a default:
+    /// behind a proxy with this *off*, every request appears to come from the proxy, so the whole
+    /// internet shares one bucket and a busy coordinator starts refusing its own nodes.
+    pub trust_forwarded_for: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +160,68 @@ pub struct SniConfig {
     /// Run the SNI router. Off on a platform that terminates TLS for you.
     pub enabled: bool,
     pub bind: SocketAddr,
+    /// Most passthrough connections carried at once, across every node.
+    ///
+    /// Each one holds a TCP socket, a QUIC stream to the node and two copy tasks, and it is opened
+    /// by whoever dialled 443 — so without a ceiling a single client can pin the coordinator's file
+    /// descriptors by opening connections and never speaking. A registered node's browser tab uses
+    /// one or two; a cast receiver another.
+    pub max_tunnels: usize,
+    /// Seconds a passthrough may go with no bytes in *either* direction before it is closed.
+    ///
+    /// Measured across both directions on purpose: a download is silent from the client for
+    /// minutes at a time, and a per-direction timer would shut the request side of a perfectly
+    /// healthy stream.
+    pub tunnel_idle_secs: u64,
+    /// Seconds a passthrough may last however busy it is, so a connection cannot be immortal.
+    /// Twelve hours is longer than any film and shorter than for ever.
+    pub tunnel_max_secs: u64,
+}
+
+/// Bounds on the in-memory node registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RegistryConfig {
+    /// Most nodes the coordinator will remember at once.
+    ///
+    /// A registration is authenticated by a signature but not by an invitation: anybody who can
+    /// generate an Ed25519 keypair can make one, and in Lite mode each new node also writes real
+    /// records into the operator's Cloudflare zone. Without a ceiling that is unbounded memory here
+    /// and an unbounded bill there. The rendezvous store has had `max_groups` for the same reason
+    /// since it was written; this is its other half.
+    pub max_nodes: usize,
+}
+
+/// How hard a single caller may lean on the HTTP API. See [`crate::ratelimit`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RateLimitConfig {
+    /// Turn the limiters off entirely. Only sensible on a coordinator that is not reachable from
+    /// the internet — a test rig, or one behind an allow-list.
+    pub enabled: bool,
+    /// Sustained requests a minute for the signed endpoints (`/register/v1`, `/probe/v1`,
+    /// `/acme/v1/challenge`), keyed by the **verified** node id.
+    ///
+    /// A node registers about every five minutes, probes after each registration and publishes two
+    /// ACME tokens once every sixty days — well under one request a minute. Thirty is fifty times
+    /// that, so the only caller that meets it is one in a loop.
+    pub node_per_minute: u32,
+    /// Requests a node may make back to back after being quiet. A node that has just restarted
+    /// registers, probes and may run a whole certificate order in a few seconds, which is under ten.
+    pub node_burst: u32,
+    /// Sustained requests a minute for the unauthenticated routes (`/rendezvous/v1/*`, the pkarr
+    /// and DoH proxy), keyed by client address.
+    ///
+    /// Generous because the key is weak in both directions: several members of a group can share
+    /// one home address, and on a coordinator behind a proxy with `http.trust_forwarded_for` off
+    /// this is the whole world's shared allowance. Ten a second is far more rendezvous traffic than
+    /// a friend group generates and still a ceiling.
+    pub ip_per_minute: u32,
+    pub ip_burst: u32,
+    /// Most distinct callers tracked at once, per limiter. Past it a caller the coordinator has
+    /// never seen is refused rather than the table being allowed to grow — the table is attacker-
+    /// growable, so it needs a cap like everything else here.
+    pub max_keys: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +247,8 @@ impl Default for Config {
             dns: DnsConfig::default(),
             sni: SniConfig::default(),
             rendezvous: RendezvousConfig::default(),
+            registry: RegistryConfig::default(),
+            limits: RateLimitConfig::default(),
             data_dir: None,
         }
     }
@@ -181,6 +258,7 @@ impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             bind: "0.0.0.0:8080".parse().expect("a literal address parses"),
+            trust_forwarded_for: false,
         }
     }
 }
@@ -230,6 +308,28 @@ impl Default for SniConfig {
         Self {
             enabled: false,
             bind: "0.0.0.0:443".parse().expect("a literal address parses"),
+            max_tunnels: 256,
+            tunnel_idle_secs: 300,
+            tunnel_max_secs: 43_200,
+        }
+    }
+}
+
+impl Default for RegistryConfig {
+    fn default() -> Self {
+        Self { max_nodes: 10_000 }
+    }
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            node_per_minute: 30,
+            node_burst: 10,
+            ip_per_minute: 600,
+            ip_burst: 120,
+            max_keys: 65_536,
         }
     }
 }
@@ -367,6 +467,24 @@ impl Config {
         if let Some(v) = env("STINGSTREAM_COORDINATOR_DATA_DIR") {
             self.data_dir = Some(PathBuf::from(v));
         }
+        if let Some(v) = env_bool("STINGSTREAM_COORDINATOR_TRUST_PROXY") {
+            self.http.trust_forwarded_for = v;
+        }
+        if let Some(v) = env_usize("STINGSTREAM_COORDINATOR_MAX_NODES")? {
+            self.registry.max_nodes = v;
+        }
+        if let Some(v) = env_usize("STINGSTREAM_COORDINATOR_MAX_TUNNELS")? {
+            self.sni.max_tunnels = v;
+        }
+        if let Some(v) = env_bool("STINGSTREAM_COORDINATOR_RATE_LIMIT") {
+            self.limits.enabled = v;
+        }
+        if let Some(v) = env_u32("STINGSTREAM_COORDINATOR_RATE_NODE_PER_MIN")? {
+            self.limits.node_per_minute = v;
+        }
+        if let Some(v) = env_u32("STINGSTREAM_COORDINATOR_RATE_IP_PER_MIN")? {
+            self.limits.ip_per_minute = v;
+        }
         Ok(())
     }
 
@@ -413,6 +531,24 @@ fn env_u16(key: &str) -> Result<Option<u16>> {
         None => Ok(None),
         Some(v) => Ok(Some(
             v.parse().with_context(|| format!("{key}={v} is not a port"))?,
+        )),
+    }
+}
+
+fn env_u32(key: &str) -> Result<Option<u32>> {
+    match env(key) {
+        None => Ok(None),
+        Some(v) => Ok(Some(
+            v.parse().with_context(|| format!("{key}={v} is not a number"))?,
+        )),
+    }
+}
+
+fn env_usize(key: &str) -> Result<Option<usize>> {
+    match env(key) {
+        None => Ok(None),
+        Some(v) => Ok(Some(
+            v.parse().with_context(|| format!("{key}={v} is not a number"))?,
         )),
     }
 }
@@ -513,6 +649,41 @@ mod tests {
         assert_eq!(cfg.dns.origin.as_deref(), Some("direct.example.org"));
         assert_eq!(cfg.dns.public_ips.len(), 2);
         cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn the_abuse_limits_are_operator_settable() {
+        // An operator who is being leaned on wants to *lower* these without a redeploy, and one
+        // running a private coordinator wants them out of the way. Both go through the environment,
+        // because that is all a container platform offers.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = EnvGuard::set(&[
+            ("STINGSTREAM_COORDINATOR_TRUST_PROXY", "1"),
+            ("STINGSTREAM_COORDINATOR_MAX_NODES", "250"),
+            ("STINGSTREAM_COORDINATOR_MAX_TUNNELS", "16"),
+            ("STINGSTREAM_COORDINATOR_RATE_NODE_PER_MIN", "5"),
+            ("STINGSTREAM_COORDINATOR_RATE_IP_PER_MIN", "50"),
+        ]);
+        let mut cfg = Config::default();
+        cfg.apply_env().unwrap();
+        assert!(cfg.http.trust_forwarded_for);
+        assert_eq!(cfg.registry.max_nodes, 250);
+        assert_eq!(cfg.sni.max_tunnels, 16);
+        assert_eq!(cfg.limits.node_per_minute, 5);
+        assert_eq!(cfg.limits.ip_per_minute, 50);
+        assert!(cfg.limits.enabled, "untouched, and on by default");
+    }
+
+    #[test]
+    fn rate_limiting_is_on_unless_it_is_deliberately_turned_off() {
+        // The default matters more than the override: a coordinator deployed with nothing but
+        // `PORT` set is the common case, and it is the one that faces the internet.
+        assert!(Config::default().limits.enabled);
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = EnvGuard::set(&[("STINGSTREAM_COORDINATOR_RATE_LIMIT", "off")]);
+        let mut cfg = Config::default();
+        cfg.apply_env().unwrap();
+        assert!(!cfg.limits.enabled);
     }
 
     #[test]

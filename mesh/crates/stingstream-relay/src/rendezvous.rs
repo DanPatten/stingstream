@@ -47,9 +47,17 @@ pub struct Entry {
     pub sealed: String,
     /// The member's own slot, so a refresh replaces rather than appends.
     pub slot: String,
+    /// When the member last refreshed, as the member saw it. Echoed back untouched — the
+    /// coordinator has no opinion about anybody's clock — which is exactly why it is bounded like
+    /// the other two fields: an unbounded string a stranger chooses, held in memory and handed to
+    /// every other member, is free storage with a delivery mechanism attached.
     #[serde(default)]
     pub updated_at: String,
 }
+
+/// Longest `updated_at` the store will accept. An RFC 3339 timestamp is about twenty-five
+/// characters; this leaves room for an offset and a fractional second and nothing else.
+pub const MAX_UPDATED_AT_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntryList {
@@ -132,6 +140,7 @@ impl RendezvousStore {
             || entry.sealed.is_empty()
             || entry.slot.is_empty()
             || entry.slot.len() > 128
+            || entry.updated_at.len() > MAX_UPDATED_AT_BYTES
             || !entry.sealed.bytes().all(|b| b.is_ascii_hexdigit())
         {
             return Err(RejectReason::Malformed);
@@ -324,6 +333,17 @@ mod tests {
         let mut e = entry("");
         e.slot = String::new();
         assert_eq!(s.put("rid", "t", e), Err(RejectReason::Malformed));
+
+        // `updated_at` is as attacker-chosen as the other two and was the one field with no
+        // ceiling: a megabyte of it per slot, per group, is a coordinator used as free storage.
+        let mut e = entry("n1");
+        e.updated_at = "x".repeat(MAX_UPDATED_AT_BYTES + 1);
+        assert_eq!(s.put("rid", "t", e), Err(RejectReason::Malformed));
+
+        // ...and a real timestamp still fits comfortably.
+        let mut e = entry("n1");
+        e.updated_at = "2026-09-05T12:34:56.123456789+01:00".into();
+        s.put("rid", "t", e).unwrap();
     }
 
     #[test]

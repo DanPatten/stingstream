@@ -45,7 +45,7 @@ impl Action {
 }
 
 /// The body of `POST /acme/v1/challenge`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChallengeRequest {
     /// The node's public key in z-base-32 — the same form that appears in its hostnames.
     pub node: String,
@@ -57,6 +57,28 @@ pub struct ChallengeRequest {
     pub ts: u64,
     /// Lowercase hex of the 64-byte Ed25519 signature over the transcript.
     pub sig: String,
+}
+
+/// Written out rather than derived, following `stingstream_mesh::GroupSecret`.
+///
+/// This struct is flattened into the register and probe bodies, so it is what a `{:?}` on any of
+/// the three prints — and two of its fields are credentials in every sense that matters here. `sig`
+/// is the bearer proof for the whole request: a captured one is replayable for
+/// [`MAX_SKEW_SECS`], which is exactly long enough for it to be picked out of a log by whoever is
+/// watching one. `token` is a signed field, so it is the *content* being authorised — a
+/// registration's is the node's addresses — and there is no version of "a signature and the thing
+/// it signs, in the logs" that is a good idea. What is left is enough to debug with: which node,
+/// what it asked for, and when it says it asked.
+impl std::fmt::Debug for ChallengeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChallengeRequest")
+            .field("node", &self.node)
+            .field("action", &self.action)
+            .field("token", &"<redacted>")
+            .field("ts", &self.ts)
+            .field("sig", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Build the transcript a node signs.
@@ -200,6 +222,19 @@ mod tests {
         let mut r = good;
         r.token = "x".repeat(1000);
         assert!(verify(&r, now()).is_err());
+    }
+
+    #[test]
+    fn a_signed_request_does_not_print_its_own_signature() {
+        // This struct is flattened into the register and probe bodies, so it is what a handler's
+        // `{:?}` prints. A signature in a log line is a replayable credential sitting in whatever
+        // aggregator the operator uses.
+        let key = SecretKey::generate();
+        let req = sign(&key, Action::Set, "a-real-dns-01-token", now());
+        let rendered = format!("{req:?}");
+        assert!(!rendered.contains(&req.sig), "the signature must not be printed");
+        assert!(!rendered.contains("a-real-dns-01-token"), "nor the signed content");
+        assert!(rendered.contains(&req.node), "the node id is what makes the line useful");
     }
 
     #[test]

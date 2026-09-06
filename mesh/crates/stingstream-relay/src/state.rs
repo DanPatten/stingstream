@@ -6,8 +6,22 @@ use std::time::Instant;
 use crate::config::{Config, DnsProviderKind};
 use crate::dns::provider::{CloudflareLike, DnsProvider, MockProvider, NullProvider};
 use crate::dns::Zone;
+use crate::ratelimit::RateLimiter;
 use crate::registry::NodeRegistry;
 use crate::rendezvous::RendezvousStore;
+
+/// The coordinator's two rate limiters, kept together because the choice between them is always
+/// the same question: does this request carry a verified node id, or only an address?
+///
+/// Separate tables on purpose. They are both capped, and a shared one would let somebody churning
+/// keypairs through the signed routes fill the table that legitimate rendezvous callers need.
+#[derive(Debug)]
+pub struct Limits {
+    /// Keyed by the **verified** node id, for `/register/v1`, `/probe/v1` and `/acme/v1/challenge`.
+    pub signed: RateLimiter,
+    /// Keyed by the client's address, for the rendezvous routes and the pkarr/DoH proxy.
+    pub client: RateLimiter,
+}
 
 /// Everything the HTTP handlers, the DNS server and the SNI router share.
 #[derive(Clone)]
@@ -17,6 +31,12 @@ pub struct Inner {
     pub cfg: Config,
     pub registry: Arc<NodeRegistry>,
     pub rendezvous: Arc<RendezvousStore>,
+    pub limits: Limits,
+    /// Permits for SNI passthrough connections, one per live tunnel.
+    ///
+    /// Global rather than per node: the resource being shared is this process's sockets and tasks,
+    /// and a connection is opened by whoever dialled 443 rather than by the node it is destined for.
+    pub tunnels: Arc<tokio::sync::Semaphore>,
     /// Present in Full mode, where the coordinator is authoritative for the zone. In Lite mode the
     /// same names exist, but they are published as real records through [`Inner::dns`] instead.
     pub zone: Option<Zone>,
@@ -101,11 +121,29 @@ impl AppState {
             cfg.rendezvous.max_entries_per_group,
             cfg.rendezvous.max_groups,
         ));
+        let registry = Arc::new(NodeRegistry::with_capacity(cfg.registry.max_nodes));
+        let limits = Limits {
+            signed: RateLimiter::new(
+                cfg.limits.enabled,
+                cfg.limits.node_per_minute,
+                cfg.limits.node_burst,
+                cfg.limits.max_keys,
+            ),
+            client: RateLimiter::new(
+                cfg.limits.enabled,
+                cfg.limits.ip_per_minute,
+                cfg.limits.ip_burst,
+                cfg.limits.max_keys,
+            ),
+        };
+        let tunnels = Arc::new(tokio::sync::Semaphore::new(cfg.sni.max_tunnels.max(1)));
 
         Ok(Self(Arc::new(Inner {
             cfg,
-            registry: Arc::new(NodeRegistry::default()),
+            registry,
             rendezvous,
+            limits,
+            tunnels,
             zone,
             dns,
             endpoint,

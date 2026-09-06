@@ -354,7 +354,7 @@ mod tests {
         let z = zone();
         let node = node52();
         let reg = NodeRegistry::default();
-        reg.set_address(&node, "lan", "192.168.1.20".parse().unwrap());
+        reg.set_address(&node, "lan", "192.168.1.20".parse().unwrap()).unwrap();
         assert_eq!(
             z.lookup(&format!("lan.{node}.direct.localhost"), QType::A, &reg),
             Answer::Records(vec![ZoneRecord::A("192.168.1.20".parse().unwrap())])
@@ -371,8 +371,8 @@ mod tests {
         let z = zone();
         let node = node52();
         let reg = NodeRegistry::default();
-        reg.add_acme_token(&node, "tok-one");
-        reg.add_acme_token(&node, "tok-two");
+        reg.add_acme_token(&node, "tok-one").unwrap();
+        reg.add_acme_token(&node, "tok-two").unwrap();
         let answer = z.lookup(
             &format!("_acme-challenge.{node}.direct.localhost"),
             QType::Txt,

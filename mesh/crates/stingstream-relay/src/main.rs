@@ -97,6 +97,30 @@ async fn main() -> Result<()> {
         zone = cfg.dns.origin.as_deref().unwrap_or("(none)"),
         "starting the StingStream coordinator"
     );
+    // The ceilings, in the log, once. An operator who is being leaned on wants to know what the
+    // limits currently are before deciding whether to lower them, and reading them out of a running
+    // container's environment is a worse experience than reading the line the process printed.
+    tracing::info!(
+        rate_limit = cfg.limits.enabled,
+        node_per_minute = cfg.limits.node_per_minute,
+        ip_per_minute = cfg.limits.ip_per_minute,
+        trust_forwarded_for = cfg.http.trust_forwarded_for,
+        max_nodes = cfg.registry.max_nodes,
+        max_groups = cfg.rendezvous.max_groups,
+        max_tunnels = cfg.sni.max_tunnels,
+        "abuse limits"
+    );
+    if cfg.limits.enabled && !cfg.http.trust_forwarded_for && cfg.tls.mode == TlsMode::None {
+        // The shape that quietly mis-limits: plain HTTP almost always means a proxy in front, and
+        // then every request appears to come from the proxy and the whole world shares one bucket.
+        // Said once at start-up rather than discovered when legitimate nodes start seeing 429s.
+        tracing::warn!(
+            "tls.mode is \"none\", so something is probably terminating TLS in front of this \
+             coordinator -- set STINGSTREAM_COORDINATOR_TRUST_PROXY=1 so the address-keyed rate \
+             limits see the real client rather than the proxy. Leave it off if this port is \
+             reachable directly, or the header can be forged."
+        );
+    }
 
     // The coordinator's own iroh endpoint. It exists only to dial nodes for SNI passthrough, so it
     // is not created when nothing will use it — a Lite coordinator with no side door needs no QUIC
