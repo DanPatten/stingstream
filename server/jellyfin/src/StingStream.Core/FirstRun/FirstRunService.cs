@@ -497,7 +497,7 @@ public sealed class FirstRunService : BackgroundService
             });
             config.PluginRepositories = repositories.ToArray();
             _serverConfig.SaveConfiguration();
-            report.Steps.Add("subtitles: added Jellyfin's plugin repository");
+            report.Steps.Add("subtitles: added the server's plugin repository");
         }
 
         if (_plugins.GetPlugin(OpenSubtitlesPluginId) is not null)

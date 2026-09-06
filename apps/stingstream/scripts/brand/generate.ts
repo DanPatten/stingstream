@@ -17,6 +17,7 @@
  *   bun scripts/brand/generate.ts --candidates [--out <dir>]
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import sharp from "sharp";
@@ -249,6 +250,29 @@ async function renderPngToPaths(
 
 function writeSvg(svg: string, path: string) {
   writeFileSync(path, svg, "utf8");
+  console.log(
+    "wrote",
+    path.replace(`${APP_ROOT}\\`, "").replace(`${APP_ROOT}/`, ""),
+  );
+}
+
+/**
+ * Write a generated .ts file and immediately run `biome format --write` on it. The
+ * generated constants file is machine-built (long single-line string literals via
+ * JSON.stringify, an inline object literal) and does not match biome's own formatting
+ * rules -- `bun run check` (CI's "Formatter and lint" step, which runs biome over the
+ * whole app, not just touched files) caught this once already
+ * (constants/brandPaths.ts). Formatting it here, every time this script writes it,
+ * makes that a one-time bug rather than a standing risk every future regeneration could
+ * reintroduce.
+ */
+function writeGeneratedTs(content: string, path: string) {
+  writeFileSync(path, content, "utf8");
+  execFileSync("bunx", ["biome", "format", "--write", path], {
+    cwd: APP_ROOT,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
   console.log(
     "wrote",
     path.replace(`${APP_ROOT}\\`, "").replace(`${APP_ROOT}/`, ""),
@@ -631,12 +655,7 @@ async function main() {
     `export const MARK_INK_BOUNDS = ${JSON.stringify(MARK_INK_BOUNDS)};`,
     "",
   ].join("\n");
-  writeFileSync(
-    outPath("constants", "brandPaths.ts"),
-    constantsContent,
-    "utf8",
-  );
-  console.log("wrote constants/brandPaths.ts");
+  writeGeneratedTs(constantsContent, outPath("constants", "brandPaths.ts"));
 
   console.log(
     "\nDone. Re-run `expo prebuild --clean` (or the release build script) to pick up the native icons.",
