@@ -22,9 +22,9 @@ placeholder in it, and a policy with no contact route is a policy that cannot be
 
 ## The short version
 
-StingStream does not collect anything about you. There is no account with us, no analytics, no crash
-reporting, no advertising identifier, and no server of ours that your library, your viewing or your
-searches pass through.
+StingStream does not collect anything about you. There is no account with us, no analytics, no
+crash reporting, no advertising identifier, and no server of ours that your library, your viewing or
+your searches pass through.
 
 StingStream is software you install on a computer you own. Your data stays on that computer and on
 the devices you use to reach it.
@@ -100,9 +100,15 @@ devices and the relay does not hold the key.
 
 ### 4. Nobody else
 
-The app contains no analytics library, no crash reporting service, no advertising network and no
-third-party software development kit that reports anything anywhere. It makes no network request to
-any address that you have not configured, other than to the relays described above.
+The app contains no analytics library, no advertising network and no third-party software
+development kit that reports anything anywhere. It makes no network request to any address that you
+have not configured, other than to the relays described above.
+
+**On crash reporting**, because being exact is better than being brief: StingStream is a fork of an
+app called Streamyfin, which sends crash reports to its own developers. That code is still present
+in ours, and it is **switched off** — it has no destination configured and it is not enabled by
+default, so it never starts and no crash report is ever created, let alone sent. If that ever
+changes, this page changes with it, in the same release, and the setting stays yours to turn off.
 
 ## What other members of your group can see
 

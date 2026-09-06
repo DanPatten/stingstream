@@ -644,8 +644,14 @@ export const defaultValues: Settings = {
   openSubtitlesEnabled: true,
   // TV-only: Inactivity timeout (disabled by default)
   inactivityTimeout: InactivityTimeout.Disabled,
-  // Crash reporting defaults on; the intro sheet and settings expose the opt-out
-  sentryEnabled: true,
+  // Crash reporting defaults **off** (M8b). Upstream defaults it on, which is the right call for
+  // an app whose users know they are sending reports to the project that wrote it; StingStream
+  // tells people in three places that nothing about them leaves their own devices, and a default
+  // that disagreed with the privacy policy and with a Data Safety declaration to Google is not a
+  // default, it is a contradiction. `utils/sentry.ts` also drops the inherited DSN, so with
+  // nothing configured this toggle has nowhere to send anything either way. The intro sheet and
+  // Settings still expose it, for a build that has a DSN of its own.
+  sentryEnabled: false,
 };
 
 type LegacySubtitleSettings = Partial<Settings> & {

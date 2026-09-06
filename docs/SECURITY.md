@@ -79,6 +79,7 @@ severity column is about this system's own threat model, not a generic CVSS.
 | N15 | **The peer HTTP server had no header-read timeout**, so an authenticated member whose build was wedged could pin one task per stream on every other node. | **Low** | Thirty seconds, matching the gateway. |
 | N16 | **A re-join from a pre-rotation invite code demoted a member back onto the old secret**, because `upsert_group` wrote `secret` unconditionally. | **Low** | A rotated group takes its secret from `apply_rekey` and nowhere else. |
 | N17 | **Restarting a group left its old gossip tasks running**, so a rotated node kept publishing heartbeats sealed under the key it had just rotated away from. | **Low** | The tasks are owned and aborted on drop. |
+| N19 | **The app shipped a crash reporter pointed at a third party, on by default.** `@sentry/react-native` is inherited from the Streamyfin fork, and its DSN fell back to *upstream Streamyfin's own Sentry organisation* whenever `EXPO_PUBLIC_SENTRY_DSN` was unset — which it is in every StingStream build. `sentryEnabled` defaulted to true, so a person who never opened Settings was reporting by default, to somebody who never agreed to receive it and cannot be asked to delete it. It also made `README.md`, `deploy/play/privacy-policy.md` and the Data Safety declaration to Google all false, and Google enforces a wrong Data Safety form by removal rather than by warning. | **High** | The DSN fallback is gone, so with nothing configured `Sentry.init` is never called; consent is opt-in (`=== true`) rather than opt-out (`!== false`); the default is `false`. The scrubbers, the toggle and the admin lock are untouched and start working the moment somebody sets a DSN they own. Four tests pin it, including "a release build with no DSN never initializes". |
 | N18 | **Three log lines in the app printed the user's own Jellyfin access token**, from the `ApiKey=` in a direct-play URL, to logcat and to the browser console. | **Low** | `lib/stingstream/redactUrl.ts` at the three call sites; the parameter name is kept and only the value goes. |
 
 ### The coordinator (`stingstream-relay`)
@@ -232,7 +233,10 @@ an API key, a password or a token. `GroupSecret`'s `Debug` prints `GroupSecret(<
 characters in most log lines. Two latent paths in the coordinator (derived `Debug` on structs
 holding tokens) were C12 and are fixed.
 
-*App.* **Three lines on the playback path printed the user's own Jellyfin access token**, because a
+*App, crash reporting.* See N19: the SDK was there, enabled, and pointed at somebody else's
+project. It is now inert unless a build deliberately configures it.
+
+*App, logs.* **Three lines on the playback path printed the user's own Jellyfin access token**, because a
 direct-play URL carries it in `ApiKey=` (that is how Jellyfin authenticates a player that cannot set
 headers) and `getStreamUrl` logged the URL verbatim. `console.log` goes to logcat on Android and to
 the browser console on web, so the token was readable by anything attached to either. Upstream
@@ -341,6 +345,11 @@ Run on 2026-09-05, on the tree at the M8b commits.
 | same | `Jellyfin.Server`, `Jellyfin.Api`, `MediaBrowser.Controller` | **None.** |
 | `bun audit` | `packages/api-client`, 66 packages | **None.** |
 | `bun audit` | `apps/stingstream` | **12** (5 high, 7 moderate), all transitive build tooling. R7. |
+
+The dependency *graph* is only half of a supply-chain answer, and N19 is the other half: a
+dependency can be present, current, unvulnerable and still be doing something the product says it
+does not do. `@sentry/react-native` had no advisory against it and was the single largest privacy
+problem in the app.
 
 `cargo deny` answers three questions `cargo audit` does not, and `mesh/deny.toml` is where each of
 them was decided rather than defaulted:

@@ -96,9 +96,9 @@ All rows **No**. No permission is requested for either.
 ### App info and performance
 | Type | Collected | Note |
 |---|---|---|
-| Crash logs | **No** | **There is no crash reporter.** A crash is visible to the user and to nobody else. |
+| Crash logs | **No** — read the note | The app *contains* Sentry, inherited from the Streamyfin fork, and **it is disabled in a StingStream release**: M8b removed the DSN (upstream's default pointed at Streamyfin's own Sentry organisation) and made the consent toggle opt-in rather than opt-out, so with nothing configured `Sentry.init` is never called and no event is constructed. A crash is visible to the user and to nobody else. **If a future release sets `EXPO_PUBLIC_SENTRY_DSN`, this row becomes "Yes — collected, and shared, for App functionality and Diagnostics" and must be changed in the same release.** |
 | Diagnostics | **No** | |
-| Other app performance data | **No** | |
+| Other app performance data | **No** | No performance tracing, no session replay, no screenshots — all three are off in the SDK configuration as well as unreachable without a DSN. |
 
 ### Device or other IDs
 | Type | Collected | Note |
@@ -147,9 +147,14 @@ map or turn public relays off entirely.
 
 ### 3.4 Nobody else
 
-No advertising network, no analytics provider, no crash reporter, no content delivery network, no
-"partners". The app makes no outbound request to any address the user has not configured, except to
-the relays above.
+No advertising network, no analytics provider, no content delivery network, no "partners". The app
+makes no outbound request to any address the user has not configured, except to the relays above.
+
+**The one thing to keep honest here is Sentry.** It is in the dependency tree, because the app is a
+fork of Streamyfin and Streamyfin uses it. In a StingStream build it has no DSN and no default
+consent, so it never initialises — which is what makes every "No" above true. That is a *code*
+guarantee (`apps/stingstream/utils/sentry.ts`, and four tests that pin it) rather than a promise,
+which is the only kind worth putting on a form Google enforces by removal.
 
 ---
 
@@ -169,7 +174,9 @@ the relays above.
 The declaration above is true of the app as it stands. Any of these changes it, and the form must be
 updated **before** the release that contains them:
 
-* adding a crash reporter or any analytics, however anonymous;
+* **setting `EXPO_PUBLIC_SENTRY_DSN`**, or defaulting `sentryEnabled` back to true — either one
+  turns crash reporting on, and both are one line;
+* adding any other analytics, however anonymous;
 * adding any first-party hosted service the app talks to by default;
 * making the fallback coordinator do anything beyond rendezvous, relay and reachability;
 * any feature that reads the user's photos, files, contacts or location.

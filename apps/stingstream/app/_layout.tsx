@@ -115,8 +115,10 @@ jotaiStore.sub(effectiveSettingsAtom, () => {
   // Ignore changes until the persisted settings hydrate; before that the
   // effective value is just defaults and would override a stored opt-out.
   if (jotaiStore.get(settingsAtom) === null) return;
+  // `=== true`, not `!== false`: consent is opt-in since M8b, and the two differ on the value a
+  // fresh install has before anybody has touched the toggle. See `utils/sentry.ts`.
   applySentryConsent(
-    jotaiStore.get(effectiveSettingsAtom).sentryEnabled !== false,
+    jotaiStore.get(effectiveSettingsAtom).sentryEnabled === true,
   );
 });
 

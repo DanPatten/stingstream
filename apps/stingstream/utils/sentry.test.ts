@@ -13,8 +13,11 @@ mock.module("@sentry/react-native", () => ({
   close: () => Promise.resolve(),
   breadcrumbsIntegration: () => ({ name: "Breadcrumbs" }),
 }));
+// Consent is opt-in since M8b, so the mock has to *grant* it for the
+// initialization tests below; upstream's `{}` used to be enough.
+let storedSettings: Record<string, unknown> = { sentryEnabled: true };
 mock.module("@/utils/storedSettings", () => ({
-  readStoredSettings: () => ({}),
+  readStoredSettings: () => storedSettings,
   readStoredPluginSettings: () => ({}),
   SETTINGS_KEY: "settings",
   PLUGIN_SETTINGS_KEY: "STREAMYFIN_PLUGIN_SETTINGS",
@@ -202,14 +205,40 @@ describe("dev builds do not report", () => {
 
   test("a dev build never initializes the SDK", () => {
     setDev(true);
+    process.env.EXPO_PUBLIC_SENTRY_DSN = "https://k@example.invalid/1";
+    initializeSentryIfConsented();
+    expect(initCalls).toHaveLength(0);
+  });
+
+  // M8b: no DSN at all is the *shipped* state. The inherited default pointed at
+  // upstream Streamyfin's own Sentry organisation, so a StingStream release with
+  // nothing configured was sending its users' crash reports to a third party —
+  // while README.md, the privacy policy and a Data Safety declaration to Google
+  // all said it collected nothing.
+  test("a release build with no DSN configured never initializes either", () => {
+    setDev(false);
+    process.env.EXPO_PUBLIC_SENTRY_DSN = undefined;
+    delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+    initializeSentryIfConsented();
+    expect(initCalls).toHaveLength(0);
+  });
+
+  // ...and consent is opt-*in*: an install where nobody has touched the toggle
+  // reports nothing, where upstream treated "not explicitly false" as yes.
+  test("a release build with a DSN but no explicit consent stays quiet", () => {
+    setDev(false);
+    process.env.EXPO_PUBLIC_SENTRY_DSN = "https://k@example.invalid/1";
+    storedSettings = {};
     initializeSentryIfConsented();
     expect(initCalls).toHaveLength(0);
   });
 
   // Ordering matters: initializeSentry latches on success, so the release
-  // case runs last or it would mask the dev case above.
-  test("a release build initializes as normal", () => {
+  // case runs last or it would mask the cases above.
+  test("a release build with a DSN and consent initializes as normal", () => {
     setDev(false);
+    process.env.EXPO_PUBLIC_SENTRY_DSN = "https://k@example.invalid/1";
+    storedSettings = { sentryEnabled: true };
     initializeSentryIfConsented();
     expect(initCalls).toHaveLength(1);
   });

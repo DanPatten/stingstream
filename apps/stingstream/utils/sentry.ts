@@ -13,12 +13,36 @@ import {
 } from "@/utils/storedSettings";
 import { getVersionInfo } from "@/utils/version";
 
-// Public Sentry DSN for org "streamyfin", project "react-native". A DSN only
-// allows submitting events, so shipping it in the client bundle is fine.
-// EXPO_PUBLIC_SENTRY_DSN overrides it (e.g. to point a fork at its own org).
-const SENTRY_DSN =
-  process.env.EXPO_PUBLIC_SENTRY_DSN ??
-  "https://5c548edf47663532bb529ba72b2ddbb1@o4509610343596032.ingest.de.sentry.io/4509610370728016";
+// Where crash reports go, and by default they go nowhere.
+//
+// **The inherited default was upstream Streamyfin's own Sentry organisation** — a hard-coded DSN
+// for org "streamyfin", project "react-native", used whenever `EXPO_PUBLIC_SENTRY_DSN` was unset.
+// Which is correct for Streamyfin and wrong for a fork of it three ways over (M8b):
+//
+//  1. **It sends StingStream's users' crash data to a third party**, who never agreed to receive
+//     it, cannot be asked to delete it, and has no relationship with the person whose phone it
+//     came from. The scrubbing below is careful and none of that makes it somebody else's data to
+//     hold.
+//  2. **It contradicts what we say.** `README.md` says "no accounts with us, no telemetry",
+//     `deploy/play/privacy-policy.md` says the app contains no crash reporting, and
+//     `deploy/play/data-safety.md` is a declaration to Google. A shipped default that quietly
+//     disagreed with all three would make the Data Safety form false, which Google enforces by
+//     removal rather than by warning.
+//  3. **It is opt-*out*.** `sentryEnabled` defaults to true, so a person who never opened Settings
+//     was reporting by default. For a self-hosted, no-accounts product that is the wrong way round.
+//
+// So: no fallback. With nothing configured the DSN is undefined, `initializeSentry` returns
+// immediately, and no event is constructed, let alone sent. Everything below — the scrubbers, the
+// consent gate, the settings toggle, the admin lock — stays exactly as it was and starts working
+// the moment somebody sets `EXPO_PUBLIC_SENTRY_DSN` to a project they own.
+//
+// If crash reporting is ever turned on for a StingStream release, `deploy/play/data-safety.md`
+// and `deploy/play/privacy-policy.md` have to change **in the same release**, not after it.
+//
+// Read at call time rather than at module scope, for the same reason `reportsFromThisBuild` is:
+// a gate that latches when the module is first imported cannot be exercised by a test, and this
+// is the gate that decides whether anything leaves the device at all.
+const sentryDsn = (): string | undefined => process.env.EXPO_PUBLIC_SENTRY_DSN;
 
 // Dev builds stay out of Sentry entirely. Their frames carry local absolute
 // paths — the developer's username and worktree layout — Metro reloads throw
@@ -40,15 +64,19 @@ let initialized = false;
 /**
  * Reads the crash-report preference straight from MMKV. This runs at app
  * startup, before Jotai hydrates settingsAtom, so it parses the persisted
- * blobs directly instead of going through useSettings. Reporting is on by
- * default; an explicit user opt-out — or a server admin lock — disables it.
+ * blobs directly instead of going through useSettings.
+ *
+ * **Opt-in** (M8b): reporting happens only on an explicit `true`, where upstream
+ * treated anything but an explicit `false` as consent. The two differ exactly
+ * where it matters — a fresh install with nothing persisted yet, which is every
+ * user's first launch. A server admin lock still overrides the user either way.
  */
 const hasSentryConsent = (): boolean => {
   const lock = readStoredPluginSettings().sentryEnabled;
   if (lock?.locked === true) {
     return lock.value === true;
   }
-  return readStoredSettings().sentryEnabled !== false;
+  return readStoredSettings().sentryEnabled === true;
 };
 
 // Media filenames are derived from titles ("Show S01E02.mp4", downloaded
@@ -191,7 +219,8 @@ export const classifyOutgoingEvent = (
 };
 
 const initializeSentry = () => {
-  if (initialized || !SENTRY_DSN || !reportsFromThisBuild()) return;
+  const dsn = sentryDsn();
+  if (initialized || !dsn || !reportsFromThisBuild()) return;
   initialized = true;
   try {
     // Build-identity tags so an event can be pinned to an exact source state.
@@ -201,7 +230,7 @@ const initializeSentry = () => {
     const build = getVersionInfo();
     Sentry.init({
       ...NATIVE_SDK_OPTIONS,
-      dsn: SENTRY_DSN,
+      dsn,
       environment: __DEV__ ? "development" : "production",
       sendDefaultPii: false,
       // Errors only — no performance tracing, session replay or screenshots.
