@@ -325,10 +325,35 @@ Run on 2026-09-05, on the tree at the M8b commits.
 | Tool | Scope | Result |
 |---|---|---|
 | `cargo audit` | `mesh/` workspace, 560 crates | **0 vulnerabilities.** Three `unmaintained` warnings: `atomic-polyfill` (RUSTSEC-2023-0089), `paste` (RUSTSEC-2024-0436), `rustls-pemfile` (RUSTSEC-2025-0134). All three are transitive, none has a known vulnerability, and all three are pulled in by iroh and rustls, which will move off them on their own schedule. |
+| `cargo deny check` | the same workspace, against `mesh/deny.toml` | **advisories ok, bans ok, licenses ok, sources ok.** See below. |
 | `dotnet list package --vulnerable --include-transitive` | `StingStream.Core` | **None.** |
 | same | `Jellyfin.Server`, `Jellyfin.Api`, `MediaBrowser.Controller` | **None.** |
 | `bun audit` | `packages/api-client`, 66 packages | **None.** |
 | `bun audit` | `apps/stingstream` | **12** (5 high, 7 moderate), all transitive build tooling. R7. |
+
+`cargo deny` answers three questions `cargo audit` does not, and `mesh/deny.toml` is where each of
+them was decided rather than defaulted:
+
+* **Licences.** Every crate in the graph is permissive or weak-copyleft-per-file: MIT, Apache-2.0,
+  the BSDs, ISC, Zlib, BSL, CC0, Unlicense, Unicode-3.0, CDLA-Permissive, and MPL-2.0 for
+  `webpki-roots` and `option-ext` (linking MPL into a GPL work is explicitly allowed by MPL-2.0
+  §3.3). **Nothing GPL, LGPL or AGPL is in the tree** except our own four crates. `r-efi`
+  (LGPL-2.1) *is* in the lockfile and is not in the graph, because it exists for
+  `x86_64-unknown-uefi` and `[graph] targets` lists the six platforms a node is actually built for.
+* **Sources.** Every crate comes from crates.io. No git dependencies — which matters because a git
+  dependency has no version, no yank mechanism and no advisory coverage.
+* **Duplicates.** Warned rather than failed. Three `windows-sys` majors and two `rand`s are normal
+  in a tree this size, and failing on them would mean pinning transitive dependencies we do not
+  control.
+
+The two advisory ignores each carry a reason and a way out. `atomic-polyfill` is deliberately *not*
+ignored: restricting the target list takes it out of the graph entirely, and an ignore entry that
+outlived its reason is worse than no entry.
+
+**`cargo deny` is not in CI**, and that is a decision rather than an omission: it needs the RustSec
+advisory database, which is a git clone of somebody else's GitHub repository, and making every pull
+request depend on that being up is the same class of thing this section is otherwise careful about.
+A scheduled daily job is the shape that works; `mesh/deny.toml`'s footer says so.
 
 **Bundled third-party binaries and vendored source** are listed in `NOTICE.md`, which was checked
 against the tree during this review: five git subtrees (Jellyfin, Radarr, Sonarr, InfiniDysk,

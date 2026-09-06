@@ -1,0 +1,119 @@
+# `cargo deny check` — the supply-chain gate for the mesh workspace.
+#
+# `cargo audit` answers "is anything here known-vulnerable". This answers three more questions that
+# an audit does not: are we shipping a licence we cannot ship, are we pulling crates from anywhere
+# but crates.io, and have we ended up with four copies of the same dependency.
+#
+# Run it with `cargo deny check` from `mesh/`. It is not wired into CI yet — see the note at the
+# bottom of this file for what that would need.
+#
+# `cargo deny init` writes a template whose `[licenses] allow` list is **empty**, which rejects
+# every crate in the graph including MIT ones and produces nine hundred identical errors. This file
+# is that template with real decisions in it.
+
+[graph]
+# Every target a node is actually built for. Restricting the graph matters: without it, `r-efi`
+# (LGPL-2.1, and UEFI-only) is in the tree because `getrandom` lists it for `x86_64-unknown-uefi`,
+# and a licence gate that fails on a target nobody builds is a gate people learn to ignore.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "aarch64-linux-android",
+]
+all-features = false
+
+[advisories]
+# Fail on anything with a known vulnerability. The three below are `unmaintained` rather than
+# vulnerable, and each is here with a reason and a way out rather than a blanket "ignore warnings".
+yanked = "deny"
+ignore = [
+    # rustls-pemfile: archived August 2025. The code lives on inside `rustls-pki-types` (>= 1.9),
+    # of which the last release of this crate is a thin wrapper, so there is nothing unfixed in it
+    # — but there is also "no safe upgrade available", because what we depend on is `rustls` and
+    # `tokio-rustls-acme`, not this directly. It goes when they move.
+    { id = "RUSTSEC-2025-0134", reason = "archived; a thin wrapper over rustls-pki-types, and pulled in by rustls itself rather than by us" },
+    # paste: the author stopped maintaining it in October 2024. A proc-macro that pastes identifiers
+    # together; no unsafe, no I/O, no network. Pulled in transitively (iroh's dependency tree).
+    { id = "RUSTSEC-2024-0436", reason = "an identifier-pasting proc macro with no unsafe and no I/O; transitive, and the ecosystem is migrating to pastey" },
+]
+# RUSTSEC-2023-0089 (atomic-polyfill, unmaintained) is deliberately **not** listed. `cargo audit`
+# reports it because it walks the whole lockfile; restricting `[graph] targets` above to the six
+# platforms a node is actually built for takes it out of the graph entirely, because it exists to
+# provide atomics on targets that lack them and none of ours does. An ignore entry for it would be
+# a lie that stayed in the file after the reason for it had gone — cargo-deny says so itself, with
+# `advisory-not-detected`.
+
+[licenses]
+# What a StingStream release may contain. New code here is GPL-3.0-or-later and the binaries are
+# GPL-2.0-or-later (see NOTICE.md), so a permissive dependency is always compatible and a
+# copyleft one has to be looked at rather than waved through — which is the point of the list.
+#
+# Everything below is either permissive or weak-copyleft-per-file, and all of it is present in the
+# tree today. Anything else fails the check, which is how a new licence gets a decision made about
+# it rather than arriving unnoticed in a `cargo update`.
+allow = [
+    # Ours. `stingstream`, `stingstream-mesh`, `stingstream-mesh-ffi` and `stingstream-relay` are
+    # all GPL-2.0-or-later (NOTICE.md explains why the binaries are 2.0 rather than 3.0), and a
+    # licence gate that fails on the workspace's own crates is a gate nobody runs twice.
+    "GPL-2.0-or-later",
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    # Weak copyleft, per file rather than per program: a change to an MPL file has to be published,
+    # and linking it into a GPL work is explicitly allowed by MPL-2.0 §3.3. `webpki-roots` and
+    # `option-ext` are the ones in the tree.
+    "MPL-2.0",
+]
+# A crate whose licence text differs from the SPDX expression is confusing rather than dangerous;
+# 0.8 is the usual threshold and nothing in the tree is close to it.
+confidence-threshold = 0.8
+
+[[licenses.exceptions]]
+# The Unicode character tables. Unicode-3.0 is permissive but is not on most default allow-lists,
+# so it is called out rather than buried.
+name = "unicode-ident"
+allow = ["Unicode-3.0"]
+
+[bans]
+# Duplicate versions of one crate are normal in a tree this size (three `windows-sys` majors, two
+# `rand`) and blocking them would mean pinning transitive dependencies we do not control. Warn, so
+# it is visible in the output, and do not fail on it.
+multiple-versions = "warn"
+# A wildcard version on a crates.io dependency is a real problem: it accepts anything, including a
+# future breaking release. A `path = "../…"` dependency inside this workspace has no version by
+# construction and is not that problem, which is what `allow-wildcard-paths` distinguishes.
+wildcards = "deny"
+allow-wildcard-paths = true
+# `cargo deny` cannot see what a build script does, so a crate that is *only* a build-time helper
+# still counts. Nothing is skipped here today; this section exists so a future skip has to be
+# written down.
+skip = []
+
+[sources]
+# Every crate comes from crates.io. A git dependency is not forbidden in principle, but it is a
+# thing to notice: it has no version, no yank mechanism, and no advisory coverage.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# --- Wiring this into CI -----------------------------------------------------------------------
+#
+# Not done, deliberately. `cargo deny` needs its advisory database, which is a git clone of
+# RustSec's repository, and a CI job that fetches it on every run is a network dependency on
+# somebody else's GitHub — the same class of thing `docs/SECURITY.md` §7 is careful about. The
+# shape that works is a scheduled job (daily, not per-push) that fails loudly, so a new advisory
+# is noticed within a day without making every pull request depend on GitHub being up.
