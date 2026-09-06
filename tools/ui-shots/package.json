@@ -1,0 +1,16 @@
+{
+  "name": "stingstream-ui-shots",
+  "private": true,
+  "version": "0.1.0",
+  "description": "WP-TOOLS UI iterate loop: screenshots, sweep findings and reports for apps/stingstream's web build. Owns its own lockfile and runs with node -- never bun, and never touches apps/stingstream/package.json. See docs/UI-LOOP.md.",
+  "type": "module",
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "shots": "node shots.mjs",
+    "report": "node report.mjs",
+    "android": "powershell -File android.ps1"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

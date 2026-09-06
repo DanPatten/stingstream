@@ -1,0 +1,82 @@
+{
+  "_comment": "D-pad key sequences per TV screen, with settle times. Data only -- WP-TV-SHELL's scripts/tv-walk.ts (its own package, not this one) is the intended replay/capture driver; see docs/UI-LOOP.md. Key names match tools/ui-shots/android.ps1's $TvKeys table (adb shell input keyevent). settleMs is how long to wait after the LAST key in a step before a screencap is meaningful (focus animation / data fetch), not a wait per key.",
+  "keys": {
+    "DPAD_UP": 19,
+    "DPAD_DOWN": 20,
+    "DPAD_LEFT": 21,
+    "DPAD_RIGHT": 22,
+    "DPAD_CENTER": 23,
+    "BACK": 4,
+    "HOME": 3,
+    "MENU": 82,
+    "PLAY_PAUSE": 85
+  },
+  "screens": [
+    {
+      "id": "tv-login-server-selection",
+      "description": "TV boot -> server selection / add-server / sign-in-with-a-code",
+      "steps": [
+        { "keys": [], "settleMs": 2000, "note": "cold start, just wait for the first frame" }
+      ]
+    },
+    {
+      "id": "tv-home",
+      "description": "Home: rail + spotlight hero + rows",
+      "steps": [
+        { "keys": ["DPAD_DOWN"], "settleMs": 500, "note": "move focus from rail into content" },
+        { "keys": ["DPAD_RIGHT", "DPAD_RIGHT"], "settleMs": 500, "note": "move across the first row" }
+      ]
+    },
+    {
+      "id": "tv-rail-expanded",
+      "description": "LEFT from column 0 opens the rail",
+      "steps": [
+        { "keys": ["DPAD_LEFT"], "settleMs": 500 }
+      ]
+    },
+    {
+      "id": "tv-details",
+      "description": "Item details / pre-play",
+      "steps": [
+        { "keys": ["DPAD_CENTER"], "settleMs": 1000, "note": "open details for the focused item" }
+      ]
+    },
+    {
+      "id": "tv-player-osd",
+      "description": "Player OSD shown, then hidden",
+      "steps": [
+        { "keys": ["DPAD_CENTER"], "settleMs": 1500, "note": "start playback" },
+        { "keys": ["DPAD_DOWN"], "settleMs": 500, "note": "reveal the OSD" },
+        { "keys": [], "settleMs": 6000, "note": "let auto-hide (TV: 5s) clear the OSD, then capture" }
+      ]
+    },
+    {
+      "id": "tv-search",
+      "description": "Search",
+      "steps": [
+        { "keys": ["BACK", "BACK"], "settleMs": 500, "note": "back out of playback/details to the rail" },
+        { "keys": ["DPAD_LEFT"], "settleMs": 500, "note": "open the rail" },
+        { "keys": ["DPAD_DOWN"], "settleMs": 300, "note": "move to the Search rail item" },
+        { "keys": ["DPAD_CENTER"], "settleMs": 800 }
+      ]
+    },
+    {
+      "id": "tv-requests",
+      "description": "Requests (present on TV, Approvals/Policy dropped)",
+      "steps": [
+        { "keys": ["DPAD_LEFT"], "settleMs": 500, "note": "open the rail" },
+        { "keys": ["DPAD_DOWN", "DPAD_DOWN"], "settleMs": 300 },
+        { "keys": ["DPAD_CENTER"], "settleMs": 800 }
+      ]
+    },
+    {
+      "id": "tv-settings",
+      "description": "Settings (Sharing, Link a device, Playback, Account)",
+      "steps": [
+        { "keys": ["DPAD_LEFT"], "settleMs": 500, "note": "open the rail" },
+        { "keys": ["DPAD_UP"], "settleMs": 300, "note": "move up toward the bottom of the rail" },
+        { "keys": ["DPAD_CENTER"], "settleMs": 800 }
+      ]
+    }
+  ]
+}
