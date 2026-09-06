@@ -5,6 +5,8 @@ export type TVOptionItem<T = any> = {
   sublabel?: string;
   value: T;
   selected: boolean;
+  /** Lines the card's label may take. Defaults to the card's own four. */
+  labelLines?: number;
 };
 
 export type TVOptionModalState = {

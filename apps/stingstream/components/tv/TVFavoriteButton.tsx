@@ -8,11 +8,14 @@ import { TVButton } from "./TVButton";
 export interface TVFavoriteButtonProps {
   item: BaseItemDto;
   disabled?: boolean;
+  /** Shared with the other buttons in its row, so the row is not ragged. */
+  minHeight?: number;
 }
 
 export const TVFavoriteButton: React.FC<TVFavoriteButtonProps> = ({
   item,
   disabled,
+  minHeight,
 }) => {
   const { isFavorite, toggleFavorite } = useFavorite(item);
 
@@ -22,6 +25,7 @@ export const TVFavoriteButton: React.FC<TVFavoriteButtonProps> = ({
       variant='glass'
       square
       disabled={disabled}
+      minHeight={minHeight}
     >
       <Ionicons
         name={isFavorite ? "heart" : "heart-outline"}

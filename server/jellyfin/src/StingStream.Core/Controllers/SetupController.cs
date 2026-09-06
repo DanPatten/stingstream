@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.FirstRun;
 
@@ -56,6 +56,7 @@ namespace StingStream.Core.Controllers;
 public sealed class SetupController : ControllerBase
 {
     private readonly SettingsStore _settings;
+    private readonly INodeRuntimeProvider _runtime;
     private readonly IUserManager _users;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly ISessionManager _sessions;
@@ -64,6 +65,7 @@ public sealed class SetupController : ControllerBase
 
     public SetupController(
         SettingsStore settings,
+        INodeRuntimeProvider runtime,
         IUserManager users,
         IServerConfigurationManager serverConfig,
         ISessionManager sessions,
@@ -71,6 +73,7 @@ public sealed class SetupController : ControllerBase
         ILogger<SetupController> logger)
     {
         _settings = settings;
+        _runtime = runtime;
         _users = users;
         _serverConfig = serverConfig;
         _sessions = sessions;
@@ -82,7 +85,6 @@ public sealed class SetupController : ControllerBase
     /// Whether this node still needs its first account, and whether you are on the machine that
     /// can create it.
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The two booleans.</response>
     /// <returns>The setup state.</returns>
     /// <remarks>
@@ -93,11 +95,11 @@ public sealed class SetupController : ControllerBase
     /// </remarks>
     [HttpGet("state", Name = "StingStreamSetupState")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<SetupState>> State(CancellationToken cancellationToken)
+    public ActionResult<SetupState> State()
     {
         return new SetupState
         {
-            Pending = await ResolvePendingAsync(cancellationToken).ConfigureAwait(false),
+            Pending = ResolvePending(),
             Loopback = IsLoopback(),
         };
     }
@@ -127,8 +129,7 @@ public sealed class SetupController : ControllerBase
         [FromBody] SetupAdminRequest request,
         CancellationToken cancellationToken)
     {
-        var pending = await ResolvePendingAsync(cancellationToken).ConfigureAwait(false);
-        switch (SetupGate.Decide(pending, IsLoopback()))
+        switch (SetupGate.Decide(ResolvePending(), IsLoopback()))
         {
             case SetupAccess.NotLocal:
                 _logger.LogWarning(
@@ -151,12 +152,14 @@ public sealed class SetupController : ControllerBase
         var account = _users.GetFirstUser();
         if (account is null)
         {
-            // Only reachable if the bootstrap account vanished between the flag being set and this
-            // call. Say so rather than 500ing: the answer is "restart the node", not "file a bug".
-            _logger.LogError("First-run setup was asked to claim an account, and this node has none");
+            // First-run wiring has not created the bootstrap account yet -- a window of moments on
+            // a brand-new node, and open indefinitely on one whose wiring failed. Not "claimed",
+            // so not a 409 in spirit; but the caller has to be told to come back rather than shown
+            // a login form for an account that does not exist.
+            _logger.LogWarning("First-run setup was asked to claim an account before this node had one");
             return Conflict(new SetupError
             {
-                Error = "This server has no account to claim; restart it and try again.",
+                Error = "This server is still starting up; try again in a moment.",
             });
         }
 
@@ -215,37 +218,44 @@ public sealed class SetupController : ControllerBase
         => string.IsNullOrWhiteSpace(value) ? fallback : value;
 
     /// <summary>
-    /// Whether setup is still pending, settling the stored flag when it is not.
+    /// Whether setup is still pending. A pure read: nothing here writes the flag.
     /// </summary>
     /// <remarks>
-    /// The flag is set when first-run wiring creates the bootstrap administrator, and two things
-    /// end it: this controller, and somebody signing in as that account on their own — which is
-    /// what a person who read the generated password out of <c>runtime.json</c> does. There is no
-    /// authentication hook to hang the second on, and the wiring pass that set the flag does not
-    /// run again once it has succeeded, so it is settled here instead: a sign-in stamps
-    /// <c>LastLoginDate</c>, and a second account can only exist because somebody made one. Either
-    /// way the node is claimed, and the flag is cleared for good rather than being recomputed on
-    /// every call.
+    /// <para>
+    /// <b>Only a successful <c>setup/admin</c> ends it.</b> Signing in as the bootstrap account
+    /// looks like it should count — somebody read the generated password out of
+    /// <c>runtime.json</c> and used it, so the node is claimed — and an earlier version of this
+    /// treated a stamped <c>LastLoginDate</c> that way. It is wrong twice over. Every acceptance
+    /// harness and the UI-loop scripts sign in with those generated credentials on *every*
+    /// connect, so the first connect closed setup, the supervisor scrubbed the password out of
+    /// <c>runtime.json</c>, and the next harness step to read that field died on a field that was
+    /// no longer there. And a person who signs in that way on a phone would be left with no setup
+    /// screen and a random password they cannot change from memory. The generated credentials keep
+    /// working for exactly as long as setup is pending, which is until somebody chooses their own.
+    /// </para>
+    /// <para>
+    /// <b>"No flag written yet" is not "claimed", while the node is still on its first run.</b>
+    /// The supervisor polls this endpoint and scrubs the generated password the moment it answers
+    /// false, and there is a window between a fresh node's Kestrel accepting connections and its
+    /// wiring pass reaching the administrator step. Answering false in that window scrubbed the
+    /// password the wiring pass was about to use, and the node came up with an account nobody
+    /// could sign into — which is what four acceptance harnesses did at once, before this. So an
+    /// absent flag defers to <c>runtime.json</c>'s own <c>first_run</c>. A node that predates the
+    /// flag has <c>first_run</c> clear and reads as claimed, which is the answer that keeps its
+    /// account out of a stranger's hands.
+    /// </para>
     /// </remarks>
-    private async Task<bool> ResolvePendingAsync(CancellationToken cancellationToken)
+    private bool ResolvePending()
     {
-        if (!FirstRunSetupState.Get(_settings).Pending)
+        var stored = _settings.GetDocument<FirstRunSetupState>(FirstRunSetupState.StorageKey);
+        if (stored is not null)
         {
-            return false;
+            return stored.Pending;
         }
 
-        var users = _users.GetUsers().ToList();
-        if (users.Count == 1 && users[0].LastLoginDate is null)
-        {
-            return true;
-        }
-
-        _logger.LogInformation(
-            "This node has been claimed already ({Count} account(s), signed in at least once); "
-            + "first-run setup is closed",
-            users.Count);
-        await FirstRunSetupState.SetAsync(_settings, false, cancellationToken).ConfigureAwait(false);
-        return false;
+        // Nothing recorded. Pending only while a first run is still in flight: a node wired by a
+        // build that predates the flag has first_run clear, and somebody owns the accounts on it.
+        return _runtime.Current?.FirstRun == true;
     }
 
     /// <summary>

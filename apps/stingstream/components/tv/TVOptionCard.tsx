@@ -14,6 +14,12 @@ export interface TVOptionCardProps {
   onPress: () => void;
   width?: number;
   height?: number;
+  /**
+   * Lines the label may take. Four suits a picker of short options, which is
+   * what this card almost always is; a card carrying prose (a synopsis behind
+   * a "More" button) asks for more.
+   */
+  labelLines?: number;
 }
 
 export const TVOptionCard = React.forwardRef<View, TVOptionCardProps>(
@@ -26,6 +32,7 @@ export const TVOptionCard = React.forwardRef<View, TVOptionCardProps>(
       onPress,
       width = 160,
       height = 75,
+      labelLines = 4,
     },
     ref,
   ) => {
@@ -81,7 +88,7 @@ export const TVOptionCard = React.forwardRef<View, TVOptionCardProps>(
                 textAlign: "center",
                 flexShrink: 1,
               }}
-              numberOfLines={4}
+              numberOfLines={labelLines}
             >
               {label}
             </Text>

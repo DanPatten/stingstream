@@ -2,10 +2,19 @@ import { Ionicons } from "@expo/vector-icons";
 import type React from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Alert, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useMMKVString } from "react-native-mmkv";
+import { toast } from "sonner-native";
 import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
+import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import {
   deleteAccountCredential,
@@ -23,6 +32,23 @@ import { ListItem } from "./list/ListItem";
 import { PasswordEntryModal } from "./PasswordEntryModal";
 import { PINEntryModal } from "./PINEntryModal";
 import { CustomHeaderSheet } from "./settings/CustomHeaderSheet";
+
+/**
+ * What went wrong with a saved login, in one sentence.
+ *
+ * A saved token that the server no longer honours is the common case by far, and it needs its own
+ * wording — "connection failed" sends people to check their network for what is an expired
+ * session.
+ */
+function describeSavedLoginFailure(
+  error: unknown,
+  t: (key: string) => string,
+): string {
+  const message = error instanceof Error ? error.message : "";
+  return message.includes(t("server.session_expired")) || !message
+    ? t("server.please_login_again")
+    : message;
+}
 
 interface PreviousServersListProps {
   onServerSelect: (server: SavedServer) => void;
@@ -61,6 +87,14 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
 
   const { t } = useTranslation();
   const { showModal, hideModal } = useGlobalModal();
+  const confirmDelete = useConfirmDelete();
+
+  /**
+   * `Swipeable` is the only way to reach a saved server's options on a phone, and it is no way at
+   * all with a mouse: there is no swipe gesture to make. The web build gets the same two actions
+   * as visible icon buttons in the row instead.
+   */
+  const swipeable = Platform.OS !== "web";
 
   const refreshServers = () => {
     const servers = getPreviousServers();
@@ -79,20 +113,11 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
           try {
             await onQuickLogin(server.address, account.userId);
           } catch (error) {
-            const errorMessage =
-              error instanceof Error
-                ? error.message
-                : t("server.session_expired");
-            const isSessionExpired = errorMessage.includes(
-              t("server.session_expired"),
-            );
-            Alert.alert(
-              isSessionExpired
-                ? t("server.session_expired")
-                : t("login.connection_failed"),
-              isSessionExpired ? t("server.please_login_again") : errorMessage,
-              [{ text: t("common.ok"), onPress: () => onServerSelect(server) }],
-            );
+            // A toast, not an Alert: `Alert.alert` draws nothing whatsoever on
+            // react-native-web, so a stale saved session used to fail in a browser with no
+            // message at all and no way to tell why the tap did nothing.
+            toast.error(describeSavedLoginFailure(error, t));
+            onServerSelect(server);
           } finally {
             setLoadingServer(null);
           }
@@ -137,23 +162,8 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
       try {
         await onQuickLogin(selectedServer.address, selectedAccount.userId);
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : t("server.session_expired");
-        const isSessionExpired = errorMessage.includes(
-          t("server.session_expired"),
-        );
-        Alert.alert(
-          isSessionExpired
-            ? t("server.session_expired")
-            : t("login.connection_failed"),
-          isSessionExpired ? t("server.please_login_again") : errorMessage,
-          [
-            {
-              text: t("common.ok"),
-              onPress: () => onServerSelect(selectedServer),
-            },
-          ],
-        );
+        toast.error(describeSavedLoginFailure(error, t));
+        onServerSelect(selectedServer);
       } finally {
         setLoadingServer(null);
         setSelectedAccount(null);
@@ -193,22 +203,15 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
     const server = previousServers.find((s) => s.address === serverUrl);
     if (!server || server.accounts.length === 0) return;
 
-    Alert.alert(
-      t("server.remove_saved_login"),
-      t("server.remove_saved_login_description"),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("common.remove"),
-          style: "destructive",
-          onPress: async () => {
-            // Remove first account
-            await deleteAccountCredential(serverUrl, server.accounts[0].userId);
-            refreshServers();
-          },
-        },
-      ],
-    );
+    confirmDelete({
+      title: t("server.remove_saved_login"),
+      message: t("server.remove_saved_login_description"),
+      confirmLabel: t("common.remove"),
+      onConfirm: async () => {
+        await deleteAccountCredential(serverUrl, server.accounts[0].userId);
+        refreshServers();
+      },
+    });
   };
 
   const handleRemoveServer = useCallback(
@@ -265,6 +268,26 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
     [handleEditHeaders, handleRemoveServer, t],
   );
 
+  /** The same two actions as buttons, for the platform with no swipe. */
+  const renderInlineActions = useCallback(
+    (serverUrl: string) => (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <RowAction
+          icon='key'
+          label={t("custom_headers.title")}
+          onPress={() => handleEditHeaders(serverUrl)}
+        />
+        <RowAction
+          icon='trash'
+          label={t("server.remove_server")}
+          danger
+          onPress={() => handleRemoveServer(serverUrl)}
+        />
+      </View>
+    ),
+    [handleEditHeaders, handleRemoveServer, t],
+  );
+
   const getServerSubtitle = (server: SavedServer): string | undefined => {
     const accountCount = server.accounts?.length || 0;
 
@@ -311,6 +334,9 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
             onPress={() => handleServerPress(s)}
             onRemoveCredential={() => handleRemoveFirstCredential(s.address)}
             renderRightActions={renderRightActions}
+            inlineActions={
+              swipeable ? undefined : renderInlineActions(s.address)
+            }
             subtitle={getServerSubtitle(s)}
             securityIcon={getSecurityIcon(s)}
           />
@@ -323,9 +349,11 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
           textColor='red'
         />
       </ListGroup>
-      <Text className='text-xs text-neutral-500 mt-2 ml-4'>
-        {t("server.swipe_for_options")}
-      </Text>
+      {swipeable ? (
+        <Text className='text-xs text-neutral-500 mt-2 ml-4'>
+          {t("server.swipe_for_options")}
+        </Text>
+      ) : null}
 
       {/* Account Selection Sheet */}
       <AccountsSheet
@@ -384,9 +412,49 @@ interface ServerItemProps {
     serverUrl: string,
     swipeableRef: React.RefObject<Swipeable | null>,
   ) => React.ReactNode;
+  /** Drawn in the row instead of behind it, where there is no swipe gesture. */
+  inlineActions?: React.ReactNode;
   subtitle?: string;
   securityIcon: keyof typeof Ionicons.glyphMap | null;
 }
+
+/** One always-visible row action. */
+const RowAction: React.FC<{
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  danger?: boolean;
+  onPress: () => void;
+}> = ({ icon, label, danger = false, onPress }) => {
+  // `hovered` is absent from `PressableStateCallbackType` in these typings even though
+  // react-native-web passes it, so the hover state is held here instead — same as `Button`.
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      accessibilityRole='button'
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={{
+        width: 32,
+        height: 32,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: radius.sm,
+        backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+        ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null),
+      }}
+    >
+      <Ionicons
+        name={icon}
+        size={16}
+        color={danger ? tokens.color.state.danger : tokens.color.text.tertiary}
+      />
+    </Pressable>
+  );
+};
 
 const ServerItem: React.FC<ServerItemProps> = ({
   server,
@@ -394,11 +462,44 @@ const ServerItem: React.FC<ServerItemProps> = ({
   onPress,
   onRemoveCredential,
   renderRightActions,
+  inlineActions,
   subtitle,
   securityIcon,
 }) => {
   const swipeableRef = useRef<Swipeable>(null);
   const hasAccounts = server.accounts?.length > 0;
+
+  const row = (
+    <ListItem
+      onPress={onPress}
+      title={server.name || server.address}
+      subtitle={subtitle}
+      showArrow={!inlineActions && loadingServer !== server.address}
+      disabled={loadingServer === server.address}
+    >
+      {loadingServer === server.address ? (
+        <ActivityIndicator size='small' color={Colors.primary} />
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          {hasAccounts && securityIcon ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                onRemoveCredential();
+              }}
+              className='p-1'
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name={securityIcon} size={16} color={Colors.primary} />
+            </TouchableOpacity>
+          ) : null}
+          {inlineActions}
+        </View>
+      )}
+    </ListItem>
+  );
+
+  if (inlineActions) return row;
 
   return (
     <Swipeable
@@ -408,28 +509,7 @@ const ServerItem: React.FC<ServerItemProps> = ({
       }
       overshootRight={false}
     >
-      <ListItem
-        onPress={onPress}
-        title={server.name || server.address}
-        subtitle={subtitle}
-        showArrow={loadingServer !== server.address}
-        disabled={loadingServer === server.address}
-      >
-        {loadingServer === server.address ? (
-          <ActivityIndicator size='small' color={Colors.primary} />
-        ) : hasAccounts && securityIcon ? (
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation();
-              onRemoveCredential();
-            }}
-            className='p-1'
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name={securityIcon} size={16} color={Colors.primary} />
-          </TouchableOpacity>
-        ) : null}
-      </ListItem>
+      {row}
     </Swipeable>
   );
 };

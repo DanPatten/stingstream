@@ -189,6 +189,19 @@ public sealed class FirstRunService : BackgroundService
             firstRun ? "Starting first-run" : "Refreshing",
             runtime.NodeName);
 
+        if (firstRun)
+        {
+            // First, before anything that talks to another process. Two reasons, and both were
+            // learned rather than guessed. The account is what somebody at the keyboard is
+            // actually waiting for, and the arr sync below can take a minute on a fresh node while
+            // Radarr and Sonarr migrate their databases. And until this step runs there is no
+            // account and no pending flag, which is a window in which the setup endpoint has to
+            // answer "still pending" from `runtime.json`'s first_run rather than from a flag that
+            // does not exist yet -- see SetupController.ResolvePendingAsync. Shrinking that window
+            // to nothing is cheaper than relying on the fallback being right.
+            await EnsureAdminUserAsync(runtime, report, cancellationToken).ConfigureAwait(false);
+        }
+
         await EnsureSharedSettingsAsync(runtime, report, cancellationToken).ConfigureAwait(false);
         // Every start, not only the first: it checks whether the plugin is *there* rather than
         // whether it has run, so an install that failed for want of a network repairs itself.
@@ -202,9 +215,8 @@ public sealed class FirstRunService : BackgroundService
             return report;
         }
 
-        // These are genuinely once-only: creating an administrator or a library a second time
+        // Genuinely once-only, like the administrator above: creating a library a second time
         // would be wrong, not merely wasteful.
-        await EnsureAdminUserAsync(runtime, report, cancellationToken).ConfigureAwait(false);
         await EnsureLibrariesAsync(runtime, report, cancellationToken).ConfigureAwait(false);
 
         // Build whatever the node already holds, so a re-wired node has an inventory immediately.
@@ -304,19 +316,15 @@ public sealed class FirstRunService : BackgroundService
                 pending = false;
             }
 
-            if (existingCount > 1)
-            {
-                // Somebody has already set this node up properly. Renaming or repasswording an
-                // account out from under them would be actively hostile.
-                pending = false;
-            }
-
             if (stored is null || stored.Pending != pending)
             {
                 await FirstRunSetupState.SetAsync(_settings, pending, cancellationToken).ConfigureAwait(false);
             }
 
-            if (!pending)
+            // Note that more than one account is a reason not to *touch* the account, and not a
+            // reason to close setup. Only a successful setup/admin does that -- see
+            // SetupController.ResolvePending for what went wrong when anything else did.
+            if (!pending || existingCount > 1)
             {
                 report.Steps.Add(
                     existingCount > 1
@@ -339,6 +347,21 @@ public sealed class FirstRunService : BackgroundService
                 {
                     await _users.ChangePassword(first.Id, desired.Password).ConfigureAwait(false);
                     report.Steps.Add("admin user: password set from runtime.json");
+                }
+                else if (created)
+                {
+                    // We just made the account and have nothing to set on it, so it is sitting
+                    // there with whatever the server's own bootstrap gave it -- which nobody
+                    // knows. Recoverable (the first-run screen claims it), but it means the
+                    // supervisor scrubbed the generated password before this ran, and that is
+                    // worth naming: it is the difference between "waiting to be claimed" and
+                    // "nothing can sign in", and it cost an acceptance run once.
+                    _logger.LogWarning(
+                        "Created the bootstrap account with no password: runtime.json no longer "
+                        + "holds one. Finish setup from the machine running this node.");
+                    report.Steps.Add(
+                        "admin user: created with no password (runtime.json holds none); claim it "
+                        + "from the first-run screen");
                 }
                 else
                 {
@@ -474,7 +497,7 @@ public sealed class FirstRunService : BackgroundService
             });
             config.PluginRepositories = repositories.ToArray();
             _serverConfig.SaveConfiguration();
-            report.Steps.Add("subtitles: added Jellyfin's plugin repository");
+            report.Steps.Add("subtitles: added the server's plugin repository");
         }
 
         if (_plugins.GetPlugin(OpenSubtitlesPluginId) is not null)
@@ -599,9 +622,28 @@ public sealed class FirstRunService : BackgroundService
             {
                 PathInfos = new[] { new MediaPathInfo(path) },
                 EnableRealtimeMonitor = true,
-                // Metadata comes from the arrs' own naming plus Jellyfin's providers, exactly as a
-                // stock install would do it. The federated Shared libraries in M3 are the ones
-                // that turn internet lookups off and read NFOs only.
+                // Metadata comes from the arrs' own naming plus the server's own providers --
+                // TMDB, TVDB, OMDb -- exactly as a stock install would do it. The federated Shared
+                // libraries are the ones that turn internet lookups off and read NFOs only.
+                //
+                // **Leaving TypeOptions empty is what keeps the providers on**, and it is worth
+                // saying so because the API reads as if the opposite were true. `LibraryOptions`
+                // still carries an `EnableInternetProviders` bool, so `GET Library/VirtualFolders`
+                // reports `EnableInternetProviders: false` for these two libraries and looks like a
+                // node that will never fetch a poster. That field is `[Obsolete]` upstream ("Disable
+                // remote providers in TypeOptions instead") and has **no reader anywhere in the
+                // server** -- it is a leftover the DTO still serializes. What decides is
+                // `BaseItemManager.IsMetadataFetcherEnabled`: given a `TypeOptions` entry for the
+                // item's type it treats that entry's `MetadataFetchers` as an *allow-list*, and
+                // given none -- which is what an empty array yields, since `GetTypeOptions` returns
+                // null -- it falls back to the server's own metadata options, which disable
+                // nothing. So an explicit allow-list here would be the thing that turned the
+                // internet off, which is exactly how `FederatedLibraryService.BuildLibraryOptions`
+                // turns it off on purpose.
+                //
+                // Verified on a running node rather than reasoned about: a film dropped into this
+                // library came back with its TMDB and IMDb ids, a poster, a logo, a thumb, a
+                // backdrop and its overview.
                 SaveLocalMetadata = false,
             };
             await _library.AddVirtualFolder(name, collectionType, options, refreshLibrary: true)

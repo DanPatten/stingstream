@@ -8,7 +8,6 @@
     "password_placeholder": "Passord",
     "login_button": "Logg inn",
     "quick_connect": "Hurtigtilkobling",
-    "enter_code_to_login": "Skriv inn kode {{code}} for å logga inn",
     "failed_to_initiate_quick_connect": "Kunne ikkje starta hurtigtilkopling",
     "got_it": "Forstått",
     "connection_failed": "Tilkopling feila",

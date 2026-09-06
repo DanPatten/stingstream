@@ -24,8 +24,11 @@ import { scaleSize } from "@/utils/scaleSize";
  */
 export function TVRequestButton({
   item,
+  minHeight,
 }: {
   item: BaseItemDto | null | undefined;
+  /** Shared with the other buttons in its row, so the row is not ragged. */
+  minHeight?: number;
 }) {
   const create = useCreateRequest();
   // Every request this node knows about, so a title already asked for says so rather than being
@@ -94,6 +97,7 @@ export function TVRequestButton({
       variant='glass'
       square
       disabled={create.isPending || asked}
+      minHeight={minHeight}
     >
       <Ionicons
         name={asked ? "checkmark-circle-outline" : "add-circle-outline"}

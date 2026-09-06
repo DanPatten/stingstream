@@ -66,6 +66,16 @@
     Run tools/ui-seed-media.ps1 into <DataDir>\media before starting the node, so the movies/
     series are already on disk when Jellyfin's first library scan runs.
 
+.PARAMETER RealArtwork
+    Only meaningful with -Seed. Off by default: agents get deterministic offline gradient
+    poster/fanart art (see tools/ui-seed-media.ps1). Pass this for a review build so Jellyfin
+    fetches real posters/backdrops from TMDB/TVDB instead -- this script does both halves in the
+    right order: seed with no local images, wait for first-run wiring, then call
+    ui-seed-media.ps1 again with -RefreshNodeUrl to turn on the libraries' internet image
+    providers (off by default -- see ui-seed-media.ps1's own -RealArtwork note) and trigger the
+    fetch. Real images take a few minutes to arrive; this script does not block waiting for them
+    (ui-seed-media.ps1's own -RealArtwork -RefreshNodeUrl run reports how long the first one took).
+
 .PARAMETER Stop
     Stop any process this tool recognises whose command line names DataDir, and exit. Does not
     touch DataDir's contents.
@@ -91,6 +101,7 @@ param(
     [string]$WebDist = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\web-dist',
     [string]$DevServer,
     [switch]$Seed,
+    [switch]$RealArtwork,
     [switch]$Stop
 )
 
@@ -163,7 +174,7 @@ $Supervisor = New-PrivateInstallRoot -RepoRoot $RepoRoot -Destination $PrivateCo
 if ($Seed) {
     Write-Head 'Seeding media'
     $mediaRoot = Join-Path $DataDir 'media'
-    & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot $mediaRoot
+    & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot $mediaRoot -RealArtwork:$RealArtwork
 }
 
 # ================================================================================================
@@ -297,8 +308,20 @@ try {
         return -not (Get-Content $p -Raw | ConvertFrom-Json).first_run
     } | Out-Null
     Write-Host "  admin credentials are in $DataDir\runtime.json" -ForegroundColor Green
+
+    if ($Seed -and $RealArtwork) {
+        # Only reachable now: turning EnableInternetProviders on needs the libraries to already
+        # exist, which first-run wiring only just finished doing. See ui-seed-media.ps1's own
+        # -RealArtwork note for why this is a second call rather than something the pre-start
+        # placement pass could have done itself.
+        Write-Head '-RealArtwork: enabling internet providers and fetching real artwork'
+        & "$PSScriptRoot/ui-seed-media.ps1" -MediaRoot $mediaRoot -RealArtwork -RefreshNodeUrl "http://127.0.0.1:$Port"
+    }
 } catch {
     Write-Host "  still wiring after ${wiredBudgetSeconds}s; once ready, admin credentials are in $DataDir\runtime.json" -ForegroundColor Yellow
+    if ($Seed -and $RealArtwork) {
+        Write-Host "  -RealArtwork: skipped enabling internet providers because wiring never finished -- run ui-seed-media.ps1 -RealArtwork -RefreshNodeUrl by hand once it does." -ForegroundColor Yellow
+    }
 }
 
 Write-Host ''

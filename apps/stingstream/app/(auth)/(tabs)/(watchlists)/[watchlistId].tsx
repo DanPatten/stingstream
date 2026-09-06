@@ -24,7 +24,7 @@ import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVPosterSizes";
+import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useOrientation } from "@/hooks/useOrientation";
@@ -50,6 +50,7 @@ export default function WatchlistDetailScreen() {
   const { showItemActions } = useTVItemActionModal();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const { watchlistId } = useLocalSearchParams<{ watchlistId: string }>();
   const user = useAtomValue(userAtom);
   const { width: screenWidth } = useWindowDimensions();
@@ -282,9 +283,10 @@ export default function WatchlistDetailScreen() {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingTop: insets.top + 100,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
           paddingBottom: insets.bottom + 60,
-          paddingHorizontal: insets.left + TV_HORIZONTAL_PADDING,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
         }}
       >
         {/* Header */}

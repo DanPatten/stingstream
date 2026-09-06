@@ -11,6 +11,7 @@ import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList.tv";
 import { Colors } from "@/constants/Colors";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
@@ -31,6 +32,7 @@ export const Favorites = () => {
   const typography = useScaledTVTypography();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const pageSize = 20;
@@ -134,7 +136,8 @@ export const Favorites = () => {
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          paddingHorizontal: HORIZONTAL_PADDING,
+          paddingLeft: sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
         }}
       >
         <Image
@@ -176,7 +179,7 @@ export const Favorites = () => {
       nestedScrollEnabled
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{
-        paddingTop: insets.top + TOP_PADDING,
+        paddingTop: insets.top + sizes.layout.contentInsetTop,
         paddingBottom: insets.bottom + 60,
       }}
     >

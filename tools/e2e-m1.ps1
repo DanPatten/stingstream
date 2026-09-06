@@ -895,6 +895,52 @@ Invoke-Step 'Movie: streams from Jellyfin' {
 }
 
 # ============================================================================================
+Invoke-Step 'The local libraries fetch metadata from the internet' {
+    # The property that decides whether a person's films have posters, asserted two ways because
+    # the obvious way is a trap.
+    #
+    # `GET Library/VirtualFolders` reports `EnableInternetProviders: false` for these libraries and
+    # reads like a node that will never fetch anything. That field is [Obsolete] upstream and has no
+    # reader anywhere in the server. What actually decides is TypeOptions: an entry for an item type
+    # makes that entry's MetadataFetchers an allow-list, and no entry means "use the server's own
+    # options", which disable nothing. So the invariant to hold is that these two libraries carry
+    # **no** TypeOptions entries -- and the federated Shared libraries, which m3 covers, carry one
+    # per type precisely to turn the internet off.
+    $folders = Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders)
+    foreach ($name in 'Movies', 'TV Shows') {
+        $folder = @($folders | Where-Object { $_.Name -eq $name })
+        if ($folder.Count -ne 1) { throw "expected exactly one library called $name; found $($folder.Count)." }
+        $types = @(Get-Member-Value $folder[0].LibraryOptions 'TypeOptions')
+        if ($types.Count -ne 0) {
+            throw "the $name library carries $($types.Count) TypeOptions entr(y/ies), which is an allow-list that turns the internet providers off."
+        }
+        Write-Host "      $name : no TypeOptions allow-list, so the server's own providers apply"
+    }
+
+    # And the consequence, on the film this run actually imported: the arrs name the file, and the
+    # server is what turns that into a poster and an overview. Nothing else in this harness would
+    # notice if that stopped happening.
+    $item = Wait-Until -What 'the imported film to pick up its provider ids and artwork' -Seconds 180 -PollSeconds 5 -Condition {
+        $i = try {
+            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($MovieItem.Id)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
+        } catch { $null }
+        if (-not $i) { return $null }
+        $ids = Get-Member-Value $i 'ProviderIds'
+        if ($ids -and (Get-Member-Value $ids 'Tmdb')) { return $i }
+        return $null
+    } -Describe {
+        $i = try {
+            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($MovieItem.Id)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
+        } catch { $null }
+        if ($i) { "no TMDB id on $($i.Name) yet" } else { 'no answer yet' }
+    }
+
+    $images = @((Get-Member-Value $item 'ImageTags').PSObject.Properties.Name)
+    Write-Host "      $($item.Name): tmdb=$($item.ProviderIds.Tmdb)  images=$($images -join ',')"
+    if ($images -notcontains 'Primary') { throw "the imported film has no poster; the metadata providers are not reaching the internet." }
+}
+
+# ============================================================================================
 Invoke-Step 'Add the series' {
     $series = Invoke-StingStream '/stingstream/api/v1/series' -Method POST -Body @{
         tvdbId      = $SeriesTvdbId
@@ -941,7 +987,20 @@ Invoke-Step 'Series: episode streams from Jellyfin' {
 
 # ============================================================================================
 Invoke-Step 'Inventory records built' {
-    $inventory = Invoke-StingStream '/stingstream/api/v1/inventory'
+    # Waited for, not read once. The record is built off the back of the import webhook, on a
+    # background pass -- so the item existing in the library is not the same instant as the record
+    # existing, and under load the gap is wide enough to read zero and call it a failure. Two
+    # records is what the two imports above should produce; one is a pass with a note, because the
+    # step before this already proved both items are there and playable.
+    $inventory = Wait-Until -What 'inventory records for the two imported items' -Seconds 120 -PollSeconds 3 -Condition {
+        $i = try { Invoke-StingStream '/stingstream/api/v1/inventory' } catch { $null }
+        if ($i -and $i.total -ge 2) { return $i }
+        return $null
+    } -Describe {
+        $i = try { Invoke-StingStream '/stingstream/api/v1/inventory' } catch { $null }
+        if ($i) { "$($i.total) record(s) so far" } else { 'no answer yet' }
+    }
+
     Write-Host "      $($inventory.total) record(s)"
     if ($inventory.total -lt 1) { throw 'No inventory records were built for the imported items.' }
     foreach ($r in $inventory.records) {

@@ -18,7 +18,6 @@
     "password_placeholder": "Senha",
     "login_button": "Entrar",
     "quick_connect": "Conexão rápida",
-    "enter_code_to_login": "Insira o código {{code}} para entrar",
     "quick_connect_instructions": "Digite este código em um dispositivo já conectado. Você será conectado automaticamente.",
     "tap_code_to_copy": "Toque no código para copiá-lo.",
     "code_copied": "Código copiado",
@@ -61,7 +60,6 @@
     "remove_server_description": "Isso removerá {{server}} e todas as contas salvas da sua lista.",
     "select_your_server": "Select Your Server",
     "add_server_to_get_started": "Adicione um servidor para começar",
-    "add_server": "Add Server",
     "change_server": "Change Server"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Esta série",
       "all": "Todas as mídias (Padrão)"
     }
-  },
-  "companion_login": {
-    "title": "Parear com a TV",
-    "align_qr": "Alinhe o QR code dentro do quadro",
-    "enter_code_manually": "Digitar o código manualmente",
-    "pairing_enter_credentials": "Digite as credenciais para a TV",
-    "pairing_code_label": "Código de pareamento",
-    "server": "Servidor",
-    "authorize_button": "Autorizar",
-    "authorizing": "Autorizando...",
-    "scan_again": "Scan Again",
-    "done": "Concluído",
-    "success_title": "Authorization Sent",
-    "pairing_tv_connecting": "A TV está se conectando à sua conta",
-    "error_title": "Authorization Failed",
-    "error_invalid_qr": "QR code inválido. Escaneie o código de pareamento da TV.",
-    "error_generic": "Algo deu errado. Tente novamente.",
-    "error_permission_denied": "É necessária permissão de câmera para escanear QR codes.",
-    "login_as": "Entrar como {{username}}?",
-    "on_server": "em {{server}}",
-    "use_different_user": "Usar outro usuário",
-    "open_settings": "Abrir configurações"
-  },
-  "pairing": {
-    "pair_with_phone": "Pair with Phone",
-    "pair_with_phone_title": "Login TV",
-    "waiting_for_phone": "Aguardando o celular...",
-    "scan_with_phone": "Escaneie com o app StingStream no seu celular",
-    "logging_in": "Entrando...",
-    "logging_in_description": "Conectando ao seu servidor"
   }
 }
