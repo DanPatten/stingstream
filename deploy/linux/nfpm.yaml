@@ -10,7 +10,7 @@
 #    all come out completely literal -- `${STINGSTREAM_RID}` fails as a glob that matches nothing,
 #    not as an unset variable. This file MUST be rendered through `envsubst` first:
 #
-#      STINGSTREAM_VERSION=0.8.0 STINGSTREAM_ARCH=amd64 STINGSTREAM_RID=linux-x64 \
+#      STINGSTREAM_VERSION=0.1.0 STINGSTREAM_ARCH=amd64 STINGSTREAM_RID=linux-x64 \
 #        envsubst '${STINGSTREAM_VERSION} ${STINGSTREAM_ARCH} ${STINGSTREAM_RID}' \
 #        < deploy/linux/nfpm.yaml > /tmp/nfpm-rendered.yaml
 #      nfpm package --config /tmp/nfpm-rendered.yaml --target dist/installers/ --packager deb

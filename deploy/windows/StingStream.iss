@@ -13,7 +13,7 @@
 ;   pwsh deploy/windows/build-installer.ps1
 ; which runs tools/package-node.ps1 -Rid win-x64 first, then invokes ISCC.exe against this script
 ; with -DSourceDir and -DMyAppVersion pointing at that output. To run ISCC.exe directly instead:
-;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DSourceDir="..\..\dist\node\win-x64" /DMyAppVersion="0.8.1" deploy\windows\StingStream.iss
+;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DSourceDir="..\..\dist\node\win-x64" /DMyAppVersion="0.1.1" deploy\windows\StingStream.iss
 ;
 ; See docs/INSTALL.md for what "install" and "uninstall" do from a user's point of view, and
 ; docs/RELEASING.md for how this fits the release pipeline.

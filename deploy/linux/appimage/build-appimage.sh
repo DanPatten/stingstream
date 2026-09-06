@@ -3,7 +3,7 @@
 # (tools/package-node.sh) for desktop users who would rather not install a systemd service.
 #
 # Usage:
-#   deploy/linux/appimage/build-appimage.sh --rid linux-x64 --version 0.8.0
+#   deploy/linux/appimage/build-appimage.sh --rid linux-x64 --version 0.1.0
 #
 # Downloads appimagetool for the matching architecture into a scratch directory if not already on
 # PATH. Output: dist/installers/StingStream-<version>-<arch>.AppImage

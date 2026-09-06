@@ -20,7 +20,7 @@ delivery mechanisms.
 ├─ web/                          `bun run build:web`'s output (apps/stingstream/dist), served at /
 ├─ LICENSE                       StingStream's own (GPL-3.0-or-later)
 ├─ NOTICE.md                     third-party licenses -- copied from the repo root
-└─ VERSION                       plain text, one line, e.g. `0.8.1` (read by the update check)
+└─ VERSION                       plain text, one line, e.g. `0.1.1` (read by the update check)
 ```
 
 Everything a *running* node writes — `config.toml`, `runtime.json`, logs, the arrs' own data, media

@@ -8,12 +8,19 @@ M8a: packaging, installers and the release pipeline. Companion to
 
 ## Versioning
 
-`0.<milestone>.<n>` until 1.0 — e.g. `0.8.0` for M8a's first release, `0.8.1` for a fix respin
-inside the same milestone, `0.9.0` once M9 (if there is one) ships. `<n>` resets to `0` at the start
-of a new milestone. This is a repository-wide version, not per-component: the Rust binaries, the
-Windows installer, the `.deb`, the AppImage, the macOS tarball and the Docker image tag all carry
-the same number for one release. `1.0.0` is a deliberate decision Dan makes, not something a
-milestone counter reaches on its own.
+`0.<minor>.<patch>` until 1.0, starting at **`v0.1.0`** for the first public release — plain
+semver-shaped counting, not tied to milestone numbers. Bump `<patch>` for a fix respin with no new
+feature, `<minor>` for anything a person would call a new release (a milestone landing, a batch of
+features), and reset `<patch>` to `0` when `<minor>` bumps. This is a repository-wide version, not
+per-component: the Rust binaries, the Windows installer, the `.deb`, the AppImage, the macOS
+tarball and the Docker image tag all carry the same number for one release. `1.0.0` is a deliberate
+decision Dan makes, not something a counter reaches on its own.
+
+(An earlier draft of this section tied the number to milestone numbers directly — `0.8.0` for
+M8a's own first release, `0.<milestone>.<n>` generally. Dan changed this before any tag was ever
+pushed: the milestone a feature landed in is development-process trivia an end user has no reason
+to see in a version string, and `0.1.0` reads as what it actually is — the first release — rather
+than implying seven milestones' worth of prior releases that were never public.)
 
 The Rust workspace's own `Cargo.toml` files still say `0.1.0` — that is cargo's own internal
 package version (semver, used for dependency resolution inside the workspace) and is a separate
@@ -25,13 +32,13 @@ are what the release version actually flows through.
 
 ## Doing a release
 
-1. Decide the version, e.g. `0.8.0`. Update anything that should say so out loud (this file's own
+1. Decide the version, e.g. `0.1.0`. Update anything that should say so out loud (this file's own
    examples do not count; there is currently no single file that needs bumping for this — the
    version comes from the git tag itself).
 2. **Dry run first.** Trigger `.github/workflows/release.yml` via `workflow_dispatch` with that
    version as input, from the Actions tab or:
    ```sh
-   gh workflow run release.yml -f version=0.8.0
+   gh workflow run release.yml -f version=0.1.0
    ```
    This runs every build, package and verification step exactly as a real release would, and stops
    before creating a GitHub Release or retagging the Docker image (see that workflow's `release`
@@ -40,12 +47,12 @@ are what the release version actually flows through.
    you want to inspect an installer or package by hand before it becomes a real release.
 3. **Push the tag.** Only once the dry run is green:
    ```sh
-   git tag v0.8.0
-   git push origin v0.8.0
+   git tag v0.1.0
+   git push origin v0.1.0
    ```
    This is a real, standing, and rarely-reversible action — a pushed tag with an already-published
    GitHub Release and Docker image tags is not something to casually delete and re-push. Get
-   explicit sign-off before doing this for a real (non-`-rc`) version; a `v0.8.0-rc1` pre-release
+   explicit sign-off before doing this for a real (non-`-rc`) version; a `v0.1.0-rc1` pre-release
    tag is the lower-stakes way to exercise the exact same pipeline end-to-end, including the
    GitHub-Release-creation step a dry run skips (the trigger is `v*`, so an `-rc` tag runs the full
    pipeline, including `release`'s tag-gated steps — GitHub marks a tag containing a hyphen as a
@@ -179,8 +186,8 @@ same job to `launchd`, for the same reason.
 
 ```json
 {
-  "version": "0.8.0",
-  "latest_version": "0.8.1",
+  "version": "0.1.0",
+  "latest_version": "0.1.1",
   ...
 }
 ```
@@ -196,7 +203,7 @@ https://github.com/DanPatten/stingstream/releases/latest/download/version.json
 ```
 
 **This is deliberately the smallest useful half of "show update available".** Comparing `version`
-against `latest_version` (a semver compare — is `0.8.1` actually newer than `0.8.0`, handling a
+against `latest_version` (a semver compare — is `0.1.1` actually newer than `0.1.0`, handling a
 pre-release tag correctly) and surfacing a banner or notification somewhere a user will see it is a
 UI decision that belongs to whoever owns that screen — today that is either `StingStream.Core`'s
 own status endpoint (`/stingstream/api/v1/status`, see `docs/RUNNING.md`) mirroring the field
@@ -214,7 +221,7 @@ says so.
 
 ## Submitting to winget
 
-`deploy/windows/winget/manifests/d/DanPatten/StingStream/0.8.0/` is a **template**, not yet
+`deploy/windows/winget/manifests/d/DanPatten/StingStream/0.1.0/` is a **template**, not yet
 submitted. Once a real release exists:
 
 1. Compute the installer's SHA256 from that release's own `SHA256SUMS` (already published as a

@@ -62,10 +62,24 @@ The image is published on every push to `master`:
    | `STINGSTREAM_COORDINATOR_CLOUDFLARE_ZONE` | the zone id of your domain |
    | `STINGSTREAM_DNS_TOKEN` | a **zone-scoped** Cloudflare token with `Zone:DNS:Edit` on that one zone |
    | `STINGSTREAM_COORDINATOR_DNS_ORIGIN` | `direct.example.org` |
+   | `STINGSTREAM_COORDINATOR_TRUST_PROXY` | `1` — see the warning immediately below |
 
    `PORT` is set by Railway and the coordinator binds it automatically.
-4. Check `https://<your-domain>/healthz`. It answers with the mode, what is enabled, and how many
-   groups and nodes it is tracking.
+
+   **Set `STINGSTREAM_COORDINATOR_TRUST_PROXY=1` whenever `STINGSTREAM_COORDINATOR_TLS=none`** (the
+   default here, since Railway's own edge terminates TLS in front of the container). Without it,
+   the coordinator's address-keyed rate limits key on whatever address made the request to the
+   container — which, behind any proxy, is the proxy itself, not the real client — so every
+   legitimate node shares one rate-limit bucket. The coordinator logs a `WARN` at startup naming
+   this exact variable whenever it detects that shape (`tls.mode` is `none` and this is not yet
+   set); a clean startup log with no such warning is how to confirm it took. Leave it unset if this
+   port is reached directly with no proxy in front — the header this trusts can be forged by
+   anyone who can reach the coordinator directly, which is exactly what a proxy in front is
+   supposed to prevent.
+4. Check `https://<your-domain>/healthz`. It answers with the mode, the version, uptime, and which
+   of relay/rendezvous/the SNI router/QUIC address discovery/the DNS zone are enabled -- it does
+   not report group or node counts (rendezvous entries and node registrations are deliberately
+   in-memory only and not tallied anywhere; see this file's own note on that above).
 5. In the app: **Group → Coordinator → My own server**, and paste `https://<your-domain>`. The
    choice is stored on the group and travels in every invite code, so members follow it.
 

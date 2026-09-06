@@ -10,7 +10,7 @@
 #   https://github.com/<repo>/releases/latest/download/version.json
 #
 # Usage:
-#   tools/generate-version-json.sh --version 0.8.0 --repo DanPatten/stingstream \
+#   tools/generate-version-json.sh --version 0.1.0 --repo DanPatten/stingstream \
 #       --artifacts-dir dist/final --out dist/final/version.json
 #
 # Expects dist/final/ to already hold the release's actual artifact files, named exactly as the

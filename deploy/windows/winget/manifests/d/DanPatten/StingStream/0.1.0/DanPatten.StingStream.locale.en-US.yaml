@@ -2,7 +2,7 @@
 #
 # Schema: https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: DanPatten.StingStream
-PackageVersion: 0.8.0
+PackageVersion: 0.1.0
 PackageLocale: en-US
 Publisher: Dan Patten
 PublisherUrl: https://github.com/DanPatten

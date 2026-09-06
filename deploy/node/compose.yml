@@ -16,7 +16,7 @@
 # later from the web UI.
 #
 # Pinning: `:latest` moves every time master publishes a new image (images.yml). For an unattended
-# box, pin STINGSTREAM_NODE_TAG to a real release tag (e.g. `v0.8.0`) in `.env` instead, and update
+# box, pin STINGSTREAM_NODE_TAG to a real release tag (e.g. `v0.1.0`) in `.env` instead, and update
 # on your own schedule -- see docs/RELEASING.md.
 
 name: stingstream-node
