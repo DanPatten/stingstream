@@ -340,22 +340,65 @@ public sealed class InventoryService : IInventoryService
         _changes.Upserted(record.ItemKey);
     }
 
+    /// <summary>
+    /// Write one record, resolving its hash at the last possible moment.
+    /// </summary>
+    /// <param name="record">The record. Its <see cref="InventoryRecord.FileHash"/> may be filled
+    /// in here, so the caller gets back what was actually stored.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// **The hash is re-read inside the write, not taken from the build.** A record is built by
+    /// reading <c>file_hashes</c> and then stored some time later — a whole
+    /// <see cref="RebuildAllAsync"/> pass later, in the case that matters — and the hashing service
+    /// is writing that very table from another thread the entire time. Building a record for a
+    /// file whose hash lands a moment afterwards, and then storing the record we built, overwrites
+    /// a hashed row with a hash-less one. Nothing repairs it either: the *hash* is stored, so
+    /// <see cref="HashingService.EnqueueAsync"/> declines to re-queue the file, and the record
+    /// stays hash-less until somebody rebuilds again. The group index then carries a holder that
+    /// can never be matched by hash, which is what M4's same-hash failover is built on.
+    /// </para>
+    /// <para>
+    /// <see cref="CoreDatabase.WriteAsync"/> serializes writers, so a lookup made on its
+    /// connection either sees the hashing service's write or precedes it — and if it precedes it,
+    /// that service's own <see cref="RefreshItemAsync"/> is still to come. Either way the last
+    /// write wins with the hash in it.
+    /// </para>
+    /// </remarks>
     private Task StoreOnlyAsync(InventoryRecord record, CancellationToken cancellationToken)
         => _db.WriteAsync(
-            c => CoreDatabase.Execute(
-                c,
-                """
-                INSERT INTO inventory (item_key, jellyfin_item_id, kind, record_json, updated_at)
-                VALUES ($k, $i, $t, $j, $u)
-                ON CONFLICT(item_key) DO UPDATE SET
-                    jellyfin_item_id = excluded.jellyfin_item_id, kind = excluded.kind,
-                    record_json = excluded.record_json, updated_at = excluded.updated_at;
-                """,
-                ("$k", record.ItemKey),
-                ("$i", record.JellyfinItemId),
-                ("$t", record.Kind),
-                ("$j", JsonSerializer.Serialize(record, _json)),
-                ("$u", record.UpdatedAt)),
+            c =>
+            {
+                if (record.FileHash is null && !string.IsNullOrWhiteSpace(record.LocalPath))
+                {
+                    record.FileHash = CoreDatabase.ScalarString(
+                        c,
+                        "SELECT blake3 FROM file_hashes WHERE path = $p;",
+                        ("$p", record.LocalPath));
+                    if (record.FileHash is not null)
+                    {
+                        _logger.LogDebug(
+                            "{Key} was built before its hash landed; storing it with the hash",
+                            record.ItemKey);
+                    }
+                }
+
+                CoreDatabase.Execute(
+                    c,
+                    """
+                    INSERT INTO inventory (item_key, jellyfin_item_id, kind, record_json, updated_at)
+                    VALUES ($k, $i, $t, $j, $u)
+                    ON CONFLICT(item_key) DO UPDATE SET
+                        jellyfin_item_id = excluded.jellyfin_item_id, kind = excluded.kind,
+                        record_json = excluded.record_json, updated_at = excluded.updated_at;
+                    """,
+                    ("$k", record.ItemKey),
+                    ("$i", record.JellyfinItemId),
+                    ("$t", record.Kind),
+                    ("$j", JsonSerializer.Serialize(record, _json)),
+                    ("$u", record.UpdatedAt));
+            },
             cancellationToken);
 
     /// <summary>
@@ -563,7 +606,40 @@ public sealed class InventoryService : IInventoryService
         // `StartDate` is when *this* tuner started, which they do not agree on to the second but do
         // to the minute. `DateCreated` is the last resort and is genuinely per-node -- it makes the
         // recording federate without deduplicating, which is still better than not federating.
-        var when = item.PremiereDate ?? item.DateCreated;
+        DateTime when;
+        if (item.PremiereDate is { } aired)
+        {
+            when = aired;
+        }
+        else
+        {
+            // **No air date yet is not the same as no air date.** An item Jellyfin has not
+            // refreshed has not been *told* its air date, and falling back to this node's clock
+            // names the recording after the moment its file appeared here -- a name that changes
+            // the instant the metadata pass runs.
+            //
+            // Publishing under that name and retracting it a minute later is the M5 404 in a new
+            // costume: every peer that materialized the first key is left with a `.strm` pointing
+            // at an item key nobody advertises any more, and playing it answers 404 until that
+            // peer's next federated refresh. `tools/e2e-m7.ps1` caught exactly that -- it
+            // materialized `Gardeners World - 2026-09-06 - loft.strm` from a key stamped with the
+            // file's arrival, and playing it answered 404 once B had re-published under the air
+            // date 2026-09-05.
+            //
+            // So wait for the refresh. `DateLastRefreshed` is persisted, so this gate only closes
+            // during the first scan of a newly arrived file -- exactly the window in which the
+            // answer is still moving -- and the next rebuild picks the item up. A recording whose
+            // EPG really gave no air date has been refreshed by then, falls through to
+            // `DateCreated`, and federates without deduplicating, which is the case that fallback
+            // was written for.
+            if (item.DateLastRefreshed == default)
+            {
+                return null;
+            }
+
+            when = item.DateCreated;
+        }
+
         var stamp = when == default
             ? string.Empty
             : when.ToUniversalTime().ToString("yyyyMMdd'T'HHmm", CultureInfo.InvariantCulture);

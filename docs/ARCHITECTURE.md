@@ -1224,6 +1224,52 @@ failure until its own idle timeout tens of seconds later — long after a player
 `peer.stream_stall_secs`: a body that produces nothing for the timeout is treated as failed. That is
 what makes the milestone's "about five seconds" a bound rather than a hope.
 
+**A snapshot that drained the change feed after reading it lost whatever landed in between.**
+`InventoryPublisher` coalesces changes and drains them when it publishes, and it used to drain
+*after* the snapshot had been read and sent. A record written in that window — the window is about
+fifty milliseconds — was in neither place: too late for the read, and thrown away by the drain
+instead of being left for the next delta. The only repair was the fifteen-minute snapshot timer,
+which is three times the harness's whole budget for the step.
+
+What lands in that window, on a holder, is a BLAKE3 hash. Node B's log shows the collision in both
+failures, and shows it twice with the same shape: three files hashed at `19:06:17.016`, `.067` and
+`.338`, with the first snapshot published at `.093` (run 34053018232), and `21:13:24.264`, `.309`,
+`.555` against a snapshot at `.342` (run 34060142479). In each, the only delta that followed carried
+**one** upsert — the file hashed after the drain — while the upserts queued during the snapshot were
+thrown away. Node A's index then held one of that holder's films with no `file_hash` for the rest of
+the run, and step 1 timed out after 300 s on "5 entr(ies), 4 hashed". The run before them passed
+with the same code: its hashes finished twenty-seven seconds *before* the snapshot.
+
+Two things kept it looking rarer than it was. The harness only asserts hashes on the four rows it
+uses, so when the swallowed record was the third film nobody noticed; and the hashing service only
+looked at its queue every thirty seconds, which pinned the burst to "node start plus a multiple of
+thirty" — close enough to when the holders join the group for the two to keep meeting. So: the
+drain happens **before** the read (`InventoryChangeFeed.Upserted` is called after the record is
+written, so anything drained is already on disk and therefore in the read that follows), enqueuing
+a file wakes the hasher instead of waiting out the poll, and both publish lines now say how many of
+the records carried a hash — which is the one number that separates "the index is missing a title"
+from "the index is missing a title's hash".
+
+**A record built before its hash landed could overwrite one built after.** The same race one layer
+down, and the reason nothing self-healed. A record is built by reading `file_hashes` and stored
+some time later — a whole `RebuildAllAsync` pass later — while the hashing service writes that
+table from another thread. Store the record you built and you can replace a hashed row with a
+hash-less one; and because the *hash* is stored, `HashingService.EnqueueAsync` then declines to
+re-queue the file, so nothing ever computes it again. `InventoryService` therefore resolves the
+hash inside the write transaction rather than at build time: whichever writer goes last, it goes
+last with the hash in it.
+
+**Nothing rebuilds the inventory when a library scan finishes**, and both harnesses have to know it.
+`RebuildAllAsync` runs from `FirstRunService` at start-up, from `PinService` after a pin, and from
+`POST /inventory/rebuild`; per-item refreshes come from the arrs' webhooks and from a finished hash.
+There is no `ILibraryManager.ItemAdded` subscription anywhere in `StingStream.Core`. A holder that
+runs no arrs — which is what both harnesses' node B is, and what the `storage-node` profile is —
+therefore does not advertise a file that appears after start-up until something asks it to rebuild.
+That is why the M4 step re-POSTs a rebuild on every failed poll rather than once, and why the M7
+steps now do too: a single rebuild that lands before the scan has matched a title leaves the node
+holding fewer records than it has files, and no amount of waiting adds the rest. Whether Core should
+subscribe to library events instead is a real question and not one this work-package settled.
+
 **Two implementations of one formula, deliberately.** `SourceScorer.cs` and `score.rs` carry the same
 weights and the same test cases. The alternative is the mesh asking Core which source to use for
 every range request, which puts a .NET process in the path of every seek and makes failover depend
@@ -1437,6 +1483,30 @@ The one thing v1 does not do is let a *follower's* users pause: the leader owns 
 follower issuing commands would be a second writer. It is logged rather than silently dropped,
 because the symptom — the film carrying on — needs an explanation somewhere.
 
+**A fifth thing the seat had to be careful about, found in CI: joining a group is not a decision.**
+Jellyfin tells a session what its group is already doing the moment it joins, and for an `Idle`
+group that greeting is a `Stop`, delivered synchronously inside `JoinGroup` — straight into the
+seat's own controller. The leader relayed it. So seating a bridge announced "the film has stopped"
+to the whole party at the instant one of its users opened the film, and the mesh, which took a
+`Stop` command to mean the session was over, closed it for every follower while the leader went on
+thinking it open. A follower that closes a session tears its bridge down, and the harness's next
+call — seating *that* node's bridge — was refused with a 409 (run 34052650751, `18:56:42.070916`
+sending the stop, B stopping bridging 0.3 s later, the attach failing at `18:56:43.06`).
+
+Both halves are wrong on their own and both are fixed. `watch::Command` now carries an explicit
+`closed` flag taken from the leader's own record — only `watch_leave` sets it, and it does so
+before broadcasting the stop that carries it — so stopping playback and ending the party are
+different things again, which is what a user pressing Stop mid-film always meant. And the bridge
+gates its relay while it is seating, so the group's greeting is heard and not repeated.
+
+Two smaller ones alongside: `AttachAsync` is idempotent (seating a bridge already seated in that
+group is a no-op, not a conflict), and it now *verifies* the join. `ISyncPlayManager.JoinGroup` has
+two branches that refuse silently — a group id that names nothing, and a group whose queue holds
+something the seat's user cannot see standalone — each of which logs a warning, sends the session an
+update and returns, leaving a caller that assumed success bridging into a group it is not in. One
+`GetGroup` call afterwards answers null in exactly those two cases, so both become an error
+somebody can act on rather than a watch party where every command silently lands nowhere.
+
 #### Subtitles
 
 Jellyfin already has a scheduled task that downloads missing subtitles, and it would work — on every
@@ -1466,6 +1536,23 @@ recording the providers could not name got no item key at all: it now gets
 `recording:{programme}:{yyyyMMddTHHmm}`, both halves chosen so **two nodes recording the same
 broadcast agree** — the programme name is what the EPG gave both of them and the air date is the
 broadcast's, which is what turns two copies into one item with two sources.
+
+The date falls back to `DateCreated` when there is no `PremiereDate`, which is deliberate —
+federating without deduplicating beats not federating — and it used to be reached one metadata pass
+too early. **No air date *yet* is not the same as no air date.** A record built during the first
+scan was stamped with when the file arrived on *this* node and re-published under the real air date
+once the scan caught up: one key retracted, another added, and every peer that had already
+materialized the first one left holding a `.strm` for an item key nobody advertises any more. That
+is the M5 404 reached by a different road, and `tools/e2e-m7.ps1` walked it — it materialized
+`Gardeners World - 2026-09-06 - loft.strm` and playing it answered 404 the moment node B
+re-published under 2026-09-05.
+
+So the fallback now waits for `DateLastRefreshed`: a recording Jellyfin has never refreshed has no
+key at all and is picked up by the next rebuild, and one that *has* been refreshed and still has no
+air date falls back exactly as before, permanently. `DateLastRefreshed` is persisted, so the gate
+only closes during the first scan of a newly arrived file — which is the only window in which the
+answer was still moving. The harness stopped pinning the first key it saw as well, and takes the
+recording's name from the group index, which is where the group's agreement actually lives.
 
 They land in a third library, `Shared Recordings`, rather than being forced into the other two:
 Shared Movies needs the year in both the folder and the filename and needs holders to agree on it,

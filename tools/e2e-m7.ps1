@@ -517,7 +517,7 @@ function Invoke-FederatedRefresh {
 
 trap {
     Write-Host ''
-    Write-Host "e2e-m7: aborting -- $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "e2e-m7: aborting -- $(Get-FailureText $_)" -ForegroundColor Red
     continue
 }
 
@@ -600,11 +600,30 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
         Invoke-Node $node '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 300 | Out-Null
     }
 
-    Wait-Until -What "B's inventory to carry the film and the recording" -Seconds 180 -PollSeconds 3 -Condition {
+    # Rebuild on every failed poll, not once before the wait -- the same shape `tools/e2e-m4.ps1`
+    # uses, and for the same reason. Nothing in `StingStream.Core` rebuilds the inventory when
+    # Jellyfin finishes a scan: `FirstRunService` does it at start-up, `PinService` after a pin, and
+    # the arrs' webhooks per import -- and B runs no arrs. So a single rebuild that lands before the
+    # scan has matched the film leaves B holding one record and nothing ever adds the other.
+    # Observed under load: "Rebuilt 1 inventory record(s) from 2 local item(s)", then a 180 s wait
+    # for a film that was never going to appear. A rebuild is idempotent and is what turns
+    # "scanned" into "inventoried".
+    #
+    # 300 s rather than 180 s, and the extra is not padding: this step now waits for Jellyfin's
+    # *metadata* pass, not just its scan. `BuildRecordingKey` will not name a recording before
+    # `PremiereDate` or a completed refresh gives it something stable to be named after, which is
+    # what stops the key changing under the group -- so the record legitimately appears later than
+    # it used to. Measured across three local runs with two harnesses on one machine: 58 s, 129 s
+    # and 146 s.
+    Wait-Until -What "B's inventory to carry the film and the recording" -Seconds 300 -PollSeconds 3 -Condition {
         $inv = Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 60
         $keys = @($inv.Records | ForEach-Object { $_.ItemKey })
-        ($keys -contains $Film.ItemKey) -and
-            @($keys | Where-Object { $_ -like "$RecordingKeyPrefix*" }).Count -ge 1
+        if (($keys -contains $Film.ItemKey) -and
+            @($keys | Where-Object { $_ -like "$RecordingKeyPrefix*" }).Count -ge 1) {
+            return $true
+        }
+        try { Invoke-Node $NodeB '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
+        return $false
     } -Describe {
         $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 30 } catch { $null }
         if ($inv) { (@($inv.Records | ForEach-Object { $_.ItemKey })) -join ', ' } else { 'no answer' }
@@ -621,9 +640,17 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
     # The whole key, as B built it. Every later step uses this rather than a literal, so the run
     # asserts M7's grammar (a `recording:` key derived from the programme and its air date) rather
     # than one particular reading of one date string.
+    #
+    # **Provisional.** `InventoryService.BuildRecordingKey` takes the broadcast instant from
+    # `PremiereDate ?? DateCreated`, and a recording built before Jellyfin has finished reading its
+    # metadata has no `PremiereDate` yet -- so this first key is stamped with when the *file* was
+    # created on this node, and changes to the air date once the scan catches up. That is
+    # deliberate ("federating without deduplicating beats not federating", ARCHITECTURE.md), and it
+    # means the group's own name for the recording is the one to assert on. The index step below
+    # re-binds this to whatever actually reached A.
     $script:RecordingItemKey = [string](@($inv.Records | ForEach-Object { $_.ItemKey } |
         Where-Object { $_ -like "$RecordingKeyPrefix*" })[0])
-    Write-Host "      B holds the recording as $($script:RecordingItemKey)"
+    Write-Host "      B holds the recording as $($script:RecordingItemKey) (provisional)"
 }
 
 # ============================================================================================
@@ -706,19 +733,41 @@ Invoke-Step "Both holders' inventories reach A's index" {
         Invoke-Node $node '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 300 | Out-Null
     }
 
+    # Matched by *grammar*, not by the exact key captured before B was restarted. B's first key is
+    # stamped with `DateCreated` because the recording had no `PremiereDate` until Jellyfin had read
+    # its metadata, and it becomes the air date afterwards -- so pinning the earlier reading here
+    # asserts on a name the design says can still move, and waits out the whole 240 s when it does.
+    # Seen locally under load: A's index carried `recording:gardeners-world:20260905T0000` from B
+    # while this step was waiting for `...:20260906T2232`.
     Wait-Until -What "the film, the recording and both holders to reach A" -Seconds 240 -PollSeconds 3 -Condition {
         $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
         $entries = @(Get-Member-Value $index 'Entries')
         $film = @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey })
-        $rec = @($entries | Where-Object { $_.ItemKey -eq $script:RecordingItemKey })
-        ($film.Count -ge 2) -and ($rec.Count -ge 1)
+        $rec = @($entries | Where-Object { $_.ItemKey -like "$RecordingKeyPrefix*" })
+        if (($film.Count -ge 2) -and ($rec.Count -ge 1)) { return $true }
+        # C's scan can finish after the rebuild above, and nothing re-runs one on its own -- see the
+        # note on the same loop in the previous step.
+        try { Invoke-Node $NodeC '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
+        return $false
     } -Describe {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 30 } catch { $null }
-        if ($index) { "$(@(Get-Member-Value $index 'Entries').Count) entries" } else { 'no answer' }
+        if (-not $index) { return 'no answer' }
+        $entries = @(Get-Member-Value $index 'Entries')
+        "$($entries.Count) entries: $(($entries | ForEach-Object { $_.ItemKey } | Sort-Object -Unique) -join ', ')"
     } | Out-Null
 
     $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
     $entries = @(Get-Member-Value $index 'Entries')
+
+    # The group's own name for the recording, which is the one every later step must use. See the
+    # note where it was first captured: what B published before its metadata settled is not it.
+    $agreed = [string](@($entries | ForEach-Object { $_.ItemKey } |
+        Where-Object { $_ -like "$RecordingKeyPrefix*" } | Sort-Object -Unique)[0])
+    if ($agreed -ne $script:RecordingItemKey) {
+        Write-Host "      the recording settled on $agreed (B first published $($script:RecordingItemKey))"
+        $script:RecordingItemKey = $agreed
+    }
+
     $film = @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey })
     # B's row specifically. C holds the same bytes but no sidecar, and asserting against whichever
     # of the two the index happened to list first would be a coin toss.
@@ -895,8 +944,26 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
         $g = @(Get-SyncPlayGroups -Session $script:SessionA1)
         $g.Count -ge 1 -and @(Get-Member-Value $g[0] 'Participants').Count -ge 2
     } -Describe {
+        # `POST /SyncPlay/Join` answers 2xx even when Jellyfin refuses the join: SyncPlayManager
+        # logs a warning, sends the session a group update and returns, for a group that does not
+        # exist and for one whose play queue holds something the joining user cannot see standalone
+        # (`Group.HasAccessToQueue` -> `IsVisibleStandalone`). Neither reaches the caller, so the
+        # only symptom is a participant count that never moves.
+        #
+        # `GET /SyncPlay/List` is filtered by that same access check, so asking as the *second*
+        # session separates the two: a group A1 can see and A2 cannot is a refusal, and a group
+        # both can see with one member is a timing problem. Worth the extra call only when the
+        # step is already in trouble, which is exactly where a -Describe runs.
         $g = @(Get-SyncPlayGroups -Session $script:SessionA1)
-        if ($g.Count -ge 1) { "$(@(Get-Member-Value $g[0] 'Participants').Count) participant(s)" } else { 'no group' }
+        if ($g.Count -lt 1) { return 'no group' }
+        $count = @(Get-Member-Value $g[0] 'Participants').Count
+        $seenByViewer = @(Get-SyncPlayGroups -Session $script:SessionA2 |
+            Where-Object { [string](Get-Member-Value $_ 'GroupId') -eq $localGroup })
+        if ($seenByViewer.Count -eq 0) {
+            return "$count participant(s); the group is invisible to 'viewer', so Jellyfin refused " +
+                'the join over library access rather than losing it'
+        }
+        "$count participant(s); 'viewer' can see the group, so the join was accepted"
     } | Out-Null
 
     foreach ($s in @($script:SessionA1, $script:SessionA2)) { Set-SyncPlayReady -Session $s }

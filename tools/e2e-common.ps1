@@ -188,6 +188,59 @@ function Write-Head {
     Write-Host ('=' * [Math]::Max(4, 74 - $Text.Length)) -ForegroundColor Cyan
 }
 
+function Get-FailureText {
+    <#
+    .SYNOPSIS
+        An error record's message, plus the server's own explanation when it sent one.
+    .DESCRIPTION
+        `Invoke-WebRequest` reports a failed request as "Response status code does not indicate
+        success: 409 (Conflict)." and nothing else, while the body it is refusing to look at holds
+        the reason -- these APIs answer RFC 7807 problem details, and the mesh answers
+        `{"error": "..."}` with its whole context chain, both precisely so a caller can show them.
+
+        This is not a nicety. M7's flake reached CI as the bare words "409 (Conflict)", which is
+        true of three quite different failures inside `POST /watch/{id}/attach` alone, and settling
+        which one it had been took the node's own log. A harness that prints what the server said
+        names its own failure.
+
+        PowerShell puts the body in `ErrorDetails.Message` when it has one; older editions leave it
+        on the response stream instead, so both are tried and neither is required.
+    #>
+    param([Parameter(Mandatory)]$ErrorRecord)
+
+    $message = $ErrorRecord.Exception.Message
+    $detail = $null
+    if ($ErrorRecord.PSObject.Properties.Name -contains 'ErrorDetails' -and $ErrorRecord.ErrorDetails) {
+        $detail = [string]$ErrorRecord.ErrorDetails.Message
+    }
+    if (-not $detail) {
+        try {
+            $stream = $ErrorRecord.Exception.Response.GetResponseStream()
+            if ($stream) {
+                $reader = [System.IO.StreamReader]::new($stream)
+                $detail = $reader.ReadToEnd()
+                $reader.Dispose()
+            }
+        } catch { }
+    }
+    if (-not $detail) { return $message }
+
+    # A problem-details body reads far better as its own two fields than as raw JSON.
+    try {
+        $problem = $detail | ConvertFrom-Json
+        $parts = @($problem.PSObject.Properties |
+            Where-Object { $_.Name -in @('title', 'detail', 'error') -and $_.Value } |
+            ForEach-Object { [string]$_.Value })
+        if ($parts.Count -gt 0) { $detail = $parts -join ' -- ' }
+    } catch { }
+
+    $detail = ([string]$detail).Trim()
+    # A plain `throw 'text'` puts the same words in both places; repeating them helps nobody.
+    if (-not $detail -or $detail -eq $message.Trim()) { return $message }
+    if ($detail.Length -gt 600) { $detail = $detail.Substring(0, 600) + '...' }
+    return "$message  [server said: $detail]"
+}
+
 function Invoke-Step {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -203,7 +256,7 @@ function Invoke-Step {
         return $result
     } catch {
         $sw.Stop()
-        $message = $_.Exception.Message
+        $message = Get-FailureText $_
         $script:Steps.Add([pscustomobject]@{ Name = $Name; Ok = $false; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); Detail = $message })
         Write-Host ("FAIL  {0}  ({1:N1}s)" -f $Name, $sw.Elapsed.TotalSeconds) -ForegroundColor Red
         Write-Host "      $message" -ForegroundColor Red
