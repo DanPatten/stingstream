@@ -307,6 +307,10 @@ in a running app. They are pinned by upstream Expo and React Native and clear on
 (`/System/Info/Public` and friends). With `CorsHosts` now empty they are not readable cross-origin
 from a browser, but they are readable by anything that can reach the gateway.
 
+**R10 — Four workflows still use mutable action tags**, and they are the four with secrets on their
+runners. §7. The SHAs are resolved and in the M8b report; pinning them is a mechanical edit in
+somebody else's file.
+
 **R9 — The app can remove its own light node.** The Group screen marks the *home* node as "self", so
 a phone's own mesh member is a removable row. Removing it is arguably right (a lost phone), but the
 app does not notice: it keeps trying to dial and playback silently falls back to home-node proxying.
@@ -331,8 +335,16 @@ against the tree during this review: five git subtrees (Jellyfin, Radarr, Sonarr
 Streamyfin), the Jellyswarrm reference vendoring, the NZBGet binaries fetched at package time, and
 ffmpeg where a platform bundles it.
 
-**GitHub Actions** in the workflows this milestone owns are pinned to commit SHAs rather than tags,
-so a compromised or moved tag cannot change what CI runs.
+**GitHub Actions.** A tag is a mutable pointer: `actions/checkout@v4` is whatever the `v4` tag points
+at *at the moment the job runs*, so anybody who gains push access to that repository can change what
+executes in a workflow without touching the workflow file. That is how `tj-actions/changed-files`
+reached tens of thousands of repositories in March 2025.
+
+`ci.yml` — the workflow this milestone owns — is pinned to commit SHAs with the version each one
+corresponded to in a comment. **`app.yml`, `coordinator.yml`, `images.yml` and `release.yml` are
+not**, and they are the ones that matter more, because their runners hold real secrets: a GHCR push
+token, a release token and the app signing keystore. They belong to M8a; the exact SHAs are in the
+M8b report as a request. Until they are pinned, this is residual risk R10.
 
 ---
 

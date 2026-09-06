@@ -414,6 +414,14 @@ from its own zone, and the whole side door works today — which is what the har
 `publicly_trusted` is false for staging and for a private CA. It is there so that nobody spends an
 afternoon working out why a certificate that was issued perfectly well still shows a warning.
 
+**All of that is answered to this machine only** (M8b). The gateway binds `0.0.0.0` so phones and
+TVs on the LAN can reach the node, and the block above is a map of it: every hostname, the mapped
+port, the LAN and public addresses, and — elsewhere in the same document — the data directory and
+every child's port. A request from anywhere else gets `{"status":"ok","version":"…","children":N}`
+and the same 200-or-503, so `curl --fail` from a monitoring box still works and a support question
+still gets the detail. The absent CORS header on this route was never the control it looked like:
+it stops a browser page, not a `curl`.
+
 ---
 
 ## 11. Notes for whoever works here next
