@@ -103,7 +103,10 @@ jobs:
       # linuxarm64 are already distinct.
       - name: Resolve jellyfin-ffmpeg version
         id: ffmpeg_version
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        # -Platform matches the Fetch step below so the resolved (and cache-keyed) tag is
+        # guaranteed to have the asset that step actually needs -- see the script's own
+        # -PrintVersionOnly doc for why an unpinned platform can't make that guarantee.
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly -Platform ${{ matrix.ffmpeg_platform }}
 
       - name: Cache jellyfin-ffmpeg
         id: cache_ffmpeg
@@ -119,7 +122,8 @@ jobs:
       - name: Resolve nzbget version
         id: nzbget_version
         if: matrix.fetch_nzbget
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform linux-x64
 
       - name: Cache nzbget
         id: cache_nzbget

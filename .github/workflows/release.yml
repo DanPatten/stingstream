@@ -150,9 +150,11 @@ jobs:
       # downloaded bytes, so a cache hit skips the download outright. -PrintVersionOnly makes one
       # lightweight API call to resolve it; the real fetch below pins to that same tag with -Tag
       # rather than re-querying "latest" a second time.
+      # -Platform matches the Fetch step below so the resolved (and cache-keyed) tag is
+      # guaranteed to have the asset that step actually needs.
       - name: Resolve jellyfin-ffmpeg version
         id: ffmpeg_version
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly -Platform win64
 
       - name: Cache jellyfin-ffmpeg
         id: cache_ffmpeg
@@ -165,9 +167,10 @@ jobs:
         if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
         run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform win64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
 
+      # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
       - name: Resolve nzbget version
         id: nzbget_version
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform win64
 
       - name: Cache nzbget
         id: cache_nzbget
@@ -332,9 +335,13 @@ jobs:
             nuget-${{ runner.os }}-
 
       # Same cache-by-resolved-tag pattern as windows-installer's own fetch steps; see there.
+      # -Platform matches the Fetch step below so the resolved (and cache-keyed) tag is
+      # guaranteed to have the asset that step actually needs -- both legs run on the same
+      # ubuntu-latest runner (see the Swatinem/rust-cache step above), so an unpinned platform
+      # would resolve against the native runner's OS, not necessarily the cross-compiled RID.
       - name: Resolve jellyfin-ffmpeg version
         id: ffmpeg_version
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly -Platform ${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }}
 
       - name: Cache jellyfin-ffmpeg
         id: cache_ffmpeg
@@ -347,10 +354,11 @@ jobs:
         if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
         run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform ${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }} -Tag ${{ steps.ffmpeg_version.outputs.tag }}
 
+      # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
       - name: Resolve nzbget version
         id: nzbget_version
         if: matrix.rid == 'linux-x64'
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform linux-x64
 
       - name: Cache nzbget
         id: cache_nzbget
@@ -573,9 +581,11 @@ jobs:
       # matrix legs (osx-arm64, osx-x64) fetch the same single universal 'macos' asset -- see this
       # job's own header comment -- so they share one cache key and only the leg that happens to
       # run first actually downloads anything.
+      # -Platform matches the Fetch step below so the resolved (and cache-keyed) tag is
+      # guaranteed to have the asset that step actually needs.
       - name: Resolve jellyfin-ffmpeg version
         id: ffmpeg_version
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly -Platform macos
 
       - name: Cache jellyfin-ffmpeg
         id: cache_ffmpeg
@@ -588,9 +598,10 @@ jobs:
         if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
         run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform macos -Tag ${{ steps.ffmpeg_version.outputs.tag }}
 
+      # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
       - name: Resolve nzbget version
         id: nzbget_version
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform macos
 
       - name: Cache nzbget
         id: cache_nzbget

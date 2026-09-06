@@ -25,12 +25,16 @@
     Pin a specific release tag instead of taking the latest -- the same idea as
     fetch-jellyfin-ffmpeg.ps1's own -Tag, added for the same reason: pairs with -PrintVersionOnly
     so a CI cache-key resolution step and the actual fetch agree on exactly the same release even if
-    "latest" could theoretically move between the two calls.
+    "latest" could theoretically move between the two calls. If the pinned tag has no asset for the
+    requested platform, falls back to the newest release that does, with a warning.
 
 .PARAMETER PrintVersionOnly
     Resolve the release (latest, or -Tag if given) and print its tag, then exit without downloading
     anything -- one API call. Writes `tag=<value>` to $env:GITHUB_OUTPUT when running in GitHub
-    Actions. See fetch-jellyfin-ffmpeg.ps1's own -PrintVersionOnly for the full rationale.
+    Actions. See fetch-jellyfin-ffmpeg.ps1's own -PrintVersionOnly for the full rationale, including
+    how resolution walks the newest releases (skipping drafts/prereleases) for one with a matching
+    asset rather than trusting a bare releases/latest lookup, and retries API calls and the download
+    itself up to 3 times with a short backoff.
 
 .EXAMPLE
     pwsh fetch-nzbget.ps1 -DryRun
@@ -54,7 +58,6 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'nzbgetcom/nzbget'
-$ApiUrl = if ($Tag) { "https://api.github.com/repos/$Repo/releases/tags/$Tag" } else { "https://api.github.com/repos/$Repo/releases/latest" }
 
 # Platform key -> substring(s) used to pick the right asset out of the release's asset list.
 # nzbgetcom release assets look like: nzbget-<ver>-bin-windows.zip, nzbget-<ver>-bin-linux.run,
@@ -64,6 +67,16 @@ $PlatformPatterns = [ordered]@{
     'win64'     = @('windows', 'win64', 'win-x64')
     'linux-x64' = @('linux')
     'macos'     = @('macos', 'osx', 'darwin')
+}
+
+function Get-CurrentNzbgetPlatform {
+    # $IsWindows/$IsLinux/$IsMacOS only exist on PowerShell 6+; Windows PowerShell 5.1 is always
+    # Windows.
+    if ($PSVersionTable.PSVersion.Major -lt 6) { return 'win64' }
+    if ($IsWindows) { return 'win64' }
+    if ($IsMacOS) { return 'macos' }
+    if ($IsLinux) { return 'linux-x64' }
+    throw "Could not detect the current platform; pass -Platform explicitly."
 }
 
 # nzbgetcom ships no portable archive for Windows or Linux -- the release assets are an NSIS
@@ -175,15 +188,105 @@ function Expand-NzbgetAsset {
     Write-Warning "Unrecognized archive format for $Archive; left as-is for you to handle."
 }
 
-Write-Host "Querying $ApiUrl ..."
+function Invoke-WithRetry {
+    # Small generic retry wrapper: 3 attempts, short backoff (2s, 4s). GitHub's API and CDN both
+    # have transient blips under CI load; a bare Invoke-RestMethod/-WebRequest failure here used to
+    # fail the whole job for something a moment's retry would have ridden out.
+    param(
+        [Parameter(Mandatory)][scriptblock]$Action,
+        [string]$Description = 'request',
+        [int]$MaxAttempts = 3,
+        [int]$DelaySeconds = 2
+    )
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            return & $Action
+        } catch {
+            if ($attempt -ge $MaxAttempts) { throw }
+            Write-Warning "Attempt $attempt/$MaxAttempts for $Description failed: $($_.Exception.Message). Retrying in ${DelaySeconds}s ..."
+            Start-Sleep -Seconds $DelaySeconds
+            $DelaySeconds *= 2
+        }
+    }
+}
+
+function Get-MatchingNzbgetAsset {
+    # Picks the best asset for one platform's substring pattern list out of a release's asset
+    # list, or $null if none match. Shared by release *resolution* (does this release have what we
+    # need at all?) and the real *download* below, so the two can never disagree.
+    param($Assets, [string[]]$Patterns)
+
+    $candidates = $Assets | Where-Object {
+        $name = $_.name.ToLowerInvariant()
+        ($Patterns | Where-Object { $name.Contains($_) }).Count -gt 0
+    }
+    # Prefer the non-debug build (nzbgetcom ships parallel "-debug" assets that are much larger
+    # and only useful for troubleshooting upstream itself).
+    $asset = $candidates | Where-Object { $_.name.ToLowerInvariant() -notlike '*debug*' } | Select-Object -First 1
+    if (-not $asset) { $asset = $candidates | Select-Object -First 1 }
+    return $asset
+}
+
+function Test-ReleaseHasWantedAsset {
+    param($Release, [string[]]$PlatformKeys)
+    if (-not $Release.assets -or $Release.assets.Count -eq 0) { return $false }
+    foreach ($key in $PlatformKeys) {
+        $patterns = $PlatformPatterns[$key]
+        if ($patterns -and (Get-MatchingNzbgetAsset -Assets $Release.assets -Patterns $patterns)) { return $true }
+    }
+    return $false
+}
+
+function Resolve-NzbgetRelease {
+    # Resolves the release to use for -PlatformKeys, honouring -RequestedTag when given. Used
+    # identically by -PrintVersionOnly and by the real download below, so the tag a cache key gets
+    # computed from and the tag actually fetched can never disagree.
+    param([string]$RequestedTag, [string[]]$PlatformKeys, $Headers)
+
+    if ($RequestedTag) {
+        $byTagUrl = "https://api.github.com/repos/$Repo/releases/tags/$RequestedTag"
+        try {
+            Write-Host "Querying $byTagUrl ..."
+            $pinned = Invoke-WithRetry -Description "GET $byTagUrl" -Action { Invoke-RestMethod -Uri $byTagUrl -Headers $Headers }
+            if (Test-ReleaseHasWantedAsset -Release $pinned -PlatformKeys $PlatformKeys) {
+                return $pinned
+            }
+            Write-Warning "Release $RequestedTag has no asset matching platform(s) '$($PlatformKeys -join ', ')' (upstream sometimes publishes a release before its assets finish uploading). Falling back to the newest release that does."
+        } catch {
+            Write-Warning "Could not resolve pinned tag '$RequestedTag' ($($_.Exception.Message)); falling back to the newest release that has a matching asset."
+        }
+    }
+
+    $listUrl = "https://api.github.com/repos/$Repo/releases?per_page=10"
+    Write-Host "Querying $listUrl ..."
+    $recent = Invoke-WithRetry -Description "GET $listUrl" -Action { Invoke-RestMethod -Uri $listUrl -Headers $Headers }
+    foreach ($candidate in $recent) {
+        if ($candidate.draft -or $candidate.prerelease) { continue }
+        if (Test-ReleaseHasWantedAsset -Release $candidate -PlatformKeys $PlatformKeys) {
+            return $candidate
+        }
+    }
+    throw "None of the newest $($recent.Count) releases of $Repo have a published asset for platform(s): $($PlatformKeys -join ', ')."
+}
+
 $headers = @{ 'User-Agent' = 'stingstream-fetch-nzbget' }
 # A GITHUB_TOKEN lifts the 60-requests-per-hour anonymous API limit, which CI runners share.
 if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
-$release = Invoke-RestMethod -Uri $ApiUrl -Headers $headers
 
+# Computed before resolution (not just before the download loop) because resolution itself needs
+# to know which platform(s) the printed/fetched tag has to actually have an asset for.
+$wanted = switch ($Platform) {
+    'current' { @(Get-CurrentNzbgetPlatform) }
+    'all'     { @($PlatformPatterns.Keys) }
+    default   { @($Platform) }
+}
+
+$release = Resolve-NzbgetRelease -RequestedTag $Tag -PlatformKeys $wanted -Headers $headers
 $tag = $release.tag_name
 Write-Host "nzbgetcom/nzbget release: $tag"
 
@@ -193,25 +296,6 @@ if ($PrintVersionOnly) {
     exit 0
 }
 
-if (-not $release.assets -or $release.assets.Count -eq 0) {
-    throw "Release $tag has no assets; cannot continue."
-}
-
-function Get-CurrentNzbgetPlatform {
-    # $IsWindows/$IsLinux/$IsMacOS only exist on PowerShell 6+; Windows PowerShell 5.1 is always
-    # Windows.
-    if ($PSVersionTable.PSVersion.Major -lt 6) { return 'win64' }
-    if ($IsWindows) { return 'win64' }
-    if ($IsMacOS) { return 'macos' }
-    if ($IsLinux) { return 'linux-x64' }
-    throw "Could not detect the current platform; pass -Platform explicitly."
-}
-
-$wanted = switch ($Platform) {
-    'current' { @(Get-CurrentNzbgetPlatform) }
-    'all'     { @($PlatformPatterns.Keys) }
-    default   { @($Platform) }
-}
 Write-Host "Fetching for: $($wanted -join ', ')"
 
 foreach ($platform in $wanted) {
@@ -220,16 +304,7 @@ foreach ($platform in $wanted) {
         Write-Warning "Unknown platform '$platform'. Skipping."
         continue
     }
-    $candidates = $release.assets | Where-Object {
-        $name = $_.name.ToLowerInvariant()
-        ($patterns | Where-Object { $name.Contains($_) }).Count -gt 0
-    }
-    # Prefer the non-debug build (nzbgetcom ships parallel "-debug" assets that are much larger
-    # and only useful for troubleshooting upstream itself).
-    $asset = $candidates | Where-Object { $_.name.ToLowerInvariant() -notlike '*debug*' } | Select-Object -First 1
-    if (-not $asset) {
-        $asset = $candidates | Select-Object -First 1
-    }
+    $asset = Get-MatchingNzbgetAsset -Assets $release.assets -Patterns $patterns
 
     if (-not $asset) {
         Write-Warning "No asset matched platform '$platform' (looked for: $($patterns -join ', ')) in release $tag. Skipping."
@@ -246,7 +321,9 @@ foreach ($platform in $wanted) {
 
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
     Write-Host "Downloading $($asset.name) -> $destFile"
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $destFile -Headers $headers
+    Invoke-WithRetry -Description "download $($asset.name)" -Action {
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $destFile -Headers $headers
+    }
 
     Expand-NzbgetAsset -Archive $destFile -DestDir $destDir
 
