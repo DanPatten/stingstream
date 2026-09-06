@@ -311,6 +311,19 @@ public sealed class LibraryController : StingStreamControllerBase
     private static JsonNode? Payload(IActionResult? result)
         => result is JsonResult json && json.Value is JsonNode node ? node : null;
 
+    /// <summary>What to call one of the arrs in a sentence that reaches a person.</summary>
+    /// <param name="kind">Which app.</param>
+    /// <returns>A sentence-initial name for it.</returns>
+    /// <remarks>
+    /// Somebody using StingStream never chose Radarr or Sonarr, never installed either, and should
+    /// never have to learn which of them owns films. Every message that leaves this controller for
+    /// the app says "the movie manager" or "the series manager" instead. The <c>App</c> field on a
+    /// history record and the keys of the queue dictionary keep the real names, because those are
+    /// identifiers the app matches on rather than text it shows.
+    /// </remarks>
+    private static string ManagerName(ArrKind kind)
+        => kind == ArrKind.Radarr ? "The movie manager" : "The series manager";
+
     // --- movies ------------------------------------------------------------
 
     /// <summary>Every movie Radarr is tracking.</summary>
@@ -375,7 +388,7 @@ public sealed class LibraryController : StingStreamControllerBase
                 .ConfigureAwait(false);
             if (lookup is null)
             {
-                return NotFound($"Radarr's lookup found no movie with TMDB id {request.TmdbId}.");
+                return NotFound($"The movie manager's lookup found no movie with TMDB id {request.TmdbId}.");
             }
 
             var shared = _settings.Get();
@@ -384,7 +397,7 @@ public sealed class LibraryController : StingStreamControllerBase
                 .ConfigureAwait(false);
             if (profileId is null)
             {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Radarr has no quality profiles.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "The movie manager has no quality profiles.");
             }
 
             var body = lookup.DeepClone().AsObject();
@@ -469,7 +482,7 @@ public sealed class LibraryController : StingStreamControllerBase
                 .ConfigureAwait(false);
             if (lookup is null)
             {
-                return NotFound($"Sonarr's lookup found no series with TVDB id {request.TvdbId}.");
+                return NotFound($"The series manager's lookup found no series with TVDB id {request.TvdbId}.");
             }
 
             var shared = _settings.Get();
@@ -478,7 +491,7 @@ public sealed class LibraryController : StingStreamControllerBase
                 .ConfigureAwait(false);
             if (profileId is null)
             {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Sonarr has no quality profiles.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "The series manager has no quality profiles.");
             }
 
             var body = lookup.DeepClone().AsObject();
@@ -701,8 +714,8 @@ public sealed class LibraryController : StingStreamControllerBase
                 return NotFound(new
                 {
                     error = isMovie
-                        ? $"Radarr is not tracking TMDB {providerId.ToString(CultureInfo.InvariantCulture)}."
-                        : $"Sonarr is not tracking TVDB {providerId.ToString(CultureInfo.InvariantCulture)}.",
+                        ? $"The movie manager is not tracking TMDB {providerId.ToString(CultureInfo.InvariantCulture)}."
+                        : $"The series manager is not tracking TVDB {providerId.ToString(CultureInfo.InvariantCulture)}.",
                 });
             }
 
@@ -733,7 +746,7 @@ public sealed class LibraryController : StingStreamControllerBase
                 {
                     return StatusCode(
                         StatusCodes.Status503ServiceUnavailable,
-                        new { error = $"{client.Name} has no quality profiles." });
+                        new { error = $"{ManagerName(client.Kind)} has no quality profiles." });
                 }
 
                 body["qualityProfileId"] = profileId.Value;
@@ -832,7 +845,7 @@ public sealed class LibraryController : StingStreamControllerBase
             {
                 return NotFound(new
                 {
-                    error = $"{client.Name} is not tracking "
+                    error = $"{ManagerName(client.Kind)} is not tracking "
                         + $"{(isMovie ? "TMDB" : "TVDB")} {providerId.ToString(CultureInfo.InvariantCulture)}.",
                 });
             }

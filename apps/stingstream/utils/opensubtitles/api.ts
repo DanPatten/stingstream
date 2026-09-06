@@ -2,8 +2,9 @@
  * OpenSubtitles REST API Client
  * Docs: https://opensubtitles.stoplight.io/docs/opensubtitles-api
  *
- * This is a fallback for when the Jellyfin server doesn't have a subtitle provider configured.
+ * This is a fallback for when the server doesn't have a subtitle provider configured.
  */
+import { BRAND } from "@/constants/brand";
 
 const OPENSUBTITLES_API_URL = "https://api.opensubtitles.com/api/v1";
 
@@ -146,7 +147,7 @@ export class OpenSubtitlesApi {
   private apiKey: string;
   private userAgent: string;
 
-  constructor(apiKey: string, userAgent = "streamyfin v1.0") {
+  constructor(apiKey: string, userAgent = BRAND.userAgent) {
     this.apiKey = apiKey;
     this.userAgent = userAgent;
   }

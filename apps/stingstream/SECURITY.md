@@ -1,40 +1,64 @@
 # Security Policy
 
-## Supported Versions of Streamyfin Mobile App
+## Supported versions
 
-Only the most recent stable release of the Streamyfin mobile app is guaranteed to include the latest security patches. **Running older app versions may leave you vulnerable to security risks**. Always update your app from the official App Store or Google Play Store as soon as updates are available. If you must run an older version, avoid using sensitive features (e.g., account management, payment methods) until you can upgrade.
+Only the most recent stable release of the StingStream app is guaranteed to include the
+latest security patches. **Running older app versions may leave you vulnerable to security
+risks.** Always update from the [Releases page](https://github.com/DanPatten/stingstream/releases)
+as soon as an update is available.
 
-This policy applies only to the current stable app release. Security flaws in previous app versions that are no longer present in the latest release **will not** be back-ported or fixed.
+This policy applies only to the current stable app release. Security flaws in previous app
+versions that are no longer present in the latest release **will not** be back-ported or
+fixed.
 
-## Supported Versions of Other Streamyfin Components (Server, Plugins)
+## Other StingStream components
 
-Most Streamyfin backend services and plugins are supported only in their latest release. Consult each project’s README or release notes for any exceptions.
+The app is one part of the [StingStream](https://github.com/DanPatten/stingstream) monorepo,
+which also ships the node (gateway, mesh, and the bundled server components) and, optionally,
+a coordinator. See [../../docs/SECURITY.md](../../docs/SECURITY.md) for the node's own security
+model (loopback gates, credential handling); the process below covers how to report an issue in
+any of these components.
 
-## Vulnerability Triage
+## Vulnerability triage
 
 Before reporting an issue, please consider:
 
-- Administrator-level risks: Certain administrative or configuration endpoints in the backend may inherently carry elevated privileges. Vulnerabilities that **require administrator or root access** are classified as low priority. Report those via normal GitHub Issues.
-- Known vulnerabilities: We maintain a public list of known issues on our Security Advisories page at https://github.com/Streamyfin/Streamyfin/security/advisories. If your issue is already listed there, please do not re-report it.
-- Local-only issues: Vulnerabilities exploitable only with physical device access, manual file modification, or local debugging (e.g., modifying app files, rooting/jailbreaking) are considered low- to medium-priority.
-- Infrastructure reports: To report issues in our website, servers, CI/CD, or other infrastructure, tag your report subject with `[Streamyfin Infrastructure]`. Our infrastructure team follows standard patch policies for public vulnerabilities, so avoid duplicating widely known issues.
+- **Administrator-level risks**: certain administrative or configuration endpoints may
+  inherently carry elevated privileges. Vulnerabilities that **require administrator or root
+  access** are classified as low priority. Report those via normal GitHub Issues.
+- **Local-only issues**: vulnerabilities exploitable only with physical device access,
+  manual file modification, or local debugging (e.g., modifying app files,
+  rooting/jailbreaking) are considered low- to medium-priority.
+- **Infrastructure reports**: to report issues in the project's website, servers, CI/CD, or
+  other infrastructure, tag your report subject with `[StingStream Infrastructure]`.
 
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+After confirming your issue is new and relevant, open a private
+[GitHub Security Advisory](https://github.com/DanPatten/stingstream/security/advisories) on
+the repository (or, if that is unavailable to you, a GitHub issue marked security-sensitive)
+with:
 
-After confirming your issue is new and relevant, send an email to **developer@streamyfin.app** with the following:
+1. Subject line: `[StingStream Security] <short summary>`
+2. Overview (public-safe): describe what component is affected (app, node, coordinator) and
+   the high-level impact. This text may be reused for the published advisory.
+3. Details: reproduction steps, code or API snippets, proof-of-concept, and any suggested
+   remediation. Detail exactly how to trigger the issue.
+4. Your GitHub username, so you can be credited and included in the remediation process.
 
-1. Subject line: `[Streamyfin Security] <short summary>`
-2. Overview (public-safe): Describe what component is affected (mobile app, backend API, plugin) and the high-level impact. We may reuse this text for a GitHub Security Advisory.
-3. Details: Provide reproduction steps, code or API snippets, proof-of-concept, and any suggested remediation. Detail exactly how to trigger the issue.
-4. Your GitHub username: So we can invite you to the GitHub Security Advisory (GHSA) for coordination and credit.
+## Post-disclosure process
 
-Once received, we will review the report, file a GHSA if warranted, and include you and the relevant teams in the remediation process.
+StingStream is a small, largely solo-maintained project. **Please be patient**, especially
+for complex issues; polite follow-ups after a reasonable interval are welcome.
 
-## Post-Disclosure Process
+- Patch releases: for critical vulnerabilities, a point release is issued promptly unless a
+  major release is imminent, in which case the fix is deferred to it.
+- Advisory publication: after releasing a patched app version, the advisory is published only
+  after a reasonable window to let most users upgrade. Third-party disclosures (blog posts,
+  advisories) are requested to occur **after** publication.
 
-Streamyfin is a volunteer-driven project. **We appreciate patience and do not enforce strict disclosure deadlines**, especially for complex issues. You may send polite follow-ups if there’s no response after a reasonable interval.
+## Heritage
 
-- Patch releases: For critical vulnerabilities, we generally issue a point release promptly unless a major release is imminent; in that case, we defer the fix.
-- Advisory publication: After releasing a patched app version, we wait at least seven days (1 week) before publishing the GHSA to allow most users to upgrade. We request that any third-party disclosures (blog posts, advisories) occur **after** our GHSA publication.
-- CVE assignment: We will request CVEs via the GitHub Security interface and include them in the published advisory.
+This app began as a fork of [Streamyfin](https://github.com/streamyfin/streamyfin). Its
+security process here is StingStream's own and is not affiliated with, and should not be
+reported to, the upstream project.

@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Le serveur a reçu trop de demandes, réessayez plus tard.",
     "there_is_a_server_error": "Il y a une erreur de serveur",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Une erreur inattendue s’est produite. Avez-vous correctement saisi l’URL du serveur ?",
-    "too_old_server_text": "Serveur Jellyfin non pris en charge découvert",
-    "too_old_server_description": "Veuillez mettre à jour Jellyfin vers la dernière version"
+    "too_old_server_text": "Serveur StingStream non pris en charge découvert",
+    "too_old_server_description": "Veuillez mettre à jour StingStream vers la dernière version"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Entrez l'URL du serveur Jellyfin",
+    "enter_url_to_jellyfin_server": "Entrez l'URL du serveur StingStream",
     "server_url_placeholder": "http(s)://votre-serveur.com",
     "connect_button": "Connexion",
     "previous_servers": "Serveurs précédents",
@@ -114,16 +114,16 @@
     "suggested_movies": "Films suggérés",
     "suggested_episodes": "Épisodes suggérés",
     "intro": {
-      "welcome_to_streamyfin": "Bienvenue sur Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Un client gratuit et open-source pour Jellyfin.",
+      "welcome_to_streamyfin": "Bienvenue sur StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Un client gratuit et open-source pour StingStream.",
       "features_title": "Fonctionnalités",
-      "features_description": "Streamyfin propose de nombreuses fonctionnalités et fonctionne avec d'autres logiciels. Vous les trouverez dans le menu des paramètres :",
+      "features_description": "StingStream propose de nombreuses fonctionnalités et fonctionne avec d'autres logiciels. Vous les trouverez dans le menu des paramètres :",
       "jellyseerr_feature_description": "Connectez-vous à votre instance Seerr et demandez des films directement dans l'application.",
       "downloads_feature_title": "Téléchargements",
       "downloads_feature_description": "Téléchargez des films et des séries pour les regarder hors ligne. Utilisez la méthode par défaut ou installez le serveur d'optimisation pour télécharger les fichiers en arrière-plan.",
       "chromecast_feature_description": "Diffusez des films et des séries sur vos appareils Chromecast.",
       "centralised_settings_plugin_title": "Plugin de paramètres centralisés",
-      "centralised_settings_plugin_description": "Configurez les paramètres de façon centralisée sur votre serveur Jellyfin. Les paramètres client de chaque utilisateur se synchronisent automatiquement.",
+      "centralised_settings_plugin_description": "Configurez les paramètres de façon centralisée sur votre serveur StingStream. Les paramètres client de chaque utilisateur se synchronisent automatiquement.",
       "done_button": "Terminé",
       "go_to_settings_button": "Allez dans les paramètres",
       "read_more": "En savoir plus"
@@ -327,7 +327,6 @@
         },
         "none": "Aucune",
         "language": "Langue",
-        "loading": "Chargement",
         "modes": {
           "Default": "Par défaut",
           "Smart": "Intelligent",
@@ -336,18 +335,10 @@
           "OnlyForced": "Forcés seulement"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Entrez votre clé API OpenSubtitles pour activer la recherche de sous-titres côté client comme solution de secours lorsque votre serveur Jellyfin n'a pas de fournisseur de sous-titres configuré.",
+        "opensubtitles_hint": "Entrez votre clé API OpenSubtitles pour activer la recherche de sous-titres côté client comme solution de secours lorsque votre serveur StingStream n'a pas de fournisseur de sous-titres configuré.",
         "opensubtitles_api_key": "Clé API",
         "opensubtitles_api_key_placeholder": "Entrez la clé API...",
         "opensubtitles_get_key": "Obtenez votre clé API gratuite sur opensubtitles.com/fr/consumers",
-        "mpv_subtitle_scale": "Échelle des sous-titres",
-        "mpv_subtitle_margin_y": "Marge verticale",
-        "mpv_subtitle_align_x": "Alignement horizontal",
-        "mpv_subtitle_align_y": "Alignement vertical",
-        "mpv_settings_title": "Paramètres des sous-titres MPV",
-        "mpv_settings_description": "Personnalisation avancée des sous-titres pour le lecteur MPV",
-        "opaque_background": "Fond opaque",
-        "background_opacity": "Opacité du fond",
         "align": {
           "left": "Gauche",
           "center": "Centre",
@@ -400,15 +391,15 @@
       "plugins": {
         "plugins_title": "Plugins",
         "wikidata_awards": "Récompenses via Wikidata",
-        "wikidata_awards_hint": "Affiche les Oscars et les récompenses sur les pages des films et des séries. Cet appareil interroge Wikidata directement, pas votre serveur Jellyfin.",
+        "wikidata_awards_hint": "Affiche les Oscars et les récompenses sur les pages des films et des séries. Cet appareil interroge Wikidata directement, pas votre serveur StingStream.",
         "opensubtitles_enabled": "Rechercher sur OpenSubtitles",
-        "opensubtitles_enabled_hint": "Autorise cet appareil à interroger OpenSubtitles directement quand votre serveur Jellyfin n'a aucun fournisseur de sous-titres. En désactivant cette option, les recherches restent sur votre serveur et la clé API enregistrée n'est pas touchée.",
+        "opensubtitles_enabled_hint": "Autorise cet appareil à interroger OpenSubtitles directement quand votre serveur StingStream n'a aucun fournisseur de sous-titres. En désactivant cette option, les recherches restent sur votre serveur et la clé API enregistrée n'est pas touchée.",
         "jellyseerr": {
           "server_url": "URL du serveur",
           "server_url_hint": "Exemple : http(s)://votre-domaine.url\n(ajouter le port si nécessaire)",
           "server_url_placeholder": "URL de Seerr...",
           "password": "Mot de passe",
-          "password_placeholder": "Entrez le mot de passe pour l'utilisateur Jellyfin {{username}}",
+          "password_placeholder": "Entrez le mot de passe pour l'utilisateur StingStream {{username}}",
           "login_button": "Connexion",
           "total_media_requests": "Total de demandes de médias",
           "movie_quota_limit": "Limite de quota de film",
@@ -548,7 +539,7 @@
       "delete": "Supprimer",
       "delete_download": "Supprimer le téléchargement",
       "something_went_wrong": "Quelque chose s'est mal passé",
-      "could_not_get_stream_url_from_jellyfin": "Impossible d'obtenir l'URL du flux depuis Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Impossible d'obtenir l'URL du flux depuis StingStream",
       "eta": "ETA {{eta}}",
       "live_activity": {
         "downloading": "Téléchargement en cours",
@@ -756,7 +747,7 @@
     "subtitle_search": "Rechercher et télécharger",
     "download": "Télécharger",
     "subtitle_download_hint": "Les sous-titres téléchargés seront enregistrés dans votre bibliothèque",
-    "using_jellyfin_server": "Utilisation du serveur Jellyfin",
+    "using_jellyfin_server": "Utilisation du serveur StingStream",
     "language": "Langue",
     "results": "Résultats",
     "search_failed": "Recherche échouée",
@@ -831,8 +822,7 @@
     "resume_playback": "Reprendre la lecture",
     "resume_playback_description": "Voulez-vous continuer où vous vous êtes arrêté ou commencer à partir du début ?",
     "play_from_start": "Lire depuis le début",
-    "continue_from": "Continuer depuis {{time}}",
-    "no_data_available": "Aucune donnée disponible"
+    "continue_from": "Continuer depuis {{time}}"
   },
   "live_tv": {
     "title": "TV en direct",
@@ -1101,7 +1091,7 @@
     "pair_with_phone": "Associer au téléphone",
     "pair_with_phone_title": "Se connecter sur la TV",
     "waiting_for_phone": "En attente du téléphone...",
-    "scan_with_phone": "Scanner avec l'application Streamyfin sur votre téléphone",
+    "scan_with_phone": "Scanner avec l'application StingStream sur votre téléphone",
     "logging_in": "Connexion en cours...",
     "logging_in_description": "Connexion à votre serveur"
   }

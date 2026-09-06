@@ -10,6 +10,8 @@
 //! * [`preseed`] — writes each child's own configuration so none of them needs patching.
 //! * [`runtime`] — `runtime.json`, the contract between the supervisor, `StingStream.Core` inside
 //!   Jellyfin, and the acceptance harness.
+//! * [`setup`] — whether first-run setup is still pending, and the one thing that depends on the
+//!   answer: removing the generated bootstrap password once it is not.
 //! * [`sidedoor`] - the HTTPS side door: a per-node certificate from ACME, a router port mapping,
 //!   and the candidate hostnames a browser races. See `docs/SIDEDOOR.md`.
 //!
@@ -25,6 +27,7 @@ pub mod ports;
 pub mod preseed;
 pub mod runtime;
 pub mod secrets;
+pub mod setup;
 pub mod sidedoor;
 pub mod state;
 pub mod supervisor;

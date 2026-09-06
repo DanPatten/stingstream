@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Shared plumbing for the StingStream acceptance harnesses.
 
@@ -358,12 +358,22 @@ function Stop-Owned {
         be cleaned up by hand. By *path*, never by name alone: another agent's development node is
         very likely running on this machine and must survive. And by executable name as well as
         path, because a harness's own command line contains the work directory too.
+
+        The path is compared the way the filesystem compares it -- case-insensitively on Windows,
+        case-sensitively everywhere else. An ordinal comparison looks right until somebody passes
+        -WorkDir e:\stingstream-e2e in lower case, at which point nothing matches, every child
+        survives the wipe, and the failure surfaces two steps later as a port already in use.
     #>
     param([Parameter(Mandatory)][string]$PathFragment)
+    $comparison = if ($script:IsWindowsHost) {
+        [System.StringComparison]::OrdinalIgnoreCase
+    } else {
+        [System.StringComparison]::Ordinal
+    }
     Get-ProcessTable |
         Where-Object {
             $_.ProcessId -ne $PID -and
-            $_.CommandLine -and $_.CommandLine.Contains($PathFragment) -and
+            $_.CommandLine -and $_.CommandLine.IndexOf($PathFragment, $comparison) -ge 0 -and
             ($script:OwnedExecutables -contains $_.Name)
         } |
         ForEach-Object {

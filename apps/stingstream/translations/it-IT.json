@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Il server ha ricevuto troppe richieste, riprovare più tardi.",
     "there_is_a_server_error": "Si è verificato un errore del server",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Si è verificato un errore imprevisto. L'URL del server è stato inserito correttamente?",
-    "too_old_server_text": "Scoperto Server Jellyfin non supportato",
-    "too_old_server_description": "Aggiorna Jellyfin all'ultima versione"
+    "too_old_server_text": "Scoperto Server StingStream non supportato",
+    "too_old_server_description": "Aggiorna StingStream all'ultima versione"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Inserisci l'URL del tuo server Jellyfin",
+    "enter_url_to_jellyfin_server": "Inserisci l'URL del tuo server StingStream",
     "server_url_placeholder": "http(s)://tuo-server.com",
     "connect_button": "Connetti",
     "previous_servers": "Server precedenti",
@@ -114,16 +114,16 @@
     "suggested_movies": "Film consigliati",
     "suggested_episodes": "Episodi consigliati",
     "intro": {
-      "welcome_to_streamyfin": "Benvenuto a Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Un client gratuito e open-source per Jellyfin.",
+      "welcome_to_streamyfin": "Benvenuto a StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Un client gratuito e open-source per StingStream.",
       "features_title": "Funzioni",
-      "features_description": "Streamyfin ha molte funzioni e funziona con altro software. Le trovi nel menu delle impostazioni:",
+      "features_description": "StingStream ha molte funzioni e funziona con altro software. Le trovi nel menu delle impostazioni:",
       "jellyseerr_feature_description": "Connettetevi alla vostra istanza Jellyseerr e richiedete i film direttamente nell'app.",
       "downloads_feature_title": "Scaricamento",
       "downloads_feature_description": "Scaricate film e serie tv da vedere offline. Utilizzate il metodo predefinito o installate il server di ottimizzazione per scaricare i file in background.",
       "chromecast_feature_description": "Trasmettete film e serie tv ai vostri dispositivi Chromecast.",
       "centralised_settings_plugin_title": "Impostazioni dei Plugin Centralizzate",
-      "centralised_settings_plugin_description": "Configura le impostazioni in modo centralizzato sul server Jellyfin. Le impostazioni client di ogni utente si sincronizzano automaticamente.",
+      "centralised_settings_plugin_description": "Configura le impostazioni in modo centralizzato sul server StingStream. Le impostazioni client di ogni utente si sincronizzano automaticamente.",
       "done_button": "Fatto",
       "go_to_settings_button": "Vai alle impostazioni",
       "read_more": "Leggi di più"
@@ -274,7 +274,6 @@
         "audio_title": "Audio",
         "set_audio_track": "Imposta la traccia audio dall'elemento precedente",
         "audio_language": "Lingua Audio",
-        "audio_hint": "Scegli la lingua audio predefinita.",
         "none": "Nessuno",
         "original_language": "Lingua originale",
         "language": "Lingua",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Sottotitoli",
-        "subtitle_hint": "Configura la preferenza dei sottotitoli.",
         "subtitle_language": "Lingua dei sottotitoli",
         "subtitle_mode": "Modalità dei sottotitoli",
         "set_subtitle_track": "Imposta la traccia dei sottotitoli dall'elemento precedente",
@@ -297,7 +295,6 @@
         "subtitle_size": "Dimensione dei sottotitoli",
         "none": "Nessuno",
         "language": "Lingua",
-        "loading": "Caricamento",
         "modes": {
           "Default": "Predefinito",
           "Smart": "Intelligente",
@@ -306,18 +303,10 @@
           "OnlyForced": "Solo forzati"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Inserisci la tua chiave API OpenSubtitles per abilitare la ricerca dei sottotitoli quando il tuo server Jellyfin non ha un provider di sottotitoli configurato.",
+        "opensubtitles_hint": "Inserisci la tua chiave API OpenSubtitles per abilitare la ricerca dei sottotitoli quando il tuo server StingStream non ha un provider di sottotitoli configurato.",
         "opensubtitles_api_key": "Chiave API",
         "opensubtitles_api_key_placeholder": "Inserisci la chiave API...",
         "opensubtitles_get_key": "Ottieni la tua chiave API gratuita su opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "Dimensione dei sottotitoli",
-        "mpv_subtitle_margin_y": "Margine verticale",
-        "mpv_subtitle_align_x": "Allineamento orizzontale",
-        "mpv_subtitle_align_y": "Allineamento verticale",
-        "mpv_settings_title": "Impostazioni sottotitoli MPV",
-        "mpv_settings_description": "Personalizzazione avanzata dei sottotitoli per il lettore MPV",
-        "opaque_background": "Sfondo opaco",
-        "background_opacity": "Opacità dello sfondo",
         "align": {
           "left": "Sinistra",
           "center": "Centro",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Plugin",
         "wikidata_awards": "Premi da Wikidata",
-        "wikidata_awards_hint": "Mostra Oscar e premi nelle pagine di film e serie. Questo dispositivo interroga Wikidata direttamente, non il tuo server Jellyfin.",
+        "wikidata_awards_hint": "Mostra Oscar e premi nelle pagine di film e serie. Questo dispositivo interroga Wikidata direttamente, non il tuo server StingStream.",
         "opensubtitles_enabled": "Cerca su OpenSubtitles",
-        "opensubtitles_enabled_hint": "Consente a questo dispositivo di cercare direttamente su OpenSubtitles quando il tuo server Jellyfin non ha un provider di sottotitoli. Disattivandolo, le ricerche dei sottotitoli restano sul server e la chiave API salvata non viene toccata.",
+        "opensubtitles_enabled_hint": "Consente a questo dispositivo di cercare direttamente su OpenSubtitles quando il tuo server StingStream non ha un provider di sottotitoli. Disattivandolo, le ricerche dei sottotitoli restano sul server e la chiave API salvata non viene toccata.",
         "jellyseerr": {
           "server_url": "URL del Server",
           "server_url_hint": "Esempio: http(s)://tuo-host.url\n(aggiungere la porta se richiesto)",
           "server_url_placeholder": "URL di Seerr...",
           "password": "Password",
-          "password_placeholder": "Inserire la password per l'utente {{username}} di Jellyfin",
+          "password_placeholder": "Inserire la password per l'utente {{username}} di StingStream",
           "login_button": "Accedi",
           "total_media_requests": "Totale di richieste di media",
           "movie_quota_limit": "Limite di quota per i film",
@@ -518,7 +507,7 @@
       "delete": "Cancella",
       "delete_download": "Elimina il download",
       "something_went_wrong": "Qualcosa è andato storto",
-      "could_not_get_stream_url_from_jellyfin": "Impossibile ottenere l'URL del flusso da Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Impossibile ottenere l'URL del flusso da StingStream",
       "eta": "Tempo stimato di completamento {{eta}}",
       "live_activity": {
         "downloading": "Download in corso",
@@ -726,7 +715,7 @@
     "subtitle_search": "Cerca e scarica",
     "download": "Scarica",
     "subtitle_download_hint": "I sottotitoli scaricati verranno salvati nella tua libreria",
-    "using_jellyfin_server": "Si sta usando il server Jellyfin",
+    "using_jellyfin_server": "Si sta usando il server StingStream",
     "language": "Lingua",
     "results": "Risultati",
     "search_failed": "Ricerca fallita",
@@ -801,8 +790,7 @@
     "resume_playback": "Riprendi la riproduzione",
     "resume_playback_description": "Vuoi continuare da dove hai lasciato o riniziare da capo?",
     "play_from_start": "Riproduci dall'inizio",
-    "continue_from": "Continua da {{time}}",
-    "no_data_available": "Nessun dato disponibile"
+    "continue_from": "Continua da {{time}}"
   },
   "live_tv": {
     "title": "TV in diretta",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Associa al telefono",
     "pair_with_phone_title": "Accedi sulla TV",
     "waiting_for_phone": "In attesa del telefono...",
-    "scan_with_phone": "Scansiona con l'applicazione Streamyfin sul tuo telefono",
+    "scan_with_phone": "Scansiona con l'applicazione StingStream sul tuo telefono",
     "logging_in": "Accesso in corso...",
     "logging_in_description": "Sto connettendo al server"
   }

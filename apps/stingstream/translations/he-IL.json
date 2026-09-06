@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "השרת קיבל יותר מדי קריאות, נסה שוב מאוחר יותר",
     "there_is_a_server_error": "קרתה שגיאה בצד השרת",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "קרתה שגיאה לא צפויה. האם כתובת השרת שהוקלדה נכונה?",
-    "too_old_server_text": "נמצא שרת Jellyfin שלא נתמך",
-    "too_old_server_description": "אנא עדכן את גרסת ה-Jellyfin למעודכנת ביותר"
+    "too_old_server_text": "נמצא שרת StingStream שלא נתמך",
+    "too_old_server_description": "אנא עדכן את גרסת ה-StingStream למעודכנת ביותר"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "הקלד את כתובת שרת הJellyfin שלך",
+    "enter_url_to_jellyfin_server": "הקלד את כתובת שרת הStingStream שלך",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "התחבר",
     "previous_servers": "שרתים קודמים",
@@ -114,16 +114,16 @@
     "suggested_movies": "סרטים מוצעים",
     "suggested_episodes": "פרקים מוצעים",
     "intro": {
-      "welcome_to_streamyfin": "ברוך הבא ל-Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "קליינט חינמי ובקוד פתוח לשרתי Jellyfin.",
+      "welcome_to_streamyfin": "ברוך הבא ל-StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "קליינט חינמי ובקוד פתוח לשרתי StingStream.",
       "features_title": "תכונות",
-      "features_description": "ל-Streamyfin יש הרבה תכונות והוא עובד עם תוכנות נוספות. תוכל למצוא אותן בתפריט ההגדרות:",
+      "features_description": "ל-StingStream יש הרבה תכונות והוא עובד עם תוכנות נוספות. תוכל למצוא אותן בתפריט ההגדרות:",
       "jellyseerr_feature_description": "התחברות עם שרת Seerr כך שניתן לבקש סרטים ישירות מתוך האפליקציה.",
       "downloads_feature_title": "הורדות",
       "downloads_feature_description": "הורדת סרטים וסדרות לצפייה במצב לא-מקוון. השתמשו בדרך ברירת המחדל או התקינו את הגרסה האופטימלית של השרת כדי להוריד ברקע.",
       "chromecast_feature_description": "הקרן סרטים וסדרות למכשרי הChromecast שברשותך.",
       "centralised_settings_plugin_title": "תוסף הגדרות מרוכז",
-      "centralised_settings_plugin_description": "הגדר את ההגדרות באופן מרוכז בשרת ה-Jellyfin שלך. הגדרות הקליינט של כל משתמש מסונכרנות אוטומטית.",
+      "centralised_settings_plugin_description": "הגדר את ההגדרות באופן מרוכז בשרת ה-StingStream שלך. הגדרות הקליינט של כל משתמש מסונכרנות אוטומטית.",
       "done_button": "בוצע",
       "go_to_settings_button": "עבור להגדרות",
       "read_more": "קרא עוד"
@@ -274,7 +274,6 @@
         "audio_title": "שמע",
         "set_audio_track": "בחר רצועת שמע מהפריט הקודם",
         "audio_language": "שפת שמע",
-        "audio_hint": "בחר שפת שמע אוטומטית.",
         "none": "ללא",
         "original_language": "שפת המקור",
         "language": "שפה",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "כתוביות",
-        "subtitle_hint": "הגדר איך כתוביות נראות ומתנהגות.",
         "subtitle_language": "שפת כתוביות",
         "subtitle_mode": "מצב כתוביות",
         "set_subtitle_track": "בחר רצועת כתוביות מהפריט הקודם",
@@ -297,7 +295,6 @@
         "subtitle_size": "גודל כתוביות",
         "none": "ללא",
         "language": "שפה",
-        "loading": "טוען",
         "modes": {
           "Default": "ברירת מחדל",
           "Smart": "חכם",
@@ -306,18 +303,10 @@
           "OnlyForced": "רק כפוי"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "הזינו את מפתח ה-API של OpenSubtitles כדי לחפש כתוביות מהמכשיר הזה כאשר בשרת ה-Jellyfin שלכם לא מוגדר ספק כתוביות.",
+        "opensubtitles_hint": "הזינו את מפתח ה-API של OpenSubtitles כדי לחפש כתוביות מהמכשיר הזה כאשר בשרת ה-StingStream שלכם לא מוגדר ספק כתוביות.",
         "opensubtitles_api_key": "מפתח API",
         "opensubtitles_api_key_placeholder": "הזינו מפתח API...",
         "opensubtitles_get_key": "קבלו מפתח API חינמי בכתובת opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "גודל הכתוביות",
-        "mpv_subtitle_margin_y": "שוליים אנכיים",
-        "mpv_subtitle_align_x": "יישור אופקי",
-        "mpv_subtitle_align_y": "יישור אנכי",
-        "mpv_settings_title": "הגדרות כתוביות MPV",
-        "mpv_settings_description": "התאמה אישית מתקדמת של כתוביות עבור נגן MPV",
-        "opaque_background": "רקע אטום",
-        "background_opacity": "אטימות הרקע",
         "align": {
           "left": "שמאל",
           "center": "מרכז",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "תוספים",
         "wikidata_awards": "פרסים מ-Wikidata",
-        "wikidata_awards_hint": "הצגת אוסקר ופרסים בדפי סרטים וסדרות. המכשיר הזה פונה ישירות ל-Wikidata, לא לשרת ה-Jellyfin שלכם.",
+        "wikidata_awards_hint": "הצגת אוסקר ופרסים בדפי סרטים וסדרות. המכשיר הזה פונה ישירות ל-Wikidata, לא לשרת ה-StingStream שלכם.",
         "opensubtitles_enabled": "חיפוש ב-OpenSubtitles",
-        "opensubtitles_enabled_hint": "מאפשר למכשיר הזה לחפש ישירות ב-OpenSubtitles כאשר לשרת ה-Jellyfin שלכם אין ספק כתוביות. כיבוי האפשרות משאיר את חיפושי הכתוביות בשרת ולא נוגע במפתח ה-API השמור.",
+        "opensubtitles_enabled_hint": "מאפשר למכשיר הזה לחפש ישירות ב-OpenSubtitles כאשר לשרת ה-StingStream שלכם אין ספק כתוביות. כיבוי האפשרות משאיר את חיפושי הכתוביות בשרת ולא נוגע במפתח ה-API השמור.",
         "jellyseerr": {
           "server_url": "כתובת ה-URL של השרת",
           "server_url_hint": "לדוגמא: http(s)://your-host.url\n(הוסף פורט במידת הצורך)",
           "server_url_placeholder": "כתובת ה-URL של Seerr",
           "password": "סיסמא",
-          "password_placeholder": "הזן סיסמה של שרת ה-Jellyfin עבור המשתמש {{username}}",
+          "password_placeholder": "הזן סיסמה של שרת ה-StingStream עבור המשתמש {{username}}",
           "login_button": "התחבר",
           "total_media_requests": "כמות בקשות כוללת",
           "movie_quota_limit": "מכסת הסרטים הכוללת",
@@ -518,7 +507,7 @@
       "delete": "מחק",
       "delete_download": "מחיקת ההורדה",
       "something_went_wrong": "משהו השתבש",
-      "could_not_get_stream_url_from_jellyfin": "לא היה ניתן להגיע לקישור הזרם מהשרת Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "לא היה ניתן להגיע לקישור הזרם מהשרת StingStream",
       "eta": "זמן משוער {{eta}}",
       "live_activity": {
         "downloading": "מוריד",
@@ -726,7 +715,7 @@
     "subtitle_search": "חיפוש והורדה",
     "download": "הורדה",
     "subtitle_download_hint": "כתוביות שהורדו יישמרו בספרייה שלכם",
-    "using_jellyfin_server": "נעשה שימוש בשרת Jellyfin",
+    "using_jellyfin_server": "נעשה שימוש בשרת StingStream",
     "language": "שפה",
     "results": "תוצאות",
     "search_failed": "החיפוש נכשל",
@@ -801,8 +790,7 @@
     "resume_playback": "המשך ניגון",
     "resume_playback_description": "להמשיך מהמקום שבו הפסקתם או להתחיל מההתחלה?",
     "play_from_start": "ניגון מההתחלה",
-    "continue_from": "המשך מ-{{time}}",
-    "no_data_available": "אין נתונים זמינים"
+    "continue_from": "המשך מ-{{time}}"
   },
   "live_tv": {
     "title": "טלוויזיה בשידור חי",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "התאמה לטלפון",
     "pair_with_phone_title": "התחברות בטלוויזיה",
     "waiting_for_phone": "ממתין לטלפון...",
-    "scan_with_phone": "סרקו באמצעות אפליקציית Streamyfin בטלפון שלכם",
+    "scan_with_phone": "סרקו באמצעות אפליקציית StingStream בטלפון שלכם",
     "logging_in": "מתחבר...",
     "logging_in_description": "מתחבר לשרת שלכם"
   }

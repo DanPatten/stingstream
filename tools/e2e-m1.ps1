@@ -275,13 +275,15 @@ function Stop-Tools {
             }
         } catch { }
     }
-    # The supervisor spawns its children as separate processes; killing it hard on Windows leaves
-    # them behind, so they are cleaned up by name. Only ever the ones this harness could have
-    # started.
-    foreach ($name in 'jellyfin', 'Radarr.Console', 'Sonarr.Console', 'nzbget') {
-        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch { }
-        }
+    # The supervisor spawns its children as separate processes, and killing it hard on Windows
+    # leaves them behind holding the ports and the files this harness is about to delete. They are
+    # cleaned up by the work directory in their command line, never by bare process name: several
+    # agents share this machine and at least one of them usually has a node up, and a
+    # `Get-Process -Name jellyfin | Stop-Process` takes theirs down with ours. Stop-Owned lives in
+    # e2e-common.ps1, which is dot-sourced at the top of this file for exactly this kind of thing.
+    if ($script:WorkDirFull) {
+        Start-Sleep -Seconds 1
+        Stop-Owned -PathFragment $script:WorkDirFull
     }
 }
 
@@ -328,6 +330,51 @@ function Invoke-StingStream {
     Invoke-Json -Uri "$script:GatewayUrl$Path" -Method $Method -Body $Body -Headers (Get-AuthHeaders) -TimeoutSec $TimeoutSec
 }
 
+function Get-HttpStatus {
+    <#
+    .SYNOPSIS
+        The status code of a request that is expected *not* to succeed.
+    .DESCRIPTION
+        Invoke-WebRequest raises on any non-2xx, and the two PowerShell editions surface that
+        differently: Windows PowerShell throws a WebException, pwsh an HttpResponseException, and
+        a connection failure throws with no .Response at all -- which is a real failure and is
+        rethrown rather than reported as a status. -SkipHttpErrorCheck would be the clean answer
+        and does not exist before pwsh 7, which this harness still runs under.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [string]$Method = 'GET',
+        $Body,
+        [hashtable]$Headers = @{},
+        [int]$TimeoutSec = 60
+    )
+    $args = @{
+        Uri             = $Uri
+        Method          = $Method
+        Headers         = $Headers
+        TimeoutSec      = $TimeoutSec
+        UseBasicParsing = $true
+    }
+    if ($null -ne $Body) {
+        $args.Body = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 20 -Compress }
+        $args.ContentType = 'application/json'
+    }
+    try {
+        $response = Invoke-WebRequest @args
+        return [int]$response.StatusCode
+    } catch {
+        $failed = $_.Exception.Response
+        if ($null -eq $failed) { throw }
+        return [int]$failed.StatusCode
+    }
+}
+
+# What this harness calls itself. Jellyfin wants all four fields on an authentication, and
+# setup/admin answers with a session, so it wants them too.
+$script:ClientHeader = @{
+    'Authorization' = 'MediaBrowser Client="StingStream-E2E", Device="harness", DeviceId="e2e-m1", Version="1.0.0"'
+}
+
 # ============================================================================================
 # Preflight
 # ============================================================================================
@@ -351,6 +398,11 @@ Write-Host 'StingStream M1 acceptance harness' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  gateway   http://127.0.0.1:$GatewayPort"
+
+# Resolved once, before the first thing that might want to stop a process inside it: Stop-Owned
+# matches on the literal text of a command line, and a relative or differently-spelled path would
+# quietly match nothing.
+$script:WorkDirFull = [System.IO.Path]::GetFullPath($WorkDir)
 
 if ((Test-Path $WorkDir) -and -not $KeepData) {
     Write-Host '  wiping the work directory'
@@ -629,15 +681,83 @@ $Runtime = Invoke-Step 'First-run wiring complete' {
     } | Out-Null
 
     $r = Get-Content $runtimePath -Raw | ConvertFrom-Json
-    Write-Host "      node $($r.node_name), admin $($r.jellyfin_admin.username)"
+    Write-Host "      node $($r.node_name), bootstrap account $($r.jellyfin_admin.username)"
     return $r
 }
 
 # ============================================================================================
+$Account = Invoke-Step 'First run: create the account' {
+    # The golden startup, end to end: a fresh node hands its administrator to whoever is sitting
+    # at it, once, and then never again. Everything below is a property of that -- the generated
+    # password dying, a second attempt being refused, and the wizard underneath staying shut.
+    #
+    # The generated credentials are read out of runtime.json and never printed. They are the thing
+    # this step is about to make useless, and a harness that echoes a password into a CI log has
+    # published one.
+    $generated = @{
+        Username = $Runtime.jellyfin_admin.username
+        Password = Get-Member-Value $Runtime.jellyfin_admin 'password'
+    }
+
+    # Fixed, not random: a -KeepData re-run finds the account it made last time, and a failed run
+    # leaves behind a node somebody can still log into to find out why.
+    $chosen = @{ Username = 'e2eadmin'; Password = 'e2e-harness-password' }
+
+    $state = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/state"
+    if (-not $state.Loopback) { throw 'setup/state does not see this harness as a caller on the node machine.' }
+
+    if ($state.Pending) {
+        if (-not $generated.Password) { throw 'runtime.json holds no generated password for a node that is still pending.' }
+
+        $created = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/admin" -Method POST `
+            -Body $chosen -Headers $script:ClientHeader
+        if (-not $created.AccessToken) { throw 'setup/admin answered without an access token.' }
+        if ($created.User.Name -ne $chosen.Username) {
+            throw "setup/admin left the account called $($created.User.Name), not $($chosen.Username)."
+        }
+        if (-not $created.User.Policy.IsAdministrator) { throw 'the account setup/admin handed back is not an administrator.' }
+
+        # The whole point of the screen: what was in runtime.json stops being a way in.
+        $old = Get-HttpStatus -Uri "$script:GatewayUrl/jellyfin/Users/AuthenticateByName" -Method POST `
+            -Headers $script:ClientHeader -Body @{ Username = $generated.Username; Pw = $generated.Password }
+        if ($old -ne 401) { throw "the generated password still authenticates (HTTP $old); it must not." }
+
+        Write-Host "      created $($chosen.Username); the generated credentials no longer authenticate"
+    } else {
+        # -KeepData against a node an earlier run already claimed. Everything below still holds.
+        Write-Host '      already claimed by an earlier run; checking the rest anyway' -ForegroundColor DarkGray
+    }
+
+    $signIn = Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Users/AuthenticateByName" -Method POST `
+        -Headers $script:ClientHeader -Body @{ Username = $chosen.Username; Pw = $chosen.Password }
+    if (-not $signIn.AccessToken) { throw 'the chosen password does not authenticate.' }
+
+    $after = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/state"
+    if ($after.Pending) { throw 'setup/state still says this node is waiting for its first account.' }
+
+    $again = Get-HttpStatus -Uri "$script:GatewayUrl/stingstream/api/v1/setup/admin" -Method POST `
+        -Body @{ Username = 'someoneelse'; Password = 'another-password' }
+    if ($again -ne 409) { throw "a second setup/admin answered $again, not the 409 that closes the window." }
+
+    # The server's own front door has to stay shut, or the one-screen first run is a suggestion
+    # rather than the only way in. The child runs with --nowebclient, and the startup wizard is
+    # marked complete, which turns it from FirstTimeSetupOrElevated-open into administrator-only.
+    $web = Get-HttpStatus -Uri "$script:GatewayUrl/jellyfin/web/index.html"
+    if ($web -ne 404) { throw "GET /jellyfin/web/index.html answered $web; it must be 404." }
+    $wizard = Get-HttpStatus -Uri "$script:GatewayUrl/jellyfin/Startup/Configuration"
+    if ($wizard -ne 401 -and $wizard -ne 403) { throw "GET /jellyfin/Startup/Configuration answered $wizard; it must refuse." }
+
+    Write-Host "      second setup/admin -> 409, /jellyfin/web -> 404, /jellyfin/Startup/Configuration -> $wizard"
+    return $chosen
+}
+
+# ============================================================================================
 Invoke-Step 'Authenticate to Jellyfin' {
+    # The account the step above created, not runtime.json's: the generated password stopped
+    # working the moment the first-run screen was used, which is what that step asserted.
     $auth = Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Users/AuthenticateByName" -Method POST `
-        -Body @{ Username = $Runtime.jellyfin_admin.username; Pw = $Runtime.jellyfin_admin.password } `
-        -Headers @{ 'Authorization' = 'MediaBrowser Client="StingStream-E2E", Device="harness", DeviceId="e2e-m1", Version="1.0.0"' }
+        -Body @{ Username = $Account.Username; Pw = $Account.Password } `
+        -Headers $script:ClientHeader
     if (-not $auth.AccessToken) { throw 'Jellyfin returned no access token.' }
     $script:JellyfinToken = $auth.AccessToken
     $script:JellyfinUserId = $auth.User.Id
@@ -839,13 +959,11 @@ Invoke-Step 'Restart: everything comes back' {
     Stop-Process -Id $script:Supervisor.Process.Id -Force
     # Killing the supervisor hard on Windows orphans its children, which would then hold the ports
     # the restarted node wants. A real Ctrl+C stops them cooperatively; this is the harness
-    # simulating a hard crash, so it cleans up after it.
+    # simulating a hard crash, so it cleans up after it -- by this run's work directory, which is
+    # in every child's command line, and never by process name, which would reach into whatever
+    # node another agent has running on the same machine.
     Start-Sleep -Seconds 3
-    foreach ($name in 'jellyfin', 'Radarr.Console', 'Sonarr.Console', 'nzbget') {
-        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
-            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch { }
-        }
-    }
+    Stop-Owned -PathFragment $script:WorkDirFull
     Start-Sleep -Seconds 5
 
     Write-Host '      starting it again'

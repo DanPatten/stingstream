@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "伺服器收到太多請求，請稍後再試。",
     "there_is_a_server_error": "伺服器出錯",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "發生非預期的錯誤。您輸入的伺服器網址正確嗎？",
-    "too_old_server_text": "Unsupported Jellyfin Server Discovered",
-    "too_old_server_description": "請將 Jellyfin 更新至最新版本"
+    "too_old_server_text": "Unsupported StingStream Server Discovered",
+    "too_old_server_description": "請將 StingStream 更新至最新版本"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "輸入您的 Jellyfin 伺服器的 URL",
+    "enter_url_to_jellyfin_server": "輸入您的 StingStream 伺服器的 URL",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "連接",
     "previous_servers": "先前的伺服器",
@@ -114,16 +114,16 @@
     "suggested_movies": "推薦電影",
     "suggested_episodes": "推薦劇集",
     "intro": {
-      "welcome_to_streamyfin": "歡迎來到 Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "一個免費且開源的 Jellyfin 客戶端。",
+      "welcome_to_streamyfin": "歡迎來到 StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "一個免費且開源的 StingStream 客戶端。",
       "features_title": "功能",
-      "features_description": "Streamyfin 擁有許多功能，並與多種軟體整合，您可以在設置菜單中找到這些功能，包括：",
+      "features_description": "StingStream 擁有許多功能，並與多種軟體整合，您可以在設置菜單中找到這些功能，包括：",
       "jellyseerr_feature_description": "連接到您的 Jellyseerr 實例並直接在應用程序中請求電影。",
       "downloads_feature_title": "下載",
       "downloads_feature_description": "下載電影和電視節目以離線觀看。使用默認方法或安裝 Optimized Server 以在背景中下載文件。",
       "chromecast_feature_description": "將電影和電視節目投射到您的 Chromecast 設備。",
       "centralised_settings_plugin_title": "統一設置插件",
-      "centralised_settings_plugin_description": "從 Jellyfin 伺服器上的統一位置改變設置。所有用戶的所有客戶端設置將會自動同步。",
+      "centralised_settings_plugin_description": "從 StingStream 伺服器上的統一位置改變設置。所有用戶的所有客戶端設置將會自動同步。",
       "done_button": "完成",
       "go_to_settings_button": "前往設置",
       "read_more": "閱讀更多"
@@ -274,7 +274,6 @@
         "audio_title": "音頻",
         "set_audio_track": "從上一個項目設置音軌",
         "audio_language": "音頻語言",
-        "audio_hint": "選擇默認音頻語言。",
         "none": "無",
         "original_language": "原始語言",
         "language": "語言",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "字幕",
-        "subtitle_hint": "配置字幕偏好。",
         "subtitle_language": "字幕語言",
         "subtitle_mode": "字幕模式",
         "set_subtitle_track": "從上一個項目設置字幕軌道",
@@ -297,7 +295,6 @@
         "subtitle_size": "字幕大小",
         "none": "無",
         "language": "語言",
-        "loading": "加載中",
         "modes": {
           "Default": "默認",
           "Smart": "智能",
@@ -306,18 +303,10 @@
           "OnlyForced": "僅強制字幕"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "輸入您的 OpenSubtitles API 金鑰，即可在 Jellyfin 伺服器未設定字幕提供者時，從本裝置搜尋字幕。",
+        "opensubtitles_hint": "輸入您的 OpenSubtitles API 金鑰，即可在 StingStream 伺服器未設定字幕提供者時，從本裝置搜尋字幕。",
         "opensubtitles_api_key": "API Key",
         "opensubtitles_api_key_placeholder": "輸入 API 金鑰...",
         "opensubtitles_get_key": "在 opensubtitles.com/en/consumers 取得免費 API 金鑰",
-        "mpv_subtitle_scale": "Subtitle Scale",
-        "mpv_subtitle_margin_y": "Vertical Margin",
-        "mpv_subtitle_align_x": "Horizontal Align",
-        "mpv_subtitle_align_y": "Vertical Align",
-        "mpv_settings_title": "MPV 字幕設定",
-        "mpv_settings_description": "MPV 播放器的進階字幕自訂",
-        "opaque_background": "不透明背景",
-        "background_opacity": "背景不透明度",
         "align": {
           "left": "靠左對齊",
           "center": "置中",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "插件",
         "wikidata_awards": "來自 Wikidata 的獎項",
-        "wikidata_awards_hint": "在電影和影集頁面顯示奧斯卡及獲獎情況。此裝置直接查詢 Wikidata，而不是您的 Jellyfin 伺服器。",
+        "wikidata_awards_hint": "在電影和影集頁面顯示奧斯卡及獲獎情況。此裝置直接查詢 Wikidata，而不是您的 StingStream 伺服器。",
         "opensubtitles_enabled": "搜尋 OpenSubtitles",
-        "opensubtitles_enabled_hint": "當您的 Jellyfin 伺服器沒有字幕提供者時，允許此裝置直接搜尋 OpenSubtitles。關閉後，字幕搜尋仍在伺服器上進行，已儲存的 API 金鑰不會變動。",
+        "opensubtitles_enabled_hint": "當您的 StingStream 伺服器沒有字幕提供者時，允許此裝置直接搜尋 OpenSubtitles。關閉後，字幕搜尋仍在伺服器上進行，已儲存的 API 金鑰不會變動。",
         "jellyseerr": {
           "server_url": "伺服器 URL",
           "server_url_hint": "示例：http(s)://your-host.url\n（如果需要，添加端口）",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "密碼",
-          "password_placeholder": "輸入 Jellyfin 用戶 {{username}} 的密碼",
+          "password_placeholder": "輸入 StingStream 用戶 {{username}} 的密碼",
           "login_button": "登入",
           "total_media_requests": "總媒體請求",
           "movie_quota_limit": "電影配額限制",
@@ -518,7 +507,7 @@
       "delete": "刪除",
       "delete_download": "Delete Download",
       "something_went_wrong": "出了些問題",
-      "could_not_get_stream_url_from_jellyfin": "無法從 Jellyfin 獲取串流 URL",
+      "could_not_get_stream_url_from_jellyfin": "無法從 StingStream 獲取串流 URL",
       "eta": "預計完成時間 {{eta}}",
       "live_activity": {
         "downloading": "下載中",
@@ -726,7 +715,7 @@
     "subtitle_search": "Search & Download",
     "download": "下載",
     "subtitle_download_hint": "下載的字幕將儲存到您的媒體庫",
-    "using_jellyfin_server": "Using Jellyfin Server",
+    "using_jellyfin_server": "Using StingStream Server",
     "language": "語言",
     "results": "結果",
     "search_failed": "搜尋失敗",
@@ -801,8 +790,7 @@
     "resume_playback": "Resume Playback",
     "resume_playback_description": "您想從上次停止的位置繼續，還是從頭開始？",
     "play_from_start": "Play from Start",
-    "continue_from": "從 {{time}} 繼續",
-    "no_data_available": "暫無資料"
+    "continue_from": "從 {{time}} 繼續"
   },
   "live_tv": {
     "title": "直播電視",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Pair with Phone",
     "pair_with_phone_title": "Login TV",
     "waiting_for_phone": "等待手機...",
-    "scan_with_phone": "用手機上的 Streamyfin 應用程式掃描",
+    "scan_with_phone": "用手機上的 StingStream 應用程式掃描",
     "logging_in": "登入中...",
     "logging_in_description": "正在連線到您的伺服器"
   }

@@ -419,7 +419,7 @@ export const readError = async (
 ): Promise<Error> => {
   if (res.status === 401 || res.status === 403) {
     return new Error(
-      `${what}: this needs a Jellyfin administrator account on the home node.`,
+      `${what}: this needs an administrator account on your server.`,
     );
   }
   // Core answers 503 when it cannot reach the mesh child, rather than an empty result — because

@@ -204,7 +204,7 @@ public sealed class FirstRunService : BackgroundService
 
         // These are genuinely once-only: creating an administrator or a library a second time
         // would be wrong, not merely wasteful.
-        await EnsureAdminUserAsync(runtime, report).ConfigureAwait(false);
+        await EnsureAdminUserAsync(runtime, report, cancellationToken).ConfigureAwait(false);
         await EnsureLibrariesAsync(runtime, report, cancellationToken).ConfigureAwait(false);
 
         // Build whatever the node already holds, so a re-wired node has an inventory immediately.
@@ -233,51 +233,122 @@ public sealed class FirstRunService : BackgroundService
         return report;
     }
 
-    // --- Jellyfin administrator -------------------------------------------
+    // --- the node's administrator ------------------------------------------
 
-    private async Task EnsureAdminUserAsync(NodeRuntime runtime, FirstRunReport report)
+    /// <summary>
+    /// Have exactly one administrator, and know whether anybody has claimed it yet.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The bootstrap account starts life named and passworded from <c>runtime.json</c>, so a node
+    /// is usable the moment it is up. What decides whether this method may touch that account
+    /// again is <see cref="FirstRunSetupState"/>, not the number of accounts: once somebody has
+    /// been through the first-run screen there is still exactly one account, and it has the name
+    /// and the password <em>they</em> chose. Re-applying <c>runtime.json</c> over the top of that
+    /// would silently take their node away from them on the next wiring pass, which is precisely
+    /// what <c>POST /stingstream/api/v1/setup/run</c> invites somebody to do.
+    /// </para>
+    /// <para>
+    /// It also has to survive <c>runtime.json</c> losing the password entirely: the supervisor
+    /// scrubs it once setup is complete, because a plaintext administrator password sitting under
+    /// <c>%ProgramData%</c> for the life of the install is the one standing credential exposure
+    /// this design had (<c>docs/SECURITY.md</c> R1). Nothing else in this process authenticates
+    /// with it — the arrs hold their own API keys, the download clients their own credentials, the
+    /// webhook its own token, and the library, inventory and plugin work is all in-process — so
+    /// once setup is done its absence changes nothing.
+    /// </para>
+    /// </remarks>
+    private async Task EnsureAdminUserAsync(
+        NodeRuntime runtime,
+        FirstRunReport report,
+        CancellationToken cancellationToken)
     {
         var desired = runtime.JellyfinAdmin;
-        if (desired is null || string.IsNullOrWhiteSpace(desired.Username))
-        {
-            report.Steps.Add("admin user: skipped (runtime.json has no credentials)");
-            return;
-        }
 
         try
         {
-            // InitializeAsync is idempotent: it returns immediately when any user exists, and
-            // otherwise creates one administrator. That is exactly the "only if none exists"
-            // condition, and using it means not reaching past IUserManager into the database.
+            // Counted either side of InitializeAsync, which is idempotent -- it returns
+            // immediately when any user exists and otherwise creates one administrator. The
+            // difference is the only honest answer to "did *we* just create the bootstrap
+            // account", which is what sets the pending flag, and getting it this way means not
+            // reaching past IUserManager into the database.
+            var before = _users.GetUsers().Count();
             await _users.InitializeAsync().ConfigureAwait(false);
 
             var existingCount = _users.GetUsers().Count();
+            var created = before == 0 && existingCount > 0;
             var first = _users.GetFirstUser();
             if (first is null)
             {
-                report.Steps.Add("admin user: no user exists and one could not be created");
+                report.Steps.Add("admin user: no account exists and one could not be created");
                 report.Ok = false;
                 return;
+            }
+
+            var stored = _settings.GetDocument<FirstRunSetupState>(FirstRunSetupState.StorageKey);
+            bool pending;
+            if (created)
+            {
+                // We made it and nobody has seen it: the first-run screen has an account to hand
+                // over.
+                pending = true;
+            }
+            else if (stored is not null)
+            {
+                pending = stored.Pending;
+            }
+            else
+            {
+                // A node wired by a build that predates the flag. Somebody is already using the
+                // account that is there, and "no record" must never be read as "up for grabs".
+                pending = false;
             }
 
             if (existingCount > 1)
             {
                 // Somebody has already set this node up properly. Renaming or repasswording an
                 // account out from under them would be actively hostile.
-                report.Steps.Add($"admin user: left alone ({existingCount} users already exist)");
-                return;
+                pending = false;
             }
 
-            if (!string.Equals(first.Username, desired.Username, StringComparison.OrdinalIgnoreCase))
+            if (stored is null || stored.Pending != pending)
             {
-                await _users.RenameUser(first.Id, first.Username, desired.Username).ConfigureAwait(false);
-                report.Steps.Add($"admin user: renamed the bootstrap account to {desired.Username}");
+                await FirstRunSetupState.SetAsync(_settings, pending, cancellationToken).ConfigureAwait(false);
             }
 
-            if (!string.IsNullOrEmpty(desired.Password))
+            if (!pending)
             {
-                await _users.ChangePassword(first.Id, desired.Password).ConfigureAwait(false);
-                report.Steps.Add("admin user: password set from runtime.json");
+                report.Steps.Add(
+                    existingCount > 1
+                        ? $"admin user: left alone ({existingCount} accounts already exist)"
+                        : "admin user: left alone (this node's account has already been claimed)");
+            }
+            else if (desired is null || string.IsNullOrWhiteSpace(desired.Username))
+            {
+                report.Steps.Add("admin user: waiting to be claimed (runtime.json names no account)");
+            }
+            else
+            {
+                if (!string.Equals(first.Username, desired.Username, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _users.RenameUser(first.Id, first.Username, desired.Username).ConfigureAwait(false);
+                    report.Steps.Add($"admin user: renamed the bootstrap account to {desired.Username}");
+                }
+
+                if (!string.IsNullOrEmpty(desired.Password))
+                {
+                    await _users.ChangePassword(first.Id, desired.Password).ConfigureAwait(false);
+                    report.Steps.Add("admin user: password set from runtime.json");
+                }
+                else
+                {
+                    // The supervisor has scrubbed it. Nothing in this process needs it, and the
+                    // account keeps whatever it was last set to, so this is a note and not a
+                    // problem.
+                    report.Steps.Add("admin user: runtime.json holds no password; keeping the current one");
+                }
+
+                report.Steps.Add("admin user: waiting for the first-run screen to claim it");
             }
 
             // The supervisor already wrote IsStartupWizardCompleted into system.xml; assert it
@@ -287,12 +358,12 @@ public sealed class FirstRunService : BackgroundService
             {
                 _serverConfig.Configuration.IsStartupWizardCompleted = true;
                 _serverConfig.SaveConfiguration();
-                report.Steps.Add("marked the Jellyfin startup wizard complete");
+                report.Steps.Add("marked the startup wizard complete");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            _logger.LogError(ex, "Could not set up the Jellyfin administrator");
+            _logger.LogError(ex, "Could not set up this node's administrator account");
             report.Steps.Add($"admin user: failed ({ex.Message})");
             report.Ok = false;
         }

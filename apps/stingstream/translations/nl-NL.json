@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "De server heeft te veel aanvragen ontvangen, probeer later opnieuw",
     "there_is_a_server_error": "Er is een serverfout",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Er is een onverwachte fout opgetreden. Heb je de server URL correct ingegeven?",
-    "too_old_server_text": "Niet-ondersteunde Jellyfin Server Ontdekt",
-    "too_old_server_description": "Werk Jellyfin bij naar de laatste versie"
+    "too_old_server_text": "Niet-ondersteunde StingStream Server Ontdekt",
+    "too_old_server_description": "Werk StingStream bij naar de laatste versie"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Geef de URL van je Jellyfin server in",
+    "enter_url_to_jellyfin_server": "Geef de URL van je StingStream server in",
     "server_url_placeholder": "http(s)://je-server.com",
     "connect_button": "Verbinden",
     "previous_servers": "vorige servers",
@@ -114,16 +114,16 @@
     "suggested_movies": "Voorgestelde films",
     "suggested_episodes": "Voorgestelde Afleveringen",
     "intro": {
-      "welcome_to_streamyfin": "Welkom bij Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Een gratis en open-source client voor Jellyfin.",
+      "welcome_to_streamyfin": "Welkom bij StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Een gratis en open-source client voor StingStream.",
       "features_title": "Functies",
-      "features_description": "Streamyfin heeft een heleboel functies en werkt samen met andere software. Je vindt ze in het instellingenmenu:",
+      "features_description": "StingStream heeft een heleboel functies en werkt samen met andere software. Je vindt ze in het instellingenmenu:",
       "jellyseerr_feature_description": "Verbind met je Jellyseerr instantie en vraag films direct in de app aan.",
       "downloads_feature_title": "Downloads",
       "downloads_feature_description": "Download films en series om offline te kijken. Gebruik de standaardmethode of installeer de optimalisatieserver om bestanden op de achtergrond te downloaden.",
       "chromecast_feature_description": "Cast films en series naar je Chromecast toestellen.",
       "centralised_settings_plugin_title": "Plugin voor gecentraliseerde instellingen",
-      "centralised_settings_plugin_description": "Configureer instellingen centraal op je Jellyfin server. De clientinstellingen van elke gebruiker worden automatisch gesynchroniseerd.",
+      "centralised_settings_plugin_description": "Configureer instellingen centraal op je StingStream server. De clientinstellingen van elke gebruiker worden automatisch gesynchroniseerd.",
       "done_button": "Gedaan",
       "go_to_settings_button": "Ga naar instellingen",
       "read_more": "Lees meer"
@@ -274,7 +274,6 @@
         "audio_title": "Geluid",
         "set_audio_track": "Gebruik Audio Track Van Vorig Item",
         "audio_language": "Audio taal",
-        "audio_hint": "Kies een standaard audio taal.",
         "none": "Geen",
         "original_language": "Oorspronkelijke taal",
         "language": "Taal",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Ondertitels",
-        "subtitle_hint": "Stel ondertitel voorkeuren in.",
         "subtitle_language": "Ondertitel taal",
         "subtitle_mode": "Ondertitelmodus",
         "set_subtitle_track": "Gebruik Ondertitel Track Van Vorig Item",
@@ -297,7 +295,6 @@
         "subtitle_size": "Ondertitel Grootte",
         "none": "Geen",
         "language": "Taal",
-        "loading": "Laden",
         "modes": {
           "Default": "Standaard",
           "Smart": "Slim",
@@ -306,18 +303,10 @@
           "OnlyForced": "Alleen Geforceerd"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Voer je OpenSubtitles API-sleutel in om zoeken naar ondertitels vanaf dit apparaat mogelijk te maken als je Jellyfin-server geen ondertitelprovider heeft ingesteld.",
+        "opensubtitles_hint": "Voer je OpenSubtitles API-sleutel in om zoeken naar ondertitels vanaf dit apparaat mogelijk te maken als je StingStream-server geen ondertitelprovider heeft ingesteld.",
         "opensubtitles_api_key": "API-sleutel",
         "opensubtitles_api_key_placeholder": "Voer API-sleutel in...",
         "opensubtitles_get_key": "Haal je gratis API-sleutel op via opensubtitles.com/nl/consumers",
-        "mpv_subtitle_scale": "Ondertitelgrootte",
-        "mpv_subtitle_margin_y": "Verticale marge",
-        "mpv_subtitle_align_x": "Horizontale uitlijning",
-        "mpv_subtitle_align_y": "Verticale uitlijning",
-        "mpv_settings_title": "MPV-ondertitelinstellingen",
-        "mpv_settings_description": "Geavanceerde ondertitelaanpassing voor de MPV-speler",
-        "opaque_background": "Ondoorzichtige achtergrond",
-        "background_opacity": "Achtergronddekking",
         "align": {
           "left": "Links",
           "center": "Midden",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Uitbreidingen",
         "wikidata_awards": "Prijzen van Wikidata",
-        "wikidata_awards_hint": "Toont Oscars en prijzen op film- en seriepagina's. Dit apparaat raadpleegt Wikidata rechtstreeks, niet je Jellyfin-server.",
+        "wikidata_awards_hint": "Toont Oscars en prijzen op film- en seriepagina's. Dit apparaat raadpleegt Wikidata rechtstreeks, niet je StingStream-server.",
         "opensubtitles_enabled": "OpenSubtitles doorzoeken",
-        "opensubtitles_enabled_hint": "Laat dit apparaat rechtstreeks in OpenSubtitles zoeken wanneer je Jellyfin-server geen ondertitelprovider heeft. Als je dit uitschakelt, blijven ondertitelzoekopdrachten op je server en blijft een opgeslagen API-sleutel ongemoeid.",
+        "opensubtitles_enabled_hint": "Laat dit apparaat rechtstreeks in OpenSubtitles zoeken wanneer je StingStream-server geen ondertitelprovider heeft. Als je dit uitschakelt, blijven ondertitelzoekopdrachten op je server en blijft een opgeslagen API-sleutel ongemoeid.",
         "jellyseerr": {
           "server_url": "Server-URL",
           "server_url_hint": "Voorbeeld: http(s)://je-host.url\n(indien nodig: voeg de poort toe)",
           "server_url_placeholder": "Seerr-URL",
           "password": "Wachtwoord",
-          "password_placeholder": "Voeg het wachtwoord in voor de Jellyfin gebruiker {{username}}",
+          "password_placeholder": "Voeg het wachtwoord in voor de StingStream gebruiker {{username}}",
           "login_button": "Aanmelden",
           "total_media_requests": "Totaal aantal mediaverzoeken",
           "movie_quota_limit": "Limiet filmquota",
@@ -518,7 +507,7 @@
       "delete": "Verwijder",
       "delete_download": "Download verwijderen",
       "something_went_wrong": "Er ging iets mis",
-      "could_not_get_stream_url_from_jellyfin": "Kon de URL van de stream niet krijgen van Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Kon de URL van de stream niet krijgen van StingStream",
       "eta": "ETA {{eta}}",
       "live_activity": {
         "downloading": "Bezig met downloaden",
@@ -726,7 +715,7 @@
     "subtitle_search": "Zoeken en downloaden",
     "download": "Downloaden",
     "subtitle_download_hint": "Gedownloade ondertitels worden opgeslagen in je bibliotheek",
-    "using_jellyfin_server": "Jellyfin-server wordt gebruikt",
+    "using_jellyfin_server": "StingStream-server wordt gebruikt",
     "language": "Taal",
     "results": "Resultaten",
     "search_failed": "Zoeken mislukt",
@@ -801,8 +790,7 @@
     "resume_playback": "Afspelen hervatten",
     "resume_playback_description": "Wil je verdergaan waar je gebleven was of vanaf het begin starten?",
     "play_from_start": "Vanaf het begin afspelen",
-    "continue_from": "Verdergaan vanaf {{time}}",
-    "no_data_available": "Geen gegevens beschikbaar"
+    "continue_from": "Verdergaan vanaf {{time}}"
   },
   "live_tv": {
     "title": "Live tv",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Koppelen met telefoon",
     "pair_with_phone_title": "Inloggen op tv",
     "waiting_for_phone": "Wachten op telefoon...",
-    "scan_with_phone": "Scan met de Streamyfin-app op je telefoon",
+    "scan_with_phone": "Scan met de StingStream-app op je telefoon",
     "logging_in": "Bezig met inloggen...",
     "logging_in_description": "Verbinding maken met je server"
   }

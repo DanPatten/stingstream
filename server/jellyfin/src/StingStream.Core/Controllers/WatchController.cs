@@ -113,7 +113,7 @@ public class WatchController : StingStreamControllerBase
         ArgumentNullException.ThrowIfNull(request);
         if (!Guid.TryParse(request.ItemId, out var itemId))
         {
-            return BadRequest("itemId is not a Jellyfin item id.");
+            return BadRequest("itemId is not a media item id.");
         }
 
         try

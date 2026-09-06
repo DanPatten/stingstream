@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Serwer otrzymał zbyt wiele żądań – spróbuj ponownie później.",
     "there_is_a_server_error": "Wystąpił błąd serwera",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Wystąpił nieoczekiwany błąd. Czy wpisałeś poprawny adres URL?",
-    "too_old_server_text": "Wykryto nieobsługiwany serwer Jellyfin",
-    "too_old_server_description": "Proszę zaktualizować Jellyfin do najnowszej wersji"
+    "too_old_server_text": "Wykryto nieobsługiwany serwer StingStream",
+    "too_old_server_description": "Proszę zaktualizować StingStream do najnowszej wersji"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Podaj adres URL serwera Jellyfin",
+    "enter_url_to_jellyfin_server": "Podaj adres URL serwera StingStream",
     "server_url_placeholder": "http(s)://twoj-serwer.com",
     "connect_button": "Połącz",
     "previous_servers": "Poprzednie serwery",
@@ -114,16 +114,16 @@
     "suggested_movies": "Sugerowane filmy",
     "suggested_episodes": "Sugerowane odcinki",
     "intro": {
-      "welcome_to_streamyfin": "Witamy w Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Darmowy i otwartoźródłowy klient dla Jellyfin.",
+      "welcome_to_streamyfin": "Witamy w StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Darmowy i otwartoźródłowy klient dla StingStream.",
       "features_title": "Funkcje",
-      "features_description": "Streamyfin ma wiele funkcji i współpracuje z innym oprogramowaniem. Znajdziesz je w menu ustawień:",
+      "features_description": "StingStream ma wiele funkcji i współpracuje z innym oprogramowaniem. Znajdziesz je w menu ustawień:",
       "jellyseerr_feature_description": "Połącz się ze swoim serwerem Jellyseerr i zamawiaj filmy bezpośrednio w aplikacji.",
       "downloads_feature_title": "Pobieranie",
       "downloads_feature_description": "Pobieraj filmy oraz seriale do oglądania offline. Użyj domyślnej metody lub zainstaluj serwer do optymalizacji, aby pobierać pliki w tle.",
       "chromecast_feature_description": "Przesyłaj filmy i seriale na urządzenia Chromecast.",
       "centralised_settings_plugin_title": "Scentralizowana wtyczka ustawień",
-      "centralised_settings_plugin_description": "Konfiguruj ustawienia centralnie na serwerze Jellyfin. Ustawienia klienta każdego użytkownika synchronizują się automatycznie.",
+      "centralised_settings_plugin_description": "Konfiguruj ustawienia centralnie na serwerze StingStream. Ustawienia klienta każdego użytkownika synchronizują się automatycznie.",
       "done_button": "Gotowe",
       "go_to_settings_button": "Przejdź do ustawień",
       "read_more": "Czytaj więcej"
@@ -274,7 +274,6 @@
         "audio_title": "Dźwięk",
         "set_audio_track": "Ustaw ścieżkę audio z poprzedniego elementu",
         "audio_language": "Język audio",
-        "audio_hint": "Wybierz domyślny język audio.",
         "none": "Brak",
         "original_language": "Język oryginalny",
         "language": "Język",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Napisy",
-        "subtitle_hint": "Skonfiguruj preferencje dotyczące napisów.",
         "subtitle_language": "Język napisów",
         "subtitle_mode": "Tryb napisów",
         "set_subtitle_track": "Ustaw ścieżkę napisów z poprzedniego elementu",
@@ -297,7 +295,6 @@
         "subtitle_size": "Rozmiar napisów",
         "none": "Brak",
         "language": "Język",
-        "loading": "Ładowanie",
         "modes": {
           "Default": "Domyślny",
           "Smart": "Inteligentny",
@@ -306,18 +303,10 @@
           "OnlyForced": "Tylko wymuszone"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Wprowadź swój klucz API OpenSubtitles, aby włączyć wyszukiwanie napisów po stronie klienta, gdy Twój serwer Jellyfin nie ma skonfigurowanego dostawcy napisów.",
+        "opensubtitles_hint": "Wprowadź swój klucz API OpenSubtitles, aby włączyć wyszukiwanie napisów po stronie klienta, gdy Twój serwer StingStream nie ma skonfigurowanego dostawcy napisów.",
         "opensubtitles_api_key": "Klucz API",
         "opensubtitles_api_key_placeholder": "Wprowadź klucz API...",
         "opensubtitles_get_key": "Odbierz darmowy klucz API na opensubtitles.com/pl/consumers",
-        "mpv_subtitle_scale": "Rozmiar napisów",
-        "mpv_subtitle_margin_y": "Margines pionowy",
-        "mpv_subtitle_align_x": "Wyrównanie w poziomie",
-        "mpv_subtitle_align_y": "Wyrównanie w pionie",
-        "mpv_settings_title": "Ustawienia napisów MPV",
-        "mpv_settings_description": "Zaawansowane dostosowywanie napisów w odtwarzaczu MPV",
-        "opaque_background": "Nieprzezroczyste tło",
-        "background_opacity": "Nieprzezroczystość tła",
         "align": {
           "left": "Do lewej",
           "center": "Do środka",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Wtyczki",
         "wikidata_awards": "Nagrody z Wikidanych",
-        "wikidata_awards_hint": "Pokazuje Oscary i nagrody na stronach filmów i seriali. To urządzenie pyta bezpośrednio Wikidane, a nie Twój serwer Jellyfin.",
+        "wikidata_awards_hint": "Pokazuje Oscary i nagrody na stronach filmów i seriali. To urządzenie pyta bezpośrednio Wikidane, a nie Twój serwer StingStream.",
         "opensubtitles_enabled": "Szukaj w OpenSubtitles",
-        "opensubtitles_enabled_hint": "Pozwala temu urządzeniu szukać napisów bezpośrednio w OpenSubtitles, gdy Twój serwer Jellyfin nie ma dostawcy napisów. Po wyłączeniu wyszukiwanie napisów pozostaje na serwerze, a zapisany klucz API nie jest ruszany.",
+        "opensubtitles_enabled_hint": "Pozwala temu urządzeniu szukać napisów bezpośrednio w OpenSubtitles, gdy Twój serwer StingStream nie ma dostawcy napisów. Po wyłączeniu wyszukiwanie napisów pozostaje na serwerze, a zapisany klucz API nie jest ruszany.",
         "jellyseerr": {
           "server_url": "URL serwera",
           "server_url_hint": "Przykład: http(s)://twoja-nazwa.url\n(dodaj port, jeśli jest wymagany)",
           "server_url_placeholder": "Adres URL Seerr",
           "password": "Hasło",
-          "password_placeholder": "Wpisz hasło użytkownika Jellyfin {{username}}",
+          "password_placeholder": "Wpisz hasło użytkownika StingStream {{username}}",
           "login_button": "Zaloguj",
           "total_media_requests": "Łączna liczba próśb o media",
           "movie_quota_limit": "Limit zapytań o filmy",
@@ -518,7 +507,7 @@
       "delete": "Usuń",
       "delete_download": "Usuń pobrany plik",
       "something_went_wrong": "Coś poszło nie tak",
-      "could_not_get_stream_url_from_jellyfin": "Nie udało się pobrać adresu URL transmisji z Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Nie udało się pobrać adresu URL transmisji z StingStream",
       "eta": "Szacowany czas: {{eta}}",
       "live_activity": {
         "downloading": "Pobieranie",
@@ -726,7 +715,7 @@
     "subtitle_search": "Szukaj i pobierz",
     "download": "Pobierz",
     "subtitle_download_hint": "Pobrane napisy zostaną zapisane w Twojej bibliotece",
-    "using_jellyfin_server": "Używany serwer Jellyfin",
+    "using_jellyfin_server": "Używany serwer StingStream",
     "language": "Język",
     "results": "Wyniki",
     "search_failed": "Wyszukiwanie nie powiodło się",
@@ -801,8 +790,7 @@
     "resume_playback": "Wznów odtwarzanie",
     "resume_playback_description": "Chcesz kontynuować od miejsca, w którym skończyłeś, czy zacząć od początku?",
     "play_from_start": "Odtwórz od początku",
-    "continue_from": "Kontynuuj od {{time}}",
-    "no_data_available": "Brak dostępnych danych"
+    "continue_from": "Kontynuuj od {{time}}"
   },
   "live_tv": {
     "title": "Telewizja na żywo",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Sparuj z telefonem",
     "pair_with_phone_title": "Zaloguj się na telewizorze",
     "waiting_for_phone": "Oczekiwanie na telefon...",
-    "scan_with_phone": "Zeskanuj aplikacją Streamyfin na telefonie",
+    "scan_with_phone": "Zeskanuj aplikacją StingStream na telefonie",
     "logging_in": "Logowanie...",
     "logging_in_description": "Łączenie z serwerem"
   }

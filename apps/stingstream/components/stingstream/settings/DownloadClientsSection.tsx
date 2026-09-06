@@ -71,7 +71,7 @@ export function DownloadClientsSection({
 
       <View className='h-3' />
 
-      <ListGroup title='Usenet engine (bundled NZBGet)'>
+      <ListGroup title='Usenet engine (bundled)'>
         <ToggleRow
           title='Enabled'
           value={draft.UsenetEnabled ?? false}
@@ -169,7 +169,7 @@ function ExternalClients() {
   const del = async (client: ExternalDownloadClientSettings) => {
     const ok = await confirmDestructive(
       `Remove "${client.Name}"?`,
-      "It is removed from StingStream's settings and from Radarr and Sonarr. Downloads already running in it are not touched.",
+      "It is removed from StingStream's settings and from the movie manager and the series manager. Downloads already running in it are not touched.",
       "Remove",
     );
     if (!ok) return;
@@ -203,9 +203,9 @@ function ExternalClients() {
         <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
           <Text className='text-[#9899A1] text-xs mb-2'>
             A client running somewhere else — a seedbox, an existing qBittorrent
-            or SABnzbd. It is registered in both Radarr and Sonarr alongside the
-            engines above, at a lower priority, so the embedded ones stay the
-            default.
+            or SABnzbd. It is registered in both the movie manager and the
+            series manager alongside the engines above, at a lower priority, so
+            the embedded ones stay the default.
           </Text>
           <TextInput
             placeholder='Name'

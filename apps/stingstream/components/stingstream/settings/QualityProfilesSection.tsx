@@ -47,7 +47,7 @@ export function QualityProfilesSection({
   const del = async (name: string) => {
     const ok = await confirmDestructive(
       `Delete "${name}"?`,
-      "The profile is removed from both Radarr and Sonarr. An app will refuse if any title is still using it.",
+      "The profile is removed from both the movie manager and the series manager. An app will refuse if any title is still using it.",
     );
     if (!ok) return;
     try {
@@ -296,7 +296,7 @@ function ProfileEditor({
       <Text className='text-[#9899A1] text-xs mb-2'>
         {showAll
           ? "Every quality either app knows. One app will ignore what it does not have, and say so when you save."
-          : "The qualities Radarr and Sonarr both understand — the safe set for a profile that governs films and series alike."}
+          : "The qualities the movie manager and the series manager both understand — the safe set for a profile that governs films and series alike."}
       </Text>
 
       <View className='flex-row flex-wrap gap-2 mb-3'>
@@ -353,7 +353,7 @@ function ProfileEditor({
           {save.isPending
             ? "Saving into both apps…"
             : isNew
-              ? "Create in Radarr and Sonarr"
+              ? "Create in both apps"
               : "Save to both apps"}
         </Text>
       </TouchableOpacity>

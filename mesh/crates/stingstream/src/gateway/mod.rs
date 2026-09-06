@@ -25,15 +25,17 @@ pub mod streamurl;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use serde_json::json;
 
+use crate::setup::SetupHandle;
 use crate::state::{ChildState, NodeState};
-use proxy::{Upstream, ProxyClient};
+use proxy::{ProxyClient, Upstream};
 
 /// Gateway path prefix under which `StingStream.Core` answers.
 pub const STINGSTREAM_PREFIX: &str = "/stingstream";
@@ -46,26 +48,70 @@ pub const MESH_UPSTREAM_PREFIX: &str = "/mesh";
 /// Gateway *and* upstream prefix for ranged reads of a peer's file.
 pub const STREAM_PREFIX: &str = "/stream";
 
+/// What answers at `/` and at every path the routed prefixes do not claim.
+///
+/// Three states rather than an `Option`, because the third is not "no bundle": it is a **Metro dev
+/// server** at `http://127.0.0.1:8081`, proxied through the same machinery as any other child so
+/// that an edit in `apps/stingstream` is visible in a browser at the node's own origin in seconds
+/// (`--web-dev-server`, `docs/RUNNING.md`). Same-origin is the point — Jellyfin's `CorsHosts` is
+/// deliberately empty and the gateway adds no CORS header, so a browser pointed straight at 8081
+/// could not talk to the node's API at all.
+#[derive(Clone, Debug, Default)]
+pub enum WebSource {
+    /// A built bundle on disk (`apps/stingstream/dist`, `<install>/web`).
+    Bundle(Arc<web::WebBundle>),
+    /// A dev server to proxy to. **`--dev` only** unless a flag named it explicitly.
+    DevServer(Upstream),
+    /// Nothing: the placeholder page.
+    #[default]
+    None,
+}
+
+impl WebSource {
+    pub fn bundle(bundle: web::WebBundle) -> Self {
+        Self::Bundle(Arc::new(bundle))
+    }
+
+    /// A dev server at `authority` (`127.0.0.1:8081`), mounted at the gateway's own root — so both
+    /// prefixes are empty and [`proxy::rewrite_path`] is the identity.
+    pub fn dev_server(authority: String) -> Self {
+        Self::DevServer(Upstream {
+            authority,
+            upstream_prefix: String::new(),
+            name: "web dev server",
+        })
+    }
+
+    pub fn is_dev_server(&self) -> bool {
+        matches!(self, Self::DevServer(_))
+    }
+}
+
 #[derive(Clone)]
 pub struct GatewayState {
     pub node: Arc<NodeState>,
     pub client: ProxyClient,
-    /// The built web bundle, when there is one. `None` serves the placeholder page.
-    pub web: Option<Arc<web::WebBundle>>,
+    /// What serves the app at `/`.
+    pub web: WebSource,
+    /// The gateway's cached view of whether first-run setup is still pending, for the marker and
+    /// for `/healthz`. See [`crate::setup`].
+    pub setup: SetupHandle,
 }
 
 pub fn router(node: Arc<NodeState>) -> Router {
-    router_with_web(node, None)
+    router_with_web(node, WebSource::None, SetupHandle::default())
 }
 
-/// Build the gateway router, serving `bundle` at `/` when one was found.
-pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> Router {
+/// Build the gateway router, serving `web` at `/`.
+pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle) -> Router {
     let dev = node.dev;
     let expose_child_uis = dev && node.config.gateway.expose_child_uis_in_dev;
+    let dev_server = web.is_dev_server();
     let state = GatewayState {
         node,
         client: proxy::client(),
-        web: bundle.map(Arc::new),
+        web,
+        setup,
     };
 
     let mut app = Router::new()
@@ -87,11 +133,20 @@ pub fn router_with_web(node: Arc<NodeState>, bundle: Option<web::WebBundle>) -> 
         .route("/stream/{*rest}", any(proxy_to_stream))
         .route("/stream", any(proxy_to_stream))
         .route("/jellyfin/{*rest}", any(proxy_to_jellyfin))
-        .route("/jellyfin", any(proxy_to_jellyfin))
-        // The app owns every path the routes above do not claim, because it does its own routing:
-        // /manage/movies is not a file, it is index.html plus a client-side route. See
-        // `gateway::web`.
-        .fallback(get(web_asset));
+        .route("/jellyfin", any(proxy_to_jellyfin));
+
+    // The app owns every path the routes above do not claim, because it does its own routing:
+    // /manage/movies is not a file, it is index.html plus a client-side route. See `gateway::web`.
+    //
+    // A **bundle** is only ever read, so the fallback is GET and anything else gets axum's 405. A
+    // **dev server** is a whole HTTP server of its own: Metro answers `POST /symbolicate` when a
+    // stack trace needs resolving and `GET /hot` with a WebSocket upgrade for hot reload, so in
+    // that mode every method has to reach it or the loop's error reporting quietly stops working.
+    app = if dev_server {
+        app.fallback(any(web_asset))
+    } else {
+        app.fallback(get(web_asset))
+    };
 
     if expose_child_uis {
         // Debug convenience only. An installed node never routes these: Radarr's, Sonarr's and
@@ -152,6 +207,11 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         // that UI -- StingStream.Core or the web app -- as a TODO, not decided here.
         "version": env!("CARGO_PKG_VERSION"),
         "latest_version": state.node.updates.get(),
+        // Whether anybody has created an account on this node yet, as `StingStream.Core` last
+        // reported it (`crate::setup`). `null` means nobody has been able to ask -- Core still
+        // starting, or a build too old to have the endpoint -- which is a different answer from
+        // `false` and the UI treats it as one.
+        "setup_pending": state.setup.pending(),
         "node": {
             "id": state.node.runtime.node_id,
             "name": state.node.runtime.node_name,
@@ -206,6 +266,11 @@ fn public_health(state: &GatewayState, ok: bool, children: usize) -> serde_json:
         "status": if ok { "ok" } else { "degraded" },
         "version": env!("CARGO_PKG_VERSION"),
         "latest_version": state.node.updates.get(),
+        // Deliberately not redacted, and it is worth saying why: this is one boolean that
+        // `first_run` next to it already implies, the app on any device needs it to know which
+        // screen to show, and the thing it would help an attacker do -- create the first account --
+        // is refused off-machine by LOOPBACK_ONLY_PREFIXES regardless of what they know.
+        "setup_pending": state.setup.pending(),
         "node": {
             // The id is already public: it is the label in `pub.<nodeid>.direct.<host>`.
             "id": state.node.runtime.node_id,
@@ -263,18 +328,34 @@ async fn sidedoor_hello(State(state): State<GatewayState>, req: Request) -> Resp
         .into_response()
 }
 
-async fn index(State(state): State<GatewayState>) -> Response {
-    match &state.web {
-        Some(bundle) => web::serve(bundle, "/index.html").await,
-        None => Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response(),
+/// What the served page is told about this node and this request. See [`web::Marker`].
+fn marker_for<'a>(state: &'a GatewayState, req: &Request) -> web::Marker<'a> {
+    web::Marker {
+        node_name: &state.node.runtime.node_name,
+        // The real socket peer, per request. `index.html` is already `no-cache`, so the answer
+        // cannot be cached from one client and handed to another.
+        loopback: is_local(peer_addr(req)),
+        setup_pending: state.setup.pending(),
     }
 }
 
-/// Anything the routed prefixes did not claim: the web bundle, or a 404.
+async fn index(State(state): State<GatewayState>, req: Request) -> Response {
+    match &state.web {
+        WebSource::Bundle(bundle) => {
+            web::serve(bundle, "/index.html", Some(&marker_for(&state, &req))).await
+        }
+        WebSource::DevServer(upstream) => proxy_to_dev_server(&state, upstream.clone(), req).await,
+        WebSource::None => {
+            Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response()
+        }
+    }
+}
+
+/// Anything the routed prefixes did not claim: the web bundle, the dev server, or a 404.
 async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response {
     let path = req.uri().path().to_string();
 
-    // A stock Jellyfin client at the wrong door. Jellyfin is under `/jellyfin`, and answering
+    // A stock Jellyfin client at the wrong door. The media API is under `/jellyfin`, and answering
     // `/System/Info/Public` with 200 and HTML -- which both the placeholder page and the SPA
     // fallback would -- makes the client fail while parsing, somewhere unrelated, and report a
     // network problem. It is worth being specific about, because "check your network connection"
@@ -284,7 +365,7 @@ async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response 
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": format!(
-                    "This is a StingStream node, not a Jellyfin server. Jellyfin is under {}{}.",
+                    "This is a StingStream server; its media API is under {}{}.",
                     JELLYFIN_PREFIX, path
                 ),
                 "jellyfin_base": JELLYFIN_PREFIX,
@@ -294,23 +375,98 @@ async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response 
     }
 
     match &state.web {
-        Some(bundle) => web::serve(bundle, &path).await,
+        WebSource::Bundle(bundle) => {
+            web::serve(bundle, &path, Some(&marker_for(&state, &req))).await
+        }
+        WebSource::DevServer(upstream) => proxy_to_dev_server(&state, upstream.clone(), req).await,
         // No bundle: the placeholder page is the honest answer for a page request, and a missing
         // asset is still a 404 rather than HTML.
-        None if !web::looks_like_an_asset(&path) => {
+        WebSource::None if !web::looks_like_an_asset(&path) => {
             Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response()
         }
-        None => (StatusCode::NOT_FOUND, "no web bundle is installed on this node").into_response(),
+        WebSource::None => {
+            (StatusCode::NOT_FOUND, "no web app is installed on this server").into_response()
+        }
     }
 }
 
-/// The `/` placeholder until M2's web bundle replaces it.
+/// The largest proxied HTML document the marker will be spliced into.
+///
+/// A dev server's `index.html` is a few kilobytes. This exists so that a mislabelled `text/html`
+/// response — a bundle, a video — is refused rather than buffered whole into memory.
+const MAX_INJECTABLE_HTML: usize = 4 * 1024 * 1024;
+
+/// Proxy to the Metro dev server, marker and all (`--web-dev-server`).
+///
+/// Mounted at the gateway's root, so both prefixes are empty and the path passes through
+/// untouched. WebSocket upgrades ride the same splice Jellyfin's `/socket` does, which is what
+/// makes hot reload (`/hot`, `/message`) work through the node's own origin rather than only
+/// against Metro directly.
+async fn proxy_to_dev_server(state: &GatewayState, upstream: Upstream, mut req: Request) -> Response {
+    // The marker is spliced into the bytes that come back, so they have to arrive uncompressed.
+    // Metro honours `Accept-Encoding`, and gzip would turn the splice into a corrupt document.
+    req.headers_mut().remove(header::ACCEPT_ENCODING);
+    let marker = marker_for(state, &req);
+    let client_addr = peer_addr(&req);
+    let response = proxy::proxy(state.client.clone(), upstream, "", client_addr, req).await;
+    inject_into_html(response, &marker).await
+}
+
+/// Splice the node marker into a proxied `text/html` response, and leave everything else alone.
+async fn inject_into_html(response: Response, marker: &web::Marker<'_>) -> Response {
+    let is_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("text/html"));
+    // A compressed or ranged body cannot be spliced by hand, and neither is something a dev server
+    // sends for its index page. Leaving it untouched loses the marker rather than the page.
+    let injectable = is_html
+        && response.status().is_success()
+        && !response.headers().contains_key(header::CONTENT_ENCODING)
+        && !response.headers().contains_key(header::CONTENT_RANGE);
+    if !injectable {
+        return response;
+    }
+
+    let (mut parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, MAX_INJECTABLE_HTML).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not read the dev server's HTML to inject the node marker");
+            return (StatusCode::BAD_GATEWAY, "the web dev server's response could not be read")
+                .into_response();
+        }
+    };
+    let Ok(html) = std::str::from_utf8(&bytes) else {
+        // Labelled text/html and not UTF-8. Serve what came back rather than mangling it.
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    let injected = web::inject_marker(html, marker).into_bytes();
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(injected.len()));
+    // The body is no longer the one the upstream hashed.
+    parts.headers.remove(header::ETAG);
+    Response::from_parts(parts, Body::from(injected))
+}
+
+/// What `/` answers when this server has no web app on it.
+///
+/// Not a "coming soon" notice: by v0.2.0 the app is what every install ships, so a server showing
+/// this page has something missing — a half-finished `expo export`, a `gateway.web_dist` pointing
+/// at the wrong directory, or a hand-assembled install tree. The page therefore says which of
+/// those it is and how to fix it, and keeps the API index underneath for whoever is debugging.
+///
+/// The `--dev` note names **paths**, not products: the child UIs at `/radarr/`, `/sonarr/` and
+/// `/nzbget/` are developer plumbing, and a user-visible StingStream page does not print the names
+/// of the projects behind it.
 pub fn placeholder_page(node_name: &str, dev: bool) -> String {
     let name = html_escape(node_name);
     let dev_note = if dev {
-        r#"<p class="dev">Running in <code>--dev</code> mode: the Radarr, Sonarr and NZBGet UIs
-        are proxied at <a href="/radarr/">/radarr/</a>, <a href="/sonarr/">/sonarr/</a> and
-        <a href="/nzbget/">/nzbget/</a> for debugging. An installed node never routes those.</p>"#
+        r#"<p class="dev">Running in <code>--dev</code> mode, so the child UIs are proxied at
+        <a href="/radarr/">/radarr/</a>, <a href="/sonarr/">/sonarr/</a> and
+        <a href="/nzbget/">/nzbget/</a> for debugging. An installed server never routes those.</p>"#
     } else {
         ""
     };
@@ -322,31 +478,46 @@ pub fn placeholder_page(node_name: &str, dev: bool) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>StingStream &mdash; {name}</title>
 <style>
-  :root {{ color-scheme: light dark; }}
+  :root {{ color-scheme: dark; }}
   body {{ font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
          margin: 0; min-height: 100vh; display: grid; place-items: center;
-         background: #101418; color: #e6e9ec; }}
-  main {{ max-width: 34rem; padding: 2rem; }}
+         background: #0B0C0F; color: #F2F3F5; }}
+  main {{ max-width: 36rem; padding: 2rem; }}
   h1 {{ font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }}
-  .node {{ color: #6fd3c7; font-weight: 600; }}
-  p {{ color: #a8b1b9; }}
-  code {{ background: #1b2127; padding: .1em .35em; border-radius: 4px; }}
-  a {{ color: #6fd3c7; }}
-  ul {{ color: #a8b1b9; padding-left: 1.1rem; }}
-  .dev {{ border-left: 3px solid #3a4550; padding-left: .9rem; font-size: .92rem; }}
+  .node {{ color: #1FC7B5; font-weight: 600; }}
+  p {{ color: #B4B7BD; }}
+  code {{ background: #1C1E23; padding: .1em .35em; border-radius: 4px; }}
+  a {{ color: #4FD9CA; }}
+  ol, ul {{ color: #B4B7BD; padding-left: 1.2rem; }}
+  li {{ margin: .35rem 0; }}
+  h2 {{ font-size: 1rem; margin: 1.6rem 0 .4rem; color: #F2F3F5; }}
+  .dev {{ border-left: 3px solid #26292F; padding-left: .9rem; font-size: .92rem; }}
 </style>
 </head>
 <body>
 <main>
-  <h1>StingStream node <span class="node">{name}</span></h1>
-  <p>The node is running. The unified UI arrives in M2 &mdash; until then this page is a
-     placeholder and the node is driven through its API.</p>
+  <h1>StingStream <span class="node">{name}</span></h1>
+  <p>The server is running, but <strong>the web app is not installed on this server</strong>, so
+     there is nothing to show you here yet.</p>
+  <h2>Getting the app onto it</h2>
+  <ol>
+    <li>Install StingStream from a
+        <a href="https://github.com/DanPatten/stingstream/releases/latest">release package</a> for
+        your platform &mdash; every installer ships the app alongside the server
+        (<code>docs/INSTALL.md</code>).</li>
+    <li>Or build it from a checkout: <code>cd apps/stingstream</code>,
+        <code>bun install</code>, <code>bunx expo export --platform web</code>.</li>
+    <li>Then point the server at the result with <code>--web-dist &lt;DIR&gt;</code>, or put it in
+        <code>&lt;install&gt;/web</code>, and restart. A directory with no <code>index.html</code>
+        in it counts as absent, which is what a half-finished export leaves behind.</li>
+  </ol>
+  <h2>While you are here</h2>
   <ul>
-    <li><a href="/healthz">/healthz</a> &mdash; supervisor and child states</li>
+    <li><a href="/healthz">/healthz</a> &mdash; this server and its parts</li>
     <li><code>/stingstream/api/v1/</code> &mdash; StingStream API
         (<a href="/stingstream/api/v1/openapi.json">OpenAPI</a>)</li>
-    <li><code>/jellyfin/</code> &mdash; this node's Jellyfin</li>
-    <li><code>/stingstream/mesh/v1/</code> &mdash; this node's mesh
+    <li><code>/jellyfin/</code> &mdash; this server's media API</li>
+    <li><code>/stingstream/mesh/v1/</code> &mdash; sharing
         (<a href="/stingstream/mesh/v1/status">status</a>)</li>
   </ul>
   {dev_note}
@@ -381,17 +552,45 @@ fn peer_addr(req: &Request) -> Option<SocketAddr> {
     req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0)
 }
 
-/// The arr webhook path, which no client on the LAN has any business reaching.
+/// Core routes that only somebody sitting at this machine may reach.
 ///
-/// `POST /stingstream/api/v1/webhooks/arr` is `[AllowAnonymous]` in Core because Radarr and Sonarr
-/// have no Jellyfin token to present. Core authenticates it with a per-node shared secret, which is
-/// the real lock; this is the second one, and it is here rather than there because *this* is the
-/// process that knows where the request came from. Core cannot: everything the gateway proxies
-/// arrives at Jellyfin from 127.0.0.1, so Core's own loopback check saw every LAN caller as local.
-const WEBHOOK_PATH_PREFIX: &str = "/stingstream/api/v1/webhooks";
+/// The gate is here rather than in Core because **this is the process that knows where a request
+/// came from**. Core cannot: everything the gateway proxies arrives at Jellyfin from 127.0.0.1, so
+/// Core's own loopback check saw every caller on the LAN as local. A non-local peer gets the same
+/// `404 no such route` as a path that does not exist — not a 403, which would confirm that it does.
+///
+/// * `…/webhooks` — `POST /stingstream/api/v1/webhooks/arr` is `[AllowAnonymous]` in Core because
+///   the arrs have no Jellyfin token to present. Core authenticates it with a per-node shared
+///   secret, which is the real lock; this is the second one.
+/// * `…/setup/admin` — creates the **first account on the node**, and is anonymous by necessity:
+///   before it succeeds there is nobody to authenticate as. Whoever is at the keyboard of the
+///   machine running the server already has its files; anybody else on the Wi-Fi must not be able
+///   to claim it first. That is the whole gate, and it is why the setup screen tells a remote
+///   browser to finish setup on the computer running StingStream instead.
+///
+/// `GET …/setup/state` is deliberately **not** here: it answers one boolean that `/healthz`
+/// already carries, the app needs it on every device to know which screen to show, and knowing it
+/// does not help anybody past the line above.
+const LOOPBACK_ONLY_PREFIXES: &[&str] = &[
+    "/stingstream/api/v1/webhooks",
+    "/stingstream/api/v1/setup/admin",
+];
+
+/// Whether a path is one of [`LOOPBACK_ONLY_PREFIXES`].
+///
+/// A plain prefix test, deliberately: it is a gate, and the failure worth avoiding is a path that
+/// slips past it, not one that is refused too eagerly.
+fn is_loopback_only(path: &str) -> bool {
+    LOOPBACK_ONLY_PREFIXES.iter().any(|p| path.starts_with(p))
+}
 
 async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Response {
-    if req.uri().path().starts_with(WEBHOOK_PATH_PREFIX) && !is_local(peer_addr(&req)) {
+    if is_loopback_only(req.uri().path()) && !is_local(peer_addr(&req)) {
+        tracing::warn!(
+            path = req.uri().path(),
+            from = ?peer_addr(&req),
+            "refusing a loopback-only route to a caller that is not on this machine"
+        );
         return (
             StatusCode::NOT_FOUND,
             "no such route",
@@ -578,8 +777,10 @@ mod tests {
     #[test]
     fn placeholder_page_names_the_node_and_escapes_it() {
         let page = placeholder_page("attic & <loft>", true);
+        assert!(page.contains("<title>StingStream &mdash; attic &amp; &lt;loft&gt;</title>"));
         assert!(page.contains("attic &amp; &lt;loft&gt;"));
         assert!(!page.contains("<loft>"));
+        assert!(page.contains("the web app is not installed on this server"));
         assert!(page.contains("/healthz"));
         assert!(page.contains("/stingstream/api/v1/openapi.json"));
     }
@@ -588,6 +789,25 @@ mod tests {
     fn placeholder_page_mentions_child_uis_only_in_dev() {
         assert!(placeholder_page("n", true).contains("/radarr/"));
         assert!(!placeholder_page("n", false).contains("/radarr/"));
+    }
+
+    /// Dan's rule for v0.2.0: no user-visible StingStream surface prints the name of a project we
+    /// vendored. This page and the root 404 are the two the gateway owns.
+    #[test]
+    fn no_page_the_gateway_writes_names_an_upstream_project() {
+        let forbidden = ["Jellyfin", "Streamyfin", "Radarr", "Sonarr", "NZBGet", "Emby"];
+        for page in [placeholder_page("attic", true), placeholder_page("attic", false)] {
+            for word in forbidden {
+                assert!(
+                    !page.contains(word),
+                    "the placeholder page still says {word}:\n{page}"
+                );
+            }
+        }
+        // The *paths* stay: they are routes, not product names, and the app's own brand guard
+        // draws the same line.
+        assert!(placeholder_page("attic", true).contains("/radarr/"));
+        assert!(placeholder_page("attic", false).contains("/jellyfin/"));
     }
 
     #[test]
@@ -690,17 +910,11 @@ mod tests {
         assert!(!is_local(None));
     }
 
-    /// What a stranger is told, pinned field by field.
-    ///
-    /// Asserted from the outside as a *set of keys*, because a test that re-derived the expected
-    /// shape from the code would agree with any mistake the code made. If this fails because a
-    /// field was added, the question to answer is not "update the list" but "should a stranger see
-    /// this".
-    #[test]
-    fn a_stranger_is_told_the_status_and_none_of_the_addresses() {
-        // The shape rather than a realistic node: what is being asserted is which *keys* leave
-        // this function, and none of them depends on a value.
-        let runtime: crate::runtime::Runtime = serde_json::from_value(serde_json::json!({
+    /// The shape rather than a realistic node: nothing asserted about the gateway depends on a
+    /// child actually existing, and a runtime with none makes "this child is not configured" the
+    /// obvious, checkable answer from every proxy handler.
+    fn sample_runtime() -> crate::runtime::Runtime {
+        serde_json::from_value(serde_json::json!({
             "version": 1,
             "node_id": "abc123",
             "node_name": "attic",
@@ -723,13 +937,32 @@ mod tests {
             "mesh": { "api_port": 8791 },
             "updated_at": "2026-09-05T00:00:00Z"
         }))
-        .expect("a minimal runtime");
-        let node = Arc::new(NodeState::new(crate::config::Config::default(), runtime, false));
-        let state = GatewayState {
+        .expect("a minimal runtime")
+    }
+
+    fn sample_state(setup: SetupHandle) -> GatewayState {
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            sample_runtime(),
+            false,
+        ));
+        GatewayState {
             node,
             client: proxy::client(),
-            web: None,
-        };
+            web: WebSource::None,
+            setup,
+        }
+    }
+
+    /// What a stranger is told, pinned field by field.
+    ///
+    /// Asserted from the outside as a *set of keys*, because a test that re-derived the expected
+    /// shape from the code would agree with any mistake the code made. If this fails because a
+    /// field was added, the question to answer is not "update the list" but "should a stranger see
+    /// this".
+    #[test]
+    fn a_stranger_is_told_the_status_and_none_of_the_addresses() {
+        let state = sample_state(SetupHandle::default());
 
         let body = public_health(&state, true, 5);
         let mut keys: Vec<&str> = body
@@ -741,7 +974,19 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            vec!["children", "join", "latest_version", "node", "side_door", "status", "version"]
+            vec![
+                "children",
+                "join",
+                "latest_version",
+                "node",
+                // One boolean, on purpose: the app needs it on every device to know which screen
+                // to show, `first_run` beside it already implies it, and the route it would help
+                // anybody reach is refused off-machine regardless. See LOOPBACK_ONLY_PREFIXES.
+                "setup_pending",
+                "side_door",
+                "status",
+                "version"
+            ]
         );
 
         // The four things this redaction exists for.
@@ -772,5 +1017,205 @@ mod tests {
     #[test]
     fn html_escape_covers_every_dangerous_character() {
         assert_eq!(html_escape("<a href=\"x\">&'"), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+    }
+
+    // --- first-run setup -----------------------------------------------------------------------
+
+    #[test]
+    fn healthz_reports_whether_setup_is_still_pending_including_not_knowing() {
+        // Nobody has been able to ask Core yet. `null`, not `false`.
+        let unknown = sample_state(SetupHandle::default());
+        assert_eq!(public_health(&unknown, true, 1)["setup_pending"], serde_json::Value::Null);
+
+        let pending = sample_state(SetupHandle::known(true));
+        assert_eq!(public_health(&pending, true, 1)["setup_pending"], serde_json::json!(true));
+
+        let done = sample_state(SetupHandle::known(false));
+        assert_eq!(public_health(&done, true, 1)["setup_pending"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn the_marker_carries_the_nodes_name_this_requests_peer_and_the_setup_state() {
+        let state = sample_state(SetupHandle::known(true));
+
+        let mut local = Request::builder().uri("/").body(Body::empty()).unwrap();
+        local
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+        let m = marker_for(&state, &local);
+        assert_eq!(m.node_name, "attic");
+        assert!(m.loopback);
+        assert_eq!(m.setup_pending, Some(true));
+
+        let mut lan = Request::builder().uri("/").body(Body::empty()).unwrap();
+        lan.extensions_mut()
+            .insert(ConnectInfo("192.168.1.20:51234".parse::<SocketAddr>().unwrap()));
+        assert!(!marker_for(&state, &lan).loopback);
+
+        // No connect info at all fails closed, the same way every other gate here does.
+        let bare = Request::builder().uri("/").body(Body::empty()).unwrap();
+        assert!(!marker_for(&state, &bare).loopback);
+    }
+
+    #[test]
+    fn the_loopback_only_set_covers_the_setup_route_and_not_the_state_one() {
+        assert!(is_loopback_only("/stingstream/api/v1/webhooks/arr"));
+        assert!(is_loopback_only("/stingstream/api/v1/setup/admin"));
+        // The one route that must stay reachable from a phone on the LAN, or the app cannot tell
+        // which screen to show.
+        assert!(!is_loopback_only("/stingstream/api/v1/setup/state"));
+        assert!(!is_loopback_only("/stingstream/api/v1/items/abc/sources"));
+        assert!(!is_loopback_only("/stingstream/api/v1/mesh/status"));
+    }
+
+    /// Through the real router, with a real peer address: the route that creates the first account
+    /// on this server is invisible to anybody who is not sitting at it.
+    #[tokio::test]
+    async fn creating_the_first_account_is_refused_off_machine_while_reading_the_state_is_not() {
+        use tower::ServiceExt;
+
+        async fn call(path: &str, peer: &str) -> (StatusCode, String) {
+            let node = Arc::new(NodeState::new(
+                crate::config::Config::default(),
+                sample_runtime(),
+                false,
+            ));
+            let app = router_with_web(node, WebSource::None, SetupHandle::known(true));
+            let mut req = Request::builder()
+                .method("POST")
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            req.extensions_mut()
+                .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+            let resp = app.oneshot(req).await.unwrap();
+            let status = resp.status();
+            let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+            (status, String::from_utf8_lossy(&bytes).into_owned())
+        }
+
+        let (status, body) = call("/stingstream/api/v1/setup/admin", "192.168.1.20:51234").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body, "no such route",
+            "off-machine must look like a route that does not exist, not one that is forbidden"
+        );
+
+        // From this machine the gate is out of the way, and the request reaches the forwarder --
+        // which says the child is not configured, because this fixture has no children. What
+        // matters is that it is *not* the gate's answer.
+        let (_, body) = call("/stingstream/api/v1/setup/admin", "127.0.0.1:51234").await;
+        assert_ne!(body, "no such route");
+        assert!(body.contains("jellyfin"), "{body}");
+
+        // And reading the state is not gated at all, from anywhere.
+        let (_, body) = call("/stingstream/api/v1/setup/state", "192.168.1.20:51234").await;
+        assert_ne!(body, "no such route");
+        assert!(body.contains("jellyfin"), "{body}");
+
+        // The gate this one was generalised from still holds.
+        let (status, body) = call("/stingstream/api/v1/webhooks/arr", "192.168.1.20:51234").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body, "no such route");
+    }
+
+    /// A stock client at the wrong door still gets a fast, honest 404 -- now without naming the
+    /// project behind the media API.
+    #[tokio::test]
+    async fn the_root_404_points_at_the_media_api_without_naming_it() {
+        use tower::ServiceExt;
+
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            sample_runtime(),
+            false,
+        ));
+        let app = router_with_web(node, WebSource::None, SetupHandle::default());
+        let mut req = Request::builder()
+            .uri("/System/Info/Public")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body["error"],
+            serde_json::json!(
+                "This is a StingStream server; its media API is under /jellyfin/System/Info/Public."
+            )
+        );
+        // The machine-readable half is unchanged: a client uses this to retry at the right base.
+        assert_eq!(body["jellyfin_base"], serde_json::json!("/jellyfin"));
+    }
+
+    /// Metro is mounted at the gateway's own root, and the marker rides the same splice as the
+    /// bundle's.
+    #[test]
+    fn a_dev_server_is_mounted_at_the_root_with_no_prefix_on_either_side() {
+        let WebSource::DevServer(upstream) = WebSource::dev_server("127.0.0.1:8081".into()) else {
+            panic!("dev_server builds a DevServer");
+        };
+        assert_eq!(upstream.authority, "127.0.0.1:8081");
+        assert_eq!(upstream.upstream_prefix, "");
+        assert_eq!(
+            proxy::rewrite_path("/manage/movies", "", &upstream.upstream_prefix).unwrap(),
+            "/manage/movies"
+        );
+        assert!(WebSource::dev_server("127.0.0.1:8081".into()).is_dev_server());
+        assert!(!WebSource::None.is_dev_server());
+    }
+
+    #[tokio::test]
+    async fn the_marker_is_injected_into_proxied_html_and_nothing_else() {
+        let marker = web::Marker {
+            node_name: "attic",
+            loopback: true,
+            setup_pending: Some(true),
+        };
+
+        let html = Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(header::CONTENT_LENGTH, "44")
+            .header(header::ETAG, "\"abc\"")
+            .body(Body::from("<html><head><title>a</title></head></html>"))
+            .unwrap();
+        let out = inject_into_html(html, &marker).await;
+        let len: usize = out
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(out.headers().get(header::ETAG).is_none(), "the body is not what was hashed");
+        let bytes = axum::body::to_bytes(out.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(len, bytes.len(), "content-length must follow the spliced body");
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("__STINGSTREAM_NODE__"));
+        assert!(body.contains("<title>a</title>"));
+
+        // A JavaScript bundle from the same dev server is served byte for byte.
+        let js = Response::builder()
+            .header(header::CONTENT_TYPE, "application/javascript")
+            .body(Body::from("var a = 1;"))
+            .unwrap();
+        let out = inject_into_html(js, &marker).await;
+        let bytes = axum::body::to_bytes(out.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(&bytes[..], b"var a = 1;");
+
+        // So is a compressed one: splicing into gzip would produce a corrupt document, and losing
+        // the marker is the better failure.
+        let gz = Response::builder()
+            .header(header::CONTENT_TYPE, "text/html")
+            .header(header::CONTENT_ENCODING, "gzip")
+            .body(Body::from(vec![0x1f, 0x8b, 0x08]))
+            .unwrap();
+        let out = inject_into_html(gz, &marker).await;
+        let bytes = axum::body::to_bytes(out.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(&bytes[..], &[0x1f, 0x8b, 0x08]);
     }
 }

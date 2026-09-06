@@ -1,23 +1,20 @@
-# Contributing to Streamyfin
+# Contributing to the StingStream app
 
-Thanks for helping out. Streamyfin ships to phones, tablets, Apple TV and Android TV from
-one codebase, so a change that looks small usually has four places where it can go wrong.
+Thanks for helping out. StingStream ships to phones, tablets and Android TV / Google TV from
+one codebase, so a change that looks small usually has several places where it can go wrong.
 This guide is about catching that before a reviewer has to.
 
-Questions are welcome on [Discord](https://discord.streamyfin.app). Security issues go
-through the [security policy](https://github.com/streamyfin/streamyfin/security/policy),
-never through a public issue.
+This app is forked from [Streamyfin](https://github.com/streamyfin/streamyfin) — see the
+Heritage note at the end.
 
 ## Before you start
 
-- Search the [issues](https://github.com/streamyfin/streamyfin/issues) first. If one
-  describes your problem, say so there before opening a PR, and link it later with
-  `Fixes #123`.
-- For anything larger than a bug fix, open an issue or ask on Discord first. A design
-  discussion after the code is written is a discussion nobody enjoys.
-- Translations do not go through pull requests. They are managed on
-  [Crowdin](https://crowdin.com/project/streamyfin). The only file a PR may touch is
-  `translations/en.json`, the source catalogue.
+- Search the repository's issues first. If one describes your problem, say so there before
+  opening a PR, and link it later with `Fixes #123`.
+- For anything larger than a bug fix, open an issue first. A design discussion after the code
+  is written is a discussion nobody enjoys.
+- Translations: add keys to `translations/en.json` only. Every other catalogue is regenerated
+  by tooling and hand edits are overwritten — see [CLAUDE.md](CLAUDE.md)'s translations rule.
 
 ## Setup
 
@@ -44,11 +41,13 @@ The conventions live next to the code they govern:
 - [docs/conventions/constants.md](docs/conventions/constants.md): where a value belongs.
 - [docs/conventions/contributing-flow.md](docs/conventions/contributing-flow.md): the
   operational checklist for branches, PRs and reviews.
-- [docs/conventions/tv.md](docs/conventions/tv.md): everything specific to Apple TV and
-  Android TV, including the focus rules that are easy to break without noticing.
+- [docs/conventions/tv.md](docs/conventions/tv.md): everything specific to Android TV /
+  Google TV, including the focus rules that are easy to break without noticing.
 - [CLAUDE.md](CLAUDE.md): the architecture map, the provider stack and the patterns to
   follow. It is written for AI assistants but it is the fastest orientation for a human
   too.
+- [../../docs/CONTRIBUTING.md](../../docs/CONTRIBUTING.md): the monorepo's shared-checkout
+  rules (this repository is worked on by several people and agents at once).
 
 Two rules catch most review comments before they are written:
 
@@ -60,14 +59,17 @@ Two rules catch most review comments before they are written:
 ## Before you open a pull request
 
 ```bash
-bun run test
+bun run typecheck
+bun test
+bun run i18n:check
 ```
 
-That runs typecheck, unit tests, lint, format, the i18n key check and Expo Doctor. CI runs
-the same commands as separate jobs and adds `bun run check`, the read-only Biome pass, so
-run that one too if you are unsure. Expo Doctor is non-blocking in CI, which means a
-warning there will not fail your PR, but it is still worth reading. Read the output rather
-than trusting the exit code.
+Those three are the gates CI actually enforces. `bun run test` also chains lint, format and
+Expo Doctor; the fork carries pre-existing formatting differences from upstream that are not
+worth fixing while it still tracks Streamyfin (see
+[../../docs/CONTRIBUTING.md](../../docs/CONTRIBUTING.md)), so lint/format on the whole tree is
+expected to be non-zero — run Biome on the files you touched instead:
+`bunx biome check --write <your files>`.
 
 Then make sure the change carries its own proof:
 
@@ -75,46 +77,37 @@ Then make sure the change carries its own proof:
 - A new shared or tunable value lives in `constants/`.
 - A behaviour change that is not purely visual reaches phone and TV in the same PR.
 - New UI strings exist in `translations/en.json` and nowhere else.
+- No user-visible text names Jellyfin, Streamyfin, Radarr, Sonarr, NZBGet or Emby — see
+  `brand.test.ts`.
 - [CLAUDE.md](CLAUDE.md) still matches the code. It is the map everyone reads first, human
   or assistant, so a new tab group, native module, provider or top-level directory goes in
   it as part of the same PR.
 
 ## Pull requests
 
-- Branch off `develop`.
 - The PR title follows [Conventional Commits](https://www.conventionalcommits.org), for
   example `fix(player): keep the resume point when exiting`. CI validates it.
-- Fill in every section of the template. Write N/A where a section genuinely does not
-  apply, and tick a checklist box only when it is true. An unticked "verified on all
-  platforms" is useful information; a ticked one that is not true is not.
-- UI changes ship before and after screenshots for iOS and Android. Use a video for
-  anything animated.
+- UI changes ship before and after screenshots for phone and Android.
 - Testing instructions are numbered steps a reviewer can follow without asking you a
   question.
 
 ### Testing on real devices
 
 A simulator proves the code path runs. It does not prove hardware behaviour: volume
-buttons, the silent switch, background playback, network loss, Chromecast, TV remotes.
-Test those on a device before claiming they work.
+buttons, background playback, network loss, Chromecast, TV remotes. Test those on a device
+before claiming they work.
 
-For playback and reporting changes, the Jellyfin server log is the ground truth. Run the
-scenario, then read what the server recorded.
-
-### If you used AI
-
-Declare it by uncommenting the badge line in the PR template. This is not a stigma, it is
-a review signal. What is not acceptable is AI-generated code that the author has not
-personally tested on the target platforms: those PRs are closed on sight, because
-reviewing them costs more than writing the change would have.
-
-## After you open it
-
-Wait for CI and for the automated review, and answer both. A red job is something to
-investigate, not something to push past: reproduce it locally, and if it also fails on
-`develop`, say so in the PR so the next person does not repeat the detour.
+For playback and reporting changes, the server log is the ground truth. Run the scenario,
+then read what the server recorded.
 
 ## License
 
 By contributing you agree that your contribution is licensed under the
-[MPL-2.0](LICENSE.txt), like the rest of the project.
+[MPL-2.0](LICENSE.txt), like the rest of this app.
+
+## Heritage
+
+This app began as a fork of [Streamyfin](https://github.com/streamyfin/streamyfin), an
+open-source Jellyfin client, and its early history and many patterns still owe a debt to that
+project and its contributors. StingStream is its own project from here: this file, its
+user-facing copy and its issue tracker are about this repository, not upstream's.

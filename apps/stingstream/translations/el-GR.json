@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Ο διακομιστής έλαβε πάρα πολλά αιτήματα, δοκιμάστε ξανά αργότερα.",
     "there_is_a_server_error": "Υπάρχει ένα σφάλμα διακομιστή",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Παρουσιάστηκε μη αναμενόμενο σφάλμα. Εισαγάγετε σωστά το URL του διακομιστή?",
-    "too_old_server_text": "Ανακαλύφθηκε Μη Υποστηριζόμενος Εξυπηρετητής Jellyfin",
-    "too_old_server_description": "Παρακαλούμε ενημερώστε το Jellyfin στην τελευταία έκδοση"
+    "too_old_server_text": "Ανακαλύφθηκε Μη Υποστηριζόμενος Εξυπηρετητής StingStream",
+    "too_old_server_description": "Παρακαλούμε ενημερώστε το StingStream στην τελευταία έκδοση"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Εισάγετε τη διεύθυνση URL στον διακομιστή Jellyfin σας",
+    "enter_url_to_jellyfin_server": "Εισάγετε τη διεύθυνση URL στον διακομιστή StingStream σας",
     "server_url_placeholder": "http(s)://your-server.com",
     "connect_button": "Σύνδεση",
     "previous_servers": "Προηγούμενοι Διακομιστές",
@@ -114,16 +114,16 @@
     "suggested_movies": "Προτεινόμενες Ταινίες",
     "suggested_episodes": "Προτεινόμενα Επεισόδια",
     "intro": {
-      "welcome_to_streamyfin": "Καλώς ήρθατε στο Streamyfin",
+      "welcome_to_streamyfin": "Καλώς ήρθατε στο StingStream",
       "a_free_and_open_source_client_for_jellyfin": "Ένας ελεύθερος και ανοιχτού κώδικα πελάτης για τη ζελυφίνη.",
       "features_title": "Χαρακτηριστικά",
-      "features_description": "Το Streamyfin διαθέτει πολλές λειτουργίες και συνεργάζεται με άλλο λογισμικό. Θα τις βρείτε στο μενού ρυθμίσεων:",
+      "features_description": "Το StingStream διαθέτει πολλές λειτουργίες και συνεργάζεται με άλλο λογισμικό. Θα τις βρείτε στο μενού ρυθμίσεων:",
       "jellyseerr_feature_description": "Συνδεθείτε με την παρουσία σας στο Seerr και ζητήστε ταινίες απευθείας στην εφαρμογή.",
       "downloads_feature_title": "Λήψεις",
       "downloads_feature_description": "Κατεβάστε ταινίες και tv-shows για να δείτε εκτός σύνδεσης. Χρησιμοποιήστε είτε την προεπιλεγμένη μέθοδο ή εγκαταστήστε το βελτιστοποιημένο διακομιστή για να κατεβάσετε αρχεία στο παρασκήνιο.",
       "chromecast_feature_description": "Μετάδοση ταινιών και τηλεοπτικών σειρών στις συσκευές σας Chromecast.",
       "centralised_settings_plugin_title": "Πρόσθετο Κεντρικών Ρυθμίσεων",
-      "centralised_settings_plugin_description": "Ρυθμίστε τις ρυθμίσεις κεντρικά στον διακομιστή Jellyfin σας. Οι ρυθμίσεις του προγράμματος-πελάτη κάθε χρήστη συγχρονίζονται αυτόματα.",
+      "centralised_settings_plugin_description": "Ρυθμίστε τις ρυθμίσεις κεντρικά στον διακομιστή StingStream σας. Οι ρυθμίσεις του προγράμματος-πελάτη κάθε χρήστη συγχρονίζονται αυτόματα.",
       "done_button": "Ολοκληρώθηκε",
       "go_to_settings_button": "Μετάβαση στις ρυθμίσεις",
       "read_more": "Διαβάστε Περισσότερα"
@@ -274,7 +274,6 @@
         "audio_title": "Ήχος",
         "set_audio_track": "Ορισμός Κομματιού Ήχου Από Το Προηγούμενο Στοιχείο",
         "audio_language": "Γλώσσα Ήχου",
-        "audio_hint": "Επιλέξτε μια προεπιλεγμένη γλώσσα ήχου.",
         "none": "Κανένα",
         "original_language": "Αρχική γλώσσα",
         "language": "Γλώσσα",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Υπότιτλοι",
-        "subtitle_hint": "Ρυθμίστε τον τρόπο εμφάνισης και συμπεριφοράς των υποτίτλων.",
         "subtitle_language": "Γλώσσα υποτίτλων",
         "subtitle_mode": "Λειτουργία Υποτίτλων",
         "set_subtitle_track": "Ορισμός Κομματιού Υποτίτλων Από Το Προηγούμενο Στοιχείο",
@@ -297,7 +295,6 @@
         "subtitle_size": "Μέγεθος Υπότιτλου",
         "none": "Κανένα",
         "language": "Γλώσσα",
-        "loading": "Φόρτωση",
         "modes": {
           "Default": "Προεπιλογή",
           "Smart": "Έξυπνο",
@@ -306,18 +303,10 @@
           "OnlyForced": "Μόνο"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Εισαγάγετε το κλειδί API του OpenSubtitles για αναζήτηση υπότιτλων από αυτή τη συσκευή, όταν ο διακομιστής Jellyfin δεν έχει ρυθμισμένο πάροχο υπότιτλων.",
+        "opensubtitles_hint": "Εισαγάγετε το κλειδί API του OpenSubtitles για αναζήτηση υπότιτλων από αυτή τη συσκευή, όταν ο διακομιστής StingStream δεν έχει ρυθμισμένο πάροχο υπότιτλων.",
         "opensubtitles_api_key": "Κλειδί API",
         "opensubtitles_api_key_placeholder": "Εισαγάγετε το κλειδί API...",
         "opensubtitles_get_key": "Αποκτήστε το δωρεάν κλειδί API στο opensubtitles.com/el/consumers",
-        "mpv_subtitle_scale": "Κλίμακα υπότιτλων",
-        "mpv_subtitle_margin_y": "Κατακόρυφο περιθώριο",
-        "mpv_subtitle_align_x": "Οριζόντια στοίχιση",
-        "mpv_subtitle_align_y": "Κατακόρυφη στοίχιση",
-        "mpv_settings_title": "Ρυθμίσεις Υποτίτλων MPV",
-        "mpv_settings_description": "Προηγμένη προσαρμογή υποτίτλων για το MPV",
-        "opaque_background": "Αδιαφανές φόντο",
-        "background_opacity": "Αδιαφάνεια φόντου",
         "align": {
           "left": "Αριστερά",
           "center": "Κέντρο",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Πρόσθετα",
         "wikidata_awards": "Βραβεία από τη Wikidata",
-        "wikidata_awards_hint": "Εμφάνιση Όσκαρ και βραβείων στις σελίδες ταινιών και σειρών. Αυτή η συσκευή ρωτά απευθείας τη Wikidata, όχι τον διακομιστή Jellyfin σας.",
+        "wikidata_awards_hint": "Εμφάνιση Όσκαρ και βραβείων στις σελίδες ταινιών και σειρών. Αυτή η συσκευή ρωτά απευθείας τη Wikidata, όχι τον διακομιστή StingStream σας.",
         "opensubtitles_enabled": "Αναζήτηση στο OpenSubtitles",
-        "opensubtitles_enabled_hint": "Επιτρέπει σε αυτή τη συσκευή να αναζητά απευθείας στο OpenSubtitles όταν ο διακομιστής Jellyfin σας δεν έχει πάροχο υπότιτλων. Αν το απενεργοποιήσετε, οι αναζητήσεις υπότιτλων παραμένουν στον διακομιστή και το αποθηκευμένο κλειδί API δεν θίγεται.",
+        "opensubtitles_enabled_hint": "Επιτρέπει σε αυτή τη συσκευή να αναζητά απευθείας στο OpenSubtitles όταν ο διακομιστής StingStream σας δεν έχει πάροχο υπότιτλων. Αν το απενεργοποιήσετε, οι αναζητήσεις υπότιτλων παραμένουν στον διακομιστή και το αποθηκευμένο κλειδί API δεν θίγεται.",
         "jellyseerr": {
           "server_url": "Url Διακομιστή",
           "server_url_hint": "Παράδειγμα: http(s)://your-host.url\n(προσθέστε θύρα εφόσον απαιτείται)",
           "server_url_placeholder": "Seerr URL",
           "password": "Κωδικός",
-          "password_placeholder": "Εισαγάγετε τον κωδικό για τον χρήστη Jellyfin {{username}}",
+          "password_placeholder": "Εισαγάγετε τον κωδικό για τον χρήστη StingStream {{username}}",
           "login_button": "Είσοδος",
           "total_media_requests": "Σύνολο Αιτημάτων Πολυμέσων",
           "movie_quota_limit": "Όριο Ποσόστωσης Ταινίας",
@@ -518,7 +507,7 @@
       "delete": "Διαγραφή",
       "delete_download": "Διαγραφή λήψης",
       "something_went_wrong": "Κάτι Πήγε Λάθος",
-      "could_not_get_stream_url_from_jellyfin": "Αδυναμία λήψης του URL ροής από το Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Αδυναμία λήψης του URL ροής από το StingStream",
       "eta": "Απομένουν {{eta}}",
       "live_activity": {
         "downloading": "Γίνεται λήψη",
@@ -726,7 +715,7 @@
     "subtitle_search": "Αναζήτηση και λήψη",
     "download": "Λήψη",
     "subtitle_download_hint": "Οι υπότιτλοι που λαμβάνονται θα αποθηκευτούν στη βιβλιοθήκη σας",
-    "using_jellyfin_server": "Χρήση διακομιστή Jellyfin",
+    "using_jellyfin_server": "Χρήση διακομιστή StingStream",
     "language": "Γλώσσα",
     "results": "Αποτελέσματα",
     "search_failed": "Η αναζήτηση απέτυχε",
@@ -801,8 +790,7 @@
     "resume_playback": "Συνέχεια αναπαραγωγής",
     "resume_playback_description": "Θέλετε να συνεχίσετε από εκεί που σταματήσατε ή να ξεκινήσετε από την αρχή;",
     "play_from_start": "Αναπαραγωγή από την αρχή",
-    "continue_from": "Συνέχεια από {{time}}",
-    "no_data_available": "Δεν υπάρχουν διαθέσιμα δεδομένα"
+    "continue_from": "Συνέχεια από {{time}}"
   },
   "live_tv": {
     "title": "Ζωντανή τηλεόραση",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Σύζευξη με τηλέφωνο",
     "pair_with_phone_title": "Σύνδεση στην τηλεόραση",
     "waiting_for_phone": "Αναμονή για το τηλέφωνο...",
-    "scan_with_phone": "Σαρώστε με την εφαρμογή Streamyfin στο τηλέφωνό σας",
+    "scan_with_phone": "Σαρώστε με την εφαρμογή StingStream στο τηλέφωνό σας",
     "logging_in": "Γίνεται σύνδεση...",
     "logging_in_description": "Σύνδεση με τον διακομιστή σας"
   }

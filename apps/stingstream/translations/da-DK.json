@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Serveren modtog for mange forespørgsler, prøv igen senere.",
     "there_is_a_server_error": "Der er en serverfejl",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Der opstod en uventet fejl. Har du indtastet serverens URL korrekt?",
-    "too_old_server_text": "Ikke Understøttet Jellyfin Server Opdaget",
-    "too_old_server_description": "Opdater venligst Jellyfin til den seneste version"
+    "too_old_server_text": "Ikke Understøttet StingStream Server Opdaget",
+    "too_old_server_description": "Opdater venligst StingStream til den seneste version"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Indtast URL'en til din Jellyfin server",
+    "enter_url_to_jellyfin_server": "Indtast URL'en til din StingStream server",
     "server_url_placeholder": "http(s)://din-server.com",
     "connect_button": "Forbind",
     "previous_servers": "Tidligere servere",
@@ -114,16 +114,16 @@
     "suggested_movies": "Foreslåede film",
     "suggested_episodes": "Foreslåede episoder",
     "intro": {
-      "welcome_to_streamyfin": "Velkommen til Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "En gratis og open-source klient til Jellyfin.",
+      "welcome_to_streamyfin": "Velkommen til StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "En gratis og open-source klient til StingStream.",
       "features_title": "Funktioner",
-      "features_description": "Streamyfin har en masse funktioner og fungerer med anden software. Du finder dem i indstillingsmenuen:",
+      "features_description": "StingStream har en masse funktioner og fungerer med anden software. Du finder dem i indstillingsmenuen:",
       "jellyseerr_feature_description": "Forbind til din Jellyseerr instans og anmod om film direkte i appen.",
       "downloads_feature_title": "Downloads",
       "downloads_feature_description": "Download film og tv-serier til offline visning. Brug enten standardmetoden eller installer optimiseret server for at downloade filer i baggrunden.",
       "chromecast_feature_description": "Cast film og tv-serier til dine Chromecast enheder.",
       "centralised_settings_plugin_title": "Centraliseret indstillingsplugin",
-      "centralised_settings_plugin_description": "Konfigurer indstillinger centralt på din Jellyfin server. Alle brugeres klientindstillinger synkroniseres automatisk.",
+      "centralised_settings_plugin_description": "Konfigurer indstillinger centralt på din StingStream server. Alle brugeres klientindstillinger synkroniseres automatisk.",
       "done_button": "Færdig",
       "go_to_settings_button": "Gå til indstillinger",
       "read_more": "Læs mere"
@@ -274,7 +274,6 @@
         "audio_title": "Lyd",
         "set_audio_track": "Sæt lydspor fra forrige element",
         "audio_language": "Lydsprog",
-        "audio_hint": "Vælg et standardsprog for lyd.",
         "none": "Ingen",
         "original_language": "Originalsprog",
         "language": "Sprog",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Undertekster",
-        "subtitle_hint": "Konfigurer undertekstpræference.",
         "subtitle_language": "Undertekstsprog",
         "subtitle_mode": "Underteksttilstand",
         "set_subtitle_track": "Sæt undertekstspor fra forrige element",
@@ -297,7 +295,6 @@
         "subtitle_size": "Undertekststørrelse",
         "none": "Ingen",
         "language": "Sprog",
-        "loading": "Indlæser",
         "modes": {
           "Default": "Standard",
           "Smart": "Smart",
@@ -306,18 +303,10 @@
           "OnlyForced": "Kun tvungne undertekster"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Indtast din OpenSubtitles API-nøgle for at kunne søge efter undertekster fra denne enhed, når din Jellyfin-server ikke har en undertekstudbyder konfigureret.",
+        "opensubtitles_hint": "Indtast din OpenSubtitles API-nøgle for at kunne søge efter undertekster fra denne enhed, når din StingStream-server ikke har en undertekstudbyder konfigureret.",
         "opensubtitles_api_key": "API-nøgle",
         "opensubtitles_api_key_placeholder": "Indtast API-nøgle...",
         "opensubtitles_get_key": "Hent din gratis API-nøgle på opensubtitles.com/en/consumers",
-        "mpv_subtitle_scale": "Undertekststørrelse",
-        "mpv_subtitle_margin_y": "Lodret margen",
-        "mpv_subtitle_align_x": "Vandret justering",
-        "mpv_subtitle_align_y": "Lodret justering",
-        "mpv_settings_title": "MPV-undertekstindstillinger",
-        "mpv_settings_description": "Avanceret tilpasning af undertekster til MPV-afspilleren",
-        "opaque_background": "Uigennemsigtig baggrund",
-        "background_opacity": "Baggrundsdækkeevne",
         "align": {
           "left": "Venstre",
           "center": "Midt",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Plugins",
         "wikidata_awards": "Priser fra Wikidata",
-        "wikidata_awards_hint": "Vis Oscars og priser på film- og seriesider. Denne enhed spørger Wikidata direkte, ikke din Jellyfin-server.",
+        "wikidata_awards_hint": "Vis Oscars og priser på film- og seriesider. Denne enhed spørger Wikidata direkte, ikke din StingStream-server.",
         "opensubtitles_enabled": "Søg på OpenSubtitles",
-        "opensubtitles_enabled_hint": "Lad denne enhed søge direkte på OpenSubtitles, når din Jellyfin-server ikke har nogen undertekstudbyder. Slår du det fra, forbliver undertekstsøgninger på din server, og en gemt API-nøgle røres ikke.",
+        "opensubtitles_enabled_hint": "Lad denne enhed søge direkte på OpenSubtitles, når din StingStream-server ikke har nogen undertekstudbyder. Slår du det fra, forbliver undertekstsøgninger på din server, og en gemt API-nøgle røres ikke.",
         "jellyseerr": {
           "server_url": "Server-URL",
           "server_url_hint": "Eksempel: http(s)://din-host.url\n(tilføj port hvis nødvendigt)",
           "server_url_placeholder": "Jellyseerr URL...",
           "password": "Adgangskode",
-          "password_placeholder": "Indtast adgangskode for Jellyfin bruger {{username}}",
+          "password_placeholder": "Indtast adgangskode for StingStream bruger {{username}}",
           "login_button": "Log ind",
           "total_media_requests": "Samlede medieanmodninger",
           "movie_quota_limit": "Begrænsning for filmkvote",
@@ -518,7 +507,7 @@
       "delete": "Slet",
       "delete_download": "Slet download",
       "something_went_wrong": "Noget gik galt",
-      "could_not_get_stream_url_from_jellyfin": "Kunne ikke hente stream URL'en fra Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Kunne ikke hente stream URL'en fra StingStream",
       "eta": "ETA {{eta}}",
       "live_activity": {
         "downloading": "Downloader",
@@ -726,7 +715,7 @@
     "subtitle_search": "Søg og download",
     "download": "Hent",
     "subtitle_download_hint": "Downloadede undertekster gemmes i dit bibliotek",
-    "using_jellyfin_server": "Bruger Jellyfin-server",
+    "using_jellyfin_server": "Bruger StingStream-server",
     "language": "Sprog",
     "results": "Resultater",
     "search_failed": "Søgningen mislykkedes",
@@ -801,8 +790,7 @@
     "resume_playback": "Fortsæt afspilning",
     "resume_playback_description": "Vil du fortsætte, hvor du slap, eller starte forfra?",
     "play_from_start": "Afspil fra start",
-    "continue_from": "Fortsæt fra {{time}}",
-    "no_data_available": "Ingen data tilgængelige"
+    "continue_from": "Fortsæt fra {{time}}"
   },
   "live_tv": {
     "title": "Live TV",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Par med telefon",
     "pair_with_phone_title": "Log ind på TV",
     "waiting_for_phone": "Venter på telefonen...",
-    "scan_with_phone": "Scan med Streamyfin-appen på din telefon",
+    "scan_with_phone": "Scan med StingStream-appen på din telefon",
     "logging_in": "Logger ind...",
     "logging_in_description": "Opretter forbindelse til din server"
   }

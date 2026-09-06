@@ -88,6 +88,16 @@ struct Cli {
     #[arg(long, value_name = "DIR")]
     web_dist: Option<PathBuf>,
 
+    /// **Development only.** Proxy `/` to a running Metro dev server (`bunx expo start --web
+    /// --port 8081` in apps/stingstream) instead of serving a built bundle, so an edit to a
+    /// component is on screen in seconds — hot reload included.
+    ///
+    /// Overrides `gateway.web_dev_server`, which is honoured only in `--dev`. Naming it here works
+    /// in either mode, because typing it is an explicit choice. Every other route the gateway
+    /// claims is untouched.
+    #[arg(long, value_name = "URL")]
+    web_dev_server: Option<String>,
+
     /// Resolve everything, write config.toml and runtime.json, print runtime.json, and exit
     /// without starting any child. Used by tools/e2e-m1.ps1 and for diagnosing a node.
     #[arg(long)]
@@ -213,6 +223,9 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     }
     if let Some(dir) = &cli.web_dist {
         config.gateway.web_dist = dir.display().to_string();
+    }
+    if let Some(url) = &cli.web_dev_server {
+        config.gateway.web_dev_server = url.clone();
     }
     if let Some(name) = &cli.node_name {
         let name = name.trim();
@@ -439,17 +452,48 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
         }
     };
 
-    let web = resolve_web_dist(&config, &mode);
+    let web = resolve_web_dist(&config, &mode, cli.web_dev_server.is_some());
     match &web {
-        Some(b) => tracing::info!(dir = %b.root.display(), "serving the web bundle at /"),
-        None => tracing::info!(
-            "no web bundle found; serving the placeholder page at /. Build one with `npx expo \
+        gateway::WebSource::Bundle(b) => {
+            tracing::info!(dir = %b.root.display(), "serving the web bundle at /")
+        }
+        gateway::WebSource::DevServer(u) => {
+            tracing::info!(authority = %u.authority, "proxying / to the web dev server")
+        }
+        gateway::WebSource::None => tracing::info!(
+            "no web app found; serving the placeholder page at /. Build one with `bunx expo \
              export --platform web` in apps/stingstream, or pass --web-dist."
         ),
     }
-    print_banner(&rt, mode.is_dev(), web.is_some(), mesh_node_id.as_deref());
 
-    let app = gateway::router_with_web(node.clone(), web);
+    // Whether somebody has created an account on this server yet -- what the marker tells the page
+    // and what `/healthz` reports. A server whose runtime.json no longer holds a bootstrap
+    // password has already been through setup (that is the only thing that removes it), so it can
+    // answer without asking anybody; everything else asks Core on loopback until it can.
+    let setup = if rt.holds_admin_password() {
+        let handle = stingstream::setup::SetupHandle::default();
+        match rt.child("jellyfin").filter(|c| c.enabled) {
+            Some(jellyfin) => stingstream::setup::spawn(
+                jellyfin.base_url.clone(),
+                layout.runtime_json(),
+                handle.clone(),
+                shutdown_rx.clone(),
+            ),
+            // No Jellyfin means no Core to ask, and nothing to scrub on the strength of. The
+            // marker reports null and the app falls back to its ordinary sign-in path.
+            None => tracing::info!(
+                "the media server is not enabled on this node, so first-run setup state stays \
+                 unknown"
+            ),
+        }
+        handle
+    } else {
+        stingstream::setup::SetupHandle::known(false)
+    };
+
+    print_banner(&rt, mode.is_dev(), &web, mesh_node_id.as_deref());
+
+    let app = gateway::router_with_web(node.clone(), web, setup);
     let server = {
         let app = app.clone();
         let tls = tls.clone();
@@ -616,9 +660,12 @@ fn build_runtime(
     let mut qbt = carried.qbt_or_new();
     qbt.url_base = format!("{}/stingstream/qbt", preseed::jellyfin::BASE_URL);
 
+    // Carried forward rather than regenerated, and that is what makes the scrub stick: once
+    // `crate::setup` has removed the bootstrap password, every later start carries the account
+    // *without* one rather than minting a new one behind the user's back.
     let jellyfin_admin = Some(carried.jellyfin_admin.unwrap_or_else(|| AdminRuntime {
         username: "stingstream".to_string(),
-        password: secrets::password(secrets::PASSWORD_LEN),
+        password: Some(secrets::password(secrets::PASSWORD_LEN)),
     }));
 
     // The mesh reads `mesh.api_port` from runtime.json before it falls back to
@@ -659,24 +706,58 @@ fn build_runtime(
     })
 }
 
-/// Where to find the built web bundle, if anywhere.
+/// What serves the app at `/`: a dev server, a built bundle, or nothing.
 ///
-/// `gateway.web_dist` (or `--web-dist`) wins. Otherwise the conventional place for the mode:
-/// `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` -- which is exactly
-/// where `npx expo export --platform web` puts it, so a developer who has built the app once gets
-/// it served with no configuration at all.
-fn resolve_web_dist(config: &Config, mode: &Mode) -> Option<gateway::web::WebBundle> {
+/// A **dev server** wins when there is one, because asking for it is unambiguous. It is honoured
+/// only in `--dev` or when `--web-dev-server` named it on the command line — an installed server
+/// proxying its front page to a laptop somewhere because of a stale `config.toml` is not a mistake
+/// worth leaving available.
+///
+/// Otherwise `gateway.web_dist` (or `--web-dist`) wins, and failing that the conventional place
+/// for the mode: `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` — which
+/// is exactly where `bunx expo export --platform web` puts it, so a developer who has built the
+/// app once gets it served with no configuration at all.
+fn resolve_web_dist(config: &Config, mode: &Mode, dev_server_named: bool) -> gateway::WebSource {
+    let configured_dev_server = config.gateway.web_dev_server.trim();
+    if !configured_dev_server.is_empty() {
+        if mode.is_dev() || dev_server_named {
+            match config::parse_dev_server(configured_dev_server) {
+                Ok(authority) => {
+                    tracing::info!(
+                        %authority,
+                        "serving the app from a web dev server; the built bundle is ignored for \
+                         this run"
+                    );
+                    return gateway::WebSource::dev_server(authority);
+                }
+                // Not fatal: falling back to the bundle serves *something*, and the message says
+                // exactly what to type instead.
+                Err(e) => tracing::warn!(
+                    error = %format!("{e:#}"),
+                    "ignoring gateway.web_dev_server"
+                ),
+            }
+        } else {
+            tracing::warn!(
+                "gateway.web_dev_server is set but this is not a --dev node; ignoring it. Pass \
+                 --web-dev-server on the command line if that is really what you want."
+            );
+        }
+    }
+
     let configured = config.gateway.web_dist.trim();
     if !configured.is_empty() {
         let dir = PathBuf::from(configured);
-        let found = gateway::web::WebBundle::open(&dir);
-        if found.is_none() {
-            tracing::warn!(
-                dir = %dir.display(),
-                "gateway.web_dist has no index.html in it; serving the placeholder page instead"
-            );
-        }
-        return found;
+        return match gateway::web::WebBundle::open(&dir) {
+            Some(b) => gateway::WebSource::bundle(b),
+            None => {
+                tracing::warn!(
+                    dir = %dir.display(),
+                    "gateway.web_dist has no index.html in it; serving the placeholder page instead"
+                );
+                gateway::WebSource::None
+            }
+        };
     }
 
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -689,36 +770,51 @@ fn resolve_web_dist(config: &Config, mode: &Mode) -> Option<gateway::web::WebBun
     candidates
         .iter()
         .find_map(|dir| gateway::web::WebBundle::open(dir))
+        .map(gateway::WebSource::bundle)
+        .unwrap_or(gateway::WebSource::None)
 }
 
 /// One human-readable block on stderr so someone starting a node by hand knows where to go.
-fn print_banner(rt: &Runtime, dev: bool, web: bool, mesh_node: Option<&str>) {
+///
+/// **It prints no credentials.** It used to print the generated administrator username and
+/// password, which was wrong twice over: a Windows service's stderr goes nowhere at all
+/// (`service.rs`), so the one audience who most needed it never saw it; and on a console it put a
+/// working password into scrollback, screenshots and CI logs. The account is created through the
+/// setup screen now, and the only thing worth saying is where that screen is.
+fn print_banner(rt: &Runtime, dev: bool, web: &gateway::WebSource, mesh_node: Option<&str>) {
     let mut lines = vec![
-        format!("StingStream node \"{}\" is up.", rt.node_name),
-        format!("  Gateway      {}", rt.gateway.local_url),
+        format!("StingStream \"{}\" is up.", rt.node_name),
+        format!("  Open         {}", rt.gateway.local_url),
         format!("  Health       {}/healthz", rt.gateway.local_url),
         format!("  StingStream  {}/stingstream/api/v1/", rt.gateway.local_url),
-        format!("  Jellyfin     {}/jellyfin/", rt.gateway.local_url),
-        format!("  Mesh         {}/stingstream/mesh/v1/status", rt.gateway.local_url),
+        format!("  Media API    {}/jellyfin/", rt.gateway.local_url),
+        format!("  Sharing      {}/stingstream/mesh/v1/status", rt.gateway.local_url),
         format!("  Data         {}", rt.data_dir.display()),
     ];
     if let Some(node) = mesh_node {
         lines.push(format!("  Node id      {node}"));
     }
-    if !web {
-        lines.push("  Web          no bundle found; serving the placeholder page".into());
+    match web {
+        gateway::WebSource::Bundle(_) => {}
+        gateway::WebSource::DevServer(u) => {
+            lines.push(format!("  Web          proxied from the dev server at {}", u.authority))
+        }
+        gateway::WebSource::None => {
+            lines.push("  Web          not installed on this server; serving the placeholder page".into())
+        }
     }
     if dev {
         lines.push("  Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)".into());
     }
-    if rt.first_run {
-        if let Some(admin) = &rt.jellyfin_admin {
-            lines.push(String::new());
-            lines.push("  First run. The Jellyfin administrator account is being created as:".into());
-            lines.push(format!("    username  {}", admin.username));
-            lines.push(format!("    password  {}", admin.password));
-            lines.push("  These are also in runtime.json in the data directory.".into());
-        }
+    // The bootstrap password is removed from runtime.json the moment somebody creates their own
+    // account (`crate::setup`), so its presence is the supervisor's own best answer to "has this
+    // server been set up?" before Core is even listening.
+    if rt.holds_admin_password() {
+        lines.push(String::new());
+        lines.push(format!(
+            "  First run: open {} to create your account.",
+            rt.gateway.local_url
+        ));
     }
     eprintln!("\n{}\n", lines.join("\n"));
 }

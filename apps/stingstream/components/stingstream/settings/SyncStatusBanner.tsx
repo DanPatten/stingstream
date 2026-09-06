@@ -12,7 +12,7 @@ export function SyncStatusBanner() {
   const onSync = async () => {
     try {
       await runSync.mutateAsync();
-      toast.success("Synced into Radarr and Sonarr");
+      toast.success("Synced into both apps");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sync failed");
     }

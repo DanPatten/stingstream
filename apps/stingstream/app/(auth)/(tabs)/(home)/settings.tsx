@@ -139,7 +139,7 @@ function SettingsMobile() {
                 onPress={() => router.push("/settings/admin/page")}
                 showArrow
                 title='Admin'
-                subtitle='Jellyfin users, libraries, transcoding, logs'
+                subtitle='Users, libraries, transcoding, logs'
               />
               <ListItem
                 onPress={() => router.push("/settings/node/page")}

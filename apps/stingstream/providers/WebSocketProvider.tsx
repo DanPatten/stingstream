@@ -1,4 +1,5 @@
 import { getSessionApi } from "@jellyfin/sdk/lib/utils/api";
+import { getNodeBaseUrl } from "@stingstream/api-client";
 import { isAxiosError } from "axios";
 import { useAtomValue } from "jotai";
 import {
@@ -374,12 +375,13 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
 
     const init = async () => {
       try {
+        // No app-store link (this app is sideloaded, not store-distributed) and no upstream
+        // badge image — the icon is served by this session's own node, so the Devices page
+        // shows a real reachable image instead of a dead link to Streamyfin's repo.
+        const nodeOrigin = api.basePath ? getNodeBaseUrl(api.basePath) : null;
         await getSessionApi(api).postFullCapabilities({
           clientCapabilitiesDto: {
-            AppStoreUrl:
-              "https://apps.apple.com/us/app/streamyfin/id6593660679",
-            IconUrl:
-              "https://raw.githubusercontent.com/streamyfin/streamyfin/refs/heads/develop/assets/images/streamyfin-client-badge.png",
+            ...(nodeOrigin && { IconUrl: `${nodeOrigin}/favicon-192.png` }),
             PlayableMediaTypes: ["Audio", "Video"],
             SupportedCommands: ["Play"],
             SupportsMediaControl: true,

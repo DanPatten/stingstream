@@ -34,11 +34,11 @@
     "server_received_too_many_requests_try_again_later": "Server obdržel příliš mnoho požadavků, opakujte akci později.",
     "there_is_a_server_error": "Došlo k chybě serveru",
     "an_unexpected_error_occurred_did_you_enter_the_correct_url": "Došlo k neočekávané chybě. Vložili jste adresu URL serveru?",
-    "too_old_server_text": "Objeven nepodporovaný Jellyfin server",
-    "too_old_server_description": "Prosím aktualizujte Jellyfin na nejnovější verzi"
+    "too_old_server_text": "Objeven nepodporovaný StingStream server",
+    "too_old_server_description": "Prosím aktualizujte StingStream na nejnovější verzi"
   },
   "server": {
-    "enter_url_to_jellyfin_server": "Zadejte URL adresu vašeho serveru Jellyfin",
+    "enter_url_to_jellyfin_server": "Zadejte URL adresu vašeho serveru StingStream",
     "server_url_placeholder": "http(s)://vaše-server.com",
     "connect_button": "Připojit",
     "previous_servers": "Předchozí servery",
@@ -114,16 +114,16 @@
     "suggested_movies": "Navrhované filmy",
     "suggested_episodes": "Navrhované epizody",
     "intro": {
-      "welcome_to_streamyfin": "Vítejte v Streamyfin",
-      "a_free_and_open_source_client_for_jellyfin": "Volný a Open-Source klient pro Jellyfin.",
+      "welcome_to_streamyfin": "Vítejte v StingStream",
+      "a_free_and_open_source_client_for_jellyfin": "Volný a Open-Source klient pro StingStream.",
       "features_title": "Vlastnosti",
-      "features_description": "Streamyfin má spoustu funkcí a spolupracuje s dalším softwarem. Najdete je v nabídce nastavení:",
+      "features_description": "StingStream má spoustu funkcí a spolupracuje s dalším softwarem. Najdete je v nabídce nastavení:",
       "jellyseerr_feature_description": "Připojte se k instanci Seerr a požádejte filmy přímo v aplikaci.",
       "downloads_feature_title": "Stahování",
       "downloads_feature_description": "Stáhněte si filmy a tv-show pro zobrazení v režimu offline. Použijte buď výchozí metodu nebo nainstalujte optimalizovaný server ke stažení souborů na pozadí.",
       "chromecast_feature_description": "Přenášejte filmy a tv-show do vašich zařízení Chromecast.",
       "centralised_settings_plugin_title": "Centralizovaný plugin nastavení",
-      "centralised_settings_plugin_description": "Nakonfigurujte nastavení centrálně na serveru Jellyfin. Klientská nastavení každého uživatele se synchronizují automaticky.",
+      "centralised_settings_plugin_description": "Nakonfigurujte nastavení centrálně na serveru StingStream. Klientská nastavení každého uživatele se synchronizují automaticky.",
       "done_button": "Hotovo",
       "go_to_settings_button": "Přejít do nastavení",
       "read_more": "Číst více"
@@ -274,7 +274,6 @@
         "audio_title": "Zvuk",
         "set_audio_track": "Nastavit zvukovou stopu z předchozí položky",
         "audio_language": "Zvukové jazyky",
-        "audio_hint": "Vyberte výchozí jazyk zvuku.",
         "none": "Nic",
         "original_language": "Původní jazyk",
         "language": "Jazyk",
@@ -289,7 +288,6 @@
       },
       "subtitles": {
         "subtitle_title": "Titulky",
-        "subtitle_hint": "Nakonfigurujte, jak titulky vypadají a jak se chovat.",
         "subtitle_language": "Jazyk titulků",
         "subtitle_mode": "Režim titulků",
         "set_subtitle_track": "Nastavit stopu titulků od předchozí položky",
@@ -297,7 +295,6 @@
         "subtitle_size": "Velikost titulků",
         "none": "Nic",
         "language": "Jazyk",
-        "loading": "Načítání",
         "modes": {
           "Default": "Výchozí",
           "Smart": "Chytré",
@@ -306,18 +303,10 @@
           "OnlyForced": "Pouze vynucené"
         },
         "opensubtitles_title": "OpenSubtitles",
-        "opensubtitles_hint": "Zadejte svůj klíč API pro OpenSubtitles, aby bylo možné hledat titulky přímo z tohoto zařízení, když váš server Jellyfin nemá nastaveného poskytovatele titulků.",
+        "opensubtitles_hint": "Zadejte svůj klíč API pro OpenSubtitles, aby bylo možné hledat titulky přímo z tohoto zařízení, když váš server StingStream nemá nastaveného poskytovatele titulků.",
         "opensubtitles_api_key": "Klíč API",
         "opensubtitles_api_key_placeholder": "Zadejte klíč API...",
         "opensubtitles_get_key": "Bezplatný klíč API získáte na opensubtitles.com/cs/consumers",
-        "mpv_subtitle_scale": "Velikost titulků",
-        "mpv_subtitle_margin_y": "Svislý okraj",
-        "mpv_subtitle_align_x": "Vodorovné zarovnání",
-        "mpv_subtitle_align_y": "Svislé zarovnání",
-        "mpv_settings_title": "Nastavení titulků MPV",
-        "mpv_settings_description": "Pokročilé přizpůsobení titulků pro přehrávač MPV",
-        "opaque_background": "Neprůhledné pozadí",
-        "background_opacity": "Neprůhlednost pozadí",
         "align": {
           "left": "Vlevo",
           "center": "Na střed",
@@ -370,15 +359,15 @@
       "plugins": {
         "plugins_title": "Pluginy",
         "wikidata_awards": "Ocenění z Wikidat",
-        "wikidata_awards_hint": "Zobrazí Oscary a ocenění na stránkách filmů a seriálů. Toto zařízení se ptá přímo Wikidat, ne vašeho serveru Jellyfin.",
+        "wikidata_awards_hint": "Zobrazí Oscary a ocenění na stránkách filmů a seriálů. Toto zařízení se ptá přímo Wikidat, ne vašeho serveru StingStream.",
         "opensubtitles_enabled": "Hledat na OpenSubtitles",
-        "opensubtitles_enabled_hint": "Umožní tomuto zařízení hledat titulky přímo na OpenSubtitles, když váš server Jellyfin nemá žádného poskytovatele titulků. Po vypnutí zůstane vyhledávání titulků na serveru a uložený API klíč zůstane nedotčen.",
+        "opensubtitles_enabled_hint": "Umožní tomuto zařízení hledat titulky přímo na OpenSubtitles, když váš server StingStream nemá žádného poskytovatele titulků. Po vypnutí zůstane vyhledávání titulků na serveru a uložený API klíč zůstane nedotčen.",
         "jellyseerr": {
           "server_url": "URL serveru",
           "server_url_hint": "Příklad: http(s)://your-host.url\n(přidat port, pokud je vyžadováno)",
           "server_url_placeholder": "Seerr URL",
           "password": "Heslo",
-          "password_placeholder": "Zadejte heslo pro uživatele Jellyfin {{username}}",
+          "password_placeholder": "Zadejte heslo pro uživatele StingStream {{username}}",
           "login_button": "Přihlásit se",
           "total_media_requests": "Celkem požadavků na média",
           "movie_quota_limit": "Limit kvóty filmu",
@@ -518,7 +507,7 @@
       "delete": "Vymazat",
       "delete_download": "Smazat stažený soubor",
       "something_went_wrong": "Něco se pokazilo",
-      "could_not_get_stream_url_from_jellyfin": "Nelze získat URL streamu z Jellyfin",
+      "could_not_get_stream_url_from_jellyfin": "Nelze získat URL streamu z StingStream",
       "eta": "Zbývá {{eta}}",
       "live_activity": {
         "downloading": "Stahování",
@@ -726,7 +715,7 @@
     "subtitle_search": "Hledat a stáhnout",
     "download": "Stáhnout",
     "subtitle_download_hint": "Stažené titulky se uloží do vaší knihovny",
-    "using_jellyfin_server": "Používá se server Jellyfin",
+    "using_jellyfin_server": "Používá se server StingStream",
     "language": "Jazyk",
     "results": "Výsledky",
     "search_failed": "Hledání selhalo",
@@ -801,8 +790,7 @@
     "resume_playback": "Pokračovat v přehrávání",
     "resume_playback_description": "Chcete pokračovat tam, kde jste skončili, nebo začít od začátku?",
     "play_from_start": "Přehrát od začátku",
-    "continue_from": "Pokračovat od {{time}}",
-    "no_data_available": "Nejsou dostupná žádná data"
+    "continue_from": "Pokračovat od {{time}}"
   },
   "live_tv": {
     "title": "Živé vysílání",
@@ -1071,7 +1059,7 @@
     "pair_with_phone": "Spárovat s telefonem",
     "pair_with_phone_title": "Přihlášení na televizi",
     "waiting_for_phone": "Čekání na telefon...",
-    "scan_with_phone": "Naskenujte aplikací Streamyfin v telefonu",
+    "scan_with_phone": "Naskenujte aplikací StingStream v telefonu",
     "logging_in": "Přihlašování...",
     "logging_in_description": "Připojování k vašemu serveru"
   }
