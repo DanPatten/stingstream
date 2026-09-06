@@ -1229,6 +1229,38 @@
     "track_count_other": "{{count}} tracks",
     "nav": {
       "account": "Account"
+    },
+    "hero": {
+      "resume": "Resume",
+      "details": "Details"
+    },
+    "library": {
+      "item_count": "{{count}} items",
+      "item_count_one": "{{count}} item",
+      "item_count_other": "{{count}} items"
+    },
+    "details": {
+      "read_more": "More"
+    },
+    "requests": {
+      "discover": "Discover",
+      "mine": "My requests",
+      "alerts": "Alerts",
+      "alerts_count": "Alerts ({{count}})"
+    },
+    "settings": {
+      "sharing": "Sharing",
+      "groups": "Groups",
+      "this_device": "This device",
+      "playback": "Playback",
+      "play_from": "Play from",
+      "play_from_speed": "Speed first",
+      "play_from_quality": "Quality first",
+      "account": "Account",
+      "sign_out": "Sign out of this TV"
+    },
+    "link_device": {
+      "invalid_code": "That code did not work. Check it and try again."
     }
   }
 }

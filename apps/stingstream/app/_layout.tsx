@@ -694,6 +694,14 @@ function Layout() {
                                           }}
                                         />
                                         <Stack.Screen
+                                          name='(auth)/tv-link-device-modal'
+                                          options={{
+                                            headerShown: false,
+                                            presentation: "transparentModal",
+                                            animation: "fade",
+                                          }}
+                                        />
+                                        <Stack.Screen
                                           name='(auth)/tv-user-switch-modal'
                                           options={{
                                             headerShown: false,

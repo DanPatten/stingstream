@@ -32,6 +32,8 @@ import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPr
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations.tv";
 import { TVHeroCarousel } from "@/components/home/TVHeroCarousel";
 import { Loader } from "@/components/Loader";
+import { TVImageBudget } from "@/constants/TVImageBudget";
+import { TVAnimation, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -48,8 +50,6 @@ import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { scaleSize } from "@/utils/scaleSize";
 import { updateTVDiscovery } from "@/utils/tvDiscovery/sync";
 
-const HORIZONTAL_PADDING = scaleSize(60);
-const TOP_PADDING = scaleSize(100);
 // Generous gap between sections for Apple TV+ aesthetic
 const SECTION_GAP = scaleSize(24);
 
@@ -65,11 +65,9 @@ type InfiniteScrollingCollectionListSection = {
 
 type Section = InfiniteScrollingCollectionListSection;
 
-// Debounce delay in ms - prevents rapid backdrop changes when scrolling fast
-const BACKDROP_DEBOUNCE_MS = 300;
-
 export const Home = () => {
   const typography = useScaledTVTypography();
+  const sizes = useScaledTVSizes();
   const _router = useRouter();
   const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
@@ -104,7 +102,7 @@ export const Home = () => {
     // Set new timer to update focused item after debounce delay
     debounceTimerRef.current = setTimeout(() => {
       setFocusedItem(item);
-    }, BACKDROP_DEBOUNCE_MS);
+    }, TVAnimation.backdropDebounceMs);
   }, []);
 
   // Cleanup debounce timer on unmount
@@ -123,7 +121,7 @@ export const Home = () => {
       api,
       item: focusedItem,
       quality: 90,
-      width: 1920,
+      width: TVImageBudget.backdropWidth,
     });
   }, [api, focusedItem, settings.showHomeBackdrop]);
 
@@ -140,9 +138,9 @@ export const Home = () => {
     let isCancelled = false;
 
     const performCrossfade = async () => {
-      // Prefetch to disk only - the full-size 1920x1080 backdrop (~8MB
-      // decoded ARGB) is too large to pin in the memory cache on every
-      // focus change. Disk cache is fast enough for a 500ms crossfade.
+      // Prefetch to disk only - a full-size backdrop (~8MB decoded ARGB) is
+      // far past TVImageBudget.diskOnlyAboveBytes and must never take a slot
+      // in the memory cache. Disk is fast enough for the crossfade.
       try {
         await prefetchServerImage(backdropUrl, api?.basePath, "disk");
       } catch {
@@ -174,13 +172,13 @@ export const Home = () => {
       Animated.parallel([
         Animated.timing(incomingOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: TVAnimation.crossfadeMs,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(outgoingOpacity, {
           toValue: 0,
-          duration: 500,
+          duration: TVAnimation.crossfadeMs,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -276,7 +274,13 @@ export const Home = () => {
       api,
       sections: [
         {
-          title: t("home.continue_and_next_up"),
+          // The Android TV publisher uses a section's title as the home-row
+          // channel's display name, so this string names the channel in the
+          // launcher rather than a row in this app: "StingStream: Continue
+          // watching", not the in-app section heading. It is the same value
+          // the Kotlin side falls back to (DEFAULT_CHANNEL_NAME), so the two
+          // cannot drift.
+          title: t("home.tv_channel_title"),
           items: heroItems,
         },
       ],
@@ -595,7 +599,8 @@ export const Home = () => {
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          paddingHorizontal: HORIZONTAL_PADDING,
+          paddingLeft: sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
         }}
       >
         <Text
@@ -748,7 +753,7 @@ export const Home = () => {
         nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: showHero ? 0 : insets.top + TOP_PADDING,
+          paddingTop: showHero ? 0 : insets.top + sizes.layout.contentInsetTop,
           paddingBottom: insets.bottom + 60,
         }}
       >
@@ -758,6 +763,7 @@ export const Home = () => {
             items={heroItems}
             onItemFocus={handleItemFocus}
             onItemLongPress={showItemActions}
+            contentInsetLeft={sizes.layout.contentInsetLeft}
           />
         )}
 

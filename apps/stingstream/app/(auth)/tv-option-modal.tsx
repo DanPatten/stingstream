@@ -189,6 +189,7 @@ export default function TVOptionModal() {
                       onPress={() => handleSelect(item.value)}
                       width={scaledCardWidth}
                       height={scaledCardHeight}
+                      labelLines={item.labelLines}
                     />
                   )}
                 />
@@ -212,6 +213,7 @@ export default function TVOptionModal() {
                       selected={option.selected}
                       hasTVPreferredFocus={index === initialSelectedIndex}
                       onPress={() => handleSelect(option.value)}
+                      labelLines={option.labelLines}
                       width={scaledCardWidth}
                       height={scaledCardHeight}
                     />

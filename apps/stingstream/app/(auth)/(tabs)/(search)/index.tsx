@@ -529,17 +529,6 @@ export default function SearchPage() {
     );
   }, [jellyseerrMovieResults, jellyseerrTvResults, jellyseerrPersonResults]);
 
-  // Fetch discover settings for TV (when no search query in Discover mode)
-  const { data: discoverSliders } = useQuery({
-    queryKey: ["search", "jellyseerr", "discoverSettings", "tv"],
-    queryFn: async () => jellyseerrApi?.discoverSettings(),
-    enabled:
-      Platform.isTV &&
-      !!jellyseerrApi &&
-      searchType === "Discover" &&
-      debouncedSearch.length === 0,
-  });
-
   // TV Jellyseerr press handlers
   const handleJellyseerrMoviePress = useCallback(
     (item: MovieResult) => {
@@ -617,7 +606,6 @@ export default function SearchPage() {
         onJellyseerrMoviePress={handleJellyseerrMoviePress}
         onJellyseerrTvPress={handleJellyseerrTvPress}
         onJellyseerrPersonPress={handleJellyseerrPersonPress}
-        discoverSliders={discoverSliders}
       />
     );
   }

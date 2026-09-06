@@ -55,6 +55,8 @@
     "login.sign_in_with_code",
     "home.settings.link_device.*",
     "tv.track_count_one",
-    "tv.track_count_other"
+    "tv.track_count_other",
+    "tv.library.item_count_one",
+    "tv.library.item_count_other"
   ]
 }

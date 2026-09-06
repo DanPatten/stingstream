@@ -25,9 +25,11 @@ import {
   TVSettingsTextInput,
   TVSettingsToggle,
 } from "@/components/tv";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useMediaPreferences } from "@/hooks/useMediaPreferences";
+import { useTVLinkDeviceModal } from "@/hooks/useTVLinkDeviceModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
 import { useTVUserSwitchModal } from "@/hooks/useTVUserSwitchModal";
 import { APP_LANGUAGES } from "@/i18n";
@@ -94,7 +96,9 @@ export default function SettingsTV() {
     isReady,
   } = useMediaPreferences();
   const { showUserSwitchModal } = useTVUserSwitchModal();
+  const { showLinkDeviceModal } = useTVLinkDeviceModal();
   const typography = useScaledTVTypography();
+  const sizes = useScaledTVSizes();
   const queryClient = useQueryClient();
   const router = useRouter();
   const meshSummary = useMeshSummary();
@@ -205,6 +209,44 @@ export default function SettingsTV() {
     setPasswordModalVisible(false);
     setSelectedServer(null);
     setSelectedAccount(null);
+  };
+
+  /**
+   * Which source the player prefers when the group holds several copies.
+   *
+   * `playbackPolicy` is appended to the settings atom by the player package;
+   * until that lands this reads through a cast with a default, so the row is
+   * live from the day the TV settings screen ships rather than a day after.
+   */
+  const playbackPolicy =
+    (settings as { playbackPolicy?: "speed_first" | "quality_first" })
+      .playbackPolicy ?? "speed_first";
+
+  const playbackPolicyLabel =
+    playbackPolicy === "quality_first"
+      ? t("tv.settings.play_from_quality")
+      : t("tv.settings.play_from_speed");
+
+  const handleShowPlaybackPolicy = () => {
+    showOptions({
+      title: t("tv.settings.play_from"),
+      options: [
+        {
+          label: t("tv.settings.play_from_speed"),
+          value: "speed_first",
+          selected: playbackPolicy === "speed_first",
+        },
+        {
+          label: t("tv.settings.play_from_quality"),
+          value: "quality_first",
+          selected: playbackPolicy === "quality_first",
+        },
+      ],
+      onSelect: (value: string) =>
+        updateSettings({
+          playbackPolicy: value,
+        } as unknown as Parameters<typeof updateSettings>[0]),
+    });
   };
 
   // Handle switch user button press
@@ -790,9 +832,10 @@ export default function SettingsTV() {
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: insets.top + 120,
+            paddingTop: insets.top + sizes.layout.contentInsetTop,
             paddingBottom: insets.bottom + 60,
-            paddingHorizontal: insets.left + 80,
+            paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+            paddingRight: sizes.padding.horizontal,
           }}
           showsVerticalScrollIndicator={false}
         >
@@ -1417,15 +1460,46 @@ export default function SettingsTV() {
             onToggle={(value) => updateSettings({ sentryEnabled: value })}
           />
 
-          {/* Mesh Section — groups, members and this TV's own light node.
-              A TV is mains-powered and always on, so it is the member the rest
-              of the group is most likely to find online; the screens themselves
-              handle the ten-foot differences (no QR scanner, code typed in). */}
-          <TVSectionHeader title='Mesh' />
+          {/* Sharing — groups, members and this TV's own light node.
+              "Mesh" was the internal name for the transport, not a word anybody
+              would go looking for in a settings list; Sharing is what the
+              feature does. A TV is mains-powered and always on, so it is the
+              member the rest of the group is most likely to find online, and
+              the screens handle the ten-foot differences themselves (no QR
+              scanner, code typed in). */}
+          <TVSectionHeader title={t("tv.settings.sharing")} />
           <TVSettingsRow
-            label='Groups'
+            label={t("tv.settings.groups")}
             value={meshSummary}
             onPress={() => router.push("/settings/groups/page")}
+            isFirst={false}
+          />
+          <TVSettingsRow
+            label={t("tv.settings.this_device")}
+            value={user?.Name || "-"}
+            showChevron={false}
+          />
+          {/* The authorising half of the code sign-in: a phone or a browser
+              asks the server for a code, and whoever is already signed in on
+              this television types it in. Same authorizeQuickConnect call the
+              phone's settings screen makes. */}
+          <TVSettingsOptionButton
+            label={t("home.settings.link_device.title")}
+            value=''
+            onPress={() =>
+              showLinkDeviceModal({ serverName: api?.basePath ?? undefined })
+            }
+          />
+
+          {/* Playback — where a stream comes from when the group holds several
+              copies. The setting is shared with the phone and the player's
+              "Play from" chooser; this row is the TV's way in. */}
+          <TVSectionHeader title={t("tv.settings.playback")} />
+          <TVSettingsOptionButton
+            label={t("tv.settings.play_from")}
+            value={playbackPolicyLabel}
+            onPress={handleShowPlaybackPolicy}
+            isFirst={false}
           />
 
           {/* Custom proxy auth headers for Jellyfin and each integration */}
@@ -1455,8 +1529,21 @@ export default function SettingsTV() {
             showChevron={false}
           />
 
-          {/* Logout Button */}
-          <View style={{ marginTop: 48, alignItems: "center" }}>
+          {/* Account. The logout button is the only thing in it that is not a
+              read-only row, and it says which device it signs out of: a
+              household television is shared, and "Sign out" alone reads as if
+              it might sign the account out everywhere. */}
+          <TVSectionHeader title={t("tv.settings.account")} />
+          <Text
+            style={{
+              fontSize: typography.callout,
+              color: "#9CA3AF",
+              marginBottom: scaleSize(12),
+            }}
+          >
+            {t("tv.settings.sign_out")}
+          </Text>
+          <View style={{ marginTop: 16, alignItems: "flex-start" }}>
             <TVLogoutButton onPress={logout} />
           </View>
         </ScrollView>

@@ -38,7 +38,9 @@ import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
-import { useScaledTVPosterSizes } from "@/constants/TVSizes";
+import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
+import { TVImageBudget } from "@/constants/TVImageBudget";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useFilterReset } from "@/hooks/useFilterReset";
@@ -74,9 +76,6 @@ import {
 import type { TVOptionItem } from "@/utils/atoms/tvOptionModal";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
-const TV_ITEM_GAP = 20;
-const TV_HORIZONTAL_PADDING = 60;
-const _TV_SCALE_PADDING = 20;
 const TV_PLAYLIST_SQUARE_SIZE = 180;
 
 const Page = () => {
@@ -90,7 +89,8 @@ const Page = () => {
   const { libraryId, fromSeeAll } = searchParams;
 
   const typography = useScaledTVTypography();
-  const posterSizes = useScaledTVPosterSizes();
+  const sizes = useScaledTVSizes();
+  const posterCard = useScaledTVCardLayout("portrait");
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const { width: screenWidth } = useWindowDimensions();
@@ -336,6 +336,33 @@ const Page = () => {
     return 6;
   }, [screenWidth, orientation]);
 
+  /**
+   * How many posters fit across, derived rather than guessed.
+   *
+   * The grid is a flexWrap row, so this number does not lay anything out; it
+   * exists so the row can be centred on a whole number of columns and so the
+   * gaps at the edges match the rail inset instead of whatever fell out. The
+   * arithmetic is the usual one: the last column needs no trailing gap, hence
+   * the `+ spacing` on both sides of the division.
+   */
+  const tvColumns = useMemo(() => {
+    const available =
+      screenWidth -
+      sizes.layout.contentInsetLeft -
+      sizes.padding.horizontal +
+      posterCard.spacing;
+    return Math.max(
+      1,
+      Math.floor(available / (posterCard.cardWidth + posterCard.spacing)),
+    );
+  }, [
+    screenWidth,
+    sizes.layout.contentInsetLeft,
+    sizes.padding.horizontal,
+    posterCard.cardWidth,
+    posterCard.spacing,
+  ]);
+
   const { data: library, isLoading: isLibraryLoading } = useQuery({
     queryKey: ["library", libraryId],
     queryFn: async () => {
@@ -481,6 +508,10 @@ const Page = () => {
     );
   }, [data]);
 
+  // What the server says the filtered library holds, not how much of it has
+  // been paged in, so the sticky title's count does not climb as you scroll.
+  const totalItemCount = data?.pages[0]?.TotalRecordCount;
+
   const flashListRef = useRef<FlashListRef<CardData>>(null);
 
   // Jump the grid back to the top when the filters or the sort change, reset
@@ -537,7 +568,7 @@ const Page = () => {
         const playlistImageUrl = getPrimaryImageUrl({
           api,
           item,
-          width: TV_PLAYLIST_SQUARE_SIZE * 2,
+          width: TV_PLAYLIST_SQUARE_SIZE * TVImageBudget.posterDecodeMultiplier,
         });
 
         return (
@@ -592,11 +623,11 @@ const Page = () => {
           orientation='vertical'
           onPress={handlePress}
           onLongPress={() => showItemActions(item)}
-          width={posterSizes.poster}
+          width={posterCard.cardWidth}
         />
       );
     },
-    [router, showItemActions, api, typography],
+    [router, showItemActions, api, typography, posterCard.cardWidth],
   );
 
   const generalFilters = useFilterOptions();
@@ -989,132 +1020,190 @@ const Page = () => {
 
   // TV return with filter bar
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{
-        paddingTop: insets.top + 100,
-        paddingBottom: insets.bottom + 60,
-        paddingHorizontal: insets.left + TV_HORIZONTAL_PADDING,
-      }}
-      onScroll={({ nativeEvent }) => {
-        // Load more when near bottom
-        const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-        const isNearBottom =
-          layoutMeasurement.height + contentOffset.y >=
-          contentSize.height - 500;
-        if (isNearBottom && hasNextPage && !isFetching) {
-          fetchNextPage();
-        }
-      }}
-      scrollEventThrottle={400}
-    >
-      {/* Filter bar */}
+    <View style={{ flex: 1 }}>
+      {/*
+        Sticky title row. It sits outside the ScrollView rather than inside it,
+        so the library's name and size stay on screen while the grid scrolls --
+        on a ten-foot screen a grid with no heading is a grid you have to
+        remember your way into. It is also not focusable, so it costs the D-pad
+        nothing.
+      */}
       <View
         style={{
           flexDirection: "row",
-          flexWrap: "nowrap",
-          justifyContent: "center",
-          paddingBottom: 24,
-          gap: 12,
+          alignItems: "baseline",
+          gap: sizes.gaps.item,
+          paddingTop: insets.top + sizes.layout.contentInsetTop,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
+          paddingBottom: sizes.gaps.small,
         }}
       >
-        {hasActiveFilters && (
-          <TVFilterButton
-            label=''
-            value={t("library.filters.reset")}
-            onPress={resetAllFilters}
-            hasActiveFilter
-          />
-        )}
-        <TVFilterButton
-          label={t("library.filters.genres")}
-          value={
-            selectedGenres.length > 0
-              ? `${selectedGenres.length} selected`
-              : t("library.filters.all")
-          }
-          onPress={handleShowGenreFilter}
-          hasTVPreferredFocus={!hasActiveFilters}
-          hasActiveFilter={selectedGenres.length > 0}
-        />
-        <TVFilterButton
-          label={t("library.filters.years")}
-          value={
-            selectedYears.length > 0
-              ? `${selectedYears.length} selected`
-              : t("library.filters.all")
-          }
-          onPress={handleShowYearFilter}
-          hasActiveFilter={selectedYears.length > 0}
-        />
-        <TVFilterButton
-          label={t("library.filters.tags")}
-          value={
-            selectedTags.length > 0
-              ? `${selectedTags.length} selected`
-              : t("library.filters.all")
-          }
-          onPress={handleShowTagFilter}
-          hasActiveFilter={selectedTags.length > 0}
-        />
-        <TVFilterButton
-          label={t("library.filters.sort_by")}
-          value={sortOptions.find((o) => o.key === sortBy[0])?.value || ""}
-          onPress={handleShowSortByFilter}
-        />
-        <TVFilterButton
-          label={t("library.filters.sort_order")}
-          value={
-            sortOrderOptions.find((o) => o.key === sortOrder[0])?.value || ""
-          }
-          onPress={handleShowSortOrderFilter}
-        />
-        <TVFilterButton
-          label={t("library.filters.filter_by")}
-          value={
-            filterBy.length > 0
-              ? generalFilters.find((o) => o.key === filterBy[0])?.value || ""
-              : t("library.filters.all")
-          }
-          onPress={handleShowFilterByFilter}
-          hasActiveFilter={filterBy.length > 0}
-        />
-      </View>
-
-      {/* Grid with flexWrap */}
-      {flatData.length === 0 ? (
-        <View
+        <Text
+          numberOfLines={1}
           style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            paddingTop: 100,
+            fontSize: typography.title,
+            fontWeight: "700",
+            color: "#FFFFFF",
+            flexShrink: 1,
           }}
         >
-          <Text style={{ fontSize: typography.body, color: "#737373" }}>
-            {t("library.no_results")}
+          {library?.Name ?? ""}
+        </Text>
+        {totalItemCount !== undefined && (
+          <Text
+            style={{
+              fontSize: typography.callout,
+              color: "rgba(255,255,255,0.6)",
+            }}
+          >
+            {t("tv.library.item_count", { count: totalItemCount })}
           </Text>
-        </View>
-      ) : (
+        )}
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingTop: sizes.gaps.small,
+          paddingBottom: insets.bottom + 60,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
+        }}
+        onScroll={({ nativeEvent }) => {
+          // Load more when near bottom
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const isNearBottom =
+            layoutMeasurement.height + contentOffset.y >=
+            contentSize.height - 500;
+          if (isNearBottom && hasNextPage && !isFetching) {
+            fetchNextPage();
+          }
+        }}
+        scrollEventThrottle={400}
+      >
+        {/* Filter bar */}
         <View
           style={{
             flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-            gap: TV_ITEM_GAP,
+            flexWrap: "nowrap",
+            justifyContent: "flex-start",
+            paddingBottom: sizes.gaps.item,
+            gap: sizes.gaps.small,
           }}
         >
-          {flatData.map((item) => renderTVItem(item))}
+          {/*
+            Exactly one element on this screen carries hasTVPreferredFocus, and
+            it is the first filter button -- whichever of the two that is. Two
+            candidates is the focus flicker documented in docs/conventions/tv.md.
+          */}
+          {hasActiveFilters && (
+            <TVFilterButton
+              label=''
+              value={t("library.filters.reset")}
+              onPress={resetAllFilters}
+              hasTVPreferredFocus
+              hasActiveFilter
+            />
+          )}
+          <TVFilterButton
+            label={t("library.filters.genres")}
+            value={
+              selectedGenres.length > 0
+                ? `${selectedGenres.length} selected`
+                : t("library.filters.all")
+            }
+            onPress={handleShowGenreFilter}
+            hasTVPreferredFocus={!hasActiveFilters}
+            hasActiveFilter={selectedGenres.length > 0}
+          />
+          <TVFilterButton
+            label={t("library.filters.years")}
+            value={
+              selectedYears.length > 0
+                ? `${selectedYears.length} selected`
+                : t("library.filters.all")
+            }
+            onPress={handleShowYearFilter}
+            hasActiveFilter={selectedYears.length > 0}
+          />
+          <TVFilterButton
+            label={t("library.filters.tags")}
+            value={
+              selectedTags.length > 0
+                ? `${selectedTags.length} selected`
+                : t("library.filters.all")
+            }
+            onPress={handleShowTagFilter}
+            hasActiveFilter={selectedTags.length > 0}
+          />
+          <TVFilterButton
+            label={t("library.filters.sort_by")}
+            value={sortOptions.find((o) => o.key === sortBy[0])?.value || ""}
+            onPress={handleShowSortByFilter}
+          />
+          <TVFilterButton
+            label={t("library.filters.sort_order")}
+            value={
+              sortOrderOptions.find((o) => o.key === sortOrder[0])?.value || ""
+            }
+            onPress={handleShowSortOrderFilter}
+          />
+          <TVFilterButton
+            label={t("library.filters.filter_by")}
+            value={
+              filterBy.length > 0
+                ? generalFilters.find((o) => o.key === filterBy[0])?.value || ""
+                : t("library.filters.all")
+            }
+            onPress={handleShowFilterByFilter}
+            hasActiveFilter={filterBy.length > 0}
+          />
         </View>
-      )}
 
-      {/* Loading indicator */}
-      {isFetching && (
-        <View style={{ paddingVertical: 20 }}>
-          <Loader />
-        </View>
-      )}
-    </ScrollView>
+        {/* Grid with flexWrap */}
+        {flatData.length === 0 ? (
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              alignItems: "center",
+              paddingTop: 100,
+            }}
+          >
+            <Text style={{ fontSize: typography.body, color: "#737373" }}>
+              {t("library.no_results")}
+            </Text>
+          </View>
+        ) : (
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              // Left aligned, not centred: a centred last row leaves the grid
+              // ragged and the column under the rail inset moves as the row
+              // fills, which makes LEFT out of column 0 land unpredictably.
+              justifyContent: "flex-start",
+              // Cap the row to a whole number of columns so the trailing gap
+              // is the same on every row.
+              maxWidth:
+                tvColumns * (posterCard.cardWidth + posterCard.spacing) -
+                posterCard.spacing,
+              gap: posterCard.spacing,
+            }}
+          >
+            {flatData.map((item) => renderTVItem(item))}
+          </View>
+        )}
+
+        {/* Loading indicator */}
+        {isFetching && (
+          <View style={{ paddingVertical: 20 }}>
+            <Loader />
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 };
 
