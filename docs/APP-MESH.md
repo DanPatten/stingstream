@@ -318,7 +318,7 @@ the same screens; the ten-foot differences are handled inside them.
 | `groups/page` | this device's own node (id, port, relay in use, peer counts), then the home node's groups with member/online counts and whether this device has caught up |
 | `groups/create/page` | name + coordinator picker → the invite, shown immediately |
 | `groups/join/page` | paste, scan a QR (phone only), or type it. A TV gets paste and typing — no camera, and 250 base58 characters on a D-pad is why base58 has no look-alike characters |
-| `groups/[group]/page` | members with online state and direct/relayed, the coordinator, "show invite code", leave |
+| `groups/[group]/page` | members with online state and direct/relayed, the coordinator, "show invite code", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
 
 The **coordinator picker** offers "Default (public infrastructure + StingStream fallback)" or "My
 own server" with a hostname validated live against `https://<host>/healthz` — the coordinator's own
@@ -336,6 +336,25 @@ it, re-seeds its own relay map, announces at the new coordinator's rendezvous an
 offline adopt it when they return; codes already handed out still work. See `docs/MESH.md`,
 "Changing a group's coordinator", for the conflict rule and why a stale invite cannot push the old
 value back onto the group.
+
+**Member management** (M8b) is admin-only and phone/web-only, the same shape the Requests screen
+uses for Approvals and Policy: `canManageMembers(isAdmin, Platform.isTV)` gates it, the elevated
+`GET /mesh/groups/{id}/members` is never even *called* when it would 403, and a TV renders exactly
+the rows it rendered before. When the roster is absent — a non-admin, a TV, or a node too old to
+serve it — the member list falls back to the peer list and produces byte-identical rows.
+
+Both actions are behind a confirmation that says the thing people will not otherwise expect: **every
+invite code minted before now stops working**, and a removal cannot be undone except by inviting the
+member back. Both are slow — the node hands the new secret to every reachable member before it
+answers, which is up to three minutes on a group where several are asleep — so both show progress
+and then report how many members actually took it. The ones that were not reached are not a failure:
+they catch up through the seven-day grace window on their next dial. `docs/MESH.md`, "Rotating the
+secret", and `docs/SECURITY.md` §3.
+
+One thing to know: `isSelf` marks the **home** node, so this device's own light-node membership is a
+removable row. Removing it is arguably right (a lost phone), but the app does not currently notice
+— `MeshProvider.syncGroups()` only joins groups the light node has not joined, so a revoked light
+node keeps trying to dial and playback silently falls back to home-node proxying. An open item.
 
 The player's info overlay carries a status pill, from `useMeshSourceStatus`: **Direct** (green),
 **Relayed** (amber), **Via home node** (amber), or **Connecting**. It appears only for mesh
@@ -539,6 +558,12 @@ which is why it is not done here.
   an endpoint *and* a gossip body, which is what it got: `PUT .../groups/{id}/coordinator` and a
   stamped `GroupConfig` record, last-writer-wins by timestamp with the node id breaking a tie. The
   picker is no longer create-time only; the detail screen's Coordinator row opens it. See §7.
+* **A revoked light node does not know it has been removed** (M8b). The Group screen can remove
+  this device's own light-node membership — which is the right thing when the phone is lost — but
+  the app carries on as though nothing happened: `MeshProvider.syncGroups()` only joins groups the
+  light node has not joined, so it keeps trying to dial peers that refuse it and playback silently
+  falls back to home-node proxying. What it should do is notice the refusal, drop the group locally,
+  and say so. See §7.
 * **No iOS.** The FFI crate builds a `staticlib` and uniffi can emit Swift, but there is no iOS
   code here by decision.
 * **Re-sharing from a phone is deliberately impossible.** A light node serves nothing. If phones
