@@ -830,7 +830,15 @@ async fn probe(
         ));
     }
 
-    let result = crate::probe::probe(&body.host, body.port).await;
+    // Loopback is a permitted target only on a coordinator that is itself bound to loopback, for
+    // the reason `parse_public_ip` allows a loopback `pub` there: nothing outside this machine can
+    // reach such a coordinator, so it cannot be aimed at anybody.
+    let result = crate::probe::probe(
+        &body.host,
+        body.port,
+        state.cfg.http.bind.ip().is_loopback(),
+    )
+    .await;
     // Update-only, so a probe can never be the thing that makes a node appear registered. It can
     // still miss: a registration that expires during the six seconds a probe may take leaves
     // nothing to write to, and losing one reachability result is not worth failing the request for.

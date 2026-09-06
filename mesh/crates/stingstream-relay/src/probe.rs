@@ -155,9 +155,12 @@ pub struct ProbeResult {
 /// [`crate::http::probe_target_allowed`]. This half enforces the other rule: whatever the name
 /// resolves to has to be an address on the public internet, and it is that address that gets
 /// dialled.
-pub async fn probe(host: &str, port: u16) -> ProbeResult {
+/// `allow_loopback` is set only when this coordinator is itself bound to loopback — see
+/// [`resolve_reachable`].
+pub async fn probe(host: &str, port: u16, allow_loopback: bool) -> ProbeResult {
     let started = std::time::Instant::now();
-    let outcome = tokio::time::timeout(PROBE_TIMEOUT, attempt(host, port)).await;
+    let outcome =
+        tokio::time::timeout(PROBE_TIMEOUT, attempt(host, port, allow_loopback)).await;
     let (reach, detail) = match outcome {
         Ok(Ok(())) => (Reachability::Ok, None),
         Ok(Err(f)) => (Reachability::Blocked, Some(f.to_string())),
@@ -172,8 +175,12 @@ pub async fn probe(host: &str, port: u16) -> ProbeResult {
     }
 }
 
-async fn attempt(host: &str, port: u16) -> std::result::Result<(), Failure> {
-    let addr = resolve_reachable(host, port).await?;
+async fn attempt(
+    host: &str,
+    port: u16,
+    allow_loopback: bool,
+) -> std::result::Result<(), Failure> {
+    let addr = resolve_reachable(host, port, allow_loopback).await?;
     handshake(host, addr).await.map_err(|e| classify(&e))
 }
 
@@ -184,14 +191,28 @@ async fn attempt(host: &str, port: u16) -> std::result::Result<(), Failure> {
 /// it is somebody aiming this coordinator at its own metadata service and hoping the resolver
 /// shuffles the answers in their favour. Refusing the whole name is the only answer that does not
 /// depend on luck.
-pub async fn resolve_reachable(host: &str, port: u16) -> std::result::Result<SocketAddr, Failure> {
+///
+/// `allow_loopback` widens that to include loopback, and **only** loopback, and is set only when
+/// this coordinator is itself bound to a loopback address. A coordinator nothing outside the
+/// machine can reach cannot be aimed at anybody: the only things it could probe are things whoever
+/// asked could already reach directly, so the rule buys nothing there and costs the one
+/// arrangement that exercises the whole side door on a single box — which is what
+/// `tools/e2e-sidedoor.ps1` is, and what it started failing on. Everything else stays refused on
+/// both kinds of coordinator, `169.254.169.254` included.
+pub async fn resolve_reachable(
+    host: &str,
+    port: u16,
+    allow_loopback: bool,
+) -> std::result::Result<SocketAddr, Failure> {
     // `lookup_host` blocks a worker thread on the platform resolver, which is why the whole probe
     // sits inside a timeout rather than trusting this to return.
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
         .await
         .map_err(|_| Failure::Blocked)?
         .collect();
-    if addrs.is_empty() || !addrs.iter().all(|a| is_reachable(a.ip())) {
+    let permitted =
+        |ip: IpAddr| is_reachable(ip) || (allow_loopback && ip.is_loopback());
+    if addrs.is_empty() || !addrs.iter().all(|a| permitted(a.ip())) {
         return Err(Failure::Blocked);
     }
     addrs.into_iter().next().ok_or(Failure::Blocked)
@@ -350,7 +371,7 @@ mod tests {
             }
         });
 
-        let r = probe("localhost", addr.port()).await;
+        let r = probe("localhost", addr.port(), false).await;
         assert_eq!(r.direct_https, Reachability::Blocked);
         assert_eq!(r.detail.as_deref(), Some("blocked"));
         assert!(
@@ -359,11 +380,32 @@ mod tests {
         );
     }
 
+    /// The single-box exception, and how far it goes.
+    ///
+    /// A coordinator bound to loopback may probe loopback, because nothing outside its machine can
+    /// reach it and so it cannot be aimed at anybody. It may not probe anything *else* that
+    /// `is_reachable` refuses, and no other coordinator may probe loopback at all.
+    #[tokio::test]
+    async fn a_loopback_coordinator_may_probe_loopback_and_nothing_else_may() {
+        assert!(resolve_reachable("127.0.0.1", 443, true).await.is_ok());
+        assert!(resolve_reachable("127.0.0.1", 443, false).await.is_err());
+
+        // The address this whole check exists for stays refused either way.
+        assert_eq!(
+            resolve_reachable("169.254.169.254", 80, true).await,
+            Err(Failure::Blocked)
+        );
+        assert_eq!(
+            resolve_reachable("10.0.0.1", 443, true).await,
+            Err(Failure::Blocked)
+        );
+    }
+
     #[tokio::test]
     async fn resolution_refuses_a_loopback_name_and_an_unresolvable_one_the_same_way() {
-        assert_eq!(resolve_reachable("localhost", 443).await, Err(Failure::Blocked));
+        assert_eq!(resolve_reachable("localhost", 443, false).await, Err(Failure::Blocked));
         assert_eq!(
-            resolve_reachable("this-host-does-not-exist.invalid", 443).await,
+            resolve_reachable("this-host-does-not-exist.invalid", 443, false).await,
             Err(Failure::Blocked)
         );
     }
