@@ -36,7 +36,6 @@ const ROW_HEIGHT = 80;
 const TIME_HEADER_HEIGHT = 44;
 const CHANNELS_PER_PAGE = 20;
 const MIN_PROGRAM_WIDTH = 80;
-const HORIZONTAL_PADDING = 60;
 
 // Channel label component
 const ChannelLabel: React.FC<{

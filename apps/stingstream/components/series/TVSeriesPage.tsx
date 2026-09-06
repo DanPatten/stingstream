@@ -44,8 +44,6 @@ import { scaleSize } from "@/utils/scaleSize";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const HORIZONTAL_PADDING = scaleSize(80);
-const TOP_PADDING = scaleSize(140);
 const POSTER_WIDTH_PERCENT = 0.22;
 const SCALE_PADDING = scaleSize(20);
 
