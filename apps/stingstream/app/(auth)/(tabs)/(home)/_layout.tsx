@@ -8,7 +8,7 @@ import {
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import {
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useStackScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
@@ -46,13 +46,13 @@ export const unstable_settings = { anchor: "index" };
 export default function IndexLayout() {
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
+  const screenOptions = useStackScreenOptions();
 
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={screenOptions}>
       <Stack.Screen
         name='index'
         options={{
-          headerShown: !Platform.isTV,
           headerTitle: t("tabs.home"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -259,7 +259,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/admin/page'
         options={{
-          title: "Admin",
+          title: "Users & libraries",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -269,7 +269,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/node/page'
         options={{
-          title: "Node status",
+          title: "Server status",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -279,7 +279,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/groups/page'
         options={{
-          title: "Groups",
+          title: "Sharing",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",

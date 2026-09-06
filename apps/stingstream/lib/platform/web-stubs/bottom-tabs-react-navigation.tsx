@@ -22,7 +22,13 @@
 
 import { createBottomTabNavigator } from "expo-router/js-tabs";
 import type { ComponentProps } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icon } from "@/components/common/Icon";
+import { Text } from "@/components/common/Text";
+import { tabIcon, tabTestID } from "@/components/shell/tabIcons";
+import { tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 const { Navigator: JsBottomTabNavigator } = createBottomTabNavigator();
 
@@ -43,20 +49,35 @@ type NativeOnlyNavigatorProps = {
   tabBarInactiveTintColor?: string;
 };
 
-const ACTIVE_TINT_FALLBACK = "#9333EA";
-const INACTIVE_TINT_FALLBACK = "#8E8E93";
-const BAR_BACKGROUND_FALLBACK = "#121212";
+/** The bar's own height, before the device's bottom inset is added. */
+const TAB_BAR_HEIGHT = 56;
 
-function WebTabBar({
-  state,
-  descriptors,
-  navigation,
-  backgroundColor,
-  activeTintColor,
-  inactiveTintColor,
-}: any) {
+/**
+ * The compact web tab bar.
+ *
+ * The native navigator's `tabBarIcon` returns an SF Symbol descriptor on iOS
+ * and a `require()`d PNG on Android; on web it returns `{ sfSymbol }`, which is
+ * an object nothing can draw — which is why this bar was six words in a row
+ * with no glyphs at all. So it does not consult `tabBarIcon`: it draws the same
+ * `Icon` the desktop sidebar draws, from the same table
+ * (`components/shell/tabIcons.ts`), so a tab looks the same at 390 px as it
+ * does at 1440.
+ */
+function WebTabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+  const { accent } = useTheme();
+
   return (
-    <View style={[styles.bar, { backgroundColor }]}>
+    <View
+      accessibilityRole='tablist'
+      style={[
+        styles.bar,
+        {
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         // The native navigator's way of hiding a tab; no JS equivalent.
@@ -71,27 +92,44 @@ function WebTabBar({
             target: route.key,
             canPreventDefault: true,
           });
-          if (!focused && !event.defaultPrevented) {
-            navigation.navigate(route.name, route.params);
-          }
+          if (focused || event.defaultPrevented) return;
+          // `target: state.key` is load bearing. Without it the action bubbles
+          // to the parent navigator, which has no route called `(favorites)`,
+          // and the press does nothing at all — the bug WP-TOOLS recorded in
+          // docs/UI-LOOP.md ("the desktop-width bottom tab bar does not
+          // navigate"). Written out rather than built with
+          // `CommonActions.navigate` because expo-router's Metro check rejects
+          // a direct `@react-navigation/*` import.
+          navigation.dispatch({
+            type: "NAVIGATE",
+            payload: { name: route.name, params: route.params, merge: true },
+            target: state.key,
+          });
         };
 
         return (
           <Pressable
             key={route.key}
-            accessibilityRole='button'
-            accessibilityState={focused ? { selected: true } : {}}
+            accessibilityRole='tab'
+            accessibilityState={{ selected: focused }}
             accessibilityLabel={options?.tabBarAccessibilityLabel ?? label}
-            testID={options?.tabBarButtonTestID ?? `tab-${route.name}`}
+            testID={options?.tabBarButtonTestID ?? tabTestID(route.name)}
             onPress={onPress}
             style={styles.item}
           >
+            <Icon
+              name={tabIcon(route.name)}
+              size={22}
+              color={focused ? accent[500] : tokens.color.text.tertiary}
+            />
             <Text
+              variant='micro'
+              weight={focused ? "semibold" : "medium"}
               numberOfLines={1}
-              style={[
-                styles.label,
-                { color: focused ? activeTintColor : inactiveTintColor },
-              ]}
+              style={{
+                marginTop: 2,
+                color: focused ? accent[500] : tokens.color.text.tertiary,
+              }}
             >
               {label}
             </Text>
@@ -107,19 +145,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
     justifyContent: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.12)",
-    minHeight: 52,
+    borderTopWidth: 1,
+    borderTopColor: tokens.color.border.subtle,
+    backgroundColor: tokens.color.bg["1"],
   },
   item: {
     flexGrow: 1,
     flexBasis: 0,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
-  label: { fontSize: 13, fontWeight: "600" },
 });
 
 function NativeBottomTabsWebNavigator({
@@ -131,9 +167,9 @@ function NativeBottomTabsWebNavigator({
   disablePageAnimations: _disablePageAnimations,
   labeled: _labeled,
   rippleColor: _rippleColor,
-  tabBarStyle,
-  tabBarActiveTintColor,
-  tabBarInactiveTintColor,
+  tabBarStyle: _tabBarStyle,
+  tabBarActiveTintColor: _tabBarActiveTintColor,
+  tabBarInactiveTintColor: _tabBarInactiveTintColor,
   screenOptions,
   ...rest
 }: NativeOnlyNavigatorProps & Record<string, any>) {
@@ -146,16 +182,7 @@ function NativeBottomTabsWebNavigator({
           ...(typeof screenOptions === "object" ? screenOptions : null),
         } as any
       }
-      tabBar={(props: any) => (
-        <WebTabBar
-          {...props}
-          backgroundColor={
-            tabBarStyle?.backgroundColor ?? BAR_BACKGROUND_FALLBACK
-          }
-          activeTintColor={tabBarActiveTintColor ?? ACTIVE_TINT_FALLBACK}
-          inactiveTintColor={tabBarInactiveTintColor ?? INACTIVE_TINT_FALLBACK}
-        />
-      )}
+      tabBar={(props: any) => <WebTabBar {...props} />}
     />
   );
 }

@@ -5,7 +5,7 @@ import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import {
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useStackScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 import useRouter from "@/hooks/useAppRouter";
 import { useStreamystatsEnabled } from "@/hooks/useWatchlists";
@@ -20,13 +20,13 @@ export default function WatchlistsLayout() {
   const { t } = useTranslation();
   const router = useRouter();
   const streamystatsEnabled = useStreamystatsEnabled();
+  const screenOptions = useStackScreenOptions();
 
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={screenOptions}>
       <Stack.Screen
         name='index'
         options={{
-          headerShown: !Platform.isTV,
           headerTitle: t("watchlists.title"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",

@@ -13,11 +13,13 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
+import { WebShellLayout } from "@/components/shell/WebShellLayout";
 import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
 import type { TVNavBarTab } from "@/components/tv/TVNavBar";
 import { TVNavBar } from "@/components/tv/TVNavBar";
 import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   isAtTabRoot,
   isTabRoute,
@@ -155,12 +157,21 @@ export default function TabLayout() {
   // packages/api-client) — hide the tabs entirely for non-admins rather than
   // showing a permanently-blocked screen.
   const isStingStreamAdmin = !!user?.Policy?.IsAdministrator;
+  const { isCompact } = useBreakpoint();
 
   // Must be called before any conditional return (rules of hooks)
   useTVHomeBackHandler();
 
   if (IS_ANDROID_TV) {
     return <TVTabLayout />;
+  }
+
+  // A browser window 768 px or wider gets the desktop shell — sidebar, top bar
+  // and a Stack — instead of a bottom tab bar sized for a thumb. Crossing that
+  // width remounts the navigator, which is accepted and explained in
+  // `components/shell/WebShellLayout.tsx`; the key makes it explicit.
+  if (Platform.OS === "web" && !isCompact) {
+    return <WebShellLayout key='web-shell' />;
   }
 
   return (

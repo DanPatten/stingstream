@@ -4,17 +4,17 @@ import { Platform } from "react-native";
 import {
   commonScreenOptions,
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useStackScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 
 export default function SearchLayout() {
   const { t } = useTranslation();
+  const screenOptions = useStackScreenOptions();
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={screenOptions}>
       <Stack.Screen
         name='index'
         options={{
-          headerShown: !Platform.isTV,
           headerTitle: t("tabs.search"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",

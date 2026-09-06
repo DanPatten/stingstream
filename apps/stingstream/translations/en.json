@@ -1028,13 +1028,22 @@
     "title": "This screen doesn't exist.",
     "go_home": "Go to home screen!"
   },
+  "shell": {
+    "libraries": "Libraries",
+    "sharing": "Sharing",
+    "account": "Account",
+    "sign_out": "Sign out"
+  },
   "tabs": {
     "home": "Home",
     "search": "Search",
     "library": "Library",
     "custom_links": "Custom links",
     "favorites": "Favorites",
-    "settings": "Settings"
+    "settings": "Settings",
+    "requests": "Requests",
+    "manage": "Manage",
+    "transfers": "Transfers"
   },
   "music": {
     "title": "Music",

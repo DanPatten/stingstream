@@ -7,7 +7,7 @@ import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { PlatformDropdown } from "@/components/PlatformDropdown";
 import {
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useStackScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 import { useSettings } from "@/utils/atoms/settings";
 
@@ -28,6 +28,7 @@ export default function IndexLayout() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const { t } = useTranslation();
+  const screenOptions = useStackScreenOptions();
 
   // Reset dropdown state when component unmounts or navigates away
   useEffect(() => {
@@ -166,11 +167,10 @@ export default function IndexLayout() {
   if (!settings?.libraryOptions) return null;
 
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={screenOptions}>
       <Stack.Screen
         name='index'
         options={{
-          headerShown: !Platform.isTV,
           headerTitle: t("tabs.library"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
