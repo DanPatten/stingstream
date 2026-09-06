@@ -69,18 +69,25 @@ binary's own location; pass `--repo-root` if you are running from somewhere odd.
 The node prints a banner naming everything you need:
 
 ```
-StingStream node "attic" is up.
-  Gateway      http://127.0.0.1:8790
+StingStream "attic" is up.
+  Open         http://127.0.0.1:8790
   Health       http://127.0.0.1:8790/healthz
   StingStream  http://127.0.0.1:8790/stingstream/api/v1/
-  Jellyfin     http://127.0.0.1:8790/jellyfin/
+  Media API    http://127.0.0.1:8790/jellyfin/
+  Sharing      http://127.0.0.1:8790/stingstream/mesh/v1/status
   Data         C:\Users\dan\AppData\Local\StingStream
   Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)
 
-  First run. The Jellyfin administrator account is being created as:
-    username  stingstream
-    password  Cj4o7pMZoefe8YQSd3w4n4jY
+  First run: open http://127.0.0.1:8790 to create your account.
 ```
+
+**It prints no credentials, on purpose.** It used to print the generated administrator username
+and password, which was wrong twice over: a Windows service's stderr goes nowhere at all, so the
+one audience who most needed it never saw it, and on a console it put a working password into
+scrollback, screenshots and CI logs. The account is created on the first screen the app shows
+instead, and only a browser **on this machine** may create it — the gateway refuses
+`/stingstream/api/v1/setup/admin` to any other peer, and from a phone the app says to finish setup
+on the computer running StingStream.
 
 Useful flags:
 
@@ -92,6 +99,7 @@ Useful flags:
 | `--no-children` | run the gateway alone, so you can start a child under a debugger |
 | `--install-root <DIR>` | production mode: children live under `<DIR>/bin/<child>/` |
 | `--web-dist <DIR>` | serve a built web bundle at `/` (default: `apps/stingstream/dist` in `--dev`, `<install>/web` otherwise) |
+| `--web-dev-server <URL>` | **development only**: proxy `/` to a running Metro dev server instead, e.g. `http://127.0.0.1:8081` |
 | `--join-code <CODE>` | join a group from an invite code on start; also `$STINGSTREAM_JOIN_CODE` |
 | `--join-code-file <PATH>` | read that code from a file instead; also `$STINGSTREAM_JOIN_CODE_FILE` |
 | `--healthcheck` | ask a node at `--data-dir` whether it is healthy, exit 0/1, start nothing |
@@ -156,6 +164,55 @@ behind. `index.html` is served with `no-cache` and content-hashed assets with `i
 path that is not a file falls back to `index.html` so the app's own routing works — except a path
 that looks like an asset, which gets a real 404 (a missing `.js` answered with HTML fails as
 "Unexpected token '<'" somewhere unrelated, and that is a bad afternoon).
+
+**The page is told it is being served by a node.** Every `index.html` response — the file itself
+and the SPA-fallback path, never an asset — is spliced at serve time, before `</head>`, with:
+
+```html
+<meta name="stingstream-node" content="1">
+<script>window.__STINGSTREAM_NODE__={"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1",
+  "loopback":true,"setupPending":true,"nodeName":"attic","version":"0.2.0"}</script>
+```
+
+so the app knows before first paint that it is on a node, which server it is, and whether to show
+the setup screen — rather than flashing a "which server?" form while a probe is in flight. It is
+injected rather than built in, so the same bundle served by `npx serve` correctly reports that it
+is *not* a node. Two of the fields are per request, which is why `index.html` is `no-cache`:
+`loopback` is this connection's real socket peer (not anything the client claimed), and
+`setupPending` is the gateway's cached view of whether anybody has created an account here yet —
+`true`, `false`, or `null` when nobody has been able to ask the server's Core yet. `/healthz`
+carries the same boolean as `setup_pending`.
+
+### Iterating on the app against a real node (`--web-dev-server`)
+
+Exporting the bundle for every edit is a minute you do not need to spend. Point the node at a
+running Metro dev server instead and an edit is on screen in seconds, hot reload included:
+
+```powershell
+# One terminal: Metro, on its own port. `bunx expo start`, never `bun run start`, which also runs
+# `git submodule update`.
+cd apps/stingstream
+bunx expo start --web --port 8081
+
+# Another: a node that proxies / to it.
+cargo run --manifest-path mesh/Cargo.toml -p stingstream -- --dev --web-dev-server http://127.0.0.1:8081
+```
+
+Then open the **node's** URL (`http://127.0.0.1:8790/`), not Metro's. That is the whole point:
+Jellyfin's `CorsHosts` is deliberately empty and the gateway adds no CORS header, so a page loaded
+from `:8081` could not call the node's API at all. Served through the node it is same-origin, the
+marker above is spliced into what Metro returns, and `/hot` and `/message` upgrade to WebSockets
+through the same splice `/jellyfin/socket` uses, so fast refresh works. Every route the gateway
+already claims — `/jellyfin`, `/stingstream`, `/healthz`, `/stream`, `/sidedoor`, and `/radarr`,
+`/sonarr`, `/nzbget` in `--dev` — is untouched.
+
+`gateway.web_dev_server` in `config.toml` does the same and is **ignored outside `--dev`**: an
+installed server proxying its front page to somebody's laptop because of a stale config file is
+not a mistake worth leaving available. Passing `--web-dev-server` on the command line works in
+either mode, because typing it is an explicit choice.
+
+What ships is still the exported bundle, so take screenshots and run acceptance against
+`bunx expo export --platform web` output served with `--web-dist`, not against Metro.
 
 ### The mesh
 
@@ -354,12 +411,17 @@ pushed into a child.
 # Supervisor and child states. 200 when everything is healthy, 503 when not.
 curl http://127.0.0.1:8790/healthz
 
-# The StingStream API needs a Jellyfin token, because it *is* Jellyfin's auth.
+# The StingStream API needs a token from the media API, because it *is* that auth.
+# Use the account you created on the setup screen. On a node nobody has set up yet,
+# runtime.json still carries the generated bootstrap one -- and only until setup completes,
+# after which the supervisor removes it (see "First run" above).
 $rt = Get-Content $env:LOCALAPPDATA\StingStream\runtime.json | ConvertFrom-Json
+$user = Read-Host 'username'
+$pw   = Read-Host 'password'          # or: $rt.jellyfin_admin.password, before setup
 $auth = Invoke-RestMethod -Method POST http://127.0.0.1:8790/jellyfin/Users/AuthenticateByName `
   -Headers @{ Authorization = 'MediaBrowser Client="cli", Device="cli", DeviceId="cli", Version="1"' } `
   -ContentType 'application/json' `
-  -Body (@{ Username = $rt.jellyfin_admin.username; Pw = $rt.jellyfin_admin.password } | ConvertTo-Json)
+  -Body (@{ Username = $user; Pw = $pw } | ConvertTo-Json)
 $h = @{ Authorization = "MediaBrowser Token=`"$($auth.AccessToken)`"" }
 
 Invoke-RestMethod http://127.0.0.1:8790/stingstream/api/v1/status -Headers $h
@@ -401,21 +463,29 @@ the qBittorrent-compatible API, import, webhook, Jellyfin item — then plays th
 node to prove it all comes back.
 
 ```powershell
-pwsh tools/e2e-m1.ps1                       # the whole thing
-pwsh tools/e2e-m1.ps1 -SkipBuild            # when iterating
-pwsh tools/e2e-m1.ps1 -KeepRunning          # leave the node up afterwards to poke at
+pwsh tools/e2e-m1.ps1                                          # the whole thing
+pwsh tools/e2e-m1.ps1 -SkipBuild                               # when iterating
+pwsh tools/e2e-m1.ps1 -KeepRunning                             # leave the node up to poke at
+pwsh tools/e2e-m1.ps1 -PrivateCopy E:\...\.win-temp\m1-run     # and do not hold the build outputs
 ```
 
 It uses gateway port 8791 and ephemeral child ports, so it does not collide with a development
-node you already have running.
+node you already have running. Its work directory lives beside the repository, not inside it, and
+it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
+was rejected, and the logs it leaves behind are the whole point when a step fails.
 
-> **It has no `-PrivateCopy`, unlike `tools/e2e-m4.ps1`** — its node runs straight out of the
-> repository's build outputs, so while it is up (and especially with `-KeepRunning`) nobody can
-> `dotnet build server/jellyfin/Jellyfin.Server`. Worse on Windows: stopping the *supervisor* by
-> name orphans its children rather than taking them with it (see "Known limitations in M1"), so a
-> node you believe you have stopped can still be holding `StingStream.Core.dll`. If a build fails
-> with `MSB3027 … locked by: Jellyfin.Server`, look for orphaned `jellyfin.exe`, `Radarr.Console.exe`
-> and `nzbget.exe` whose *paths* are under `server/**` and `third_party/**` and stop those too.
+> **Use `-PrivateCopy <dir>`**, which this harness has had since M8b (it calls
+> `New-PrivateInstallRoot -WithArrs` from `tools/e2e-common.ps1`, so the arrs are copied too).
+> Without it the node runs straight out of the repository's build outputs, and while it is up (and
+> especially with `-KeepRunning`) nobody can `dotnet build server/jellyfin/Jellyfin.Server`. Worse
+> on Windows: stopping the *supervisor* by name orphans its children rather than taking them with
+> it (see "Known limitations in M1"), so a node you believe you have stopped can still be holding
+> `StingStream.Core.dll`. If a build fails with `MSB3027 … locked by: Jellyfin.Server`, look for
+> orphaned `jellyfin.exe`, `Radarr.Console.exe` and `nzbget.exe` whose *paths* are under `server/**`
+> and `third_party/**` and stop those too.
+>
+> `tools/e2e-m6.ps1` and `tools/e2e-m7.ps1` have it as well. `e2e-m3`, `e2e-m8` and
+> `e2e-sidedoor` do not — see each one's own section for whether that matters.
 >
 > **The same trap catches `tools/seeder` and `tools/torznab-stub`, and it is nastier**, because
 > those two are `dotnet.exe` and so invisible to a search by process name. M8b's regression lost
@@ -430,11 +500,7 @@ node you already have running.
 > Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" |
 >   Where-Object { $_.CommandLine -match 'seeder|torznab' } |
 >   Select-Object ProcessId, CreationDate, CommandLine
-> ``` Giving
-> this harness the same `-PrivateCopy` treatment M4's has — `New-PrivateInstallRoot -WithArrs` in
-> `tools/e2e-common.ps1` copies the arrs as well — is the real fix and is still to do. Its work directory lives beside the repository, not inside it, and
-it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
-was rejected, and the logs it leaves behind are the whole point when a step fails.
+> ```
 
 A passing run takes about two minutes on a warm machine and prints a timed line per step. When one
 fails, the first place to look is `<work>/logs/` (the harness's own processes) and
@@ -618,8 +684,8 @@ A running node holds `mesh/target/debug/` and `server/*/bin/` open, so nobody ca
 up — including you, and including whoever else is working in the checkout. On a machine several
 people (or several agents) share, that is not a nicety.
 
-`-PrivateCopy <dir>` makes the M4 harness copy the supervisor, Jellyfin's build output and ffmpeg
-into `<dir>` laid out as an install root, and run the nodes from there with `--install-root`:
+`-PrivateCopy <dir>` makes a harness copy the supervisor, Jellyfin's build output and ffmpeg into
+`<dir>` laid out as an install root, and run its nodes from there with `--install-root`:
 
 ```powershell
 powershell tools\e2e-m4.ps1 -SkipBuild `
@@ -627,8 +693,17 @@ powershell tools\e2e-m4.ps1 -SkipBuild `
     -WorkDir     E:\Dan\Documents\Repos\.win-temp\m4-work
 ```
 
+**`e2e-m1`, `e2e-m4`, `e2e-m6` and `e2e-m7` all take it**, and on a shared checkout you should
+always pass it. `e2e-m3` and `e2e-sidedoor` do not have it yet; `e2e-m8` has nothing to copy
+(standalone mesh nodes, no Jellyfin).
+
 The copy is made once and reused; `-Force` remakes it after a rebuild. CI has a checkout to itself
 and does not use it.
+
+For a node you are starting **by hand** rather than through a harness, the equivalent is
+`tools/package-node.ps1 -Rid win-x64 -OutDir <dir>` (it has no `-PrivateCopy` switch; `-OutDir` is
+the whole of it), and then `stingstream --install-root <dir>`. `tools/e2e-common.ps1`'s
+`New-PrivateInstallRoot` is the faster path when you only need the supervisor, Jellyfin and ffmpeg.
 
 ---
 
