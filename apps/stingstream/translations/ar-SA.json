@@ -690,7 +690,6 @@
       "dropped_frames": "تم إسقاط: {{count}} إطار",
       "loading": "جار التحميل..."
     },
-    "mpv_player_title": "مشغّل MPV",
     "aspect_ratio": "نسبة العرض إلى الارتفاع",
     "aspect_ratio_original": "الأصلية",
     "hash_match": "تطابق Hash",

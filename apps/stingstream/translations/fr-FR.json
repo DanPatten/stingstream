@@ -720,7 +720,6 @@
       "dropped_frames": "Images perdues : {{count}}",
       "loading": "Chargement..."
     },
-    "mpv_player_title": "Lecteur MPV",
     "aspect_ratio": "Format d'image",
     "aspect_ratio_original": "Original",
     "hash_match": "Correspondance de hash",

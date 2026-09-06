@@ -690,7 +690,6 @@
       "dropped_frames": "Mất: {{count}} khung hình",
       "loading": "Đang tải..."
     },
-    "mpv_player_title": "Trình phát MPV",
     "aspect_ratio": "Tỷ lệ khung hình",
     "aspect_ratio_original": "Gốc",
     "hash_match": "Khớp hash",

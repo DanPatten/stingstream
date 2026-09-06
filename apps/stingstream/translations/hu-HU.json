@@ -690,7 +690,6 @@
       "dropped_frames": "Eldobva: {{count}} képkocka",
       "loading": "Betöltés..."
     },
-    "mpv_player_title": "MPV lejátszó",
     "aspect_ratio": "Képarány",
     "aspect_ratio_original": "Eredeti",
     "hash_match": "Hash-egyezés",

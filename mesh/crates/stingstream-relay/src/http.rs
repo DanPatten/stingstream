@@ -619,7 +619,7 @@ async fn register(
         )));
     }
     let lan = parse_lan_ip(body.lan.as_deref())?;
-    let public = parse_public_ip(body.public.as_deref())?;
+    let public = parse_public_ip(body.public.as_deref(), state.cfg.http.bind.ip().is_loopback())?;
     state.registry.register(&node, lan, public, body.mapped_port)?;
     state.remember_endpoint(endpoint_addr(&key, &body));
 
@@ -698,10 +698,19 @@ fn parse_ip(s: Option<&str>) -> ApiResult<Option<std::net::IpAddr>> {
 /// nothing, so "register `169.254.169.254` as my public address, then ask for a probe of it" was a
 /// complete way round the hostname rule. It is also the address that goes into the `pub.<nodeid>`
 /// record, and publishing a private address in public DNS helps nobody.
-fn parse_public_ip(s: Option<&str>) -> ApiResult<Option<std::net::IpAddr>> {
+fn parse_public_ip(
+    s: Option<&str>,
+    loopback_coordinator: bool,
+) -> ApiResult<Option<std::net::IpAddr>> {
     let parsed = parse_ip(s)?;
     if let Some(ip) = parsed {
-        if !crate::probe::is_reachable(ip) {
+        // A coordinator that is itself bound to loopback is a coordinator nothing outside this
+        // machine can reach, which makes it a test rig or a development run and not something an
+        // attacker can point at anybody. Refusing a loopback `pub` there buys nothing and costs the
+        // one arrangement that exercises the whole side door on a single box — which is exactly
+        // what `tools/e2e-sidedoor.ps1` is, and what it started failing on the moment this check
+        // arrived. The rule still applies in full to every coordinator anyone can dial.
+        if !crate::probe::is_reachable(ip) && !(loopback_coordinator && ip.is_loopback()) {
             return Err(ApiError::bad_request(format!(
                 "{ip} is not a public address, so it cannot be this node's public address"
             )));
@@ -1052,15 +1061,41 @@ mod tests {
     fn a_private_address_cannot_be_registered_as_a_public_one() {
         for refused in ["127.0.0.1", "169.254.169.254", "10.0.0.1", "192.168.1.5", "::1"] {
             assert!(
-                parse_public_ip(Some(refused)).is_err(),
+                parse_public_ip(Some(refused), false).is_err(),
                 "{refused} must not be registrable as a public address"
             );
         }
         assert_eq!(
-            parse_public_ip(Some("203.0.113.9")).unwrap(),
+            parse_public_ip(Some("203.0.113.9"), false).unwrap(),
             Some("203.0.113.9".parse().unwrap())
         );
-        assert_eq!(parse_public_ip(None).unwrap(), None);
+        assert_eq!(parse_public_ip(None, false).unwrap(), None);
+    }
+
+    /// The one exception, and only the one.
+    ///
+    /// A coordinator bound to loopback cannot be reached from anywhere but the machine it runs on,
+    /// so a loopback `pub` registered against it is a whole side door on a single box — which is
+    /// what `tools/e2e-sidedoor.ps1` is, and what the check above broke the moment it landed.
+    /// Nothing else is let through, on either kind of coordinator.
+    #[test]
+    fn a_coordinator_on_loopback_accepts_a_loopback_address_and_nothing_else_does() {
+        assert_eq!(
+            parse_public_ip(Some("127.0.0.1"), true).unwrap(),
+            Some("127.0.0.1".parse().unwrap())
+        );
+        assert_eq!(
+            parse_public_ip(Some("::1"), true).unwrap(),
+            Some("::1".parse().unwrap())
+        );
+        // The link-local metadata address is the one this whole check exists for, and a loopback
+        // coordinator does not make it acceptable.
+        for still_refused in ["169.254.169.254", "10.0.0.1", "192.168.1.5"] {
+            assert!(
+                parse_public_ip(Some(still_refused), true).is_err(),
+                "{still_refused} is not loopback and must stay refused"
+            );
+        }
     }
 
     #[test]

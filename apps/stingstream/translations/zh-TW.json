@@ -690,7 +690,6 @@
       "dropped_frames": "丟棄：{{count}}影格",
       "loading": "載入中..."
     },
-    "mpv_player_title": "MPV Player",
     "aspect_ratio": "長寬比",
     "aspect_ratio_original": "原始",
     "hash_match": "雜湊比對",

@@ -690,7 +690,6 @@
       "dropped_frames": "הושמטו: {{count}} פריימים",
       "loading": "טוען..."
     },
-    "mpv_player_title": "נגן MPV",
     "aspect_ratio": "יחס גובה-רוחב",
     "aspect_ratio_original": "מקורי",
     "hash_match": "התאמת Hash",

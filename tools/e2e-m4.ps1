@@ -344,8 +344,24 @@ function Invoke-PlaybackInfo {
 }
 
 function Get-MeshSourcePath {
+    <#
+    .SYNOPSIS
+        A federated source's stream URL, without the signature M8b puts on the end of it.
+    .DESCRIPTION
+        `MediaSourceInfo.Path` is now
+        `https://stingstream.local/stream/{group}/{item_key}/{node}?exp=...&sig=...` -- the node
+        signs the URL it hands a client, so that the three path segments stop being the only thing
+        standing between a removed member and everything the group holds
+        (`gateway/streamurl.rs`). Every assertion in this harness is about *which node* a source
+        names, so the query is noise here; a `-like "*/$meshId"` test against the signed form fails
+        for a reason that has nothing to do with what is being asserted, which is how this was
+        found.
+    #>
     param($Source)
-    return [string](Get-Member-Value $Source 'Path')
+    $path = [string](Get-Member-Value $Source 'Path')
+    $q = $path.IndexOf('?')
+    if ($q -ge 0) { return $path.Substring(0, $q) }
+    return $path
 }
 
 function Resolve-PlaylistRef {

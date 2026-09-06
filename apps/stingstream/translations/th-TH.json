@@ -690,7 +690,6 @@
       "dropped_frames": "หลุด: {{count}} เฟรม",
       "loading": "กำลังโหลด..."
     },
-    "mpv_player_title": "เครื่องเล่น MPV",
     "aspect_ratio": "อัตราส่วนภาพ",
     "aspect_ratio_original": "ต้นฉบับ",
     "hash_match": "แฮชตรงกัน",

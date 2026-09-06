@@ -632,7 +632,20 @@ mod tests {
                     .await
                     .unwrap()
             });
-        assert_eq!(body, "ok");
+        // `/healthz` grew a body in M8b -- `{"ok":true,"protocol":"1.1"}` -- so that a group split
+        // by protocol version can be told apart from one split by a network problem without
+        // reading a log. It is still two bytes on a healthy node in the sense that matters: what
+        // is asserted here is that the listener is the one this handle reported a port for.
+        let body: serde_json::Value = serde_json::from_str(&body).expect("healthz answers JSON");
+        assert_eq!(body["ok"], serde_json::json!(true));
+        assert_eq!(
+            body["protocol"],
+            serde_json::json!(format!(
+                "{}.{}",
+                stingstream_mesh::proto::PROTOCOL_MAJOR,
+                stingstream_mesh::proto::PROTOCOL_MINOR
+            ))
+        );
         h.stop();
     }
 

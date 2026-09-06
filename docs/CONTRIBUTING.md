@@ -1,6 +1,6 @@
 # Working in this repository
 
-Five conventions, each of which exists because ignoring it cost someone real time. The rest of the
+Seven conventions, each of which exists because ignoring it cost someone real time. The rest of the
 docs are per-component: `ARCHITECTURE.md` for the system, `MESH.md` for the mesh, `APP-DEV.md` and
 `APP-MESH.md` for the app, `RUNNING.md` for running a node.
 
@@ -136,3 +136,26 @@ exactly what you intended, and nothing else, before running it.
 
 If a file's *content* also changed, commit that with the normal `--only` pathspec form first (rule
 4), then do the mode-only fix above as its own, separate, bare commit.
+
+## 7. Lint the files you touched, not the repository
+
+`bun run check` (biome) reports **229 errors across the Streamyfin fork**, and has since M0. They
+are upstream's formatting, not ours, and none of them is a bug. Two things follow, and the second is
+the one that matters:
+
+* **Do not run `bun run lint`, `bun run format` or `biome check --write` over the whole tree.** It
+  rewrites hundreds of files nobody is working on, makes every future `git subtree pull` conflict on
+  formatting, and — in a checkout several people share — sweeps other people's uncommitted work into
+  a reformat they did not ask for.
+* **Run it on your own paths**: `bunx biome check --write lib/stingstream/ components/stingstream/`
+  or, more simply, on the files you changed. That is what the StingStream-owned code is held to.
+
+**The repo-wide count is therefore expected to be non-zero**, and `bun run test` (which chains
+`typecheck`, `test:unit`, `lint`, `format`, `i18n:check` and `doctor`) goes red because of it. The
+gates that are actually enforced are `bun run typecheck`, `bun test` and `bun run i18n:check` — all
+three are green and all three are what CI runs.
+
+Fixing the 229 properly means reformatting the fork, which is a decision about upstream tracking
+rather than about code quality: it would make every merge conflict for as long as we pull from
+Streamyfin. Not worth it while we still pull. Revisit when we cut the cord (`ARCHITECTURE.md`,
+"Fork depth").

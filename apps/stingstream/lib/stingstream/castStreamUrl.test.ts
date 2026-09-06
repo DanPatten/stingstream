@@ -17,8 +17,11 @@ const GROUP = "g1";
 const ITEM_KEY = "movie:tmdb:1";
 const HOME_NODE = "home0000homenodehex";
 const PEER_NODE = "peer0000peernodehex";
-const suffix = (node: string) =>
-  `/stream/${encodeURIComponent(GROUP)}/${encodeURIComponent(ITEM_KEY)}/${encodeURIComponent(node)}`;
+/** The signature and expiry a node puts on the URL it hands a client (M8b). */
+const SIG = "?exp=1788652800&sig=79390d70a3e0d063d4e0850e57977759";
+
+const suffix = (node: string, search = "") =>
+  `/stream/${encodeURIComponent(GROUP)}/${encodeURIComponent(ITEM_KEY)}/${encodeURIComponent(node)}${search}`;
 
 /** A `fetch` that answers only the URLs it is told about; anything else rejects. */
 function fakeFetch(
@@ -50,7 +53,12 @@ describe("parseFederatedStreamPath", () => {
       parseFederatedStreamPath(
         `https://stingstream.local/stream/${GROUP}/${ITEM_KEY}/${PEER_NODE}`,
       ),
-    ).toEqual({ group: GROUP, itemKey: ITEM_KEY, node: PEER_NODE });
+    ).toEqual({
+      group: GROUP,
+      itemKey: ITEM_KEY,
+      node: PEER_NODE,
+      search: "",
+    });
   });
 
   test("reads it out of the loopback-rewritten form too — only the path matters", () => {
@@ -58,7 +66,27 @@ describe("parseFederatedStreamPath", () => {
       parseFederatedStreamPath(
         `http://127.0.0.1:41405/stream/${GROUP}/${ITEM_KEY}/${PEER_NODE}?x=1`,
       ),
-    ).toEqual({ group: GROUP, itemKey: ITEM_KEY, node: PEER_NODE });
+    ).toEqual({
+      group: GROUP,
+      itemKey: ITEM_KEY,
+      node: PEER_NODE,
+      search: "?x=1",
+    });
+  });
+
+  test("keeps the signature, because the receiver is refused without it", () => {
+    // M8b: the node signs the stream URL it hands a client, and its gateway refuses an unsigned one
+    // from anywhere but the machine it runs on. A cast receiver is somebody else's television.
+    expect(
+      parseFederatedStreamPath(
+        `https://stingstream.local/stream/${GROUP}/${ITEM_KEY}/${PEER_NODE}${SIG}`,
+      ),
+    ).toEqual({
+      group: GROUP,
+      itemKey: ITEM_KEY,
+      node: PEER_NODE,
+      search: SIG,
+    });
   });
 
   test("null for an ordinary (non-federated) path", () => {
@@ -75,6 +103,25 @@ describe("parseFederatedStreamPath", () => {
 });
 
 describe("resolveCastStreamUrl", () => {
+  test("carries the signature onto the URL the receiver is handed", async () => {
+    // The one that matters. A cast receiver holds no credential of ours and never will, which is
+    // why `/stream/*` takes a signed URL rather than a token — and this function is the only place
+    // on that path that *rebuilds* the URL from its parts instead of rewriting its host, so it is
+    // the only place the signature can be lost. Losing it means every cast fails with a 403 that
+    // looks, from the sofa, exactly like a network problem.
+    const result = (await resolveCastStreamUrl({
+      jellyfinBasePath: "https://jellyfin.example.com",
+      federatedPath: `https://stingstream.local/stream/${GROUP}/${ITEM_KEY}/${PEER_NODE}${SIG}`,
+      // No fetch fixture: every lookup fails, so this lands on the home-node fallback, which is
+      // the path a group with no coordinator always takes.
+    })) as CastStreamResolution;
+
+    expect(result.via).toBe("home");
+    expect(result.url).toBe(
+      `https://jellyfin.example.com${suffix(PEER_NODE, SIG)}`,
+    );
+  });
+
   test("null for a non-federated path — nothing for the caller to do differently", async () => {
     const result = await resolveCastStreamUrl({
       jellyfinBasePath: "https://jellyfin.example.com",

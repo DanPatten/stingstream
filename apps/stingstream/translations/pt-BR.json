@@ -690,7 +690,6 @@
       "dropped_frames": "Perdidos: {{count}} frames",
       "loading": "Carregando..."
     },
-    "mpv_player_title": "MPV Player",
     "aspect_ratio": "Proporção",
     "aspect_ratio_original": "Original",
     "hash_match": "Correspondência de hash",

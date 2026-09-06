@@ -690,7 +690,6 @@
       "dropped_frames": "Zahozeno: {{count}} snímků",
       "loading": "Načítání..."
     },
-    "mpv_player_title": "Přehrávač MPV",
     "aspect_ratio": "Poměr stran",
     "aspect_ratio_original": "Původní",
     "hash_match": "Shoda hash",

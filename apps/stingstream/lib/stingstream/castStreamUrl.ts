@@ -54,34 +54,53 @@ export interface FederatedStreamRef {
   group: string;
   itemKey: string;
   node: string;
+  /**
+   * The URL's query string, including its leading `?`, or `""` when it had none.
+   *
+   * **This is the signature, and dropping it breaks casting.** Since M8b a node signs the stream
+   * URL it hands a client — `?exp=<unix>&sig=<hex>` — and its gateway refuses an unsigned one from
+   * anywhere but the machine it is running on (`mesh/crates/stingstream/src/gateway/streamurl.rs`).
+   * A cast receiver is the furthest thing from that machine there is, so the query has to survive
+   * every hop between `MediaSourceInfo.Path` and `contentUrl`.
+   *
+   * That is also the whole reason the signature is in a query string rather than a header: every
+   * client on this path rewrites the *host* of a `stingstream.local` URL and nothing else, so a
+   * query added at the server rides through untouched — except here, where the URL is rebuilt from
+   * its parts rather than rewritten, which is exactly why this field exists.
+   */
+  search: string;
 }
 
 const STREAM_PATH_RE = /^\/stream\/([^/]+)\/([^/]+)\/([^/]+)\/?$/;
 
 /**
- * Pull `{group, item_key, node}` out of a federated stream URL or bare path.
+ * Pull `{group, item_key, node, search}` out of a federated stream URL or bare path.
  *
  * Works on the raw `stingstream.local` form and on the loopback-rewritten form alike — both carry
  * the same `/stream/...` path, and this only ever reads the path, never the host — so it does not
  * matter whether `utils/mesh/streamUrl.ts` already rewrote the URL for the native player by the
  * time a caller gets here. `null` for anything else, including an ordinary (non-federated)
  * `MediaSourceInfo.Path`, which is the common case and not an error.
+ *
+ * The query comes back too, in `search`, and callers that rebuild a URL from these parts must put
+ * it back — it is the node's signature. See {@link FederatedStreamRef.search}.
  */
 export function parseFederatedStreamPath(
   pathOrUrl: string,
 ): FederatedStreamRef | null {
-  let pathname: string;
+  let parsed: URL;
   try {
-    pathname = new URL(pathOrUrl, "http://stingstream.invalid").pathname;
+    parsed = new URL(pathOrUrl, "http://stingstream.invalid");
   } catch {
     return null;
   }
-  const m = STREAM_PATH_RE.exec(pathname);
+  const m = STREAM_PATH_RE.exec(parsed.pathname);
   if (!m) return null;
   return {
     group: decodeURIComponent(m[1]),
     itemKey: decodeURIComponent(m[2]),
     node: decodeURIComponent(m[3]),
+    search: parsed.search,
   };
 }
 
@@ -187,7 +206,9 @@ export async function resolveCastStreamUrl(params: {
 
   const nodeBaseUrl = getNodeBaseUrl(params.jellyfinBasePath);
   const apiBaseUrl = getStingStreamApiBaseUrl(params.jellyfinBasePath);
-  const suffix = `/stream/${encodeURIComponent(ref.group)}/${encodeURIComponent(ref.itemKey)}/${encodeURIComponent(ref.node)}`;
+  // `ref.search` carries the node's signature and expiry, and the receiver is refused without it.
+  // See FederatedStreamRef.search.
+  const suffix = `/stream/${encodeURIComponent(ref.group)}/${encodeURIComponent(ref.itemKey)}/${encodeURIComponent(ref.node)}${ref.search}`;
   const homeFallback: CastStreamResolution = {
     url: `${nodeBaseUrl}${suffix}`,
     via: "home",

@@ -99,6 +99,20 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 
 ## Not vendored (fetched on demand)
 
+### third_party/ffmpeg — jellyfin-ffmpeg
+
+- **Upstream:** https://github.com/jellyfin/jellyfin-ffmpeg
+- Not a git subtree — prebuilt portable release binaries only, fetched by
+  [`third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1`](third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1)
+  into `third_party/ffmpeg/bin/` (gitignored) and copied into `bin/ffmpeg/` of every packaged
+  release (`deploy/node/LAYOUT.md`).
+- **License: GPL-3.0-or-later.** jellyfin-ffmpeg is an FFmpeg build configured with GPL components
+  (x264, x265 and others), so the binaries are GPLv3 rather than FFmpeg's default LGPL. That is
+  compatible with StingStream's own GPL-3.0-or-later, and it is the reason a release cannot be
+  relicensed more permissively without dropping it.
+- Jellyfin cannot transcode, probe media or extract images without it, and the acceptance harnesses
+  generate their test clips with it.
+
 ### third_party/nzbget — NZBGet (nzbgetcom fork)
 
 - **Upstream:** https://github.com/nzbgetcom/nzbget
@@ -124,6 +138,32 @@ rather than only in `docs/RELEASING.md`.
   `StingStream-*.AppImage` this produces embeds AppImageKit's runtime stub (the ELF header code
   that mounts the image's squashfs payload when the file is executed). Upstream:
   https://github.com/AppImage/AppImageKit. License: MIT.
+
+## Library dependencies that ship as binaries
+
+Everything above is a whole program. These are libraries, compiled or bundled into artifacts a
+release contains, and they are listed here because "bundled third-party binary" covers them just as
+much as it covers a `.exe`. This is not the full dependency graph — that is what the lockfiles are
+for, and they are the authoritative answer:
+
+| Where | The authoritative list |
+|---|---|
+| Rust | [`mesh/Cargo.lock`](mesh/Cargo.lock) — 560 crates, audited by `cargo audit` (see `docs/SECURITY.md` §7) |
+| .NET | `server/*/Directory.Packages.props` and the restore graph, audited by `dotnet list package --vulnerable --include-transitive` |
+| App | [`apps/stingstream/bun.lock`](apps/stingstream/bun.lock), audited by `bun audit` |
+
+The ones worth naming because they are load-bearing rather than incidental:
+
+- **iroh**, **iroh-gossip**, **iroh-blobs** (n0) — MIT/Apache-2.0. The QUIC transport, the group
+  topic and the content-addressed transfer the whole mesh is built on.
+- **MonoTorrent** 3.0.2 — MIT. The in-process BitTorrent engine behind the qBittorrent-compatible
+  API subset, shipped as a DLL inside `bin/jellyfin/`.
+- **rustls**, **hyper**, **axum**, **tokio** — MIT/Apache-2.0. TLS, HTTP and the async runtime for
+  every listener in `mesh/crates/**`.
+- **instant-acme** — Apache-2.0. The ACME client the side door gets its certificate with.
+- **The .NET runtime** — MIT. Embedded in every packaged release by self-contained publish, which
+  is why a node needs no .NET installed. Deliberately **not** trimmed (`docs/RELEASING.md`):
+  `PublishTrimmed` is unsafe for ASP.NET Core plus Jellyfin's reflection-based plugin loader.
 
 ## StingStream's own license
 

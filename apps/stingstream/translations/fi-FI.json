@@ -690,7 +690,6 @@
       "dropped_frames": "Pudotettu: {{count}} kuvaa",
       "loading": "Ladataan..."
     },
-    "mpv_player_title": "MPV-soitin",
     "aspect_ratio": "Kuvasuhde",
     "aspect_ratio_original": "Alkuperäinen",
     "hash_match": "Hash-osuma",

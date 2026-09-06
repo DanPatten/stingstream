@@ -690,7 +690,6 @@
       "dropped_frames": "Pierdute: {{count}} cadre",
       "loading": "Se încarcă..."
     },
-    "mpv_player_title": "Player MPV",
     "aspect_ratio": "Raport de aspect",
     "aspect_ratio_original": "Original",
     "hash_match": "Potrivire hash",

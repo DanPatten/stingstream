@@ -690,7 +690,6 @@
       "dropped_frames": "Απορρίφθηκαν: {{count}} καρέ",
       "loading": "Φόρτωση..."
     },
-    "mpv_player_title": "Πρόγραμμα αναπαραγωγής MPV",
     "aspect_ratio": "Αναλογία Διαστάσεων",
     "aspect_ratio_original": "Αρχική",
     "hash_match": "Ταύτιση Hash",

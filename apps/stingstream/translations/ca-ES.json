@@ -690,7 +690,6 @@
       "dropped_frames": "Perduts: {{count}} fotogrames",
       "loading": "Carregant..."
     },
-    "mpv_player_title": "Reproductor MPV",
     "aspect_ratio": "Relació d'aspecte",
     "aspect_ratio_original": "Original",
     "hash_match": "Coincidència de hash",

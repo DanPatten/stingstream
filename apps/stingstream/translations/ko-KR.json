@@ -690,7 +690,6 @@
       "dropped_frames": "드롭: {{count}}프레임",
       "loading": "로딩 중..."
     },
-    "mpv_player_title": "MPV Player",
     "aspect_ratio": "화면 비율",
     "aspect_ratio_original": "원본",
     "hash_match": "해시 일치",

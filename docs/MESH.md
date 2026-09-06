@@ -181,10 +181,10 @@ QUIC/TLS already proves *which* node is on the other end — the node id is the 
 nothing about whether that node is in the group, which is what this adds:
 
 ```
-client -> server   Hello     { version, group_id, client_nonce, node_name }
+client -> server   Hello     { group_id, client_nonce, node_name }
 server -> client   Challenge { server_nonce, node_name }
 client -> server   Proof     { mac, sig }
-server -> client   Outcome   Ok { mac } | Denied { reason }
+server -> client   Outcome   Ok { mac, stale } | Denied { reason }
 
 transcript = "stingstream-auth-v1" || group_id || client_id || server_id
              || client_nonce || server_nonce
@@ -193,7 +193,14 @@ server mac = HMAC-SHA256(group_secret, "server" || transcript)
 sig        = Ed25519(client_node_key, transcript)
 ```
 
-Frames are `u32` length-prefixed postcard, capped at 64 KiB.
+Every frame is `len(u32, LE) || major(1) || minor(1) || postcard(body)`, capped at 64 KiB.
+
+**The two version bytes are outside the postcard body, and that is the whole point of them.**
+Postcard is not self-describing, so a body that gained a field between two builds does not decode on
+the older one *at all* — it fails inside the deserializer, before any `version` field inside it
+could be read. A version you have to decode the message to see cannot tell you that you cannot
+decode the message. Major must match or the connection is refused, counted and (at most once a
+minute) logged; the minor both ends use is `min(theirs, ours)`. `docs/UPGRADING.md` is the policy.
 
 * Both nonces are 32 random bytes, so a recorded proof cannot be replayed against another
   connection, another peer or another group.
@@ -204,12 +211,19 @@ Frames are `u32` length-prefixed postcard, capped at 64 KiB.
 * Verification is constant-time. A failure closes the connection with application code `401` —
   after waiting for the peer to read the refusal, because a QUIC close can discard un-acknowledged
   stream data and "connection lost" tells the operator nothing.
+* **A removed member is refused before either secret is looked at** (M8b), against the node id from
+  the QUIC handshake, which a peer cannot choose. The refusal is the same sentence, so it does not
+  tell a removed member which of its two problems it has.
+* **`stale`** means the client authenticated with the group's *previous* secret: it missed a
+  rotation. Such a connection reaches exactly one route — `/peer/v1/group/rekey` — and everything
+  else answers `409`. See "Rotating the secret" below.
 
 ### Routes
 
 | Method | Path | |
 |---|---|---|
 | `GET` | `/peer/v1/status` | node name, version, remaining stream capacity |
+| `GET`/`POST` | `/peer/v1/group/rekey` | the newest secret rotation this node holds / push one to it (M8b). The only route a peer holding the *previous* secret may reach. |
 | `GET` | `/peer/v1/inventory` | this node's full inventory for the group, as JSON. Used on join, before gossip converges. |
 | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | the file, with full `Range` support |
 | `GET`/`HEAD` | `/peer/v1/image/{item_key}/{kind}` | one artwork file, whole |
@@ -430,6 +444,87 @@ to the mesh.
 
 Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs` and by a step in
 `tools/e2e-m3.ps1`.
+
+### Rotating the secret, and removing a member (M8b)
+
+A group's secret is the credential. Rotating it is how a group recovers from a leaked invite code,
+and rotating it **plus** a deny-list is how a member is removed. Neither half works alone:
+
+* rotation alone leaves the removed node holding a key that opens every frame it recorded, and
+* a deny-list alone is per-node state, so a member that was offline during the removal does not have
+  it — and the removed node could still talk to *that* member.
+
+#### The record
+
+```
+RekeyRecord {
+  group_id, epoch, secret, revoked: [node_id], at, by, sig
+}
+
+transcript = "stingstream-rekey-v1" || group_id || epoch_le || secret || at_le
+             || count_le || (len_le || node_id)*      // sorted, deduplicated
+sig        = Ed25519(author_node_key, transcript)
+```
+
+`revoked` is **cumulative** across every rotation so far, not "removed by this record", so a member
+that missed an earlier one does not end up with a deny-list full of holes: adopting the newest record
+it can find is always enough. The node ids are sorted and length-prefixed rather than joined, so two
+members that assembled the same set in a different order produce the same signature and `["ab","cd"]`
+cannot collide with `["abcd"]`.
+
+#### How it travels
+
+**Point to point, over authenticated peer connections. Never over gossip.** At the instant the
+removal is made, the node being removed can still read the topic — a new secret published there
+would be a new secret handed straight to it. `POST /peer/v1/group/rekey` carries it; each member
+that adopts one forwards it to every other member it knows, epoch-guarded so the fan-out terminates.
+
+What *does* ride gossip is the `Revocation` body: the deny-list alone, sealed under the new secret,
+so a member re-keyed by a third party with a shorter list still converges. The nodes it names cannot
+open it.
+
+#### Conflicts, and the grace window
+
+Two administrators removing somebody at the same time resolve as `(epoch, at, by)`, highest wins —
+the same shape [`CoordinatorStamp`](#changing-a-groups-coordinator) uses, for the same reason.
+
+The loser's members recover because a rotated node keeps the **previous** secret alive for
+`REKEY_GRACE_SECS` (seven days) and hands the new one to anybody who turns up holding it. A dial
+recovers in both directions:
+
+* **we are behind** — the peer accepts our proof under its previous secret and says `stale`; we pull
+  its record over that connection, adopt it, and redial;
+* **they are behind** — our current secret gets nowhere, so we retry with *our* previous one, which
+  is their current one, push our record and redial.
+
+Exactly one retry each way. The window is also what a laptop that was in a drawer comes back
+through. A member offline across both a rotation *and* the whole window has to re-join from a fresh
+invite — there is no key server to ask, and by design nobody can hand it the secret without also
+being able to hand it to anyone else. Re-joining with a *stale* code is enough, because what a code
+supplies at that point is an **address**: the secret it carries is ignored by a node whose group has
+already rotated.
+
+#### What comes free
+
+* **Invite codes.** A code carries the secret, so every one minted before the rotation is already
+  dead and the next `POST /invite` mints one that works. Nothing regenerates anything.
+* **The coordinator's rendezvous entry.** The rendezvous id, its bearer token and its sealing key
+  are all derived from the secret, so the group moves to a different, unrelated path at the
+  coordinator the moment the secret changes. Old entries expire on their own and the coordinator
+  never knew what they were.
+
+#### What is deliberately *not* immediate
+
+The removed member's titles. They are dropped after the same grace period an offline peer's are,
+because a removal that wiped half a library the same second would look — to everybody watching —
+exactly like a bug that ate the catalogue. Greying out first and removing second is the sequence
+members already understand.
+
+#### Live connections
+
+Revocation is re-checked **per stream**, not only at the handshake. A member removed while it had a
+connection open would otherwise keep every route on it for as long as QUIC kept the connection up,
+which between two machines that are both switched on is indefinitely.
 
 ### The inventory record
 
@@ -1015,13 +1110,15 @@ where the direct path is expected, and that is a manual check rather than a CI o
   gateway, the `stingstream/tcp/1` handler and connection racing in the web bundle. See
   `docs/SIDEDOOR.md`, and `tools/e2e-sidedoor.ps1` for the end-to-end run against a local Pebble.
 * **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
-  ride iroh's own encryption between two authenticated members. That is the right boundary, but it
-  means a member is trusted with everything the group holds. Per-member revocation is M8.
-* **Gossip has no version negotiation.** `MAX_GOSSIP_MESSAGE` is a constant every member must share,
-  and two builds that disagree go silent in one direction with nothing on the receiving side to show
-  for it — which is exactly the failure M4 found. Nothing is deployed, so restarting a stale node is
-  the whole migration today, but before anyone runs a build they cannot restart at will the protocol
-  needs a version byte and a negotiated ceiling. M8, alongside revocation.
+  ride iroh's own encryption between two authenticated members. That is the right boundary, and it
+  means **a member is trusted with everything the group holds** — which is not a bug and is not
+  going to change (`docs/SECURITY.md` §1.3). Removing somebody is how you stop being in a group with
+  them; it is not a permission system. *(Per-member revocation shipped in M8b — see "Rotating the
+  secret" above.)*
+* ~~**Gossip has no version negotiation.**~~ **Closed in M8b.** Every peer handshake frame and every
+  gossip frame now carries `major || minor` ahead of anything that can fail to parse, refusals are
+  counted on `/mesh/v1/status` and `/healthz`, and `docs/UPGRADING.md` is the policy — including the
+  5617978 frame-size precedent that made it necessary.
 * **Source-side transcoding.** When a link cannot carry a source, the *home* node transcodes it and
   pulls the original over the mesh. Asking the holder to transcode instead would save that bandwidth
   entirely, but it needs the holder's own Jellyfin in the path and a way to authenticate to it.

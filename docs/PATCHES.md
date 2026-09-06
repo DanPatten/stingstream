@@ -354,6 +354,30 @@ Both apps are used entirely unmodified. StingStream drives them through:
     source) — anyone building this crate with `JELLYSWARRM_SKIP_UI=1` needs to create it locally;
     CI does this as an explicit step (see `.github/workflows/ci.yml`).
 
+### Not a patch: M8b's hardening needed none (2026-09-05)
+
+Recorded because "no new patches" is a claim worth being able to check rather than assume, and
+because two of the changes look at first glance as though they would have needed one.
+
+The security review touched Jellyfin's process in four places, and all four are inside
+`src/StingStream.Core`, which is our own project:
+
+* **Signed `/stream/*` URLs.** The signature goes on `MediaSourceInfo.Path` from inside
+  `FederatedSourceDecorator`, which is already registered through patch 7's
+  `IMediaSourceDecorator` extension point. No new hook, and — the part that made this possible —
+  no client change either, because every client rewrites the *host* of a `stingstream.local` URL and
+  nothing else, so a query string added at the server survives the trip.
+* **The arr webhook's shared secret**, the qBittorrent shim failing closed, and the save-path
+  containment check: `WebhooksController`, `QbtController` and `OmniarrSyncService`, all ours.
+* **The authorization fixes** (one `IsSelf` on `StingStreamControllerBase`, the missing self-check
+  on the playback-policy getter, 404-instead-of-403 on requests): all in our controllers.
+* **`CorsHosts`** changed from `["*"]` to empty, and that is a *configuration* change written by
+  the supervisor into `system.xml` — `mesh/crates/stingstream/src/preseed/jellyfin.rs`, consumed by
+  upstream's own `CorsPolicyProvider`. Config over patch, which is the rule.
+
+The mesh-side changes (the protocol version bytes, secret rotation, the coordinator hardening) are
+all in `mesh/crates/**`, which is entirely ours and not a subtree at all.
+
 ## Not a patch, but recorded here for visibility
 
 - **`mesh/` is two separate Cargo workspaces**, not one (`mesh/Cargo.toml` for the three new

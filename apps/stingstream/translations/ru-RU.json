@@ -690,7 +690,6 @@
       "dropped_frames": "Пропущено: {{count}} кадров",
       "loading": "Загрузка..."
     },
-    "mpv_player_title": "Плеер MPV",
     "aspect_ratio": "Соотношение сторон",
     "aspect_ratio_original": "Исходное",
     "hash_match": "Совпадение по хэшу",

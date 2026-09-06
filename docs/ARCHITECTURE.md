@@ -42,7 +42,17 @@ proxy must chase every Jellyfin release and rebuild WebSockets, SyncPlay and ses
 cross-server account mapping disappears entirely when remote titles simply appear in your own
 server's library. Details under "Federated library" below. Jellyswarrm stays vendored as a git
 subtree — reference only, and at most a source for its Rust `jellyfin-api` client crate — and is
-**not in the request path**; M8 will decide whether to drop the subtree entirely.
+**not in the request path**.
+
+**M8b's decision: keep it, for now.** The condition M8 was asked to judge is met — nothing in
+`mesh/Cargo.toml`'s workspace imports `jellyfin-api`, and the mesh talks to Jellyfin over plain
+`reqwest` against three routes it spells out itself. But dropping it is a `git rm` of a subtree
+whose only cost is disk: it is not a workspace member, so it never builds, never appears in
+`cargo audit`, and cannot break a build. Against that, it is the only worked example in the tree of
+somebody else solving the multi-server problem, and the pivot away from a proxy is the single
+largest architectural decision this project has made. Removing the evidence for it the week before
+v0.1.0, to save a directory, is a bad trade. Revisit after the first release, when the reference has
+had a chance to stop being useful.
 
 ---
 
@@ -241,8 +251,20 @@ those milestones need them.
 - **Group** = 32-byte group ID (also the gossip topic) + group secret + relay URL. The relay is a
   property of the group, so members auto-configure it from the invite.
 - **Invite code** = base58(group ID, secret, inviter node address, relay URL). Joining requires the
-  inviter (or any member) online in v1. Revocation in v1 = secret rotation; proper member revocation
-  in M8.
+  inviter or any member online, or — where the group has a coordinator — a rendezvous entry any
+  member left there. An invite carries the secret and therefore never expires on its own; a rotation
+  is what kills one.
+- **Member revocation** (M8b) is a **secret rotation plus a deny-list**, and needs both halves.
+  Rotation alone leaves the removed node holding a key that opens everything it recorded; a
+  deny-list alone is per-node state a member that was offline does not have. A rotation is a signed
+  `RekeyRecord` carried point to point over authenticated peer connections and **never over gossip**
+  — at the instant of the decision the removed node can still read the topic. The deny-list is
+  checked against the QUIC identity, which cannot be forged, before either secret. Invite codes and
+  the coordinator's rendezvous entry re-key themselves for nothing, because both are derived from
+  the secret. Two administrators removing somebody at once resolve as `(epoch, at, by)`, highest
+  wins, and the loser recovers through a seven-day window in which the previous secret still
+  identifies a member well enough to be handed the new one. `docs/SECURITY.md` §3 and
+  `docs/MESH.md`.
 - **Users** exist only on their home node as ordinary Jellyfin accounts. Group membership is
   node-to-node trust. A member's users see the whole group's content because their own Jellyfin
   contains it (see "Federated library" below). Per-user watched state, favourites and progress
@@ -1485,7 +1507,7 @@ not have.
 **Accept:** install on a clean Windows box and a clean Ubuntu box from the release page; both
 join a group with one code; `/security-review` findings triaged.
 
-### M8a — Packaging, installers and the release pipeline (Sonnet 5) — done; hardening half of M8 still to come
+### M8a — Packaging, installers and the release pipeline (Sonnet 5) — done
 
 The half of M8 above that is packaging rather than security. See `deploy/node/LAYOUT.md`,
 `docs/INSTALL.md` and `docs/RELEASING.md` for the full detail; this is the summary that belongs in
@@ -1538,6 +1560,70 @@ the wide view.
 
 ---
 
+### M8b — Hardening, security review, regression and docs (Opus 5) — done
+
+The other half of M8. Four things, in the order they mattered.
+
+**A protocol version, and a policy for it.** Covered under "Risks" above and in full in
+`docs/UPGRADING.md`. The part worth repeating here is the shape: `major || minor` in the clear at
+the front of every handshake frame and every gossip frame, the gossip pair bound in as the AEAD's
+associated data so a relay cannot rewrite it, refusals counted and surfaced. `PROTOCOL_MAJOR` is
+**1**; everything before M8b is retroactively unversioned and cannot interoperate with it, which is
+a description of what 5617978 had already done rather than a new decision.
+
+**Member revocation.** Covered under "Groups and identity". The design note that is easy to lose:
+the new secret travels over authenticated peer connections and never over gossip, and the deny-list
+is checked before either secret, against an identity the peer cannot choose. Neither half works
+alone. Three integration tests plus `tools/e2e-m8.ps1`, thirteen steps against four real nodes with
+no infrastructure at all.
+
+**Startup fault tolerance.** M4.5 had already fixed the DHT case by attaching it *after* the bind
+with backoff, rather than letting a transient in an optional discovery service fail the bind and
+take the node down. M8b asserted the rest: a node comes up and serves its own library with the relay
+map pointing at nothing, the coordinator unreachable, DNS unable to resolve and the DHT bootstrap
+routed nowhere — all at once, in under a minute — and a restarted node comes back into its own
+library with its identity intact. `tests/revocation.rs`.
+
+**The security review.** `docs/SECURITY.md` is the document: the threat model, thirty findings with
+what was done about each, an authorization table for every endpoint in Core and on the gateway, what
+each secret is and where it lives, and nine residual risks written down rather than rounded off. The
+four that mattered:
+
+1. **`/stream/*` was a bearer URL whose only secret was the group id** — which travels in every
+   invite, is the gossip topic, and is known forever to a member you removed. Signed twelve-hour
+   URLs now, minted by the node and checked by its gateway, loopback exempt. **No client change was
+   needed**, because every client rewrites the *host* of a `stingstream.local` URL and nothing else,
+   so a query string added at the server survives the app's rewrite, the web bundle's connection
+   racing and the cast sender untouched.
+2. **The arr webhook's loopback check was worth nothing**, because the gateway proxies
+   `/stingstream/api/*` to Jellyfin over 127.0.0.1 and every LAN caller therefore arrived as local.
+   A per-node shared secret now, derived from a value `runtime.json` already carries rather than
+   added to it.
+3. **The qBittorrent shim failed open** when `runtime.json` had no credentials, and handed
+   `savepath` to MonoTorrent verbatim. Fails closed, and both paths go through `SafePath.IsUnder`.
+4. **The coordinator's `/probe/v1` was an arbitrary-host, arbitrary-port scanner** —
+   `host.contains(&node_id)` is a substring test and a node id is a string the asker owns. Plus no
+   rate limit anywhere on that API, no registry size cap, and no idle timeout on an established
+   tunnel.
+
+And one bug found by the fuzz test the milestone asked for, after about forty thousand random
+titles: a peer's title beginning `CON` followed by a space defeated the reserved-device-name check,
+because Windows resolves a device name *after* stripping trailing spaces and dots while the check
+compared the stem before the first dot verbatim. `Path.GetFullPath` on the resulting federated path
+returns `\\.\CON`.
+
+**Regression.** Every acceptance harness, the three test suites and the two app gates, re-run on one
+machine. The table is in the M8b report.
+
+**Decisions taken here:**
+
+- The `mesh/jellyswarrm` subtree stays — see the pivot note near the top of this document.
+- Invite codes still do not expire. A code that died on a timer would strand somebody handed one on
+  a Friday who set the machine up on a Sunday, and the answer to a leaked code is the rotate action
+  on the Group screen, which is now a first-class thing rather than a milestone away.
+- `/healthz` tells a stranger three fields and this machine everything. CORS was never the control
+  it was being treated as: it stops a browser page, not `curl`.
+
 ## Verification (end-to-end, after M4)
 
 1. Three nodes: Dan's Windows desktop, a Linux Docker host, a VPS running `stingstream-relay` with
@@ -1580,13 +1666,16 @@ the wide view.
   separately that `npm install` needs both `--legacy-peer-deps` and `--ignore-scripts` on this
   toolchain before `yarn` was available — so the spike starts from zero rather than from a broken
   build, with the exact dependency-install path already mapped.
-- **Mixed-version groups have no protocol negotiation.** The gossip frame size
-  (`MAX_GOSSIP_MESSAGE`, 256 KiB) is a constant every member must share: a receiver on an older
-  build rejects a larger frame, and the rejection is invisible on that side, so the *sender* goes
-  silent to it while everything else keeps working. That is precisely the bug M4 found, and today
-  the only mitigation is that nothing is deployed — restarting a stale node is the whole migration.
-  Before anyone runs a build they cannot restart at will, gossip needs a version byte and a
-  negotiated ceiling. On the list for M8, alongside member revocation.
+- **Mixed-version groups.** ~~No protocol negotiation.~~ **Closed in M8b.** Every peer handshake and
+  every gossip frame now carries two bytes, `major` and `minor`, in the clear and ahead of anything
+  that can fail to parse — which is the only useful position for them, because postcard is not
+  self-describing and a body that gained a field does not decode on the older build at all. Major
+  must match; minor is negotiated down on a connection and accepted at any value on gossip, which
+  has nobody to negotiate with. A refusal is counted and reported on `/mesh/v1/status` and
+  `/healthz`, because the failure this exists for — the 256 KiB frame change in 5617978, which took
+  older nodes silently off the air — is indistinguishable from a network problem without a number
+  to look at. `docs/UPGRADING.md` is the policy: what bumps a major, what bumps a minor, and how a
+  group crosses each.
 - **Six upstream subtrees drifting** — monthly pull cadence, config-over-patch rule, and every
   patch listed in `docs/PATCHES.md`. Sonarr v5 is pre-release and will churn most.
 - **iOS and TV constraints** — background networking and MPVKit acceptance are proven by

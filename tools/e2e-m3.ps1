@@ -1061,7 +1061,13 @@ Invoke-Step "PlaybackInfo on A returns a stingstream.local MediaSource" {
     $first = $mesh[0]
     $protocol = Get-Member-Value $first 'Protocol'
     if ($protocol -ne 'Http') { throw "the federated source's protocol is $protocol, expected Http." }
-    if ((Get-Member-Value $first 'Path') -notlike "*/$($NodeB.MeshId)") {
+    # Without its query: M8b signs the URL a node hands a client, so `Path` now ends
+    # `.../{node}?exp=...&sig=...` (`gateway/streamurl.rs`). Which node it names is what this step
+    # is about; the signature is not.
+    $firstPath = [string](Get-Member-Value $first 'Path')
+    $q = $firstPath.IndexOf('?')
+    if ($q -ge 0) { $firstPath = $firstPath.Substring(0, $q) }
+    if ($firstPath -notlike "*/$($NodeB.MeshId)") {
         throw "the source URL does not name node B: $(Get-Member-Value $first 'Path')"
     }
     if (-not (Get-Member-Value $first 'Name')) { throw 'the federated source has no Name, so the app cannot label it.' }

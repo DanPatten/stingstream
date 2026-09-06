@@ -690,7 +690,6 @@
       "dropped_frames": "丢帧：{{count}}帧",
       "loading": "加载中..."
     },
-    "mpv_player_title": "MPV 播放器",
     "aspect_ratio": "宽高比",
     "aspect_ratio_original": "原始",
     "hash_match": "哈希匹配",

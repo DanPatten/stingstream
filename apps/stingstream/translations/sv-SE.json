@@ -693,7 +693,6 @@
       "dropped_frames": "Tappade: {{count}} bildrutor",
       "loading": "Läser in..."
     },
-    "mpv_player_title": "MPV-spelare",
     "aspect_ratio": "Bildförhållande",
     "aspect_ratio_original": "Original",
     "hash_match": "Hash-träff",

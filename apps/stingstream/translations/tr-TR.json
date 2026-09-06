@@ -690,7 +690,6 @@
       "dropped_frames": "Düşen kare: {{count}}",
       "loading": "Yükleniyor..."
     },
-    "mpv_player_title": "MPV Oynatıcı",
     "aspect_ratio": "En-Boy Oranı",
     "aspect_ratio_original": "Orijinal",
     "hash_match": "Hash eşleşmesi",
