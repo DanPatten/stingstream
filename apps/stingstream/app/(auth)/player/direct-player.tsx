@@ -27,7 +27,6 @@ import {
   View,
 } from "react-native";
 import { useAnimatedReaction, useSharedValue } from "react-native-reanimated";
-import { BITRATES } from "@/components/BitrateSelector";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 import { AutoSubtitleNotice } from "@/components/video-player/controls/AutoSubtitleNotice";
@@ -44,7 +43,7 @@ import {
   updatePlaybackSpeedSettings,
 } from "@/components/video-player/controls/utils/playback-speed-settings";
 import { VideoPlayerView } from "@/components/video-player/VideoPlayerView";
-import { PROGRESS_REPORT_INTERVAL } from "@/constants/Playback";
+import { BITRATES, PROGRESS_REPORT_INTERVAL } from "@/constants/Playback";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useItemSources } from "@/hooks/useItemSources";

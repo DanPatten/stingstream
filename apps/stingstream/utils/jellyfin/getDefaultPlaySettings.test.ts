@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type {
   BaseItemDto,
   MediaSourceInfo,
@@ -11,10 +11,8 @@ import type { Settings } from "@/utils/atoms/settings";
 // rather than stubbed out.
 stubMmkv();
 
-// BitrateSelector is a React component module; only the BITRATES table matters.
-mock.module("@/components/BitrateSelector", () => ({
-  BITRATES: [{ key: "Max", value: undefined }],
-}));
+// BITRATES used to live in a React component module and had to be mocked away here. It is plain
+// data in `constants/Playback.ts` now, so the real table is imported.
 
 // Imported after the mocks are registered — static ESM imports would evaluate
 // the real modules first.

@@ -10,7 +10,7 @@ import { t } from "i18next";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
-import { BITRATES, type Bitrate } from "@/components/BitrateSelector";
+import { BITRATES, type Bitrate } from "@/constants/Playback";
 import { type AccentName, DEFAULT_ACCENT } from "@/constants/theme";
 import type { PlaybackPolicy } from "@/lib/stingstream/sourceChooser";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
