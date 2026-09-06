@@ -3,7 +3,7 @@ import {
   WORDMARK_TEXT_HEIGHT,
   WORDMARK_TEXT_TOP,
   WORDMARK_TEXT_WIDTH,
-} from "@/constants/brand/paths";
+} from "@/constants/brandPaths";
 
 // Pure layout math, deliberately kept free of any react-native-svg (or other
 // react-native) import: this repo's `bun test` has no Flow/RN preset configured (every

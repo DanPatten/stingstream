@@ -5,7 +5,7 @@
  * reading as a stylised stingray at a glance without losing the letter at small sizes.
  *
  * This file is the one source of truth for the mark's geometry. `generate.ts` reads it
- * to rasterise every icon, the TV banner and the favicons; `constants/brand/paths.ts`
+ * to rasterise every icon, the TV banner and the favicons; `constants/brandPaths.ts`
  * re-exports it (mechanically, via `generate.ts`) for the in-app `<StingStreamMark>`
  * component. Nothing else should hand-copy this path data.
  *

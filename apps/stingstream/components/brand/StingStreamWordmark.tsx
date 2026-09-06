@@ -4,7 +4,7 @@ import {
   BRAND_ACCENT_TO,
   MARK_PATH_D,
   WORDMARK_TEXT_D,
-} from "@/constants/brand/paths";
+} from "@/constants/brandPaths";
 import { horizontalLayout, stackedLayout } from "./wordmarkLayout";
 
 export type StingStreamWordmarkProps = {

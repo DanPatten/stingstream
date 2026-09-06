@@ -4,7 +4,7 @@ import {
   BRAND_ACCENT_TO,
   MARK_PATH_D,
   MARK_VIEWBOX,
-} from "@/constants/brand/paths";
+} from "@/constants/brandPaths";
 
 export type StingStreamMarkProps = {
   /** Rendered width and height, in dp. The mark is square. */

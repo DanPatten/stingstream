@@ -171,7 +171,7 @@ const BRAND_PNGS: Record<string, PngSpec> = {
   },
 };
 
-const BRAND_OTHER = ["public/site.webmanifest", "constants/brand/paths.ts"];
+const BRAND_OTHER = ["public/site.webmanifest", "constants/brandPaths.ts"];
 
 // docs/screenshots/ is a top-level, monorepo-wide directory, two levels above `root`
 // (apps/stingstream) -- not apps/stingstream/docs/, which exists separately for
