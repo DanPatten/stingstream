@@ -60,9 +60,39 @@ add() {
     fi
 }
 
+# The .deb's actual on-disk name does not always match a name reconstructed from $VERSION: a
+# hyphenated version (an -rc tag) comes out of nfpm with the hyphen turned into `~`
+# (deploy/linux/nfpm.yaml's own header comment), and release.yml's own "Normalize ~ to . in .deb
+# filenames" step then turns that `~` into `.` before this script ever runs (GitHub's release-asset
+# upload does the same rename silently on its own, so the two have to agree). Glob-matching the
+# file that is actually there, rather than reconstructing its name, means this script does not need
+# to know either of those transformations happened at all -- and unlike the exact-name `add` above,
+# this warns instead of silently omitting, since a missing .deb here is unexpected (unlike, say, a
+# skipped Android build) and was exactly how this went unnoticed for rc2.
+add_glob() {
+    local key="$1" pattern="$2"
+    local matches=("$ARTIFACTS_DIR"/$pattern)
+    if [[ ! -e "${matches[0]}" ]]; then
+        echo "WARNING: no file matching '$pattern' in $ARTIFACTS_DIR -- omitting $key from version.json" >&2
+        return
+    fi
+    if [[ "${#matches[@]}" -gt 1 ]]; then
+        echo "WARNING: multiple files matched '$pattern' in $ARTIFACTS_DIR (${matches[*]}) -- using the first" >&2
+    fi
+    local file
+    file=$(basename "${matches[0]}")
+    local sha
+    sha=$(sha_for "$file")
+    if [[ -z "$sha" ]]; then
+        echo "WARNING: $file exists but has no entry in $SUMS -- omitting $key from version.json" >&2
+        return
+    fi
+    entries+=("\"$key\": {\"url\": \"https://github.com/$REPO/releases/download/v$VERSION/$file\", \"sha256\": \"$sha\"}")
+}
+
 add windows-x64          "StingStream-Setup-$VERSION-win-x64.exe"
-add linux-x64-deb        "stingstream_${VERSION}_amd64.deb"
-add linux-arm64-deb      "stingstream_${VERSION}_arm64.deb"
+add_glob linux-x64-deb   'stingstream_*_amd64.deb'
+add_glob linux-arm64-deb 'stingstream_*_arm64.deb'
 add linux-x64-appimage   "StingStream-$VERSION-x86_64.AppImage"
 add linux-arm64-appimage "StingStream-$VERSION-aarch64.AppImage"
 add macos-x64-tarball    "StingStream-$VERSION-osx-x64.tar.gz"

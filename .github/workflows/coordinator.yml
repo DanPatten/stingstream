@@ -61,6 +61,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       - name: Build
         run: cargo build --manifest-path mesh/Cargo.toml -p stingstream-mesh -p stingstream-relay
@@ -88,6 +89,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       - name: Build the mesh and coordinator binaries
         run: >
@@ -125,6 +127,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # Pebble is fetched by the harness itself (binary + the three test certificates its HTTPS
       # listener needs) into third_party/pebble/bin. Caching it turns a GitHub download into a

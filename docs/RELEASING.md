@@ -92,6 +92,146 @@ does not fail the release; check the GHCR tags by hand if that happens).
 
 ---
 
+## Caching
+
+Added to every workflow that has a cacheable long pole. Same artifacts, same names, same
+checksums as before -- caching changes wall-clock time, not what gets built. Every key below
+includes enough of {OS, arch/RID, toolchain version} that a stale cache cannot poison a build
+across those boundaries; `restore-keys` is set wherever a partial (older-but-compatible) hit is
+better than a cold one.
+
+**Before** (measured directly from the runs this milestone used as its own baseline, before any of
+this section's caching existed):
+
+| Workflow | Job | Duration |
+|---|---|---|
+| release.yml (34012154030, tag `v0.1.0-rc2`) | resolve version | 3s |
+| | Windows installer | 22m 15s |
+| | Linux packages (linux-x64) | 11m 56s |
+| | Linux packages (linux-arm64) | 11m 46s |
+| | macOS (osx-arm64) | 8m 49s |
+| | macOS (osx-x64) | 10m 07s |
+| | Android (unsigned, reused) | 17s |
+| | release (SHA256SUMS/version.json/GitHub Release) | 1m 04s |
+| | **wall clock, tag push to Release published** | **23m 26s** |
+| ci.yml (34011648355) | dotnet (windows-latest) | 11m 08s |
+| | dotnet (ubuntu-latest) | 6m 54s |
+| | rust (windows-latest) | 9m 08s |
+| | rust (ubuntu-latest) | 5m 16s |
+| | node (apps/stingstream) | 1m 40s |
+| | e2e (M1/M3/M4/M6/M7/M8b) | 3m 44s – 9m 12s |
+| | **wall clock (longest job)** | **11m 08s** |
+| images.yml (34005933851) | build (amd64) | 28m 36s |
+| | build (arm64) | 24m 43s |
+| | publish multi-arch manifest | 8s |
+| | compose smoke test | 54s |
+| | **wall clock** | **≈39m 37s** |
+| coordinator.yml (34009381375) | test (windows-latest) | 12m 59s |
+| | test (ubuntu-latest) | 6m 31s |
+| | NAT scenario (docker) | 5m 14s |
+| | HTTPS side door (Pebble) | 3m 06s |
+| | coordinator image | 8m 55s |
+| | **wall clock (longest job)** | **12m 59s** |
+| app.yml (34008312376) | typescript and unit tests | 38s |
+| | mesh FFI (host + Android) | 20m 38s |
+| | android release build (unsigned, phone) | 25m 01s |
+| | android release build (unsigned, tv) | 24m 59s |
+| | **wall clock** | **45m 41s** |
+
+**After**: not yet measured. These runs are the ones the task that added this section describes
+dispatching twice (once to warm every cache, once to measure against a warm cache) -- whoever pushes
+this section's companion workflow changes should re-run that pair and replace this paragraph with
+the resulting numbers and run ids, the same way the table above was built.
+
+**What is cached, where, and the key:**
+
+- **Rust** (`Swatinem/rust-cache`, every job that runs `cargo build`/`test`/`clippy` against
+  `mesh/`): `workspaces: mesh` (plus `mesh/jellyswarrm` in ci.yml's `rust` job, which is the only
+  place both workspaces build in one job), `cache-on-failure: true` (a red clippy/test run still
+  leaves a good `target/` behind). `release.yml`'s three packaging jobs additionally pass
+  `key: <rid>` (e.g. `linux-arm64`, `osx-x64`) -- load-bearing there, not decorative: `linux-packages`
+  and `macos` each run two RIDs as a matrix on the *same* runner OS, and without the RID in the key
+  the two legs would take turns evicting each other's `mesh/target` (a native `target/release`
+  fighting a cross-compiled `target/<triple>/release`). ci.yml's own OS matrix does not need this --
+  `runner.os` already differs there.
+- **.NET / NuGet**: `actions/cache` on `${{ github.workspace }}/.nuget/packages` (also set as
+  `NUGET_PACKAGES` so dotnet actually restores there instead of the per-user default), keyed on
+  `hashFiles('server/*/global.json', '**/*.csproj', '**/Directory.Packages.props')` plus
+  `runner.os` (and RID, in release.yml's matrix jobs, for the same "two legs share a runner OS"
+  reason as the Rust cache). ci.yml's `dotnet` job also now does one `dotnet restore` per solution
+  followed by `dotnet build --no-restore`, so a cache hit is a cache hit for the build step too.
+  No `packages.lock.json` exists anywhere in this repo yet (checked: zero matches for
+  `**/packages.lock.json`), so the key is file-hash-based rather than lockfile-based -- enabling
+  lock files was considered and deliberately not done in this pass: `server/jellyfin`,
+  `server/radarr` and `server/sonarr` are vendored subtrees (docs/CONTRIBUTING.md), and telling
+  which of the dozens of projects under them are "ours" to add a lock file to, versus upstream's,
+  is not a quick call to make correctly by inspection -- getting it wrong risks changing a vendored
+  subtree's own restore behavior, which is explicitly out of bounds. Revisit with a clear owner for
+  which projects qualify.
+- **bun**: `actions/cache` on `~/.bun/install/cache` (bun's own download cache; not `node_modules`,
+  which `--frozen-lockfile` still reconstructs every run) keyed on `hashFiles('**/bun.lock')` and
+  `runner.os` (plus `matrix.arch` in images.yml, whose two arches are two separate runners).
+  `oven-sh/setup-bun` has no built-in cache input the way `actions/setup-node` does, hence the
+  manual step.
+- **Gradle/Android** (`app.yml`'s `android-release-unsigned`): `gradle/actions/setup-gradle` pinned
+  to `748248ddd2a24f49513d8f472f81c3a07d4d50e1` (tag `v4.4.4`, verified against
+  `gh api repos/gradle/actions/git/ref/tags/v4.4.4` and its dereferenced commit). No hand-rolled
+  `actions/cache` key here on purpose -- `apps/stingstream/android/` is generated fresh by `expo
+  prebuild` every run (nothing committed to hash ahead of time), which is exactly the case this
+  action's own post-job save/restore against the *generated* Gradle metadata handles, that a
+  pre-computed key cannot. The Android SDK/NDK themselves are **not** cached because this job never
+  installs them -- it uses whatever `ubuntu-latest` already has preinstalled (`ANDROID_NDK_LATEST_HOME`/
+  `$ANDROID_HOME`), so there is nothing to cache.
+- **Third-party binaries** (jellyfin-ffmpeg, nzbget; `ci.yml`'s e2e jobs, all three of
+  `release.yml`'s packaging jobs, `images.yml`'s `build`): both fetch scripts gained
+  `-PrintVersionOnly` (resolve the release tag with one API call, print it / write it to
+  `$GITHUB_OUTPUT`, exit) and `fetch-nzbget.ps1` gained `-Tag` (fetch-jellyfin-ffmpeg.ps1 already had
+  it) so a workflow can resolve the version once, use it as an `actions/cache` key
+  (`jellyfin-ffmpeg-<tag>-<platform>` / `nzbget-<tag>-<platform>`), and only re-run the real fetch on
+  a miss, pinned to that exact tag rather than re-querying "latest" a second time. A cache hit skips
+  the download outright, not just a rebuild. `coordinator.yml`'s pre-existing Pebble cache
+  (`pebble-v2.10.1-${{ runner.os }}`) already did the equivalent for a version that is hardcoded
+  rather than "latest", and was left as-is.
+- **Docker images** (`images.yml`, `coordinator.yml`): already using
+  `docker/build-push-action`'s `cache-from: type=gha` / `cache-to: type=gha,mode=max` before this
+  pass (`images.yml` additionally scopes it per architecture: `scope=node-image-<arch>`, since amd64
+  and arm64 build on two separate runners and would otherwise thrash one shared cache). Both
+  Dockerfiles already copy manifests (`Cargo.toml`/`Cargo.lock`) and build a dummy dependency graph
+  before the real source `COPY`, so an edit to StingStream's own Rust source does not re-download
+  ~400 crates -- left as-is; it was already effective. The `.NET` half of both Dockerfiles does
+  **not** get an equivalent restore-first layer in this pass: replicating it correctly for
+  Jellyfin/Radarr/Sonarr's project-reference graphs (three vendored solutions, not one crate graph)
+  risks silently missing a project reference and breaking a vendored subtree's build in a way that
+  would only surface on a cache-cold run -- higher risk than the time saved, for a build that only
+  actually changes when `server/**` changes at all (`images.yml`'s own `paths:` filter already keeps
+  most pushes from touching this job in the first place).
+- **Windows installer leg**: `tools/package-node.ps1` gained a `-Parallel` switch that runs
+  Jellyfin's, Radarr's and Sonarr's `dotnet publish`/`msbuild` as three `Start-Job` background jobs
+  instead of sequentially -- they are independent solutions with independent output directories,
+  and each spends most of its wall time waiting on MSBuild/NuGet rather than this machine's CPU.
+  `release.yml`'s `windows-installer` job now passes `-Parallel` (safe unconditionally on a hosted
+  CI runner, unlike a developer's own machine, which may have other things contending for cores/
+  MSBuild node reuse -- the switch defaults off for that reason). Separately, `windows-installer`'s
+  "Install Inno Setup" step now checks for `ISCC.exe` on `PATH` and in the two usual Program Files
+  locations (the same search `deploy/windows/build-installer.ps1` already does) before calling
+  `winget`/`choco` at all -- GitHub's own `windows-latest` runner image ships Inno Setup 6.7.1
+  preinstalled (verified against `actions/runner-images`' `Windows2022-Readme.md` and
+  `Windows2025-Readme.md`), so the fast path is simply not installing it a second time.
+
+**Busting a cache**: `actions/cache` keys are content-addressed, so the normal way a cache goes
+stale on its own is the key's own inputs changing (a `Cargo.lock`/`bun.lock`/`*.csproj` edit, a
+toolchain version bump, a new release tag for a third-party binary) -- nothing to do by hand there.
+To force a rebuild without any of those changing (e.g. suspected cache corruption), either delete
+the cache entry from the repo's **Actions → Caches** page (or `gh cache delete <id>` /
+`gh cache list` to find it, `gh extension install actions/gh-actions-cache` if the plain `gh cache`
+subcommands are not available), or bump the literal version string embedded in the key that has no
+other input driving it (there is only one such case: `coordinator.yml`'s Pebble cache,
+`pebble-v2.10.1-...` -- edit the `2.10.1`). `Swatinem/rust-cache`'s own cache additionally
+auto-expires unused entries after 7 days, per its own documented behavior, so an actually-stale
+Rust cache self-heals without intervention.
+
+---
+
 ## Known packaging quirks (found doing this, not decided in advance)
 
 - **Radarr publishes through its own `-t:PublishAllRids` MSBuild target**; Jellyfin and Sonarr

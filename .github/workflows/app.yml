@@ -79,6 +79,17 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       # `@stingstream/api-client` is a `file:` dependency, and since 973ec6f its `types` point at
       # `src/index.ts` — so TypeScript checks the package's *source*, which imports `openapi-fetch`
       # from `packages/api-client/node_modules`. The app's own install does not populate that, so
@@ -126,6 +137,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       - name: Clippy
         run: >
@@ -223,10 +235,29 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
+
+      # Caches ~/.gradle/caches (dependencies) and ~/.gradle/wrapper (the distribution itself),
+      # keyed by the action's own hash of the generated project's Gradle metadata files -- there is
+      # no committed android/ to hash ahead of time (see the Prebuild step below: expo generates it
+      # fresh every run), so this action's own post-job save/restore (rather than a hand-rolled
+      # actions/cache key) is what actually works here.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
       # Same reasoning as `checks`' own identical step: the api-client is a `file:` dependency
       # whose `types` point at its own source, which the app's install does not populate deps for.

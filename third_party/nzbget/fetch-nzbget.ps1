@@ -21,24 +21,40 @@
 .PARAMETER OutDir
     Override the output directory. Defaults to third_party/nzbget/bin relative to this script.
 
+.PARAMETER Tag
+    Pin a specific release tag instead of taking the latest -- the same idea as
+    fetch-jellyfin-ffmpeg.ps1's own -Tag, added for the same reason: pairs with -PrintVersionOnly
+    so a CI cache-key resolution step and the actual fetch agree on exactly the same release even if
+    "latest" could theoretically move between the two calls.
+
+.PARAMETER PrintVersionOnly
+    Resolve the release (latest, or -Tag if given) and print its tag, then exit without downloading
+    anything -- one API call. Writes `tag=<value>` to $env:GITHUB_OUTPUT when running in GitHub
+    Actions. See fetch-jellyfin-ffmpeg.ps1's own -PrintVersionOnly for the full rationale.
+
 .EXAMPLE
     pwsh fetch-nzbget.ps1 -DryRun
 
 .EXAMPLE
     pwsh fetch-nzbget.ps1
+
+.EXAMPLE
+    pwsh fetch-nzbget.ps1 -PrintVersionOnly
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('current', 'all', 'win64', 'linux-x64', 'macos')]
     [string]$Platform = 'current',
     [switch]$DryRun,
-    [string]$OutDir = (Join-Path $PSScriptRoot 'bin')
+    [string]$OutDir = (Join-Path $PSScriptRoot 'bin'),
+    [string]$Tag,
+    [switch]$PrintVersionOnly
 )
 
 $ErrorActionPreference = 'Stop'
 
 $Repo = 'nzbgetcom/nzbget'
-$ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
+$ApiUrl = if ($Tag) { "https://api.github.com/repos/$Repo/releases/tags/$Tag" } else { "https://api.github.com/repos/$Repo/releases/latest" }
 
 # Platform key -> substring(s) used to pick the right asset out of the release's asset list.
 # nzbgetcom release assets look like: nzbget-<ver>-bin-windows.zip, nzbget-<ver>-bin-linux.run,
@@ -169,7 +185,13 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 $release = Invoke-RestMethod -Uri $ApiUrl -Headers $headers
 
 $tag = $release.tag_name
-Write-Host "Latest nzbgetcom/nzbget release: $tag"
+Write-Host "nzbgetcom/nzbget release: $tag"
+
+if ($PrintVersionOnly) {
+    if ($env:GITHUB_OUTPUT) { "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
+    Write-Host $tag
+    exit 0
+}
 
 if (-not $release.assets -or $release.assets.Count -eq 0) {
     throw "Release $tag has no assets; cannot continue."

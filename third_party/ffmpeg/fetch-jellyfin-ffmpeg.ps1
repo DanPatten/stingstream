@@ -29,6 +29,16 @@
 .PARAMETER Tag
     Pin a specific release tag (e.g. `v7.1.1-3`) instead of taking the latest.
 
+.PARAMETER PrintVersionOnly
+    Resolve the release (latest, or -Tag if given) and print its tag, then exit without downloading
+    or extracting anything -- one API call, no network transfer. Writes `tag=<value>` to
+    $env:GITHUB_OUTPUT when running in GitHub Actions, so a workflow can resolve the version once,
+    use it as an actions/cache key (third_party binaries are stable per release, so caching them
+    keyed on the resolved tag turns a cache hit into "skip the download entirely"), and only re-run
+    this script for a real fetch on a cache miss -- pairing that fetch with `-Tag` from this same
+    output avoids a second, redundant API call and any theoretical "latest moved between the two
+    calls" race.
+
 .EXAMPLE
     pwsh fetch-jellyfin-ffmpeg.ps1 -DryRun
 
@@ -37,6 +47,11 @@
 
 .EXAMPLE
     pwsh fetch-jellyfin-ffmpeg.ps1 -Platform linux64
+
+.EXAMPLE
+    # CI cache-key resolution: no -Platform needed, the tag is the same for every platform in one
+    # release.
+    pwsh fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
 #>
 [CmdletBinding()]
 param(
@@ -44,7 +59,8 @@ param(
     [string]$Platform = 'current',
     [switch]$DryRun,
     [string]$OutDir = (Join-Path $PSScriptRoot 'bin'),
-    [string]$Tag
+    [string]$Tag,
+    [switch]$PrintVersionOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -120,6 +136,12 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 $release = Invoke-RestMethod -Uri $ApiUrl -Headers $headers
 $releaseTag = $release.tag_name
 Write-Host "jellyfin-ffmpeg release: $releaseTag"
+
+if ($PrintVersionOnly) {
+    if ($env:GITHUB_OUTPUT) { "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
+    Write-Host $releaseTag
+    exit 0
+}
 
 if (-not $release.assets -or $release.assets.Count -eq 0) {
     throw "Release $releaseTag has no assets; cannot continue."

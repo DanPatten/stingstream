@@ -100,6 +100,11 @@ jobs:
       # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
       # mid-run while proving this workflow out).
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Points dotnet's own restore cache at a workspace-relative path so the "Cache NuGet
+      # packages" step below actually caches what gets populated -- tools/package-node.ps1/.sh
+      # already honour a pre-set NUGET_PACKAGES rather than falling back to
+      # ~/.nuget/packages (see their own -NuGetPackagesFallback / $NUGET_PACKAGES handling).
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
       # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
       # imports must resolve for bun run build:web below to bundle at all (same reasoning as
@@ -110,6 +115,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch HEAD as of 2026-09-03
 
+      # `key: win-x64` is redundant while this job has no matrix (there is only one RID here), but
+      # keeps the same shape as linux-packages'/macos' own rust-cache step below, where the target
+      # triple in the key is load-bearing (see that step's own comment).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: mesh
+          key: win-x64
+          cache-on-failure: true
+
       # Same three bands as ci.yml's own dotnet job: Radarr pins 8.0, Jellyfin and Sonarr pin 10.0.
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
@@ -118,14 +132,68 @@ jobs:
             9.0.x
             10.0.x
 
-      - name: Fetch jellyfin-ffmpeg and nzbget (win64)
-        run: |
-          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform win64
-          pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform win64
+      # NuGet packages restored by tools/package-node.ps1's own `dotnet publish`/`dotnet msbuild`
+      # calls below. Keyed on the project files that determine what gets restored, plus the RID
+      # (Jellyfin/Radarr/Sonarr's self-contained publish pulls in RID-specific runtime packages a
+      # different RID's cache would not satisfy) -- restore-keys still gives a partial hit if only
+      # the RID changes and the dependency set itself did not.
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-win-x64-${{ hashFiles('server/jellyfin/global.json', 'server/radarr/global.json', 'server/sonarr/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-win-x64-
+            nuget-${{ runner.os }}-
+
+      # Cached keyed on the resolved release tag, not "latest": the tag is what determines the
+      # downloaded bytes, so a cache hit skips the download outright. -PrintVersionOnly makes one
+      # lightweight API call to resolve it; the real fetch below pins to that same tag with -Tag
+      # rather than re-querying "latest" a second time.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/win64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-win64
+
+      - name: Fetch jellyfin-ffmpeg (win64)
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform win64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
+
+      - name: Resolve nzbget version
+        id: nzbget_version
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+
+      - name: Cache nzbget
+        id: cache_nzbget
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/nzbget/bin/win64
+          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-win64
+
+      - name: Fetch nzbget (win64)
+        if: steps.cache_nzbget.outputs.cache-hit != 'true'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform win64 -Tag ${{ steps.nzbget_version.outputs.tag }}
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.1
+
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install the API client's dependencies
         working-directory: packages/api-client
         run: bun install --frozen-lockfile
@@ -135,19 +203,46 @@ jobs:
           bun install --frozen-lockfile
           bun run build:web
 
+      # -Parallel: windows-latest runners have several cores sitting idle while one `dotnet
+      # publish` waits on MSBuild/NuGet -- see tools/package-node.ps1's own -Parallel doc comment
+      # for why this is safe to turn on unconditionally here (a hosted CI runner, unlike a
+      # developer's own machine, has nothing else contending for those cores or for MSBuild node
+      # reuse).
       - name: Package the win-x64 node
-        run: pwsh tools/package-node.ps1 -Rid win-x64 -Version "${{ needs.version.outputs.version }}"
+        run: pwsh tools/package-node.ps1 -Rid win-x64 -Version "${{ needs.version.outputs.version }}" -Parallel
 
       - name: Install Inno Setup
-        # winget on a fresh windows-latest runner occasionally needs its source re-indexed before
-        # the first real install of a session succeeds; Chocolatey (also preinstalled on
-        # windows-latest) is the fallback rather than a retry loop against the same flaky source.
+        # GitHub's windows-latest runner image ships Inno Setup preinstalled already (see
+        # actions/runner-images' own Windows2022-Readme.md / Windows2025-Readme.md "Tools" section:
+        # "InnoSetup 6.7.1", verified against both current windows-latest images) -- the cheapest
+        # possible cache is not re-installing it at all. deploy/windows/build-installer.ps1 already
+        # searches PATH and these same two install locations before giving up, so this reuses its
+        # own detection rather than inventing a second copy of it. winget on a fresh runner
+        # occasionally needs its source re-indexed before the first real install of a session
+        # succeeds; Chocolatey (also preinstalled on windows-latest) is the fallback rather than a
+        # retry loop against the same flaky source -- kept as a safety net for if a future runner
+        # image ever drops or relocates Inno Setup.
         shell: pwsh
         run: |
-          winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "winget install failed (exit $LASTEXITCODE); falling back to choco"
-            choco install innosetup -y --no-progress
+          $isccPath = $null
+          $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($cmd) { $isccPath = $cmd.Source }
+          if (-not $isccPath) {
+            foreach ($candidate in @(
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            )) {
+              if (Test-Path $candidate) { $isccPath = $candidate; break }
+            }
+          }
+          if ($isccPath) {
+            Write-Host "Inno Setup already present at $isccPath -- skipping install."
+          } else {
+            winget install --id JRSoftware.InnoSetup -e --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "winget install failed (exit $LASTEXITCODE); falling back to choco"
+              choco install innosetup -y --no-progress
+            }
           }
 
       - name: Build the installer
@@ -172,6 +267,11 @@ jobs:
       # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
       # mid-run while proving this workflow out).
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Points dotnet's own restore cache at a workspace-relative path so the "Cache NuGet
+      # packages" step below actually caches what gets populated -- tools/package-node.ps1/.sh
+      # already honour a pre-set NUGET_PACKAGES rather than falling back to
+      # ~/.nuget/packages (see their own -NuGetPackagesFallback / $NUGET_PACKAGES handling).
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     strategy:
       fail-fast: false
       matrix:
@@ -201,6 +301,18 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
+      # `key: matrix.rid` is load-bearing here, not decorative: both legs run on the same
+      # `ubuntu-latest` runner, and Swatinem/rust-cache's default key does not otherwise
+      # distinguish a native x86_64 `target/release` from a cross-compiled
+      # `target/aarch64-unknown-linux-gnu/release` -- without it the two legs would take turns
+      # evicting each other's `mesh/target`, so every run would look like a cold cache for
+      # whichever leg happened to run second.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: mesh
+          key: ${{ matrix.rid }}
+          cache-on-failure: true
+
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: |
@@ -208,17 +320,66 @@ jobs:
             9.0.x
             10.0.x
 
+      # Same reasoning as windows-installer's own NuGet cache step; keyed additionally on the RID
+      # for the same reason the rust-cache step above is.
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ matrix.rid }}-${{ hashFiles('server/jellyfin/global.json', 'server/radarr/global.json', 'server/sonarr/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ matrix.rid }}-
+            nuget-${{ runner.os }}-
+
+      # Same cache-by-resolved-tag pattern as windows-installer's own fetch steps; see there.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }}
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }}
+
       - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform ${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }}
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform ${{ matrix.rid == 'linux-arm64' && 'linuxarm64' || 'linux64' }} -Tag ${{ steps.ffmpeg_version.outputs.tag }}
+
+      - name: Resolve nzbget version
+        id: nzbget_version
+        if: matrix.rid == 'linux-x64'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+
+      - name: Cache nzbget
+        id: cache_nzbget
+        if: matrix.rid == 'linux-x64'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/nzbget/bin/linux-x64
+          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
+
       - name: Fetch nzbget
         # No linux-arm64 asset upstream -- see deploy/node/LAYOUT.md. package-node.sh already
         # handles the resulting missing bin/nzbget gracefully.
-        if: matrix.rid == 'linux-x64'
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64
+        if: matrix.rid == 'linux-x64' && steps.cache_nzbget.outputs.cache-hit != 'true'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.1
+
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install the API client's dependencies
         working-directory: packages/api-client
         run: bun install --frozen-lockfile
@@ -338,6 +499,11 @@ jobs:
       # for real, not hypothetical (a jellyfin-ffmpeg fetch hit "API rate limit exceeded"
       # mid-run while proving this workflow out).
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Points dotnet's own restore cache at a workspace-relative path so the "Cache NuGet
+      # packages" step below actually caches what gets populated -- tools/package-node.ps1/.sh
+      # already honour a pre-set NUGET_PACKAGES rather than falling back to
+      # ~/.nuget/packages (see their own -NuGetPackagesFallback / $NUGET_PACKAGES handling).
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     strategy:
       fail-fast: false
       matrix:
@@ -372,6 +538,16 @@ jobs:
         if: matrix.rid == 'osx-x64'
         run: rustup target add x86_64-apple-darwin
 
+      # `key: matrix.rid` for the same reason as linux-packages' own rust-cache step: both legs
+      # run on the same `macos-14` runner, and without a per-RID key osx-arm64's native
+      # `target/release` and osx-x64's cross-compiled `target/x86_64-apple-darwin/release` would
+      # take turns evicting each other.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: mesh
+          key: ${{ matrix.rid }}
+          cache-on-failure: true
+
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: |
@@ -379,18 +555,68 @@ jobs:
             9.0.x
             10.0.x
 
+      # Same reasoning as windows-installer's/linux-packages' own NuGet cache step.
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ matrix.rid }}-${{ hashFiles('server/jellyfin/global.json', 'server/radarr/global.json', 'server/sonarr/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ matrix.rid }}-
+            nuget-${{ runner.os }}-
+
       # One asset either way: jellyfin-ffmpeg and nzbget both publish a single universal (multi-
       # arch) macOS binary -- third_party/*/fetch-*.ps1's own PlatformPatterns has exactly one
       # 'macos' entry, not one per architecture -- so this needs no RID-specific selection for
       # either leg.
-      - name: Fetch jellyfin-ffmpeg and nzbget (macos)
-        run: |
-          pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform macos
-          pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform macos
+      # Same cache-by-resolved-tag pattern as windows-installer's own fetch steps; see there. Both
+      # matrix legs (osx-arm64, osx-x64) fetch the same single universal 'macos' asset -- see this
+      # job's own header comment -- so they share one cache key and only the leg that happens to
+      # run first actually downloads anything.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/macos
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-macos
+
+      - name: Fetch jellyfin-ffmpeg (macos)
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform macos -Tag ${{ steps.ffmpeg_version.outputs.tag }}
+
+      - name: Resolve nzbget version
+        id: nzbget_version
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+
+      - name: Cache nzbget
+        id: cache_nzbget
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/nzbget/bin/macos
+          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-macos
+
+      - name: Fetch nzbget (macos)
+        if: steps.cache_nzbget.outputs.cache-hit != 'true'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform macos -Tag ${{ steps.nzbget_version.outputs.tag }}
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.1
+
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install the API client's dependencies
         working-directory: packages/api-client
         run: bun install --frozen-lockfile
@@ -532,6 +758,30 @@ jobs:
           \) -exec cp {} dist/final/ \;
           ls -la dist/final
 
+      # A hyphenated version (an -rc tag, e.g. 0.1.0-rc2) comes out of nfpm/deploy/linux/nfpm.yaml
+      # with the hyphen turned into `~` -- ordinary Debian version-string handling, documented in
+      # that file's own header -- but GitHub's release-asset upload silently renames `~` to `.` in
+      # the uploaded filename. Left alone, SHA256SUMS (computed below, from what is on disk right
+      # now) lists a filename that does not match what a downloader actually gets from the release
+      # page, and the next step's version.json lookup misses both .deb entries with no warning.
+      # Renaming here, before SHA256SUMS is computed, means every downstream step (SHA256SUMS,
+      # version.json, the actual GitHub Release upload) agrees on one name that survives the
+      # upload unchanged.
+      - name: Normalize ~ to . in .deb filenames (GitHub renames ~ on upload; nfpm produces it for a hyphenated version)
+        working-directory: dist/final
+        run: |
+          set -euo pipefail
+          for f in *.deb; do
+            [ -e "$f" ] || continue
+            case "$f" in
+              *~*)
+                new="${f//\~/.}"
+                echo "Renaming $f -> $new"
+                mv -- "$f" "$new"
+                ;;
+            esac
+          done
+
       - name: Compute SHA256SUMS
         working-directory: dist/final
         run: sha256sum * > SHA256SUMS
@@ -554,6 +804,22 @@ jobs:
           tag_name: v${{ needs.version.outputs.version }}
           name: StingStream v${{ needs.version.outputs.version }}
           generate_release_notes: true
+          # Any tag with a hyphen (v0.1.0-rc2, v0.1.0-beta1, ...) is a pre-release build, not the
+          # thing docs/RELEASING.md's "Doing a release" tells someone to download -- found for real:
+          # v0.1.0-rc2 published with isPrerelease=false, which both marks it as a stable release on
+          # the releases page and (via make_latest's own default) makes it a candidate for GitHub's
+          # "latest" resolution, exactly the URL the update check and docs/INSTALL.md point at.
+          # `contains(github.ref_name, '-')` is safe specifically because this step only runs on a
+          # real tag push (the `if:` above) -- github.ref_name is then the tag itself (e.g.
+          # "v0.1.0-rc2"), never a branch name a workflow_dispatch run would otherwise put there.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          # Belt-and-suspenders alongside `prerelease` above: explicit here rather than relying on
+          # GitHub's own default "latest" heuristic, so a pre-release tag can never become the
+          # release `.../releases/latest/download/version.json` resolves to -- the exact URL
+          # docs/RELEASING.md's "The update check" section and the node's own update-check task
+          # (mesh/crates/stingstream/src/updatecheck.rs) depend on meaning "the latest *stable*
+          # release".
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           files: |
             dist/final/*
           fail_on_unmatched_files: true

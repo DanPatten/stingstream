@@ -26,6 +26,11 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Points dotnet's own restore cache at a workspace-relative path so the "Cache NuGet
+      # packages" step below actually caches what gets populated, rather than each matrix leg's
+      # own per-OS default (~/.nuget/packages on Linux, %userprofile%\.nuget\packages on Windows).
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -44,8 +49,27 @@ jobs:
             9.0.x
             10.0.x
 
+      # None of the four solutions has a packages.lock.json (docs/RELEASING.md's own "Caching"
+      # section explains why one was not added in this pass), so the key is the next best thing:
+      # every csproj plus each subtree's global.json and Directory.Packages.props -- anything that
+      # changes what gets restored also changes this hash. restore-keys still gives a partial hit
+      # (an older but mostly-compatible package set) if only one solution's dependencies moved.
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('server/jellyfin/global.json', 'server/radarr/global.json', 'server/sonarr/global.json', '**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Restored once per solution, then built with --no-restore, so a NuGet cache hit is a cache
+      # hit for the build step too rather than dotnet re-checking (and potentially re-touching) the
+      # package cache during an implicit restore-on-build.
+      - name: Restore server/jellyfin (Jellyfin.Server)
+        run: dotnet restore server/jellyfin/Jellyfin.sln
+
       - name: Build server/jellyfin (Jellyfin.Server)
-        run: dotnet build server/jellyfin/Jellyfin.sln --configuration Release
+        run: dotnet build server/jellyfin/Jellyfin.sln --configuration Release --no-restore
 
       # Only StingStream's own tests. Jellyfin's suite is upstream's and takes far longer than the
       # value it adds to a fork that does not touch most of what it covers; the four places
@@ -58,14 +82,23 @@ jobs:
           dotnet test server/jellyfin/tests/StingStream.Core.Tests/StingStream.Core.Tests.csproj
           --configuration Release --no-build --logger "console;verbosity=normal"
 
+      - name: Restore server/radarr
+        run: dotnet restore server/radarr/src/Radarr.sln
+
       - name: Build server/radarr
-        run: dotnet build server/radarr/src/Radarr.sln --configuration Release
+        run: dotnet build server/radarr/src/Radarr.sln --configuration Release --no-restore
+
+      - name: Restore server/sonarr
+        run: dotnet restore server/sonarr/src/Sonarr.sln
 
       - name: Build server/sonarr
-        run: dotnet build server/sonarr/src/Sonarr.sln --configuration Release
+        run: dotnet build server/sonarr/src/Sonarr.sln --configuration Release --no-restore
+
+      - name: Restore server/infinidysk
+        run: dotnet restore server/infinidysk/NzbWebDAV.sln
 
       - name: Build server/infinidysk
-        run: dotnet build server/infinidysk/NzbWebDAV.sln --configuration Release
+        run: dotnet build server/infinidysk/NzbWebDAV.sln --configuration Release --no-restore
 
   rust:
     name: rust (${{ matrix.os }})
@@ -91,6 +124,10 @@ jobs:
           workspaces: |
             mesh
             mesh/jellyswarrm
+          # A red clippy/test run still leaves a perfectly good `target/` behind; without this the
+          # next push on the same branch pays for a from-scratch rebuild just because the previous
+          # run happened to fail a lint, which is the common case while iterating on a PR.
+          cache-on-failure: true
 
       # mesh/ is deliberately TWO separate Cargo workspaces, not one -- re-rooting Jellyswarrm's
       # crates under mesh/Cargo.toml was tried during M0 and fails on its ~40-entry
@@ -150,6 +187,17 @@ jobs:
         with:
           bun-version: 1.4.1
 
+      # bun has no built-in cache action like actions/setup-node's `cache: npm` -- this caches
+      # bun's own download cache (not node_modules, which `--frozen-lockfile` still reconstructs
+      # every run) so a cache hit skips re-downloading every package bun.lock pins.
+      - name: Cache bun install cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       # packages/api-client is linked into the app as `file:../../packages/api-client`, and a
       # `file:` dependency's own dependencies are not hoisted into the app's node_modules -- so
       # `src/client.ts`'s `import createClient from "openapi-fetch"` resolves only if the package
@@ -206,17 +254,51 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # Neither binary is vendored; both are fetched on demand into gitignored directories the
       # supervisor discovers on its own. Without ffmpeg the harness cannot generate its test files
       # and Jellyfin cannot probe them.
-      - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+      # Cached keyed on the resolved release tag (not "latest"): the tag is what actually
+      # determines the downloaded bytes, so a cache hit skips the download entirely rather than
+      # just skipping a rebuild. -PrintVersionOnly makes one lightweight API call to resolve it;
+      # -Tag on the real fetch below pins to that exact release rather than re-querying "latest" a
+      # second time (and possibly getting a different answer than the version.json name implies).
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/linux64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-linux64
+
+      - name: Fetch jellyfin-ffmpeg
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Resolve nzbget version
+        id: nzbget_version
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cache nzbget
+        id: cache_nzbget
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/nzbget/bin/linux-x64
+          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
+
       - name: Fetch NZBGet
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1
+        if: steps.cache_nzbget.outputs.cache-hit != 'true'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -308,14 +390,48 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
-      - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+      # Cached keyed on the resolved release tag (not "latest"): the tag is what actually
+      # determines the downloaded bytes, so a cache hit skips the download entirely rather than
+      # just skipping a rebuild. -PrintVersionOnly makes one lightweight API call to resolve it;
+      # -Tag on the real fetch below pins to that exact release rather than re-querying "latest" a
+      # second time (and possibly getting a different answer than the version.json name implies).
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/linux64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-linux64
+
+      - name: Fetch jellyfin-ffmpeg
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Resolve nzbget version
+        id: nzbget_version
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cache nzbget
+        id: cache_nzbget
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/nzbget/bin/linux-x64
+          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
+
       - name: Fetch NZBGet
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1
+        if: steps.cache_nzbget.outputs.cache-hit != 'true'
+        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -418,11 +534,28 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # Both halves of this job need it: the harness generates the media with it, and node A
       # transcodes node C's 4K encode with it.
+      # Same cache-by-resolved-tag pattern as e2e-m1/e2e-m3's own ffmpeg fetch; see that job's
+      # comment.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/linux64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-linux64
+
       - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -511,10 +644,27 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # The harness generates both the episode it seeds and the film node B already holds.
+      # Same cache-by-resolved-tag pattern as e2e-m1/e2e-m3's own ffmpeg fetch; see that job's
+      # comment.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/linux64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-linux64
+
       - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -627,10 +777,27 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # The harness generates its clips with it, and Jellyfin needs it to probe them.
+      # Same cache-by-resolved-tag pattern as e2e-m1/e2e-m3's own ffmpeg fetch; see that job's
+      # comment.
+      - name: Resolve jellyfin-ffmpeg version
+        id: ffmpeg_version
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -PrintVersionOnly
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cache jellyfin-ffmpeg
+        id: cache_ffmpeg
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/ffmpeg/bin/linux64
+          key: jellyfin-ffmpeg-${{ steps.ffmpeg_version.outputs.tag }}-linux64
+
       - name: Fetch jellyfin-ffmpeg
-        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
+        if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
+        run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -705,6 +872,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: mesh
+          cache-on-failure: true
 
       # No ffmpeg and no .NET: revocation is entirely a mesh concern, and the harness makes its
       # "media" with `dd`-shaped zero bytes because nothing here plays anything.

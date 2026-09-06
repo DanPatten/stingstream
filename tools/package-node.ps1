@@ -50,6 +50,17 @@
     The assembled tree then has no bin/ffmpeg or bin/nzbget, which the supervisor treats as
     "disabled", not fatal.
 
+.PARAMETER Parallel
+    Publish Jellyfin, Radarr and Sonarr as three concurrent PowerShell jobs instead of one after
+    another. They are independent of each other (different solutions, different output
+    directories) and each is mostly `dotnet` waiting on MSBuild/NuGet, not this machine's CPU, so on
+    a multi-core runner this is close to a 3x wall-clock reduction on what CI's own timings showed
+    as the windows-installer job's long pole. Off by default: three `dotnet` processes racing for
+    the same NUGET_PACKAGES/MSBuild node reuse cache on a small local machine can be a net loss, and
+    the sequential path's output is easier to read when something fails. Sonarr's platform-assembly
+    build (below) still runs after, sequentially, once all three jobs have finished -- it only needs
+    Sonarr's own publish directory to exist.
+
 .PARAMETER OutDir
     Override the output directory. Defaults to dist/node/<rid> under the repository root.
 
@@ -77,6 +88,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipWeb,
     [switch]$SkipFetch,
+    [switch]$Parallel,
     [string]$OutDir,
     [string]$Version,
     # Where to point CARGO_HOME / NUGET_PACKAGES if they are not already set in the environment.
@@ -180,20 +192,69 @@ function Publish-DotnetChild {
     }
 }
 
-Publish-DotnetChild -Name 'Jellyfin' `
-    -ProjectOrSolution (Join-Path $RepoRoot 'server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj') `
-    -Framework 'net10.0' -OutputSubdir "dist/publish/jellyfin/$Rid"
 $jellyfinOut = Join-Path $RepoRoot "dist/publish/jellyfin/$Rid"
-
-Publish-DotnetChild -Name 'Radarr' `
-    -ProjectOrSolution (Join-Path $RepoRoot 'server/radarr/src/Radarr.sln') `
-    -Framework 'net8.0' -PublishAllRidsTarget 'PublishAllRids'
 $radarrOut = Join-Path $RepoRoot "server/radarr/_output/net8.0/$Rid/publish"
-
-Publish-DotnetChild -Name 'Sonarr' `
-    -ProjectOrSolution (Join-Path $RepoRoot 'server/sonarr/src/NzbDrone.Console/Sonarr.Console.csproj') `
-    -Framework 'net10.0' -OutputSubdir "dist/publish/sonarr/$Rid"
 $sonarrOut = Join-Path $RepoRoot "dist/publish/sonarr/$Rid"
+
+if ($Parallel -and -not $SkipBuild) {
+    Write-Host "-- dotnet publish: Jellyfin, Radarr, Sonarr in parallel (-Parallel)"
+    # Each scriptblock is self-contained (no closure over this script's functions -- a background
+    # job runs in its own runspace/process and does not inherit them) and throws on a non-zero exit
+    # so Receive-Job's own -ErrorAction Stop below actually surfaces the failure, rather than
+    # `exit $LASTEXITCODE` silently producing a job that Get-Job still reports as "Completed".
+    # $env:* assignments made earlier in this script (CARGO_HOME/NUGET_PACKAGES fallbacks) are
+    # already part of this process's real environment block by this point, so each job process
+    # inherits them the same way any child process would.
+    $jellyfinJob = Start-Job -Name 'publish-jellyfin' -ScriptBlock {
+        param($RepoRoot, $Rid, $OutDir)
+        & dotnet publish (Join-Path $RepoRoot 'server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj') `
+            -c Release -r $Rid -f net10.0 --self-contained true -p:UseAppHost=true `
+            -p:RunAnalyzersDuringBuild=false -o $OutDir
+        if ($LASTEXITCODE -ne 0) { throw "Jellyfin publish failed with exit code $LASTEXITCODE" }
+    } -ArgumentList $RepoRoot, $Rid, $jellyfinOut
+
+    $radarrJob = Start-Job -Name 'publish-radarr' -ScriptBlock {
+        param($RepoRoot, $Rid, $BuildPlatform)
+        & dotnet msbuild -restore (Join-Path $RepoRoot 'server/radarr/src/Radarr.sln') `
+            -p:SelfContained=True -p:Configuration=Release -p:Platform=$BuildPlatform `
+            -p:RuntimeIdentifiers=$Rid -t:PublishAllRids
+        if ($LASTEXITCODE -ne 0) { throw "Radarr publish failed with exit code $LASTEXITCODE" }
+    } -ArgumentList $RepoRoot, $Rid, $info.BuildPlatform
+
+    $sonarrJob = Start-Job -Name 'publish-sonarr' -ScriptBlock {
+        param($RepoRoot, $Rid, $OutDir)
+        & dotnet publish (Join-Path $RepoRoot 'server/sonarr/src/NzbDrone.Console/Sonarr.Console.csproj') `
+            -c Release -r $Rid -f net10.0 --self-contained true -p:UseAppHost=true `
+            -p:RunAnalyzersDuringBuild=false -o $OutDir
+        if ($LASTEXITCODE -ne 0) { throw "Sonarr publish failed with exit code $LASTEXITCODE" }
+    } -ArgumentList $RepoRoot, $Rid, $sonarrOut
+
+    $jobs = @($jellyfinJob, $radarrJob, $sonarrJob)
+    $jobs | Wait-Job | Out-Null
+    $failed = @()
+    foreach ($j in $jobs) {
+        Write-Host "---- $($j.Name) output ----"
+        try {
+            Receive-Job -Job $j -ErrorAction Stop | ForEach-Object { Write-Host $_ }
+        } catch {
+            $failed += "$($j.Name): $_"
+        }
+        Remove-Job -Job $j | Out-Null
+    }
+    if ($failed) { throw "Parallel publish failed:`n$($failed -join "`n")" }
+} elseif (-not $SkipBuild) {
+    Publish-DotnetChild -Name 'Jellyfin' `
+        -ProjectOrSolution (Join-Path $RepoRoot 'server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj') `
+        -Framework 'net10.0' -OutputSubdir "dist/publish/jellyfin/$Rid"
+
+    Publish-DotnetChild -Name 'Radarr' `
+        -ProjectOrSolution (Join-Path $RepoRoot 'server/radarr/src/Radarr.sln') `
+        -Framework 'net8.0' -PublishAllRidsTarget 'PublishAllRids'
+
+    Publish-DotnetChild -Name 'Sonarr' `
+        -ProjectOrSolution (Join-Path $RepoRoot 'server/sonarr/src/NzbDrone.Console/Sonarr.Console.csproj') `
+        -Framework 'net10.0' -OutputSubdir "dist/publish/sonarr/$Rid"
+}
 
 # Sonarr.Console does not reference its platform assembly as a project dependency -- it is loaded
 # by NAME at runtime (NzbDrone.Common.Composition.AssemblyLoader: `OsInfo.IsWindows ?
