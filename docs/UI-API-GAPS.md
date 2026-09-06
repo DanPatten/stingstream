@@ -526,3 +526,16 @@ tag before generation. It costs nothing, it is non-lossy, and the next person to
 with a `Get` action gets a working generation instead of a validation failure they have to
 diagnose. `paths` — what `openapi-fetch` actually calls — is keyed by URL and method and never
 looked at operationId either way.
+
+---
+
+## Noted in passing (WP-TV-LOGIN): a node's embedded Jellyfin does not answer UDP discovery
+
+A StingStream node (`ui-node.ps1`-started, `tools/ui-node.ps1 -Fresh -Seed`) has nothing listening
+on UDP 7359 (`netstat -ano -p UDP` shows no entry, and a direct `"Who is JellyfinServer?"` probe to
+`127.0.0.1:7359` gets no answer within 3 s) — `useJellyfinDiscovery` (kept for the TV sign-in
+screen's "Found on your network" list) will never find a StingStream node this way, only a stock
+Jellyfin server that runs its own UDP responder. Not chased further here since the TV screen's own
+job — finding a node's gateway on port 8790 once discovery answers at all — is unaffected either
+way; whoever owns the supervisor/Jellyfin startup config is the right place to decide whether to
+turn the responder on.

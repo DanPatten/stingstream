@@ -941,7 +941,20 @@ Invoke-Step 'Series: episode streams from Jellyfin' {
 
 # ============================================================================================
 Invoke-Step 'Inventory records built' {
-    $inventory = Invoke-StingStream '/stingstream/api/v1/inventory'
+    # Waited for, not read once. The record is built off the back of the import webhook, on a
+    # background pass -- so the item existing in the library is not the same instant as the record
+    # existing, and under load the gap is wide enough to read zero and call it a failure. Two
+    # records is what the two imports above should produce; one is a pass with a note, because the
+    # step before this already proved both items are there and playable.
+    $inventory = Wait-Until -What 'inventory records for the two imported items' -Seconds 120 -PollSeconds 3 -Condition {
+        $i = try { Invoke-StingStream '/stingstream/api/v1/inventory' } catch { $null }
+        if ($i -and $i.total -ge 2) { return $i }
+        return $null
+    } -Describe {
+        $i = try { Invoke-StingStream '/stingstream/api/v1/inventory' } catch { $null }
+        if ($i) { "$($i.total) record(s) so far" } else { 'no answer yet' }
+    }
+
     Write-Host "      $($inventory.total) record(s)"
     if ($inventory.total -lt 1) { throw 'No inventory records were built for the imported items.' }
     foreach ($r in $inventory.records) {

@@ -8,11 +8,14 @@ import { TVButton } from "./TVButton";
 export interface TVRefreshButtonProps {
   itemId: string | undefined;
   queryClient?: QueryClient;
+  /** Shared with the other buttons in its row, so the row is not ragged. */
+  minHeight?: number;
 }
 
 export const TVRefreshButton: React.FC<TVRefreshButtonProps> = ({
   itemId,
   queryClient: externalQueryClient,
+  minHeight,
 }) => {
   const defaultQueryClient = useQueryClient();
   const queryClient = externalQueryClient ?? defaultQueryClient;
@@ -62,6 +65,7 @@ export const TVRefreshButton: React.FC<TVRefreshButtonProps> = ({
       variant='glass'
       square
       disabled={isRefreshing}
+      minHeight={minHeight}
     >
       <Animated.View style={{ transform: [{ rotate: spin }] }}>
         <Ionicons name='refresh' size={scaleSize(28)} color='#FFFFFF' />

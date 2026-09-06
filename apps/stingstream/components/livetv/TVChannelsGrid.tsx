@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -18,6 +19,7 @@ export const TVChannelsGrid: React.FC = () => {
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const router = useRouter();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
@@ -83,8 +85,8 @@ export const TVChannelsGrid: React.FC = () => {
       contentContainerStyle={[
         styles.contentContainer,
         {
-          paddingLeft: insets.left + HORIZONTAL_PADDING,
-          paddingRight: insets.right + HORIZONTAL_PADDING,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: insets.right + sizes.padding.horizontal,
           paddingBottom: insets.bottom + 60,
         },
       ]}

@@ -11,12 +11,12 @@ import type {
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, View } from "react-native";
+import { Alert, Platform, View } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
 import { WebShellLayout } from "@/components/shell/WebShellLayout";
 import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
-import type { TVNavBarTab } from "@/components/tv/TVNavBar";
-import { TVNavBar } from "@/components/tv/TVNavBar";
+import type { TVNavRailItem } from "@/components/tv/TVNavRail";
+import { TVNavRail } from "@/components/tv/TVNavRail";
 import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -26,9 +26,14 @@ import {
   useTVHomeBackHandler,
   useTVTabRootBackHandler,
 } from "@/hooks/useTVBackHandler";
-import { userAtom } from "@/providers/JellyfinProvider";
+import { useTVUserSwitchModal } from "@/hooks/useTVUserSwitchModal";
+import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
+import {
+  getPreviousServers,
+  type SavedServerAccount,
+} from "@/utils/secureCredentials";
 
 // Music components are not available on tvOS (TrackPlayer not supported)
 const MiniPlayerBar = Platform.isTV
@@ -55,35 +60,73 @@ export const NativeTabs = withLayoutContext<
 
 const IS_ANDROID_TV = Platform.isTV && Platform.OS === "android";
 
+/** Two letters from a display name, for the rail's account button. */
+function initialsOf(name: string | null | undefined): string {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 function TVTabLayout() {
   const { settings } = useSettings();
   const { t } = useTranslation();
   const segments = useSegments();
   const router = useRouter();
+  const user = useAtomValue(userAtom);
+  const api = useAtomValue(apiAtom);
+  const { loginWithSavedCredential } = useJellyfin();
+  const { showUserSwitchModal } = useTVUserSwitchModal();
 
   const currentTab = segments.find(isTabRoute);
   const atTabRoot = isAtTabRoot(segments);
 
-  const tabs: TVNavBarTab[] = useMemo(
+  const tabs: TVNavRailItem[] = useMemo(
     () =>
-      [
-        { key: "(home)", label: t("tabs.home") },
-        { key: "(search)", label: t("tabs.search") },
-        { key: "(favorites)", label: t("tabs.favorites") },
-        !settings?.streamyStatsServerUrl || settings?.hideWatchlistsTab
-          ? null
-          : { key: "(watchlists)", label: t("watchlists.title") },
-        { key: "(libraries)", label: t("tabs.library") },
-        // Requests is the one StingStream tab a non-administrator gets, so unlike Manage and
-        // Downloads it is here on TV too. The screen itself drops Approvals and Policy on a
-        // television: approving on a remote control is worse than doing it on the phone that is
-        // already in the room.
-        { key: "(requests)", label: "Requests" },
-        !settings?.showCustomMenuLinks
-          ? null
-          : { key: "(custom-links)", label: t("tabs.custom_links") },
-        { key: "(settings)", label: t("tabs.settings") },
-      ].filter((tab): tab is TVNavBarTab => tab !== null),
+      (
+        [
+          { key: "(home)", label: t("tabs.home"), icon: "home" },
+          { key: "(search)", label: t("tabs.search"), icon: "search" },
+          {
+            key: "(favorites)",
+            label: t("tabs.favorites"),
+            icon: "favorite" as const,
+          },
+          !settings?.streamyStatsServerUrl || settings?.hideWatchlistsTab
+            ? null
+            : {
+                key: "(watchlists)",
+                label: t("watchlists.title"),
+                icon: "watchlist" as const,
+              },
+          {
+            key: "(libraries)",
+            label: t("tabs.library"),
+            icon: "library" as const,
+          },
+          // Requests is the one StingStream tab a non-administrator gets, so unlike Manage and
+          // Downloads it is here on TV too. The screen itself drops Approvals and Policy on a
+          // television: approving on a remote control is worse than doing it on the phone that is
+          // already in the room.
+          {
+            key: "(requests)",
+            label: t("tabs.requests"),
+            icon: "requests" as const,
+          },
+          !settings?.showCustomMenuLinks
+            ? null
+            : {
+                key: "(custom-links)",
+                label: t("tabs.custom_links"),
+                icon: "link" as const,
+              },
+          {
+            key: "(settings)",
+            label: t("tabs.settings"),
+            icon: "settings" as const,
+          },
+        ] as (TVNavRailItem | null)[]
+      ).filter((tab): tab is TVNavRailItem => tab !== null),
     [
       settings?.streamyStatsServerUrl,
       settings?.hideWatchlistsTab,
@@ -116,6 +159,49 @@ function TVTabLayout() {
   }, [router]);
   useTVTabRootBackHandler(navigateHome, atTabRoot, currentTab);
 
+  const currentServer = useMemo(() => {
+    if (!api?.basePath) return null;
+    return getPreviousServers().find((s) => s.address === api.basePath) ?? null;
+  }, [api?.basePath]);
+
+  const handleAccountSelect = useCallback(
+    async (account: SavedServerAccount) => {
+      if (!currentServer) return;
+
+      // A television is a household device, so accounts saved by the code
+      // sign-in carry no secret and can simply be switched to. A PIN or
+      // password account needs its entry sheet, which lives on the settings
+      // screen with the rest of the account machinery; send the viewer there
+      // rather than growing a second copy of those modals in the navigator.
+      if (account.securityType === "none") {
+        try {
+          await loginWithSavedCredential(currentServer.address, account.userId);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : t("server.session_expired");
+          Alert.alert(t("login.connection_failed"), message);
+        }
+        return;
+      }
+
+      router.replace("/(auth)/(tabs)/(settings)");
+    },
+    [currentServer, loginWithSavedCredential, router, t],
+  );
+
+  const handleAccountPress = useCallback(() => {
+    if (!currentServer || !user?.Id) return;
+    showUserSwitchModal(currentServer, user.Id, {
+      onAccountSelect: handleAccountSelect,
+    });
+  }, [currentServer, user?.Id, showUserSwitchModal, handleAccountSelect]);
+
+  // The rail's account button is only worth a focus stop when there is another
+  // account to switch to; `showUserSwitchModal` refuses below two anyway.
+  const canSwitchUser = (currentServer?.accounts.length ?? 0) > 1;
+
   // If current tab is no longer visible (setting changed), navigate to home
   useEffect(() => {
     if (!visibleKeys.has(activeTabKey) && activeTabKey !== "(home)") {
@@ -132,17 +218,14 @@ function TVTabLayout() {
       >
         <Stack.Screen name='index' redirect />
       </Stack>
-      <TVNavBar
-        tabs={tabs}
-        activeTabKey={activeTabKey}
-        onTabChange={handleTabChange}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 1000,
-        }}
+      <TVNavRail
+        items={tabs}
+        activeKey={activeTabKey}
+        onSelect={handleTabChange}
+        accountInitials={initialsOf(user?.Name)}
+        accountLabel={user?.Name ?? undefined}
+        onAccountPress={canSwitchUser ? handleAccountPress : undefined}
+        style={{ zIndex: 1000 }}
       />
     </View>
   );

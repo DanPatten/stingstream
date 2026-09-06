@@ -18,7 +18,6 @@
     "password_placeholder": "Salasana",
     "login_button": "Kirjaudu sisään",
     "quick_connect": "Pikayhdistys",
-    "enter_code_to_login": "Syötä koodi {{code}} kirjautuaksesi",
     "quick_connect_instructions": "Syötä tämä koodi laitteeseen, jolla olet jo kirjautunut sisään. Sinut kirjataan sisään automaattisesti.",
     "tap_code_to_copy": "Napauta koodia kopioidaksesi sen",
     "code_copied": "Koodi kopioitu",
@@ -61,7 +60,6 @@
     "remove_server_description": "Tämä poistaa palvelimen {{server}} ja kaikki tallennetut tilit listaltasi.",
     "select_your_server": "Valitse palvelimesi",
     "add_server_to_get_started": "Lisää palvelin päästäksesi alkuun",
-    "add_server": "Lisää palvelin",
     "change_server": "Vaihda palvelinta"
   },
   "save_account": {
@@ -1032,35 +1030,5 @@
       "show": "Tämä sarja",
       "all": "Kaikki (oletus)"
     }
-  },
-  "companion_login": {
-    "title": "Pariliitos television kanssa",
-    "align_qr": "Aseta QR-koodi kehyksen sisään",
-    "enter_code_manually": "Syötä koodi käsin",
-    "pairing_enter_credentials": "Anna television kirjautumistiedot",
-    "pairing_code_label": "Pariliitoskoodi",
-    "server": "Palvelin",
-    "authorize_button": "Valtuuta",
-    "authorizing": "Valtuutetaan...",
-    "scan_again": "Skannaa uudelleen",
-    "done": "Valmis",
-    "success_title": "Valtuutus lähetetty",
-    "pairing_tv_connecting": "Televisio yhdistää tiliisi",
-    "error_title": "Valtuutus epäonnistui",
-    "error_invalid_qr": "Virheellinen QR-koodi. Skannaa television pariliitoskoodi.",
-    "error_generic": "Jokin meni pieleen. Yritä uudelleen.",
-    "error_permission_denied": "QR-koodien skannaus vaatii kameran käyttöoikeuden.",
-    "login_as": "Kirjaudutaanko käyttäjänä {{username}}?",
-    "on_server": "palvelimella {{server}}",
-    "use_different_user": "Käytä toista käyttäjää",
-    "open_settings": "Avaa asetukset"
-  },
-  "pairing": {
-    "pair_with_phone": "Pariliitos puhelimen kanssa",
-    "pair_with_phone_title": "Kirjaudu televisiossa",
-    "waiting_for_phone": "Odotetaan puhelinta...",
-    "scan_with_phone": "Skannaa puhelimesi StingStream-sovelluksella",
-    "logging_in": "Kirjaudutaan...",
-    "logging_in_description": "Yhdistetään palvelimeesi"
   }
 }

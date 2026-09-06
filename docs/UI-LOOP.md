@@ -144,6 +144,55 @@ explicit `-RefreshNodeUrl` for the one case this does not cover -- re-seeding *n
 data dir whose node is already running (a library that already exists does not re-scan itself on a
 timer fast enough to be useful for an interactive loop).
 
+### `-RealArtwork`: real posters for a human reviewer, still offline gradients for agents
+
+Off by default -- agents always get the deterministic offline gradients above, so a screenshot pass
+never depends on the internet or on TMDB serving the same image twice. `tools/ui-node.ps1 -Seed
+-RealArtwork` (which passes `-RealArtwork` through to `ui-seed-media.ps1`) is for a human reviewer
+who wants the handoff build to look like real media.
+
+Two things had to be confirmed live (2026-09-06) before this could work at all, both now handled
+automatically:
+
+1. **StingStream.Core's first-run wiring creates the Movies/TV Shows libraries with
+   `EnableInternetProviders: false`** (confirmed via `GET /jellyfin/Library/VirtualFolders`) --
+   despite `FirstRunService.cs`'s own comment that its `LibraryOptions` are "exactly as a stock
+   install would do it." A library scan with providers off never fetches anything from TMDB/TVDB,
+   real or otherwise.
+2. **A local image file wins over any fetched one, regardless of that setting.** Forcing a full
+   image refresh (`replaceAllImages=true`) on an item that already had a local `poster.jpg`
+   produced no change at all after 90+ seconds of polling -- Jellyfin's local-file image provider
+   is simply higher priority. So `-RealArtwork` has to do two things, not one: never write
+   `poster.jpg`/`fanart.jpg` in the first place (the pre-start placement pass), **and** flip
+   `EnableInternetProviders` on for both libraries once they exist (which needs the node's API, so
+   it cannot happen before the node's first start creates them).
+
+`ui-node.ps1 -Seed -RealArtwork` therefore seeds with no local images, waits for first-run wiring
+exactly as it always does, and then calls `ui-seed-media.ps1 -RealArtwork -RefreshNodeUrl <url>` --
+which PATCHes `/Library/VirtualFolders/LibraryOptions` for each library (idempotent: skips a
+library that already has providers on; preserves every other field on the existing `LibraryOptions`
+object rather than POSTing a partial one, which would otherwise silently reset
+`EnableRealtimeMonitor`/`EnablePhotos`/etc. to their C# defaults -- confirmed this matters, and
+confirmed the fix preserves them), triggers `/Library/Refresh`, and polls the catalogue's first
+movie for a real `ImageTags.Primary` to appear as the signal that a fetch actually happened,
+reporting how long it took. If `-Seed -RealArtwork`'s wiring wait itself times out (the same
+shared-machine contention documented under "Verification" below), it warns and skips the follow-up
+automatically -- run `ui-seed-media.ps1 -RealArtwork -RefreshNodeUrl <url>` by hand once the node
+finishes wiring.
+
+**Measured on this machine, both modes confirmed end to end (2026-09-06):** offline mode's posters
+carry the title only now (no caption); real mode's fetched `Big Buck Bunny` poster byte-matches the
+film's actual theatrical artwork. Timing is genuinely conditions-dependent, not a fixed number --
+enabling providers is always an immediate `204`, but the identification-and-download pass that
+follows raced this machine's other concurrent load across three runs: one clean run reached all 10
+real images within about 20-40 seconds of enabling providers (the item-count poll went 4 -> 5 -> 7
+-> 9 -> 10 across four 5-second cycles, and the sample movie already had its image by the time that
+finished); one heavily-loaded run had not finished identifying all 10 titles after 180 seconds and
+needed a second, longer wait budget (`-RealArtwork` now uses 420s here, not 180s, for exactly this
+reason). Expect anywhere from under a minute to several minutes -- this is a real network round
+trip to TMDB for every title, not a local operation, and shares the network/CPU with whatever else
+is running on the machine.
+
 ---
 
 ## `tools/ui-seed-media.ps1`
@@ -444,6 +493,52 @@ Run 2026-09-06 against a private copy of the then-current build (`mesh/target/de
 `server/jellyfin/.../bin/Debug/net10.0`, `apps/stingstream/dist` as the Tier B web bundle -- the
 pre-WP0/WP1/... UI, on purpose: this is the baseline the plan's review loop measures every later
 pass against). Numbers, findings and screenshots: `.win-temp\ui-loop\pass-00\` (outside the repo,
-per `docs/CONTRIBUTING.md`). See the WP-TOOLS report for the full timing table and finding counts;
-the summary is that the tooling in this document produced real, previously-undocumented bugs (items
-1-6 above) on its very first real run, which is the loop working as intended.
+per `docs/CONTRIBUTING.md`).
+
+**`ui-node.ps1 -Fresh -Seed`**: private copy made, config.toml written, gateway accepting
+connections in ~1.6s, first-run wiring cleared (Jellyfin's own first scan picked up all 16 seeded
+items with no manual refresh -- see above). `-DevServer` confirmed working against WP-GATE's now-
+landed `--web-dev-server` flag (log line: `serving the app from a web dev server ... authority=
+127.0.0.1:9999`).
+
+**`shots.mjs`**, 8 of the 13 screens pinned and reachable (login, home, settings, requests, sharing,
+search, manage, transfers) x 3 viewports = 24 captures, 0 navigation failures, 325 findings (console
+123, response 83, small-text 60, overflow-element 34, tap-target 15, brand-word 9, home-structure
+1) -- the pre-WP0/WP1 baseline this document says to expect, and already includes real,
+previously-undocumented bugs (the six items above), not manufactured noise. 03/04/05/06 (library/
+details/player) were skipped this pass -- their routes are not pinned yet (see "Pinned routes").
+
+**`ui-startup.ps1 -DriveUi`**, HTTP-only phase, two runs after fixing the bugs below: seed+start
+48-63s, T_gateway 1.6-2.6s, T_index 6.7-9.3s (budget 3s -- missed both times), T_healthy 66-88s
+(budget 40s -- missed badly both times), T_wired cleared right after. Both misses track a
+heavily-loaded shared machine at the time (several other agents' nodes and builds running
+concurrently -- confirmed via process count and `Get-Process`), not the harness: the mechanics
+(measurement, PASS/FAIL/MISS reporting, exit code, node cleanup on both the pass and the fail path)
+were all confirmed correct. The Playwright phase (FCP/T_home) hit the same contention and timed out
+around the 15s mark both times; `connectAndSignIn` itself was independently verified reliable (4/4
+clean runs) once fixed and once the machine was less loaded moments earlier. Three-in-a-row budget
+compliance is therefore **not yet demonstrated** and is flagged as open below.
+
+**Android**: `android.ps1 -Emulator start -Variant phone` booted `stingstream-phone` in about a
+minute; the existing debug APK (dev-client build) installed with `adb install -r` and launched with
+no crash (`DevLauncherActivity`, `ReactNativeJS` logcat clean); `android.ps1 -Capture phone`
+produced a real PNG via the binary-safe `Start-Process` redirect. TV skipped: no TV **debug** APK
+exists yet, only the M5 release build under `apps/stingstream/release-builds/tv/`, which is a
+different signing/build configuration and not what this check calls for.
+
+**Bugs found and fixed by this verification pass, all in this package's own scripts**:
+`Install-Movie` baked a stringified PowerShell object into every seed poster/fanart's title text
+(`New-SeedArtwork -Title $Title` instead of `$Title.Title`); `ui-startup.ps1`'s own `$shotsDir`/
+`$ShotsDir` case-collision silently redirected screenshots into the wrong directory; an
+uninitialized `$script:tool2` under `Set-StrictMode` crashed the cleanup `finally` block whenever
+the Playwright phase failed, masking the real error and leaking the node process; `New-SeedArtwork`
+drew a second caption line ("StingStream UI loop seed") that rendered exactly where a real card's
+own subtitle sits, reading as the item's own metadata on Home (removed, not reworded -- see
+"`-RealArtwork`" above); and a partial `POST` to `/Library/VirtualFolders/LibraryOptions` would
+have silently reset every library field it did not name to its C# default, caught before it ever
+shipped by preserving the whole existing options object instead. Also found, in the app rather than
+this package: first-run wiring's `Movies`/`TV Shows` libraries are created with
+`EnableInternetProviders: false`, contradicted by their own source comment (see `-RealArtwork`
+above) -- not fixed here, since disabling internet metadata by default is very likely deliberate
+for an offline-first iterate loop, but worth someone confirming that's intentional. See the commit
+history for `tools/ui-node.ps1` and `tools/ui-seed-media.ps1` for the fixes themselves.

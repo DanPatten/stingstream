@@ -9,6 +9,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Animated,
   Dimensions,
@@ -16,6 +17,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  TVFocusGuideView,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,7 +25,14 @@ import { ProgressBar } from "@/components/common/ProgressBar";
 import { Image, prefetchServerImage } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
-import { type ScaledTVSizes, useScaledTVSizes } from "@/constants/TVSizes";
+import { TVButton } from "@/components/tv/TVButton";
+import { TV_FOCUS, useScaledTVCardLayout } from "@/constants/TVCardLayouts";
+import { TVImageBudget } from "@/constants/TVImageBudget";
+import {
+  type ScaledTVSizes,
+  TVAnimation,
+  useScaledTVSizes,
+} from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import {
@@ -42,6 +51,8 @@ interface TVHeroCarouselProps {
   items: BaseItemDto[];
   onItemFocus?: (item: BaseItemDto) => void;
   onItemLongPress?: (item: BaseItemDto) => void;
+  /** Left inset the navigation rail claims. */
+  contentInsetLeft: number;
 }
 
 interface HeroCardProps {
@@ -56,11 +67,18 @@ interface HeroCardProps {
 const HeroCard: React.FC<HeroCardProps> = React.memo(
   ({ item, isFirst, sizes, onFocus, onPress, onLongPress }) => {
     const api = useAtomValue(apiAtom);
+    const card = useScaledTVCardLayout("hero");
     const [focused, setFocused] = useState(false);
     const scale = useRef(new Animated.Value(1)).current;
 
     // Check if glass effect is available (tvOS 26+)
     const useGlass = Platform.OS === "ios" && isGlassEffectAvailable();
+
+    // Ask the server for what the card renders, not a flat 400: see
+    // constants/TVImageBudget.ts.
+    const heroFillHeight = Math.round(
+      card.cardHeight * TVImageBudget.posterDecodeMultiplier,
+    );
 
     const posterUrl = useMemo(() => {
       if (!api) return null;
@@ -69,40 +87,40 @@ const HeroCard: React.FC<HeroCardProps> = React.memo(
       // Matched pair: ParentThumbItemId owns the Thumb tag, not ParentBackdropItemId.
       if (item.Type === "Episode") {
         if (item.ParentThumbItemId && item.ParentThumbImageTag) {
-          return `${api.basePath}/Items/${item.ParentThumbItemId}/Images/Thumb?fillHeight=400&quality=80&tag=${item.ParentThumbImageTag}`;
+          return `${api.basePath}/Items/${item.ParentThumbItemId}/Images/Thumb?fillHeight=${heroFillHeight}&quality=80&tag=${item.ParentThumbImageTag}`;
         }
         // Series without a Thumb: fall back to its backdrop, like other Jellyfin
         // clients do. The tagless Thumb request below 404s in that case.
         const parentBackdropTag = item.ParentBackdropImageTags?.[0];
         if (item.ParentBackdropItemId && parentBackdropTag) {
-          return `${api.basePath}/Items/${item.ParentBackdropItemId}/Images/Backdrop?fillHeight=400&quality=80&tag=${parentBackdropTag}`;
+          return `${api.basePath}/Items/${item.ParentBackdropItemId}/Images/Backdrop?fillHeight=${heroFillHeight}&quality=80&tag=${parentBackdropTag}`;
         }
         // Neither parent pair resolved. The tagless series request below is a
         // 404 whenever the series has no Thumb, which leaves the hero blank, so
         // try the episode's own image first like the poster cards do.
         if (item.ImageTags?.Primary) {
-          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=400&quality=80&tag=${item.ImageTags.Primary}`;
+          return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=${heroFillHeight}&quality=80&tag=${item.ImageTags.Primary}`;
         }
         if (item.SeriesId) {
-          return `${api.basePath}/Items/${item.SeriesId}/Images/Thumb?fillHeight=400&quality=80`;
+          return `${api.basePath}/Items/${item.SeriesId}/Images/Thumb?fillHeight=${heroFillHeight}&quality=80`;
         }
       }
 
       // For non-episodes, use item's own thumb/primary
       if (item.ImageTags?.Thumb) {
-        return `${api.basePath}/Items/${item.Id}/Images/Thumb?fillHeight=400&quality=80&tag=${item.ImageTags.Thumb}`;
+        return `${api.basePath}/Items/${item.Id}/Images/Thumb?fillHeight=${heroFillHeight}&quality=80&tag=${item.ImageTags.Thumb}`;
       }
       if (item.ImageTags?.Primary) {
         return `${api.basePath}/Items/${item.Id}/Images/Primary?fillHeight=400&quality=80&tag=${item.ImageTags.Primary}`;
       }
       return null;
-    }, [api, item]);
+    }, [api, item, heroFillHeight]);
 
     const animateTo = useCallback(
       (value: number) =>
         Animated.timing(scale, {
           toValue: value,
-          duration: 150,
+          duration: TV_FOCUS.durationMs,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }).start(),
@@ -142,13 +160,13 @@ const HeroCard: React.FC<HeroCardProps> = React.memo(
         >
           <GlassPosterView
             imageUrl={posterUrl}
-            aspectRatio={16 / 9}
-            cornerRadius={scaleSize(24)}
+            aspectRatio={card.aspectRatio}
+            cornerRadius={card.borderRadius}
             progress={progress}
             showWatchedIndicator={false}
             isFocused={focused}
-            width={sizes.posters.episode}
-            style={{ width: sizes.posters.episode }}
+            width={card.cardWidth}
+            style={{ width: card.cardWidth }}
           />
         </Pressable>
       );
@@ -166,17 +184,17 @@ const HeroCard: React.FC<HeroCardProps> = React.memo(
       >
         <Animated.View
           style={{
-            width: sizes.posters.episode,
-            aspectRatio: 16 / 9,
-            borderRadius: scaleSize(24),
+            width: card.cardWidth,
+            aspectRatio: card.aspectRatio,
+            borderRadius: card.borderRadius,
             overflow: "hidden",
             transform: [{ scale }],
-            borderWidth: scaleSize(2),
-            borderColor: focused ? "#FFFFFF" : "transparent",
-            shadowColor: "#FFFFFF",
+            borderWidth: scaleSize(TV_FOCUS.borderWidth),
+            borderColor: focused ? TV_FOCUS.borderColor : "transparent",
+            shadowColor: TV_FOCUS.borderColor,
             shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: focused ? 0.6 : 0,
-            shadowRadius: focused ? scaleSize(20) : 0,
+            shadowOpacity: focused ? TV_FOCUS.glowOpacity * 2 : 0,
+            shadowRadius: focused ? scaleSize(TV_FOCUS.glowRadius) : 0,
           }}
         >
           {posterUrl ? (
@@ -209,16 +227,16 @@ const HeroCard: React.FC<HeroCardProps> = React.memo(
   },
 );
 
-// Debounce delay to prevent rapid backdrop changes when navigating fast
-const BACKDROP_DEBOUNCE_MS = 300;
-
 export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
   items,
   onItemFocus,
   onItemLongPress,
+  contentInsetLeft,
 }) => {
+  const { t } = useTranslation();
   const typography = useScaledTVTypography();
   const sizes = useScaledTVSizes();
+  const heroCard = useScaledTVCardLayout("hero");
   const api = useAtomValue(apiAtom);
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -299,13 +317,13 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
       Animated.parallel([
         Animated.timing(incomingOpacity, {
           toValue: 1,
-          duration: 500,
+          duration: TVAnimation.crossfadeMs,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(outgoingOpacity, {
           toValue: 0,
-          duration: 500,
+          duration: TVAnimation.crossfadeMs,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -334,7 +352,7 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
       debounceTimerRef.current = setTimeout(() => {
         setActiveItem(item);
         onItemFocus?.(item);
-      }, BACKDROP_DEBOUNCE_MS);
+      }, TVAnimation.backdropDebounceMs);
     },
     [onItemFocus],
   );
@@ -347,6 +365,27 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
     },
     [router],
   );
+
+  // Both hero buttons land on the pre-play page: it is where resume position,
+  // version, audio and subtitle choices live, and starting playback straight
+  // from a browse row would skip all of them. Play carries `autoPlay` so the
+  // pre-play page starts immediately, which is the behaviour the label promises.
+  const handleDetailsPress = useCallback(() => {
+    if (!activeItem) return;
+    router.push(getItemNavigation(activeItem, "(home)") as any);
+  }, [router, activeItem]);
+
+  const handlePlayPress = useCallback(() => {
+    if (!activeItem) return;
+    const navigation = getItemNavigation(activeItem, "(home)") as {
+      pathname: string;
+      params?: Record<string, unknown>;
+    };
+    router.push({
+      ...navigation,
+      params: { ...(navigation.params ?? {}), autoPlay: "true" },
+    } as any);
+  }, [router, activeItem]);
 
   // Get metadata for active item
   const year = activeItem?.ProductionYear;
@@ -394,16 +433,18 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
 
   if (items.length === 0) return null;
 
-  // Extra top padding for tvOS to clear the menu bar
-  const tvosTopPadding = scaleSize(145);
+  // There is no top menu bar to clear any more -- navigation moved to the left
+  // rail -- so the hero starts at the single small top inset every TV screen
+  // uses, and the 145 px tvOS allowance is gone with the bar it was reserving.
+  const topPadding = insets.top + sizes.layout.contentInsetTop;
   const heroHeight = SCREEN_HEIGHT * sizes.padding.heroHeight;
 
   return (
     <View
       style={{
-        height: heroHeight + insets.top + tvosTopPadding,
+        height: heroHeight + topPadding,
         width: "100%",
-        paddingTop: insets.top + tvosTopPadding,
+        paddingTop: topPadding,
       }}
     >
       {/* Backdrop layers with crossfade */}
@@ -416,6 +457,21 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
           bottom: 0,
         }}
       >
+        {/*
+          A base layer under both crossfade layers. Without it the first hero
+          image fades up from whatever the screen behind happens to be, and the
+          gap between two backdrops shows through as a flash of raw content;
+          10% black darkens the whole stack a touch besides, which is what
+          keeps the title legible over a bright poster.
+        */}
+        <View
+          style={{
+            position: "absolute",
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(0,0,0,0.1)",
+          }}
+        />
         {/* Layer 0 */}
         <Animated.View
           style={{
@@ -494,11 +550,11 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
       <View
         style={{
           position: "absolute",
-          left: sizes.padding.horizontal,
+          left: contentInsetLeft,
           right: sizes.padding.horizontal,
           bottom:
             scaleSize(40) +
-            sizes.posters.episode * (9 / 16) +
+            heroCard.cardHeight +
             sizes.gaps.small * 2 +
             scaleSize(20),
         }}
@@ -508,10 +564,16 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
           <Image
             source={{ uri: logoUrl }}
             style={{
-              height: scaleSize(100),
+              height: Math.min(
+                scaleSize(100),
+                scaleSize(TVImageBudget.logoMaxHeight),
+              ),
               width: SCREEN_WIDTH * 0.35,
               marginBottom: scaleSize(16),
             }}
+            // Logos are wide wordmarks: well past the disk-only threshold once
+            // decoded, so they never take a slot in the memory cache.
+            cachePolicy='disk'
             contentFit='contain'
             contentPosition='left'
           />
@@ -644,6 +706,69 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
             </View>
           )}
         </View>
+
+        {/*
+          Play/Resume and Details, under the synopsis.
+
+          Neither takes preferred focus: the thumbnail strip below keeps the
+          initial focus so the screen opens on content, and the buttons are one
+          UP press away. The guide is stacked rather than trapped so DOWN out of
+          the row still reaches the strip, and equal `minWidth` keeps the two
+          buttons the same size -- uneven neighbours read as a rendering bug at
+          ten feet.
+        */}
+        {activeItem && (
+          <TVFocusGuideView
+            style={{
+              flexDirection: "row",
+              gap: sizes.gaps.item,
+              marginTop: scaleSize(20),
+            }}
+          >
+            <TVButton
+              onPress={handlePlayPress}
+              variant='primary'
+              style={{ minWidth: scaleSize(280) }}
+            >
+              <Ionicons
+                name='play'
+                size={scaleSize(26)}
+                color='#000000'
+                style={{ marginRight: scaleSize(10) }}
+              />
+              <Text
+                style={{
+                  fontSize: typography.callout,
+                  fontWeight: "bold",
+                  color: "#000000",
+                }}
+              >
+                {hasProgress ? t("tv.hero.resume") : t("common.play")}
+              </Text>
+            </TVButton>
+            <TVButton
+              onPress={handleDetailsPress}
+              variant='glass'
+              style={{ minWidth: scaleSize(280) }}
+            >
+              <Ionicons
+                name='information-circle-outline'
+                size={scaleSize(26)}
+                color='#FFFFFF'
+                style={{ marginRight: scaleSize(10) }}
+              />
+              <Text
+                style={{
+                  fontSize: typography.callout,
+                  fontWeight: "bold",
+                  color: "#FFFFFF",
+                }}
+              >
+                {t("tv.hero.details")}
+              </Text>
+            </TVButton>
+          </TVFocusGuideView>
+        )}
       </View>
 
       {/* Thumbnail carousel - edge-to-edge */}
@@ -663,7 +788,7 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
           style={{ overflow: "visible" }}
           contentContainerStyle={{
             paddingVertical: sizes.gaps.small,
-            paddingLeft: sizes.padding.horizontal,
+            paddingLeft: contentInsetLeft,
             paddingRight: sizes.padding.horizontal,
           }}
           // Below is a work around with the contentInset, same in infiniteScrollingCollectionList, if okay on apple remove
