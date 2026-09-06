@@ -17,9 +17,10 @@ interface Props {
   collapsed: boolean;
   onPress: () => void;
   /**
-   * The rail's hover label. Reported up rather than drawn here because the
-   * rows live inside a `ScrollView`, which clips anything wider than 72 px —
-   * so the tooltip has to be drawn by `Sidebar`, outside that clip.
+   * The rail's hover label. Reported up rather than drawn here: an absolutely
+   * positioned box shrinks to fit its containing block, and a row's containing
+   * block on the rail is the `ScrollView`'s 48 px of content width — so the
+   * tooltip has to be a child of `Sidebar` instead, where there is room.
    */
   onHoverChange?: (label: string | null, screenY: number) => void;
 }
@@ -159,6 +160,11 @@ export const RailTooltip: React.FC<{ label: string; top: number }> = ({
       position: "absolute",
       left: 60,
       top,
+      // An absolutely positioned box shrinks to fit inside its containing
+      // block, and the rail's containing block is 72 px wide — which left 12 px
+      // for the label and rendered an 8 px sliver. The width has to be stated.
+      minWidth: 120,
+      maxWidth: 220,
       paddingHorizontal: 10,
       paddingVertical: 5,
       borderRadius: radius.sm,

@@ -126,7 +126,9 @@ function WebTabBar({ state, descriptors, navigation }: any) {
               color={focused ? accent[500] : tokens.color.text.tertiary}
             />
             <Text
-              variant='micro'
+              // `caption`, not `micro`: micro is 11 px on a phone and the
+              // acceptance bar for the 390 viewport is nothing under 12.
+              variant='caption'
               weight={focused ? "semibold" : "medium"}
               numberOfLines={1}
               style={{
