@@ -525,7 +525,17 @@ fn resolve_mode(cli: &Cli) -> Result<Mode> {
         Ok(Mode::Dev { repo_root })
     } else {
         let install_root = match &cli.install_root {
-            Some(p) => p.clone(),
+            // Absolute, not the raw CLI value: every child is spawned with *its own* working
+            // directory (its own bin/<child>/ subfolder, not the supervisor's), so a relative
+            // --install-root resolves against the wrong directory the moment it is used to build
+            // a child's arguments -- found for real running a release build by hand from a
+            // different cwd than the install root: Jellyfin's ffmpeg path came out relative,
+            // resolved against Jellyfin's own working directory instead, and the node
+            // crash-looped Jellyfin forever with "the system cannot find the file specified".
+            // Every real launcher (the installer, the .deb, the Windows service, the Docker
+            // image) already passes an absolute path, so this never bit an actual user -- but
+            // `docs/deploy/node/LAYOUT.md` explicitly documents the manual-launch case this broke.
+            Some(p) => paths::absolutize(p)?,
             None => std::env::current_exe()
                 .ok()
                 // <install>/bin/stingstream/stingstream(.exe) -> <install>
@@ -735,5 +745,38 @@ async fn wait_for_shutdown_signal() {
     {
         let _ = tokio::signal::ctrl_c().await;
         tracing::info!("received Ctrl+C");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A relative `--install-root` used to come back exactly as typed. That broke a manual launch
+    /// from any working directory other than the install root itself: every child is spawned with
+    /// its own working directory, so `resolve_prod_dotnet`/`find_ffmpeg`/etc. building a path *from*
+    /// a relative install root produced something that only happened to resolve correctly when the
+    /// supervisor's own cwd was already the install root. Found for real packaging v0.1.0-rc2 --
+    /// Jellyfin's ffmpeg path came out relative, resolved against Jellyfin's own working directory
+    /// instead of the supervisor's, and the node crash-looped Jellyfin forever.
+    #[test]
+    fn a_relative_install_root_is_made_absolute() {
+        let cli = Cli::parse_from(["stingstream", "--install-root", "relative/install"]);
+        let mode = resolve_mode(&cli).unwrap();
+        let root = mode.install_root().expect("--install-root selects Mode::Prod");
+        assert!(root.is_absolute(), "{} should be absolute", root.display());
+        assert!(root.ends_with(std::path::Path::new("relative").join("install")));
+    }
+
+    #[test]
+    fn an_already_absolute_install_root_is_left_alone() {
+        let absolute = std::env::temp_dir().join("stingstream-install-root-test");
+        let cli = Cli::parse_from([
+            "stingstream",
+            "--install-root",
+            absolute.to_str().expect("test path is valid UTF-8"),
+        ]);
+        let mode = resolve_mode(&cli).unwrap();
+        assert_eq!(mode.install_root().unwrap(), absolute);
     }
 }

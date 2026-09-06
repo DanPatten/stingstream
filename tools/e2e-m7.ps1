@@ -907,13 +907,29 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
 
     # ...and the group really does play, rather than sitting in `Waiting` for a player that does not
     # exist. Without this the step passes on two sessions doing nothing together.
+    #
+    # This used to be a fixed 1.5s sleep and a single check, which was flaky -- not on timing, but
+    # on a missing signal. Jellyfin's own WaitingGroupState (server/jellyfin/MediaBrowser.Controller/
+    # SyncPlay/GroupStates/WaitingGroupState.cs) only re-checks "is everyone ready" from inside a
+    # request handler -- ReadyGroupRequest or IgnoreWaitGroupRequest -- never automatically after
+    # the SetAllBuffering(true) an Idle -> Waiting Unpause performs on its own. Set-SyncPlayReady
+    # (SetIgnoreWait) called *before* Unpause reaches IdleGroupState, which has no
+    # IgnoreWaitGroupRequest handler at all (see IdleGroupState.cs's own handler list) -- so the
+    # flag is recorded but nothing ever re-evaluates it once Unpause resets every session's
+    # IsBuffering to true. A real client does not hit this because it naturally sends a fresh Ready
+    # once it re-buffers after being told to wait again; this harness has no player to do that, so
+    # it has to send the same signal by hand. No amount of sleeping fixes a check that is never
+    # triggered -- the second SetIgnoreWait call below is the actual fix; the bounded poll after it
+    # is only replacing the old fixed sleep with one that cannot be too short *or* hang forever.
     Invoke-AsSession $script:SessionA1 '/SyncPlay/Unpause' -Method POST | Out-Null
-    Start-Sleep -Milliseconds 1500
-    $state = [string](Get-Member-Value (@(Get-SyncPlayGroups -Session $script:SessionA1))[0] 'State')
-    Write-Host "      the group is $state"
-    if ($state -eq 'Waiting' -or $state -eq 'Idle') {
-        throw "the group is $state after an Unpause; it never started, so nothing was synchronised."
+    foreach ($s in @($script:SessionA1, $script:SessionA2)) { Set-SyncPlayReady -Session $s }
+    $state = Wait-Until -What 'the group to leave Waiting/Idle after Unpause' -Seconds 20 -PollSeconds 1 -Condition {
+        $s = [string](Get-Member-Value (@(Get-SyncPlayGroups -Session $script:SessionA1))[0] 'State')
+        if ($s -ne 'Waiting' -and $s -ne 'Idle') { $s } else { $null }
+    } -Describe {
+        [string](Get-Member-Value (@(Get-SyncPlayGroups -Session $script:SessionA1))[0] 'State')
     }
+    Write-Host "      the group is $state"
     Invoke-AsSession $script:SessionA1 '/SyncPlay/Stop' -Method POST | Out-Null
 
     # Leave it clean, so the cross-node step starts from nothing.

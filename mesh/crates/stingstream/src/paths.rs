@@ -12,17 +12,36 @@ use anyhow::{Context, Result};
 /// Environment variable that overrides the data directory.
 pub const DATA_DIR_ENV: &str = "STINGSTREAM_DATA";
 
+/// Make a path absolute without touching the filesystem.
+///
+/// Not [`Path::canonicalize`]: that resolves symlinks *and* requires the path to already exist,
+/// which a data directory on its first run and an `--install-root` a caller has not yet created
+/// both fail. `std::path::absolute` only prepends the current directory to a relative path (a
+/// no-op on one that is already absolute), so it works before anything on disk exists.
+///
+/// `pub`: `main.rs`'s `resolve_mode` uses this for `--install-root` too, for the same reason --
+/// see that function's own comment for the crash this fixes.
+pub fn absolutize(p: &Path) -> Result<PathBuf> {
+    std::path::absolute(p).with_context(|| format!("resolving {} to an absolute path", p.display()))
+}
+
 /// Resolve the node's data directory, honouring `$STINGSTREAM_DATA` first.
 ///
 /// This does not create anything; call [`Layout::create_all`] for that.
+///
+/// Always absolute: every child is spawned with its *own* working directory (its install
+/// location, not the supervisor's), so a relative `--data-dir` -- and everything derived from it,
+/// like a child's log path -- would resolve against the wrong directory the moment a child reads
+/// it back. Found for real via `--install-root` below; fixed here too since the same reasoning
+/// applies verbatim.
 pub fn resolve_data_dir(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = explicit {
-        return Ok(p.to_path_buf());
+        return absolutize(p);
     }
     if let Some(v) = std::env::var_os(DATA_DIR_ENV) {
         let p = PathBuf::from(v);
         if !p.as_os_str().is_empty() {
-            return Ok(p);
+            return absolutize(&p);
         }
     }
     default_data_dir()
@@ -213,9 +232,27 @@ mod tests {
 
     #[test]
     fn explicit_dir_wins_over_env() {
-        let p = PathBuf::from("/tmp/explicit");
+        // `std::env::temp_dir()` rather than a hardcoded `/tmp/...`: it is already absolute and
+        // already OS-correct (a bare `/tmp/explicit` is rooted but not `is_absolute()` on Windows,
+        // which is lacking a drive -- `absolutize` would rewrite it, and this test wants an
+        // unchanged round-trip, not a lesson in Windows path rules).
+        let p = std::env::temp_dir().join("explicit");
         let got = resolve_data_dir(Some(&p)).unwrap();
         assert_eq!(got, p);
+    }
+
+    /// A relative `--data-dir` used to come back unchanged. That is exactly wrong: the supervisor
+    /// hands this path to children that run with *their own* working directory, so a relative
+    /// path resolves against whatever directory the child happens to be in, not the one the
+    /// caller meant -- found for real as the same bug against `--install-root` (see
+    /// `stingstream::main::tests` in the binary crate), where it broke Jellyfin's ffmpeg path and
+    /// crash-looped the whole node. This does not require the directory to exist yet: a first run
+    /// resolves its data dir before creating anything under it.
+    #[test]
+    fn a_relative_data_dir_is_made_absolute() {
+        let got = resolve_data_dir(Some(Path::new("relative/data"))).unwrap();
+        assert!(got.is_absolute(), "{} should be absolute", got.display());
+        assert!(got.ends_with(Path::new("relative").join("data")));
     }
 
     #[test]
