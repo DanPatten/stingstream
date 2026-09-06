@@ -131,12 +131,4 @@ of it helps a lot.
 
 ---
 
-## For developers
-
-The design, the build instructions, the security review and the test harnesses live under
-[`docs/`](docs/), starting with [`docs/DEVELOPING.md`](docs/DEVELOPING.md). StingStream is built
-on the shoulders of [Jellyfin](https://jellyfin.org), [Radarr](https://radarr.video),
-[Sonarr](https://sonarr.tv), [Streamyfin](https://github.com/streamyfin/streamyfin) and
-[iroh](https://iroh.computer); [`NOTICE.md`](NOTICE.md) credits every component.
-
-New StingStream code is licensed GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+StingStream is free and open source, licensed GPL-3.0-or-later. See [`LICENSE`](LICENSE).
