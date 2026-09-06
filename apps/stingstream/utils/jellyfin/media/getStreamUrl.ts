@@ -12,6 +12,7 @@ import { markExpectedError } from "../../errors";
 import { rewriteStreamUrlForMesh } from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
 import type { AudioTranscodeModeType } from "../../profiles/native";
+import { redactUrl } from "@/lib/stingstream/redactUrl";
 
 interface StreamResult {
   url: string;
@@ -96,7 +97,7 @@ const getPlaybackUrl = (
       );
     }
 
-    console.log("Video is being transcoded:", transcodeUrl);
+    console.log("Video is being transcoded:", redactUrl(transcodeUrl));
     return `${api.basePath}${transcodeUrl}`;
   }
 
@@ -115,7 +116,7 @@ const getPlaybackUrl = (
     mediaSource?.Path
   ) {
     const remote = rewriteStreamUrlForMesh(mediaSource.Path);
-    console.log("Video is remote stream, using direct Path:", remote);
+    console.log("Video is remote stream, using direct Path:", redactUrl(remote));
     return remote;
   }
 
@@ -143,7 +144,10 @@ const getPlaybackUrl = (
 
   const directPlayUrl = `${api.basePath}/Videos/${itemId}/stream?${streamParams.toString()}`;
 
-  console.log("Video is being direct played:", directPlayUrl);
+  // Redacted: this URL carries the caller's own Jellyfin access token in `ApiKey`, and
+  // `console.log` goes to logcat on Android and to the browser console on web. See
+  // `lib/stingstream/redactUrl.ts`.
+  console.log("Video is being direct played:", redactUrl(directPlayUrl));
   return directPlayUrl;
 };
 
