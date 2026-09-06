@@ -8,13 +8,12 @@ import {
   Animated,
   Easing,
   StyleSheet,
-  TextInput,
   TVFocusGuideView,
   View,
 } from "react-native";
 import { Text } from "@/components/common/Text";
+import { TVInput } from "@/components/login/TVInput";
 import { TVButton } from "@/components/tv/TVButton";
-import { TV_FOCUS } from "@/constants/TVCardLayouts";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -140,29 +139,29 @@ export default function TVLinkDeviceModalPage() {
                 {t("home.settings.link_device.linked")}
               </Text>
             ) : (
-              <TextInput
-                style={[
-                  styles.input,
-                  {
+              <View style={styles.inputWrap}>
+                <TVInput
+                  style={{
                     fontSize: typography.display,
-                    borderColor: TV_FOCUS.borderColor,
-                    borderWidth: scaleSize(TV_FOCUS.borderWidth),
-                  },
-                ]}
-                value={code}
-                onChangeText={(text) =>
-                  setCode(text.replace(/\D/g, "").slice(0, CODE_LENGTH))
-                }
-                keyboardType='number-pad'
-                maxLength={CODE_LENGTH}
-                placeholder='------'
-                placeholderTextColor='rgba(255,255,255,0.25)'
-                // The only preferred-focus element on this route: the code is
-                // the one thing to do here, and the remote's number keys should
-                // land in the field without a press.
-                hasTVPreferredFocus
-                autoFocus
-              />
+                    height: undefined,
+                    letterSpacing: scaleSize(12),
+                    textAlign: "center",
+                    paddingVertical: scaleSize(16),
+                  }}
+                  value={code}
+                  onChangeText={(text) =>
+                    setCode(text.replace(/\D/g, "").slice(0, CODE_LENGTH))
+                  }
+                  keyboardType='number-pad'
+                  maxLength={CODE_LENGTH}
+                  placeholder='------'
+                  // The only preferred-focus element on this route: the code is
+                  // the one thing to do here, so the remote's number keys land
+                  // in the field without a press first.
+                  hasTVPreferredFocus
+                  autoFocus
+                />
+              </View>
             )}
 
             {status === "error" && (
@@ -250,17 +249,10 @@ const styles = StyleSheet.create({
     marginTop: scaleSize(16),
     maxWidth: "70%",
   },
-  input: {
+  inputWrap: {
     marginTop: scaleSize(24),
     alignSelf: "flex-start",
     minWidth: scaleSize(420),
-    color: "#FFFFFF",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: scaleSize(16),
-    paddingHorizontal: scaleSize(28),
-    paddingVertical: scaleSize(16),
-    letterSpacing: scaleSize(12),
-    textAlign: "center",
   },
   success: {
     marginTop: scaleSize(24),

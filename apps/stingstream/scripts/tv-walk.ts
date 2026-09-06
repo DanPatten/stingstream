@@ -54,6 +54,7 @@ interface WalkStep {
 }
 
 const KEY_NAMES: Record<number, string> = {
+  0: "wait",
   3: "home",
   4: "back",
   19: "up",
@@ -147,16 +148,65 @@ function totalPssKb(): number | null {
   }
 }
 
+/**
+ * The shape `tools/ui-shots/tv-flow.json` is written in: named keys, grouped
+ * per screen. It is the file the loop actually maintains, so this reads it as
+ * well as the flat array, rather than making somebody keep two of them.
+ */
+interface NamedFlow {
+  keys: Record<string, number>;
+  screens: Array<{
+    id: string;
+    steps: Array<{ keys: string[]; settleMs?: number; note?: string }>;
+  }>;
+}
+
+function isNamedFlow(value: unknown): value is NamedFlow {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as NamedFlow).screens) &&
+    typeof (value as NamedFlow).keys === "object"
+  );
+}
+
+function flattenNamedFlow(flow: NamedFlow): WalkStep[] {
+  return flow.screens.flatMap((screen) =>
+    screen.steps
+      .map((step) => ({
+        screen: screen.id,
+        keys: step.keys.map((name) => {
+          const code = flow.keys[name];
+          if (code === undefined) {
+            throw new Error(`unknown key name "${name}" in ${screen.id}`);
+          }
+          return code;
+        }),
+        settleMs: step.settleMs,
+        note: step.note,
+      }))
+      // A step with no keys is a pure wait, which the capture loop cannot
+      // express: give it one harmless press so the wait still produces a frame.
+      .map((step) =>
+        step.keys.length === 0 ? { ...step, keys: [KEY_NOOP] } : step,
+      ),
+  );
+}
+
+/** DPAD_CENTER on a non-focusable surface does nothing; used to force a frame. */
+const KEY_NOOP = 0;
+
 function loadFlow(): WalkStep[] {
   const flowPath = flag("flow");
   if (flowPath) {
-    const steps = JSON.parse(
-      readFileSync(resolve(flowPath), "utf8"),
-    ) as WalkStep[];
-    if (!Array.isArray(steps)) {
-      throw new Error("flow file must be a JSON array of steps");
+    const parsed = JSON.parse(readFileSync(resolve(flowPath), "utf8"));
+    if (isNamedFlow(parsed)) return flattenNamedFlow(parsed);
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        "flow file must be a JSON array of steps, or a { keys, screens } document",
+      );
     }
-    return steps;
+    return parsed as WalkStep[];
   }
 
   const keys = flag("keys");

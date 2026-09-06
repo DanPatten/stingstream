@@ -631,7 +631,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
         ],
         onSelect: () => {},
         cardWidth: Math.round(SCREEN_WIDTH * 0.72),
-        cardHeight: Math.round(SCREEN_HEIGHT * 0.42),
+        cardHeight: Math.round(SCREEN_HEIGHT * 0.3),
       });
     }, [showOptions, item?.Overview, item?.Name, t]);
 

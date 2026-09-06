@@ -50,7 +50,7 @@ describe("TAB_ROUTES", () => {
   // tab root, so BACK there popped the Stack and left the tab navigator
   // instead of going Home.
   test("includes every tab group the navigator renders", () => {
-    expect([...TAB_ROUTES].sort()).toEqual(
+    expect([...TAB_ROUTES].sort().join(",")).toBe(
       [
         "(custom-links)",
         "(favorites)",
@@ -60,7 +60,9 @@ describe("TAB_ROUTES", () => {
         "(search)",
         "(settings)",
         "(watchlists)",
-      ].sort(),
+      ]
+        .sort()
+        .join(","),
     );
   });
 

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
+import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -244,6 +245,7 @@ export const TVLibraries: React.FC = () => {
   const [user] = useAtom(userAtom);
   const { settings } = useSettings();
   const insets = useSafeAreaInsets();
+  const sizes = useScaledTVSizes();
   const router = useRouter();
   const { t } = useTranslation();
   const typography = useScaledTVTypography();
@@ -402,7 +404,8 @@ export const TVLibraries: React.FC = () => {
         removeClippedSubviews={false}
         contentContainerStyle={{
           paddingBottom: scaleSize(40),
-          paddingHorizontal: insets.left + HORIZONTAL_PADDING,
+          paddingLeft: insets.left + sizes.layout.contentInsetLeft,
+          paddingRight: sizes.padding.horizontal,
           paddingVertical: SCALE_PADDING,
         }}
       />

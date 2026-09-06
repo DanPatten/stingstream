@@ -579,6 +579,24 @@ export const Home = () => {
     return sections.slice(sectionsToSkip);
   }, [sections, showHero, settings.mergeNextUpAndContinueWatching]);
 
+  /**
+   * Which section owns the screen's one preferred focus.
+   *
+   * Not simply "section 0". Continue Watching and Next Up are `hideIfEmpty`,
+   * and on a library nobody has watched yet they render nothing at all -- so
+   * marking section 0 left the screen with no preferred-focus element and the
+   * navigation rail took the initial focus, which is exactly what the rail is
+   * not supposed to do. Those two sections are fed by the same queries as the
+   * hero, so an empty hero means an empty first section or two: skip past them.
+   *
+   * -1 when the hero is shown, because its first card owns the focus instead.
+   */
+  const focusSectionIndex = useMemo(() => {
+    if (showHero) return -1;
+    if (heroItems && heroItems.length > 0) return 0;
+    return settings.mergeNextUpAndContinueWatching ? 1 : 2;
+  }, [showHero, heroItems, settings.mergeNextUpAndContinueWatching]);
+
   if (!isConnected || serverConnected !== true) {
     let title = "";
     let subtitle = "";
@@ -818,8 +836,7 @@ export const Home = () => {
               ) : null;
 
             if (section.type === "InfiniteScrollingCollectionList") {
-              // First section only gets preferred focus if hero is not shown
-              const isFirstSection = index === 0 && !showHero;
+              const isFirstSection = index === focusSectionIndex;
               return (
                 <View key={index} style={{ gap: SECTION_GAP }}>
                   <InfiniteScrollingCollectionList
