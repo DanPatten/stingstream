@@ -436,14 +436,44 @@ function Set-NowPlaying {
         Without this the group is created and sits in `Idle` with nothing in it, and every later
         assertion is about an empty group -- which passes, and means nothing.
     #>
-    param([Parameter(Mandatory)]$Session, [Parameter(Mandatory)][string]$ItemId, [long]$PositionTicks = 0)
-    Invoke-AsSession $Session '/Sessions/Playing' -Method POST -Body @{
-        ItemId        = $ItemId
-        PositionTicks = $PositionTicks
-        IsPaused      = $true
-        CanSeek       = $true
-        PlayMethod    = 'DirectPlay'
-    } | Out-Null
+    param(
+        [Parameter(Mandatory)]$Session,
+        [Parameter(Mandatory)][string]$ItemId,
+        [long]$PositionTicks = 0,
+        [string]$ReresolveLike
+    )
+    $attempt = {
+        param([string]$Id)
+        Invoke-AsSession $Session '/Sessions/Playing' -Method POST -Body @{
+            ItemId        = $Id
+            PositionTicks = $PositionTicks
+            IsPaused      = $true
+            CanSeek       = $true
+            PlayMethod    = 'DirectPlay'
+        } | Out-Null
+    }
+
+    try {
+        & $attempt $ItemId
+        return $ItemId
+    } catch {
+        # **A federated item's id is not stable, and this is where that bites.**
+        #
+        # The materializer rewrites a title's pointers whenever the set of holders changes -- which
+        # the step before this one causes deliberately, by taking a film away from B. Jellyfin
+        # removes the old item and resolves a new one, with a new id. An id read a second earlier
+        # then names a `BaseItems` row that is gone, and `POST /Sessions/Playing` answers **500**:
+        # it writes a `UserData` row keyed on the item, and SQLite refuses with
+        # `FOREIGN KEY constraint failed` rather than Jellyfin noticing the item is missing.
+        # That is CI run 34156353224, and the 500 is upstream's to fix -- a stale id deserves a
+        # 4xx. What the harness can do is not hand it a stale one.
+        if (-not $ReresolveLike) { throw }
+        Write-Host "      the item id moved under us; re-resolving '$ReresolveLike'"
+        $fresh = Get-JellyfinItemByName -Node $Session.Node -Like $ReresolveLike
+        if (-not $fresh -or [string]$fresh.Id -eq $ItemId) { throw }
+        & $attempt ([string]$fresh.Id)
+        return [string]$fresh.Id
+    }
 }
 
 function Set-SyncPlayReady {
@@ -884,6 +914,29 @@ Invoke-Step 'A holder that lost its file is walked past, and the index is correc
     Test-BytesEqual -Actual $response.Bytes -Expected $expected -What 'the stream that named B'
     Write-Host ("      {0:N0} bytes arrived byte-exact, from the other holder" -f $response.Bytes.Length)
 
+    # **B retracted the row itself, as the holder, and that is the assertion.**
+    #
+    # "A no longer offers B" is true for more than one reason, and only one of them is the one this
+    # step is about. B's own inventory rebuild would also drop the record -- `InventoryWatcher` now
+    # rebuilds when the library changes, and deleting a file from a watched folder is a library
+    # change -- so the index check below could go green without the peer server ever having been
+    # asked for the file. The line this waits for is written by `crate::peer` when a fetch finds
+    # the published `local_path` gone and calls `forget_local_item`, and nothing else writes it.
+    Wait-Until -What "B's peer server to retract the row it could not serve" -Seconds 120 -PollSeconds 3 -Condition {
+        $log = Join-Path (Join-Path $DataB 'logs') 'stingstream.jsonl'
+        if (-not (Test-Path $log)) { return $false }
+        $hits = @(Get-Content -Path $log -Tail 4000 -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'retracting it from this node' -and $_ -match [regex]::Escape($Film.ItemKey) })
+        return $hits.Count -ge 1
+    } -Describe {
+        $log = Join-Path (Join-Path $DataB 'logs') 'stingstream.jsonl'
+        if (-not (Test-Path $log)) { return 'no log yet' }
+        $any = @(Get-Content -Path $log -Tail 4000 -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'retracting it from this node' })
+        "B has logged $($any.Count) retraction(s); none yet for $($Film.ItemKey)"
+    } | Out-Null
+    Write-Host "      B's peer server retracted $($Film.ItemKey) when the fetch found the file gone"
+
     # And the index was corrected, so the *next* caller is not offered B either.
     Wait-Until -What "A to stop offering B as a holder" -Seconds 120 -PollSeconds 3 -Condition {
         $index = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 60
@@ -906,7 +959,6 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
         ordinary library item, so SyncPlay synchronises two sessions on one node without knowing the
         mesh exists.
     #>
-    $item = Get-JellyfinItemByName -Node $NodeA -Like "*$($Recording.Programme)*"
     # Two *accounts*, not two devices: a group's participants are its distinct user names, so one
     # account on two phones is one member of the watch party -- which is the right answer, and means
     # this assertion needs a second person.
@@ -915,8 +967,17 @@ Invoke-Step 'Two members on ONE node watch a federated item in sync, natively' {
     $script:SessionA2 = New-JellyfinSession -Node $NodeA -DeviceId 'e2e-m7-a2' `
         -Username 'viewer' -Password 'e2e-m7-viewer'
 
-    Set-NowPlaying -Session $script:SessionA1 -ItemId $item.Id
-    Set-NowPlaying -Session $script:SessionA2 -ItemId $item.Id
+    # Resolved *after* the accounts exist, not before. The step above takes a film away from B, so
+    # A's materializer rewrites that title's pointers -- Jellyfin drops the old item and resolves a
+    # new one with a new id -- and the second or so spent creating a user and authenticating twice
+    # is long enough for an id read first to go stale. See `Set-NowPlaying`, which re-resolves once
+    # if it happens anyway.
+    $like = "*$($Recording.Programme)*"
+    $item = Get-JellyfinItemByName -Node $NodeA -Like $like
+    if (-not $item) { throw "node A has no item matching $like" }
+
+    $itemId = Set-NowPlaying -Session $script:SessionA1 -ItemId $item.Id -ReresolveLike $like
+    Set-NowPlaying -Session $script:SessionA2 -ItemId $itemId -ReresolveLike $like | Out-Null
 
     Invoke-AsSession $script:SessionA1 '/SyncPlay/New' -Method POST -Body @{ GroupName = 'on one node' } | Out-Null
     $groups = Wait-Until -What "A's native SyncPlay group to exist" -Seconds 60 -PollSeconds 2 -Condition {
@@ -1033,7 +1094,7 @@ Invoke-Step 'Each node seats the bridge in its own SyncPlay group' {
         if (-not $item) { throw "node $($node.Name) has no item matching $($pair.Like)" }
 
         $session = New-JellyfinSession -Node $node -DeviceId $pair.Device
-        Set-NowPlaying -Session $session -ItemId $item.Id
+        Set-NowPlaying -Session $session -ItemId $item.Id -ReresolveLike $pair.Like | Out-Null
         Invoke-AsSession $session '/SyncPlay/New' -Method POST -Body @{
             GroupName = "watch together on $($node.Name)"
         } | Out-Null
