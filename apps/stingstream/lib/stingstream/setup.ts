@@ -50,6 +50,13 @@ export interface SetupState {
   pending: boolean;
   /** True when this request came from the machine the node runs on. */
   loopback: boolean;
+  /**
+   * True when this request is somewhere Core's own `SetupGate.IsTrustedPeer` trusts — loopback
+   * or the same private network (RFC1918, link-local, IPv6 ULA) — the gate `setup/admin` itself
+   * enforces. The authority on who may see the create-account screen; prefer this over deriving
+   * it client-side (`NodeContext.trustedPeer`) whenever this endpoint has actually answered.
+   */
+  trustedPeer: boolean;
 }
 
 /**
@@ -138,6 +145,37 @@ export function validateSetupForm(values: SetupFormValues): SetupFormErrors {
 export const isSetupFormValid = (errors: SetupFormErrors): boolean =>
   Object.keys(errors).length === 0;
 
+/**
+ * Whether a server's self-reported name is a hostname or another machine default rather than a
+ * name a person actually gave it.
+ *
+ * Jellyfin's `ServerName` falls back to the host's own hostname when nobody has set one —
+ * "PLEXPC", "DESKTOP-4F2K9QL" — and "Sign in to PLEXPC" reading like that was the bug report that
+ * started this rewrite. The shapes below catch the common defaults: a dotted domain or IP, a
+ * hyphenated machine name (Windows' `DESKTOP-XXXXXXX`, most router and NAS defaults), an
+ * all-digits label, and a single ALL-CAPS word with no punctuation (an un-renamed Windows
+ * machine name). Anything else is treated as a name somebody chose.
+ */
+export function looksLikeHostname(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return true;
+  if (/^\d+$/.test(trimmed)) return true; // all digits — an IP, or nothing at all
+  if (trimmed.includes(".")) return true; // dotted domain or IP
+  if (trimmed.includes("-")) return true; // DESKTOP-XXXXXXX, most router/NAS defaults
+  // A single ALL-CAPS word with no punctuation is the shape of an un-renamed Windows machine
+  // name — "PLEXPC" is the literal example that started this rewrite — and is not how anyone
+  // spells a name they chose on purpose (compare "StingStream", mixed case; "Living Room", a
+  // space no machine name has).
+  if (
+    !/\s/.test(trimmed) &&
+    /[A-Z]/.test(trimmed) &&
+    trimmed === trimmed.toUpperCase()
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Injectable for tests; the app always uses the global. */
 export type FetchLike = typeof fetch;
 
@@ -205,20 +243,33 @@ async function fetchSetupState(
   // A **404 means not pending**, deliberately: an older node has no `setup` routes at all, and
   // the only sane reading of "this node has never heard of first-run setup" is that its account
   // already exists. Anything else strands a working server behind a screen it cannot satisfy.
-  if (response.status === 404) return { pending: false, loopback: false };
+  if (response.status === 404) {
+    return { pending: false, loopback: false, trustedPeer: false };
+  }
 
   if (!response.ok) {
     throw new SetupRequestError("server", t("setup.error_unexpected"));
   }
 
-  let body: { Pending?: unknown; Loopback?: unknown };
+  let body: { Pending?: unknown; Loopback?: unknown; TrustedPeer?: unknown };
   try {
     body = (await response.json()) as typeof body;
   } catch {
     throw new SetupRequestError("server", t("setup.error_unexpected"));
   }
 
-  return { pending: body?.Pending === true, loopback: body?.Loopback === true };
+  const loopback = body?.Loopback === true;
+  return {
+    pending: body?.Pending === true,
+    loopback,
+    // `TrustedPeer` is newer than `Loopback` — a node running an older Core answers with
+    // `{Pending, Loopback}` only, and `body?.TrustedPeer === true` would silently read that
+    // absence as "not trusted" even from loopback, which is a real downgrade from what an old
+    // server used to get. Trust the field only when it actually says something; otherwise fall
+    // back to `Loopback`, which is exactly what an old server's answer used to gate on.
+    trustedPeer:
+      typeof body?.TrustedPeer === "boolean" ? body.TrustedPeer : loopback,
+  };
 }
 
 /**

@@ -19,6 +19,30 @@ reads `useTheme().accent` and sets it inline. Both are correct in their place:
 brand furniture stays teal, user-accented furniture reads the hook. Token edits
 do not survive Metro's cache — restart with `-c`.
 
+### Two things that make `className` do nothing
+
+Both fail silently — the bundle builds, no console error appears, and the only
+symptom is that a screen made of classes looks unstyled. Both are pinned by
+`lib/platform/nativewindWeb.test.ts`.
+
+1. **Web output mode.** NativeWind's runtime picks `css` output when
+   `StyleSheet.create` returns an object rather than a numeric handle, which is
+   exactly what react-native-web does — so on web it hands class names through
+   for a stylesheet to match. This app has no PostCSS step (`web.output:
+   "single"`, plain Metro), so that stylesheet never exists and every class in
+   the app is inert in the browser. `index.web.ts` imports
+   `lib/platform/nativewind-web.ts` **before** `expo-router/entry` to force
+   `native` output, which resolves classes in JS the way the phone build does.
+   Measured before the fix: `<View className='mt-2 mb-4'>` reached the DOM as
+   `class="css-g5y9jx mt-2 mb-4"` with `margin-top: 0px`.
+2. **The `content` globs in `tailwind.config.js`.** They are not just Tailwind's
+   scan list: `nativewind/babel` skips any file that does not match them, so a
+   `className` in an unlisted directory is never transformed. Every directory
+   that can hold JSX is listed for that reason.
+
+If a screen looks wrong and its styling is classes, check these before adding
+inline styles around the problem.
+
 ---
 
 ## Interaction states

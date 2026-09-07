@@ -1,9 +1,14 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { t } from "i18next";
 import { useEffect, useMemo, useState } from "react";
-import { Platform, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Platform, Pressable, View } from "react-native";
+import { Button } from "@/components/Button";
+import { Dialog } from "@/components/common/Dialog";
+import { Icon } from "@/components/common/Icon";
+import { radius, tokens } from "@/constants/theme";
+import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "../common/Text";
-import { PlatformDropdown } from "../PlatformDropdown";
 
 type Props = {
   item: BaseItemDto;
@@ -23,6 +28,16 @@ export type SeasonIndexState = {
   [seriesId: string]: number | string | null | undefined;
 };
 
+/**
+ * Which season the episode list is showing.
+ *
+ * A `Dialog` rather than `PlatformDropdown`: that component routes every
+ * non-TV surface through the global `@gorhom/bottom-sheet`, and the sheet does
+ * not present on web at all — measured at 390, 600 and 1440 on 2026-09-07, the
+ * season picker put no node in the DOM when tapped, at any width. `Dialog` is
+ * a centred card in a browser and the same bottom sheet on a phone, so this is
+ * one control that works everywhere instead of two that work in one place each.
+ */
 export const SeasonDropdown: React.FC<Props> = ({
   item,
   seasons,
@@ -31,6 +46,7 @@ export const SeasonDropdown: React.FC<Props> = ({
   onSelect,
 }) => {
   const isTv = Platform.isTV;
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const keys = useMemo<SeasonKeys>(
@@ -55,27 +71,20 @@ export const SeasonDropdown: React.FC<Props> = ({
   );
 
   // Always use IndexNumber for Season objects (not keys.index which is for the item)
-  const sortByIndex = (a: BaseItemDto, b: BaseItemDto) =>
-    Number(a.IndexNumber) - Number(b.IndexNumber);
+  const sorted = useMemo(
+    () =>
+      [...(seasons ?? [])].sort(
+        (a, b) => Number(a.IndexNumber) - Number(b.IndexNumber),
+      ),
+    [seasons],
+  );
 
-  const optionGroups = useMemo(
-    () => [
-      {
-        options:
-          seasons?.sort(sortByIndex).map((season: any) => {
-            const title = season.Name || `Season ${season.IndexNumber}`;
-            return {
-              type: "radio" as const,
-              label: title,
-              value: season.Id || season.IndexNumber,
-              // Compare season's IndexNumber with the selected seasonIndex
-              selected: Number(season.IndexNumber) === Number(seasonIndex),
-              onPress: () => onSelect(season),
-            };
-          }) || [],
-      },
-    ],
-    [seasons, seasonIndex, onSelect],
+  const selected = useMemo(
+    () =>
+      sorted.find(
+        (season) => Number(season.IndexNumber) === Number(seasonIndex),
+      ),
+    [sorted, seasonIndex],
   );
 
   useEffect(() => {
@@ -86,7 +95,7 @@ export const SeasonDropdown: React.FC<Props> = ({
       if (initialSeasonIndex !== undefined) {
         // Use the provided initialSeasonIndex if it exists in the seasons
         const seasonExists = seasons.some(
-          (season: any) => season[keys.index] === initialSeasonIndex,
+          (season) => season[keys.index] === initialSeasonIndex,
         );
         if (seasonExists) {
           initialIndex = initialSeasonIndex;
@@ -95,17 +104,17 @@ export const SeasonDropdown: React.FC<Props> = ({
 
       if (initialIndex === undefined) {
         // Fall back to the previous logic if initialIndex is not set
-        const season1 = seasons.find((season: any) => season[keys.index] === 1);
-        const season0 = seasons.find((season: any) => season[keys.index] === 0);
+        const season1 = seasons.find((season) => season[keys.index] === 1);
+        const season0 = seasons.find((season) => season[keys.index] === 0);
         const firstSeason = season1 || season0 || seasons[0];
         onSelect(firstSeason);
       }
 
       if (initialIndex !== undefined) {
         const initialSeason = seasons.find(
-          (season: any) => season[keys.index] === initialIndex,
+          (season) => season[keys.index] === initialIndex,
         );
-        if (initialSeason) onSelect(initialSeason!);
+        if (initialSeason) onSelect(initialSeason);
         else throw Error("Initial index could not be found!");
       }
     }
@@ -117,25 +126,94 @@ export const SeasonDropdown: React.FC<Props> = ({
     item[keys.id],
     initialSeasonIndex,
     keys,
+    onSelect,
   ]);
 
   if (isTv) return null;
 
+  const label =
+    selected?.Name ??
+    (seasonIndex != null
+      ? `${t("item_card.season")} ${seasonIndex}`
+      : t("item_card.select_season"));
+
   return (
-    <PlatformDropdown
-      groups={optionGroups}
-      open={open}
-      onOpenChange={setOpen}
-      trigger={
-        <TouchableOpacity onPress={() => setOpen(true)}>
-          <View className='bg-neutral-900 rounded-2xl border-neutral-900 border px-3 py-2 flex flex-row items-center justify-between'>
-            <Text>
-              {t("item_card.season")} {seasonIndex}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      }
-      title={t("item_card.seasons")}
-    />
+    <>
+      <Button
+        variant='secondary'
+        size='sm'
+        testID='details-season-picker'
+        onPress={() => setOpen(true)}
+        accessibilityLabel={t("item_card.select_season")}
+        iconRight={
+          <Icon
+            name='chevronDown'
+            size={16}
+            tone='secondary'
+            style={{ marginLeft: 8 }}
+          />
+        }
+      >
+        {label}
+      </Button>
+
+      <Dialog
+        visible={open}
+        onClose={() => setOpen(false)}
+        title={t("item_card.seasons")}
+      >
+        <View style={{ marginHorizontal: -8 }}>
+          {sorted.map((season) => (
+            <SeasonRow
+              key={season.Id ?? String(season.IndexNumber)}
+              label={
+                season.Name || `${t("item_card.season")} ${season.IndexNumber}`
+              }
+              selected={Number(season.IndexNumber) === Number(seasonIndex)}
+              onPress={() => {
+                setOpen(false);
+                onSelect(season);
+              }}
+            />
+          ))}
+        </View>
+      </Dialog>
+    </>
+  );
+};
+
+const SeasonRow: React.FC<{
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}> = ({ label, selected, onPress }) => {
+  const states = usePressableStates({});
+  const { accent } = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole='button'
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      {...states.handlers}
+      style={[
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          minHeight: tokens.control.minTouchTarget,
+          paddingHorizontal: 8,
+          borderRadius: radius.sm,
+          backgroundColor: states.overlay ?? "transparent",
+        },
+        states.webStyle,
+      ]}
+    >
+      <Text variant='body' weight={selected ? "semibold" : "regular"}>
+        {label}
+      </Text>
+      {selected ? <Icon name='check' size={18} color={accent[500]} /> : null}
+    </Pressable>
   );
 };

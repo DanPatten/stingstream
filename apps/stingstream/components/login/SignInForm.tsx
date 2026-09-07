@@ -1,14 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, Platform, Pressable, Switch, View } from "react-native";
+import { Keyboard, Platform, Pressable, View } from "react-native";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
+import { Switch } from "@/components/common/Switch";
 import { Text } from "@/components/common/Text";
 import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { useTheme } from "@/hooks/useTheme";
+import { looksLikeHostname } from "@/lib/stingstream/setup";
+import { FocusPressable } from "./FocusPressable";
 
 export interface SignInFormProps {
   /**
@@ -54,7 +56,6 @@ export const SignInForm: React.FC<SignInFormProps> = ({
 }) => {
   const { t } = useTranslation();
   const { isWebWide, isCompact } = useBreakpoint();
-  const { accent } = useTheme();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -86,7 +87,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   // The address form stays reachable on a node — a phone pointed at the wrong server has to be
   // able to leave — but it is not offered as a step. On a node it hides behind Advanced.
   const differentServerLink = onUseDifferentServer ? (
-    <Pressable
+    <FocusPressable
       testID='login-use-different-server'
       onPress={onUseDifferentServer}
       accessibilityRole='button'
@@ -95,17 +96,30 @@ export const SignInForm: React.FC<SignInFormProps> = ({
       <Text variant='caption' tone='accent'>
         {t("login.use_different_server")}
       </Text>
-    </Pressable>
+    </FocusPressable>
   ) : null;
+
+  // A raw hostname read back as a title is the bug this whole card exists to fix — Jellyfin's
+  // `ServerName` defaults to the machine name ("PLEXPC", "DESKTOP-4F2K9QL"), and a name nobody
+  // typed is not something to greet a user with. `looksLikeHostname` catches the common shapes;
+  // anything else is a name somebody actually gave their node, and is worth showing.
+  const subtitle = serverName
+    ? looksLikeHostname(serverName)
+      ? t("login.sign_in_to_generic")
+      : t("login.sign_in_to", { server: serverName })
+    : null;
 
   return (
     <View>
-      <Text variant={isCompact ? "title" : "display"} weight='bold'>
+      {/* `title` (26–32 px) from 768 up so "Sign in" never needs `display`'s extra weight in a
+          420–460 px card; `display` stays for the phone card, where it is the one headline on the
+          screen and the critique called it "the best screen in the app". */}
+      <Text variant={isCompact ? "display" : "title"} weight='bold'>
         {t("login.sign_in")}
       </Text>
-      {serverName ? (
+      {subtitle ? (
         <Text variant='body' tone='secondary' style={{ marginTop: 4 }}>
-          {t("login.sign_in_to", { server: serverName })}
+          {subtitle}
         </Text>
       ) : null}
 
@@ -147,7 +161,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
             onSubmitEditing={submit}
             style={{ paddingRight: 44 }}
           />
-          <Pressable
+          <FocusPressable
             onPress={() => setRevealed((v) => !v)}
             accessibilityRole='button'
             accessibilityLabel={
@@ -169,7 +183,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
               size={18}
               color={tokens.color.text.tertiary}
             />
-          </Pressable>
+          </FocusPressable>
         </View>
       </View>
 
@@ -183,12 +197,10 @@ export const SignInForm: React.FC<SignInFormProps> = ({
           paddingVertical: 12,
         }}
       >
-        <Switch
-          value={keepSignedIn}
-          onValueChange={onKeepSignedInChange}
-          trackColor={{ false: tokens.color.bg["3"], true: accent[500] }}
-          thumbColor='#FFFFFF'
-        />
+        {/* `components/common/Switch`, not the bare RN one: the bare control paints iOS
+            system-green / Android Material purple, which is how "Keep me signed in" ended up
+            white while everything else on the card is teal (critique, F-32). */}
+        <Switch value={keepSignedIn} onValueChange={onKeepSignedInChange} />
         <Text variant='body' tone='secondary' style={{ marginLeft: 12 }}>
           {t("login.keep_signed_in")}
         </Text>
@@ -211,7 +223,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
           television, from the phone in your hand, and offering it beside a password field on a
           desktop is the unexplained icon Dan asked about. */}
       {onSignInWithCode && Platform.OS !== "web" ? (
-        <Pressable
+        <FocusPressable
           testID='login-sign-in-with-code'
           onPress={onSignInWithCode}
           accessibilityRole='button'
@@ -220,12 +232,12 @@ export const SignInForm: React.FC<SignInFormProps> = ({
           <Text variant='body' tone='accent'>
             {t("login.sign_in_with_code")}
           </Text>
-        </Pressable>
+        </FocusPressable>
       ) : null}
 
       {servedByNode ? (
-        <View style={{ marginTop: isWebWide ? 12 : 8 }}>
-          <Pressable
+        <View style={{ marginTop: isWebWide ? 12 : 8, alignItems: "center" }}>
+          <FocusPressable
             onPress={() => setShowAdvanced((v) => !v)}
             accessibilityRole='button'
             accessibilityState={{ expanded: showAdvanced }}
@@ -245,7 +257,16 @@ export const SignInForm: React.FC<SignInFormProps> = ({
               color={tokens.color.text.tertiary}
               style={{ marginLeft: 4 }}
             />
-          </Pressable>
+          </FocusPressable>
+          {/* What "Advanced" holds, said up front rather than left to guessing (critique: "sits
+              alone with no hint of what is inside"). */}
+          <Text
+            variant='micro'
+            tone='tertiary'
+            style={{ marginTop: -4, marginBottom: 4 }}
+          >
+            {t("login.advanced_hint")}
+          </Text>
           {showAdvanced ? differentServerLink : null}
         </View>
       ) : (

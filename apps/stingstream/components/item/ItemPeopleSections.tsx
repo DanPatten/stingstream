@@ -6,15 +6,33 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InteractionManager, View, type ViewProps } from "react-native";
 import { MoreMoviesWithActor } from "@/components/MoreMoviesWithActor";
-import { CastAndCrew } from "@/components/series/CastAndCrew";
 import { useItemPeopleQuery } from "@/hooks/useItemPeopleQuery";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
+import { CastRow } from "./CastRow";
 
 interface Props extends ViewProps {
   item: BaseItemDto;
+  /** Actor filmography rows under the cast. Off where the page is already long. */
+  showFilmographies?: boolean;
 }
 
-export const ItemPeopleSections: React.FC<Props> = ({ item, ...props }) => {
+/**
+ * The cast, and a row of other work by the first few of them.
+ *
+ * The people query is deferred until after the first interactions settle: it is
+ * a second round trip for a section nobody sees until they scroll, and running
+ * it with the item query put it in front of the artwork on a cold cache.
+ *
+ * `enabled` gates the *query*, not the row. It used to gate both — the whole
+ * section returned `null` until the deferred flag flipped — which is why the row
+ * appeared out of nowhere half a second after the page settled. Now the row
+ * mounts immediately and shows its skeletons, which is what a skeleton is for.
+ */
+export const ItemPeopleSections: React.FC<Props> = ({
+  item,
+  showFilmographies = true,
+  ...props
+}) => {
   const isOffline = useOfflineMode();
   const [enabled, setEnabled] = useState(false);
 
@@ -31,15 +49,13 @@ export const ItemPeopleSections: React.FC<Props> = ({ item, ...props }) => {
     enabled && !isOffline,
   );
 
-  const people = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+  // The item's own People (from the details query) stand in until the dedicated
+  // one lands, so a page that already has the cast never draws a skeleton.
+  const people = useMemo(
+    () => (Array.isArray(data) && data.length > 0 ? data : (item.People ?? [])),
+    [data, item.People],
+  );
 
-  const itemWithPeople = useMemo(() => {
-    return { ...item, People: people } as BaseItemDto;
-  }, [item, people]);
-
-  // Jellyfin can list the same person several times (e.g. an actor also
-  // credited as writer). Dedupe by Id so the same actor section isn't rendered
-  // twice and we still surface 3 distinct people.
   const topPeople = useMemo(() => {
     const seen = new Set<string>();
     const unique: BaseItemPerson[] = [];
@@ -56,35 +72,34 @@ export const ItemPeopleSections: React.FC<Props> = ({ item, ...props }) => {
     (person: BaseItemPerson, idx: number, total: number) => {
       if (!person.Id) return null;
 
-      const spacingClassName = idx === total - 1 ? undefined : "mb-2";
-
       return (
         <MoreMoviesWithActor
           key={person.Id}
           currentItem={item}
           actorId={person.Id}
           actorName={person.Name}
-          className={spacingClassName}
+          className={idx === total - 1 ? undefined : "mb-2"}
         />
       );
     },
     [item],
   );
 
-  if (isOffline || !enabled) return null;
-
-  const shouldSpaceCastAndCrew = topPeople.length > 0;
+  if (isOffline) return null;
 
   return (
     <View {...props}>
-      <CastAndCrew
-        item={itemWithPeople}
-        loading={isLoading}
-        className={shouldSpaceCastAndCrew ? "mb-2" : undefined}
+      <CastRow
+        people={people}
+        loading={people.length === 0 && (isLoading || !enabled)}
       />
-      {topPeople.map((person, idx) =>
-        renderActorSection(person, idx, topPeople.length),
-      )}
+      {showFilmographies && topPeople.length > 0 ? (
+        <View style={{ marginTop: 24 }}>
+          {topPeople.map((person, idx) =>
+            renderActorSection(person, idx, topPeople.length),
+          )}
+        </View>
+      ) : null}
     </View>
   );
 };

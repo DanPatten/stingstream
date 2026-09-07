@@ -1,257 +1,207 @@
-import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetScrollView,
-} from "@gorhom/bottom-sheet";
 import type {
   MediaSourceInfo,
   MediaStream,
 } from "@jellyfin/sdk/lib/generated-client";
 import type React from "react";
-import { useMemo, useRef } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { TouchableOpacity, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Icon } from "@/components/common/Icon";
+import { Pill } from "@/components/common/Pill";
+import { Text } from "@/components/common/Text";
+import { radius, tokens } from "@/constants/theme";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { formatBitrate } from "@/utils/bitrate";
-import { Badge } from "./Badge";
-import { Text } from "./common/Text";
 
 interface Props {
   source?: MediaSourceInfo;
 }
 
+/**
+ * The file's technical facts, folded away until asked for.
+ *
+ * Pass-02 put this block — size, resolution, SDR, codec, bitrate, fps — *above*
+ * the overview, so the first thing the pre-play page said about a film was its
+ * average bitrate (F-26). Almost nobody wants this, and the few who do want all
+ * of it, which is what a disclosure is for: one line at the bottom of the page,
+ * everything behind it.
+ *
+ * Inline rather than the bottom sheet it used to open. A sheet is for a choice;
+ * this is a read, and a sheet on a desktop browser is the "phone app in a
+ * window" the whole overhaul is trying to undo.
+ */
 export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
   const { t } = useTranslation();
+  const { gutter } = useBreakpoint();
+  const [open, setOpen] = useState(false);
+  const states = usePressableStates({});
+
+  const video = useMemo(
+    () => source?.MediaStreams?.find((stream) => stream.Type === "Video"),
+    [source?.MediaStreams],
+  );
+  const audio = useMemo(
+    () =>
+      source?.MediaStreams?.filter((stream) => stream.Type === "Audio") ?? [],
+    [source?.MediaStreams],
+  );
+  const subtitles = useMemo(
+    () =>
+      source?.MediaStreams?.filter((stream) => stream.Type === "Subtitle") ??
+      [],
+    [source?.MediaStreams],
+  );
+
+  if (!source || !video) return null;
 
   return (
-    <View className='px-4 mt-2 mb-4'>
-      <Text className='text-lg font-bold mb-4'>{t("item_card.video")}</Text>
-      <TouchableOpacity onPress={() => bottomSheetModalRef.current?.present()}>
-        <View className='flex flex-row space-x-2'>
-          <VideoStreamInfo source={source} />
-        </View>
-        <Text className='text-purple-600'>{t("item_card.more_details")}</Text>
-      </TouchableOpacity>
-      <BottomSheetModal
-        ref={bottomSheetModalRef}
-        snapPoints={["80%"]}
-        handleIndicatorStyle={{
-          backgroundColor: "white",
-        }}
-        backgroundStyle={{
-          backgroundColor: "#171717",
-        }}
-        backdropComponent={(props: BottomSheetBackdropProps) => (
-          <BottomSheetBackdrop
-            {...props}
-            disappearsOnIndex={-1}
-            appearsOnIndex={0}
-          />
-        )}
+    <View testID='details-technical' style={{ paddingHorizontal: gutter }}>
+      <Pressable
+        accessibilityRole='button'
+        accessibilityLabel={t("item.details")}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((previous) => !previous)}
+        {...states.handlers}
+        style={[
+          {
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: tokens.control.minTouchTarget,
+            paddingHorizontal: 14,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: tokens.color.border.subtle,
+            backgroundColor: states.overlay ?? tokens.color.bg["1"],
+          },
+          states.webStyle,
+        ]}
       >
-        <BottomSheetScrollView>
-          <View className='flex flex-col space-y-2 p-4 mb-4'>
-            <View>
-              <Text className='text-lg font-bold mb-4'>
-                {t("item_card.video")}
-              </Text>
-              <View className='flex flex-row space-x-2'>
-                <VideoStreamInfo source={source} />
-              </View>
-            </View>
-
-            <View>
-              <Text className='text-lg font-bold mb-2'>
-                {t("item_card.audio")}
-              </Text>
-              <AudioStreamInfo
-                audioStreams={
-                  source?.MediaStreams?.filter(
-                    (stream) => stream.Type === "Audio",
-                  ) || []
-                }
-              />
-            </View>
-
-            <View>
-              <Text className='text-lg font-bold mb-2'>
-                {t("item_card.subtitles.label")}
-              </Text>
-              <SubtitleStreamInfo
-                subtitleStreams={
-                  source?.MediaStreams?.filter(
-                    (stream) => stream.Type === "Subtitle",
-                  ) || []
-                }
-              />
-            </View>
-          </View>
-        </BottomSheetScrollView>
-      </BottomSheetModal>
-    </View>
-  );
-};
-
-const SubtitleStreamInfo = ({
-  subtitleStreams,
-}: {
-  subtitleStreams: MediaStream[];
-}) => {
-  return (
-    <View className='flex flex-col'>
-      {subtitleStreams.map((stream, _index) => (
-        <View key={stream.Index} className='flex flex-col'>
-          <Text className='text-xs mb-3 text-neutral-400'>
-            {stream.DisplayTitle}
-          </Text>
-          <View className='flex flex-row flex-wrap gap-2'>
-            <Badge
-              variant='gray'
-              iconLeft={
-                <Ionicons name='language-outline' size={16} color='white' />
-              }
-              text={stream.Language}
-            />
-            <Badge
-              variant='gray'
-              text={stream.Codec}
-              iconLeft={
-                <Ionicons name='layers-outline' size={16} color='white' />
-              }
-            />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-};
-
-const AudioStreamInfo = ({ audioStreams }: { audioStreams: MediaStream[] }) => {
-  return (
-    <View className='flex flex-col'>
-      {audioStreams.map((audioStreams, index) => (
-        <View key={index} className='flex flex-col'>
-          <Text className='mb-3 text-neutral-400 text-xs'>
-            {audioStreams.DisplayTitle}
-          </Text>
-          <View className='flex-row flex-wrap gap-2'>
-            <Badge
-              variant='gray'
-              iconLeft={
-                <Ionicons name='language-outline' size={16} color='white' />
-              }
-              text={audioStreams.Language}
-            />
-            <Badge
-              variant='gray'
-              iconLeft={
-                <Ionicons
-                  name='musical-notes-outline'
-                  size={16}
-                  color='white'
-                />
-              }
-              text={audioStreams.Codec}
-            />
-            <Badge
-              variant='gray'
-              iconLeft={<Ionicons name='mic-outline' size={16} color='white' />}
-              text={audioStreams.ChannelLayout}
-            />
-            <Badge
-              variant='gray'
-              iconLeft={
-                <Ionicons name='speedometer-outline' size={16} color='white' />
-              }
-              text={formatBitrate(audioStreams.BitRate)}
-            />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-};
-
-const VideoStreamInfo = ({ source }: { source?: MediaSourceInfo }) => {
-  const videoStream = useMemo(() => {
-    return source?.MediaStreams?.find((stream) => stream.Type === "Video") as
-      | MediaStream
-      | undefined;
-  }, [source?.MediaStreams]);
-
-  if (!source || !videoStream) return null;
-
-  // Dolby Vision video check
-  const isDolbyVision =
-    videoStream.VideoRangeType === "DOVI" ||
-    videoStream.DvVersionMajor != null ||
-    videoStream.DvVersionMinor != null;
-
-  return (
-    <View className='flex-row flex-wrap gap-2'>
-      <Badge
-        variant='gray'
-        iconLeft={<Ionicons name='film-outline' size={16} color='white' />}
-        text={formatFileSize(source.Size)}
-      />
-      <Badge
-        variant='gray'
-        iconLeft={<Ionicons name='film-outline' size={16} color='white' />}
-        text={`${videoStream.Width}x${videoStream.Height}`}
-      />
-      {isDolbyVision && (
-        <Badge
-          variant='gray'
-          iconLeft={
-            <Ionicons name='sparkles-outline' size={16} color='white' />
-          }
-          text={"DV"}
+        <Text variant='body' weight='semibold'>
+          {t("item.details")}
+        </Text>
+        <Icon
+          name={open ? "chevronUp" : "chevronDown"}
+          size={18}
+          tone='secondary'
         />
-      )}
-      <Badge
-        variant='gray'
-        iconLeft={
-          <Ionicons name='color-palette-outline' size={16} color='white' />
-        }
-        text={videoStream.VideoRange}
-      />
-      <Badge
-        variant='gray'
-        iconLeft={
-          <Ionicons name='code-working-outline' size={16} color='white' />
-        }
-        text={videoStream.Codec}
-      />
-      <Badge
-        variant='gray'
-        iconLeft={
-          <Ionicons name='speedometer-outline' size={16} color='white' />
-        }
-        text={formatBitrate(videoStream.BitRate)}
-      />
-      <Badge
-        variant='gray'
-        iconLeft={<Ionicons name='play-outline' size={16} color='white' />}
-        text={
-          videoStream.AverageFrameRate != null
-            ? `${videoStream.AverageFrameRate.toFixed(0)} fps`
-            : ""
-        }
-      />
+      </Pressable>
+
+      {open ? (
+        <View style={{ paddingTop: 16, gap: 16 }}>
+          <Group title={t("item_card.video")}>
+            <Chips
+              values={[
+                formatFileSize(source.Size),
+                video.Width && video.Height
+                  ? `${video.Width}×${video.Height}`
+                  : null,
+                isDolbyVision(video) ? "Dolby Vision" : video.VideoRange,
+                video.Codec?.toUpperCase(),
+                formatBitrate(video.BitRate),
+                video.AverageFrameRate != null
+                  ? `${video.AverageFrameRate.toFixed(0)} fps`
+                  : null,
+              ]}
+            />
+          </Group>
+
+          {audio.length > 0 ? (
+            <Group title={t("item_card.audio")}>
+              {audio.map((stream) => (
+                <Stream key={stream.Index} title={stream.DisplayTitle}>
+                  <Chips
+                    values={[
+                      stream.Language,
+                      stream.Codec?.toUpperCase(),
+                      stream.ChannelLayout,
+                      formatBitrate(stream.BitRate),
+                    ]}
+                  />
+                </Stream>
+              ))}
+            </Group>
+          ) : null}
+
+          {subtitles.length > 0 ? (
+            <Group title={t("item_card.subtitles.label")}>
+              {subtitles.map((stream) => (
+                <Stream key={stream.Index} title={stream.DisplayTitle}>
+                  <Chips
+                    values={[stream.Language, stream.Codec?.toUpperCase()]}
+                  />
+                </Stream>
+              ))}
+            </Group>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 };
 
-const formatFileSize = (bytes?: number | null) => {
-  if (!bytes) return "N/A";
+const isDolbyVision = (stream: MediaStream): boolean =>
+  stream.VideoRangeType === "DOVI" ||
+  stream.DvVersionMajor != null ||
+  stream.DvVersionMinor != null;
 
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  if (bytes === 0) return "0 Byte";
-  const i = Number.parseInt(
-    Math.floor(Math.log(bytes) / Math.log(1024)).toString(),
-    10,
+const Group: React.FC<React.PropsWithChildren<{ title: string }>> = ({
+  title,
+  children,
+}) => (
+  <View>
+    <Text
+      variant='caption'
+      tone='tertiary'
+      weight='semibold'
+      style={{ marginBottom: 8 }}
+    >
+      {title.toUpperCase()}
+    </Text>
+    <View style={{ gap: 10 }}>{children}</View>
+  </View>
+);
+
+const Stream: React.FC<React.PropsWithChildren<{ title?: string | null }>> = ({
+  title,
+  children,
+}) => (
+  <View>
+    {title ? (
+      <Text
+        variant='caption'
+        tone='secondary'
+        numberOfLines={1}
+        style={{ marginBottom: 6 }}
+      >
+        {title}
+      </Text>
+    ) : null}
+    {children}
+  </View>
+);
+
+const Chips: React.FC<{ values: (string | null | undefined)[] }> = ({
+  values,
+}) => (
+  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+    {values
+      .filter((value): value is string => Boolean(value))
+      .map((value) => (
+        <Pill key={value} label={value} size='sm' />
+      ))}
+  </View>
+);
+
+const UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+const formatFileSize = (bytes?: number | null): string | null => {
+  if (!bytes || bytes <= 0) return null;
+  const exponent = Math.min(
+    UNITS.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
   );
-  return `${Math.round((bytes / 1024 ** i) * 100) / 100} ${sizes[i]}`;
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${UNITS[exponent]}`;
 };

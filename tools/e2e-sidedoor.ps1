@@ -56,6 +56,8 @@
 .EXAMPLE
     pwsh tools/e2e-sidedoor.ps1 -SkipBuild -KeepRunning
 #>
+# CI job name: "e2e: HTTPS side door (ACME)" (formerly labelled M3d, this build plan's
+# milestone code for the ACME/HTTPS side door).
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -959,10 +961,10 @@ Invoke-Step 'The certificate survived a restart without a second ACME order' {
 
 if ($script:Failed) {
     Write-Host ''
-    Write-Host 'M3d SIDE DOOR: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (HTTPS side door): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M3d SIDE DOOR: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (HTTPS side door): PASSED' -ForegroundColor Green
 exit 0

@@ -3,6 +3,7 @@ import { getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { View, type ViewStyle } from "react-native";
 import { CardRow } from "@/components/cards/CardRow";
 import useRouter from "@/hooks/useAppRouter";
@@ -16,14 +17,26 @@ interface Props {
   loading?: boolean;
   style?: ViewStyle;
   containerStyle?: ViewStyle;
+  /** Heading over the row. Pass `null` for a bare row. */
+  title?: string | null;
 }
+
+/**
+ * The season this episode belongs to, as a row of stills.
+ *
+ * The cards come from WP2's `CardRow`, so each one carries its own thumbnail
+ * and watch-progress rule; picking one swaps the item the page is showing
+ * rather than pushing a second copy of this screen onto the stack.
+ */
 
 export const SeasonEpisodesCarousel: React.FC<Props> = ({
   item,
   loading,
   style,
   containerStyle,
+  title,
 }) => {
+  const { t } = useTranslation();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const router = useRouter();
@@ -64,8 +77,9 @@ export const SeasonEpisodesCarousel: React.FC<Props> = ({
   });
 
   return (
-    <View style={[containerStyle, style]}>
+    <View testID='details-episodes' style={[containerStyle, style]}>
       <CardRow
+        title={title === null ? undefined : (title ?? t("item.episodes"))}
         kind='wide'
         items={episodes ?? []}
         useEpisodePoster

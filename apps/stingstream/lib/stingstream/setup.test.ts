@@ -5,6 +5,7 @@ import {
   createAdmin,
   getSetupState,
   isSetupFormValid,
+  looksLikeHostname,
   PASSWORD_MIN_LENGTH,
   SetupRequestError,
   USERNAME_MAX_LENGTH,
@@ -122,18 +123,32 @@ describe("validateSetupForm", () => {
 });
 
 describe("getSetupState", () => {
-  test("reads Core's two booleans", async () => {
+  test("reads Core's three booleans", async () => {
     const { impl, calls } = stubFetch(() =>
-      json(200, { Pending: true, Loopback: true }),
+      json(200, { Pending: true, Loopback: true, TrustedPeer: true }),
     );
 
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
       pending: true,
       loopback: true,
+      trustedPeer: true,
     });
     expect(calls[0].url).toBe(
       "http://localhost:8790/stingstream/api/v1/setup/state",
     );
+  });
+
+  test("trustedPeer is Core's own SetupGate.IsTrustedPeer answer, wider than loopback", async () => {
+    // A LAN peer: Loopback false, TrustedPeer true (Dan, 2026-09-07: "by IP is better").
+    const { impl } = stubFetch(() =>
+      json(200, { Pending: true, Loopback: false, TrustedPeer: true }),
+    );
+
+    expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      pending: true,
+      loopback: false,
+      trustedPeer: true,
+    });
   });
 
   test("missing or non-boolean fields read as false, never as pending", () => {
@@ -142,6 +157,22 @@ describe("getSetupState", () => {
     return expect(getSetupState(ORIGIN, { fetch: impl })).resolves.toEqual({
       pending: false,
       loopback: false,
+      trustedPeer: false,
+    });
+  });
+
+  test("an older Core with no TrustedPeer field falls back to Loopback, not to false", async () => {
+    // The exact bug this guards: `TrustedPeer === true` on an absent field reads as "not
+    // trusted" even from loopback, which downgrades an old server's own answer -- it used to gate
+    // on `Loopback` alone, and a page talking to it must still get the setup screen from home.
+    const { impl } = stubFetch(() =>
+      json(200, { Pending: true, Loopback: true }),
+    );
+
+    expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      pending: true,
+      loopback: true,
+      trustedPeer: true,
     });
   });
 
@@ -151,6 +182,7 @@ describe("getSetupState", () => {
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
       pending: false,
       loopback: false,
+      trustedPeer: false,
     });
   });
 
@@ -160,12 +192,12 @@ describe("getSetupState", () => {
       n += 1;
       return n < 3
         ? new Response(null, { status: 503 })
-        : json(200, { Pending: true, Loopback: false });
+        : json(200, { Pending: true, Loopback: false, TrustedPeer: true });
     });
 
     expect(
       await getSetupState(ORIGIN, { fetch: impl, retryDelayMs: 0 }),
-    ).toEqual({ pending: true, loopback: false });
+    ).toEqual({ pending: true, loopback: false, trustedPeer: true });
     expect(calls).toHaveLength(3);
   });
 
@@ -401,4 +433,28 @@ describe("createAdmin", () => {
       ),
     ).toEqual({ accessToken: null, userId: null, username: "dan" });
   });
+});
+
+describe("looksLikeHostname", () => {
+  // The exact bug this exists to catch: Jellyfin's `ServerName` defaults to the machine's own
+  // hostname, and "Sign in to PLEXPC" / "Sign in to DESKTOP-4F2K9QL" is what a person actually saw.
+  test.each([
+    "PLEXPC",
+    "DESKTOP-4F2K9QL",
+    "my-nas.local",
+    "stingstream.example.com",
+    "192.168.1.5",
+    "0",
+    "",
+    "   ",
+  ])("%s reads as a hostname or default", (name) => {
+    expect(looksLikeHostname(name)).toBe(true);
+  });
+
+  test.each(["Dan's place", "Home Theater", "StingStream", "Living Room"])(
+    "%s is a name somebody chose",
+    (name) => {
+      expect(looksLikeHostname(name)).toBe(false);
+    },
+  );
 });

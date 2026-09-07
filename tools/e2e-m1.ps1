@@ -74,6 +74,8 @@
 .EXAMPLE
     pwsh tools/e2e-m1.ps1 -PrivateCopy E:\stingstream-e2e-m1-bin
 #>
+# CI job name: "e2e: one node — grab, import, play, first run" (formerly labelled M1, this
+# build plan's milestone code for a single node's whole download-to-playback path).
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -330,6 +332,32 @@ function Invoke-StingStream {
     Invoke-Json -Uri "$script:GatewayUrl$Path" -Method $Method -Body $Body -Headers (Get-AuthHeaders) -TimeoutSec $TimeoutSec
 }
 
+function Get-PrivateIPv4 {
+    <#
+    .SYNOPSIS
+        This machine's own address on the network it is on, or $null.
+    .DESCRIPTION
+        Deliberately .NET rather than Get-NetIPAddress: this harness runs on Dan's Windows machine
+        and on an ubuntu runner, and the cmdlet does not exist on one of them. Only the ranges a
+        node treats as trusted count -- a runner whose only address is public, or which has none at
+        all, gets $null and the caller says so and carries on rather than failing for the shape of
+        the box it happens to be on.
+    #>
+    $addresses = try {
+        [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName())
+    } catch { @() }
+
+    foreach ($a in $addresses) {
+        if ($a.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { continue }
+        $b = $a.GetAddressBytes()
+        $private = ($b[0] -eq 10) -or
+                   ($b[0] -eq 172 -and $b[1] -ge 16 -and $b[1] -le 31) -or
+                   ($b[0] -eq 192 -and $b[1] -eq 168)
+        if ($private) { return $a.ToString() }
+    }
+    return $null
+}
+
 function Get-HttpStatus {
     <#
     .SYNOPSIS
@@ -394,7 +422,7 @@ $IsWindowsHost = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
 $ExeSuffix = if ($IsWindowsHost) { '.exe' } else { '' }
 
 Write-Host ''
-Write-Host 'StingStream M1 acceptance harness' -ForegroundColor White
+Write-Host 'StingStream acceptance: one node — grab, import, play' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  gateway   http://127.0.0.1:$GatewayPort"
@@ -589,7 +617,10 @@ Invoke-Step 'Start the node' {
 node_name = "e2e"
 
 [gateway]
-bind = "127.0.0.1"
+# 0.0.0.0, not loopback: one of the properties this harness checks is that somebody on the
+# household network -- a phone on the sofa, not the machine in the cupboard -- can finish setup,
+# and a loopback-only listener cannot be asked. Everything else here still talks to 127.0.0.1.
+bind = "0.0.0.0"
 port = $GatewayPort
 expose_child_uis_in_dev = true
 
@@ -706,10 +737,26 @@ $Account = Invoke-Step 'First run: create the account' {
     $state = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/state"
     if (-not $state.Loopback) { throw 'setup/state does not see this harness as a caller on the node machine.' }
 
+    # Where the claim is made from is the assertion, not an implementation detail. Setup is open to
+    # this machine *and to this network* -- a node lives in a cupboard and the person setting it up
+    # is on the sofa with a phone -- so where a LAN address exists the claim is made through it, and
+    # both the gateway's path gate and Core's own classification have to let it through for this to
+    # answer at all. A runner with no private address of its own says so and claims over loopback.
+    $lan = Get-PrivateIPv4
+    $claimUrl = if ($lan) { "http://${lan}:$GatewayPort" } else { $script:GatewayUrl }
+    if ($lan) {
+        $lanState = Invoke-Json -Uri "$claimUrl/stingstream/api/v1/setup/state"
+        if ($lanState.Loopback) { throw "the node thinks $lan is its own loopback address." }
+        if (-not $lanState.TrustedPeer) { throw "the node does not trust $lan, which is on its own network." }
+        Write-Host "      claiming from $lan (not loopback, and trusted)"
+    } else {
+        Write-Host '      no private IPv4 on this machine; claiming over loopback' -ForegroundColor DarkGray
+    }
+
     if ($state.Pending) {
         if (-not $generated.Password) { throw 'runtime.json holds no generated password for a node that is still pending.' }
 
-        $created = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/admin" -Method POST `
+        $created = Invoke-Json -Uri "$claimUrl/stingstream/api/v1/setup/admin" -Method POST `
             -Body $chosen -Headers $script:ClientHeader
         if (-not $created.AccessToken) { throw 'setup/admin answered without an access token.' }
         if ($created.User.Name -ne $chosen.Username) {
@@ -735,7 +782,7 @@ $Account = Invoke-Step 'First run: create the account' {
     $after = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/state"
     if ($after.Pending) { throw 'setup/state still says this node is waiting for its first account.' }
 
-    $again = Get-HttpStatus -Uri "$script:GatewayUrl/stingstream/api/v1/setup/admin" -Method POST `
+    $again = Get-HttpStatus -Uri "$claimUrl/stingstream/api/v1/setup/admin" -Method POST `
         -Body @{ Username = 'someoneelse'; Password = 'another-password' }
     if ($again -ne 409) { throw "a second setup/admin answered $again, not the 409 that closes the window." }
 
@@ -1078,10 +1125,10 @@ Invoke-Step 'Restart: everything comes back' {
 
 if ($script:Failed) {
     Write-Host ''
-    Write-Host 'M1 ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (one node): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M1 ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (one node): PASSED' -ForegroundColor Green
 exit 0

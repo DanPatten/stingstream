@@ -36,7 +36,7 @@
 #
 # Versioning: 0.<milestone>.<n> until 1.0 (docs/RELEASING.md). A tag is the only thing that makes
 # this a real, numbered release; workflow_dispatch is for proving the pipeline works.
-name: release
+name: Release
 
 on:
   push:

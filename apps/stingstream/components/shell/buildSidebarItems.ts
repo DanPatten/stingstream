@@ -317,6 +317,33 @@ export function buildMoreItems(
 }
 
 /**
+ * The first segment of every screen that lives in the shared
+ * `(home,libraries,search,favorites,watchlists)` route group.
+ *
+ * These are the pages five tabs have in common — a title, a series, a person, a
+ * collection — and none of them is a section of its own. **Their enclosing tab
+ * segment is not trustworthy.** A URL pasted straight into one of them carries
+ * no group at all (`/items/page?id=…`), and expo-router resolves the ambiguity
+ * to the alphabetically first member of the group, which is `(favorites)` — so
+ * every details page opened from a link lit "Favorites" and titled itself
+ * "Favorites" (pass-02 F-26), whatever it was actually showing.
+ *
+ * Confirmed live at 1440 on 2026-09-07: `/items/page?id=…` loaded cold reports
+ * segments `[(auth), (tabs), (favorites), items, page]`, while the same page
+ * reached by clicking a poster in the Movies library keeps `libraryId` in the
+ * global params and lights the Movies row correctly.
+ */
+const SHARED_GROUP_SCREENS = [
+  "items",
+  "series",
+  "persons",
+  "collections",
+  "music",
+  "livetv",
+  "jellyseerr",
+];
+
+/**
  * Which row is the current one.
  *
  * Three rules, most specific first: an explicit segment match (Sharing sits
@@ -324,6 +351,12 @@ export function buildMoreItems(
  * whose id is in the route, then the tab group the route is in. Ties among
  * segment matches go to the longer match, so `settings/groups` beats
  * `settings`.
+ *
+ * The one exception is a shared-group screen (see `SHARED_GROUP_SCREENS`),
+ * which never falls through to that third rule: it lights the library it was
+ * opened from, or nothing. Nothing is the honest answer — a film is not a
+ * section — and the top bar names the item itself through `useSetScreenTitle`
+ * rather than falling back to a tab label.
  */
 export function activeSidebarKey(
   sections: SidebarSection[],
@@ -344,6 +377,10 @@ export function activeSidebarKey(
   if (libraryId) {
     const library = items.find((item) => item.libraryId === libraryId);
     if (library) return library.key;
+  }
+
+  if (segments.some((segment) => SHARED_GROUP_SCREENS.includes(segment))) {
+    return undefined;
   }
 
   const currentTab = segments.find(isTabKey);

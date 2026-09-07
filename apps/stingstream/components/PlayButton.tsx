@@ -1,13 +1,10 @@
 import { useActionSheet } from "@expo/react-native-action-sheet";
-import { Feather, Ionicons } from "@expo/vector-icons";
-import { BottomSheetView } from "@gorhom/bottom-sheet";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
-import { useAtom, useAtomValue } from "jotai";
-import { useCallback, useEffect } from "react";
+import { useAtomValue } from "jotai";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Platform, TouchableOpacity, View } from "react-native";
+import { type StyleProp, View, type ViewStyle } from "react-native";
 import CastContext, {
-  CastButton,
   MediaHlsSegmentFormat,
   MediaHlsVideoSegmentFormat,
   MediaStreamType,
@@ -16,26 +13,15 @@ import CastContext, {
   useMediaStatus,
   useRemoteMediaClient,
 } from "react-native-google-cast";
-import Animated, {
-  Easing,
-  interpolate,
-  interpolateColor,
-  useAnimatedReaction,
-  useAnimatedStyle,
-  useDerivedValue,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import { toast } from "sonner-native";
+import { formatRemaining } from "@/components/item/metadata";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
-import type { ThemeColors } from "@/hooks/useImageColorsReturn";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
 import { resolveCastStreamUrl } from "@/lib/stingstream/castStreamUrl";
 import { getDownloadedItemById } from "@/providers/Downloads/database";
-import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
-import { itemThemeColorAtom } from "@/utils/atoms/primaryColor";
 import { useSettings } from "@/utils/atoms/settings";
 import { getParentBackdropImageUrl } from "@/utils/jellyfin/image/getParentBackdropImageUrl";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
@@ -46,49 +32,58 @@ import {
 } from "@/utils/jellyfin/subtitleUtils";
 import { logAndCaptureError } from "@/utils/log";
 import type { PlayRequest } from "@/utils/nativePlayer/playRequest";
-import { formatDuration, runtimeTicksToMinutes } from "@/utils/time";
 import { chromecast } from "../utils/profiles/chromecast";
 import { chromecasth265 } from "../utils/profiles/chromecasth265";
 import { Button } from "./Button";
-import { Text } from "./common/Text";
+import { Dialog } from "./common/Dialog";
+import { ProgressBar } from "./common/ProgressBar";
 import type { SelectedOptions } from "./ItemContent";
 
-interface Props extends React.ComponentProps<typeof TouchableOpacity> {
+interface Props {
   item: BaseItemDto;
   selectedOptions: SelectedOptions;
-  colors?: ThemeColors;
+  /** Fills the row it sits in — the details page's action row does. */
+  fullWidth?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
-const ANIMATION_DURATION = 500;
-const MIN_PLAYBACK_WIDTH = 15;
-
+/**
+ * The one primary action on the pre-play page.
+ *
+ * **It is the accent, always.** It used to be tinted from the poster's own
+ * palette (`useImageColorsReturn`), which meant the most important control in
+ * the app was a different colour on every title — a mustard bar on one film, a
+ * washed-out lilac on the next — and on a dark poster it disappeared entirely
+ * (plan bug 5). Poster colour is atmosphere; it belongs behind the header, not
+ * on the button you are looking for.
+ *
+ * The resume state is the label, not a second control: "Resume · 12m left" with
+ * a progress rule under the button says both where you are and how much is
+ * left, where the old full-width outline bar said "0m" and nothing else.
+ */
 export const PlayButton: React.FC<Props> = ({
   item,
   selectedOptions,
-  colors,
+  fullWidth = false,
+  style,
 }: Props) => {
   const isOffline = useOfflineMode();
   const { showActionSheetWithOptions } = useActionSheet();
   const client = useRemoteMediaClient();
   const mediaStatus = useMediaStatus();
   const { t } = useTranslation();
-  const { showModal, hideModal } = useGlobalModal();
 
-  const [globalColorAtom] = useAtom(itemThemeColorAtom);
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
 
-  // Use colors prop if provided, otherwise fallback to global atom
-  const effectiveColors = colors || globalColorAtom;
-
   const router = useRouter();
 
-  const startWidth = useSharedValue(0);
-  const targetWidth = useSharedValue(0);
-  const endColor = useSharedValue(effectiveColors);
-  const startColor = useSharedValue(effectiveColors);
-  const widthProgress = useSharedValue(0);
-  const colorChangeProgress = useSharedValue(0);
+  // Two questions this button sometimes has to ask, as dialogs rather than
+  // `Alert.alert`: an alert is a native-only control that renders nothing at
+  // all on the web, so on a browser the button simply did nothing.
+  const [resumePrompt, setResumePrompt] = useState(false);
+  const [downloadPrompt, setDownloadPrompt] = useState<number | null>(null);
+
   const { settings } = useSettings();
   const lightHapticFeedback = useHaptic("light");
   const playMedia = usePlayMedia();
@@ -137,28 +132,19 @@ export const PlayButton: React.FC<Props> = ({
                   // Validate required parameters before calling getStreamUrl
                   if (!api) {
                     console.warn("API not available for Chromecast streaming");
-                    Alert.alert(
-                      t("player.client_error"),
-                      t("player.missing_parameters"),
-                    );
+                    toast.error(t("player.missing_parameters"));
                     return;
                   }
                   if (!user?.Id) {
                     console.warn(
                       "User not authenticated for Chromecast streaming",
                     );
-                    Alert.alert(
-                      t("player.client_error"),
-                      t("player.missing_parameters"),
-                    );
+                    toast.error(t("player.missing_parameters"));
                     return;
                   }
                   if (!item?.Id) {
                     console.warn("Item not available for Chromecast streaming");
-                    Alert.alert(
-                      t("player.client_error"),
-                      t("player.missing_parameters"),
-                    );
+                    toast.error(t("player.missing_parameters"));
                     return;
                   }
 
@@ -178,8 +164,7 @@ export const PlayButton: React.FC<Props> = ({
 
                     if (!data?.url) {
                       console.warn("No URL returned from getStreamUrl", data);
-                      Alert.alert(
-                        t("player.client_error"),
+                      toast.error(
                         t("player.could_not_create_stream_for_chromecast"),
                       );
                       return;
@@ -383,15 +368,11 @@ export const PlayButton: React.FC<Props> = ({
                       })
                       .catch((e) => {
                         logAndCaptureError("Chromecast loadMedia failed", e);
-                        Alert.alert(
-                          t("player.client_error"),
-                          t("player.chromecast_playback_failed"),
-                        );
+                        toast.error(t("player.chromecast_playback_failed"));
                       });
                   } catch (e) {
                     logAndCaptureError("Chromecast stream setup failed", e);
-                    Alert.alert(
-                      t("player.client_error"),
+                    toast.error(
                       t("player.could_not_create_stream_for_chromecast"),
                     );
                   }
@@ -445,100 +426,39 @@ export const PlayButton: React.FC<Props> = ({
         return;
       }
 
-      // If online but file is downloaded, ask user which version to play
+      // Online, but a copy is already on the device. Which one to play is a
+      // real question — the download is instant and offline-proof, the stream
+      // is whatever the server has now — so it gets asked rather than guessed.
       if (downloadedItem) {
-        if (Platform.OS === "android") {
-          // Show bottom sheet for Android
-          showModal(
-            <BottomSheetView>
-              <View className='px-4 mt-4 mb-12'>
-                <View className='pb-6'>
-                  <Text className='text-2xl font-bold mb-2'>
-                    {t("player.downloaded_file_title")}
-                  </Text>
-                  <Text className='opacity-70 text-base'>
-                    {t("player.downloaded_file_message")}
-                  </Text>
-                </View>
-                <View className='space-y-3'>
-                  <Button
-                    onPress={() => {
-                      hideModal();
-                      void playMedia(
-                        {
-                          itemId: item.Id!,
-                          offline: true,
-                          playbackPositionTicks: positionTicks,
-                        },
-                        { item },
-                      );
-                    }}
-                    color='purple'
-                  >
-                    {Platform.OS === "android"
-                      ? "Play downloaded file"
-                      : t("player.downloaded_file_yes")}
-                  </Button>
-                  <Button
-                    onPress={() => {
-                      hideModal();
-                      handleNormalPlayFlow(positionTicks);
-                    }}
-                    color='white'
-                    variant='border'
-                  >
-                    {Platform.OS === "android"
-                      ? "Stream file"
-                      : t("player.downloaded_file_no")}
-                  </Button>
-                </View>
-              </View>
-            </BottomSheetView>,
-            {
-              snapPoints: ["35%"],
-              enablePanDownToClose: true,
-            },
-          );
-        } else {
-          // Show alert for iOS
-          Alert.alert(
-            t("player.downloaded_file_title"),
-            t("player.downloaded_file_message"),
-            [
-              {
-                text: t("player.downloaded_file_yes"),
-                onPress: () => {
-                  void playMedia(
-                    {
-                      itemId: item.Id!,
-                      offline: true,
-                      playbackPositionTicks: positionTicks,
-                    },
-                    { item },
-                  );
-                },
-                isPreferred: true,
-              },
-              {
-                text: t("player.downloaded_file_no"),
-                onPress: () => {
-                  handleNormalPlayFlow(positionTicks);
-                },
-              },
-              {
-                text: t("player.downloaded_file_cancel"),
-                style: "cancel",
-              },
-            ],
-          );
-        }
+        setDownloadPrompt(positionTicks);
         return;
       }
 
       // If not downloaded, proceed with normal flow
       handleNormalPlayFlow(positionTicks);
     },
-    [item, isOffline, handleNormalPlayFlow, playMedia, t, showModal, hideModal],
+    [item, isOffline, handleNormalPlayFlow, playMedia],
+  );
+
+  const playDownloaded = useCallback(
+    (positionTicks: number) => {
+      if (!item?.Id) return;
+      void playMedia(
+        {
+          itemId: item.Id,
+          offline: true,
+          playbackPositionTicks: positionTicks,
+        },
+        { item },
+      );
+    },
+    [item, playMedia],
+  );
+
+  const progressTicks = item?.UserData?.PlaybackPositionTicks ?? 0;
+  const remaining = useMemo(
+    () => formatRemaining(item?.RunTimeTicks, progressTicks),
+    [item?.RunTimeTicks, progressTicks],
   );
 
   const onPress = useCallback(() => {
@@ -549,176 +469,106 @@ export const PlayButton: React.FC<Props> = ({
     // Same prompt the TV item page shows: an in-progress item asks whether
     // to resume or restart instead of silently resuming. Users can turn the
     // prompt off in settings, in which case playback resumes right away.
-    const progressTicks = item.UserData?.PlaybackPositionTicks ?? 0;
     if (progressTicks > 0 && !settings.showResumeDialog) {
       void startPlayback(progressTicks);
       return;
     }
     if (progressTicks > 0) {
-      Alert.alert(
-        t("item_card.resume_playback"),
-        t("item_card.resume_playback_description"),
-        [
-          {
-            text: t("common.cancel"),
-            style: "cancel",
-          },
-          {
-            text: t("item_card.play_from_start"),
-            onPress: () => void startPlayback(0),
-          },
-          {
-            text: t("item_card.continue_from", {
-              time: formatDuration(progressTicks),
-            }),
-            onPress: () => void startPlayback(progressTicks),
-            isPreferred: true,
-          },
-        ],
-      );
+      setResumePrompt(true);
       return;
     }
 
     void startPlayback(0);
-  }, [item, lightHapticFeedback, startPlayback, t, settings.showResumeDialog]);
+  }, [
+    item,
+    lightHapticFeedback,
+    startPlayback,
+    progressTicks,
+    settings.showResumeDialog,
+  ]);
 
-  const derivedTargetWidth = useDerivedValue(() => {
-    if (!item?.RunTimeTicks) return 0;
-    const userData = item.UserData;
-    if (userData?.PlaybackPositionTicks) {
-      return userData.PlaybackPositionTicks > 0
-        ? Math.max(
-            (userData.PlaybackPositionTicks / item.RunTimeTicks) * 100,
-            MIN_PLAYBACK_WIDTH,
-          )
-        : 0;
-    }
-    return 0;
-  }, [item]);
-
-  useAnimatedReaction(
-    () => derivedTargetWidth.value,
-    (newWidth) => {
-      targetWidth.value = newWidth;
-      widthProgress.value = 0;
-      widthProgress.value = withTiming(1, {
-        duration: ANIMATION_DURATION,
-        easing: Easing.bezier(0.7, 0, 0.3, 1.0),
-      });
-    },
-    [item],
-  );
-
-  useAnimatedReaction(
-    () => effectiveColors,
-    (newColor) => {
-      endColor.value = newColor;
-      colorChangeProgress.value = 0;
-      colorChangeProgress.value = withTiming(1, {
-        duration: ANIMATION_DURATION,
-        easing: Easing.bezier(0.9, 0, 0.31, 0.99),
-      });
-    },
-    [effectiveColors],
-  );
-
-  useEffect(() => {
-    const timeout_2 = setTimeout(() => {
-      startColor.value = effectiveColors;
-      startWidth.value = targetWidth.value;
-    }, ANIMATION_DURATION);
-
-    return () => {
-      clearTimeout(timeout_2);
-    };
-  }, [effectiveColors, item]);
-
-  /**
-   * ANIMATED STYLES
-   */
-  const animatedAverageStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      colorChangeProgress.value,
-      [0, 1],
-      [startColor.value.primary, endColor.value.primary],
-    ),
-  }));
-
-  const animatedPrimaryStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      colorChangeProgress.value,
-      [0, 1],
-      [startColor.value.primary, endColor.value.primary],
-    ),
-  }));
-
-  const animatedWidthStyle = useAnimatedStyle(() => ({
-    width: `${interpolate(
-      widthProgress.value,
-      [0, 1],
-      [startWidth.value, targetWidth.value],
-    )}%`,
-  }));
-
-  const animatedTextStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(
-      colorChangeProgress.value,
-      [0, 1],
-      [startColor.value.text, endColor.value.text],
-    ),
-  }));
+  // "Resume · 12m left" when there is something to resume, "Play" otherwise.
+  // Never a bare duration: the old button's whole label was the time remaining,
+  // which said nothing about what pressing it would do.
+  const label =
+    progressTicks > 0 && remaining
+      ? t("item.resume_left", { time: remaining })
+      : t("item.play");
 
   return (
-    <TouchableOpacity
-      disabled={!item}
-      accessibilityLabel={t("accessibility.play_button")}
-      accessibilityHint={t("accessibility.play_hint")}
-      onPress={onPress}
-      className={"relative flex-1"}
-    >
-      <View className='absolute w-full h-full top-0 left-0 rounded-full z-10 overflow-hidden'>
-        <Animated.View
-          style={[
-            animatedPrimaryStyle,
-            animatedWidthStyle,
-            {
-              height: "100%",
-            },
-          ]}
-        />
-      </View>
-
-      <Animated.View
-        style={[animatedAverageStyle, { opacity: 0.5 }]}
-        className='absolute w-full h-full top-0 left-0 rounded-full'
-      />
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: effectiveColors.primary,
-          borderStyle: "solid",
-        }}
-        className='flex flex-row items-center justify-center bg-transparent rounded-full z-20 h-12 w-full '
+    <View style={[fullWidth ? { flex: 1 } : null, style]}>
+      <Button
+        testID='details-play'
+        variant='primary'
+        size='lg'
+        icon='play'
+        onPress={onPress}
+        disabled={!item}
+        accessibilityLabel={label}
+        accessibilityHint={t("accessibility.play_hint")}
       >
-        <View className='flex flex-row items-center space-x-2'>
-          <Animated.Text style={[animatedTextStyle, { fontWeight: "bold" }]}>
-            {runtimeTicksToMinutes(
-              (item?.RunTimeTicks || 0) -
-                (item?.UserData?.PlaybackPositionTicks || 0),
-            )}
-            {(item?.UserData?.PlaybackPositionTicks || 0) > 0 && " left"}
-          </Animated.Text>
-          <Animated.Text style={animatedTextStyle}>
-            <Ionicons name='play-circle' size={24} />
-          </Animated.Text>
-          {client && (
-            <Animated.Text style={animatedTextStyle}>
-              <Feather name='cast' size={22} />
-              <CastButton tintColor='transparent' />
-            </Animated.Text>
-          )}
+        {label}
+      </Button>
+      {progressTicks > 0 ? (
+        // The rule sits under the button rather than inside it: a fill that
+        // grows across the accent is unreadable at 12 % and indistinguishable
+        // from a disabled state at 90 %.
+        <View style={{ marginTop: 6 }}>
+          <ProgressBar item={item} />
         </View>
-      </View>
-    </TouchableOpacity>
+      ) : null}
+
+      <Dialog
+        visible={resumePrompt}
+        onClose={() => setResumePrompt(false)}
+        title={t("item_card.resume_playback")}
+        description={t("item_card.resume_playback_description")}
+        actions={[
+          {
+            label: t("item_card.play_from_start"),
+            variant: "secondary",
+            onPress: () => {
+              setResumePrompt(false);
+              void startPlayback(0);
+            },
+          },
+          {
+            label: remaining
+              ? t("item.resume_left", { time: remaining })
+              : t("item.resume"),
+            onPress: () => {
+              setResumePrompt(false);
+              void startPlayback(progressTicks);
+            },
+          },
+        ]}
+      />
+
+      <Dialog
+        visible={downloadPrompt !== null}
+        onClose={() => setDownloadPrompt(null)}
+        title={t("player.downloaded_file_title")}
+        description={t("player.downloaded_file_message")}
+        actions={[
+          {
+            label: t("player.downloaded_file_no"),
+            variant: "secondary",
+            onPress: () => {
+              const position = downloadPrompt ?? 0;
+              setDownloadPrompt(null);
+              handleNormalPlayFlow(position);
+            },
+          },
+          {
+            label: t("player.downloaded_file_yes"),
+            onPress: () => {
+              const position = downloadPrompt ?? 0;
+              setDownloadPrompt(null);
+              playDownloaded(position);
+            },
+          },
+        ]}
+      />
+    </View>
   );
 };
