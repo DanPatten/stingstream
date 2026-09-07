@@ -12,6 +12,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import { motion, radius, resolveTextStyle, tokens } from "@/constants/theme";
 import { useBreakpointName } from "@/hooks/useBreakpoint";
@@ -58,7 +59,7 @@ export function Input(props: InputProps) {
       toValue: focused ? 1.02 : 1,
       duration: 150,
       easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
+      useNativeDriver: USE_NATIVE_DRIVER,
     }).start();
   };
 

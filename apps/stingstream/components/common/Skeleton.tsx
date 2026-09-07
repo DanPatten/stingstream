@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import type { CardKind } from "@/components/cards/CardData";
 import { useCardLayout } from "@/components/cards/useCardLayout";
+import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { interaction, radius as RADII, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 
@@ -243,13 +244,13 @@ const usePulse = () => {
           toValue: interaction.skeletonMinOpacity,
           duration: half,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(opacity, {
           toValue: 1,
           duration: half,
           easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ]),
     );

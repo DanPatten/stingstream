@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import {
   type AccentPalette,
   fade,
@@ -231,7 +232,7 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
         toValue: v,
         duration: 130,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
     const colorClasses = getColorClasses(
       color ?? TV_COLORS[resolved.variant],

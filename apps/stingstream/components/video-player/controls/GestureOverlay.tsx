@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Pressable } from "react-native";
 import { Text } from "@/components/common/Text";
+import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useSettings } from "@/utils/atoms/settings";
 import { CONTROLS_CONSTANTS } from "./constants";
@@ -78,13 +79,13 @@ export const GestureOverlay = ({
             Animated.timing(fadeAnim, {
               toValue: 1,
               duration: 200,
-              useNativeDriver: true,
+              useNativeDriver: USE_NATIVE_DRIVER,
             }),
             Animated.delay(1000),
             Animated.timing(fadeAnim, {
               toValue: 0,
               duration: 300,
-              useNativeDriver: true,
+              useNativeDriver: USE_NATIVE_DRIVER,
             }),
           ]).start(() => {
             requestAnimationFrame(() => {
@@ -115,7 +116,7 @@ export const GestureOverlay = ({
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 300,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start(() => {
         requestAnimationFrame(() => {
           setFeedback((prev) => ({ ...prev, visible: false }));
@@ -201,7 +202,7 @@ export const GestureOverlay = ({
       Animated.timing(scrimOpacity, {
         toValue: CONTROLS_CONSTANTS.HOLD_SPEED_DIM_OPACITY,
         duration: CONTROLS_CONSTANTS.HOLD_SPEED_DIM_DURATION,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
       showFeedback(
         "play-forward",
@@ -230,7 +231,7 @@ export const GestureOverlay = ({
       Animated.timing(scrimOpacity, {
         toValue: CONTROLS_CONSTANTS.CONTROLS_SCRIM_OPACITY,
         duration: CONTROLS_CONSTANTS.HOLD_SPEED_DIM_DURATION,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
       hideDragFeedback();
     });

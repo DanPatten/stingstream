@@ -58,6 +58,11 @@ const webModuleStubs = {
   // real module loads and throws UnavailabilityError *synchronously* inside
   // the root layout effect, aborting the rest of it.
   "expo-notifications": "expo-notifications.ts",
+  // Same shape as expo-file-system: its web native module is an empty object,
+  // so every read threw "getValueWithKeyAsync is not a function" and warned on
+  // every screen. A browser has no keychain; the stub keeps nothing and says
+  // so, rather than pretending localStorage is secure storage.
+  "expo-secure-store": "expo-secure-store.ts",
 };
 
 const stubRoot = path.resolve(__dirname, "lib/platform/web-stubs");

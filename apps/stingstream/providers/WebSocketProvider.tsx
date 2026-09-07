@@ -95,6 +95,30 @@ type RNWebSocketConstructor = new (
   options: { headers: Record<string, string> },
 ) => WebSocket;
 
+/**
+ * Close a socket without the browser complaining.
+ *
+ * Calling `close()` on a socket that is still CONNECTING makes Chrome log
+ *
+ *   WebSocket connection to '...' failed: WebSocket is closed before the
+ *   connection is established.
+ *
+ * as a console warning — which is what a React effect cleanup does every time a
+ * screen unmounts before the handshake finishes, so it fired on ordinary
+ * navigation and on sign-out. Waiting for `open` and closing then reaches the
+ * same end state (a closed socket, no reconnect) silently. Anything already
+ * open, closing or closed is closed directly; `close()` on a CLOSED socket is
+ * a no-op by spec.
+ */
+const closeQuietly = (socket: WebSocket | null | undefined) => {
+  if (!socket) return;
+  if (socket.readyState === WebSocket.CONNECTING) {
+    socket.addEventListener("open", () => socket.close(), { once: true });
+    return;
+  }
+  socket.close();
+};
+
 export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
   const api = useAtomValue(apiAtom);
   const { isConnected: isNetworkConnected, serverConnected } =
@@ -277,7 +301,7 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      newWebSocket.close();
+      closeQuietly(newWebSocket);
     };
   }, [api, deviceId, isNetworkConnected, dispatchMessage]);
 
@@ -424,7 +448,7 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
     const handleAppStateChange = (state: AppStateStatus) => {
       if (state === "background" || state === "inactive") {
         console.log("App moving to background, closing WebSocket...");
-        ws?.close();
+        closeQuietly(ws);
       } else if (state === "active") {
         console.log("App coming to foreground, reconnecting WebSocket...");
         connectWebSocket();
@@ -438,7 +462,7 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
 
     return () => {
       subscription.remove();
-      ws?.close();
+      closeQuietly(ws);
     };
   }, [ws, connectWebSocket]);
   const sendMessage = useCallback(
