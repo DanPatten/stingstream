@@ -2,6 +2,7 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useAtomValue } from "jotai";
 import { useCallback, useMemo } from "react";
 import { Platform, Pressable, ScrollView, View } from "react-native";
+import { buildItemCards, type CardData } from "@/components/cards/CardData";
 import { Icon } from "@/components/common/Icon";
 import { SectionHeader } from "@/components/common/SectionHeader";
 import { Image } from "@/components/common/ServerImage";
@@ -13,7 +14,6 @@ import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { apiAtom } from "@/providers/JellyfinProvider";
-import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
 const AVATAR_SIZE = 76;
 const isWeb = Platform.OS === "web";
@@ -32,6 +32,16 @@ interface Props {
  * rectangle (a poster, a still), and a headshot in the same rectangle reads as
  * a poster with the wrong picture on it; a person is the one thing in a
  * Jellyfin library people are used to seeing round.
+ *
+ * Cards come from `buildItemCards` — the same builder every other row uses —
+ * rather than a bare `getPrimaryImageUrl` call: that function always returns
+ * *some* URL for a real `BaseItemDto` (untagged or not — see its own
+ * comment), so calling it directly for a person with no `ImageTags.Primary`
+ * requested an image the server had no way to answer and drew a real 404.
+ * `buildItemCards`'s own `hasArtwork` gate is what leaves `imageUrl` unset
+ * for exactly that case, which is what puts the initials glyph on screen
+ * instead (confirmed live: a person search dropped the request entirely once
+ * this went through the builder).
  */
 export const SearchPeopleRow: React.FC<Props> = ({
   title,
@@ -40,7 +50,20 @@ export const SearchPeopleRow: React.FC<Props> = ({
   from,
 }) => {
   const { gutter } = useBreakpoint();
+  const api = useAtomValue(apiAtom);
   const isEmpty = !people || people.length === 0;
+
+  const cards = useMemo(
+    () =>
+      // `cardWidth` is the avatar's *rendered* width — `buildItemCards`
+      // itself caps the actual image request at 2x for pixel density.
+      buildItemCards(people ?? [], {
+        api,
+        kind: "portrait",
+        cardWidth: AVATAR_SIZE,
+      }),
+    [people, api],
+  );
 
   if (!loading && isEmpty) return null;
 
@@ -61,45 +84,39 @@ export const SearchPeopleRow: React.FC<Props> = ({
           ? Array.from({ length: 6 }, (_, index) => (
               <PersonAvatarSkeleton key={index} />
             ))
-          : (people ?? []).flatMap((person) =>
-              person.Id ? (
-                <PersonAvatar key={person.Id} person={person} from={from} />
-              ) : (
-                []
-              ),
-            )}
+          : cards.map((card) => (
+              <PersonAvatar key={card.id} card={card} from={from} />
+            ))}
       </ScrollView>
     </View>
   );
 };
 
-const PersonAvatar: React.FC<{ person: BaseItemDto; from: string }> = ({
-  person,
+const PersonAvatar: React.FC<{ card: CardData; from: string }> = ({
+  card,
   from,
 }) => {
-  const api = useAtomValue(apiAtom);
   const router = useRouter();
   const states = usePressableStates();
   const lifted = isWeb && states.hovered;
-
-  const imageUrl = useMemo(
-    () =>
-      getPrimaryImageUrl({
-        api,
-        item: person,
-        width: AVATAR_SIZE * 2,
-      }),
-    [api, person],
-  );
+  const label = card.imageAlt ?? card.title;
 
   const onPress = useCallback(() => {
-    router.push(getItemNavigation(person, from) as any);
-  }, [router, person, from]);
+    // `getItemNavigation` only reads `item.Id`/`Type`, both of which the
+    // card already carries — a person doesn't need the rest of the DTO to
+    // route to its own page.
+    router.push(
+      getItemNavigation(
+        { Id: card.id, Type: "Person" } as BaseItemDto,
+        from,
+      ) as any,
+    );
+  }, [router, card.id, from]);
 
   return (
     <Pressable
       accessibilityRole='button'
-      accessibilityLabel={person.Name ?? undefined}
+      accessibilityLabel={label}
       onPress={onPress}
       {...states.handlers}
       style={[
@@ -123,12 +140,12 @@ const PersonAvatar: React.FC<{ person: BaseItemDto; from: string }> = ({
           justifyContent: "center",
         }}
       >
-        {imageUrl ? (
+        {card.imageUrl ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{ uri: card.imageUrl }}
             style={{ width: "100%", height: "100%" }}
             contentFit='cover'
-            accessibilityLabel={person.Name ?? undefined}
+            accessibilityLabel={label}
           />
         ) : (
           <Icon name='user' size={34} tone='tertiary' />
@@ -140,7 +157,7 @@ const PersonAvatar: React.FC<{ person: BaseItemDto; from: string }> = ({
         align='center'
         style={{ marginTop: 6 }}
       >
-        {person.Name}
+        {card.title}
       </Text>
     </Pressable>
   );
