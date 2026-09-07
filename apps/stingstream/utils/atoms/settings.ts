@@ -11,7 +11,11 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import { BITRATES, type Bitrate } from "@/components/BitrateSelector";
-import { type AccentName, DEFAULT_ACCENT } from "@/constants/theme";
+import {
+  ACCENT_NAMES,
+  type AccentName,
+  DEFAULT_ACCENT,
+} from "@/constants/theme";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { logAndCaptureError, writeInfoLog } from "@/utils/log";
@@ -25,6 +29,7 @@ import {
   type AppliedPluginDefaults,
   pluginRefreshOverlay,
   resolveEffectiveSettings,
+  withinAllowedValues,
 } from "./settingsOverrides";
 
 const _STREAMYFIN_PLUGIN_ID = "1e9e5d386e6746158719e98a5c34f004";
@@ -835,14 +840,23 @@ export const pluginSettingsAtom = atom<PluginLockableSettings | undefined>(
  * `selectAtom` of it) instead of calling `useSettings`, which also pulls in the
  * mutation helpers and a load effect.
  */
-export const effectiveSettingsAtom = atom<Settings>((get) =>
-  resolveEffectiveSettings(
+export const effectiveSettingsAtom = atom<Settings>((get) => {
+  const resolved = resolveEffectiveSettings(
     get(settingsAtom),
     get(pluginSettingsAtom),
     defaultValues,
     normalizePluginValue,
-  ),
-);
+  );
+  // Every reader of `accent` — `Text`, `Icon`, `useTheme`, `ListItem` — goes through this one
+  // atom, so this is the single point that can catch a value outside the three known names
+  // (corrupt storage, a downgrade after a release added a fourth accent, an admin typo in a
+  // locked plugin value) before it reaches `accentPalette()`, which would otherwise return
+  // `undefined` and crash the first component that reads `.500` off it.
+  return {
+    ...resolved,
+    accent: withinAllowedValues(resolved.accent, ACCENT_NAMES, DEFAULT_ACCENT),
+  };
+});
 
 const loadAppliedPluginDefaults = (): AppliedPluginDefaults => {
   try {

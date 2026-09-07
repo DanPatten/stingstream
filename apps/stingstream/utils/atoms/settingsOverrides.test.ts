@@ -4,7 +4,11 @@ import {
   pendingPluginDefaults,
   pluginRefreshOverlay,
   resolveEffectiveSettings,
+  withinAllowedValues,
 } from "./settingsOverrides";
+
+const ACCENT_NAMES = ["teal", "violet", "amber"] as const;
+const DEFAULT_ACCENT = "teal";
 
 const defaults = {
   rememberAudioSelections: true,
@@ -245,5 +249,31 @@ describe("pluginRefreshOverlay", () => {
       overlay: { searchEngine: "Streamystats" },
       applied: null,
     });
+  });
+});
+
+describe("withinAllowedValues", () => {
+  // What `utils/atoms/settings.ts` calls this for: `effectiveSettingsAtom` runs every stored or
+  // plugin-supplied `accent` through this before anything reads it, because `accentPalette()`
+  // indexes the token JSON by name and returns `undefined` — a crash waiting in the first
+  // component that reads `.500` off it — for anything outside the three known names.
+  test("a known accent passes through unchanged", () => {
+    expect(withinAllowedValues("violet", ACCENT_NAMES, DEFAULT_ACCENT)).toBe(
+      "violet",
+    );
+  });
+
+  test("an unknown accent is rejected, falling back to the default", () => {
+    // Corrupt storage, a downgrade after a release added a fourth accent, an admin typo in a
+    // locked plugin value — none of these are one of the three names on the token JSON.
+    expect(
+      withinAllowedValues("chartreuse", ACCENT_NAMES, DEFAULT_ACCENT),
+    ).toBe(DEFAULT_ACCENT);
+  });
+
+  test("the default itself is a known value", () => {
+    expect(
+      withinAllowedValues(DEFAULT_ACCENT, ACCENT_NAMES, DEFAULT_ACCENT),
+    ).toBe(DEFAULT_ACCENT);
   });
 });

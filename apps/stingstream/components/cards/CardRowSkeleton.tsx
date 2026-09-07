@@ -1,33 +1,21 @@
-import { View } from "react-native";
-import { CARD_LAYOUTS, type CardKind } from "./CardData";
+import { SkeletonRow } from "@/components/common/Skeleton";
+import { type CardKind, defaultTextPlacement } from "./CardData";
 
-/** Placeholder cards shown while a row loads, sized like the real ones. */
-export const CardRowSkeleton: React.FC<{ kind: CardKind; count?: number }> = ({
-  kind,
-  count = 3,
-}) => {
-  const layout = CARD_LAYOUTS[kind];
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        gap: layout.spacing,
-        paddingHorizontal: layout.contentInset,
-        paddingVertical: layout.verticalPadding,
-      }}
-    >
-      {Array.from({ length: count }, (_, i) => i).map((i) => (
-        <View
-          key={i}
-          style={{
-            width: layout.cardWidth,
-            height: layout.cardWidth / layout.aspectRatio,
-            borderRadius: layout.cornerRadius,
-            backgroundColor: "#171717",
-          }}
-        />
-      ))}
-    </View>
-  );
-};
+/**
+ * Placeholder cards shown while a row loads, sized like the real ones.
+ *
+ * A thin wrapper over WP0's `SkeletonRow` so a row's loading state and its
+ * loaded state agree on one thing: a card that puts its title under the artwork
+ * reserves the text lines here too, or the page jumps by that much the moment
+ * the cards arrive.
+ */
+export const CardRowSkeleton: React.FC<{
+  kind: CardKind;
+  count?: number;
+}> = ({ kind, count = 3 }) => (
+  <SkeletonRow
+    kind={kind}
+    count={count}
+    withLabels={defaultTextPlacement(kind) === "below"}
+  />
+);

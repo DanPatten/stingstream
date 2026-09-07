@@ -1,12 +1,8 @@
 import { TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { CardArtwork } from "./CardArtwork";
-import {
-  CARD_LAYOUTS,
-  type CardData,
-  type CardKind,
-  type CardSlots,
-} from "./CardData";
+import type { CardData, CardKind, CardSlots } from "./CardData";
+import { useCardLayout } from "./useCardLayout";
 
 type Props = {
   card: CardData;
@@ -30,7 +26,7 @@ export const CardListRow: React.FC<Props> = ({
   onPress,
   onLongPress,
 }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
   const width = layout.cardWidth;
   const height = width / (card.aspectRatio ?? layout.aspectRatio);
 
@@ -51,22 +47,16 @@ export const CardListRow: React.FC<Props> = ({
         />
 
         <View style={{ flex: 1, marginLeft: layout.spacing }}>
-          <Text numberOfLines={2} style={{ fontSize: 14, fontWeight: "600" }}>
+          <Text variant='body' weight='semibold' numberOfLines={2}>
             {card.title}
           </Text>
           {Boolean(card.subtitle) && (
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}
-            >
+            <Text variant='caption' tone='secondary' numberOfLines={1}>
               {card.subtitle}
             </Text>
           )}
           {Boolean(card.detail) && (
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}
-            >
+            <Text variant='caption' tone='tertiary' numberOfLines={1}>
               {card.detail}
             </Text>
           )}

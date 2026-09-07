@@ -1,15 +1,29 @@
-import { Ionicons } from "@expo/vector-icons";
-import { TouchableOpacity, type TouchableOpacityProps } from "react-native";
+import { useTranslation } from "react-i18next";
+import type { StyleProp, ViewStyle } from "react-native";
 import { useFilterReset } from "@/hooks/useFilterReset";
+import { FilterChip } from "./FilterChip";
 
-interface Props extends TouchableOpacityProps {
+interface Props {
   libraryId: string;
+  style?: StyleProp<ViewStyle>;
+  className?: string;
 }
 
+/**
+ * "Clear" — the chip that undoes every filter and sort on this library.
+ *
+ * It says what it does. The bar used to open with a bare round × at its
+ * leading edge, permanently, with nothing to say what it would clear or
+ * whether there was anything to clear at all: an unlabelled destructive
+ * control in front of the controls it destroys. It appears only once a filter
+ * is actually active, and reads as a chip like everything beside it.
+ */
 export const ResetFiltersButton: React.FC<Props> = ({
   libraryId,
-  ...props
+  style,
+  className,
 }) => {
+  const { t } = useTranslation();
   const { hasActiveFilters, resetAllFilters } = useFilterReset(libraryId);
 
   if (!hasActiveFilters) {
@@ -17,13 +31,12 @@ export const ResetFiltersButton: React.FC<Props> = ({
   }
 
   return (
-    <TouchableOpacity
-      className='bg-purple-600 rounded-full w-[30px] h-[30px] flex items-center justify-center mr-1'
-      {...props}
-      // After the spread so a forwarded onPress can't disable the reset.
+    <FilterChip
+      label={t("library.filters.clear")}
+      icon='close'
       onPress={resetAllFilters}
-    >
-      <Ionicons name='close' size={20} color='white' />
-    </TouchableOpacity>
+      style={style}
+      className={className}
+    />
   );
 };

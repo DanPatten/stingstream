@@ -19,6 +19,11 @@ type Options = {
   kind: CardKind;
   useEpisodePoster?: boolean;
   selectedId?: string | null;
+  /**
+   * The width the cards will actually render at, so their image requests
+   * follow the card's real size — see `buildItemCards`'s own doc.
+   */
+  cardWidth?: number;
   /** Replaces the default navigation (items mode). */
   onPressItem?: (item: BaseItemDto) => void;
   /** Press handler for `cards` mode. */
@@ -42,6 +47,7 @@ export function useItemCardBehavior({
   kind,
   useEpisodePoster = false,
   selectedId,
+  cardWidth,
   onPressItem,
   onPressId,
   onLongPressItem,
@@ -65,8 +71,9 @@ export function useItemCardBehavior({
         kind,
         useEpisodePoster,
         selectedId,
+        cardWidth,
       }),
-    [providedCards, items, api, kind, useEpisodePoster, selectedId],
+    [providedCards, items, api, kind, useEpisodePoster, selectedId, cardWidth],
   );
 
   const handlePress = useCallback(
