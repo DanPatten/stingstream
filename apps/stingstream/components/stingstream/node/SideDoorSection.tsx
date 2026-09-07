@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Button } from "@/components/Button";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { radius, rgba, tokens } from "@/constants/theme";
 import { useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
   candidatesToTry,
@@ -12,9 +14,9 @@ import {
   pickWinner,
   plainLanFallback,
   probeCandidate,
-  REBINDING_WARNING,
   type SideDoorRecord,
 } from "@/lib/stingstream/sidedoor";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 
 /**
  * DNS-rebinding detection on Node status (M5 deliverable 5).
@@ -33,6 +35,7 @@ import {
 type CandidateState = "idle" | "testing" | "done";
 
 export function SideDoorSection() {
+  const { t } = useTranslation();
   const status = useNodeMeshStatus();
   const [state, setState] = useState<CandidateState>("idle");
   const [outcomes, setOutcomes] = useState<ProbeOutcome[]>([]);
@@ -57,17 +60,21 @@ export function SideDoorSection() {
   if (!record || record.candidates.length === 0) {
     return (
       <View>
-        <Text className='text-white text-lg font-semibold mb-2'>
-          Remote access (side door)
-        </Text>
-        <View className='rounded-xl bg-neutral-900 p-4'>
-          <Text className='text-white font-semibold'>
-            No side door configured
+        <ScreenHeaderRow title={t("server_status.side_door_title")} />
+        <View
+          style={{
+            borderRadius: radius.md,
+            backgroundColor: tokens.color.bg["1"],
+            padding: 16,
+          }}
+        >
+          <Text weight='semibold'>
+            {t("server_status.side_door_none_title")}
           </Text>
-          <Text className='text-[#9899A1] text-xs mt-1'>
+          <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
             {record?.zone
-              ? "This node's coordinator has a zone but has not published this node's names yet — check back shortly."
-              : "This node has no coordinator with a side-door zone, so there is nothing to test. This is the zero-server default, not an error: the app still reaches this node over the mesh. See docs/SIDEDOOR.md."}
+              ? t("server_status.side_door_zone_pending_detail")
+              : t("server_status.side_door_no_coordinator_detail")}
           </Text>
         </View>
       </View>
@@ -79,15 +86,19 @@ export function SideDoorSection() {
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>
-        Remote access (side door)
-      </Text>
+      <ScreenHeaderRow title={t("server_status.side_door_title")} />
       <ListGroup>
-        <ListItem title='Zone' value={record.zone ?? "unknown"} />
-        <ListItem title='Coordinator' value={record.coordinator ?? "unknown"} />
         <ListItem
-          title='Public reachability'
-          value={record.direct_https ?? "unknown"}
+          title={t("server_status.side_door_zone_field")}
+          value={record.zone ?? t("server_status.unknown")}
+        />
+        <ListItem
+          title={t("server_status.rendezvous_server_field")}
+          value={record.coordinator ?? t("server_status.unknown")}
+        />
+        <ListItem
+          title={t("server_status.public_reachability_field")}
+          value={record.direct_https ?? t("server_status.unknown")}
           textColor={record.direct_https === "blocked" ? "red" : "default"}
         />
         {record.candidates.map((c) => (
@@ -101,8 +112,16 @@ export function SideDoorSection() {
                     const o = outcomes.find((x) => x.candidate.kind === c.kind);
                     if (!o) return undefined;
                     return o.ok
-                      ? `reachable · ${o.ms} ms${winner?.candidate.kind === c.kind ? " · would be used" : ""}`
-                      : `unreachable${o.error ? ` · ${o.error}` : ""}`;
+                      ? t("server_status.side_door_reachable", {
+                          ms: o.ms,
+                          winner:
+                            winner?.candidate.kind === c.kind
+                              ? t("server_status.side_door_would_be_used")
+                              : "",
+                        })
+                      : t("server_status.side_door_unreachable", {
+                          error: o.error ? ` · ${o.error}` : "",
+                        });
                   })()
                 : undefined
             }
@@ -116,23 +135,44 @@ export function SideDoorSection() {
         ))}
       </ListGroup>
 
-      <View className='mt-3'>
-        <Button onPress={runTest} disabled={state === "testing"} color='purple'>
-          {state === "testing" ? "Testing…" : "Test connection"}
+      <View style={{ marginTop: 12 }}>
+        <Button onPress={() => void runTest()} disabled={state === "testing"}>
+          {state === "testing"
+            ? t("server_status.side_door_testing")
+            : t("server_status.side_door_test_action")}
         </Button>
       </View>
 
       {state === "done" && rebinding?.rebinding && (
-        <View className='mt-3 p-3 rounded-xl bg-amber-950 border border-amber-700'>
-          <Text className='text-amber-200 font-semibold mb-1'>
-            DNS rebinding protection detected
+        <View
+          style={{
+            marginTop: 12,
+            padding: 12,
+            borderRadius: radius.md,
+            backgroundColor: rgba(tokens.color.state.warning, 0.14),
+            borderWidth: 1,
+            borderColor: rgba(tokens.color.state.warning, 0.4),
+          }}
+        >
+          <Text weight='semibold' style={{ color: tokens.color.state.warning }}>
+            {t("server_status.side_door_rebinding_title")}
           </Text>
-          <Text className='text-amber-100 text-sm'>{REBINDING_WARNING}</Text>
+          <Text
+            variant='caption'
+            style={{ color: tokens.color.state.warning, marginTop: 4 }}
+          >
+            {t("server_status.side_door_rebinding_detail")}
+          </Text>
           {(() => {
             const fallback = plainLanFallback(record);
             return fallback ? (
-              <Text className='text-amber-100 text-sm mt-2'>
-                Plain-HTTP LAN fallback: {fallback.url}
+              <Text
+                variant='caption'
+                style={{ color: tokens.color.state.warning, marginTop: 8 }}
+              >
+                {t("server_status.side_door_plain_fallback", {
+                  url: fallback.url,
+                })}
               </Text>
             ) : null;
           })()}
@@ -140,16 +180,17 @@ export function SideDoorSection() {
       )}
 
       {state === "done" && !rebinding?.rebinding && winner && (
-        <Text className='text-[#9899A1] text-xs mt-3'>
-          A real connection from this device would use {winner.candidate.kind} (
-          {winner.ms} ms).
+        <Text variant='caption' tone='secondary' style={{ marginTop: 12 }}>
+          {t("server_status.side_door_would_use", {
+            kind: winner.candidate.kind,
+            ms: winner.ms,
+          })}
         </Text>
       )}
 
       {state === "done" && !winner && (
-        <Text className='text-red-400 text-xs mt-3'>
-          Nothing answered — this node is not reachable from here over any
-          side-door candidate right now.
+        <Text variant='caption' tone='danger' style={{ marginTop: 12 }}>
+          {t("server_status.side_door_nothing_answered")}
         </Text>
       )}
     </View>

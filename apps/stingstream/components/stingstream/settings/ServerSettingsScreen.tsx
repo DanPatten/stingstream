@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import {
   useSharedSettings,
@@ -25,6 +26,7 @@ type Section =
   | "notifications";
 
 export function ServerSettingsScreen() {
+  const { t } = useTranslation();
   const { data: settings, isLoading, error, refetch } = useSharedSettings();
   const updateSettings = useUpdateSharedSettings();
   const [section, setSection] = useState<Section>("indexers");
@@ -39,18 +41,32 @@ export function ServerSettingsScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <SegmentedControlBar
-        segments={[
-          { key: "indexers", label: "Indexers" },
-          { key: "downloadClients", label: "Download clients" },
-          { key: "qualityProfiles", label: "Quality profiles" },
-          { key: "rootFolders", label: "Root folders" },
-          { key: "naming", label: "Naming" },
-          { key: "notifications", label: "Notifications" },
-        ]}
-        value={section}
-        onChange={(v) => setSection(v as Section)}
-      />
+      <View testID='server-settings-tabs'>
+        <SegmentedControlBar
+          segments={[
+            { key: "indexers", label: t("server_settings.tab_indexers") },
+            {
+              key: "downloadClients",
+              label: t("server_settings.tab_download_clients"),
+            },
+            {
+              key: "qualityProfiles",
+              label: t("server_settings.tab_quality_profiles"),
+            },
+            {
+              key: "rootFolders",
+              label: t("server_settings.tab_root_folders"),
+            },
+            { key: "naming", label: t("server_settings.tab_naming") },
+            {
+              key: "notifications",
+              label: t("server_settings.tab_notifications"),
+            },
+          ]}
+          value={section}
+          onChange={(v) => setSection(v as Section)}
+        />
+      </View>
       <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
         <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
           <SyncStatusBanner />

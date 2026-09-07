@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
-import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import type { NamingSettings } from "@/lib/stingstream/hooks";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { SaveBar, TextFieldRow, ToggleRow } from "./fields";
 
 export function NamingSection({
@@ -15,59 +16,60 @@ export function NamingSection({
   onSave: (next: NamingSettings) => Promise<void>;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value);
   const dirty = JSON.stringify(draft) !== JSON.stringify(value);
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>Naming</Text>
+      <ScreenHeaderRow title={t("server_settings.naming_title")} />
       <ListGroup>
         <ToggleRow
-          title='Rename on import'
+          title={t("server_settings.naming_rename_on_import_title")}
           value={draft.RenameOnImport ?? false}
           onValueChange={(v) => setDraft((d) => ({ ...d, RenameOnImport: v }))}
         />
         <ToggleRow
-          title='Replace illegal characters'
+          title={t("server_settings.naming_replace_illegal_title")}
           value={draft.ReplaceIllegalCharacters ?? false}
           onValueChange={(v) =>
             setDraft((d) => ({ ...d, ReplaceIllegalCharacters: v }))
           }
         />
       </ListGroup>
-      <View className='h-3' />
-      <ListGroup title='Movies'>
+      <View style={{ height: 12 }} />
+      <ListGroup title={t("server_settings.naming_movies_group_title")}>
         <TextFieldRow
-          title='Movie folder format'
+          title={t("server_settings.naming_movie_folder_format_title")}
           value={draft.MovieFolderFormat ?? ""}
           onChangeText={(v) =>
             setDraft((d) => ({ ...d, MovieFolderFormat: v }))
           }
         />
         <TextFieldRow
-          title='Movie file format'
+          title={t("server_settings.naming_movie_file_format_title")}
           value={draft.MovieFormat ?? ""}
           onChangeText={(v) => setDraft((d) => ({ ...d, MovieFormat: v }))}
         />
       </ListGroup>
-      <View className='h-3' />
-      <ListGroup title='Series'>
+      <View style={{ height: 12 }} />
+      <ListGroup title={t("server_settings.naming_series_group_title")}>
         <TextFieldRow
-          title='Series folder format'
+          title={t("server_settings.naming_series_folder_format_title")}
           value={draft.SeriesFolderFormat ?? ""}
           onChangeText={(v) =>
             setDraft((d) => ({ ...d, SeriesFolderFormat: v }))
           }
         />
         <TextFieldRow
-          title='Season folder format'
+          title={t("server_settings.naming_season_folder_format_title")}
           value={draft.SeasonFolderFormat ?? ""}
           onChangeText={(v) =>
             setDraft((d) => ({ ...d, SeasonFolderFormat: v }))
           }
         />
         <TextFieldRow
-          title='Episode file format'
+          title={t("server_settings.naming_episode_file_format_title")}
           value={draft.EpisodeFormat ?? ""}
           onChangeText={(v) => setDraft((d) => ({ ...d, EpisodeFormat: v }))}
         />
@@ -79,9 +81,13 @@ export function NamingSection({
         onSave={async () => {
           try {
             await onSave(draft);
-            toast.success("Naming settings saved");
+            toast.success(t("server_settings.naming_save_success"));
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Could not save");
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("server_settings.save_error"),
+            );
           }
         }}
       />

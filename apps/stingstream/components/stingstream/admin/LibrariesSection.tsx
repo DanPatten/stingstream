@@ -4,16 +4,18 @@ import {
 } from "@jellyfin/sdk/lib/utils/api";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
 import { toast } from "sonner-native";
-import { Text } from "@/components/common/Text";
+import { Button } from "@/components/Button";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
 import { apiAtom } from "@/providers/JellyfinProvider";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 export function LibrariesSection() {
+  const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
 
   const {
@@ -34,30 +36,33 @@ export function LibrariesSection() {
     mutationFn: async () => {
       await getLibraryApi(api!).refreshLibrary();
     },
-    onSuccess: () => toast.success("Library scan started"),
+    onSuccess: () => toast.success(t("admin.libraries_scan_success")),
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : "Could not start scan"),
+      toast.error(
+        err instanceof Error ? err.message : t("admin.libraries_scan_error"),
+      ),
   });
 
   return (
     <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>Libraries</Text>
-        <TouchableOpacity
-          disabled={scanNow.isPending}
-          onPress={() => scanNow.mutate()}
-          className='rounded-lg px-3 py-1.5'
-          style={{ backgroundColor: Colors.primary }}
-        >
-          <Text className='text-white font-semibold'>
-            {scanNow.isPending ? "Starting…" : "Scan all now"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <ScreenHeaderRow
+        title={t("admin.libraries_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon='refresh'
+            loading={scanNow.isPending}
+            onPress={() => scanNow.mutate()}
+          >
+            {t("admin.libraries_scan_action")}
+          </Button>
+        }
+      />
 
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {!folders || folders.length === 0 ? (
-          <EmptyState title='No libraries' />
+          <EmptyState title={t("admin.libraries_empty_title")} />
         ) : (
           <ListGroup>
             {folders.map((folder) => (
