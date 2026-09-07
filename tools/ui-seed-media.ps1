@@ -285,8 +285,13 @@ function New-SeedArtwork {
 function Write-MovieNfo {
     <#
     .SYNOPSIS
-        Lifted from tools/e2e-m4.ps1's Write-MovieNfo, unchanged in shape. Pins a film's identity
-        so Jellyfin never has to guess it from a filename.
+        Pins a film's identity so Jellyfin never has to guess it from a filename. No <plot> --
+        F-27 (pass-02 critique): a seed <plot> reaches the UI verbatim as the item's overview
+        (local NFO metadata wins over fetched TMDB metadata for fields it supplies, the same
+        "local wins" rule that made -RealArtwork have to skip local *images* too -- see
+        docs/UI-LOOP.md). Omitting <plot> entirely lets the now-enabled internet metadata
+        provider fill the overview with the real one instead. No <studio>/<tagline>/<outline> is
+        written either, for the same reason -- checked live, see docs/UI-LOOP.md "Verification".
     #>
     param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)]$Title)
     Set-Content -Path (Join-Path $Folder 'movie.nfo') -Encoding utf8 -Value @"
@@ -294,7 +299,6 @@ function Write-MovieNfo {
 <movie>
   <title>$($Title.Title)</title>
   <year>$($Title.Year)</year>
-  <plot>Written by tools/ui-seed-media.ps1 for the StingStream UI iterate loop (WP-TOOLS).</plot>
   <uniqueid type="tmdb" default="true">$($Title.Tmdb)</uniqueid>
 </movie>
 "@
@@ -305,7 +309,7 @@ function Write-SeriesNfo {
     .SYNOPSIS
         The series-level equivalent of Write-MovieNfo: a tvshow.nfo at the series folder root,
         carrying a TVDB uniqueid so Jellyfin/Sonarr never has to identify the show from its
-        folder name.
+        folder name. No <plot> either -- see Write-MovieNfo's own comment (F-27).
     #>
     param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)]$Series)
     Set-Content -Path (Join-Path $Folder 'tvshow.nfo') -Encoding utf8 -Value @"
@@ -313,7 +317,6 @@ function Write-SeriesNfo {
 <tvshow>
   <title>$($Series.Title)</title>
   <year>$($Series.Year)</year>
-  <plot>Written by tools/ui-seed-media.ps1 for the StingStream UI iterate loop (WP-TOOLS).</plot>
   <uniqueid type="tvdb" default="true">$($Series.Tvdb)</uniqueid>
 </tvshow>
 "@

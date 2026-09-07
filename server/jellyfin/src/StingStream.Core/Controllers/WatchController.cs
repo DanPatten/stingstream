@@ -159,14 +159,26 @@ public class WatchController : StingStreamControllerBase
     /// <param name="sessionId">The mesh session id.</param>
     /// <param name="localGroupId">The Jellyfin SyncPlay group on this node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">Seated.</response>
-    /// <response code="409">This node is not in that session.</response>
+    /// <response code="204">Seated, or already seated in that group.</response>
+    /// <response code="409">This node is not in that session, or Jellyfin would not seat it.</response>
     /// <returns>No content.</returns>
     /// <remarks>
+    /// <para>
     /// Separate from joining because the two happen at different moments: a member joins the
     /// session as soon as they accept the invite, and a *local* SyncPlay group exists only once
     /// somebody on this node actually opens the film. Between the two the bridge still follows the
     /// leader's positions — it simply has nothing local to drive yet.
+    /// </para>
+    /// <para>
+    /// **Idempotent.** Seating a bridge that is already seated in the same group answers
+    /// <c>204</c>, not a conflict: a retried request whose answer was never seen, and a second
+    /// person on this node opening the same film, both land here and neither is an error.
+    /// </para>
+    /// <para>
+    /// A <c>409</c> carries the reason in its <c>detail</c>, and it is logged. That is not
+    /// decoration: the one time this failed in CI the whole record of it was the string "409
+    /// (Conflict)", which named none of the three quite different things that produce one.
+    /// </para>
     /// </remarks>
     [HttpPost("{sessionId}/attach", Name = "AttachWatchSession")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -183,7 +195,15 @@ public class WatchController : StingStreamControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            return Problem(ex.Message, statusCode: StatusCodes.Status409Conflict);
+            _logger.LogWarning(
+                ex,
+                "Could not seat the watch bridge for session {Session} in SyncPlay group {Group}",
+                sessionId,
+                localGroupId);
+            return Problem(
+                ex.Message,
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The watch bridge could not be seated");
         }
     }
 

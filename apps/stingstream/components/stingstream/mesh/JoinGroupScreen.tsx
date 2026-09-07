@@ -1,18 +1,22 @@
 import { requireOptionalNativeModule } from "expo";
 import { useCallback, useState } from "react";
-import { Platform, TextInput, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
+import { FormError } from "@/components/common/FormError";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useJoinMeshGroupOnNode } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { FormCard } from "./FormCard";
 
 /**
  * Join a group with someone else's invite code.
  *
- * The **home node** joins; this device follows, because a phone that were a member on its own
- * would have a group its node knew nothing about and a library that never showed it.
+ * The **server** joins; this device follows, because a phone that were a member on its own would
+ * have a group its server knew nothing about and a library that never showed it.
  *
  * Three ways in, in the order they are useful on each platform: scan a QR (phone), paste from the
  * clipboard (phone and web), type it out (everywhere, and the only option on a TV — which is why
@@ -31,9 +35,11 @@ const ExpoCamera: CameraModule | null =
     : null;
 
 export function JoinGroupScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [code, setCode] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const join = useJoinMeshGroupOnNode();
   const mesh = useMesh();
 
@@ -41,24 +47,27 @@ export function JoinGroupScreen() {
     async (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return;
+      setError(null);
       try {
         const result = await join.mutateAsync(trimmed);
         // A join with nobody reachable still succeeds — the group exists locally and syncs when a
         // member appears — so say which happened rather than showing a bare "Joined".
         if (result.via === "none") {
           toast.warning(
-            `Joined ${result.name}, but nobody answered. It will sync when a member comes online.`,
+            t("sharing.join_success_no_answer", { name: result.name }),
           );
         } else {
-          toast.success(`Joined ${result.name} via the ${result.via}`);
+          toast.success(
+            t("sharing.join_success", { name: result.name, via: result.via }),
+          );
         }
         await mesh.syncGroups();
         router.back();
-      } catch (error) {
-        toast.error((error as Error).message);
+      } catch (e) {
+        setError((e as Error).message);
       }
     },
-    [join, mesh, router],
+    [join, mesh, router, t],
   );
 
   const paste = useCallback(async () => {
@@ -66,7 +75,7 @@ export function JoinGroupScreen() {
       try {
         setCode((await navigator.clipboard.readText()).trim());
       } catch {
-        toast.error("The browser would not share the clipboard.");
+        toast.error(t("sharing.join_clipboard_denied"));
       }
       return;
     }
@@ -74,38 +83,39 @@ export function JoinGroupScreen() {
     const Clipboard = await import("expo-clipboard");
     const text = await Clipboard.getStringAsync();
     if (text?.trim()) setCode(text.trim());
-  }, []);
+  }, [t]);
 
   if (scanning && ExpoCamera) {
     return (
-      <InviteScanner
-        camera={ExpoCamera}
-        onCancel={() => setScanning(false)}
-        onScanned={(value) => {
-          setScanning(false);
-          setCode(value);
-          void submit(value);
-        }}
-      />
+      <FormCard>
+        <InviteScanner
+          camera={ExpoCamera}
+          onCancel={() => setScanning(false)}
+          onScanned={(value) => {
+            setScanning(false);
+            setCode(value);
+            void submit(value);
+          }}
+        />
+      </FormCard>
     );
   }
 
   return (
-    <View>
-      <Text className='text-white text-lg font-semibold mb-1'>
-        Join a group
+    <FormCard>
+      <Text variant='title' weight='semibold'>
+        {t("sharing.join_title")}
       </Text>
-      <Text className='text-[#9899A1] text-xs mb-4'>
-        Paste the invite code a member sent you. It carries the group's address
-        and secret, so treat it like a password — and it only works while a
-        member is online, unless the group has a coordinator.
+      <Text
+        variant='caption'
+        tone='secondary'
+        style={{ marginTop: 4, marginBottom: 20 }}
+      >
+        {t("sharing.join_detail")}
       </Text>
 
-      <TextInput
-        className='p-4 rounded-xl bg-neutral-900'
-        style={{ color: "white" }}
-        placeholder='Invite code'
-        placeholderTextColor='#9CA3AF'
+      <Input
+        placeholder={t("sharing.join_code_placeholder")}
         autoCapitalize='none'
         autoCorrect={false}
         autoComplete='off'
@@ -117,7 +127,9 @@ export function JoinGroupScreen() {
         onSubmitEditing={() => void submit(code)}
       />
 
-      <View className='h-4' />
+      <FormError message={error} />
+
+      <View style={{ height: 16 }} />
 
       <Button
         onPress={() => submit(code)}
@@ -125,35 +137,32 @@ export function JoinGroupScreen() {
         loading={join.isPending}
         hasTVPreferredFocus={Platform.isTV && !!code.trim()}
       >
-        Join group
+        {t("sharing.join_submit")}
       </Button>
 
-      {/* Offered on a TV too. A remote has no keyboard worth typing 250 base58 characters on,
-          and a code that arrived by a companion app or a browser on the same box is already in
-          the clipboard — so this is the difference between a minute and five. */}
-      <View className='h-3' />
-      <Button color='black' onPress={paste}>
-        Paste from clipboard
+      {/* Offered on a TV too. A remote has no keyboard worth typing 250 base58 characters on, and
+          a code that arrived by a companion app or a browser on the same box is already in the
+          clipboard — so this is the difference between a minute and five. */}
+      <View style={{ height: 12 }} />
+      <Button variant='secondary' icon='link' onPress={paste}>
+        {t("sharing.join_paste")}
       </Button>
 
       {ExpoCamera && (
         <>
-          <View className='h-3' />
-          <Button color='black' onPress={() => setScanning(true)}>
-            Scan QR code
+          <View style={{ height: 12 }} />
+          <Button variant='secondary' onPress={() => setScanning(true)}>
+            {t("sharing.join_scan")}
           </Button>
         </>
       )}
 
       {Platform.isTV && (
-        <Text className='text-[#9899A1] text-xs mt-4'>
-          There is no camera here, so the code has to be pasted or typed. Invite
-          codes use base58, which has no look-alike characters — no 0/O and no
-          1/l/I — and carries a checksum, so a mistyped code is refused rather
-          than half-joining.
+        <Text variant='caption' tone='secondary' style={{ marginTop: 16 }}>
+          {t("sharing.join_tv_hint")}
         </Text>
       )}
-    </View>
+    </FormCard>
   );
 }
 
@@ -171,27 +180,37 @@ function InviteScanner({
   onScanned: (code: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   const [permission, requestPermission] = camera.useCameraPermissions();
   const [seen, setSeen] = useState(false);
 
   if (!permission) {
-    return <Text className='text-[#9899A1]'>Checking camera access…</Text>;
+    return (
+      <Text variant='caption' tone='secondary'>
+        {t("sharing.join_camera_checking")}
+      </Text>
+    );
   }
 
   if (!permission.granted) {
     return (
       <View>
-        <Text className='text-white font-semibold mb-1'>Camera access</Text>
-        <Text className='text-[#9899A1] text-xs mb-4'>
-          Scanning an invite needs the camera. You can always type the code
-          instead.
+        <Text variant='body' weight='semibold'>
+          {t("sharing.join_camera_title")}
+        </Text>
+        <Text
+          variant='caption'
+          tone='secondary'
+          style={{ marginTop: 4, marginBottom: 16 }}
+        >
+          {t("sharing.join_camera_detail")}
         </Text>
         <Button onPress={() => void requestPermission()}>
-          Allow camera access
+          {t("sharing.join_camera_allow")}
         </Button>
-        <View className='h-3' />
-        <Button color='black' onPress={onCancel}>
-          Type it instead
+        <View style={{ height: 12 }} />
+        <Button variant='secondary' onPress={onCancel}>
+          {t("sharing.join_camera_type_instead")}
         </Button>
       </View>
     );
@@ -200,7 +219,7 @@ function InviteScanner({
   const CameraView = camera.CameraView;
   return (
     <View>
-      <View className='rounded-2xl overflow-hidden' style={{ height: 340 }}>
+      <View style={{ height: 340, borderRadius: 16, overflow: "hidden" }}>
         <CameraView
           style={{ flex: 1 }}
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
@@ -212,12 +231,17 @@ function InviteScanner({
           }}
         />
       </View>
-      <Text className='text-[#9899A1] text-xs mt-3 text-center'>
-        Point the camera at the invite QR on the other device.
+      <Text
+        variant='caption'
+        tone='secondary'
+        align='center'
+        style={{ marginTop: 12 }}
+      >
+        {t("sharing.join_camera_hint")}
       </Text>
-      <View className='h-3' />
-      <Button color='black' onPress={onCancel}>
-        Cancel
+      <View style={{ height: 12 }} />
+      <Button variant='secondary' onPress={onCancel}>
+        {t("sharing.join_camera_cancel")}
       </Button>
     </View>
   );
