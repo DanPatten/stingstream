@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { jellyfinUrlFor, parseNodeMarker } from "./useNodeContext";
+import {
+  jellyfinUrlFor,
+  parseNodeMarker,
+  primaryAddressFor,
+} from "./useNodeContext";
 
 /** What the gateway actually splices in, field for field (gateway/web.rs `MarkerJson`). */
 const marker = (overrides: Record<string, unknown> = {}) => ({
@@ -24,6 +28,9 @@ describe("parseNodeMarker", () => {
       jellyfinPath: "/jellyfin",
       apiPath: "/stingstream/api/v1",
       loopback: true,
+      // ORIGIN is localhost, and the marker gives no trustedPeer/addresses of its own yet.
+      trustedPeer: true,
+      addresses: [],
       setupPending: true,
       nodeName: "attic",
       version: "0.2.0",
@@ -98,6 +105,8 @@ describe("parseNodeMarker", () => {
         jellyfinPath: "/jellyfin",
         apiPath: "/stingstream/api/v1",
         loopback: false,
+        trustedPeer: true, // ORIGIN is localhost
+        addresses: [],
         setupPending: null,
         nodeName: null,
         version: null,
@@ -129,6 +138,9 @@ describe("parseNodeMarker", () => {
         apiPath: "/stingstream/api/v1",
         // Neither is knowable from an env var; `setup/state` answers both per request.
         loopback: false,
+        // 10.0.2.2 is the Android emulator's own host alias, and RFC1918 private either way.
+        trustedPeer: true,
+        addresses: [],
         setupPending: null,
         nodeName: null,
         version: null,
@@ -160,6 +172,88 @@ describe("parseNodeMarker", () => {
       expect(parseNodeMarker(null, "http://10.0.2.2:8790/")?.origin).toBe(
         "http://10.0.2.2:8790",
       );
+    });
+  });
+
+  describe("trustedPeer", () => {
+    test("the marker's own boolean wins over the origin's host either way", () => {
+      // ORIGIN is localhost, and would derive true -- the marker's explicit false overrides it.
+      expect(
+        parseNodeMarker({
+          marker: marker({ trustedPeer: false }),
+          origin: ORIGIN,
+        })?.trustedPeer,
+      ).toBe(false);
+      // A public origin, and would derive false -- the marker's explicit true overrides it.
+      expect(
+        parseNodeMarker({
+          marker: marker({ trustedPeer: true }),
+          origin: "https://stingstream.example.com",
+        })?.trustedPeer,
+      ).toBe(true);
+    });
+
+    // Until WP-GATE's own field lands, derived from this page's own hostname -- see
+    // `isPrivateOrLoopbackHost`. `marker()` sends no `trustedPeer` of its own here, so every case
+    // below exercises the client-side fallback, not the marker's value.
+    test.each([
+      ["localhost", true],
+      ["127.0.0.1", true],
+      ["10.0.2.2", true], // the Android emulator's own host alias
+      ["10.255.255.255", true],
+      ["192.168.1.20", true],
+      ["172.16.0.1", true],
+      ["172.31.255.255", true],
+      ["172.32.0.1", false], // just outside 172.16.0.0/12
+      ["172.15.255.255", false], // just outside on the other side
+      ["169.254.1.1", true], // link-local
+      ["fe80::1", true],
+      ["fd12:3456:789a::1", true], // IPv6 unique-local
+      ["::1", true],
+      ["8.8.8.8", false],
+      ["203.0.113.5", false], // TEST-NET-3, public
+      ["stingstream.example.com", false],
+    ])("%s -> trustedPeer %s", (host, expected) => {
+      const literal = host.includes(":") ? `[${host}]` : host;
+      const origin = parseNodeMarker({
+        marker: marker(),
+        origin: `http://${literal}:8790`,
+      });
+      expect(origin?.trustedPeer).toBe(expected);
+    });
+  });
+
+  describe("addresses / primaryAddressFor", () => {
+    test("unusable entries are dropped, not kept as strings", () => {
+      const context = parseNodeMarker({
+        marker: marker({
+          addresses: ["not a url", 42, "http://192.168.0.16:8790/"],
+        }),
+        origin: ORIGIN,
+      });
+      expect(context?.addresses).toEqual(["http://192.168.0.16:8790"]);
+    });
+
+    test("a non-array addresses field is just empty, not an error", () => {
+      expect(
+        parseNodeMarker({
+          marker: marker({ addresses: "not an array" }),
+          origin: ORIGIN,
+        })?.addresses,
+      ).toEqual([]);
+    });
+
+    test("primaryAddressFor prefers the marker's own address over origin", () => {
+      const context = parseNodeMarker({
+        marker: marker({ addresses: ["http://192.168.0.16:8790"] }),
+        origin: ORIGIN,
+      })!;
+      expect(primaryAddressFor(context)).toBe("http://192.168.0.16:8790");
+    });
+
+    test("primaryAddressFor falls back to origin when the marker gave none", () => {
+      const context = parseNodeMarker({ marker: marker(), origin: ORIGIN })!;
+      expect(primaryAddressFor(context)).toBe(ORIGIN);
     });
   });
 });

@@ -138,6 +138,37 @@ export function validateSetupForm(values: SetupFormValues): SetupFormErrors {
 export const isSetupFormValid = (errors: SetupFormErrors): boolean =>
   Object.keys(errors).length === 0;
 
+/**
+ * Whether a server's self-reported name is a hostname or another machine default rather than a
+ * name a person actually gave it.
+ *
+ * Jellyfin's `ServerName` falls back to the host's own hostname when nobody has set one —
+ * "PLEXPC", "DESKTOP-4F2K9QL" — and "Sign in to PLEXPC" reading like that was the bug report that
+ * started this rewrite. The shapes below catch the common defaults: a dotted domain or IP, a
+ * hyphenated machine name (Windows' `DESKTOP-XXXXXXX`, most router and NAS defaults), an
+ * all-digits label, and a single ALL-CAPS word with no punctuation (an un-renamed Windows
+ * machine name). Anything else is treated as a name somebody chose.
+ */
+export function looksLikeHostname(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return true;
+  if (/^\d+$/.test(trimmed)) return true; // all digits — an IP, or nothing at all
+  if (trimmed.includes(".")) return true; // dotted domain or IP
+  if (trimmed.includes("-")) return true; // DESKTOP-XXXXXXX, most router/NAS defaults
+  // A single ALL-CAPS word with no punctuation is the shape of an un-renamed Windows machine
+  // name — "PLEXPC" is the literal example that started this rewrite — and is not how anyone
+  // spells a name they chose on purpose (compare "StingStream", mixed case; "Living Room", a
+  // space no machine name has).
+  if (
+    !/\s/.test(trimmed) &&
+    /[A-Z]/.test(trimmed) &&
+    trimmed === trimmed.toUpperCase()
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Injectable for tests; the app always uses the global. */
 export type FetchLike = typeof fetch;
 

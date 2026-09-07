@@ -5,6 +5,7 @@ import {
   createAdmin,
   getSetupState,
   isSetupFormValid,
+  looksLikeHostname,
   PASSWORD_MIN_LENGTH,
   SetupRequestError,
   USERNAME_MAX_LENGTH,
@@ -401,4 +402,28 @@ describe("createAdmin", () => {
       ),
     ).toEqual({ accessToken: null, userId: null, username: "dan" });
   });
+});
+
+describe("looksLikeHostname", () => {
+  // The exact bug this exists to catch: Jellyfin's `ServerName` defaults to the machine's own
+  // hostname, and "Sign in to PLEXPC" / "Sign in to DESKTOP-4F2K9QL" is what a person actually saw.
+  test.each([
+    "PLEXPC",
+    "DESKTOP-4F2K9QL",
+    "my-nas.local",
+    "stingstream.example.com",
+    "192.168.1.5",
+    "0",
+    "",
+    "   ",
+  ])("%s reads as a hostname or default", (name) => {
+    expect(looksLikeHostname(name)).toBe(true);
+  });
+
+  test.each(["Dan's place", "Home Theater", "StingStream", "Living Room"])(
+    "%s is a name somebody chose",
+    (name) => {
+      expect(looksLikeHostname(name)).toBe(false);
+    },
+  );
 });

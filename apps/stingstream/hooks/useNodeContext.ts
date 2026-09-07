@@ -18,11 +18,27 @@ export interface NodeContext {
   /** Where the gateway puts StingStream.Core's API, relative to `origin`. */
   apiPath: string;
   /**
-   * Whether *this* page load came from the machine the node runs on. Only a local browser is
-   * offered the first-run account screen. A hint, not the authority: `setup/state` answers the
-   * same question per request and is what the state machine acts on.
+   * Whether *this* page load came from the machine the node runs on. A hint, not the authority:
+   * `setup/state` answers the same question per request and is what the state machine acts on.
    */
   loopback: boolean;
+  /**
+   * Loopback, or a peer on the same private network — the two Dan wants able to see the
+   * first-run "Create your StingStream account" screen rather than "finish it from a device on
+   * your home network" (2026-09-07: "localhost only works on the same PC — by IP is better").
+   * WP-GATE is adding this as a marker field of its own (its own loopback-or-private-peer check,
+   * server-side); until it lands this is derived client-side from this page's own hostname — a
+   * browser that reached a private or loopback address is itself evidence of being on that
+   * network. The marker's own boolean wins once WP-GATE ships it.
+   */
+  trustedPeer: boolean;
+  /**
+   * LAN addresses this node is reachable at (e.g. `["http://192.168.0.16:8790"]`), from the
+   * marker's optional `addresses` array. Empty until WP-GATE ships it. Prefer this over `origin`
+   * when telling somebody where to go — `origin` is just however *this* page got here, which on
+   * the node's own machine is `localhost` and means nothing to anyone else.
+   */
+  addresses: string[];
   /**
    * The gateway's cached view of whether this node still needs its first account. `null` means
    * nobody knew when the page was served (Core still starting) — a real answer, not an error.
@@ -86,6 +102,60 @@ const absoluteOrigin = (value: string | null | undefined): string | null => {
 };
 
 /**
+ * Loopback and RFC1918 / link-local / IPv6-ULA hosts: "this browser reached the node over a
+ * private network", not "the whole internet can". This is the client-side stand-in for
+ * WP-GATE's own `trustedPeer` field (a loopback-or-private-peer check made server-side, where the
+ * gateway can see the real socket address) — see `trustedPeer` on `NodeContext`.
+ */
+const isPrivateOrLoopbackHost = (hostname: string): boolean => {
+  const host = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8 -- also the Android emulator's host alias, 10.0.2.2
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
+    return false;
+  }
+
+  // IPv6 loopback, unique-local (fc00::/7) and link-local (fe80::/10).
+  if (host === "::1") return true;
+  if (/^f[cd][0-9a-f]{0,2}(:|$)/i.test(host)) return true;
+  if (/^fe[89ab][0-9a-f]:/i.test(host)) return true;
+
+  return false;
+};
+
+/** The marker's own `trustedPeer` when it sent one; otherwise derived from `origin`'s host. */
+const trustedPeerFor = (origin: string, markerValue: unknown): boolean => {
+  if (typeof markerValue === "boolean") return markerValue;
+  try {
+    return isPrivateOrLoopbackHost(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
+
+/** The marker's `addresses` array, keeping only entries that are usable absolute origins. */
+const addressesFor = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const result: string[] = [];
+  for (const entry of value) {
+    const address = typeof entry === "string" ? absoluteOrigin(entry) : null;
+    if (address) result.push(address);
+  }
+  return result;
+};
+
+/**
  * The marker (or the env fallback) as a `NodeContext`. Pure, so the rules are testable without a
  * DOM: every branch here has a case in `nodeContext.test.ts`.
  *
@@ -111,6 +181,8 @@ export function parseNodeMarker(
       jellyfinPath: pathOr(fields.jellyfin, DEFAULT_JELLYFIN_PATH),
       apiPath: pathOr(fields.api, DEFAULT_API_PATH),
       loopback: fields.loopback === true,
+      trustedPeer: trustedPeerFor(origin, fields.trustedPeer),
+      addresses: addressesFor(fields.addresses),
       setupPending:
         typeof fields.setupPending === "boolean" ? fields.setupPending : null,
       nodeName: stringOrNull(fields.nodeName),
@@ -126,6 +198,8 @@ export function parseNodeMarker(
       jellyfinPath: DEFAULT_JELLYFIN_PATH,
       apiPath: DEFAULT_API_PATH,
       loopback: false,
+      trustedPeer: trustedPeerFor(origin, undefined),
+      addresses: [],
       setupPending: null,
       nodeName: null,
       version: null,
@@ -140,6 +214,8 @@ export function parseNodeMarker(
       apiPath: DEFAULT_API_PATH,
       // Unknown from here — `setup/state` answers both per request, and it is the authority.
       loopback: false,
+      trustedPeer: trustedPeerFor(envOrigin, undefined),
+      addresses: [],
       setupPending: null,
       nodeName: null,
       version: null,
@@ -152,6 +228,15 @@ export function parseNodeMarker(
 /** The full Jellyfin base URL to connect to — what `checkJellyfinServer` should be handed. */
 export const jellyfinUrlFor = (context: NodeContext): string =>
   `${context.origin}${context.jellyfinPath}`;
+
+/**
+ * Where to tell somebody else to go: the marker's own LAN address first, `origin` only when it
+ * offered none. `origin` is just however *this* page reached the node — on the node's own
+ * machine that is `localhost`, which means nothing on any other device (2026-09-07 decision:
+ * "localhost only works on the same PC — by IP is better").
+ */
+export const primaryAddressFor = (context: NodeContext): string =>
+  context.addresses[0] ?? context.origin;
 
 /**
  * Read the document. Web only; every other platform has no marker to read.

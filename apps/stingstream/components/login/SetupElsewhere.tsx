@@ -6,33 +6,15 @@ import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
 
-/** Where a node's gateway listens unless somebody moved it. */
-const DEFAULT_GATEWAY_PORT = "8790";
-
-/**
- * The address to open on the node's own machine, derived from the one this page came from.
- *
- * The port matters and the host does not: whoever is reading this is on a different computer, so
- * `localhost` is the only host that means anything to them, while a node on a non-default port
- * would otherwise be sent to an address that answers nothing.
- */
-export function setupAddressFor(origin: string | null | undefined): string {
-  const port = (() => {
-    if (!origin) return DEFAULT_GATEWAY_PORT;
-    // `URL` is available on every platform this ships to (Hermes and every browser), but a
-    // malformed origin must not take the screen down with it.
-    try {
-      return new URL(origin).port || DEFAULT_GATEWAY_PORT;
-    } catch {
-      return DEFAULT_GATEWAY_PORT;
-    }
-  })();
-  return `http://localhost:${port}`;
-}
-
 export interface SetupElsewhereProps {
-  /** The origin this page was served from; only its port is used. */
-  origin: string | null;
+  /**
+   * The node's own LAN address(es) (e.g. `["http://192.168.0.16:8790"]`), from the marker's
+   * `addresses` array — `NodeContext.addresses`. Empty until WP-GATE ships that field; the copy
+   * still reads fine with nothing to list, it just names no address. Never `localhost`: whoever
+   * is reading this is not on the node's own machine, so that host means nothing to them
+   * (2026-09-07 decision: "localhost only works on the same PC — by IP is better").
+   */
+  addresses: string[];
   /** Re-query `setup/state`. */
   onRetry: () => void;
   retrying?: boolean;
@@ -41,20 +23,21 @@ export interface SetupElsewhereProps {
 }
 
 /**
- * What a fresh node shows to a browser that is *not* on the node's own machine.
+ * What a fresh node shows to a browser that is not loopback and not on the node's own private
+ * network — see `NodeContext.trustedPeer`.
  *
- * The account can only be created over loopback (the gateway refuses `setup/admin` from anywhere
- * else, with a 404 rather than a 403 so a remote visitor cannot even learn the route exists). This
- * screen is the honest version of that refusal: not "forbidden", but where to go instead.
+ * The account can only be created by a trusted peer (the gateway refuses `setup/admin` from
+ * anywhere else, with a 404 rather than a 403 so an outside visitor cannot even learn the route
+ * exists). This screen is the honest version of that refusal: not "forbidden", but where to go
+ * instead — a device already on the same home network as the node.
  */
 export const SetupElsewhere: React.FC<SetupElsewhereProps> = ({
-  origin,
+  addresses,
   onRetry,
   retrying = false,
   message,
 }) => {
   const { t } = useTranslation();
-  const address = setupAddressFor(origin);
 
   return (
     <View testID='setup-elsewhere'>
@@ -63,25 +46,36 @@ export const SetupElsewhere: React.FC<SetupElsewhereProps> = ({
         {t("setup.elsewhere_title")}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-        {t("setup.elsewhere_description")}
+        {t(
+          addresses.length > 0
+            ? "setup.elsewhere_description"
+            : "setup.elsewhere_description_no_addresses",
+        )}
       </Text>
 
-      <View
-        style={{
-          marginTop: 20,
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          borderRadius: radius.md,
-          backgroundColor: tokens.color.bg["2"],
-          borderWidth: 1,
-          borderColor: tokens.color.border.subtle,
-        }}
-      >
-        {/* Selectable: on a laptop next to the machine, copying it is the fastest way there. */}
-        <Text variant='body' tone='accent' weight='medium' selectable>
-          {address}
-        </Text>
-      </View>
+      {addresses.length > 0 ? (
+        <View style={{ marginTop: 20, gap: 8 }}>
+          {addresses.map((address) => (
+            <View
+              key={address}
+              style={{
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                borderRadius: radius.md,
+                backgroundColor: tokens.color.bg["2"],
+                borderWidth: 1,
+                borderColor: tokens.color.border.subtle,
+              }}
+            >
+              {/* Selectable: on a laptop already on the network, copying it is the fastest way
+                  there. */}
+              <Text variant='body' tone='accent' weight='medium' selectable>
+                {address}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       <FormError message={message} style={{ marginTop: 12 }} />
 

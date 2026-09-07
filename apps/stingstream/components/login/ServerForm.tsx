@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, Platform, Pressable, View } from "react-native";
+import { Keyboard, Platform, View } from "react-native";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
@@ -13,6 +13,7 @@ import { tokens } from "@/constants/theme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import { type CustomHeader, usableCustomHeaders } from "@/utils/customHeaders";
 import type { SavedServer } from "@/utils/secureCredentials";
+import { FocusPressable } from "./FocusPressable";
 
 export interface ServerFormProps {
   /** The address typed or picked. Throws with a ready-to-show sentence when it will not connect. */
@@ -101,10 +102,13 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       </Text>
 
       <View style={{ marginTop: 20 }}>
+        {/* An IP example, not `your-server.com`: this form exists for a phone or a browser away
+            from the node's own machine, and the address that actually works there is the one on
+            the home network — "localhost only works on the same PC" (Dan, 2026-09-07). */}
         <Input
           testID='login-server-url'
           aria-label={t("server.server_url")}
-          placeholder={t("server.server_url_placeholder")}
+          placeholder={t("login.server_address_hint")}
           value={url}
           onChangeText={setUrl}
           keyboardType='url'
@@ -133,7 +137,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       </Button>
 
       {onCancel ? (
-        <Pressable
+        <FocusPressable
           onPress={onCancel}
           accessibilityRole='button'
           style={{ paddingVertical: 12, alignSelf: "center" }}
@@ -141,7 +145,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
           <Text variant='caption' tone='accent'>
             {t("common.cancel")}
           </Text>
-        </Pressable>
+        </FocusPressable>
       ) : null}
 
       {/* Discovery broadcasts on the LAN, which a browser cannot do at all — the button would be
@@ -171,8 +175,8 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       {/* Servers behind an access gateway need their headers before the very first request, so
           they are configured here — but they are a rarity, and a login screen that opens with a
           row about proxy headers is a login screen for administrators. */}
-      <View style={{ marginTop: 12 }}>
-        <Pressable
+      <View style={{ marginTop: 12, alignItems: "center" }}>
+        <FocusPressable
           onPress={() => setShowAdvanced((v) => !v)}
           accessibilityRole='button'
           accessibilityState={{ expanded: showAdvanced }}
@@ -192,15 +196,24 @@ export const ServerForm: React.FC<ServerFormProps> = ({
             color={tokens.color.text.tertiary}
             style={{ marginLeft: 4 }}
           />
-        </Pressable>
+        </FocusPressable>
+        {/* What "Advanced" holds, said up front rather than left to guessing (critique, F-32). */}
+        <Text
+          variant='micro'
+          tone='tertiary'
+          style={{ marginTop: -4, marginBottom: 4 }}
+        >
+          {t("login.advanced_hint")}
+        </Text>
         {showAdvanced ? (
-          <Pressable
+          <FocusPressable
             onPress={openHeaderSheet}
             accessibilityRole='button'
             style={{
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
+              alignSelf: "stretch",
               paddingVertical: 12,
             }}
           >
@@ -214,7 +227,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                   })
                 : t("custom_headers.source_none")}
             </Text>
-          </Pressable>
+          </FocusPressable>
         ) : null}
       </View>
     </View>
