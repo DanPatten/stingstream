@@ -15,7 +15,7 @@ import type {
   MediaStream,
 } from "@jellyfin/sdk/lib/generated-client";
 import { SubtitlePlaybackMode } from "@jellyfin/sdk/lib/generated-client";
-import { BITRATES } from "@/components/BitrateSelector";
+import { BITRATES } from "@/constants/Playback";
 import { langEq } from "@/utils/jellyfin/subtitleUtils";
 import { getSeriesTrackMemory } from "@/utils/seriesTrackMemory";
 import { type Settings } from "../atoms/settings";

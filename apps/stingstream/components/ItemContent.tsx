@@ -7,7 +7,6 @@ import { useAtom } from "jotai";
 import React, { useEffect, useMemo, useState } from "react";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { type Bitrate } from "@/components/BitrateSelector";
 import { HeaderButtonGroup } from "@/components/common/HeaderButton";
 import { ItemImage } from "@/components/common/ItemImage";
 import { Image } from "@/components/common/ServerImage";
@@ -21,8 +20,11 @@ import { PlayedStatus } from "@/components/PlayedStatus";
 import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
+import { SourceChooserButton } from "@/components/stingstream/sources/SourceChooserButton";
+import { type Bitrate } from "@/constants/Playback";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
+import { usePreferredSourcePreselect } from "@/hooks/useItemSources";
 import { useOrientation } from "@/hooks/useOrientation";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -121,6 +123,26 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     defaultMediaSource,
     downloadedTracks,
   ]);
+
+  // WP-PLAYER: the node ranked this title's holders under *its* policy. When this device asks for
+  // the other one, the selection follows before Play is ever pressed — otherwise the setting is
+  // silently ignored by the one button it exists for.
+  const preselectSource = React.useCallback(
+    (mediaSourceId: string) => {
+      const chosen = itemWithSources?.MediaSources?.find(
+        (source) => source.Id === mediaSourceId,
+      );
+      if (!chosen) return;
+      setSelectedOptions((prev) => prev && { ...prev, mediaSource: chosen });
+    },
+    [itemWithSources],
+  );
+
+  usePreferredSourcePreselect(itemWithSources, {
+    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+    onPreselect: preselectSource,
+    enabled: !isOffline,
+  });
 
   useEffect(() => {
     if (!Platform.isTV && itemWithSources) {
@@ -233,6 +255,15 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
                   setSelectedOptions={setSelectedOptions}
                   item={itemWithSources}
                   colors={itemColors}
+                />
+              )}
+              {/* WP-PLAYER: "Play from…" before playback, for a federated title held by more than
+                  one server. Renders nothing otherwise, including on every single-server library. */}
+              {!isOffline && (
+                <SourceChooserButton
+                  item={itemWithSources}
+                  currentMediaSourceId={selectedOptions.mediaSource?.Id}
+                  onSelect={preselectSource}
                 />
               )}
             </View>
