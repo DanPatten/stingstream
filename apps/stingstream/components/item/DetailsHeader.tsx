@@ -18,6 +18,7 @@ import { apiAtom } from "@/providers/JellyfinProvider";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
+import { getPrimaryImageUrlById } from "@/utils/jellyfin/image/getPrimaryImageUrlById";
 import { MetadataLine } from "./MetadataLine";
 
 /** The plan's number. Wide enough to read a poster, narrow enough to leave room. */
@@ -88,8 +89,14 @@ export const DetailsHeader: React.FC<Props> = ({
     () => getBackdropUrl({ api, item, quality: 90, width: 1920 }),
     [api, item],
   );
+  // An episode's own Primary image is a 16:9 still, and a 2:3 crop of one is a
+  // close-up of whatever happened to be in the middle of the frame. The series
+  // poster is the image an episode belongs to.
   const posterUrl = useMemo(
-    () => getPrimaryImageUrl({ api, item, quality: 90, width: 500 }),
+    () =>
+      item.Type === "Episode" && item.SeriesId
+        ? getPrimaryImageUrlById({ api, id: item.SeriesId, quality: 90 })
+        : getPrimaryImageUrl({ api, item, quality: 90, width: 500 }),
     [api, item],
   );
 
@@ -140,24 +147,32 @@ export const DetailsHeader: React.FC<Props> = ({
             accessibilityLabel={t("item.backdrop_for", { name: item.Name })}
           />
         ) : null}
-        {/* Two scrims, not one. The vertical fade hands the image to the page
-            background so there is no seam; the horizontal one darkens the side
-            the text is on, which is the only way white text stays legible over
-            an image nobody chose for its contrast. */}
+        {/* Three layers, and each earns its place. The flat dim takes the whole
+            image down a step so a bright backdrop (a sitcom cast in daylight)
+            cannot out-shout the page; the vertical fade hands the image to the
+            page background so there is no seam where it ends; the horizontal
+            one darkens the side the text is on, which is the only way white
+            text stays legible over an image nobody chose for its contrast. */}
+        <View
+          pointerEvents='none'
+          style={[FILL, { backgroundColor: rgba(tokens.color.bg["0"], 0.22) }]}
+        />
         <LinearGradient
           colors={[
             "transparent",
-            rgba(tokens.color.bg["0"], 0.75),
+            rgba(tokens.color.bg["0"], 0.7),
             tokens.color.bg["0"],
           ]}
-          locations={[0.35, 0.8, 1]}
+          locations={[0.3, 0.85, 1]}
           style={FILL}
         />
         <LinearGradient
           colors={[
-            rgba(tokens.color.bg["0"], 0.92),
-            rgba(tokens.color.bg["0"], 0.15),
+            rgba(tokens.color.bg["0"], 0.88),
+            rgba(tokens.color.bg["0"], 0.55),
+            "transparent",
           ]}
+          locations={[0, 0.5, 0.85]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={FILL}
@@ -225,7 +240,9 @@ const TitleBlock: React.FC<{
 }> = ({ item, logoUrl, compact }) => {
   const { t } = useTranslation();
 
-  if (logoUrl) {
+  // An episode's logo is its *series'* logo, so drawing it here would give the
+  // page the show's name and never the episode's. The words win.
+  if (logoUrl && item.Type !== "Episode") {
     return (
       <Image
         source={logoUrl}

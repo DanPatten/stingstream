@@ -265,6 +265,38 @@ describe("activeSidebarKey", () => {
   test("a route in no tab at all lights nothing", () => {
     expect(at(["(auth)", "player", "direct-player"])).toBeUndefined();
   });
+
+  test("a details page never claims the tab expo-router guessed for it", () => {
+    // pass-02 F-26. `/items/page?id=…` typed or pasted cold carries no group,
+    // and expo-router resolves the shared
+    // `(home,libraries,search,favorites,watchlists)` group alphabetically — so
+    // this is the exact segment list a deep-linked film produces, and it used
+    // to light "Favorites" on a page showing Nosferatu.
+    expect(
+      at(["(auth)", "(tabs)", "(favorites)", "items", "page"]),
+    ).toBeUndefined();
+    expect(
+      at(["(auth)", "(tabs)", "(favorites)", "series", "[id]"]),
+    ).toBeUndefined();
+    expect(
+      at(["(auth)", "(tabs)", "(home)", "persons", "[personId]"]),
+    ).toBeUndefined();
+  });
+
+  test("...but it still lights the library it was opened from", () => {
+    // Navigating in-app keeps the library screen underneath in the stack, so
+    // its `libraryId` is still in the global params — the more specific rule
+    // above wins and the Movies row stays lit behind the film.
+    expect(at(["(auth)", "(tabs)", "(libraries)", "items", "page"], "m")).toBe(
+      "library:m",
+    );
+  });
+
+  test("the Favorites tab root itself is unaffected", () => {
+    expect(at(["(auth)", "(tabs)", "(favorites)", "index"])).toBe(
+      "(favorites)",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

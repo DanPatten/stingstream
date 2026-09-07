@@ -38,7 +38,7 @@ export interface DialogProps {
  * `@gorhom/bottom-sheet` is the right shape on a phone and the wrong one at
  * 1440 px, where a panel sliding up from the bottom of a monitor reads as a
  * mobile app in a browser window — which is most of what "clunky" meant. So
- * `isWebWide` gets a centred card with a scrim, Escape and click-outside; every
+ * the web gets a centred card with a scrim, Escape and click-outside; every
  * other surface keeps the sheet it already had, through `useGlobalModal` (see
  * `openDialog` below).
  *
@@ -57,6 +57,15 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
 }) => {
   const { isWebWide, width } = useBreakpoint();
   const { showModal, hideModal } = useGlobalModal();
+  // A browser gets the card at *every* width, not only from 768 up.
+  //
+  // `@gorhom/bottom-sheet` does not present on web at all: measured at 390 and
+  // 600 on 2026-09-07, neither this component's sheet nor the season picker's
+  // (`PlatformDropdown`, which has used the same global sheet since the fork)
+  // put a single node in the DOM when opened, so every dialog below 768 was a
+  // control that did nothing. Native keeps the sheet, which is the right shape
+  // on a phone and works there.
+  const asCard = isWebWide || Platform.OS === "web";
 
   const body = (
     <DialogBody
@@ -65,7 +74,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       actions={actions}
       onClose={onClose}
       dismissible={dismissible}
-      showClose={isWebWide && dismissible}
+      showClose={asCard && dismissible}
     >
       {children}
     </DialogBody>
@@ -87,19 +96,19 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       target.removeEventListener?.("keydown", onKeyDown as (e: never) => void);
   }, [visible, dismissible, onClose]);
 
-  // Off the wide web the sheet provider owns presentation, so this component
-  // only pushes content into it and takes it back out again.
+  // Off the web the sheet provider owns presentation, so this component only
+  // pushes content into it and takes it back out again.
   useEffect(() => {
-    if (isWebWide) return;
+    if (asCard) return;
     if (visible) showModal(body);
     else hideModal();
     // Deliberately keyed on `visible` alone. `body` is a fresh element every
     // render, so depending on it would re-present the sheet on each one and
     // reset whatever the user was doing inside it. A sheet whose content
     // changes while open should hold that state itself.
-  }, [isWebWide, visible]);
+  }, [asCard, visible]);
 
-  if (!isWebWide) return null;
+  if (!asCard) return null;
 
   return (
     <Modal

@@ -25,9 +25,12 @@ import { MoreMenu, type MoreMenuAction } from "./MoreMenu";
 interface Props {
   item: BaseItemDto;
   /**
-   * Absent on a series, which has no single file to play — its Play lives on
-   * the next-up episode instead.
+   * What Play actually plays, when that is not `item` itself: a series has no
+   * file of its own, so its button plays the next episode you have not
+   * finished. Every other control still acts on `item`.
    */
+  playItem?: BaseItemDto | null;
+  /** Absent while the play settings are still resolving; Play waits. */
   selectedOptions?: SelectedOptions;
   /** Rows for the "…" menu, assembled by the page that owns the data. */
   moreActions?: MoreMenuAction[];
@@ -48,6 +51,7 @@ interface Props {
  */
 export const ActionRow: React.FC<Props> = ({
   item,
+  playItem,
   selectedOptions,
   moreActions = [],
   style,
@@ -82,9 +86,9 @@ export const ActionRow: React.FC<Props> = ({
           gap: 12,
         }}
       >
-        {selectedOptions ? (
+        {selectedOptions && (playItem ?? item) ? (
           <PlayButton
-            item={item}
+            item={(playItem ?? item) as BaseItemDto}
             selectedOptions={selectedOptions}
             fullWidth={!isCompact}
             style={isCompact ? undefined : { flexGrow: 0, minWidth: 200 }}

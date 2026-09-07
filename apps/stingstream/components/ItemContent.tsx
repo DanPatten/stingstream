@@ -27,6 +27,7 @@ import { Ratings } from "@/components/Ratings";
 import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
+import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useOrientation } from "@/hooks/useOrientation";
@@ -96,6 +97,11 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
   const insets = useSafeAreaInsets();
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
+
+  // The desktop top bar says where you are, and on a details page that is the
+  // title itself — not the name of whichever tab expo-router happened to
+  // resolve a pasted URL into (pass-02 F-26).
+  useSetScreenTitle(item?.Name);
 
   const [headerHeight, setHeaderHeight] = useState<number>(
     COMPACT_HEADER_HEIGHT.portrait,

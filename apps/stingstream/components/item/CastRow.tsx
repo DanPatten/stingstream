@@ -1,6 +1,6 @@
 import type { BaseItemPerson } from "@jellyfin/sdk/lib/generated-client/models";
 import { useAtomValue } from "jotai";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, View } from "react-native";
 import { Icon } from "@/components/common/Icon";
@@ -123,11 +123,16 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
   const api = useAtomValue(apiAtom);
   const router = useRouter();
   const states = usePressableStates({});
+  // A tag is the server saying it *has* a photo, which is not the same as the
+  // photo loading. When it does not, the tile falls back to initials rather
+  // than staying an empty grey circle — the pass-02 defect in miniature.
+  const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = useMemo(
     () =>
       person.PrimaryImageTag ? getPrimaryImageUrl({ api, item: person }) : null,
     [api, person],
   );
+  const showImage = Boolean(imageUrl) && !imageFailed;
 
   return (
     <Pressable
@@ -163,13 +168,14 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
           states.hovered ? elevation(1) : null,
         ]}
       >
-        {imageUrl ? (
+        {showImage ? (
           <Image
-            source={imageUrl}
+            source={imageUrl as string}
             style={{ width: "100%", height: "100%" }}
             contentFit='cover'
             cachePolicy='memory-disk'
             transition={200}
+            onError={() => setImageFailed(true)}
           />
         ) : person.Name ? (
           // Initials, never an empty grey circle: a tile with two letters in it

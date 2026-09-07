@@ -25,11 +25,14 @@ import { SimilarItems } from "@/components/SimilarItems";
 import { NextUp } from "@/components/series/NextUp";
 import { SeasonPicker } from "@/components/series/SeasonPicker";
 import { TVSeriesPage } from "@/components/series/TVSeriesPage";
+import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
 import { Colors } from "@/constants/Colors";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
+import { useSettings } from "@/utils/atoms/settings";
 import {
   buildOfflineSeriesFromEpisodes,
   getDownloadedEpisodesForSeries,
@@ -134,6 +137,51 @@ const page: React.FC = () => {
     navigation.setOptions({ headerRight: () => null });
   }, [navigation]);
 
+  // The top bar names the series rather than the tab a pasted URL landed in.
+  useSetScreenTitle(item?.Name);
+
+  // A series has no file of its own, so its Play is the next episode you have
+  // not finished — the first unwatched one, or the first one at all on a show
+  // nobody has started. Without this the page's primary action was a "Next up"
+  // row three sections down, which is not a primary action.
+  const nextEpisode = useMemo(() => {
+    const episodes = allEpisodes ?? [];
+    return (
+      episodes.find(
+        (episode) =>
+          !episode.UserData?.Played ||
+          (episode.UserData?.PlaybackPositionTicks ?? 0) > 0,
+      ) ?? episodes[0]
+    );
+  }, [allEpisodes]);
+
+  const { settings } = useSettings();
+  const {
+    defaultAudioIndex,
+    defaultBitrate,
+    defaultMediaSource,
+    defaultSubtitleIndex,
+  } = useDefaultPlaySettings(nextEpisode, settings);
+
+  const playOptions = useMemo(
+    () =>
+      nextEpisode
+        ? {
+            bitrate: defaultBitrate,
+            mediaSource: defaultMediaSource ?? undefined,
+            audioIndex: defaultAudioIndex,
+            subtitleIndex: defaultSubtitleIndex ?? -1,
+          }
+        : undefined,
+    [
+      nextEpisode,
+      defaultBitrate,
+      defaultMediaSource,
+      defaultAudioIndex,
+      defaultSubtitleIndex,
+    ],
+  );
+
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
   const refreshMetadata = useCallback(async () => {
@@ -210,7 +258,15 @@ const page: React.FC = () => {
     <DetailsHeader
       item={item}
       meta={<Ratings item={item} />}
-      actions={<ActionRow item={item} moreActions={moreActions} />}
+      actions={
+        <ActionRow
+          // Play belongs to the episode; everything else belongs to the series.
+          item={item}
+          playItem={nextEpisode}
+          selectedOptions={playOptions}
+          moreActions={moreActions}
+        />
+      }
     />
   );
 
