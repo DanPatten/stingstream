@@ -1,9 +1,14 @@
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, TextInput, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { ActivityIndicator, Platform, View } from "react-native";
+import { Input } from "@/components/common/Input";
+import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   COORDINATOR_GUIDE_URL,
   type CoordinatorCheck,
@@ -15,14 +20,20 @@ import {
 /**
  * "Default" or "My own server", with the hostname checked live.
  *
+ * User-facing text calls this a **rendezvous server** (the wording decision for v0.2.0's rebrand:
+ * "Coordinator" only ever meant something to someone who already knew the mesh's internals). The
+ * field, the API and every internal identifier still say `coordinator` — this component's own name
+ * included — since that is the wire format every node on every version understands; only the label
+ * a person reads changed.
+ *
  * The default is genuinely nothing hosted anywhere: iroh's public relays, n0 DNS and the mainline
- * DHT, plus StingStream's shared coordinator appended to the relay map as a last resort. That is
+ * DHT, plus StingStream's shared fallback appended to the relay map as a last resort. That is
  * enough for a group to work, so the picker's job is to make the *choice* legible rather than to
  * push anyone towards running a server.
  *
  * The check is what makes "My own server" safe to offer. A typo in a hostname does not fail
  * loudly — it fails as joins that quietly fall back weeks later — so the field asks the candidate
- * what it is, and refuses to accept a host that answers but is not a coordinator.
+ * what it is, and refuses to accept a host that answers but is not a rendezvous server.
  */
 
 export type CoordinatorChoice =
@@ -40,6 +51,7 @@ interface Props {
 const CHECK_DELAY_MS = 600;
 
 export function CoordinatorPicker({ value, onChange, disabled }: Props) {
+  const { t } = useTranslation();
   const [host, setHost] = useState(value.kind === "custom" ? value.url : "");
   const [check, setCheck] = useState<CoordinatorCheck>({ state: "idle" });
   const abort = useRef<AbortController | null>(null);
@@ -61,7 +73,7 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
       });
       if (controller.signal.aborted) return;
       setCheck(result);
-      // Only a coordinator that answered gets stored on the group; anything else leaves the
+      // Only a rendezvous server that answered gets stored on the group; anything else leaves the
       // choice incomplete, and the Create button stays disabled.
       onChange(
         result.state === "ok"
@@ -85,27 +97,22 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
   return (
     <View>
       <ListGroup
-        title='Coordinator'
+        title={t("sharing.rendezvous_title")}
         description={
-          <Text className='text-[#9899A1] text-xs'>
-            A coordinator is optional. Without one a group uses public
-            infrastructure — iroh's relays, n0 DNS and the BitTorrent DHT — plus
-            StingStream's shared fallback. A coordinator adds rendezvous (so
-            joining works when the inviter is offline), a relay on TCP 443 and
-            the HTTPS side door. It is a property of the group: it travels in
-            every invite code, and changing it later reaches every member.
+          <Text variant='caption' tone='secondary'>
+            {t("sharing.rendezvous_description")}
           </Text>
         }
       >
         <ListItem
-          title='Default'
-          subtitle='Public infrastructure + StingStream fallback'
+          title={t("sharing.rendezvous_default_title")}
+          subtitle={t("sharing.rendezvous_default_subtitle")}
           onPress={disabled ? undefined : () => onChange({ kind: "default" })}
           iconAfter={<Selected on={!custom} />}
         />
         <ListItem
-          title='My own server'
-          subtitle='A coordinator you or a friend hosts'
+          title={t("sharing.rendezvous_custom_title")}
+          subtitle={t("sharing.rendezvous_custom_subtitle")}
           onPress={
             disabled ? undefined : () => onChange({ kind: "custom", url: "" })
           }
@@ -114,12 +121,9 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
       </ListGroup>
 
       {custom && (
-        <View className='mt-3'>
-          <TextInput
-            className='p-4 rounded-xl bg-neutral-900'
-            style={{ color: "white" }}
-            placeholder='coordinator.example.org'
-            placeholderTextColor='#9CA3AF'
+        <View style={{ marginTop: 12 }}>
+          <Input
+            placeholder={t("sharing.rendezvous_placeholder")}
             autoCapitalize='none'
             autoCorrect={false}
             keyboardType={Platform.OS === "web" ? "default" : "url"}
@@ -127,16 +131,16 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
             editable={!disabled}
             onChangeText={setHost}
           />
-          <View className='mt-2 px-1'>
+          <View style={{ marginTop: 8, paddingHorizontal: 2 }}>
             <CheckLine check={check} host={host} />
           </View>
         </View>
       )}
 
       <ListItem
-        className='mt-3 rounded-xl overflow-hidden'
-        title='Host your own'
-        subtitle='One-click Railway template, or a VPS compose file'
+        style={{ marginTop: 12, borderRadius: 12, overflow: "hidden" }}
+        title={t("sharing.rendezvous_host_your_own_title")}
+        subtitle={t("sharing.rendezvous_host_your_own_subtitle")}
         textColor='blue'
         showArrow
         onPress={openGuide}
@@ -146,42 +150,51 @@ export function CoordinatorPicker({ value, onChange, disabled }: Props) {
 }
 
 function Selected({ on }: { on: boolean }) {
+  const { accent } = useTheme();
   return (
-    <Text className={on ? "text-purple-400" : "text-neutral-700"}>
+    <Text style={{ color: on ? accent[400] : tokens.color.text.tertiary }}>
       {on ? "●" : "○"}
     </Text>
   );
 }
 
 function CheckLine({ check, host }: { check: CoordinatorCheck; host: string }) {
+  const { t } = useTranslation();
+
   if (!host.trim()) {
     return (
-      <Text className='text-[#9899A1] text-xs'>
-        Enter the hostname of a running coordinator. It is checked against its
-        own /healthz before it can be stored on the group.
+      <Text variant='caption' tone='secondary'>
+        {t("sharing.rendezvous_check_hint")}
       </Text>
     );
   }
   switch (check.state) {
     case "checking":
       return (
-        <View className='flex flex-row items-center'>
-          <ActivityIndicator size='small' color='#9899A1' />
-          <Text className='text-[#9899A1] text-xs ml-2'>
-            Checking {normalizeCoordinatorUrl(host) ?? host}…
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <ActivityIndicator size='small' color={tokens.color.text.secondary} />
+          <Text variant='caption' tone='secondary' style={{ marginLeft: 8 }}>
+            {t("sharing.rendezvous_checking", {
+              host: normalizeCoordinatorUrl(host) ?? host,
+            })}
           </Text>
         </View>
       );
     case "ok":
       return (
-        <Text className='text-green-500 text-xs'>
-          {check.url} — {describeCoordinator(check.health)}
-        </Text>
+        <Pill
+          tone='success'
+          icon='check'
+          label={t("sharing.rendezvous_ok", {
+            url: check.url,
+            health: describeCoordinator(check.health),
+          })}
+        />
       );
     case "invalid":
     case "unreachable":
     case "not-a-coordinator":
-      return <Text className='text-red-500 text-xs'>{check.message}</Text>;
+      return <Pill tone='danger' icon='warning' label={check.message} />;
     default:
       return null;
   }

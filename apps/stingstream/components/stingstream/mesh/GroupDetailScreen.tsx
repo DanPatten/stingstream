@@ -1,19 +1,25 @@
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Platform, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Platform, Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
+import { Dialog } from "@/components/common/Dialog";
+import { Icon } from "@/components/common/Icon";
+import { PageContainer } from "@/components/common/PageContainer";
+import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
-import useRouter from "@/hooks/useAppRouter";
+import { radius, tokens } from "@/constants/theme";
 import {
   canManageMembers,
+  MeshUnavailableError,
   useLeaveMeshGroup,
   useNodeMeshGroups,
   useNodeMeshPeers,
   useSetGroupCoordinator,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { confirmDestructive } from "../shared/confirm";
+import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
 import {
@@ -26,170 +32,251 @@ import { GroupMembers } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
 
 /**
- * One group: who is in it, how they are reached, its coordinator, and the way out.
+ * One group: who is in it, how they are reached, its rendezvous server, and the way out.
  *
- * The member list is the **home node's** view. That is the right one to show: it is the node that
- * actually holds connections to everyone, whereas this device only dials a peer when something is
- * playing from it. Where this device *does* know better — because it is streaming from that peer
- * right now — its path is shown alongside. It lives in `GroupMembers`, along with the two ways an
- * administrator can change who is in the group.
+ * The member list is the **server's** view — it is the one that actually holds connections to
+ * everyone, whereas this device only dials a member when something is playing from it. The
+ * rendezvous server and the danger zone both sit behind an "Advanced" disclosure, collapsed by
+ * default: changing either is rare and one of them (leaving) is irreversible, so neither belongs
+ * above the fold on a screen most visits are just here to check on members.
  */
 export function GroupDetailScreen({ group }: { group: string }) {
-  const router = useRouter();
+  const { t } = useTranslation();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(group);
   const leave = useLeaveMeshGroup();
   const mesh = useMesh();
   const isAdmin = useIsStingStreamAdmin();
   const [showInvite, setShowInvite] = useState(false);
-  const [editingCoordinator, setEditingCoordinator] = useState(false);
 
   const info = useMemo(
     () => (groups.data ?? []).find((g) => g.group === group),
     [groups.data, group],
   );
 
-  // Removing a member and rotating the secret are elevated on the node and phone/web only, and the
-  // roster they are attached to is elevated too — so this one flag decides whether the member list
-  // is even asked for. See `canManageMembers`.
+  // Removing a member and rotating the secret are elevated on the server and phone/web only, and
+  // the roster they are attached to is elevated too — so this one flag decides whether the member
+  // list is even asked for. See `canManageMembers`.
   const manageable = canManageMembers(isAdmin, Platform.isTV);
 
   // The counts stay the peer list's, not the roster's: the roster keeps removed members on it so
   // the removal is visible, and counting those as members of the group would be a lie.
   const peerRows = peers.data ?? [];
+  const onlineCount = peerRows.filter((p) => p.online).length;
+  const groupName = info?.name ?? "";
 
   const onLeave = useCallback(() => {
-    const run = async () => {
+    void (async () => {
+      const confirmed = await confirmDestructive(
+        t("sharing.leave_confirm_title", { group: groupName || group }),
+        t("sharing.leave_confirm_warning"),
+        t("sharing.leave_confirm_button"),
+      );
+      if (!confirmed) return;
       try {
         await leave.mutateAsync(group);
-        // The embedded node follows the home node, so tell it now rather than waiting for the
+        // The embedded node follows the server, so tell it now rather than waiting for the
         // five-minute sync to notice.
         await mesh.syncGroups();
-        toast.success("Left the group");
-        router.back();
+        toast.success(
+          t("sharing.leave_success", { group: groupName || group }),
+        );
       } catch (error) {
         toast.error((error as Error).message);
       }
-    };
+    })();
+  }, [group, groupName, leave, mesh, t]);
 
-    const message =
-      "This node stops gossiping, drops the shared index and forgets the group secret. " +
-      "Titles held by other members disappear from your library. Rejoining needs a new invite code.";
-
-    if (Platform.OS === "web") {
-      // `Alert` on react-native-web renders nothing, so a screen that relies on it silently does
-      // nothing at all when the button is pressed.
-      if (
-        globalThis.confirm?.(
-          `Leave ${info?.name ?? "this group"}?\n\n${message}`,
-        )
-      ) {
-        void run();
-      }
-      return;
-    }
-    Alert.alert(`Leave ${info?.name ?? "this group"}?`, message, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Leave", style: "destructive", onPress: () => void run() },
-    ]);
-  }, [group, info?.name, leave, mesh, router]);
+  // A server whose mesh child is down answers 503 here, and that is not "this group has no
+  // members" — it is "nothing can be asked right now", which gets its own state rather than an
+  // empty member list that would read as the group having been abandoned.
+  if (groups.error instanceof MeshUnavailableError) {
+    return (
+      <PageContainer width='settings'>
+        <GapNotice
+          title={t("sharing.mesh_unavailable_title")}
+          detail={t("sharing.mesh_unavailable_detail")}
+        />
+      </PageContainer>
+    );
+  }
 
   return (
-    <QueryState
-      isLoading={groups.isLoading}
-      error={groups.error}
-      onRetry={groups.refetch}
-    >
-      <ListGroup title='Group'>
-        <ListItem title='Name' value={info?.name ?? "—"} />
-        <ListItem title='Members' value={String(peerRows.length)} />
-        <ListItem
-          title='Online'
-          value={String(peerRows.filter((p) => p.online).length)}
-        />
-        <ListItem
-          title='Coordinator'
-          value={info?.coordinator ? hostOf(info.coordinator) : "Default"}
-          subtitle={
-            info?.coordinator
-              ? undefined
-              : "Public infrastructure + StingStream fallback"
-          }
-          onPress={isAdmin ? () => setEditingCoordinator((v) => !v) : undefined}
-          showArrow={isAdmin}
-        />
-      </ListGroup>
+    <PageContainer width='settings'>
+      <QueryState
+        isLoading={groups.isLoading}
+        error={groups.error}
+        onRetry={groups.refetch}
+      >
+        <View
+          style={{
+            padding: 16,
+            borderRadius: radius.md,
+            backgroundColor: tokens.color.bg["1"],
+          }}
+        >
+          <Text variant='title' weight='semibold'>
+            {groupName || t("sharing.unnamed_group")}
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginTop: 10,
+            }}
+          >
+            <Pill
+              label={t("sharing.member_count", { count: peerRows.length })}
+            />
+            <Pill
+              tone={onlineCount > 0 ? "success" : "neutral"}
+              label={t("sharing.online_count", { count: onlineCount })}
+            />
+            <Pill
+              tone={isAdmin ? "accent" : "neutral"}
+              label={
+                isAdmin ? t("sharing.role_admin") : t("sharing.role_member")
+              }
+            />
+          </View>
+        </View>
 
-      {editingCoordinator && (
-        <ChangeCoordinator
-          group={group}
-          current={info?.coordinator ?? null}
-          onDone={() => setEditingCoordinator(false)}
-        />
-      )}
-
-      <View className='h-4' />
-
-      <GroupMembers
-        group={group}
-        groupName={info?.name ?? ""}
-        peers={peers.data}
-        manageable={manageable}
-      />
-
-      <View className='h-4' />
-
-      {/* Minting an invite and leaving are both RequiresElevation on the node — a group is the
-          node's identity in the mesh, not a per-user setting — so a non-administrator sees the
-          group and its members and nothing that would answer 403. */}
-      {isAdmin ? (
-        <>
-          {showInvite ? (
-            <InviteCard group={group} groupName={info?.name ?? ""} />
-          ) : (
-            <Button color='black' onPress={() => setShowInvite(true)}>
-              Show invite code
+        {isAdmin && (
+          <>
+            <View style={{ height: 16 }} />
+            <Button
+              testID='sharing-invite'
+              variant='primary'
+              icon='invite'
+              onPress={() => setShowInvite(true)}
+            >
+              {t("sharing.invite_button")}
             </Button>
+            <Dialog
+              visible={showInvite}
+              onClose={() => setShowInvite(false)}
+              title={t("sharing.invite_dialog_title", {
+                group: groupName || group,
+              })}
+            >
+              <InviteCard group={group} groupName={groupName} />
+            </Dialog>
+          </>
+        )}
+
+        <View style={{ height: 20 }} />
+
+        <GroupMembers
+          group={group}
+          groupName={groupName}
+          peers={peers.data}
+          manageable={manageable}
+        />
+
+        <View style={{ height: 20 }} />
+
+        <Disclosure title={t("sharing.advanced_title")}>
+          {isAdmin ? (
+            <ChangeCoordinator
+              group={group}
+              current={info?.coordinator ?? null}
+            />
+          ) : (
+            <ReadOnlyCoordinator coordinator={info?.coordinator ?? null} />
           )}
 
-          <View className='h-6' />
+          {isAdmin && (
+            <View
+              style={{
+                marginTop: 20,
+                paddingTop: 16,
+                borderTopWidth: 1,
+                borderTopColor: tokens.color.border.subtle,
+              }}
+            >
+              <Text
+                variant='caption'
+                weight='semibold'
+                tone='danger'
+                style={{ marginBottom: 8 }}
+              >
+                {t("sharing.danger_zone_title")}
+              </Text>
+              <Button
+                testID='sharing-leave'
+                variant='danger'
+                icon='leave'
+                onPress={onLeave}
+                loading={leave.isPending}
+              >
+                {t("sharing.leave_button")}
+              </Button>
+            </View>
+          )}
+        </Disclosure>
+      </QueryState>
+    </PageContainer>
+  );
+}
 
-          <Button
-            color='red'
-            variant='border'
-            onPress={onLeave}
-            loading={leave.isPending}
-          >
-            Leave group
-          </Button>
-        </>
-      ) : (
-        <Text className='text-[#9899A1] text-xs'>
-          Inviting and leaving are administrator actions on this node.
+/** A collapsed-by-default section — the shape "Advanced" needs and nothing else in this app has. */
+function Disclosure({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <View>
+      <Pressable
+        accessibilityRole='button'
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((v) => !v)}
+        style={[
+          {
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingVertical: 12,
+          },
+          Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null,
+        ]}
+      >
+        <Text variant='heading' weight='semibold'>
+          {title}
         </Text>
-      )}
-    </QueryState>
+        <Icon
+          name={open ? "chevronUp" : "chevronDown"}
+          size={18}
+          tone='secondary'
+        />
+      </Pressable>
+      {open && <View>{children}</View>}
+    </View>
   );
 }
 
 /**
- * Change the group's coordinator, with the same live check the create screen uses.
+ * Change the group's rendezvous server, with the same live check the create screen uses.
  *
- * The warning is the point of the screen. Changing a coordinator is not like changing a setting on
- * this node: it reaches every member through gossip, and a member that is offline right now adopts
- * it when it comes back. So the copy says who it affects and when, and the destructive-sounding
- * half — "Use the default" — says what a group without a coordinator loses (rendezvous, the TCP-443
- * relay, the HTTPS side door) rather than presenting it as simply turning something off.
+ * The warning is the point. Changing it is not like changing a setting on this device: it reaches
+ * every member through gossip, and a member that is offline right now adopts it when it comes
+ * back. So the copy says who it affects and when, and the "Default" half says what a group without
+ * one loses (rendezvous when the inviter is offline, the TCP-443 relay, the HTTPS side door) rather
+ * than presenting it as simply turning something off.
  */
 function ChangeCoordinator({
   group,
   current,
-  onDone,
 }: {
   group: string;
   current: string | null;
-  onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [choice, setChoice] = useState<CoordinatorChoice>(
     current ? { kind: "custom", url: current } : { kind: "default" },
   );
@@ -203,30 +290,27 @@ function ChangeCoordinator({
       await setCoordinator.mutateAsync({ group, coordinator: next });
       toast.success(
         next
-          ? `Coordinator set to ${hostOf(next)}. Every member follows.`
-          : "Back to public infrastructure. Every member follows.",
+          ? t("sharing.rendezvous_change_success", { host: hostOf(next) })
+          : t("sharing.rendezvous_change_success_default"),
       );
-      onDone();
     } catch (error) {
       toast.error((error as Error).message);
     }
   };
 
   return (
-    <View className='mt-3'>
+    <View>
       <CoordinatorPicker
         value={choice}
         onChange={setChoice}
         disabled={setCoordinator.isPending}
       />
-      <Text className='text-[#9899A1] text-xs mt-3'>
-        The change is gossiped to the whole group, signed by this node. Members
-        that are offline adopt it when they return, and invite codes minted
-        afterwards carry it — codes already handed out still work.
+      <Text variant='caption' tone='secondary' style={{ marginTop: 12 }}>
+        {t("sharing.rendezvous_change_note")}
       </Text>
-      <View className='h-3' />
+      <View style={{ height: 12 }} />
       <Button
-        color='purple'
+        variant='primary'
         disabled={
           unchanged ||
           !coordinatorChoiceReady(choice) ||
@@ -235,12 +319,26 @@ function ChangeCoordinator({
         loading={setCoordinator.isPending}
         onPress={() => void save()}
       >
-        {unchanged ? "No change" : "Change coordinator"}
+        {unchanged
+          ? t("sharing.rendezvous_no_change")
+          : t("sharing.rendezvous_change_button")}
       </Button>
-      <View className='h-2' />
-      <Button color='black' onPress={onDone}>
-        Cancel
-      </Button>
+    </View>
+  );
+}
+
+function ReadOnlyCoordinator({ coordinator }: { coordinator: string | null }) {
+  const { t } = useTranslation();
+  return (
+    <View>
+      <Text variant='body' weight='semibold'>
+        {t("sharing.rendezvous_title")}
+      </Text>
+      <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
+        {coordinator
+          ? hostOf(coordinator)
+          : t("sharing.rendezvous_default_subtitle")}
+      </Text>
     </View>
   );
 }
