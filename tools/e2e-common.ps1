@@ -29,6 +29,10 @@ $script:Steps = [System.Collections.Generic.List[object]]::new()
 $script:Processes = [System.Collections.Generic.List[object]]::new()
 $script:Failed = $false
 $script:Notes = [System.Collections.Generic.List[string]]::new()
+# Node name -> data directory, filled in by Start-HarnessNode and read by Write-HarnessNodeLogs.
+# Initialised here rather than on first use: every harness runs under `Set-StrictMode -Version
+# Latest`, where reading a variable that has never been assigned is an error, not an empty value.
+$script:LogSources = [ordered]@{}
 $script:RepoRoot = $null
 $script:WorkDirFull = $null
 $script:LogDir = $null
@@ -188,6 +192,68 @@ function Write-Head {
     Write-Host ('=' * [Math]::Max(4, 74 - $Text.Length)) -ForegroundColor Cyan
 }
 
+function Register-HarnessLogSource {
+    <#
+    .SYNOPSIS
+        Remember a node's data directory, so a failing step can print what that node said.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$DataDir
+    )
+    $script:LogSources[$Name] = $DataDir
+}
+
+function Write-HarnessNodeLogs {
+    <#
+    .SYNOPSIS
+        Print the last errors and warnings from every node's own logs.
+    .DESCRIPTION
+        A harness failure is usually a sentence about an HTTP status, and the sentence that explains
+        it is in a node's log on the other side of the call. Fetching those by hand means finding
+        the run, downloading its artifact, and knowing which of six files to open -- which is a
+        twenty-minute detour that has to happen before any thinking can start.
+
+        This is the detour, run automatically. M7's `500 (Internal Server Error)` in CI run
+        34156353224 was `FOREIGN KEY constraint failed` on a `UserData` insert, six lines into node
+        A's `jellyfin.jsonl`, and nothing in the harness output hinted at it.
+
+        Errors and warnings only, and only the tail of them: the point is the last thing that went
+        wrong, not a transcript.
+    #>
+    param([int]$Lines = 40)
+
+    if ($script:LogSources.Count -eq 0) { return }
+
+    foreach ($name in @($script:LogSources.Keys)) {
+        foreach ($log in @('jellyfin.jsonl', 'stingstream.jsonl')) {
+            $path = Join-Path (Join-Path $script:LogSources[$name] 'logs') $log
+            if (-not (Test-Path $path)) { continue }
+            try {
+                # Match on the level markers both logs use: Jellyfin's `[ERR]`/`[WRN]` inside the
+                # captured line, and the supervisor's own `"level":"ERROR"`/`"WARN"`.
+                $hits = @(Get-Content -Path $path -Tail 4000 -ErrorAction Stop |
+                    Where-Object { $_ -match '\[ERR\]|\[WRN\]|"level":"(ERROR|WARN)"' } |
+                    Select-Object -Last $Lines)
+            } catch {
+                continue
+            }
+            if ($hits.Count -eq 0) { continue }
+            Write-Host ""
+            Write-Host "      --- node $name / $log (last $($hits.Count) error/warning line(s)) ---" -ForegroundColor DarkYellow
+            foreach ($hit in $hits) {
+                # The interesting text is the captured child line; the JSON envelope is noise.
+                $text = $hit
+                if ($hit -match '"line":"(.*)"\}\s*$') { $text = $Matches[1] }
+                elseif ($hit -match '"message":"(.*?)"(,|\})') { $text = $Matches[1] }
+                if ($text.Length -gt 400) { $text = $text.Substring(0, 400) + '...' }
+                Write-Host "      $text" -ForegroundColor DarkGray
+            }
+        }
+    }
+    Write-Host ""
+}
+
 function Get-FailureText {
     <#
     .SYNOPSIS
@@ -260,6 +326,9 @@ function Invoke-Step {
         $script:Steps.Add([pscustomobject]@{ Name = $Name; Ok = $false; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); Detail = $message })
         Write-Host ("FAIL  {0}  ({1:N1}s)" -f $Name, $sw.Elapsed.TotalSeconds) -ForegroundColor Red
         Write-Host "      $message" -ForegroundColor Red
+        # What the nodes themselves said, so the next failure explains itself here rather than in an
+        # artifact somebody has to go and find.
+        try { Write-HarnessNodeLogs } catch { }
         $script:Failed = $true
         throw
     }
@@ -652,6 +721,8 @@ function Start-HarnessNode {
     $tool = Start-Tool -Name $name -FilePath $script:SupervisorExe `
         -Arguments (@($script:NodeModeArgs) + @('--data-dir', $Node.DataDir))
     $Node.Tool = $tool
+    # Every node a harness starts is a node whose own log is worth reading when a step fails.
+    Register-HarnessLogSource -Name $Node.Name -DataDir $Node.DataDir
 
     Wait-Until -What "node $($Node.Name)'s gateway to accept connections" -Seconds $GatewaySeconds -PollSeconds 2 -Condition {
         if ($tool.Process.HasExited) {

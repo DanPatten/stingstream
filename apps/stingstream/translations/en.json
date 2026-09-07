@@ -42,6 +42,7 @@
     "too_old_server_description": "Update StingStream on the server, then try again.",
     "sign_in": "Sign in",
     "sign_in_to": "to {{server}}",
+    "sign_in_to_generic": "to your StingStream server",
     "connecting_to": "Connecting to {{server}}…",
     "connecting": "Connecting…",
     "connect_to_server": "Connect to your server",
@@ -49,7 +50,9 @@
     "use_different_server": "Use a different server",
     "show_password": "Show password",
     "hide_password": "Hide password",
-    "advanced": "Advanced"
+    "advanced": "Advanced",
+    "advanced_hint": "Custom headers, other server.",
+    "server_address_hint": "e.g. http://192.168.1.20:8790"
   },
   "server": {
     "enter_url_to_jellyfin_server": "Enter the address of your StingStream server",
@@ -100,8 +103,9 @@
     "error_not_local": "The account can only be created on the computer running StingStream.",
     "error_unreachable": "Could not reach your server. Check that it is still running.",
     "error_unexpected": "Something went wrong. Try again.",
-    "elsewhere_title": "Finish setup on the computer running StingStream",
-    "elsewhere_description": "Open this address in a browser on that computer to create your account, then come back here to sign in.",
+    "elsewhere_title": "Finish setup from a device on your home network",
+    "elsewhere_description": "Open one of these addresses in a browser on a device connected to your home network to create your account, then come back here to sign in.",
+    "elsewhere_description_no_addresses": "Open StingStream in a browser on a device connected to your home network to create your account, then come back here to sign in.",
     "elsewhere_retry": "Check again",
     "elsewhere_still_pending": "No account has been created yet."
   },

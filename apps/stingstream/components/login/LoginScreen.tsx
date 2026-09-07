@@ -184,21 +184,26 @@ export const LoginScreen: React.FC = () => {
       context: NodeContext,
       connected: boolean,
     ): Promise<{ phase: Phase; message?: string }> => {
+      // Loopback or a private-network peer gets the account screen; anyone else is sent to
+      // "finish it from a device on your home network" (Dan, 2026-09-07: "localhost only works
+      // on the same PC — by IP is better"). Core's `setup/state` is the authority — it is the
+      // same `SetupGate.IsTrustedPeer` check that actually gates `setup/admin`, run against the
+      // real socket peer rather than a hostname string — so its answer wins whenever the request
+      // succeeds; `context.trustedPeer` (client-derived from this page's own address) is only
+      // the fallback for the one case Core cannot answer at all: unreachable.
       try {
         const state = await getSetupState(context.origin);
         if (!state.pending) {
           return { phase: connected ? "signIn" : "serverForm" };
         }
-        // The endpoint is the authority on both booleans: `loopback` is a property of *this*
-        // request, and the marker's copy was computed when the page was served.
-        return { phase: state.loopback ? "setup" : "setupElsewhere" };
+        return { phase: state.trustedPeer ? "setup" : "setupElsewhere" };
       } catch {
         // Nobody answered. The marker's hint is the only thing left, and it is better than
         // guessing: a pending node with an unreachable Core still must not offer a sign-in card
         // for an account that does not exist.
         if (context.setupPending === true) {
           return {
-            phase: context.loopback ? "setup" : "setupElsewhere",
+            phase: context.trustedPeer ? "setup" : "setupElsewhere",
             message: t("setup.error_unreachable"),
           };
         }
@@ -340,7 +345,7 @@ export const LoginScreen: React.FC = () => {
       const state = await getSetupState(nodeContext.origin, { attempts: 1 });
       if (!state.pending) {
         setPhase("signIn");
-      } else if (state.loopback) {
+      } else if (state.trustedPeer) {
         setPhase("setup");
       } else {
         setSetupMessage(t("setup.elsewhere_still_pending"));
@@ -421,7 +426,7 @@ export const LoginScreen: React.FC = () => {
 
         {phase === "setupElsewhere" ? (
           <SetupElsewhere
-            origin={nodeContext?.origin ?? null}
+            addresses={nodeContext?.addresses ?? []}
             onRetry={handleRetrySetup}
             retrying={retrying}
             message={setupMessage}
