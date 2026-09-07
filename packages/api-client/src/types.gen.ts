@@ -5358,11 +5358,14 @@ export interface components {
         SetupState: {
             /** @description True while nobody has created an account on this node yet. */
             Pending?: boolean;
-            /**
-             * @description True when this request came from the machine the node runs on, which is the only place the
-             *     account can be created.
-             */
+            /** @description True when this request came from the machine the node itself runs on. */
             Loopback?: boolean;
+            /**
+             * @description True when this request came from somewhere the node trusts — itself, or the network it is
+             *     on. The first account can only be created from such an address; from anywhere else the
+             *     endpoint that creates it answers as though it did not exist.
+             */
+            TrustedPeer?: boolean;
         };
         /**
          * @description "Omniarr": the one settings model StingStream keeps, pushed idempotently into both Radarr and

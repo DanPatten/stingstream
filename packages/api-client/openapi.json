@@ -17051,7 +17051,11 @@
           },
           "Loopback": {
             "type": "boolean",
-            "description": "True when this request came from the machine the node runs on, which is the only place the\r\naccount can be created."
+            "description": "True when this request came from the machine the node itself runs on."
+          },
+          "TrustedPeer": {
+            "type": "boolean",
+            "description": "True when this request came from somewhere the node trusts — itself, or the network it is\r\non. The first account can only be created from such an address; from anywhere else the\r\nendpoint that creates it answers as though it did not exist."
           }
         },
         "additionalProperties": false,
