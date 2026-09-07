@@ -239,13 +239,31 @@ export const autoGridColumns = (
   );
 
 /**
+ * What a card is *of* — the series for an episode, the item itself otherwise.
+ *
+ * pass-01 F-11: an episode card used to be titled with the episode's own name
+ * and subtitled "S1:E3 - Series", which puts the thing you recognise on the
+ * small grey line and the thing you don't on the big one. A row of them reads
+ * as a list of strangers. Round the right way, the row is a list of shows.
+ */
+export const cardTitle = (item: BaseItemDto): string =>
+  (item.Type === "Episode" ? (item.SeriesName ?? item.Name) : item.Name) ?? "";
+
+/**
  * The second line under a title: which episode this is, or when it came out.
  * Exported so anything building cards outside `buildItemCards` — the offline
  * downloads, say — labels an item the same way.
+ *
+ * "S1 E3 · Episode title", spelled the way the hero above spells it.
  */
 export const cardSubtitle = (item: BaseItemDto): string | null => {
   if (item.Type === "Episode") {
-    return `S${item.ParentIndexNumber}:E${item.IndexNumber} - ${item.SeriesName ?? ""}`;
+    const season = item.ParentIndexNumber;
+    const episode = item.IndexNumber;
+    const code =
+      season != null && episode != null ? `S${season} E${episode}` : null;
+    if (code && item.Name) return `${code} · ${item.Name}`;
+    return item.Name || code;
   }
   return item.ProductionYear ? String(item.ProductionYear) : null;
 };
@@ -255,10 +273,14 @@ export const cardSubtitle = (item: BaseItemDto): string | null => {
  * anything building cards outside `buildItemCards` labels its artwork the
  * same way `Card`'s default (`card.imageAlt ?? card.title`) would.
  */
-export const cardImageAlt = (item: BaseItemDto): string =>
-  item.ProductionYear
-    ? `${item.Name ?? ""} (${item.ProductionYear})`
-    : (item.Name ?? "");
+export const cardImageAlt = (item: BaseItemDto): string => {
+  const title = cardTitle(item);
+  if (item.Type === "Episode") {
+    const subtitle = cardSubtitle(item);
+    return subtitle ? `${title} — ${subtitle}` : title;
+  }
+  return item.ProductionYear ? `${title} (${item.ProductionYear})` : title;
+};
 
 const isAggregate = (item: BaseItemDto) =>
   item.Type === "Series" || item.Type === "BoxSet";
@@ -324,7 +346,15 @@ const hasArtwork = (
   kind: CardKind,
   useEpisodePoster: boolean,
 ): boolean => {
-  // Whatever `getPrimaryImageUrl` would find a tag for.
+  // Whatever `getPrimaryImageUrl` would find a tag for — right for the
+  // portrait branch below, which delegates to it (via `getPortraitImageUrl`)
+  // for anything but an episode. `getWideImageUrl` is a different function
+  // with a narrower fallback chain (a Thumb tag, a parent's Thumb, or the
+  // item's own Primary — never a backdrop), so using this same value for the
+  // `wide` branches below asked for an image that function would never
+  // actually request: confirmed live on a Highway Patrol episode whose only
+  // tag was its series' `ParentBackdropImageTags`, which drew a real 404
+  // instead of the placeholder tile this function exists to put up.
   const primaryish = Boolean(
     item.ImageTags?.Primary ??
       item.BackdropImageTags?.[0] ??
@@ -338,13 +368,17 @@ const hasArtwork = (
       : primaryish;
   }
 
+  // `getWideImageUrl`'s own "primary" fallback is always the item's own
+  // Primary tag, whichever branch reaches it — never a backdrop.
+  const ownPrimary = Boolean(item.ImageTags?.Primary);
+
   if (item.Type === "Episode" && !useEpisodePoster) {
     return (
-      Boolean(item.ParentThumbItemId && item.ParentThumbImageTag) || primaryish
+      Boolean(item.ParentThumbItemId && item.ParentThumbImageTag) || ownPrimary
     );
   }
 
-  return Boolean(item.ImageTags?.Thumb) || primaryish;
+  return Boolean(item.ImageTags?.Thumb) || ownPrimary;
 };
 
 /** Anything that holds other items rather than being watchable itself. */
@@ -436,7 +470,7 @@ export function buildItemCards(
     return [
       {
         id: item.Id,
-        title: item.Name ?? "",
+        title: cardTitle(item),
         subtitle,
         imageUrl,
         imageAlt: cardImageAlt(item),

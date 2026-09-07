@@ -6,19 +6,13 @@ import type {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSegments } from "expo-router";
 import { useAtom } from "jotai";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import {
-  elevation,
-  motion,
-  radius,
-  rgba,
-  tokens,
-  webFocusRing,
-} from "@/constants/theme";
+import { elevation, radius, rgba, tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { getItemNavigation, itemRouter } from "../common/TouchableItemRouter";
@@ -55,33 +49,53 @@ const isWeb = Platform.OS === "web";
 const ASPECT_RATIO = 16 / 9;
 
 /**
- * A library, drawn as a wide backdrop card: the library's own image, a
- * translucent disc carrying the `CollectionType` glyph, and the name over a
- * frosted band — the same visual language every other card in the app uses,
- * so "Movies" and "TV Shows" read as tiles in the same system as everything
- * inside them.
+ * A library, drawn as a wide tile with its name underneath.
+ *
+ * The name sits **below** the artwork, never over it. A library folder's image
+ * is not a poster the way a film's is: Jellyfin builds one from whatever is
+ * inside, and a seeded or hand-made one may well have the library's own name
+ * painted into the bitmap — which is exactly what happened, and put "Movies" on
+ * the same card twice. Below the tile, that can't recur whatever the image
+ * turns out to be.
+ *
+ * And the image is only asked for when the folder actually has one.
+ * `getPrimaryImageUrl` builds a URL for any item, tag or no tag, so a library
+ * nobody has given an image used to render as a flat empty rectangle — the same
+ * trap the media cards had. Without a tag this draws its own tile instead: a
+ * quiet bg2 → bg3 gradient with the `CollectionType` glyph, which says "TV
+ * shows" faster than a collage of four posters does anyway.
  */
 export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
   const [api] = useAtom(apiAtom);
   const router = useRouter();
   const segments = useSegments();
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const states = usePressableStates();
 
   const from = (segments as string[])[2] || "(libraries)";
 
+  /**
+   * A real image someone can look at, rather than a URL that happens to
+   * resolve. `ImageTags.Primary` is the server saying it holds one.
+   */
+  const hasOwnImage = Boolean(library.ImageTags?.Primary);
+
   const url = useMemo(
     () =>
-      getPrimaryImageUrl({
-        api,
-        item: library,
-        width: Math.round(width * 2),
-      }),
-    [api, library, width],
+      hasOwnImage
+        ? getPrimaryImageUrl({
+            api,
+            item: library,
+            width: Math.round(width * 2),
+          })
+        : null,
+    [api, library, width, hasOwnImage],
   );
 
   const height = width / ASPECT_RATIO;
-  const lifted = isWeb && hovered;
+  const lifted = isWeb && states.hovered;
+  const iconName = icons[library.CollectionType as CollectionType] ?? "folder";
+  // Big enough to read as the tile's subject, never taller than the tile.
+  const glyphSize = Math.max(24, Math.min(40, Math.round(height * 0.4)));
 
   const handlePress = useCallback(() => {
     // Mirrors `TouchableItemRouter`: music libraries need the explicit string
@@ -100,23 +114,14 @@ export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
       accessibilityRole='button'
       accessibilityLabel={library.Name ?? undefined}
       onPress={handlePress}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      {...states.handlers}
       style={[
         {
           width,
           transform: [{ scale: lifted ? tokens.motion.hoverScale : 1 }],
         },
-        isWeb
-          ? ({
-              cursor: "pointer",
-              transitionDuration: `${motion.fast}ms`,
-              ...(lifted ? elevation(1) : null),
-              ...webFocusRing(focused),
-            } as ViewStyle)
-          : null,
+        states.webStyle,
+        isWeb && lifted ? (elevation(1) as ViewStyle) : null,
         style,
       ]}
     >
@@ -132,63 +137,70 @@ export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
         }}
       >
         {url ? (
-          <Image
-            source={{ uri: url }}
-            accessibilityLabel={library.Name ?? undefined}
-            cachePolicy='memory-disk'
-            contentFit='cover'
-            style={{ width: "100%", height: "100%" }}
+          <>
+            <Image
+              source={{ uri: url }}
+              accessibilityLabel={library.Name ?? undefined}
+              cachePolicy='memory-disk'
+              contentFit='cover'
+              style={{ width: "100%", height: "100%" }}
+            />
+            {/* On a photograph the glyph needs its own ground to read against;
+                on the drawn tile below it does not. */}
+            <View
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: rgba("#000000", 0.5),
+              }}
+            >
+              <Ionicons
+                name={iconName}
+                size={15}
+                color={tokens.color.text.primary}
+              />
+            </View>
+          </>
+        ) : (
+          <LinearGradient
+            colors={[tokens.color.bg["2"], tokens.color.bg["3"]]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          >
+            <Ionicons
+              name={iconName}
+              size={glyphSize}
+              color={tokens.color.text.tertiary}
+            />
+          </LinearGradient>
+        )}
+
+        {states.overlay ? (
+          <View
+            pointerEvents='none'
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: states.overlay,
+            }}
           />
         ) : null}
+      </View>
 
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.85)"]}
-          pointerEvents='none'
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: height * 0.6,
-            borderBottomLeftRadius: radius.lg,
-            borderBottomRightRadius: radius.lg,
-          }}
-        />
-
-        <View
-          style={{
-            position: "absolute",
-            top: 10,
-            left: 10,
-            width: 30,
-            height: 30,
-            borderRadius: 15,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: rgba("#000000", 0.5),
-          }}
-        >
-          <Ionicons
-            name={icons[library.CollectionType!] ?? "folder"}
-            size={15}
-            color={tokens.color.text.primary}
-          />
-        </View>
-
-        <View
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            paddingHorizontal: 12,
-            paddingBottom: 10,
-          }}
-        >
-          <Text variant='body' weight='semibold' numberOfLines={1}>
-            {library.Name}
-          </Text>
-        </View>
+      <View style={{ paddingTop: 8 }}>
+        <Text variant='body' weight='semibold' numberOfLines={2}>
+          {library.Name}
+        </Text>
       </View>
     </Pressable>
   );

@@ -1,4 +1,3 @@
-import { Ionicons } from "@expo/vector-icons";
 import type {
   BaseItemDto,
   BaseItemDtoQueryResult,
@@ -16,23 +15,20 @@ import { useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  ActivityIndicator,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  View,
-} from "react-native";
+import { Platform, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
-import { Text } from "@/components/common/Text";
+import { CardRowSkeleton } from "@/components/cards/CardRowSkeleton";
+import { EmptyState } from "@/components/common/EmptyState";
+import { PageContainer } from "@/components/common/PageContainer";
+import { Skeleton } from "@/components/common/Skeleton";
 import { HomeHeroCarousel } from "@/components/home/HomeHeroCarousel";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations";
-import { Loader } from "@/components/Loader";
 import { MediaListSection } from "@/components/medialists/MediaListSection";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useRefreshLibraryOnFocus } from "@/hooks/useRefreshLibraryOnFocus";
 import { useInvalidatePlaybackProgressCache } from "@/hooks/useRevalidatePlaybackProgressCache";
@@ -54,6 +50,11 @@ type InfiniteScrollingCollectionListSection = {
   pageSize?: number;
   priority?: 1 | 2; // 1 = high priority (loads first), 2 = low priority
   parentId?: string; // Library ID for "See All" navigation
+  /**
+   * How the library should be sorted when "See all" opens it, so the screen
+   * the viewer lands on starts with the same items the row was showing.
+   */
+  seeAllSort?: { sortBy: SortByOption; sortOrder: SortOrderOption };
 };
 
 type MediaListSectionType = {
@@ -162,6 +163,12 @@ const HomeMobile = () => {
     );
   }, [userViews]);
 
+  /** Where "See all" on the suggested-films row goes, when there is one. */
+  const movieLibraryId = useMemo(
+    () => collections.find((c) => c.CollectionType === "movies")?.Id,
+    [collections],
+  );
+
   const refetch = async () => {
     setLoading(true);
     setLoadedSections(new Set());
@@ -213,6 +220,10 @@ const HomeMobile = () => {
       type: "InfiniteScrollingCollectionList",
       pageSize,
       parentId,
+      seeAllSort: {
+        sortBy: SortByOption.DateCreated,
+        sortOrder: SortOrderOption.Descending,
+      },
     }),
     [api, user?.Id],
   );
@@ -258,11 +269,18 @@ const HomeMobile = () => {
       });
     };
 
-    // Build the first sections based on merge setting
+    // One row by default, two only if the viewer asked for them.
+    //
+    // pass-01 F-11, in Dan's words: "'Next up' text does not make sense to a
+    // viewer". It is upstream vocabulary for "the next episode of something
+    // you are part way through", which is the same sentence as "continue
+    // watching" — so the merged row simply *is* Continue watching, rather than
+    // a third name ("Continue & Next up") that explains the split it exists to
+    // hide. The setting stays, for anyone who wants the two rows back.
     const firstSections: Section[] = settings.mergeNextUpAndContinueWatching
       ? [
           {
-            title: t("home.continue_and_next_up"),
+            title: t("home.continue_watching"),
             queryKey: ["home", "continueAndNextUp"],
             queryFn: async ({ pageParam = 0 }) => {
               // Fetch both in parallel
@@ -362,6 +380,15 @@ const HomeMobile = () => {
               orientation: "vertical" as const,
               pageSize: 10,
               priority: 2 as const,
+              // These are films out of the movie library, so "See all" opens
+              // it — sorted by name, because "suggested" is not an order the
+              // library screen can reproduce and pretending otherwise would
+              // give the viewer a list that looks arbitrary.
+              parentId: movieLibraryId,
+              seeAllSort: {
+                sortBy: SortByOption.SortName,
+                sortOrder: SortOrderOption.Ascending,
+              },
             },
           ]
         : []),
@@ -373,6 +400,7 @@ const HomeMobile = () => {
     collections,
     t,
     createCollectionConfig,
+    movieLibraryId,
     settings?.streamyStatsMovieRecommendations,
     settings.mergeNextUpAndContinueWatching,
   ]);
@@ -490,62 +518,58 @@ const HomeMobile = () => {
       title = t("home.server_unreachable");
       subtitle = t("home.server_unreachable_message");
     }
+    // One state, one shape: `EmptyState` draws the icon, the sentence and the
+    // one action every other empty screen in the app draws. Downloads is the
+    // second action and only exists where files can be downloaded — offering
+    // it in a browser was the same class of mistake as "Delete all downloaded
+    // files" appearing there.
     return (
-      <View className='flex flex-col items-center justify-center h-full -mt-6 px-8'>
-        <Text className='text-3xl font-bold mb-2'>{title}</Text>
-        <Text className='text-center opacity-70'>{subtitle}</Text>
-
-        <View className='mt-4'>
-          {!Platform.isTV && (
-            <Button
-              color='purple'
-              onPress={() => router.push("/(auth)/downloads")}
-              justify='center'
-              iconRight={
-                <Ionicons name='arrow-forward' size={20} color='white' />
-              }
-            >
-              {t("home.go_to_downloads")}
-            </Button>
-          )}
-
+      <PageContainer width='settings'>
+        <EmptyState
+          icon={serverConnected === null ? "refresh" : "warning"}
+          title={title}
+          detail={subtitle}
+          action={{
+            label: retryLoading ? t("common.loading") : t("home.retry"),
+            onPress: retryCheck,
+            icon: "refresh",
+          }}
+        />
+        {!Platform.isTV && Platform.OS !== "web" ? (
           <Button
-            color='black'
-            onPress={retryCheck}
+            variant='ghost'
+            size='sm'
+            icon='download'
             justify='center'
-            className='mt-2'
-            iconRight={
-              retryLoading ? null : (
-                <Ionicons name='refresh' size={20} color='white' />
-              )
-            }
+            onPress={() => router.push("/(auth)/downloads")}
           >
-            {retryLoading ? (
-              <ActivityIndicator size='small' color='white' />
-            ) : (
-              t("home.retry")
-            )}
+            {t("home.go_to_downloads")}
           </Button>
-        </View>
-      </View>
+        ) : null}
+      </PageContainer>
     );
   }
 
   if (e1)
     return (
-      <View className='flex flex-col items-center justify-center h-full -mt-6'>
-        <Text className='text-3xl font-bold mb-2'>{t("home.oops")}</Text>
-        <Text className='text-center opacity-70'>
-          {t("home.error_message")}
-        </Text>
-      </View>
+      <PageContainer width='settings'>
+        <EmptyState
+          icon='error'
+          title={t("home.oops")}
+          detail={t("home.error_message")}
+        />
+      </PageContainer>
     );
 
+  // A skeleton of the rows that are coming, not a spinner: the page fills in
+  // rather than stalling, and nothing jumps when the first row lands.
   if (l1)
     return (
-      <View className='justify-center items-center h-full'>
-        <Loader />
-      </View>
+      <PageContainer width='media' bleed style={{ paddingTop: 16, gap: 24 }}>
+        <HomeRowSkeleton />
+        <HomeRowSkeleton />
+        <HomeRowSkeleton />
+      </PageContainer>
     );
 
   return (
@@ -564,14 +588,24 @@ const HomeMobile = () => {
       contentContainerStyle={{
         paddingLeft: insets.left,
         paddingRight: insets.right,
-        paddingBottom: 16,
+        paddingBottom: 32,
       }}
     >
-      <View
-        className='flex flex-col space-y-4'
-        style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
+      <HomeHeroCarousel />
+      {/*
+        `bleed`, because a row is not page content: its cards scroll past the
+        gutter and the row applies the gutter itself, to its first card and to
+        its own heading, so the two line up. The container is still what stops
+        the rows running the whole width of a 2560 px monitor.
+      */}
+      <PageContainer
+        width='media'
+        bleed
+        style={{
+          paddingTop: 16,
+          gap: 24,
+        }}
       >
-        <HomeHeroCarousel />
         {sections.map((section, index) => {
           // Render Streamystats sections after Recently Added sections
           // For default sections: place after Recently Added, before Suggested Movies (if present)
@@ -587,10 +621,7 @@ const HomeMobile = () => {
             settings.streamyStatsPromotedWatchlists;
           const streamystatsSections =
             index === streamystatsIndex && hasStreamystatsContent ? (
-              <View
-                key='streamystats-sections'
-                className='flex flex-col space-y-4'
-              >
+              <View key='streamystats-sections' style={{ gap: 24 }}>
                 {settings.streamyStatsMovieRecommendations && (
                   <StreamystatsRecommendations
                     title={t(
@@ -618,21 +649,31 @@ const HomeMobile = () => {
             ) : null;
           if (section.type === "InfiniteScrollingCollectionList") {
             const isHighPriority = section.priority === 1;
+            // "See all" on every row that is a window onto a library, which
+            // after this change is every row except the first.
+            //
+            // pass-02's complaint was that "Suggested movies" was the odd one
+            // out — a row of films from the movie library with no way into it
+            // while the rows above it had one. It has one now. "Continue
+            // watching" is the one row that is not a slice of a library but a
+            // list about you, and there is no screen of it to send anyone to;
+            // inventing a destination that lands somewhere approximate would
+            // be worse than the row not offering one.
             const handleSeeAll = section.parentId
               ? () => {
                   router.push({
                     pathname: "/(auth)/(tabs)/(libraries)/[libraryId]",
                     params: {
-                      libraryId: section.parentId!,
-                      sortBy: SortByOption.DateCreated,
-                      sortOrder: SortOrderOption.Descending,
+                      libraryId: section.parentId as string,
+                      ...(section.seeAllSort ?? {}),
                     },
-                  } as any);
+                  } as never);
                 }
               : undefined;
             return (
-              <View key={index} className='flex flex-col space-y-4'>
+              <View key={index} style={{ gap: 24 }}>
                 <InfiniteScrollingCollectionList
+                  testID='home-row'
                   title={section.title}
                   queryKey={section.queryKey}
                   queryFn={section.queryFn}
@@ -653,7 +694,7 @@ const HomeMobile = () => {
           }
           if (section.type === "MediaListSection") {
             return (
-              <View key={index} className='flex flex-col space-y-4'>
+              <View key={index} style={{ gap: 24 }}>
                 <MediaListSection
                   queryKey={section.queryKey}
                   queryFn={section.queryFn}
@@ -664,8 +705,24 @@ const HomeMobile = () => {
           }
           return null;
         })}
-      </View>
+      </PageContainer>
     </ScrollView>
+  );
+};
+
+/** One row's worth of loading: the heading's width, then the cards' geometry. */
+const HomeRowSkeleton = () => {
+  const { gutter } = useBreakpoint();
+  return (
+    <View>
+      <Skeleton
+        width={180}
+        height={18}
+        radius={4}
+        style={{ marginLeft: gutter, marginBottom: 12 }}
+      />
+      <CardRowSkeleton kind='portrait' count={6} />
+    </View>
   );
 };
 

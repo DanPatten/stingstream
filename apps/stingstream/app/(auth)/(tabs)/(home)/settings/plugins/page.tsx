@@ -14,7 +14,10 @@ export default function PluginsPage() {
 
   const handleRefreshFromServer = useCallback(async () => {
     // Returns undefined when the API call fails (handled internally).
-    const refreshed = await refreshStreamyfinPluginSettings();
+    // `force` because this is the one deliberate ask: the probe is otherwise
+    // cached per server (F-23), and an admin who has just installed the plugin
+    // would be told "no plugin" by a cache from before they did.
+    const refreshed = await refreshStreamyfinPluginSettings({ force: true });
     if (refreshed) {
       toast.success(t("home.settings.plugins.streamystats.toasts.refreshed"));
     } else {
