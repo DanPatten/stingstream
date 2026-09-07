@@ -39,11 +39,11 @@ else with it.**
 
 ### The keystore
 
-A release keystore lives **outside this repository**, at
+A release keystore lives **git-ignored, under `.local/`**, at
 
 ```
-E:\Dan\Documents\Repos\.secrets\stingstream-release.keystore
-E:\Dan\Documents\Repos\.secrets\stingstream-release.properties
+E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.keystore
+E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.properties
 ```
 
 Generated once for M5 with `keytool` (RSA 4096, PKCS12, 30-year validity, self-signed — a release
@@ -51,7 +51,7 @@ keystore's certificate does not need a real CA, only to never change):
 
 ```powershell
 keytool -genkeypair -v `
-  -keystore E:\Dan\Documents\Repos\.secrets\stingstream-release.keystore `
+  -keystore E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.keystore `
   -alias stingstream `
   -keyalg RSA -keysize 4096 `
   -validity 10957 `
@@ -64,7 +64,7 @@ keytool -genkeypair -v `
 in `docs/APP-DEV.md`; the same Java `.properties` backslash-escaping bites this file too):
 
 ```properties
-storeFile=E:/Dan/Documents/Repos/.secrets/stingstream-release.keystore
+storeFile=E:/Dan/Documents/Repos/StingStream/.local/secrets/stingstream-release.keystore
 storePassword=<the store password>
 keyAlias=stingstream
 keyPassword=<the same password — see above>
@@ -502,7 +502,7 @@ the new unit tests (`lib/stingstream/castStreamUrl.test.ts`,
 Run against a real 3-node acceptance harness (`tools/e2e-m4.ps1`'s node A/B/C, node A used as the
 "home" node for both emulators) and two Android emulators — `stingstream-tv` (Android TV, API 34)
 and `stingstream-phone` (a phone profile), both logged into node A as the seeded admin account.
-Screenshots referenced below are in `.win-temp/m5-screenshots/` (outside the repo).
+Screenshots referenced below are in `.local/scratch/m5-screenshots/` (git-ignored, under `.local/`).
 
 ### Release builds
 

@@ -58,7 +58,7 @@ Nothing in this list has been done. `docs/APP-RELEASE.md` is the build side; thi
 ## 5. Upload signing
 
 - [ ] **Back up the release keystore first.** It is at
-      `E:\Dan\Documents\Repos\.secrets\stingstream-release.keystore` and it exists in exactly one
+      `E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.keystore` and it exists in exactly one
       place. `docs/APP-RELEASE.md` §2 says what losing it costs: a new keystore means a new
       `applicationId` or a listing from scratch, and every existing install stops receiving updates.
       Two copies, offline, one off-site.

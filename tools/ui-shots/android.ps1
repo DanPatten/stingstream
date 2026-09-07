@@ -8,10 +8,10 @@
     here sets its own JAVA_HOME/ANDROID_HOME/ANDROID_SDK_ROOT/ANDROID_AVD_HOME/GRADLE_USER_HOME and
     prepends platform-tools/emulator to PATH before doing anything -- see docs/APP-DEV.md.
 
-    -Build acquires E:\Dan\Documents\Repos\.win-temp\locks\android-dir.lock before touching
+    -Build acquires E:\Dan\Documents\Repos\StingStream\.local\locks\android-dir.lock before touching
     apps/stingstream/android/ (regenerated wholesale by `expo prebuild --clean`, and shared with
     whichever variant built last -- docs/CONTRIBUTING.md rule 3) and releases it once the APK is
-    copied out to .win-temp\ui-loop\apk\<variant>\. If the lock is already held: less than 90
+    copied out to .local\ui-loop\apk\<variant>\. If the lock is already held: less than 90
     minutes old, this waits for it to clear (up to the remainder of that budget); 90 minutes or
     older, this refuses to touch it and reports the stale lock rather than breaking another agent's
     build -- that call belongs to the orchestrator.
@@ -85,10 +85,10 @@ param(
     [switch]$Metro,
     [switch]$Logcat,
     [switch]$Meminfo,
-    [string]$OutDir = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\pass-00\android',
-    [string]$ApkOutRoot = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\apk',
+    [string]$OutDir = (Join-Path $PSScriptRoot '..\..\.local\ui-loop\pass-00\android'),
+    [string]$ApkOutRoot = (Join-Path $PSScriptRoot '..\..\.local\ui-loop\apk'),
     [string]$Agent = 'WP-TOOLS',
-    [string]$LockPath = 'E:\Dan\Documents\Repos\.win-temp\locks\android-dir.lock'
+    [string]$LockPath = (Join-Path $PSScriptRoot '..\..\.local\locks\android-dir.lock')
 )
 
 $ErrorActionPreference = 'Stop'

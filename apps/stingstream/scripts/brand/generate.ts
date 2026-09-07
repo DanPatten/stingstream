@@ -436,7 +436,7 @@ async function main() {
     const outDir =
       outFlagIdx >= 0 && process.argv[outFlagIdx + 1]
         ? process.argv[outFlagIdx + 1]
-        : "E:\\Dan\\Documents\\Repos\\.win-temp\\ui-loop\\handoff\\brand";
+        : "E:\\Dan\\Documents\\Repos\\StingStream\\.local\\ui-loop\\handoff\\brand";
     await runCandidatesPreview(outDir);
     return;
   }

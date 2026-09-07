@@ -19,7 +19,7 @@
 
 .PARAMETER KeystoreProperties
   Path to the release keystore's properties file (storeFile/storePassword/keyAlias/keyPassword).
-  Defaults to `E:\Dan\Documents\Repos\.secrets\stingstream-release.properties` — the location
+  Defaults to `E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.properties` — the location
   docs/APP-RELEASE.md documents for Dan's own machine. If the file does not exist, the build still
   succeeds but produces an **unsigned** APK/AAB (plugins/withReleaseSigning.ts's own fallback) —
   useful for a dry run, not for anything installed outside a device you already trust.
@@ -52,7 +52,7 @@ param(
     [ValidateSet('phone', 'tv', 'both')]
     [string] $Variant = 'both',
 
-    [string] $KeystoreProperties = 'E:\Dan\Documents\Repos\.secrets\stingstream-release.properties',
+    [string] $KeystoreProperties = 'E:\Dan\Documents\Repos\StingStream\.local\secrets\stingstream-release.properties',
 
     [switch] $SkipMesh,
     [switch] $SkipBun,

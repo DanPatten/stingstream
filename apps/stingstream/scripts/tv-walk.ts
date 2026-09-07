@@ -11,7 +11,7 @@
  *
  * Usage
  * -----
- *   bun scripts/tv-walk.ts --flow tv-flow.json --out ../../.win-temp/ui-loop/wp-tv-shell/shots/pass-01
+ *   bun scripts/tv-walk.ts --flow tv-flow.json --out ../../.local/ui-loop/wp-tv-shell/shots/pass-01
  *   bun scripts/tv-walk.ts --flow flow.json --out shots --serial emulator-5556 --meminfo
  *   bun scripts/tv-walk.ts --keys 20,20,23 --screen home --out shots
  *

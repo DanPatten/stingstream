@@ -37,10 +37,10 @@ Tier A is for the fast loop between passes, not for anything a report cites.
 **Never write to `apps/stingstream/dist`** (the shared, gitignored export other agents may also be
 using) **and never run a node out of `mesh/target/debug/`or `server/*/bin/` directly** -- both are
 `docs/CONTRIBUTING.md` rule 3. Everything in this package runs from a private copy under
-`E:\Dan\Documents\Repos\.win-temp\ui-loop\`:
+`E:\Dan\Documents\Repos\StingStream\.local\ui-loop\`:
 
 ```
-.win-temp\ui-loop\
+.local\ui-loop\
   bin\            tools/ui-node.ps1's private install-root copy (supervisor, Jellyfin, optionally the arrs)
   data\           the default node's data directory (config.toml, runtime.json, media, logs)
   web-dist\       default Tier B export target (tools/ui-node.ps1's -WebDist default)
@@ -68,18 +68,18 @@ powershell tools\ui-node.ps1 -Fresh -Seed -WithArrs -Bind 127.0.0.1
 powershell tools\ui-node.ps1 -Stop
 
 # Seed media into an already-running node's data dir (also usable standalone).
-powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\.win-temp\ui-loop\data\media
+powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\StingStream\.local\ui-loop\data\media
 
 # Screenshots + sweep + report, three viewports, against a running node.
 cd tools\ui-shots
-node shots.mjs --base http://127.0.0.1:8795 --out ..\..\..\.win-temp\ui-loop\pass-00\web `
-  --pass-file ..\..\..\.win-temp\ui-loop\data\runtime.json
+node shots.mjs --base http://127.0.0.1:8795 --out ..\..\.local\ui-loop\pass-00\web `
+  --pass-file ..\..\.local\ui-loop\data\runtime.json
 
 # One screen, all viewports, while iterating on it.
 node shots.mjs --base http://127.0.0.1:8795 --out <dir> --pass-file <runtime.json> --only 02-home
 
 # The golden-startup acceptance run.
-powershell tools\ui-startup.ps1 -WebDist E:\Dan\Documents\Repos\.win-temp\ui-loop\web-dist -DriveUi -Lan
+powershell tools\ui-startup.ps1 -WebDist E:\Dan\Documents\Repos\StingStream\.local\ui-loop\web-dist -DriveUi -Lan
 
 # Android phone: start the emulator, install the current debug APK, capture a screen.
 powershell tools\ui-shots\android.ps1 -Emulator start -Variant phone
@@ -420,7 +420,7 @@ right screen. Almost everything is pinned to a direct URL again as a result.
   36), headless, `-gpu swiftshader_indirect`, waits for `sys.boot_completed`. Only one emulator is
   assumed running at a time.
 - `-Build phone|tv` -- `expo prebuild --platform android --clean` (`EXPO_TV=0`/`1`) then `gradlew
-  assembleDebug`, under the lock (see below), APK copied to `.win-temp\ui-loop\apk\<variant>\`.
+  assembleDebug`, under the lock (see below), APK copied to `.local\ui-loop\apk\<variant>\`.
   ~5-10 min warm, ~30 min cold. **Only run this when `modules/**`, `plugins/**`, `app.json` or a
   native dependency actually changed** -- see `docs/APP-DEV.md`; a JS-only change does not need it.
 - `-Capture phone|tv` -- one `adb exec-out screencap -p`, piped through `Start-Process`'s
@@ -439,7 +439,7 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 `apps/stingstream/android/` is regenerated wholesale by `expo prebuild --clean` for whichever
 variant built last (`docs/CONTRIBUTING.md` rule 3), so two agents building different variants at
 once corrupt each other's output. `-Build` takes
-`E:\Dan\Documents\Repos\.win-temp\locks\android-dir.lock` (`agent=<name> variant=phone|tv
+`E:\Dan\Documents\Repos\StingStream\.local\locks\android-dir.lock` (`agent=<name> variant=phone|tv
 since=<ISO>`) before touching `android/`, and releases it once the APK is copied out. If the lock
 is already held: **younger than 90 minutes**, this waits for it to clear, up to the remainder of
 that budget; **90 minutes or older**, this refuses to touch it and throws, naming the stale lock --
@@ -454,7 +454,7 @@ breaking someone else's lock is the orchestrator's call, not this script's.
 3. `bun run typecheck && bun test && bun run i18n:check` (+ `bunx biome check --write --unsafe` on
    touched paths only -- `docs/CONTRIBUTING.md` rule 7); `cargo test -p stingstream` first if Rust
    changed, before starting a node (a running `stingstream.exe` holds the file a rebuild needs).
-4. Tier B export (`bunx expo export --platform web --output-dir .win-temp\ui-loop\web-dist`),
+4. Tier B export (`bunx expo export --platform web --output-dir .local\ui-loop\web-dist`),
    restart the node with `-WebDist` (or `-ForceCopy` if server-side code changed).
 5. `node shots.mjs --only <touched screens>` -- zero new findings on the touched screens.
 6. Android: dev-client reload (`-Metro`) + `-Capture` + `-Logcat` clean, only rebuilding
@@ -535,7 +535,7 @@ right web selector once a `testID` exists -- not an assumption, read out of
 Run 2026-09-06 against a private copy of the then-current build (`mesh/target/debug/stingstream.exe`,
 `server/jellyfin/.../bin/Debug/net10.0`, `apps/stingstream/dist` as the Tier B web bundle -- the
 pre-WP0/WP1/... UI, on purpose: this is the baseline the plan's review loop measures every later
-pass against). Numbers, findings and screenshots: `.win-temp\ui-loop\pass-00\` (outside the repo,
+pass against). Numbers, findings and screenshots: `.local\ui-loop\pass-00\` (outside the repo,
 per `docs/CONTRIBUTING.md`).
 
 **`ui-node.ps1 -Fresh -Seed`**: private copy made, config.toml written, gateway accepting
@@ -596,7 +596,7 @@ themselves.
 
 Run against a fresh node with a fresh `bunx expo export` of then-current master (WP0, WP11,
 WP-BRAND, WP3, WP-TV-SHELL, WP-TV-LOGIN, WP-GATE, WP-CORE, WP-TOOLS merged; not yet WP1/WP2/WP4/
-WP5/WP-PLAYER/WP6-10) -- `.win-temp\ui-loop\pass-03-f36\`.
+WP5/WP-PLAYER/WP6-10) -- `.local\ui-loop\pass-03-f36\`.
 
 **F-27, seed overview text -- fixed and confirmed.** `Write-MovieNfo`/`Write-SeriesNfo` no longer
 write a `<plot>` element at all (never wrote `<studio>`/`<tagline>`/`<outline>` either). Confirmed
@@ -665,7 +665,7 @@ Run against a fresh node: fresh `bunx expo export` of master (`dbdee21` -- WP1 l
 everything through it), `-ForceCopy` to pick up the current `stingstream.exe`/Jellyfin build,
 `-Fresh -Seed` (real artwork, the F-12 default). `shots.mjs --first-run --creds` -- all 16 screens
 (the 13 from pass-03 plus `13-more` and `14-favorites`) x 3 viewports.
-`.win-temp\ui-loop\wp1-repin\`.
+`.local\ui-loop\wp1-repin\`.
 
 **Re-pin -- fixed and confirmed.** Every section in "Pinned routes" above now navigates the way
 that table says: direct `page.goto()` for Home/Library/Settings/Search/Manage/Transfers/Favorites,

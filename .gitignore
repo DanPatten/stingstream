@@ -39,6 +39,10 @@ third_party/ffmpeg/bin/
 # Pebble, fetched by tools/e2e-sidedoor.ps1 (the binary and its public test certificates).
 third_party/pebble/bin/
 
+# === Housekeeping scratch (docs/RUNNING.md, docs/UI-LOOP.md): caches, e2e harness work dirs, ===
+# === secrets, worktrees, ui-loop/tmp/locks scratch — all git-ignored, none of it committed. ===
+.local/
+
 # === Editors / OS ===
 .idea/
 .vscode/*

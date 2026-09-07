@@ -413,9 +413,9 @@ if (-not (Test-Path (Join-Path $RepoRoot 'docs/ARCHITECTURE.md'))) {
 }
 
 if (-not $WorkDir) {
-    # Beside the repository, not inside it: this directory holds a whole node's data and would
-    # otherwise show up in every git status for the rest of the milestone.
-    $WorkDir = Join-Path (Split-Path -Parent $RepoRoot) '.stingstream-e2e'
+    # Under .local/, git-ignored: this directory holds a whole node's data and must never show up
+    # in git status for the rest of the milestone.
+    $WorkDir = Join-Path $RepoRoot '.local\e2e\stingstream-e2e'
 }
 
 $IsWindowsHost = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
@@ -473,7 +473,7 @@ try {
 Invoke-Step 'Build' {
     if ($SkipBuild) { Write-Host '      -SkipBuild: assuming everything is built'; return }
 
-    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path (Split-Path -Parent $RepoRoot) '.nuget-packages' }
+    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $RepoRoot '.local\caches\nuget-packages' }
 
     Write-Host '      cargo build -p stingstream'
     & cargo build --manifest-path (Join-Path $RepoRoot 'mesh/Cargo.toml') -p stingstream

@@ -377,7 +377,7 @@ with zero console errors), so both targets are green from the same install.
   `JAVA_HOME=E:\Java\jdk-17.0.20.101-hotspot`, `ANDROID_HOME=E:\Android\sdk`,
   `ANDROID_SDK_ROOT=E:\Android\sdk`, `ANDROID_AVD_HOME=E:\Android\avd`,
   `GRADLE_USER_HOME=E:\Dan\Documents\Repos\.gradle`,
-  `YARN_CACHE_FOLDER=E:\Dan\Documents\Repos\.yarn-cache`.
+  `YARN_CACHE_FOLDER=E:\Dan\Documents\Repos\StingStream\.local\caches\yarn-cache`.
 - **`android/local.properties` must use forward slashes**: `sdk.dir=E:/Android/sdk`. Java
   `.properties` files treat a backslash as an escape, so `sdk.dir=E:\Android\sdk` silently becomes
   `E:Androidsdk` and the build dies with the wonderfully unhelpful *"The filename, directory name,

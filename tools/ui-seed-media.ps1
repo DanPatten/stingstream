@@ -83,7 +83,7 @@
 
 .EXAMPLE
     # Offline gradients, no network needed at any point.
-    powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\.win-temp\ui-loop\data\media -OfflineArtwork
+    powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\StingStream\.local\ui-loop\data\media -OfflineArtwork
 
 .EXAMPLE
     # Re-seed into a node that is already up, and ask it to notice.

@@ -295,7 +295,7 @@ foreach ($n in @(
     @{ Name = "a"; Port = 8890 },
     @{ Name = "b"; Port = 8990 }
 )) {
-    $dir = "E:\Dan\Documents\Repos\.win-temp\stingstream-$($n.Name)"
+    $dir = "E:\Dan\Documents\Repos\StingStream\.local\scratch\stingstream-$($n.Name)"
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     @"
 node_name = "node-$($n.Name)"
@@ -492,7 +492,7 @@ node to prove it all comes back.
 pwsh tools/e2e-m1.ps1                                          # the whole thing
 pwsh tools/e2e-m1.ps1 -SkipBuild                               # when iterating
 pwsh tools/e2e-m1.ps1 -KeepRunning                             # leave the node up to poke at
-pwsh tools/e2e-m1.ps1 -PrivateCopy E:\...\.win-temp\m1-run     # and do not hold the build outputs
+pwsh tools/e2e-m1.ps1 -PrivateCopy E:\...\StingStream\.local\scratch\m1-run  # and do not hold the build outputs
 ```
 
 It uses gateway port 8791 and ephemeral child ports, so it does not collide with a development
@@ -715,8 +715,8 @@ people (or several agents) share, that is not a nicety.
 
 ```powershell
 powershell tools\e2e-m4.ps1 -SkipBuild `
-    -PrivateCopy E:\Dan\Documents\Repos\.win-temp\m4-run `
-    -WorkDir     E:\Dan\Documents\Repos\.win-temp\m4-work
+    -PrivateCopy E:\Dan\Documents\Repos\StingStream\.local\scratch\m4-run `
+    -WorkDir     E:\Dan\Documents\Repos\StingStream\.local\scratch\m4-work
 ```
 
 **`e2e-m1`, `e2e-m4`, `e2e-m6` and `e2e-m7` all take it**, and on a shared checkout you should
