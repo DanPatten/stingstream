@@ -762,10 +762,13 @@ flag ends the moment the node is claimed, by that call or by the account simply 
 is clear nothing re-applies `runtime.json` over the account again: neither a restart nor
 `POST /setup/run`.
 
-Three things gate it. The gateway refuses `setup/admin` from any peer that is not on this machine,
-which is the real control because it is the only place that sees the true socket peer; the flag
-itself closes the window the moment somebody uses it; and Core repeats the loopback check as a
-second condition, as the arr webhook does. `GET /stingstream/api/v1/setup/state` is deliberately
+Three things gate it. The gateway refuses `setup/admin` from any peer that is not on this machine
+or this network, which is the real control because it is the only place that sees the true socket
+peer; the flag itself closes the window the moment somebody uses it; and Core repeats the same
+classification as a second condition, as the arr webhook does. "This network" means loopback,
+RFC 1918, link-local and IPv6 unique local addresses — not carrier-grade NAT, which looks private
+and is an ISP's shared space. Loopback alone was the first design and was unusable: a node lives in
+a cupboard and the person setting it up is on the sofa. `GET /stingstream/api/v1/setup/state` is deliberately
 ungated and answers from anywhere, because a phone has to be able to learn that a node is unclaimed
 in order to say "finish setup on the computer running StingStream" — it reveals one boolean, which
 `/healthz` already reveals as `first_run`.
@@ -1463,6 +1466,25 @@ same-hash-only even before a byte was on the wire, and nothing was corrected. Be
 why the class of failure is now survivable rather than only that instance of it: a holder retracts a
 row whose file is gone, a reader re-reads that holder's inventory before trying the next candidate,
 and the opening attempt walks every online holder rather than only the ones sharing a hash.
+
+#### A federated item's Jellyfin id is not stable, and a stale one answers 500
+
+The materializer rewrites a title's pointers whenever the set of holders changes — a holder losing
+its file is exactly that — and Jellyfin drops the old item and resolves a new one, with a new id.
+Anything holding an id from a moment earlier is then holding the id of a `BaseItems` row that no
+longer exists.
+
+What upstream does with that is worth knowing before it is met in the wild: `POST /Sessions/Playing`
+writes a `UserData` row keyed on the item, so an unknown id does not come back as a 404 — SQLite
+refuses the insert with `FOREIGN KEY constraint failed`, EF Core turns it into a `DbUpdateException`,
+and the client gets **500 `Error processing request.`** with nothing in it. That is CI run
+34156353224: `tools/e2e-m7.ps1` read an item id, spent a second creating an account and
+authenticating twice while A re-materialized, and reported playback against an item that had gone.
+
+The harness resolves the id immediately before it uses one and re-resolves once if the server
+rejects it anyway. The 500 itself is upstream's — a stale id deserves a 4xx — and is not patched
+here; it is recorded so the next person to see it knows what it means in a minute rather than an
+afternoon.
 
 #### Downloads take the original
 

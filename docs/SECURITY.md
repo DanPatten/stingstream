@@ -181,7 +181,7 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/inventory/*` | all | Admin |
 | `/stingstream/api/v1/qualityprofiles/*` | all | Admin |
 | `/stingstream/api/v1/setup/state` | GET | Anonymous, answers anywhere; one boolean (`Pending`) plus where the caller is (`Loopback`, `TrustedPeer`) |
-| `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback-or-private-network + gateway refuses public peers |
+| `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback or private network (RFC 1918, link-local, IPv6 ULA); the gateway 404s a public peer, and a claimed node answers 409 to a private one |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 

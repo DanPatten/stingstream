@@ -200,7 +200,13 @@ namespace Emby.Server.Implementations.Library
             // resolves inside this process. The two clauses that remain cover the case the .strm
             // clause existed for (a pointer nothing has read yet) without re-probing one that has
             // been read. See docs/PATCHES.md.
+            // StingStream patch, second clause: and let a registered decorator veto the probe.
+            // A federated pointer reaches here with no video stream the first time it is played,
+            // which is exactly the shape the refresh below is for -- and probing it is both futile
+            // and slow, because the probe is `ffprobe` in its own process and the pointer's host
+            // only resolves inside this one. See IMediaSourceDecorator.ShouldSkipRemoteProbe.
             if (allowMediaProbe && mediaSources[0].Type != MediaSourceType.Placeholder
+                && _mediaSourceDecorator?.ShouldSkipRemoteProbe(mediaSources) != true
                 && ((item.MediaType == MediaType.Video && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Video))
                     || (item.MediaType == MediaType.Audio && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Audio))))
             {

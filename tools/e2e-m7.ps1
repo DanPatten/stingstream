@@ -86,6 +86,7 @@
 .EXAMPLE
     pwsh tools/e2e-m7.ps1 -SkipBuild -PrivateCopy E:\stingstream-e2e-m7-bin
 #>
+# CI job name: "e2e: watch together, subtitles, recordings" (formerly labelled M7)
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -153,7 +154,7 @@ $ExeSuffix = if ($IsWin) { '.exe' } else { '' }
 $SupervisorExe = Join-Path $RepoRoot "mesh/target/debug/stingstream$ExeSuffix"
 
 Write-Host ''
-Write-Host 'StingStream M7 acceptance harness' -ForegroundColor White
+Write-Host 'StingStream acceptance: watch together, subtitles, recordings' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  node A    http://127.0.0.1:$GatewayPortA   (watches, leads the watch party)"
@@ -1242,10 +1243,10 @@ Invoke-Step 'The leader knows how far off its follower is, and ending it takes t
 
 if (Test-HarnessFailed) {
     Write-Host ''
-    Write-Host 'M7 ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (watch together): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M7 ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (watch together): PASSED' -ForegroundColor Green
 exit 0
