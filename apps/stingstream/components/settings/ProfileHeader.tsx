@@ -13,6 +13,7 @@ import { useNodeContext } from "@/hooks/useNodeContext";
 import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
+import { formatVersionLabel, pickVersion } from "./appVersionLabel";
 
 const AVATAR_SIZE = 64;
 
@@ -27,16 +28,32 @@ const safeRead = <T,>(fn: () => T | null | undefined): T | null => {
 
 /**
  * "v0.2.0 (2)" on native, "v0.2.0" on web — the marketing version plus a build number where one
- * actually exists.
+ * actually exists. The formatting itself (`formatVersionLabel`) and the candidate-picking
+ * (`pickVersion`) live in `appVersionLabel.ts`, free of these platform imports, and are unit
+ * tested there; this function only supplies the candidates.
  *
  * `expo-application`'s native module has no web implementation, so `Application.
  * nativeApplicationVersion`/`nativeBuildVersion` come back `null` there. The row this replaces
  * papered over that gap with `utils/version.ts`'s graduated dev/CI string (branch, commit, a
  * CI-only run number meant for a build artifact, not a phone-in-hand user) — on web that run
  * number surfaced as a plain object rather than a string, and the row printed the literal text
- * "#[object Object]" (F-30). `Constants.expoConfig.version` mirrors `app.json`'s `version` on every
- * platform including web, so the web branch reads that instead of a value only the native runtime
- * has. There is no web equivalent of `versionCode`/`buildNumber` — confirmed live: `expo export
+ * "#[object Object]" (F-30).
+ *
+ * Web reads three candidates, in order, and never falls back to a literal:
+ *  1. `Constants.expoConfig?.version` — the documented API, mirrors `app.json`.
+ *  2. `Constants.manifest?.version` — `expo-constants`'s *web* implementation
+ *     (`ExponentConstants.web.ts`) actually returns the whole `app.json`-shaped object here
+ *     (`process.env.APP_MANIFEST`), even though its TS type describes the native embedded-manifest
+ *     shape, which has no `version` — hence the cast.
+ *  3. `process.env.EXPO_PUBLIC_APP_VERSION` — set by `app.config.ts` from the exact config that
+ *     export resolved. Both 1 and 2 are baked in at Metro bundle time from `app.json` by
+ *     `babel-preset-expo`'s own injection, and persistent-cache staleness there is a real,
+ *     observed failure mode: a version bump landing in `app.json` and a later `expo export
+ *     --platform web` still reading the old version through both of them (F-30 follow-up).
+ *     `EXPO_PUBLIC_*` goes through Expo's separate, single-purpose inline-env-var transform, so it
+ *     is never behind that same cache.
+ *
+ * There is no web equivalent of `versionCode`/`buildNumber` — confirmed live: `expo export
  * --platform web` does not embed `app.json`'s `android`/`ios` blocks into the bundle at all, so
  * `Constants.expoConfig.android` is always `undefined` there — so the web string never grows a
  * parenthetical rather than fabricating one from a field that does not exist for this platform.
@@ -44,14 +61,18 @@ const safeRead = <T,>(fn: () => T | null | undefined): T | null => {
 export function appVersionLabel(): string {
   const web = Platform.OS === "web";
   const version = web
-    ? (Constants.expoConfig?.version ?? null)
-    : (safeRead(() => Application.nativeApplicationVersion) ??
-      Constants.expoConfig?.version ??
-      null);
+    ? pickVersion([
+        Constants.expoConfig?.version,
+        (Constants.manifest as { version?: string } | null)?.version,
+        process.env.EXPO_PUBLIC_APP_VERSION,
+      ])
+    : pickVersion([
+        safeRead(() => Application.nativeApplicationVersion),
+        Constants.expoConfig?.version,
+      ]);
   const build = web ? null : safeRead(() => Application.nativeBuildVersion);
 
-  if (!version) return "N/A";
-  return build ? `v${version} (${build})` : `v${version}`;
+  return formatVersionLabel(version, build);
 }
 
 const initialsFor = (name?: string | null): string => {
