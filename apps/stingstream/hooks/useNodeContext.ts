@@ -26,17 +26,20 @@ export interface NodeContext {
    * Loopback, or a peer on the same private network — the two Dan wants able to see the
    * first-run "Create your StingStream account" screen rather than "finish it from a device on
    * your home network" (2026-09-07: "localhost only works on the same PC — by IP is better").
-   * WP-GATE is adding this as a marker field of its own (its own loopback-or-private-peer check,
-   * server-side); until it lands this is derived client-side from this page's own hostname — a
-   * browser that reached a private or loopback address is itself evidence of being on that
-   * network. The marker's own boolean wins once WP-GATE ships it.
+   * The marker sends its own value (WP-GATE, `Core`'s `SetupGate.IsTrustedPeer` computed against
+   * the real socket peer), which wins whenever it is present; this field falls back to deriving
+   * it client-side from this page's own hostname only for a marker old enough not to send one,
+   * or the env-URL path (no marker at all). `setup/state`'s own `SetupState.trustedPeer` (see
+   * `lib/stingstream/setup.ts`) is a second, fresher authority the state machine prefers once
+   * that request lands — this field is what it has before then.
    */
   trustedPeer: boolean;
   /**
    * LAN addresses this node is reachable at (e.g. `["http://192.168.0.16:8790"]`), from the
-   * marker's optional `addresses` array. Empty until WP-GATE ships it. Prefer this over `origin`
-   * when telling somebody where to go — `origin` is just however *this* page got here, which on
-   * the node's own machine is `localhost` and means nothing to anyone else.
+   * marker's `addresses` array — empty for an untrusted peer or a node with none configured, by
+   * the gateway's own design (never hinting at the shape of the network to a stranger). Prefer
+   * this over `origin` when telling somebody where to go — `origin` is just however *this* page
+   * got here, which on the node's own machine is `localhost` and means nothing to anyone else.
    */
   addresses: string[];
   /**
@@ -103,9 +106,11 @@ const absoluteOrigin = (value: string | null | undefined): string | null => {
 
 /**
  * Loopback and RFC1918 / link-local / IPv6-ULA hosts: "this browser reached the node over a
- * private network", not "the whole internet can". This is the client-side stand-in for
- * WP-GATE's own `trustedPeer` field (a loopback-or-private-peer check made server-side, where the
- * gateway can see the real socket address) — see `trustedPeer` on `NodeContext`.
+ * private network", not "the whole internet can". This is the client-side fallback for markers
+ * old enough not to send their own `trustedPeer` — WP-GATE's `Core`-side
+ * `SetupGate.IsTrustedPeer`, computed against the real socket peer, is the authority and is what
+ * every current marker and `setup/state` response actually carries — see `trustedPeer` on
+ * `NodeContext`.
  */
 const isPrivateOrLoopbackHost = (hostname: string): boolean => {
   const host = hostname

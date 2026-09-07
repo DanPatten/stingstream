@@ -186,21 +186,26 @@ export const LoginScreen: React.FC = () => {
     ): Promise<{ phase: Phase; message?: string }> => {
       // Loopback or a private-network peer gets the account screen; anyone else is sent to
       // "finish it from a device on your home network" (Dan, 2026-09-07: "localhost only works
-      // on the same PC — by IP is better"). `context.trustedPeer` is a property of *this* page —
-      // known synchronously, before either request below — so it settles both branches.
-      const setupPhase = context.trustedPeer ? "setup" : "setupElsewhere";
+      // on the same PC — by IP is better"). Core's `setup/state` is the authority — it is the
+      // same `SetupGate.IsTrustedPeer` check that actually gates `setup/admin`, run against the
+      // real socket peer rather than a hostname string — so its answer wins whenever the request
+      // succeeds; `context.trustedPeer` (client-derived from this page's own address) is only
+      // the fallback for the one case Core cannot answer at all: unreachable.
       try {
         const state = await getSetupState(context.origin);
         if (!state.pending) {
           return { phase: connected ? "signIn" : "serverForm" };
         }
-        return { phase: setupPhase };
+        return { phase: state.trustedPeer ? "setup" : "setupElsewhere" };
       } catch {
         // Nobody answered. The marker's hint is the only thing left, and it is better than
         // guessing: a pending node with an unreachable Core still must not offer a sign-in card
         // for an account that does not exist.
         if (context.setupPending === true) {
-          return { phase: setupPhase, message: t("setup.error_unreachable") };
+          return {
+            phase: context.trustedPeer ? "setup" : "setupElsewhere",
+            message: t("setup.error_unreachable"),
+          };
         }
         return { phase: connected ? "signIn" : "serverForm" };
       }
@@ -340,7 +345,7 @@ export const LoginScreen: React.FC = () => {
       const state = await getSetupState(nodeContext.origin, { attempts: 1 });
       if (!state.pending) {
         setPhase("signIn");
-      } else if (nodeContext.trustedPeer) {
+      } else if (state.trustedPeer) {
         setPhase("setup");
       } else {
         setSetupMessage(t("setup.elsewhere_still_pending"));

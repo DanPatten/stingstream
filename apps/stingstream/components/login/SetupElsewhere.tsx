@@ -9,10 +9,12 @@ import { radius, tokens } from "@/constants/theme";
 export interface SetupElsewhereProps {
   /**
    * The node's own LAN address(es) (e.g. `["http://192.168.0.16:8790"]`), from the marker's
-   * `addresses` array — `NodeContext.addresses`. Empty until WP-GATE ships that field; the copy
-   * still reads fine with nothing to list, it just names no address. Never `localhost`: whoever
-   * is reading this is not on the node's own machine, so that host means nothing to them
-   * (2026-09-07 decision: "localhost only works on the same PC — by IP is better").
+   * `addresses` array — `NodeContext.addresses`. Empty by the gateway's own design here: this
+   * screen only ever renders for an untrusted peer, and the marker sends that peer `addresses: []`
+   * on purpose, never hinting at the shape of the network behind it — the copy still reads fine
+   * with nothing to list. Never `localhost`: whoever is reading this is not on the node's own
+   * machine, so that host means nothing to them (2026-09-07 decision: "localhost only works on
+   * the same PC — by IP is better").
    */
   addresses: string[];
   /** Re-query `setup/state`. */

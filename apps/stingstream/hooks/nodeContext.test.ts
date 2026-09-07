@@ -11,9 +11,11 @@ const marker = (overrides: Record<string, unknown> = {}) => ({
   jellyfin: "/jellyfin",
   api: "/stingstream/api/v1",
   loopback: true,
+  trustedPeer: true,
   setupPending: true,
   nodeName: "attic",
   version: "0.2.0",
+  addresses: [] as string[],
   ...overrides,
 });
 
@@ -28,7 +30,8 @@ describe("parseNodeMarker", () => {
       jellyfinPath: "/jellyfin",
       apiPath: "/stingstream/api/v1",
       loopback: true,
-      // ORIGIN is localhost, and the marker gives no trustedPeer/addresses of its own yet.
+      // The marker's own value (WP-GATE) -- ORIGIN is localhost, so the derived fallback would
+      // have agreed anyway, which the "trustedPeer" describe block below tests separately.
       trustedPeer: true,
       addresses: [],
       setupPending: true,
@@ -193,9 +196,10 @@ describe("parseNodeMarker", () => {
       ).toBe(true);
     });
 
-    // Until WP-GATE's own field lands, derived from this page's own hostname -- see
-    // `isPrivateOrLoopbackHost`. `marker()` sends no `trustedPeer` of its own here, so every case
-    // below exercises the client-side fallback, not the marker's value.
+    // The client-side fallback, for a marker old enough not to send its own `trustedPeer` --
+    // every current marker does, so `trustedPeer: undefined` here stands in for that older shape
+    // and forces `parseNodeMarker` through `isPrivateOrLoopbackHost` rather than the marker's own
+    // (always-true, from the `marker()` default) value.
     test.each([
       ["localhost", true],
       ["127.0.0.1", true],
@@ -216,7 +220,7 @@ describe("parseNodeMarker", () => {
     ])("%s -> trustedPeer %s", (host, expected) => {
       const literal = host.includes(":") ? `[${host}]` : host;
       const origin = parseNodeMarker({
-        marker: marker(),
+        marker: marker({ trustedPeer: undefined }),
         origin: `http://${literal}:8790`,
       });
       expect(origin?.trustedPeer).toBe(expected);

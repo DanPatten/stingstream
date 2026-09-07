@@ -50,6 +50,13 @@ export interface SetupState {
   pending: boolean;
   /** True when this request came from the machine the node runs on. */
   loopback: boolean;
+  /**
+   * True when this request is somewhere Core's own `SetupGate.IsTrustedPeer` trusts — loopback
+   * or the same private network (RFC1918, link-local, IPv6 ULA) — the gate `setup/admin` itself
+   * enforces. The authority on who may see the create-account screen; prefer this over deriving
+   * it client-side (`NodeContext.trustedPeer`) whenever this endpoint has actually answered.
+   */
+  trustedPeer: boolean;
 }
 
 /**
@@ -236,20 +243,33 @@ async function fetchSetupState(
   // A **404 means not pending**, deliberately: an older node has no `setup` routes at all, and
   // the only sane reading of "this node has never heard of first-run setup" is that its account
   // already exists. Anything else strands a working server behind a screen it cannot satisfy.
-  if (response.status === 404) return { pending: false, loopback: false };
+  if (response.status === 404) {
+    return { pending: false, loopback: false, trustedPeer: false };
+  }
 
   if (!response.ok) {
     throw new SetupRequestError("server", t("setup.error_unexpected"));
   }
 
-  let body: { Pending?: unknown; Loopback?: unknown };
+  let body: { Pending?: unknown; Loopback?: unknown; TrustedPeer?: unknown };
   try {
     body = (await response.json()) as typeof body;
   } catch {
     throw new SetupRequestError("server", t("setup.error_unexpected"));
   }
 
-  return { pending: body?.Pending === true, loopback: body?.Loopback === true };
+  const loopback = body?.Loopback === true;
+  return {
+    pending: body?.Pending === true,
+    loopback,
+    // `TrustedPeer` is newer than `Loopback` — a node running an older Core answers with
+    // `{Pending, Loopback}` only, and `body?.TrustedPeer === true` would silently read that
+    // absence as "not trusted" even from loopback, which is a real downgrade from what an old
+    // server used to get. Trust the field only when it actually says something; otherwise fall
+    // back to `Loopback`, which is exactly what an old server's answer used to gate on.
+    trustedPeer:
+      typeof body?.TrustedPeer === "boolean" ? body.TrustedPeer : loopback,
+  };
 }
 
 /**
