@@ -7,7 +7,8 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { CARD_LAYOUTS, type CardKind } from "@/components/cards/CardData";
+import type { CardKind } from "@/components/cards/CardData";
+import { useCardLayout } from "@/components/cards/useCardLayout";
 import { interaction, radius as RADII, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 
@@ -72,7 +73,7 @@ export const SkeletonRow: React.FC<{
   withLabels?: boolean;
   style?: StyleProp<ViewStyle>;
 }> = ({ kind, count = 5, withLabels = false, style }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
   const { gutter } = useBreakpoint();
 
   return (
@@ -117,7 +118,7 @@ export const SkeletonGrid: React.FC<{
   withLabels?: boolean;
   style?: StyleProp<ViewStyle>;
 }> = ({ kind, columns, rows = 3, withLabels = true, style }) => {
-  const layout = CARD_LAYOUTS[kind];
+  const layout = useCardLayout(kind);
   const { gutter } = useBreakpoint();
   const safeColumns = Math.max(1, Math.floor(columns) || 1);
 
@@ -129,7 +130,6 @@ export const SkeletonGrid: React.FC<{
         {
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: layout.spacing,
           paddingHorizontal: gutter,
           paddingVertical: layout.verticalPadding,
         },
@@ -145,6 +145,15 @@ export const SkeletonGrid: React.FC<{
             width: `${100 / safeColumns}%`,
             maxWidth: `${100 / safeColumns}%`,
             flexGrow: 0,
+            flexShrink: 0,
+            // The gap lives *inside* the cell, not on the wrapper: with
+            // `gap` on a wrap container, N cells of 100/N% plus N-1 gaps is
+            // wider than the row, so the last column wraps and a three-column
+            // grid draws a two-column skeleton — the reflow this is here to
+            // prevent.
+            paddingRight:
+              index % safeColumns === safeColumns - 1 ? 0 : layout.spacing,
+            paddingBottom: layout.spacing,
           }}
         >
           <Skeleton

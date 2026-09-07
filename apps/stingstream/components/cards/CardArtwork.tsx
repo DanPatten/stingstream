@@ -1,8 +1,10 @@
 import { View } from "react-native";
+import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
-import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
+import { tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
+import { CardPlaceholderTile } from "./CardPlaceholderTile";
 
 type Props = {
   card: CardData;
@@ -10,8 +12,10 @@ type Props = {
   height: number;
   cornerRadius: number;
   /**
-   * Draws the progress bar along the artwork's bottom edge. A poster card
-   * draws its own under the title instead, inside the frosted band.
+   * Draws the progress bar along the artwork's bottom edge — where it reads as
+   * "you are this far into this", right on the thing it describes. A card that
+   * keeps the frosted band draws its own inside the band instead, under the
+   * title.
    */
   edgeProgress?: boolean;
   /** Full-bleed layer over the artwork — a play glyph, a status icon. */
@@ -33,6 +37,7 @@ export const CardArtwork: React.FC<Props> = ({
   edgeProgress = false,
   overlay,
 }) => {
+  const { accent } = useTheme();
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const unplayed = card.unplayedCount ?? 0;
   const badgeLabel =
@@ -47,7 +52,7 @@ export const CardArtwork: React.FC<Props> = ({
         borderRadius: cornerRadius,
         overflow: "hidden",
         borderWidth: 0.5,
-        borderColor: "rgba(255,255,255,0.12)",
+        borderColor: tokens.color.border.subtle,
       }}
     >
       {card.imageUrl ? (
@@ -56,10 +61,16 @@ export const CardArtwork: React.FC<Props> = ({
           source={{ uri: card.imageUrl }}
           cachePolicy='memory-disk'
           contentFit='cover'
+          accessibilityLabel={card.imageAlt ?? card.title}
           style={{ width: "100%", height: "100%" }}
         />
       ) : (
-        <View style={{ flex: 1, backgroundColor: "#1a1a1a" }} />
+        <CardPlaceholderTile
+          title={card.title}
+          placeholder={card.placeholder}
+          width={width}
+          accessibilityLabel={card.imageAlt ?? card.title}
+        />
       )}
 
       {overlay}
@@ -79,44 +90,27 @@ export const CardArtwork: React.FC<Props> = ({
             style={{
               height: 3,
               width: `${progress * 100}%`,
-              backgroundColor: Colors.primary,
+              backgroundColor: accent[500],
             }}
           />
         </View>
       )}
 
+      {/*
+        The only corner badge left, and it is always a number that means
+        something: episodes you have not watched yet. A single unwatched movie
+        used to draw a bare accent dot here — a bright mark on nearly every
+        poster in a library, saying nothing you could act on.
+      */}
       {badgeLabel ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 6,
-            right: 6,
-            minWidth: 20,
-            height: 20,
-            paddingHorizontal: 5,
-            borderRadius: 10,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: Colors.primary,
-          }}
-        >
-          <Text style={{ fontSize: 11, fontWeight: "700" }}>{badgeLabel}</Text>
-        </View>
-      ) : (
-        card.unwatched && (
-          <View
-            style={{
-              position: "absolute",
-              top: 8,
-              right: 8,
-              width: 13,
-              height: 13,
-              borderRadius: 6.5,
-              backgroundColor: Colors.primary,
-            }}
-          />
-        )
-      )}
+        <Pill
+          label={badgeLabel}
+          tone='accent'
+          emphasis='solid'
+          size='sm'
+          style={{ position: "absolute", top: 6, right: 6 }}
+        />
+      ) : null}
     </View>
   );
 };

@@ -749,6 +749,7 @@
   },
   "library": {
     "no_results": "No results",
+    "not_found": "This library does not exist",
     "no_libraries_found": "No libraries found",
     "item_types": {
       "movies": "Movies",
@@ -777,6 +778,7 @@
       "tags": "Tags",
       "all": "All",
       "reset": "Reset",
+      "clear": "Clear",
       "asc": "Ascending",
       "desc": "Descending"
     }

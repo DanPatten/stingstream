@@ -1,6 +1,11 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { storage } from "@/utils/mmkv";
-import { type CardData, cardSubtitle, itemProgressFraction } from "../CardData";
+import {
+  type CardData,
+  cardPlaceholder,
+  cardSubtitle,
+  itemProgressFraction,
+} from "../CardData";
 
 /**
  * Downloaded artwork lives in MMKV as raw base64, keyed by item id — there is
@@ -30,6 +35,7 @@ export function buildDownloadedCards(items: BaseItemDto[]): CardData[] {
         title: item.Name ?? "",
         subtitle: cardSubtitle(item),
         imageUrl: localArtwork(item.Id),
+        placeholder: cardPlaceholder(item),
         progress: itemProgressFraction(item),
       },
     ];
@@ -52,6 +58,7 @@ export function buildSeriesGroupCards(groups: BaseItemDto[][]): CardData[] {
         title: first.SeriesName ?? "",
         subtitle: first.ProductionYear ? String(first.ProductionYear) : null,
         imageUrl: localArtwork(seriesId),
+        placeholder: "series",
         badgeLabel: String(episodes.length),
       },
     ];
