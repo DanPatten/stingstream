@@ -77,6 +77,8 @@
 .EXAMPLE
     pwsh tools/e2e-m6.ps1 -SkipBuild -KeepRunning
 #>
+# CI job name: "e2e: requests" (formerly labelled M6, this build plan's milestone code for
+# request routing and fulfilment).
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -157,7 +159,7 @@ $ExeSuffix = if ($IsWin) { '.exe' } else { '' }
 $SupervisorExe = Join-Path $RepoRoot "mesh/target/debug/stingstream$ExeSuffix"
 
 Write-Host ''
-Write-Host 'StingStream M6 acceptance harness' -ForegroundColor White
+Write-Host 'StingStream acceptance: requests' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  node A    http://127.0.0.1:$GatewayPortA   (asks; no indexers, no arrs)"
@@ -864,10 +866,10 @@ Invoke-Step 'A request for a film the group already has starts no download' {
 
 if (Test-HarnessFailed) {
     Write-Host ''
-    Write-Host 'M6 ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (requests): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M6 ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (requests): PASSED' -ForegroundColor Green
 exit 0
