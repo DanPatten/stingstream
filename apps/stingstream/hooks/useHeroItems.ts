@@ -25,7 +25,7 @@ import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
 import { getParentBackdropImageUrl } from "@/utils/jellyfin/image/getParentBackdropImageUrl";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
-import { runtimeTicksToMinutes } from "@/utils/time";
+import { formatRuntimeTicks } from "@/utils/time";
 
 export type HeroSection = HomeHeroSection;
 
@@ -260,27 +260,16 @@ export const buildPosterUrl = (api: Api, item: BaseItemDto): string | null => {
   return getPrimaryImageUrl({ api, item, width: 240 });
 };
 
-/** One minute, in Jellyfin's 100-nanosecond ticks. */
-const TICKS_PER_MINUTE = 600000000;
-
-/**
- * A runtime a viewer can read.
- *
- * `runtimeTicksToMinutes` floors, so anything under a minute comes back "0m" —
- * which is what a twenty-second clip renders as, and reads as a broken value
- * rather than a short one (pass-02 F-26 says the same about the details page).
- * Under a minute the honest unit is seconds.
- */
-export const buildRuntimeBadge = (ticks: number): string => {
-  if (ticks >= TICKS_PER_MINUTE) return runtimeTicksToMinutes(ticks);
-  return `${Math.max(1, Math.round(ticks / 10000000))}s`;
-};
-
 export const buildBadges = (item: BaseItemDto): string[] => {
   const badges: string[] = [];
   if (item.ProductionYear) badges.push(String(item.ProductionYear));
   if (item.OfficialRating) badges.push(item.OfficialRating);
-  if (item.RunTimeTicks) badges.push(buildRuntimeBadge(item.RunTimeTicks));
+  // The local `buildRuntimeBadge` that used to live here is gone: `utils/time`'s
+  // own formatter counts seconds under a minute now, so the workaround for
+  // `runtimeTicksToMinutes` flooring a twenty-second clip to "0m" is redundant
+  // (WP5 follow-up to pass-02 F-26).
+  const runtime = formatRuntimeTicks(item.RunTimeTicks);
+  if (runtime) badges.push(runtime);
   return badges;
 };
 
