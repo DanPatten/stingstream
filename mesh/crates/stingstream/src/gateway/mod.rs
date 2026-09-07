@@ -100,6 +100,8 @@ pub struct GatewayState {
     /// `first_run` as `runtime.json` says it now. The `Runtime` beside it is a start-up snapshot,
     /// and Core clears this one field in the file minutes later — see [`crate::runtime::FirstRunFlag`].
     pub first_run: crate::runtime::FirstRunFlag,
+    /// Where somebody on this network could open this node.
+    pub addresses: LanAddresses,
 }
 
 pub fn router(node: Arc<NodeState>) -> Router {
@@ -112,12 +114,14 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
     let expose_child_uis = dev && node.config.gateway.expose_child_uis_in_dev;
     let dev_server = web.is_dev_server();
     let first_run = crate::runtime::FirstRunFlag::for_runtime(&node.runtime);
+    let addresses = LanAddresses::new(&node.runtime.gateway.bind, node.runtime.gateway.port);
     let state = GatewayState {
         node,
         client: proxy::client(),
         web,
         setup,
         first_run,
+        addresses,
     };
 
     let mut app = Router::new()
@@ -192,6 +196,10 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
 /// health gate still work from anywhere.
 async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
     let local = is_local(peer_addr(&req));
+    // Ask Core before answering, at most once every five seconds and only while the answer can
+    // still change. Without this the tooling that polls `/healthz` right after somebody finished
+    // the setup screen is told the node still needs setting up, for a whole poll interval.
+    state.setup.refreshed().await;
     let children = state.node.all();
     let ok = state.node.all_healthy();
     if !local {
@@ -218,6 +226,9 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         // starting, or a build too old to have the endpoint -- which is a different answer from
         // `false` and the UI treats it as one.
         "setup_pending": state.setup.pending(),
+        // Where somebody on this network could open this node. Held back from a stranger below,
+        // for the same reason the side door's `lan_ips` is.
+        "addresses": state.addresses.get(),
         "node": {
             "id": state.node.runtime.node_id,
             "name": state.node.runtime.node_name,
@@ -335,20 +346,32 @@ async fn sidedoor_hello(State(state): State<GatewayState>, req: Request) -> Resp
 }
 
 /// What the served page is told about this node and this request. See [`web::Marker`].
-fn marker_for<'a>(state: &'a GatewayState, req: &Request) -> web::Marker<'a> {
+///
+/// `addresses` is borrowed from the caller's own `Arc`, so the caller has to hold it for as long
+/// as the marker lives — which is why this takes it rather than reading it here.
+fn marker_for<'a>(
+    state: &'a GatewayState,
+    req: &Request,
+    addresses: &'a [String],
+) -> web::Marker<'a> {
+    let peer = peer_addr(req);
     web::Marker {
         node_name: &state.node.runtime.node_name,
         // The real socket peer, per request. `index.html` is already `no-cache`, so the answer
         // cannot be cached from one client and handed to another.
-        loopback: is_local(peer_addr(req)),
+        loopback: is_local(peer),
+        trusted_peer: is_private_or_local(peer),
         setup_pending: state.setup.pending(),
+        addresses,
     }
 }
 
 async fn index(State(state): State<GatewayState>, req: Request) -> Response {
     match &state.web {
         WebSource::Bundle(bundle) => {
-            web::serve(bundle, "/index.html", Some(&marker_for(&state, &req))).await
+            state.setup.refreshed().await;
+            let addresses = state.addresses.get();
+            web::serve(bundle, "/index.html", Some(&marker_for(&state, &req, &addresses))).await
         }
         WebSource::DevServer(upstream) => proxy_to_dev_server(&state, upstream.clone(), req).await,
         WebSource::None => {
@@ -382,7 +405,9 @@ async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response 
 
     match &state.web {
         WebSource::Bundle(bundle) => {
-            web::serve(bundle, &path, Some(&marker_for(&state, &req))).await
+            state.setup.refreshed().await;
+            let addresses = state.addresses.get();
+            web::serve(bundle, &path, Some(&marker_for(&state, &req, &addresses))).await
         }
         WebSource::DevServer(upstream) => proxy_to_dev_server(&state, upstream.clone(), req).await,
         // No bundle: the placeholder page is the honest answer for a page request, and a missing
@@ -412,7 +437,9 @@ async fn proxy_to_dev_server(state: &GatewayState, upstream: Upstream, mut req: 
     // The marker is spliced into the bytes that come back, so they have to arrive uncompressed.
     // Metro honours `Accept-Encoding`, and gzip would turn the splice into a corrupt document.
     req.headers_mut().remove(header::ACCEPT_ENCODING);
-    let marker = marker_for(state, &req);
+    state.setup.refreshed().await;
+    let addresses = state.addresses.get();
+    let marker = marker_for(state, &req, &addresses);
     let client_addr = peer_addr(&req);
     let response = proxy::proxy(state.client.clone(), upstream, "", client_addr, req).await;
     inject_into_html(response, &marker).await
@@ -565,37 +592,69 @@ fn peer_addr(req: &Request) -> Option<SocketAddr> {
 /// Core's own loopback check saw every caller on the LAN as local. A non-local peer gets the same
 /// `404 no such route` as a path that does not exist — not a 403, which would confirm that it does.
 ///
-/// * `…/webhooks` — `POST /stingstream/api/v1/webhooks/arr` is `[AllowAnonymous]` in Core because
-///   the arrs have no Jellyfin token to present. Core authenticates it with a per-node shared
-///   secret, which is the real lock; this is the second one.
-/// * `…/setup/admin` — creates the **first account on the node**, and is anonymous by necessity:
-///   before it succeeds there is nobody to authenticate as. Whoever is at the keyboard of the
-///   machine running the server already has its files; anybody else on the Wi-Fi must not be able
-///   to claim it first. That is the whole gate, and it is why the setup screen tells a remote
-///   browser to finish setup on the computer running StingStream instead.
+/// One route: `POST /stingstream/api/v1/webhooks/arr`, which is `[AllowAnonymous]` in Core because
+/// the arrs have no Jellyfin token to present. Core authenticates it with a per-node shared secret,
+/// which is the real lock; this is the second one. Nothing but this machine's own children has any
+/// business posting it, so it stays at the strictest bar even though its neighbour below moved.
 ///
-/// `GET …/setup/state` is deliberately **not** here: it answers one boolean that `/healthz`
+/// `GET …/setup/state` is deliberately in neither set: it answers one boolean that `/healthz`
 /// already carries, the app needs it on every device to know which screen to show, and knowing it
-/// does not help anybody past the line above.
-const LOOPBACK_ONLY_PREFIXES: &[&str] = &[
-    "/stingstream/api/v1/webhooks",
-    "/stingstream/api/v1/setup/admin",
-];
+/// does not help anybody past the gate below.
+const LOOPBACK_ONLY_PREFIXES: &[&str] = &["/stingstream/api/v1/webhooks"];
 
-/// Whether a path is one of [`LOOPBACK_ONLY_PREFIXES`].
+/// Core routes that anybody **on this network** may reach, while there is still a node to claim.
 ///
-/// A plain prefix test, deliberately: it is a gate, and the failure worth avoiding is a path that
-/// slips past it, not one that is refused too eagerly.
-fn is_loopback_only(path: &str) -> bool {
-    LOOPBACK_ONLY_PREFIXES.iter().any(|p| path.starts_with(p))
+/// One route: `POST /stingstream/api/v1/setup/admin`, which creates the first account and is
+/// anonymous by necessity — before it succeeds there is nobody to authenticate as.
+///
+/// It started out loopback-only, and that was the wrong bar (Dan, 2026-09-07). A great many people
+/// install this on a machine with no screen attached; telling them to go and find one, or to learn
+/// what SSH is, before they can make an account is a worse first five minutes than the risk it
+/// avoids. The risk it avoids is somebody **on your own Wi-Fi** claiming your server in the
+/// minutes before you do, which is a real thing but a much smaller one than the internet at large,
+/// and is the same trust boundary every consumer NAS setup wizard already draws.
+///
+/// So: loopback always; a private-network peer ([`is_private_or_local`]) while setup is still
+/// open; **404 for a public peer, always**. The "while setup is still open" half is this side's
+/// only opinion — Core does the real pending check and answers 409 once the node is claimed — and
+/// an unknown state counts as open, because refusing on "we could not ask" would lock somebody out
+/// of a node that is genuinely waiting to be set up.
+const TRUSTED_NETWORK_PREFIXES: &[&str] = &["/stingstream/api/v1/setup/admin"];
+
+/// Whether a path is under one of `prefixes`.
+///
+/// A plain prefix test, deliberately: these are gates, and the failure worth avoiding is a path
+/// that slips past one, not one that is refused too eagerly.
+fn is_under(path: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|p| path.starts_with(p))
 }
 
 async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Response {
-    if is_loopback_only(req.uri().path()) && !is_local(peer_addr(&req)) {
+    let path = req.uri().path();
+    let peer = peer_addr(&req);
+    let refuse = if is_under(path, LOOPBACK_ONLY_PREFIXES) {
+        (!is_local(peer)).then_some("this machine only")
+    } else if is_under(path, TRUSTED_NETWORK_PREFIXES) {
+        let claimed = state.setup.pending() == Some(false);
+        if is_local(peer) {
+            None
+        } else if !is_private_or_local(peer) {
+            Some("this network only")
+        } else if claimed {
+            // Nothing to claim any more, so the wider door closes again.
+            Some("setup is already complete")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(why) = refuse {
         tracing::warn!(
-            path = req.uri().path(),
-            from = ?peer_addr(&req),
-            "refusing a loopback-only route to a caller that is not on this machine"
+            path,
+            from = ?peer,
+            why,
+            "refusing a route that is not open to this caller"
         );
         return (
             StatusCode::NOT_FOUND,
@@ -646,19 +705,175 @@ async fn proxy_to_mesh(State(state): State<GatewayState>, req: Request) -> Respo
     forward(state, req, "mesh", MESH_PREFIX, MESH_UPSTREAM_PREFIX.to_string()).await
 }
 
-/// Whether a request came from this machine.
+/// An IPv4-mapped IPv6 address as the IPv4 address it is.
 ///
-/// IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is what a dual-stack listener reports for a loopback IPv4
-/// client, so unmapping first is not optional — without it every local request over IPv6 would be
-/// refused.
+/// `::ffff:127.0.0.1` is what a dual-stack listener reports for a loopback IPv4 client, so every
+/// classification below has to unmap first — without it a local request over IPv6 is refused, and
+/// a LAN request over IPv6 is not recognised as being on the LAN.
+fn unmapped(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(std::net::IpAddr::V4)
+            .unwrap_or(std::net::IpAddr::V6(v6)),
+        v4 => v4,
+    }
+}
+
+/// Whether a request came from this machine.
 pub fn is_local(addr: Option<SocketAddr>) -> bool {
-    match addr.map(|a| a.ip()) {
-        Some(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
-        Some(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
-            Some(v4) => v4.is_loopback(),
-            None => v6.is_loopback(),
-        },
+    match addr.map(|a| unmapped(a.ip())) {
+        Some(ip) => ip.is_loopback(),
         None => false,
+    }
+}
+
+/// Whether a request came from this machine **or from the network this machine is on**.
+///
+/// Used for exactly one route — creating the first account (see [`TRUSTED_NETWORK_PREFIXES`]) —
+/// because "the computer running StingStream" turned out to be the wrong bar for it: plenty of
+/// people install this on a box with no screen, and telling them to go and find one is a worse
+/// first five minutes than letting somebody on their own Wi-Fi claim the server. It is a weaker
+/// property than [`is_local`] and it is not a substitute for it anywhere else.
+///
+/// The ranges are the ones that cannot be routed to from the internet, so an address that matches
+/// belongs to somebody who is already inside: RFC 1918 (`10/8`, `172.16/12`, `192.168/16`),
+/// IPv4 link-local (`169.254/16`, what two machines give themselves with no DHCP), IPv6 unique
+/// local (`fc00::/7`) and IPv6 link-local (`fe80::/10`), plus loopback.
+///
+/// Deliberately **not** included: carrier-grade NAT (`100.64/10`). It is unroutable, but it is the
+/// address space a mobile network hands out, so "not reachable from the internet" and "on my
+/// network" part company there.
+pub fn is_private_or_local(addr: Option<SocketAddr>) -> bool {
+    match addr.map(|a| unmapped(a.ip())) {
+        Some(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local()
+        }
+        Some(std::net::IpAddr::V6(v6)) => {
+            let head = v6.segments()[0];
+            // fc00::/7 unique local, fe80::/10 link local.
+            v6.is_loopback() || (head & 0xfe00) == 0xfc00 || (head & 0xffc0) == 0xfe80
+        }
+        None => false,
+    }
+}
+
+/// Where another device on this network could reach this node, as base URLs.
+///
+/// `localhost` is useless to everybody except the person sitting at the machine, and the first
+/// thing a node has to tell somebody is where to open it. The address is found the way
+/// [`crate::sidedoor::addrs`] finds it — by asking the routing table which local address a
+/// datagram would leave from, which sends no packet, resolves no name and enumerates no interfaces
+/// — once per family.
+///
+/// A node bound to loopback has none by definition, and saying otherwise would send somebody to an
+/// address nothing is listening on.
+pub fn lan_base_urls(bind: &str, port: u16) -> Vec<String> {
+    if bind
+        .trim()
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
+    {
+        return Vec::new();
+    }
+    let mut urls = Vec::new();
+    for probe in ["192.0.2.1:9", "[2001:db8::1]:9"] {
+        let Ok(dest) = probe.parse::<SocketAddr>() else {
+            continue;
+        };
+        let bind_any: SocketAddr = if dest.is_ipv4() {
+            match "0.0.0.0:0".parse() {
+                Ok(a) => a,
+                Err(_) => continue,
+            }
+        } else {
+            match "[::]:0".parse() {
+                Ok(a) => a,
+                Err(_) => continue,
+            }
+        };
+        let Ok(sock) = std::net::UdpSocket::bind(bind_any) else {
+            continue;
+        };
+        if sock.connect(dest).is_err() {
+            continue;
+        }
+        let Ok(local) = sock.local_addr() else {
+            continue;
+        };
+        if !crate::sidedoor::addrs::is_usable_lan(local.ip()) {
+            continue;
+        }
+        let url = match local.ip() {
+            std::net::IpAddr::V6(v6) => format!("http://[{v6}]:{port}"),
+            ip => format!("http://{ip}:{port}"),
+        };
+        if !urls.contains(&url) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+/// [`lan_base_urls`], recomputed at most every [`ADDRESS_TTL`].
+///
+/// The answer changes — a laptop moves network, a VPN comes up — so it cannot be worked out once
+/// at start-up and kept. It also must not be worked out per request: `/healthz` is polled every
+/// five seconds by every harness and the marker goes into every page load.
+const ADDRESS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[derive(Clone)]
+pub struct LanAddresses {
+    /// `None` for a fixed list that is never recomputed.
+    source: Option<(Arc<str>, u16)>,
+    cached: Arc<std::sync::RwLock<(Arc<Vec<String>>, std::time::Instant)>>,
+}
+
+impl LanAddresses {
+    pub fn new(bind: &str, port: u16) -> Self {
+        Self {
+            source: Some((Arc::from(bind), port)),
+            cached: Arc::new(std::sync::RwLock::new((
+                Arc::new(lan_base_urls(bind, port)),
+                std::time::Instant::now(),
+            ))),
+        }
+    }
+
+    /// A fixed list, for tests and for a node that has no business advertising one.
+    pub fn fixed(urls: Vec<String>) -> Self {
+        Self {
+            source: None,
+            cached: Arc::new(std::sync::RwLock::new((
+                Arc::new(urls),
+                std::time::Instant::now(),
+            ))),
+        }
+    }
+
+    pub fn get(&self) -> Arc<Vec<String>> {
+        let Some((bind, port)) = self.source.as_ref() else {
+            return self
+                .cached
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .0
+                .clone();
+        };
+        {
+            let cached = self.cached.read().unwrap_or_else(|e| e.into_inner());
+            if cached.1.elapsed() < ADDRESS_TTL {
+                return cached.0.clone();
+            }
+        }
+        let mut cached = self.cached.write().unwrap_or_else(|e| e.into_inner());
+        if cached.1.elapsed() >= ADDRESS_TTL {
+            *cached = (
+                Arc::new(lan_base_urls(bind, *port)),
+                std::time::Instant::now(),
+            );
+        }
+        cached.0.clone()
     }
 }
 
@@ -960,6 +1175,7 @@ mod tests {
             // No file behind this fixture's data_dir, so the flag is simply what it was told --
             // which is what `for_runtime` would settle on anyway once the read failed.
             first_run: crate::runtime::FirstRunFlag::fixed(false),
+            addresses: LanAddresses::fixed(vec!["http://192.168.0.16:8790".to_string()]),
         }
     }
 
@@ -1096,45 +1312,136 @@ mod tests {
         local
             .extensions_mut()
             .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
-        let m = marker_for(&state, &local);
+        let addrs = state.addresses.get();
+        let m = marker_for(&state, &local, &addrs);
         assert_eq!(m.node_name, "attic");
         assert!(m.loopback);
+        assert!(m.trusted_peer, "loopback is trusted");
         assert_eq!(m.setup_pending, Some(true));
 
+        // On the LAN: not loopback, but trusted -- which is the whole point of the second flag.
         let mut lan = Request::builder().uri("/").body(Body::empty()).unwrap();
         lan.extensions_mut()
             .insert(ConnectInfo("192.168.1.20:51234".parse::<SocketAddr>().unwrap()));
-        assert!(!marker_for(&state, &lan).loopback);
+        let m = marker_for(&state, &lan, &addrs);
+        assert!(!m.loopback);
+        assert!(m.trusted_peer);
+        assert_eq!(m.addresses, ["http://192.168.0.16:8790"]);
+
+        // From the internet: neither.
+        let mut public = Request::builder().uri("/").body(Body::empty()).unwrap();
+        public
+            .extensions_mut()
+            .insert(ConnectInfo("203.0.113.7:51234".parse::<SocketAddr>().unwrap()));
+        let m = marker_for(&state, &public, &addrs);
+        assert!(!m.loopback);
+        assert!(!m.trusted_peer);
 
         // No connect info at all fails closed, the same way every other gate here does.
         let bare = Request::builder().uri("/").body(Body::empty()).unwrap();
-        assert!(!marker_for(&state, &bare).loopback);
+        let m = marker_for(&state, &bare, &addrs);
+        assert!(!m.loopback);
+        assert!(!m.trusted_peer);
     }
 
     #[test]
-    fn the_loopback_only_set_covers_the_setup_route_and_not_the_state_one() {
-        assert!(is_loopback_only("/stingstream/api/v1/webhooks/arr"));
-        assert!(is_loopback_only("/stingstream/api/v1/setup/admin"));
-        // The one route that must stay reachable from a phone on the LAN, or the app cannot tell
-        // which screen to show.
-        assert!(!is_loopback_only("/stingstream/api/v1/setup/state"));
-        assert!(!is_loopback_only("/stingstream/api/v1/items/abc/sources"));
-        assert!(!is_loopback_only("/stingstream/api/v1/mesh/status"));
+    fn the_two_gated_sets_hold_the_right_routes() {
+        assert!(is_under("/stingstream/api/v1/webhooks/arr", LOOPBACK_ONLY_PREFIXES));
+        assert!(!is_under("/stingstream/api/v1/setup/admin", LOOPBACK_ONLY_PREFIXES));
+
+        assert!(is_under("/stingstream/api/v1/setup/admin", TRUSTED_NETWORK_PREFIXES));
+        // The one route that must stay reachable from anywhere, or the app cannot tell which
+        // screen to show.
+        assert!(!is_under("/stingstream/api/v1/setup/state", TRUSTED_NETWORK_PREFIXES));
+        assert!(!is_under("/stingstream/api/v1/setup/state", LOOPBACK_ONLY_PREFIXES));
+
+        for path in ["/stingstream/api/v1/items/abc/sources", "/stingstream/api/v1/mesh/status"] {
+            assert!(!is_under(path, LOOPBACK_ONLY_PREFIXES));
+            assert!(!is_under(path, TRUSTED_NETWORK_PREFIXES));
+        }
     }
 
-    /// Through the real router, with a real peer address: the route that creates the first account
-    /// on this server is invisible to anybody who is not sitting at it.
+    /// The classification Dan's decision rests on: "already inside" is the bar for creating the
+    /// first account, and it must not accidentally include the internet.
+    #[test]
+    fn private_addresses_are_recognised_and_public_ones_are_not() {
+        let p = |s: &str| is_private_or_local(Some(s.parse().unwrap()));
+
+        // RFC 1918, in all three blocks, at both ends.
+        for inside in [
+            "10.0.0.1:1", "10.255.255.255:1",
+            "172.16.0.1:1", "172.31.255.255:1",
+            "192.168.0.16:1", "192.168.255.255:1",
+            // Link-local: what two machines give themselves with no DHCP.
+            "169.254.1.1:1",
+            "127.0.0.1:1", "[::1]:1",
+            // IPv4-mapped, which is what a dual-stack listener reports.
+            "[::ffff:192.168.0.16]:1", "[::ffff:127.0.0.1]:1",
+            // IPv6 unique local (fc00::/7) and link local (fe80::/10).
+            "[fd00::1]:1", "[fc00::1]:1", "[fe80::1]:1", "[febf::1]:1",
+        ] {
+            assert!(p(inside), "{inside} is on the local network");
+        }
+
+        for outside in [
+            "203.0.113.7:1", "8.8.8.8:1", "1.1.1.1:1",
+            // Just outside 172.16/12 at both ends -- the block people get wrong.
+            "172.15.255.255:1", "172.32.0.1:1",
+            // 192.167/16 and 192.169/16 are not 192.168/16.
+            "192.167.0.1:1", "192.169.0.1:1",
+            "[2001:db8::1]:1", "[2606:4700::1]:1",
+            // fe00::/8 is not fc00::/7, and fec0::/10 (old site-local) is not fe80::/10.
+            "[fe00::1]:1", "[fec0::1]:1",
+            "[::ffff:8.8.8.8]:1",
+            // Carrier-grade NAT is unroutable but is not "my network".
+            "100.64.0.1:1",
+        ] {
+            assert!(!p(outside), "{outside} is not on the local network");
+        }
+
+        // No connect info fails closed, like every other gate here.
+        assert!(!is_private_or_local(None));
+
+        // And it is strictly weaker than is_local, never a substitute for it.
+        assert!(is_local(Some("127.0.0.1:1".parse().unwrap())));
+        assert!(!is_local(Some("192.168.0.16:1".parse().unwrap())));
+    }
+
+    #[test]
+    fn a_node_bound_to_loopback_advertises_no_lan_address() {
+        assert!(lan_base_urls("127.0.0.1", 8790).is_empty());
+        assert!(lan_base_urls("::1", 8790).is_empty());
+        // A node that binds every interface may or may not have one, depending on the machine --
+        // what is pinned is the shape of what it says, not whether this box has a network.
+        for url in lan_base_urls("0.0.0.0", 8790) {
+            assert!(url.starts_with("http://"), "{url}");
+            assert!(url.ends_with(":8790"), "{url}");
+            assert!(!url.contains("127.0.0.1"), "loopback is not a LAN address: {url}");
+        }
+    }
+
+    #[test]
+    fn a_fixed_address_list_is_never_recomputed() {
+        let a = LanAddresses::fixed(vec!["http://192.168.0.16:8790".into()]);
+        assert_eq!(*a.get(), vec!["http://192.168.0.16:8790".to_string()]);
+        assert_eq!(*a.get(), vec!["http://192.168.0.16:8790".to_string()]);
+        assert!(LanAddresses::fixed(Vec::new()).get().is_empty());
+    }
+
+    /// Through the real router, with a real peer address. Creating the first account is open to
+    /// this machine and to this network while there is still a node to claim, and to nobody else
+    /// ever -- Dan's call on 2026-09-07, because a headless install has no screen to walk to.
     #[tokio::test]
-    async fn creating_the_first_account_is_refused_off_machine_while_reading_the_state_is_not() {
+    async fn creating_the_first_account_is_open_to_this_network_and_closed_to_the_internet() {
         use tower::ServiceExt;
 
-        async fn call(path: &str, peer: &str) -> (StatusCode, String) {
+        async fn call(path: &str, peer: &str, setup: SetupHandle) -> (StatusCode, String) {
             let node = Arc::new(NodeState::new(
                 crate::config::Config::default(),
                 sample_runtime(),
                 false,
             ));
-            let app = router_with_web(node, WebSource::None, SetupHandle::known(true));
+            let app = router_with_web(node, WebSource::None, setup);
             let mut req = Request::builder()
                 .method("POST")
                 .uri(path)
@@ -1148,29 +1455,52 @@ mod tests {
             (status, String::from_utf8_lossy(&bytes).into_owned())
         }
 
-        let (status, body) = call("/stingstream/api/v1/setup/admin", "192.168.1.20:51234").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(
-            body, "no such route",
-            "off-machine must look like a route that does not exist, not one that is forbidden"
-        );
-
-        // From this machine the gate is out of the way, and the request reaches the forwarder --
-        // which says the child is not configured, because this fixture has no children. What
+        const ADMIN: &str = "/stingstream/api/v1/setup/admin";
+        // "Reached the forwarder" is what not-refused looks like here: the fixture has no
+        // children, so the honest answer past the gate is that the child is not configured. What
         // matters is that it is *not* the gate's answer.
-        let (_, body) = call("/stingstream/api/v1/setup/admin", "127.0.0.1:51234").await;
-        assert_ne!(body, "no such route");
-        assert!(body.contains("jellyfin"), "{body}");
+        let allowed = |body: &str| body != "no such route" && body.contains("jellyfin");
 
-        // And reading the state is not gated at all, from anywhere.
-        let (_, body) = call("/stingstream/api/v1/setup/state", "192.168.1.20:51234").await;
-        assert_ne!(body, "no such route");
-        assert!(body.contains("jellyfin"), "{body}");
+        // Pending: this machine, and this network.
+        for peer in ["127.0.0.1:51234", "[::ffff:127.0.0.1]:51234", "192.168.1.20:51234", "10.1.2.3:51234", "[fd00::5]:51234"] {
+            let (_, body) = call(ADMIN, peer, SetupHandle::known(true)).await;
+            assert!(allowed(&body), "{peer} should reach Core: {body}");
+        }
 
-        // The gate this one was generalised from still holds.
-        let (status, body) = call("/stingstream/api/v1/webhooks/arr", "192.168.1.20:51234").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        // Never the internet, pending or not.
+        for setup in [SetupHandle::known(true), SetupHandle::known(false), SetupHandle::default()] {
+            let (status, body) = call(ADMIN, "203.0.113.7:51234", setup).await;
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(
+                body, "no such route",
+                "a public peer must see a route that does not exist, not one that is forbidden"
+            );
+        }
+
+        // Once the node is claimed the wider door closes again: nothing left to claim, so a LAN
+        // peer is back to being told there is no such route. Loopback keeps it.
+        let (_, body) = call(ADMIN, "192.168.1.20:51234", SetupHandle::known(false)).await;
         assert_eq!(body, "no such route");
+        let (_, body) = call(ADMIN, "127.0.0.1:51234", SetupHandle::known(false)).await;
+        assert!(allowed(&body), "{body}");
+
+        // An unknown state counts as open: refusing on "we could not ask Core" would lock somebody
+        // out of a node that is genuinely waiting to be set up.
+        let (_, body) = call(ADMIN, "192.168.1.20:51234", SetupHandle::default()).await;
+        assert!(allowed(&body), "{body}");
+
+        // Reading the state is not gated at all, from anywhere.
+        let (_, body) = call("/stingstream/api/v1/setup/state", "203.0.113.7:51234", SetupHandle::known(true)).await;
+        assert!(allowed(&body), "{body}");
+
+        // And the webhook gate this was split out of is unchanged: loopback only, LAN included.
+        for peer in ["192.168.1.20:51234", "203.0.113.7:51234"] {
+            let (status, body) = call("/stingstream/api/v1/webhooks/arr", peer, SetupHandle::known(true)).await;
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(body, "no such route", "the arr webhook stays loopback-only");
+        }
+        let (_, body) = call("/stingstream/api/v1/webhooks/arr", "127.0.0.1:51234", SetupHandle::known(true)).await;
+        assert!(allowed(&body), "{body}");
     }
 
     /// A stock client at the wrong door still gets a fast, honest 404 -- now without naming the
@@ -1227,7 +1557,9 @@ mod tests {
         let marker = web::Marker {
             node_name: "attic",
             loopback: true,
+            trusted_peer: true,
             setup_pending: Some(true),
+            addresses: &[],
         };
 
         let html = Response::builder()
