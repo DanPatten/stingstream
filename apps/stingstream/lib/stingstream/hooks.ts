@@ -2,7 +2,23 @@ import type { components } from "@stingstream/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ArrMovie, ArrQueueItem, ArrSeries } from "./arr-types";
 import { useStingStreamClient } from "./client";
+import { useHealthz } from "./status";
 import { unwrap } from "./unwrap";
+
+/**
+ * Whether `/healthz` already says a given child (`"radarr"` / `"sonarr"`) is
+ * enabled — `true`/`false` once `/healthz` has answered, `undefined` while it
+ * is still loading. Movies/series queries wait on this rather than firing and
+ * discovering the 503 themselves: a node with no movie manager or no series
+ * manager answers every list call with the same "not configured" failure, and
+ * `/healthz` already carries that fact.
+ */
+export function useArrReady(name: "radarr" | "sonarr"): boolean | undefined {
+  const healthz = useHealthz();
+  const child = healthz.data?.children.find((c) => c.name === name);
+  if (!healthz.data) return undefined;
+  return child?.enabled ?? false;
+}
 
 export type SharedSettings = components["schemas"]["SharedSettings"];
 export type IndexerSettings = components["schemas"]["IndexerSettings"];
@@ -211,6 +227,7 @@ export function useRunSync() {
 
 export function useMovies() {
   const client = useStingStreamClient();
+  const arrReady = useArrReady("radarr");
   return useQuery({
     queryKey: keys.movies,
     queryFn: async () => {
@@ -222,7 +239,13 @@ export function useMovies() {
       // Radarr's own JSON verbatim) — see lib/stingstream/arr-types.ts.
       return ((data ?? (await response.json())) as ArrMovie[]) ?? [];
     },
-    enabled: !!client,
+    // Waits on arrReady rather than firing and handling the failure: a node with
+    // no movie manager answers every /movies call with a 503, and letting the
+    // request go out anyway means three retries (the app's default) and a
+    // console entry for each one, purely to learn something /healthz already
+    // knows for free.
+    enabled: !!client && arrReady === true,
+    retry: false,
   });
 }
 
@@ -262,6 +285,7 @@ export function useAddMovie() {
 
 export function useSeries() {
   const client = useStingStreamClient();
+  const arrReady = useArrReady("sonarr");
   return useQuery({
     queryKey: keys.series,
     queryFn: async () => {
@@ -271,7 +295,8 @@ export function useSeries() {
       if (error) throw error;
       return ((data ?? (await response.json())) as ArrSeries[]) ?? [];
     },
-    enabled: !!client,
+    enabled: !!client && arrReady === true,
+    retry: false,
   });
 }
 

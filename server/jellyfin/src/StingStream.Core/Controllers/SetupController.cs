@@ -33,13 +33,13 @@ namespace StingStream.Core.Controllers;
 /// <b>What stops somebody else claiming the node first.</b> Three things, in this order:
 /// </para>
 /// <list type="number">
-/// <item>The gateway refuses <c>setup/admin</c> from any peer that is not on this machine, with the
-/// same <c>404 no such route</c> it gives the arr webhook — the real control, because it is the only
+/// <item>The gateway refuses <c>setup/admin</c> from any peer off this network, with the same
+/// <c>404 no such route</c> it gives the arr webhook — the real control, because it is the only
 /// place that sees the true socket peer.</item>
 /// <item><see cref="SetupGate"/> refuses once the node has an account, so the window closes the
 /// moment somebody uses it.</item>
-/// <item><see cref="IsLoopback"/> here, as a second condition, in the shape
-/// <c>WebhooksController</c> uses.</item>
+/// <item><see cref="SetupGate.IsTrustedPeer"/> here, on the address this server sees, as a second
+/// condition in the shape <c>WebhooksController</c> uses.</item>
 /// </list>
 /// <para>
 /// Derived from <see cref="ControllerBase"/> rather than from <c>StingStreamControllerBase</c>,
@@ -101,6 +101,7 @@ public sealed class SetupController : ControllerBase
         {
             Pending = ResolvePending(),
             Loopback = IsLoopback(),
+            TrustedPeer = SetupGate.IsTrustedPeer(PeerAddress()),
         };
     }
 
@@ -129,12 +130,12 @@ public sealed class SetupController : ControllerBase
         [FromBody] SetupAdminRequest request,
         CancellationToken cancellationToken)
     {
-        switch (SetupGate.Decide(ResolvePending(), IsLoopback()))
+        switch (SetupGate.Decide(ResolvePending(), SetupGate.IsTrustedPeer(PeerAddress())))
         {
             case SetupAccess.NotLocal:
                 _logger.LogWarning(
-                    "Refused a first-run setup attempt from {Address}: setup can only be finished on "
-                    + "the machine running this node",
+                    "Refused a first-run setup attempt from {Address}: setup can only be finished "
+                    + "from the network this node is on",
                     HttpContext.Connection.RemoteIpAddress);
                 return NotFound();
 
@@ -259,16 +260,16 @@ public sealed class SetupController : ControllerBase
     }
 
     /// <summary>
-    /// Whether the caller is on this machine.
+    /// The caller's address as this server sees it.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>WebhooksController</c>'s remark says the same check is trivially true behind the gateway,
-    /// because <c>/stingstream/api/*</c> is proxied over 127.0.0.1. Measured on a running node, it
-    /// is not: the gateway <em>overwrites</em> <c>x-forwarded-for</c> with the real socket peer and
-    /// this server trusts that header (<c>KnownProxies</c> is preseeded with <c>127.0.0.1</c>), so
-    /// what arrives here is the true client address and a spoofed header from the LAN is discarded
-    /// on the way through. This check refuses a LAN caller today, on its own.
+    /// <c>WebhooksController</c>'s remark used to say the same address is trivially 127.0.0.1
+    /// behind the gateway, because <c>/stingstream/api/*</c> is proxied over loopback. Measured on
+    /// a running node, it is not: the gateway <em>overwrites</em> <c>x-forwarded-for</c> with the
+    /// real socket peer and this server trusts that header (<c>KnownProxies</c> is preseeded with
+    /// <c>127.0.0.1</c>), so what arrives here is the true client address and a spoofed header from
+    /// the LAN is discarded on the way through. That is what makes the check below mean anything.
     /// </para>
     /// <para>
     /// It is still the second condition and not the first, because it holds only as long as that
@@ -277,9 +278,20 @@ public sealed class SetupController : ControllerBase
     /// this is what answers when somebody reaches this server without going through it.
     /// </para>
     /// </remarks>
+    private IPAddress? PeerAddress() => HttpContext.Connection.RemoteIpAddress;
+
+    /// <summary>
+    /// Whether the caller is on this machine, as opposed to merely on this network.
+    /// </summary>
+    /// <remarks>
+    /// Reported for its own sake rather than used as a gate: the app shows a different first-run
+    /// screen to somebody sitting at the node than to somebody on the sofa, and "you are on the
+    /// machine" is a fact worth telling it. What decides whether the request is allowed is
+    /// <see cref="SetupGate.IsTrustedPeer"/>, which is wider.
+    /// </remarks>
     private bool IsLoopback()
     {
-        var address = HttpContext.Connection.RemoteIpAddress;
+        var address = PeerAddress();
         if (address is null)
         {
             // No remote address at all means an in-process or unix-socket caller, which is at
@@ -304,11 +316,15 @@ public sealed class SetupState
     /// <summary>True while nobody has created an account on this node yet.</summary>
     public bool Pending { get; set; }
 
-    /// <summary>
-    /// True when this request came from the machine the node runs on, which is the only place the
-    /// account can be created.
-    /// </summary>
+    /// <summary>True when this request came from the machine the node itself runs on.</summary>
     public bool Loopback { get; set; }
+
+    /// <summary>
+    /// True when this request came from somewhere the node trusts — itself, or the network it is
+    /// on. The first account can only be created from such an address; from anywhere else the
+    /// endpoint that creates it answers as though it did not exist.
+    /// </summary>
+    public bool TrustedPeer { get; set; }
 }
 
 /// <summary>The account somebody chose on the first-run screen.</summary>

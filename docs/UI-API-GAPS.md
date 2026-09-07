@@ -451,6 +451,29 @@ Each `MediaSource` also carries its holder's file hash as its weak `ETag` (`W/"b
 `stingstream:file_hash` an app needs to tell "the same bytes elsewhere, resume silently" from "a
 different encode, restart at a timestamp".
 
+#### Core TODO (found while building the chooser, v0.2.0)
+
+`GET /items/{id}/sources` is the fuller list, and that is exactly what makes part of it
+unplayable. A source is played by handing the player a **`MediaSource.Id`**, and a holder only has
+one if this node materialized a `.strm` pointer for it. The endpoint returns holders that were
+never materialized — a title held locally is the common case, since the local file wins and the
+remote copies are never written as pointers — so `lib/stingstream/sourceChooser.ts` joins on the
+node id in `MediaSource.Path` and **drops every source that does not join**. The chooser is
+therefore narrower than the endpoint, and a user with the title on three servers, one of which they
+hold locally, sees the two they can actually switch to.
+
+What would close it, cheapest first:
+
+1. **A `mediaSourceId` on each returned source**, where one exists. Core knows which pointer it
+   wrote; the client is reverse-engineering that from a URL.
+2. **A "materialize on demand" call** — `POST /items/{id}/sources/{node}/pointer` — so choosing an
+   unmaterialized holder writes the `.strm`, and PlaybackInfo has an id for it on the next call.
+   This is the one that would make the whole list playable.
+
+Until then, the join is the honest behaviour: offering a row that cannot be played is worse than
+not offering it. The local copy is still listed, from the ordinary non-remote `MediaSource`, and is
+labelled "This server".
+
 ### The playback policy
 
 ```
@@ -539,3 +562,41 @@ Jellyfin server that runs its own UDP responder. Not chased further here since t
 job — finding a node's gateway on port 8790 once discovery answers at all — is unaffected either
 way; whoever owns the supervisor/Jellyfin startup config is the right place to decide whether to
 turn the responder on.
+
+---
+
+## Core defect (WP-PLAYER): `PlaybackInfo` never returns for a folder holding a file *and* a pointer
+
+Found driving the player against three real nodes on 2026-09-07, and worth writing down because
+the app's symptom gives no clue at all: the player screen sits on a spinner for ever, with no
+error, no timeout and nothing in the console. `direct-player` cannot do better than that — its
+stream fetch is one `await` on a request the server simply never answers.
+
+Reduced to one call, with no app involved:
+
+```powershell
+# Sintel in Shared Movies: two `.strm` pointers, two holders.  -> 200 in 1.1s, 2 sources
+POST /jellyfin/Items/876be28e.../PlaybackInfo
+
+# Big Buck Bunny, this server only.                            -> 200 in 1.4s, 1 source
+POST /jellyfin/Items/f6c26ae5.../PlaybackInfo
+
+# Sintel in the node's own Movies folder: `Sintel (2010).mkv` beside
+# `Sintel (2010) - Attic PC 720p.strm`.                        -> never answers (>60s)
+POST /jellyfin/Items/924c26cc.../PlaybackInfo
+```
+
+All three nodes reported `healthz` green throughout, and the same node answered
+`GET /stingstream/api/v1/items/924c26cc.../sources` in a few hundred milliseconds while
+`PlaybackInfo` was still hanging — so the group index is fine and it is the *stream open* on the
+mixed folder that blocks. It is reproducible: five cold loads in a row, five hangs, against a
+local-only title that took 0.9–2.0 s every time.
+
+The two-holder case is the one that matters for shipping and it works. The mixed case is what an
+ordinary library becomes the moment a peer also holds a title you have, so it will matter. Two
+things to decide, both Core's:
+
+1. **Why it blocks**, presumably in whatever resolves a `.strm` alongside a real file in one
+   version group.
+2. **A deadline.** Even fixed, a `PlaybackInfo` with no timeout is a spinner with no way out on
+   any client; every other mesh call has one.

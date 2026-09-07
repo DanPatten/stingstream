@@ -1,17 +1,72 @@
+import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getUserApi } from "@jellyfin/sdk/lib/utils/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Image } from "expo-image";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Icon } from "@/components/common/Icon";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
 import { apiAtom } from "@/providers/JellyfinProvider";
+import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
+/** The user's own photo, or a lettered fallback tile — same idea as Manage's
+ * poster thumbnails, so a row with no photo yet still reads as one. */
+function Avatar({
+  serverAddress,
+  user,
+  size = 36,
+}: {
+  serverAddress?: string;
+  user: UserDto;
+  size?: number;
+}) {
+  const url =
+    serverAddress && user.Id
+      ? getUserImageUrl({
+          serverAddress,
+          userId: user.Id,
+          primaryImageTag: user.PrimaryImageTag,
+          width: size * 2,
+        })
+      : null;
+
+  if (!url) {
+    return (
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: tokens.color.bg["3"],
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name='user' size={size * 0.6} tone='tertiary' />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: url }}
+      contentFit='cover'
+      transition={120}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+    />
+  );
+}
+
 export function UsersSection() {
+  const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
@@ -46,20 +101,22 @@ export function UsersSection() {
       });
     },
     onSuccess: () => {
-      toast.success(`Created user "${name}"`);
+      toast.success(t("admin.users_created_toast", { name }));
       setName("");
       setPassword("");
       setAddOpen(false);
       invalidate();
     },
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : "Could not create user"),
+      toast.error(
+        err instanceof Error ? err.message : t("admin.users_create_error"),
+      ),
   });
 
   const toggleDisabled = useMutation({
     mutationFn: async (userId: string) => {
       const user = users?.find((u) => u.Id === userId);
-      if (!user?.Policy) throw new Error("Missing policy");
+      if (!user?.Policy) throw new Error(t("admin.users_missing_policy"));
       await getUserApi(api!).updateUserPolicy({
         userId,
         userPolicy: { ...user.Policy, IsDisabled: !user.Policy.IsDisabled },
@@ -67,7 +124,9 @@ export function UsersSection() {
     },
     onSuccess: invalidate,
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : "Could not update user"),
+      toast.error(
+        err instanceof Error ? err.message : t("admin.users_update_error"),
+      ),
   });
 
   const resetPasswordMutation = useMutation({
@@ -78,127 +137,177 @@ export function UsersSection() {
       });
     },
     onSuccess: () => {
-      toast.success("Password reset");
+      toast.success(t("admin.users_reset_success"));
       setResetTarget(null);
       setResetPassword("");
     },
     onError: (err) =>
       toast.error(
-        err instanceof Error ? err.message : "Could not reset password",
+        err instanceof Error ? err.message : t("admin.users_reset_error"),
       ),
   });
 
   return (
-    <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>Users</Text>
-        <TouchableOpacity onPress={() => setAddOpen((v) => !v)}>
-          <Text className='text-[#0584FE] font-semibold'>
-            {addOpen ? "Cancel" : "+ Add user"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <View testID='admin-users'>
+      <ScreenHeaderRow
+        title={t("admin.users_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon={addOpen ? "close" : "add"}
+            onPress={() => setAddOpen((v) => !v)}
+          >
+            {addOpen ? t("common.cancel") : t("admin.users_add_action")}
+          </Button>
+        }
+      />
 
       {addOpen && (
-        <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-          <TextInput
-            placeholder='Username'
-            placeholderTextColor='#5A5960'
+        <View
+          style={{
+            borderRadius: radius.lg,
+            backgroundColor: tokens.color.bg["1"],
+            padding: 16,
+            marginBottom: 12,
+          }}
+        >
+          <Input
+            placeholder={t("admin.users_username_placeholder")}
             autoCapitalize='none'
             value={name}
             onChangeText={setName}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='Password (optional)'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("admin.users_password_placeholder")}
             secureTextEntry
             value={password}
             onChangeText={setPassword}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 12 }}
           />
-          <TouchableOpacity
-            disabled={!name || createUser.isPending}
+          <Button
+            variant='primary'
+            disabled={!name}
+            loading={createUser.isPending}
             onPress={() => createUser.mutate()}
-            className='rounded-lg py-2 items-center'
-            style={{ backgroundColor: Colors.primary }}
           >
-            <Text className='text-white font-semibold'>
-              {createUser.isPending ? "Creating…" : "Create user"}
-            </Text>
-          </TouchableOpacity>
+            {t("admin.users_create_action")}
+          </Button>
         </View>
       )}
 
       {resetTarget && (
-        <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-          <Text className='text-white mb-2'>New password</Text>
-          <TextInput
-            placeholder='New password'
-            placeholderTextColor='#5A5960'
+        <View
+          style={{
+            borderRadius: radius.lg,
+            backgroundColor: tokens.color.bg["1"],
+            padding: 16,
+            marginBottom: 12,
+          }}
+        >
+          <Text weight='semibold' style={{ marginBottom: 8 }}>
+            {t("admin.users_reset_title")}
+          </Text>
+          <Input
+            placeholder={t("admin.users_reset_placeholder")}
             secureTextEntry
             value={resetPassword}
             onChangeText={setResetPassword}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 12 }}
           />
-          <View className='flex-row gap-3'>
-            <TouchableOpacity
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Button
+              variant='secondary'
+              style={{ flex: 1 }}
               onPress={() => setResetTarget(null)}
-              className='flex-1 rounded-lg py-2 items-center bg-neutral-800'
             >
-              <Text className='text-white'>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              disabled={resetPasswordMutation.isPending}
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant='primary'
+              style={{ flex: 1 }}
+              loading={resetPasswordMutation.isPending}
               onPress={() => resetPasswordMutation.mutate(resetTarget)}
-              className='flex-1 rounded-lg py-2 items-center'
-              style={{ backgroundColor: Colors.primary }}
             >
-              <Text className='text-white font-semibold'>
-                {resetPasswordMutation.isPending ? "Saving…" : "Reset"}
-              </Text>
-            </TouchableOpacity>
+              {t("admin.users_reset_action")}
+            </Button>
           </View>
         </View>
       )}
 
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {!users || users.length === 0 ? (
-          <EmptyState title='No users' />
+          <EmptyState title={t("admin.users_empty_title")} />
         ) : (
           <ListGroup>
             {users.map((user) => (
-              <ListItem
+              <View
                 key={user.Id}
-                title={user.Name ?? ""}
-                subtitle={[
-                  user.Policy?.IsAdministrator ? "Administrator" : null,
-                  user.Policy?.IsDisabled ? "Disabled" : "Enabled",
-                  user.HasPassword ? null : "No password",
-                ]
-                  .filter(Boolean)
-                  .join(" • ")}
-                textColor={user.Policy?.IsDisabled ? "red" : "default"}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  minHeight: 44,
+                  paddingVertical: 8,
+                  paddingHorizontal: 16,
+                  backgroundColor: tokens.color.bg["1"],
+                }}
               >
-                <View className='flex-row gap-4'>
+                <Avatar serverAddress={api?.basePath} user={user} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text
-                    className='text-[#0584FE]'
-                    onPress={() => setResetTarget(user.Id ?? null)}
+                    style={
+                      user.Policy?.IsDisabled
+                        ? { color: tokens.color.state.danger }
+                        : undefined
+                    }
+                    numberOfLines={1}
                   >
-                    Reset password
+                    {user.Name ?? ""}
                   </Text>
                   <Text
-                    className={
-                      user.Policy?.IsDisabled
-                        ? "text-green-500"
-                        : "text-red-600"
-                    }
-                    onPress={() => toggleDisabled.mutate(user.Id ?? "")}
+                    variant='caption'
+                    tone='secondary'
+                    numberOfLines={1}
+                    style={{ marginTop: 2 }}
                   >
-                    {user.Policy?.IsDisabled ? "Enable" : "Disable"}
+                    {[
+                      user.Policy?.IsAdministrator
+                        ? t("admin.users_administrator")
+                        : null,
+                      user.Policy?.IsDisabled
+                        ? t("admin.users_disabled")
+                        : t("admin.users_enabled"),
+                      user.HasPassword ? null : t("admin.users_no_password"),
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </Text>
                 </View>
-              </ListItem>
+                <View style={{ flexDirection: "row", gap: 16 }}>
+                  <Text
+                    tone='accent'
+                    weight='semibold'
+                    onPress={() => setResetTarget(user.Id ?? null)}
+                  >
+                    {t("admin.users_reset_password_action")}
+                  </Text>
+                  <Text
+                    tone={user.Policy?.IsDisabled ? undefined : "danger"}
+                    style={
+                      user.Policy?.IsDisabled
+                        ? { color: tokens.color.state.success }
+                        : undefined
+                    }
+                    weight='semibold'
+                    onPress={() => toggleDisabled.mutate(user.Id ?? "")}
+                  >
+                    {user.Policy?.IsDisabled
+                      ? t("admin.users_enable_action")
+                      : t("admin.users_disable_action")}
+                  </Text>
+                </View>
+              </View>
             ))}
           </ListGroup>
         )}

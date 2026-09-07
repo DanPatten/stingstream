@@ -1,5 +1,29 @@
+import { Platform } from "react-native";
+
+/**
+ * How long the OSD stays up with nothing happening, per surface.
+ *
+ * Three numbers rather than one because the cost of guessing wrong differs. On a phone the controls
+ * are dismissed by tapping the video, so four seconds is a courtesy. On the web the pointer brings
+ * them straight back, so they can go sooner and take the cursor with them. On a television getting
+ * them back is a D-pad press that also moves focus, so five.
+ */
+export const CONTROLS_TIMEOUT_MS = {
+  phone: 4000,
+  web: 3000,
+  tv: 5000,
+} as const;
+
+/** The one every surface's `useControlsTimeout` resolves to. */
+export const controlsTimeoutForPlatform = (): number => {
+  if (Platform.isTV) return CONTROLS_TIMEOUT_MS.tv;
+  if (Platform.OS === "web") return CONTROLS_TIMEOUT_MS.web;
+  return CONTROLS_TIMEOUT_MS.phone;
+};
+
 export const CONTROLS_CONSTANTS = {
-  TIMEOUT: 4000,
+  /** @deprecated Read `controlsTimeoutForPlatform()`, which is per-surface. */
+  TIMEOUT: CONTROLS_TIMEOUT_MS.phone,
   // Media time left when the next episode button appears. The countdown fill
   // spans the same window, so both must move together.
   NEXT_EPISODE_COUNTDOWN_MS: 10000,

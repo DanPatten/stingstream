@@ -23,7 +23,7 @@
     "build",
     "translations"
   ],
-  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx's recommendations sync payload; the key exists ahead of that so WP-BRAND's rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3's LoginScreen/SignInForm and WP-TV-LOGIN's TVLinkCodeScreen and settings.tv.tsx). (3) i18next PLURAL SUFFIXES: the static scan only sees the base `t(\"sharing.member_count\", {count})` call, not the `_one`/`_other` forms i18next selects from at runtime — same reason custom_headers.header_count_one/_other are listed above.",
+  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx recommendations sync payload; the key exists ahead of that so WP-BRAND rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3 LoginScreen/SignInForm and WP-TV-LOGIN TVLinkCodeScreen and settings.tv.tsx). (3) i18next PLURAL SUFFIXES: the static scan only sees the base t(key, {count}) call, not the _one/_other forms i18next selects from at runtime — same reason custom_headers.header_count_one/_other are listed above; WP8 (sharing.member_count, sharing.member_removed_result, sharing.rotate_secret_result) and WP9 (Manage/Transfers/Server settings/Server status) each added their own set.",
   "ignoreUnused": [
     "watchlists.add_to_watchlist",
     "watchlists.remove_from_watchlist",
@@ -57,6 +57,30 @@
     "tv.track_count_one",
     "tv.track_count_other",
     "tv.library.item_count_one",
-    "tv.library.item_count_other"
+    "tv.library.item_count_other",
+    "manage.activity_days_ago_one",
+    "manage.activity_days_ago_other",
+    "manage.activity_hours_ago_one",
+    "manage.activity_hours_ago_other",
+    "manage.activity_minutes_ago_one",
+    "manage.activity_minutes_ago_other",
+    "server_settings.quality_profiles_groups_allowed_one",
+    "server_settings.quality_profiles_groups_allowed_other",
+    "server_status.child_restarts_one",
+    "server_status.child_restarts_other",
+    "transfers.eta_days_one",
+    "transfers.eta_days_other",
+    "transfers.eta_hours_one",
+    "transfers.eta_hours_other",
+    "transfers.eta_minutes_one",
+    "transfers.eta_minutes_other",
+    "transfers.eta_seconds_one",
+    "transfers.eta_seconds_other",
+    "transfers.hashing_queue_detail_one",
+    "transfers.hashing_queue_detail_other",
+    "transfers.restart_count_one",
+    "transfers.restart_count_other",
+    "transfers.torrent_engine_running_one",
+    "transfers.torrent_engine_running_other"
   ]
 }

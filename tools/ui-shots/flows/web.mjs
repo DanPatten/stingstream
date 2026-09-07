@@ -1,40 +1,50 @@
-// WP-TOOLS UI iterate loop: the 13 screens shots.mjs captures, in order, and how to reach each
+// WP-TOOLS UI iterate loop: the 15 screens shots.mjs captures, in order, and how to reach each
 // one from a fresh page. See docs/UI-LOOP.md.
 //
 // F-36 (pass-02 critique, 2026-09-06): WP3 landed the firstrun-*/login-* testID contract on
-// master. Every auth interaction below is now driven by `[data-testid=...]`, not text/role/
+// master. Every auth interaction below is driven by `[data-testid=...]`, not text/role/
 // placeholder matching -- the old approach broke the moment two fields shared a fuzzy-matched
 // accessible name ("Password" matches "Confirm password" too under Playwright's default substring
-// name matching), which is exactly what pass-02's own sweep run hit ("the sign-in step matched two
-// password fields"). Every navigate() function is still defensive: it throws a clear Error on
+// name matching). Every navigate() function is still defensive: it throws a clear Error on
 // failure rather than hanging, so shots.mjs can catch it, record "navigate-failed" as a finding,
 // and move on to the next screen instead of losing the whole pass.
 //
-// Section routes (search/requests/sharing/manage/transfers/library) are NOT pinned to a URL here,
-// on purpose, as of this pass: the pass-02 critique found `/requests`, `/groups` and (by
-// construction) `/search`, `/manage`, `/downloads` now resolve to a library-by-id catch-all route
-// that spins forever and hammers the server with a ~400-request storm in 3 seconds (F-21) --
-// actively harmful to keep doing, not merely stale. WP1 has not landed real URLs for these
-// sections yet (`/home`, `/search`, `/library`, `/requests`, `/sharing`, `/manage`, `/transfers`,
-// `/settings` are the eventual set). Until it does, this file clicks the bottom tab bar's own
-// testIDs instead -- which already exist today, but as `tab-(home)`, `tab-(search)`,
-// `tab-(favorites)`, `tab-(libraries)`, `tab-(manage)`, `tab-(downloads)`, `tab-(requests)`
-// (the literal Expo Router group names, parens included, auto-assigned by whatever tab component
-// is in use -- not yet the clean `tab-home`/`tab-library`/... names this package's own testID
-// contract in docs/UI-LOOP.md asks WP1 for). clickTabByTestId() below is a TODO by construction:
-// re-pin every section to a real URL once WP1 lands one, and drop the `(parens)` tab-id lookup
-// once WP1 renames them to match the contract.
+// TODO(WP1): RESOLVED (2026-09-06, master dbdee21). WP1 landed real per-section URLs and a clean
+// testID contract, replacing both of the things pass-02's TODO was waiting on:
+//   - Every section now has its own URL, not just Home and Settings: `/`, `/search`, `/library`,
+//     `/favorites`, `/watchlists`, `/requests`, `/manage`, `/transfers`, `/links`, `/more`,
+//     `/sharing`, `/settings`, `/sessions`. `/home` redirects to `/`. Every route group's `index`
+//     used to collide at `/` (F-20/F-21: `/requests` etc. fell through to a `(libraries)/[id]`
+//     catch-all and spun, hammering the server with a ~400-request storm) -- confirmed live this
+//     pass that direct navigation to all of the above now lands on the right screen, not the
+//     catch-all.
+//   - The tab bar's testIDs are the clean, stable contract docs/UI-LOOP.md always asked for:
+//     `tab-home|tab-search|tab-library|tab-requests|tab-more` inside `shell-tabbar` (the compact,
+//     <768px navigator). The `tab-(home)`-style parenthesized ids (the literal Expo Router group
+//     names) are gone -- confirmed live; querying for one now finds nothing.
+//   - `tabTestID()` (apps/stingstream/components/shell/tabIcons.ts) is shared between the compact
+//     tab bar AND the >=768px desktop sidebar, so the same `[data-testid="tab-requests"]` selector
+//     finds the right clickable element at every viewport this file drives -- it is just a
+//     different container (`shell-tabbar` vs the sidebar) depending on width. Read
+//     apps/stingstream/components/shell/buildSidebarItems.ts (buildSidebarItems, read-only) to
+//     confirm this before relying on it elsewhere: `tabItem()` is the one place both navigators'
+//     rows come from.
+//   - Sharing and Settings are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
+//     they get their own testIDs per surface instead of a shared `tabTestID()`: the desktop
+//     sidebar's rows are `tab-sharing`/`tab-settings` (buildSidebarItems, visible at
+//     `isWebWide` i.e. >=768px); the compact "More" screen's rows are `more-sharing`/
+//     `more-settings`/`more-sessions` (buildMoreItems, reached via `tab-more` -> `more-screen`,
+//     <768px only -- Sessions has no sidebar row at all; on web wide it is a header button
+//     instead, out of scope for this pass). Favorites/Watchlists/Custom-links/Manage/Transfers DO
+//     share `tabTestID()` with the sidebar even inside the More screen (`tab-favorites`,
+//     `tab-watchlists`, `tab-custom-links`, `tab-manage`, `tab-transfers`) -- only Sharing/
+//     Settings/Sessions get the `more-*` prefix, because only those three are not one of the ten
+//     TAB_KEYS. See NAV, below, for the concrete map this file uses.
 //
-// clickTabByTestId() ALSO verifies the URL actually changed after the click, and throws if not --
-// confirmed live (2026-09-06): the tab bar's testIDs are real and clickable, but clicking one does
-// not navigate anywhere (F-20, the plan's "the bottom tab bar is a JS stub" bug, still open on
-// this pass). Without that check, a "successful" click that landed on the wrong page (still Home)
-// would get screenshotted and labelled as the target screen -- a silent wrong-content bug worse
-// than the honest navigate-failed finding this produces instead.
-//
-// "/settings" stays pinned to a direct URL: confirmed still reachable and rendering real content
-// on this pass (unlike the six routes above), so there is no reason to make it worse by routing it
-// through the same broken tab bar. Re-pin it too once WP1's own URL for it lands.
+// The breakpoint that decides sidebar-vs-compact-bar is 768px (apps/stingstream/hooks/
+// useBreakpoint.ts: `compact` < 768 <= `medium` < 1280 <= `expanded`) -- so of this file's three
+// VIEWPORTS, 1440 and 1024 get the sidebar (`isWebWide`) and 390 gets the compact bar + More
+// screen. navByNav() below reads viewportWidth for exactly this reason.
 
 export const VIEWPORTS = [
   { name: "1440x900", width: 1440, height: 900 },
@@ -43,6 +53,7 @@ export const VIEWPORTS = [
 ];
 
 const TIMEOUT = 15000;
+const WEB_WIDE_MIN = 768; // apps/stingstream/hooks/useBreakpoint.ts: compact < 768 <= medium.
 
 /** WP3's testID contract renders as `data-testid` on web (react-native-web's createDOMProps maps
  * `testID` -> `data-testid` directly onto the underlying DOM node) -- confirmed by reading
@@ -137,42 +148,109 @@ export async function signIn(page, { base, user, pass }) {
 // tools/ui-startup.ps1, which shells out to both) call this name.
 export const connectAndSignIn = signIn;
 
-/** The literal Expo Router group names the tab bar's own testIDs use today -- see the file header
- * TODO. Not every plan-listed section has a bottom tab (Sharing and Settings do not). */
-const TAB_TEST_IDS = {
-  home: "tab-(home)",
-  search: "tab-(search)",
-  favorites: "tab-(favorites)",
-  library: "tab-(libraries)",
-  manage: "tab-(manage)",
-  transfers: "tab-(downloads)",
-  requests: "tab-(requests)",
+/**
+ * Every section's real URL, per WP1 (apps/stingstream/components/shell/tabIcons.ts TAB_PATHS,
+ * plus Sharing/Settings/Sessions which are not tab groups). `/home` also exists, as a redirect to
+ * `/` -- `/` is used directly since that is where a bare launch lands.
+ */
+const URLS = {
+  home: "/",
+  search: "/search",
+  library: "/library",
+  favorites: "/favorites",
+  watchlists: "/watchlists",
+  requests: "/requests",
+  manage: "/manage",
+  transfers: "/transfers",
+  links: "/links",
+  more: "/more",
+  sharing: "/sharing",
+  settings: "/settings",
+  sessions: "/sessions",
 };
 
 /**
- * TODO(WP1): re-pin every one of these to a real URL once WP1 lands `/search`, `/library`,
- * `/requests`, `/manage`, `/transfers` (docs/UI-LOOP.md, "Pinned routes"). For now this clicks the
- * tab bar by its current (pre-contract) testID and verifies the URL actually changed -- confirmed
- * live that it does not yet (F-20), so this throws rather than silently screenshotting Home under
- * the wrong screen's name.
+ * The nav testIDs a screenshot pass actually needs to click through, rather than every row
+ * buildSidebarItems.ts/buildMoreItems() can produce. `compact` is the five-item bottom bar
+ * (`shell-tabbar`, <768px); `wide` is the desktop sidebar's row for a destination that is not one
+ * of the five (>=768px, `isWebWide`); `more` is the phone-only "More" screen's row for the same
+ * destination (buildMoreItems, reached via `tab-more`). A destination missing a `wide` or `more`
+ * entry does not have that surface -- e.g. Requests has no `more` row because it is already one
+ * of the five compact-bar tabs, so it never gets pushed into More.
  */
-async function clickTabByTestId(page, tabKey) {
-  const testId = TAB_TEST_IDS[tabKey];
-  if (!testId) throw new Error(`no known tab testID for "${tabKey}" (Sharing/Settings are not bottom tabs)`);
-  const tab = byTestId(page, testId);
-  await tab.waitFor({ state: "visible", timeout: TIMEOUT });
+const NAV = {
+  home: { compact: "tab-home", wide: "tab-home" },
+  search: { compact: "tab-search", wide: "tab-search" },
+  library: { compact: "tab-library", wide: "tab-library" },
+  requests: { compact: "tab-requests", wide: "tab-requests" },
+  more: { compact: "tab-more" },
+  favorites: { more: "tab-favorites", wide: "tab-favorites" },
+  watchlists: { more: "tab-watchlists", wide: "tab-watchlists" },
+  manage: { more: "tab-manage", wide: "tab-manage" },
+  transfers: { more: "tab-transfers", wide: "tab-transfers" },
+  sharing: { more: "more-sharing", wide: "tab-sharing" },
+  settings: { more: "more-settings", wide: "tab-settings" },
+  sessions: { more: "more-sessions" }, // web-wide: a header button, not a sidebar row -- not driven here.
+};
+
+const isWebWide = (viewportWidth) => viewportWidth >= WEB_WIDE_MIN;
+
+/**
+ * Clicks a nav element by testID and confirms the URL actually changed to the expected pathname --
+ * throws rather than silently screenshotting the wrong screen under the target's name. Confirmed
+ * live (2026-09-06, post-WP1) that every id in NAV both exists and navigates correctly; this check
+ * stays because a silent wrong-content bug is worse than an honest navigate-failed finding.
+ */
+async function clickNav(page, testId, expectedPath) {
+  const el = byTestId(page, testId);
+  await el.waitFor({ state: "visible", timeout: TIMEOUT });
   const before = page.url();
-  await tab.click({ timeout: TIMEOUT });
-  await page.waitForTimeout(1000);
-  if (page.url() === before) {
-    throw new Error(`clicking ${testId} did not navigate (F-20: the tab bar is not wired up yet on this build)`);
+  await el.click({ timeout: TIMEOUT });
+  await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
+  const after = page.url();
+  if (after === before) {
+    throw new Error(`clicking ${testId} did not navigate`);
   }
+  if (expectedPath && new URL(after).pathname !== expectedPath) {
+    throw new Error(`clicking ${testId} navigated to ${new URL(after).pathname}, expected ${expectedPath}`);
+  }
+}
+
+/** Reaches `key` (a NAV entry) by clicking through the nav surface this viewport actually shows --
+ * the desktop sidebar (`wide`, >=768px) or the phone bottom bar + More screen (`compact`/`more`,
+ * <768px) -- rather than by URL. Used where a pass wants to confirm the *click* path works, not
+ * just that the URL resolves (see 08-requests/09-sharing in buildScreens). */
+async function navigateViaNav(page, base, viewportWidth, key) {
+  const entry = NAV[key];
+  if (!entry) throw new Error(`no NAV entry for "${key}"`);
+  await page.goto(base, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+  await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
+  if (isWebWide(viewportWidth)) {
+    if (!entry.wide) throw new Error(`"${key}" has no desktop sidebar row at ${viewportWidth}px`);
+    await clickNav(page, entry.wide, URLS[key]);
+    return;
+  }
+  if (entry.compact) {
+    await clickNav(page, entry.compact, URLS[key]);
+    return;
+  }
+  if (!entry.more) throw new Error(`"${key}" has no compact-bar tab or More row at ${viewportWidth}px`);
+  await clickNav(page, NAV.more.compact, URLS.more);
+  await clickNav(page, entry.more, URLS[key]);
+}
+
+async function gotoUrl(page, base, key) {
+  await page.goto(new URL(URLS[key], base).toString(), { waitUntil: "domcontentloaded", timeout: TIMEOUT });
   await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
 }
 
 /**
  * Screen order matches docs/UI-LOOP.md / the plan's "iterate loop" list. `optional: true` means a
- * failure to reach it is recorded as a finding rather than aborting the run.
+ * failure to reach it is recorded as a finding rather than aborting the run. `onlyViewports`, when
+ * present, is a list of `${width}x${height}` labels (VIEWPORTS' `name`s) -- shots.mjs skips the
+ * screen entirely (no attempt, no finding) at any other viewport, for a screen that only exists at
+ * one width (13-more: the "More" screen is a compact-only concept, per NAV above -- there is
+ * nothing to screenshot for it at 1024/1440, where the sidebar shows the same rows directly).
  */
 export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
   return [
@@ -211,16 +289,14 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       id: "02-home",
       requiresAuth: true,
       navigate: async (page) => {
-        await page.goto(base, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
-        await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
+        await gotoUrl(page, base, "home");
       },
     },
     {
       id: "03-library",
       requiresAuth: true,
-      optional: true,
       navigate: async (page) => {
-        await clickTabByTestId(page, "library");
+        await gotoUrl(page, base, "library");
       },
     },
     {
@@ -228,9 +304,7 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       requiresAuth: true,
       optional: true,
       navigate: async (page) => {
-        // Best-effort only: depends on 03-library having actually landed on a real library grid,
-        // which it cannot while F-20 stands. No pinned selector exists for "the Movies library"
-        // specifically yet.
+        // Best-effort only: no pinned selector exists for "the Movies library" specifically yet.
         const link = page.getByText(/movies/i).first();
         await link.click({ timeout: TIMEOUT });
       },
@@ -240,10 +314,10 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       requiresAuth: true,
       optional: true,
       navigate: async (page) => {
-        // Click the first poster/card on whatever screen we are on (expected: Home, reached by a
-        // previous screen in the same page session). Not pinned to a URL or a testID -- details
-        // pages are keyed by item id, and library-card (docs/UI-LOOP.md's contract) does not exist
-        // on cards yet.
+        // Click the first poster/card on whatever screen we are on (expected: the Movies library,
+        // reached by the previous screen in the same page session). Not pinned to a URL or a
+        // testID -- details pages are keyed by item id, and library-card (docs/UI-LOOP.md's
+        // contract) does not exist on cards yet.
         const card = page.locator("img").first();
         await card.click({ timeout: TIMEOUT });
       },
@@ -263,63 +337,71 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
-      // Pinned: "/settings" -- confirmed live on this pass, still rendering real content even
-      // though the tab bar has no Settings item at all and the six routes above now actively
-      // hammer the server. Re-pin to WP1's own URL once it lands (see file header).
       id: "07-settings",
       requiresAuth: true,
       navigate: async (page) => {
-        await page.goto(new URL("/settings", base).toString(), { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+        await gotoUrl(page, base, "settings");
       },
     },
     {
+      // Both navigation paths, on purpose (coordinator, 2026-09-06): Requests is the section
+      // pass-02's F-20/F-21 hit hardest (the catch-all storm), so this screen confirms the direct
+      // URL AND the nav click both land on it, not just one.
       id: "08-requests",
       requiresAuth: true,
-      optional: true,
-      navigate: async (page) => {
-        await clickTabByTestId(page, "requests");
+      navigate: async (page, ctx) => {
+        await gotoUrl(page, base, "requests");
+        await navigateViaNav(page, base, ctx.viewportWidth, "requests");
       },
     },
     {
+      // Same "both paths" treatment as Requests. Sharing has no compact-bar tab of its own: at
+      // <768px it is reached via tab-more -> more-sharing; at >=768px it is a direct sidebar row
+      // (tab-sharing). navigateViaNav() picks the right one for this viewport.
       id: "09-sharing",
       requiresAuth: true,
-      optional: true,
-      navigate: async (page) => {
-        // Sharing has no bottom tab (per the plan) and no pinned URL of its own -- reachable only
-        // via Settings, which is itself still pinned above. Try the contract's settings-sharing
-        // testID first (docs/UI-LOOP.md); it does not exist yet either, so fall back to a
-        // best-effort text click on the still-current "Groups" wording (pre-WP8/WP11 rename).
-        await page.goto(new URL("/settings", base).toString(), { waitUntil: "domcontentloaded", timeout: TIMEOUT });
-        const byId = byTestId(page, "settings-sharing");
-        if (await isVisibleSoon(byId, 3000)) {
-          await byId.click({ timeout: TIMEOUT });
-        } else {
-          await page.getByText(/groups|sharing/i).first().click({ timeout: TIMEOUT });
-        }
+      navigate: async (page, ctx) => {
+        await gotoUrl(page, base, "sharing");
+        await navigateViaNav(page, base, ctx.viewportWidth, "sharing");
       },
     },
     {
       id: "10-search",
       requiresAuth: true,
-      optional: true,
       navigate: async (page) => {
-        await clickTabByTestId(page, "search");
+        await gotoUrl(page, base, "search");
       },
     },
     {
       id: "11-manage",
       requiresAuth: true,
-      optional: true,
       navigate: async (page) => {
-        await clickTabByTestId(page, "manage");
+        await gotoUrl(page, base, "manage");
       },
     },
     {
       id: "12-transfers",
       requiresAuth: true,
-      optional: true,
       navigate: async (page) => {
-        await clickTabByTestId(page, "transfers");
+        await gotoUrl(page, base, "transfers");
+      },
+    },
+    {
+      // Compact-only: the "More" screen is what the phone bottom bar's fifth tab opens (NAV.more);
+      // at >=768px the same rows are direct sidebar items and there is no "More" screen to shoot.
+      id: "13-more",
+      requiresAuth: true,
+      onlyViewports: ["390x844"],
+      navigate: async (page) => {
+        await gotoUrl(page, base, "more");
+        await byTestId(page, "more-screen").waitFor({ state: "visible", timeout: TIMEOUT });
+      },
+    },
+    {
+      id: "14-favorites",
+      requiresAuth: true,
+      navigate: async (page) => {
+        await gotoUrl(page, base, "favorites");
       },
     },
   ];

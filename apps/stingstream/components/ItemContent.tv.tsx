@@ -20,7 +20,6 @@ import { useTranslation } from "react-i18next";
 import { Alert, Dimensions, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AwardsBadge } from "@/components/AwardsBadge";
-import { BITRATES, type Bitrate } from "@/components/BitrateSelector";
 import { ItemImage } from "@/components/common/ItemImage";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
@@ -43,14 +42,17 @@ import {
   TVTechnicalDetails,
 } from "@/components/tv";
 import type { Track } from "@/components/video-player/controls/types";
+import { BITRATES, type Bitrate } from "@/constants/Playback";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
+import { useSourceChoices } from "@/hooks/useItemSources";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
+import { useTVSourceChooser } from "@/hooks/useTVSourceChooser";
 import { useTVSubtitleModal } from "@/hooks/useTVSubtitleModal";
 import { useTVThemeMusic } from "@/hooks/useTVThemeMusic";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -280,6 +282,9 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
     const handleSubtitleChangeRef = useRef<
       ((row: TrackMenuRow) => void) | null
     >(null);
+    const handleMediaSourceChangeRef = useRef<
+      ((source: MediaSourceInfo) => void) | null
+    >(null);
 
     // State to trigger refresh of local subtitles list
     const [localSubtitlesRefreshKey, setLocalSubtitlesRefreshKey] = useState(0);
@@ -373,6 +378,27 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
       });
     }, [mediaSources, selectedOptions?.mediaSource?.Id]);
 
+    // WP-PLAYER: "Play from…" — which of your servers streams this title. A different question
+    // from the media-source picker above it, which is about which *file*: two rows here can be the
+    // same encode on two machines, and the one worth choosing is the one that starts fastest.
+    const { choices: sourceChoices, hasChoice: canChooseSource } =
+      useSourceChoices(itemWithSources ?? item, {
+        currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+      });
+    const { showSourceChooser } = useTVSourceChooser();
+
+    const handleOpenSourceChooser = useCallback(() => {
+      showSourceChooser({
+        choices: sourceChoices,
+        onSelect: (mediaSourceId) => {
+          const source = mediaSources.find((s) => s.Id === mediaSourceId);
+          // Through the same handler the file picker uses, so the audio and subtitle defaults are
+          // re-resolved against the source actually chosen.
+          if (source) handleMediaSourceChangeRef.current?.(source);
+        },
+      });
+    }, [showSourceChooser, sourceChoices, mediaSources]);
+
     // Quality/bitrate options for selector
     const qualityOptions: TVOptionItem<Bitrate>[] = useMemo(() => {
       return BITRATES.map((bitrate) => ({
@@ -439,6 +465,10 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
       },
       [],
     );
+
+    // Declared after the chooser that calls it, so it is reached through a ref rather than being
+    // hoisted above the memos it depends on.
+    handleMediaSourceChangeRef.current = handleMediaSourceChange;
 
     const handleQualityChange = useCallback((bitrate: Bitrate) => {
       setSelectedOptions((prev) => (prev ? { ...prev, bitrate } : undefined));
@@ -525,6 +555,11 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
       const videoStream = source.MediaStreams?.find((s) => s.Type === "Video");
       return videoStream?.DisplayTitle || source.Name || t("item_card.video");
     }, [selectedOptions?.mediaSource, t]);
+
+    const selectedSourceLabel = useMemo(() => {
+      const current = sourceChoices.find((c) => c.current) ?? sourceChoices[0];
+      return current?.nodeName ?? t("player.source.play_from");
+    }, [sourceChoices, t]);
 
     const selectedQualityLabel = useMemo(() => {
       return selectedOptions?.bitrate?.key || t("item_card.quality");
@@ -896,6 +931,16 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                         onSelect: handleMediaSourceChange,
                       })
                     }
+                  />
+                )}
+
+                {/* Play from (only when another server holds this too) */}
+                {canChooseSource && (
+                  <TVOptionButton
+                    label={t("player.source.play_from")}
+                    value={selectedSourceLabel}
+                    maxWidth={scaleSize(280)}
+                    onPress={handleOpenSourceChooser}
                   />
                 )}
 

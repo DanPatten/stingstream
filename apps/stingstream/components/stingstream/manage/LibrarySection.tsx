@@ -1,22 +1,25 @@
+import { Image } from "expo-image";
+import type { TFunction } from "i18next";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useTranslation } from "react-i18next";
+import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Icon } from "@/components/common/Icon";
+import { Input } from "@/components/common/Input";
+import { SettingSwitch } from "@/components/common/SettingSwitch";
+import { Skeleton, SkeletonText } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { motion, radius, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import type { ArrMovie, ArrSeries } from "@/lib/stingstream/arr-types";
 import { formatBytes, posterUrl } from "@/lib/stingstream/arr-types";
 import {
   type LookupResult,
   useAddMovie,
   useAddSeries,
+  useArrReady,
   useDeleteLibraryItem,
   useMovies,
   useQualityProfiles,
@@ -25,6 +28,7 @@ import {
   useUpdateLibraryItem,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 /**
@@ -37,7 +41,12 @@ import { EmptyState, QueryState } from "../shared/ScreenState";
  * files are thin wrappers that keep the screen map in docs/UI.md honest.
  */
 export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
+  const { t } = useTranslation();
   const isMovie = kind === "movie";
+  // /healthz already knows whether this node runs a movie manager or a series
+  // manager; waiting on it rather than firing the list call anyway means a node
+  // with neither never sends a request that can only 503 (see hooks.ts).
+  const arrReady = useArrReady(isMovie ? "radarr" : "sonarr");
   const movies = useMovies();
   const series = useSeries();
   const query = isMovie ? movies : series;
@@ -46,65 +55,66 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
 
   const rows = (query.data ?? []) as (ArrMovie | ArrSeries)[];
 
-  return (
-    <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>
-          {isMovie ? "Movies" : "Series"}
-        </Text>
-        <TouchableOpacity onPress={() => setAddOpen((v) => !v)}>
-          <Text className='text-[#0584FE] font-semibold'>
-            {addOpen ? "Cancel" : "+ Add"}
-          </Text>
-        </TouchableOpacity>
+  if (arrReady === false) {
+    return (
+      <View testID={isMovie ? "manage-movies" : "manage-series"}>
+        <ScreenHeaderRow
+          title={isMovie ? t("manage.movies_title") : t("manage.series_title")}
+        />
+        <EmptyState
+          icon='download'
+          title={t("manage.not_set_up_title")}
+          detail={t("manage.not_set_up_detail")}
+        />
       </View>
+    );
+  }
+
+  return (
+    <View testID={isMovie ? "manage-movies" : "manage-series"}>
+      <ScreenHeaderRow
+        title={isMovie ? t("manage.movies_title") : t("manage.series_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon={addOpen ? "close" : "add"}
+            onPress={() => setAddOpen((v) => !v)}
+          >
+            {addOpen ? t("common.cancel") : t("manage.add_action")}
+          </Button>
+        }
+      />
 
       {addOpen && <AddForm kind={kind} onDone={() => setAddOpen(false)} />}
 
       <QueryState
-        isLoading={query.isLoading}
+        isLoading={query.isLoading || arrReady === undefined}
         error={query.error}
         onRetry={query.refetch}
       >
         {rows.length === 0 ? (
           <EmptyState
-            title={isMovie ? "No movies yet" : "No series yet"}
-            detail='Press "+ Add" and search for a title.'
+            title={
+              isMovie
+                ? t("manage.empty_movies_title")
+                : t("manage.empty_series_title")
+            }
+            detail={t("manage.empty_detail")}
           />
         ) : (
           <ListGroup>
-            {rows.map((row) => {
-              const providerId = isMovie
-                ? ((row as ArrMovie).tmdbId ?? 0)
-                : ((row as ArrSeries).tvdbId ?? 0);
-              const open = expanded === providerId;
-              return (
-                <View key={row.id}>
-                  <ListItem
-                    title={`${row.title}${row.year ? ` (${row.year})` : ""}`}
-                    subtitle={describe(row, isMovie)}
-                    onPress={() => setExpanded(open ? null : providerId)}
-                    showArrow
-                  >
-                    {posterUrl(row.images) ? (
-                      <Image
-                        source={{ uri: posterUrl(row.images) }}
-                        style={{ width: 32, height: 48, borderRadius: 4 }}
-                      />
-                    ) : null}
-                  </ListItem>
-                  {open && providerId > 0 && (
-                    <ItemActions
-                      kind={kind}
-                      providerId={providerId}
-                      title={row.title ?? ""}
-                      monitored={row.monitored ?? false}
-                      onDone={() => setExpanded(null)}
-                    />
-                  )}
-                </View>
-              );
-            })}
+            {rows.map((row) => (
+              <LibraryRow
+                key={row.id}
+                row={row}
+                isMovie={isMovie}
+                expanded={expanded}
+                onToggle={(id) =>
+                  setExpanded((current) => (current === id ? null : id))
+                }
+              />
+            ))}
           </ListGroup>
         )}
       </QueryState>
@@ -112,24 +122,182 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
   );
 }
 
-function describe(row: ArrMovie | ArrSeries, isMovie: boolean): string {
+/**
+ * A poster-led row, matching the small poster the Requests screens use — a
+ * remote TMDB/TVDB image where there is one, a lettered tile derived from the
+ * title where there is not, so a row with no artwork yet still reads as one.
+ */
+function PosterThumb({
+  url,
+  title,
+  size = 40,
+}: {
+  url?: string | null;
+  title: string;
+  size?: number;
+}) {
+  const height = Math.round(size * 1.5);
+  if (!url) {
+    return (
+      <View
+        style={{
+          width: size,
+          height,
+          borderRadius: radius.sm,
+          backgroundColor: tokens.color.bg["3"],
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text variant='body' weight='semibold' tone='tertiary'>
+          {(title.trim()[0] ?? "?").toUpperCase()}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: url }}
+      contentFit='cover'
+      transition={120}
+      style={{ width: size, height, borderRadius: radius.sm }}
+    />
+  );
+}
+
+function LibraryRow({
+  row,
+  isMovie,
+  expanded,
+  onToggle,
+}: {
+  row: ArrMovie | ArrSeries;
+  isMovie: boolean;
+  expanded: number | null;
+  onToggle: (providerId: number) => void;
+}) {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
+  const update = useUpdateLibraryItem(isMovie ? "movie" : "series");
+  const providerId = isMovie
+    ? ((row as ArrMovie).tmdbId ?? 0)
+    : ((row as ArrSeries).tvdbId ?? 0);
+  const open = expanded === providerId;
+
+  // The monitor state is a switch right on the row — spec calls for it, and it
+  // is the one thing here somebody changes often enough to want with no extra
+  // tap. It is a sibling of the expand toggle rather than nested inside it: two
+  // `Pressable`s (or a `Switch` and a `Pressable`) sharing one touch target is
+  // an old, well-known React Native gotcha (see the `switch-pointerevents-
+  // ignored` learned fact) and this sidesteps it entirely.
+  const toggleMonitored = async (next: boolean) => {
+    try {
+      await update.mutateAsync({ providerId, monitored: next });
+      toast.success(
+        next
+          ? t("manage.monitor_started_toast", { title: row.title ?? "" })
+          : t("manage.monitor_stopped_toast", { title: row.title ?? "" }),
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("manage.monitor_error"),
+      );
+    }
+  };
+
+  return (
+    <View>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          minHeight: 44,
+          paddingVertical: 8,
+          paddingHorizontal: 16,
+          backgroundColor: tokens.color.bg["1"],
+        }}
+      >
+        <Pressable
+          onPress={() => onToggle(providerId)}
+          style={[
+            { flex: 1, flexDirection: "row", alignItems: "center" },
+            Platform.OS === "web"
+              ? ({
+                  cursor: "pointer",
+                  transitionDuration: `${motion.fast}ms`,
+                } as ViewStyle)
+              : null,
+          ]}
+        >
+          <PosterThumb url={posterUrl(row.images)} title={row.title ?? ""} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text numberOfLines={1}>
+              {row.title}
+              {row.year ? ` (${row.year})` : ""}
+            </Text>
+            <Text
+              variant='caption'
+              tone='secondary'
+              numberOfLines={1}
+              style={{ marginTop: 2 }}
+            >
+              {describe(t, row, isMovie)}
+            </Text>
+          </View>
+        </Pressable>
+        <SettingSwitch
+          value={row.monitored ?? false}
+          disabled={update.isPending}
+          onValueChange={(next) => void toggleMonitored(next)}
+          trackColor={{ true: accent[500] }}
+        />
+        <Pressable
+          accessibilityRole='button'
+          accessibilityLabel={
+            open ? t("manage.collapse_action") : t("manage.expand_action")
+          }
+          hitSlop={8}
+          onPress={() => onToggle(providerId)}
+          style={{ marginLeft: 6, padding: 4 }}
+        >
+          <Icon
+            name={open ? "chevronUp" : "chevronDown"}
+            size={18}
+            tone='tertiary'
+          />
+        </Pressable>
+      </View>
+      {open && providerId > 0 && (
+        <ItemActions
+          kind={isMovie ? "movie" : "series"}
+          providerId={providerId}
+          title={row.title ?? ""}
+          onDone={() => onToggle(providerId)}
+        />
+      )}
+    </View>
+  );
+}
+
+function describe(
+  t: TFunction,
+  row: ArrMovie | ArrSeries,
+  isMovie: boolean,
+): string {
   const size = isMovie
     ? (row as ArrMovie).sizeOnDisk
     : (row as ArrSeries).statistics?.sizeOnDisk;
   const have = isMovie
     ? (row as ArrMovie).hasFile
-      ? "Downloaded"
+      ? t("manage.downloaded")
       : undefined
     : (row as ArrSeries).statistics
-      ? `${(row as ArrSeries).statistics?.episodeFileCount ?? 0}/${(row as ArrSeries).statistics?.episodeCount ?? 0} episodes`
+      ? t("manage.episodes_progress", {
+          have: (row as ArrSeries).statistics?.episodeFileCount ?? 0,
+          total: (row as ArrSeries).statistics?.episodeCount ?? 0,
+        })
       : undefined;
-  return [
-    have,
-    row.monitored ? "Monitored" : "Unmonitored",
-    size ? formatBytes(size) : null,
-  ]
-    .filter(Boolean)
-    .join(" • ");
+  return [have, size ? formatBytes(size) : null].filter(Boolean).join(" • ");
 }
 
 /**
@@ -143,137 +311,103 @@ function ItemActions({
   kind,
   providerId,
   title,
-  monitored,
   onDone,
 }: {
   kind: "movie" | "series";
   providerId: number;
   title: string;
-  monitored: boolean;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const update = useUpdateLibraryItem(kind);
   const remove = useDeleteLibraryItem(kind);
   const profiles = useQualityProfiles();
   const [showProfiles, setShowProfiles] = useState(false);
 
-  const toggle = async () => {
-    try {
-      await update.mutateAsync({ providerId, monitored: !monitored });
-      toast.success(
-        monitored ? `Stopped monitoring ${title}` : `Monitoring ${title}`,
-      );
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Could not change monitoring",
-      );
-    }
-  };
-
   const setProfile = async (name: string) => {
     try {
       await update.mutateAsync({ providerId, qualityProfileName: name });
-      toast.success(`${title} is now on ${name}`);
+      toast.success(t("manage.profile_set_toast", { title, profile: name }));
       setShowProfiles(false);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Could not change the profile",
+        err instanceof Error ? err.message : t("manage.profile_error"),
       );
     }
   };
 
   const del = async (deleteFiles: boolean) => {
     const ok = await confirmDestructive(
-      `Delete ${title}?`,
+      t("manage.delete_confirm_title", { title }),
       deleteFiles
-        ? "The title and its files on disk are both deleted. This cannot be undone."
-        : "The title is removed from the library. Files already on disk are left where they are.",
-      deleteFiles ? "Delete with files" : "Delete",
+        ? t("manage.delete_confirm_message_files")
+        : t("manage.delete_confirm_message"),
+      deleteFiles ? t("manage.delete_with_files_action") : t("common.delete"),
     );
     if (!ok) return;
     try {
       await remove.mutateAsync({ providerId, deleteFiles });
-      toast.success(`Deleted ${title}`);
+      toast.success(t("manage.deleted_toast", { title }));
       onDone();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not delete");
+      toast.error(
+        err instanceof Error ? err.message : t("manage.delete_error"),
+      );
     }
   };
 
   return (
-    <View className='bg-neutral-800 px-4 py-3'>
-      <View className='flex-row flex-wrap gap-2'>
-        <Action
-          label={monitored ? "Stop monitoring" : "Monitor"}
-          busy={update.isPending}
-          onPress={toggle}
-        />
-        <Action
-          label='Quality profile'
+    <View
+      style={{
+        backgroundColor: tokens.color.bg["2"],
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+      }}
+    >
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <Button
+          variant='secondary'
+          size='sm'
           onPress={() => setShowProfiles((v) => !v)}
-        />
-        <Action label='Delete' tone='red' onPress={() => void del(false)} />
-        <Action
-          label='Delete + files'
-          tone='red'
-          busy={remove.isPending}
+        >
+          {t("manage.quality_profile_action")}
+        </Button>
+        <Button variant='danger' size='sm' onPress={() => void del(false)}>
+          {t("common.delete")}
+        </Button>
+        <Button
+          variant='danger'
+          size='sm'
+          loading={remove.isPending}
           onPress={() => void del(true)}
-        />
+        >
+          {t("manage.delete_with_files_action")}
+        </Button>
       </View>
 
       {showProfiles && (
-        <View className='mt-3'>
-          {profiles.isLoading && (
-            <ActivityIndicator size='small' color='#9899A1' />
-          )}
+        <View style={{ marginTop: 12 }}>
+          {profiles.isLoading && <SkeletonText lines={2} lastLineWidth='40%' />}
           {(profiles.data ?? []).map((p) => (
-            <TouchableOpacity
+            <Pressable
               key={p.Name}
-              className='py-2'
               onPress={() => void setProfile(p.Name ?? "")}
+              style={{ paddingVertical: 8 }}
             >
-              <Text className='text-[#0584FE]'>
+              <Text tone='accent' weight='semibold'>
                 {p.Name}
-                {p.InSync === false ? " (apps disagree)" : ""}
+                {p.InSync === false ? t("manage.out_of_sync_suffix") : ""}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ))}
           {profiles.data?.length === 0 && (
-            <Text className='text-[#9899A1] text-xs'>
-              Neither app has a quality profile. Create one in Server settings.
+            <Text variant='caption' tone='secondary'>
+              {t("manage.no_profiles_hint")}
             </Text>
           )}
         </View>
       )}
     </View>
-  );
-}
-
-function Action({
-  label,
-  onPress,
-  tone,
-  busy,
-}: {
-  label: string;
-  onPress: () => void;
-  tone?: "red";
-  busy?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      disabled={busy}
-      onPress={onPress}
-      className='rounded-lg px-3 py-2'
-      style={{
-        backgroundColor: tone === "red" ? "#3f1d1d" : "#2a2a2a",
-        opacity: busy ? 0.5 : 1,
-      }}
-    >
-      <Text className={tone === "red" ? "text-red-400" : "text-white"}>
-        {busy ? "Working…" : label}
-      </Text>
-    </TouchableOpacity>
   );
 }
 
@@ -291,6 +425,8 @@ function AddForm({
   kind: "movie" | "series";
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
   const isMovie = kind === "movie";
   const [term, setTerm] = useState("");
   const [profile, setProfile] = useState("");
@@ -310,7 +446,9 @@ function AddForm({
           searchOnAdd,
           qualityProfileName: profile || undefined,
         });
-        toast.success(`Added ${added.title ?? result.Title}`);
+        toast.success(
+          t("manage.added_toast", { title: added.title ?? result.Title }),
+        );
       } else {
         const added = await addSeries.mutateAsync({
           tvdbId: result.TvdbId ?? 0,
@@ -318,18 +456,24 @@ function AddForm({
           searchOnAdd,
           qualityProfileName: profile || undefined,
         });
-        toast.success(`Added ${added.title ?? result.Title}`);
+        toast.success(
+          t("manage.added_toast", { title: added.title ?? result.Title }),
+        );
       }
       onDone();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add");
+      toast.error(err instanceof Error ? err.message : t("manage.add_error"));
     }
   };
 
   const addById = async () => {
     const id = Number.parseInt(term, 10);
     if (!Number.isFinite(id) || id <= 0) {
-      toast.error(isMovie ? "Enter a valid TMDB id" : "Enter a valid TVDB id");
+      toast.error(
+        isMovie
+          ? t("manage.enter_valid_tmdb_id")
+          : t("manage.enter_valid_tvdb_id"),
+      );
       return;
     }
     await add(
@@ -340,80 +484,113 @@ function AddForm({
   };
 
   return (
-    <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-      <TextInput
+    <View
+      style={{
+        borderRadius: radius.lg,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 16,
+        marginBottom: 12,
+      }}
+    >
+      <Input
+        icon='search'
         placeholder={
-          isMovie ? "Search films by title" : "Search series by title"
+          isMovie
+            ? t("manage.search_movies_placeholder")
+            : t("manage.search_series_placeholder")
         }
-        placeholderTextColor='#5A5960'
         autoCapitalize='none'
         autoCorrect={false}
         value={term}
         onChangeText={setTerm}
-        className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
       />
 
       {term.trim().length >= 2 && (
-        <View className='mb-2'>
+        <View style={{ marginTop: 8 }}>
           {lookup.isFetching && (
-            <View className='flex-row items-center py-2'>
-              <ActivityIndicator size='small' color='#9899A1' />
-              <Text className='text-[#9899A1] text-xs ml-2'>Searching…</Text>
+            <View>
+              {[0, 1].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Skeleton width={32} height={48} radius={radius.sm} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Skeleton width='70%' height={12} />
+                    <Skeleton
+                      width='45%'
+                      height={10}
+                      style={{ marginTop: 6 }}
+                    />
+                  </View>
+                </View>
+              ))}
             </View>
           )}
           {lookup.error && (
-            <Text className='text-red-500 text-xs py-2'>
+            <Text
+              variant='caption'
+              tone='danger'
+              style={{ paddingVertical: 8 }}
+            >
               {lookup.error instanceof Error
                 ? lookup.error.message
-                : "The lookup failed"}
+                : t("manage.lookup_failed")}
             </Text>
           )}
           {(lookup.data ?? []).slice(0, 12).map((r) => (
-            <TouchableOpacity
+            <Pressable
               key={`${r.TmdbId}-${r.TvdbId}-${r.Title}`}
               disabled={pending || r.ExistsInLibrary === true}
               onPress={() => void add(r)}
-              className='flex-row items-center py-2'
-              style={{ opacity: r.ExistsInLibrary ? 0.45 : 1 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingVertical: 8,
+                opacity: r.ExistsInLibrary ? 0.45 : 1,
+              }}
             >
-              {r.PosterUrl ? (
-                <Image
-                  source={{ uri: r.PosterUrl }}
-                  style={{
-                    width: 32,
-                    height: 48,
-                    borderRadius: 4,
-                    marginRight: 10,
-                  }}
-                />
-              ) : (
-                <View style={{ width: 32, height: 48, marginRight: 10 }} />
-              )}
-              <View className='flex-1'>
-                <Text className='text-white'>
+              <PosterThumb url={r.PosterUrl} title={r.Title ?? ""} size={32} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text numberOfLines={1}>
                   {r.Title}
                   {r.Year ? ` (${r.Year})` : ""}
                 </Text>
-                <Text className='text-[#9899A1] text-xs' numberOfLines={2}>
+                <Text variant='caption' tone='secondary' numberOfLines={2}>
                   {r.ExistsInLibrary
-                    ? "Already in your library"
+                    ? t("manage.already_in_library")
                     : (r.Overview ?? "")}
                 </Text>
               </View>
-            </TouchableOpacity>
+            </Pressable>
           ))}
           {!lookup.isFetching && lookup.data?.length === 0 && (
-            <Text className='text-[#9899A1] text-xs py-2'>
-              Nothing found. The id below still works if you have one.
+            <Text
+              variant='caption'
+              tone='secondary'
+              style={{ paddingVertical: 8 }}
+            >
+              {t("manage.nothing_found")}
             </Text>
           )}
         </View>
       )}
 
       {profiles.data && profiles.data.length > 0 && (
-        <View className='flex-row flex-wrap gap-2 mb-2'>
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
           <ProfileChip
-            label='Default profile'
+            label={t("manage.default_profile_chip")}
             on={profile === ""}
             onPress={() => setProfile("")}
           />
@@ -428,30 +605,32 @@ function AddForm({
         </View>
       )}
 
-      <TouchableOpacity
-        onPress={() => setSearchOnAdd((v) => !v)}
-        className='flex-row items-center mb-3'
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 12,
+          marginBottom: 4,
+        }}
       >
-        <View
-          className='w-5 h-5 rounded mr-2 items-center justify-center'
-          style={{ backgroundColor: searchOnAdd ? Colors.primary : "#1f1f1f" }}
-        >
-          {searchOnAdd && <Text className='text-white text-xs'>{"✓"}</Text>}
-        </View>
-        <Text className='text-white'>Search for it immediately</Text>
-      </TouchableOpacity>
+        <Text>{t("manage.search_on_add")}</Text>
+        <SettingSwitch
+          value={searchOnAdd}
+          onValueChange={setSearchOnAdd}
+          trackColor={{ true: accent[500] }}
+        />
+      </View>
 
-      <TouchableOpacity
-        disabled={pending}
+      <Button
+        variant='secondary'
+        size='sm'
+        loading={pending}
         onPress={() => void addById()}
-        className='rounded-lg py-2 items-center bg-neutral-800'
+        style={{ marginTop: 8, alignSelf: "flex-start" }}
       >
-        <Text className='text-white'>
-          {pending
-            ? "Adding…"
-            : `Add by ${isMovie ? "TMDB" : "TVDB"} id instead`}
-        </Text>
-      </TouchableOpacity>
+        {isMovie ? t("manage.add_by_id_movie") : t("manage.add_by_id_series")}
+      </Button>
     </View>
   );
 }
@@ -465,13 +644,24 @@ function ProfileChip({
   on: boolean;
   onPress: () => void;
 }) {
+  const { accent } = useTheme();
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onPress}
-      className='rounded-full px-3 py-1'
-      style={{ backgroundColor: on ? Colors.primary : "#2a2a2a" }}
+      style={{
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: radius.pill,
+        backgroundColor: on ? accent[500] : tokens.color.bg["3"],
+      }}
     >
-      <Text className='text-white text-xs'>{label}</Text>
-    </TouchableOpacity>
+      <Text
+        variant='caption'
+        weight='semibold'
+        tone={on ? "onAccent" : "secondary"}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }

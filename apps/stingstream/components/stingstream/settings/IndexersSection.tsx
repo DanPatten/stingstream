@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/common/Input";
+import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
 import {
   type ConnectivityTestResult,
   type IndexerSettings,
@@ -14,6 +18,7 @@ import {
   useTestIndexer,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 const emptyForm: IndexerSettings = {
@@ -34,27 +39,36 @@ const emptyForm: IndexerSettings = {
 };
 
 export function IndexersSection() {
+  const { t } = useTranslation();
   const { data: indexers, isLoading, error, refetch } = useIndexers();
   const addIndexer = useAddIndexer();
   const deleteIndexer = useDeleteIndexer();
   const testIndexer = useTestIndexer();
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<IndexerSettings>(emptyForm);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [verdict, setVerdict] = useState<ConnectivityTestResult | null>(null);
 
   const submit = async () => {
     if (!form.Name || !form.BaseUrl) {
-      toast.error("Name and Torznab base URL are required");
+      toast.error(t("server_settings.indexers_name_and_url_required"));
       return;
     }
     try {
       await addIndexer.mutateAsync(form);
-      toast.success(`Added indexer "${form.Name}"`);
+      toast.success(
+        t("server_settings.indexers_added_toast", { name: form.Name }),
+      );
       setForm(emptyForm);
       setVerdict(null);
+      setShowApiKey(false);
       setFormOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add indexer");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("server_settings.indexers_add_error"),
+      );
     }
   };
 
@@ -65,7 +79,7 @@ export function IndexersSection() {
    */
   const test = async () => {
     if (!form.Name || !form.BaseUrl) {
-      toast.error("Name and Torznab base URL are required");
+      toast.error(t("server_settings.indexers_name_and_url_required"));
       return;
     }
     setVerdict(null);
@@ -77,7 +91,7 @@ export function IndexersSection() {
         Message:
           err instanceof Error
             ? err.message
-            : "Neither app could be asked about it.",
+            : t("server_settings.indexers_test_error"),
       });
     }
   };
@@ -85,96 +99,127 @@ export function IndexersSection() {
   const remove = async (indexer: IndexerSettings) => {
     if (!indexer.Id) return;
     const ok = await confirmDestructive(
-      "Remove indexer?",
-      `"${indexer.Name}" is removed from StingStream's settings. It stays configured inside the movie manager and the series manager until it is removed there too — sync only ever adds and updates.`,
-      "Remove",
+      t("server_settings.indexers_remove_confirm_title"),
+      t("server_settings.indexers_remove_confirm_message", {
+        name: indexer.Name,
+      }),
+      t("common.remove"),
     );
     if (!ok) return;
     try {
       await deleteIndexer.mutateAsync(indexer.Id);
-      toast.success(`Removed "${indexer.Name}"`);
+      toast.success(
+        t("server_settings.indexers_removed_toast", { name: indexer.Name }),
+      );
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Could not remove indexer",
+        err instanceof Error
+          ? err.message
+          : t("server_settings.indexers_remove_error"),
       );
     }
   };
 
   return (
     <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>Indexers</Text>
-        <TouchableOpacity onPress={() => setFormOpen((v) => !v)}>
-          <Text className='text-[#0584FE] font-semibold'>
-            {formOpen ? "Cancel" : "+ Add Torznab indexer"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <ScreenHeaderRow
+        title={t("server_settings.indexers_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon={formOpen ? "close" : "add"}
+            onPress={() => setFormOpen((v) => !v)}
+          >
+            {formOpen
+              ? t("common.cancel")
+              : t("server_settings.indexers_add_action")}
+          </Button>
+        }
+      />
 
       {formOpen && (
-        <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-          <Text className='text-[#9899A1] text-xs mb-2'>
-            "Test" asks the movie manager and the series manager to try it,
-            using exactly the resource a save would store. The two send
-            different category lists, so both are asked: an endpoint with films
-            but no television passes one and fails the other.
+        <View
+          style={{
+            borderRadius: radius.lg,
+            backgroundColor: tokens.color.bg["1"],
+            padding: 16,
+            marginBottom: 12,
+          }}
+        >
+          <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+            {t("server_settings.indexers_test_explainer")}
           </Text>
-          <TextInput
-            placeholder='Name'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("server_settings.indexers_name_placeholder")}
             value={form.Name}
             onChangeText={(v) => setForm((f) => ({ ...f, Name: v }))}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='Torznab base URL, e.g. http://127.0.0.1:9117/api/v2.0/indexers/x/results/torznab'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("server_settings.indexers_base_url_placeholder")}
             autoCapitalize='none'
             value={form.BaseUrl}
             onChangeText={(v) => setForm((f) => ({ ...f, BaseUrl: v }))}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='API key (optional)'
-            placeholderTextColor='#5A5960'
-            autoCapitalize='none'
-            value={form.ApiKey ?? ""}
-            onChangeText={(v) => setForm((f) => ({ ...f, ApiKey: v }))}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
-          />
-          {verdict && (
-            <View className='mb-2'>
-              <Text
-                className={
-                  verdict.Ok ? "text-green-500 text-xs" : "text-red-500 text-xs"
-                }
-              >
-                {verdict.Ok ? "✓ " : "✕ "}
-                {verdict.Message}
-              </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Input
+                placeholder={t("server_settings.indexers_api_key_placeholder")}
+                autoCapitalize='none'
+                secureTextEntry={!showApiKey}
+                value={form.ApiKey ?? ""}
+                onChangeText={(v) => setForm((f) => ({ ...f, ApiKey: v }))}
+              />
             </View>
+            <Pressable
+              onPress={() => setShowApiKey((v) => !v)}
+              hitSlop={8}
+              accessibilityRole='button'
+            >
+              <Text variant='caption' weight='semibold' tone='accent'>
+                {showApiKey ? t("common.hide") : t("common.show")}
+              </Text>
+            </Pressable>
+          </View>
+          {verdict && (
+            <Text
+              variant='caption'
+              tone={verdict.Ok ? undefined : "danger"}
+              style={[
+                { marginBottom: 8 },
+                verdict.Ok ? { color: tokens.color.state.success } : undefined,
+              ]}
+            >
+              {verdict.Message}
+            </Text>
           )}
 
-          <View className='flex-row gap-2'>
-            <TouchableOpacity
-              disabled={testIndexer.isPending}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button
+              variant='secondary'
+              style={{ flex: 1 }}
+              loading={testIndexer.isPending}
               onPress={() => void test()}
-              className='flex-1 rounded-lg py-2 items-center bg-neutral-800'
             >
-              <Text className='text-white'>
-                {testIndexer.isPending ? "Testing…" : "Test"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              disabled={addIndexer.isPending}
-              onPress={submit}
-              className='flex-1 rounded-lg py-2 items-center'
-              style={{ backgroundColor: Colors.primary }}
+              {t("server_settings.test_action")}
+            </Button>
+            <Button
+              variant='primary'
+              style={{ flex: 1 }}
+              loading={addIndexer.isPending}
+              onPress={() => void submit()}
             >
-              <Text className='text-white font-semibold'>
-                {addIndexer.isPending ? "Adding…" : "Add indexer"}
-              </Text>
-            </TouchableOpacity>
+              {t("server_settings.indexers_add_indexer_action")}
+            </Button>
           </View>
         </View>
       )}
@@ -182,8 +227,8 @@ export function IndexersSection() {
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {!indexers || indexers.length === 0 ? (
           <EmptyState
-            title='No indexers configured'
-            detail='Add a Torznab indexer above — it is pushed into both the movie manager and the series manager.'
+            title={t("server_settings.indexers_empty_title")}
+            detail={t("server_settings.indexers_empty_detail")}
           />
         ) : (
           <ListGroup>
@@ -192,23 +237,52 @@ export function IndexersSection() {
                 key={indexer.Id}
                 title={indexer.Name}
                 subtitle={[
-                  indexer.Enabled ? "Enabled" : "Disabled",
                   indexer.ForMovies && indexer.ForSeries
-                    ? "Movies + Series"
+                    ? t("server_settings.indexers_for_both")
                     : indexer.ForMovies
-                      ? "Movies"
+                      ? t("server_settings.indexers_for_movies")
                       : indexer.ForSeries
-                        ? "Series"
+                        ? t("server_settings.indexers_for_series")
                         : null,
-                  `priority ${indexer.Priority}`,
+                  t("server_settings.indexers_priority", {
+                    priority: indexer.Priority,
+                  }),
                 ]
                   .filter(Boolean)
                   .join(" • ")}
-                onPress={() => void remove(indexer)}
-                textColor='red'
-                showArrow={false}
               >
-                <Text className='text-red-600'>Remove</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <Pill
+                    label={
+                      indexer.Enabled
+                        ? t("server_settings.enabled_label")
+                        : t("server_settings.disabled_label")
+                    }
+                    tone={indexer.Enabled ? "success" : "neutral"}
+                    size='sm'
+                  />
+                  <Pressable
+                    onPress={() => void remove(indexer)}
+                    hitSlop={8}
+                    accessibilityRole='button'
+                    accessibilityLabel={t(
+                      "server_settings.indexers_remove_action",
+                      {
+                        name: indexer.Name,
+                      },
+                    )}
+                  >
+                    <Text tone='danger' weight='semibold'>
+                      {t("common.remove")}
+                    </Text>
+                  </Pressable>
+                </View>
               </ListItem>
             ))}
           </ListGroup>

@@ -1259,16 +1259,35 @@ re-queue the file, so nothing ever computes it again. `InventoryService` therefo
 hash inside the write transaction rather than at build time: whichever writer goes last, it goes
 last with the hash in it.
 
-**Nothing rebuilds the inventory when a library scan finishes**, and both harnesses have to know it.
-`RebuildAllAsync` runs from `FirstRunService` at start-up, from `PinService` after a pin, and from
-`POST /inventory/rebuild`; per-item refreshes come from the arrs' webhooks and from a finished hash.
-There is no `ILibraryManager.ItemAdded` subscription anywhere in `StingStream.Core`. A holder that
-runs no arrs — which is what both harnesses' node B is, and what the `storage-node` profile is —
-therefore does not advertise a file that appears after start-up until something asks it to rebuild.
-That is why the M4 step re-POSTs a rebuild on every failed poll rather than once, and why the M7
-steps now do too: a single rebuild that lands before the scan has matched a title leaves the node
-holding fewer records than it has files, and no amount of waiting adds the rest. Whether Core should
-subscribe to library events instead is a real question and not one this work-package settled.
+**Nothing used to rebuild the inventory when a library scan finished.** `RebuildAllAsync` ran from
+`FirstRunService` at start-up, from `PinService` after a pin, and from `POST /inventory/rebuild`;
+per-item refreshes came from the arrs' webhooks and from a finished hash. There was no
+`ILibraryManager` subscription anywhere in `StingStream.Core`. So a holder that runs no arrs — which
+is what both harnesses' node B is, and what the `storage-node` profile is — did not advertise a file
+that appeared after start-up until somebody called an API by hand. Both harnesses were papering over
+it by re-POSTing a rebuild in a polling loop, which is how it was found: a single rebuild that lands
+before the scan has matched a title leaves the node holding fewer records than it has files, and no
+amount of waiting adds the rest.
+
+`InventoryWatcher` closes it. It subscribes to `ItemAdded`, `ItemUpdated` and `ItemRemoved` and
+rebuilds once the library has settled, and `InventoryPublisher` sends the delta on its next pass —
+so a film dropped into a folder reaches the group's index within seconds of the scan finishing, and
+a removal retracts the row through the rebuild's own pruning. `tools/e2e-m4.ps1` asserts exactly
+that, in a step that deliberately never calls the rebuild endpoint, and the polling loops are gone
+from both harnesses.
+
+Two details are load-bearing. **A scan raises one event per file**, so acting on each one does work
+proportional to the library every time the library is read; `RebuildDebouncer` waits for five
+seconds of quiet, which costs nothing during a ten-minute scan and one rebuild after it — with a
+sixty-second cap, because a pure debounce over a library that never goes quiet defers forever, which
+looks exactly like the bug being fixed. And **federated pointers are filtered out before they reach
+the debouncer**: the materializer writes a `.strm` per peer per title, a rebuild would skip every one
+of them anyway, and on a node in a large group waking for them would be a rebuild storm with no end.
+
+Jellyfin has no "scan finished" event to hang this on — `ILibraryManager` exposes the three item
+events and nothing else, and `ITaskManager.TaskCompleted` covers only the *scheduled* scan, while
+`POST /Library/Refresh` calls `ValidateMediaLibrary` directly. Quiet is the signal that is always
+there.
 
 **Two implementations of one formula, deliberately.** `SourceScorer.cs` and `score.rs` carry the same
 weights and the same test cases. The alternative is the mesh asking Core which source to use for

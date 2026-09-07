@@ -30,19 +30,18 @@ import { chromium } from "playwright";
 import { VIEWPORTS, buildScreens, signIn, createFirstRunAccount } from "./flows/web.mjs";
 import { watchPage, sweepDom, flattenKeys } from "./sweep.mjs";
 import { buildReport } from "./report.mjs";
-import { readAdminCredentials, readCreds, writeCreds } from "./lib/authFile.mjs";
+import { readCreds, writeCreds } from "./lib/authFile.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
 function parseArgs(argv) {
-  const args = { base: null, out: null, user: null, passFile: null, creds: null, firstRun: false, lan: null, only: null };
+  const args = { base: null, out: null, user: null, creds: null, firstRun: false, lan: null, only: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--base") args.base = argv[++i];
     else if (a === "--out") args.out = argv[++i];
     else if (a === "--user") args.user = argv[++i];
-    else if (a === "--pass-file") args.passFile = argv[++i];
     else if (a === "--creds") args.creds = argv[++i];
     else if (a === "--first-run") args.firstRun = true;
     else if (a === "--lan") args.lan = argv[++i];
@@ -70,23 +69,16 @@ async function main() {
   fs.mkdirSync(args.out, { recursive: true });
 
   // Credential resolution, F-36: --creds is the normal path for a node whose setup is already
-  // complete (a completed setup scrubs the generated admin password out of runtime.json, so
-  // --pass-file stops working the moment first-run finishes -- see lib/authFile.mjs). --first-run
-  // creates the account itself and does not need pre-existing credentials at all; if --creds is
-  // also given, the credentials it just used are written there for a later run to pick up.
+  // complete -- a {username,password} JSON file, never runtime.json (WP-CORE scrubs its generated
+  // password once setup completes -- see lib/authFile.mjs). --first-run creates the account itself
+  // and does not need pre-existing credentials at all; if --creds is also given, the credentials it
+  // just used are written there for a later run to pick up.
   let user = args.user;
   let pass = null;
-  if (!args.firstRun) {
-    if (args.creds) {
-      const creds = readCreds(args.creds);
-      user = user || creds.username;
-      pass = creds.password;
-    } else if (args.passFile) {
-      // Legacy fallback: only works against a node that has not completed first-run yet.
-      const creds = readAdminCredentials(args.passFile);
-      user = user || creds.username;
-      pass = creds.password;
-    }
+  if (!args.firstRun && args.creds) {
+    const creds = readCreds(args.creds);
+    user = user || creds.username;
+    pass = creds.password;
   }
 
   const i18nKeys = loadI18nKeys();
@@ -129,6 +121,14 @@ async function main() {
 
       let signedIn = false;
       for (const screen of screens) {
+        // `onlyViewports` (a screen that only exists at one width, e.g. the phone-only "More"
+        // screen -- see flows/web.mjs): skip silently, no attempt and no finding, at every other
+        // viewport, rather than recording a navigate-failed for a screen that was never supposed
+        // to exist there.
+        if (screen.onlyViewports && !screen.onlyViewports.includes(vpLabel)) {
+          console.log(`  ${screen.id.padEnd(20)} skip (not applicable at ${vpLabel})`);
+          continue;
+        }
         currentScreenId = screen.id;
         const requiresAuth = !!screen.requiresAuth;
         try {
@@ -140,12 +140,12 @@ async function main() {
               firstRunAccountCreated = true;
               if (args.creds) writeCreds(args.creds, created);
             } else {
-              if (!pass) throw new Error("this screen needs sign-in but no --creds (or legacy --pass-file) was given");
+              if (!pass) throw new Error("this screen needs sign-in but no --creds was given (and --first-run was not passed)");
               await signIn(page, { base: args.base, user, pass });
             }
             signedIn = true;
           }
-          await screen.navigate(page, { base: args.base });
+          await screen.navigate(page, { base: args.base, viewportWidth: measured.width });
           await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
 
           const shotPath = path.join(args.out, `${screen.id}-${vpLabel}.png`);

@@ -3,7 +3,7 @@ import type {
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { File, Paths } from "expo-file-system";
-import type { Bitrate } from "@/components/BitrateSelector";
+import type { Bitrate } from "@/constants/Playback";
 import type { DownloadActivityMetadata } from "@/modules/background-downloader";
 import { logAndCaptureError } from "@/utils/log";
 import { storage } from "@/utils/mmkv";

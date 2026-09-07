@@ -96,6 +96,10 @@ public static class StingStreamCoreExtensions
         services.AddHostedService(sp => sp.GetRequiredService<HashingService>());
         services.AddSingleton<InventoryChangeFeed>();
         services.AddSingleton<IInventoryService, InventoryService>();
+        // Watches the library so a file that appears after start-up is advertised without anyone
+        // calling `POST /inventory/rebuild` -- which, on a holder with no arrs, nobody ever does.
+        services.AddSingleton<InventoryWatcher>();
+        services.AddHostedService(sp => sp.GetRequiredService<InventoryWatcher>());
 
         // Making Jellyfin notice a file that has just appeared, without a library scan. Shared by
         // the arr import webhooks and the federated materializer, which have the same problem.

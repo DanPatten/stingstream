@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { RefreshScreen } from "../shared/RefreshScreen";
 import { SegmentedControlBar } from "../shared/SegmentedControl";
@@ -16,6 +17,7 @@ type Section = "users" | "libraries" | "transcoding" | "logs";
  * always talks to its own Jellyfin (see docs/ARCHITECTURE.md).
  */
 export function AdminScreen() {
+  const { t } = useTranslation();
   const [section, setSection] = useState<Section>("users");
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
@@ -36,10 +38,10 @@ export function AdminScreen() {
     <View style={{ flex: 1 }}>
       <SegmentedControlBar
         segments={[
-          { key: "users", label: "Users" },
-          { key: "libraries", label: "Libraries" },
-          { key: "transcoding", label: "Transcoding" },
-          { key: "logs", label: "Logs" },
+          { key: "users", label: t("admin.tab_users") },
+          { key: "libraries", label: t("admin.tab_libraries") },
+          { key: "transcoding", label: t("admin.tab_transcoding") },
+          { key: "logs", label: t("admin.tab_logs") },
         ]}
         value={section}
         onChange={(v) => setSection(v as Section)}

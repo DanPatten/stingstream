@@ -1,17 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import type {
-  BaseItemDto,
-  ChapterInfo,
-} from "@jellyfin/sdk/lib/generated-client";
+import type { ChapterInfo } from "@jellyfin/sdk/lib/generated-client";
 import { type FC, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Slider } from "react-native-awesome-slider";
 import { type SharedValue } from "react-native-reanimated";
 import { ChapterList } from "@/components/chapters/ChapterList";
 import { ChapterTicks } from "@/components/chapters/ChapterTicks";
 import { Text } from "@/components/common/Text";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
+import { useTheme } from "@/hooks/useTheme";
 import {
   chapterMarkers,
   chapterNameAt,
@@ -24,8 +22,53 @@ import { TrickplayBubble } from "./TrickplayBubble";
 // flush look (no top/bottom overflow).
 const TICK_HEIGHT = 10;
 
+// Inline rather than `className` for the same reason HeaderControls is: NativeWind v2's classes
+// are inert in the exported web bundle, and a seek bar that stacks into a column is not a seek bar.
+const styles = StyleSheet.create({
+  bar: {
+    position: "absolute",
+    flexDirection: "column",
+    paddingHorizontal: 8,
+  },
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  chapterLabel: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    flexShrink: 1,
+    justifyContent: "flex-end",
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    flexShrink: 0,
+    paddingRight: 8,
+    paddingBottom: 4,
+  },
+  chapterButton: {
+    justifyContent: "center",
+    marginLeft: 16,
+    marginBottom: 4,
+  },
+  sliderBlock: {
+    flexDirection: "column",
+    width: "100%",
+    marginVertical: 8,
+  },
+  track: {
+    height: 10,
+    justifyContent: "center",
+    alignItems: "stretch",
+    // Chapter ticks are taller than the 10px track and must bleed out top and bottom; React
+    // Native defaults to overflow "hidden" on Android.
+    overflow: "visible",
+  },
+});
+
 interface BottomControlsProps {
-  item: BaseItemDto;
   /** Item chapters, used for the tick overlay and chapter list. */
   chapters?: ChapterInfo[] | null;
   /** Total media duration in milliseconds. */
@@ -71,7 +114,6 @@ interface BottomControlsProps {
 }
 
 export const BottomControls: FC<BottomControlsProps> = ({
-  item,
   chapters,
   durationMs,
   showControls,
@@ -96,6 +138,7 @@ export const BottomControls: FC<BottomControlsProps> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useControlsSafeAreaInsets();
+  const { accent } = useTheme();
   const [chapterListVisible, setChapterListVisible] = useState(false);
 
   const chapterMarkerList = useMemo(
@@ -126,52 +169,35 @@ export const BottomControls: FC<BottomControlsProps> = ({
   return (
     <View
       style={[
+        styles.bar,
         {
-          position: "absolute",
           right: insets.right,
           left: insets.left,
           bottom: Math.max(insets.bottom - 17, 0),
         },
       ]}
-      className={"flex flex-col px-2"}
       onTouchStart={handleControlsInteraction}
     >
-      <View
-        className='shrink flex flex-col justify-center'
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-        }}
-      >
+      <View style={styles.topRow}>
+        {/* Title, series and year moved to the top-left with the source pill (HeaderControls):
+            identity belongs next to the thing that qualifies it, and the bottom bar is for the
+            timeline. What is left here is the one label that describes the *position*. */}
         <View
-          className='flex flex-col items-start shrink'
+          style={styles.chapterLabel}
           pointerEvents={showControls ? "box-none" : "none"}
         >
-          {item?.Type === "Episode" && (
-            <Text className='opacity-50'>
-              {`${item.SeriesName} - ${item.SeasonName} Episode ${item.IndexNumber}`}
-            </Text>
-          )}
-          <Text className='font-bold text-xl'>{item?.Name}</Text>
-          {item?.Type === "Movie" && (
-            <Text className='text-xs opacity-50'>{item?.ProductionYear}</Text>
-          )}
-          {item?.Type === "Audio" && (
-            <Text className='text-xs opacity-50'>{item?.Album}</Text>
-          )}
           {currentChapterName ? (
-            <Text className='text-xs opacity-70 mt-1' numberOfLines={1}>
+            <Text variant='caption' tone='secondary' numberOfLines={1}>
               {currentChapterName}
             </Text>
           ) : null}
         </View>
-        <View className='flex flex-row items-end space-x-2 shrink-0 pr-2 pb-1'>
+        <View style={styles.actions}>
           {hasChapters && (
             <Pressable
               onPress={() => setChapterListVisible(true)}
               hitSlop={10}
-              // mb centers the bare 24px icon on the taller skip/next buttons
-              className='justify-center ml-4 mb-1'
+              style={styles.chapterButton}
               accessibilityRole='button'
               accessibilityLabel={t("chapters.open")}
             >
@@ -181,26 +207,21 @@ export const BottomControls: FC<BottomControlsProps> = ({
         </View>
       </View>
       <View
-        className={"flex flex-col-reverse rounded-lg items-center my-2"}
+        style={styles.sliderBlock}
         pointerEvents={showControls ? "box-none" : "none"}
       >
-        <View className={"flex flex-col w-full shrink"}>
+        <View>
           <View
-            style={{
-              height: 10,
-              justifyContent: "center",
-              alignItems: "stretch",
-              // Allow chapter ticks taller than the 10px track to bleed out
-              // top/bottom (RN defaults to overflow: "hidden" on Android).
-              overflow: "visible",
-            }}
+            style={styles.track}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
           >
             <Slider
               theme={{
                 maximumTrackTintColor: "rgba(255,255,255,0.2)",
-                minimumTrackTintColor: "#fff",
+                minimumTrackTintColor: accent[500],
+                // The one place the accent belongs on the OSD: watched progress. Everything else
+                // over video stays white, which is the only colour that reads on any frame.
                 cacheTrackTintColor: "rgba(255,255,255,0.3)",
                 bubbleBackgroundColor: "#fff",
                 bubbleTextColor: "#666",
