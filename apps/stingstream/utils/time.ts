@@ -47,20 +47,35 @@ export const runtimeTicksToMinutes = (
   ticks: number | null | undefined,
 ): string => formatRuntimeTicks(ticks) ?? "0m";
 
-export const runtimeTicksToSeconds = (
+/**
+ * The same runtime, exact, with the seconds shown **only when there are any**.
+ *
+ * `formatRuntimeTicks` rounds, which is right for a badge ("1h 34m") and wrong
+ * for a list that is also claiming to show seconds. This one floors, so a
+ * 25m 30s episode reads "25m 30s" rather than "26m", and a round one reads
+ * "25m" rather than the "25m 0s" every episode row used to end with — a zero
+ * that was there for every title in the library whose runtime happened to land
+ * on a whole minute, which is most of them.
+ *
+ * `null` when there is no runtime, so a row omits the line instead of printing
+ * "0h 0m" under an episode nobody has a duration for.
+ */
+export const formatRuntimeTicksExact = (
   ticks: number | null | undefined,
-): string => {
-  if (!ticks) return "0h 0m";
+): string | null => {
+  if (!ticks || ticks <= 0) return null;
 
-  const ticksPerMinute = 600000000;
-  const ticksPerHour = 36000000000;
+  const hours = Math.floor(ticks / TICKS_PER_HOUR);
+  const minutes = Math.floor((ticks % TICKS_PER_HOUR) / TICKS_PER_MINUTE);
+  const seconds = Math.floor((ticks % TICKS_PER_MINUTE) / TICKS_PER_SECOND);
 
-  const hours = Math.floor(ticks / ticksPerHour);
-  const minutes = Math.floor((ticks % ticksPerHour) / ticksPerMinute);
-  const seconds = Math.floor((ticks % ticksPerMinute) / 10000000);
-
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  return `${minutes}m ${seconds}s`;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  // The minutes are kept when there are hours *and* seconds either side of
+  // them: "1h 5s" invites the reader to work out whether a part is missing.
+  if (minutes > 0 || (hours > 0 && seconds > 0)) parts.push(`${minutes}m`);
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
 };
 
 // t: ms

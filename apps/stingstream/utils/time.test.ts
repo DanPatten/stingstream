@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { formatRuntimeTicks, runtimeTicksToMinutes } from "./time";
+import {
+  formatRuntimeTicks,
+  formatRuntimeTicksExact,
+  runtimeTicksToMinutes,
+} from "./time";
 
 // `utils/time.ts` imports nothing, so this needs no react-native stub — which
 // is half the reason the runtime formatter belongs here rather than beside the
@@ -62,5 +66,46 @@ describe("runtimeTicksToMinutes", () => {
   test("falls back to 0m when there is nothing to say", () => {
     expect(runtimeTicksToMinutes(null)).toBe("0m");
     expect(runtimeTicksToMinutes(0)).toBe("0m");
+  });
+});
+
+describe("formatRuntimeTicksExact", () => {
+  test("says nothing about the seconds when there are none", () => {
+    // The defect: every episode row whose runtime landed on a whole minute —
+    // which is most of a library — ended in a pointless "0s".
+    expect(formatRuntimeTicksExact(minutes(25))).toBe("25m");
+    expect(formatRuntimeTicksExact(hours(1) + minutes(2))).toBe("1h 2m");
+    expect(formatRuntimeTicksExact(hours(2))).toBe("2h");
+  });
+
+  test("says them when there are", () => {
+    expect(formatRuntimeTicksExact(minutes(25) + seconds(30))).toBe("25m 30s");
+    expect(formatRuntimeTicksExact(hours(1) + minutes(2) + seconds(5))).toBe(
+      "1h 2m 5s",
+    );
+  });
+
+  test("keeps a zero minutes part between hours and seconds", () => {
+    // "1h 5s" reads as though a part went missing.
+    expect(formatRuntimeTicksExact(hours(1) + seconds(5))).toBe("1h 0m 5s");
+  });
+
+  test("counts plain seconds under a minute", () => {
+    expect(formatRuntimeTicksExact(seconds(20))).toBe("20s");
+    expect(formatRuntimeTicksExact(seconds(1))).toBe("1s");
+  });
+
+  test("floors rather than rounds, unlike the badge formatter", () => {
+    // A row that is showing seconds must not round the minutes underneath
+    // them: 25m 40s is "25m 40s", not "26m 40s".
+    expect(formatRuntimeTicksExact(minutes(25) + seconds(40))).toBe("25m 40s");
+    expect(formatRuntimeTicks(minutes(25) + seconds(40))).toBe("26m");
+  });
+
+  test("returns null when there is no runtime, so a row omits the line", () => {
+    expect(formatRuntimeTicksExact(null)).toBeNull();
+    expect(formatRuntimeTicksExact(undefined)).toBeNull();
+    expect(formatRuntimeTicksExact(0)).toBeNull();
+    expect(formatRuntimeTicksExact(-1)).toBeNull();
   });
 });
