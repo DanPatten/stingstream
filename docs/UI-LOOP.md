@@ -303,11 +303,13 @@ Own `package.json` + lockfile, runs with plain `node`.
   the rest of the pass. Writes `<out>/<screen>-<viewport>.png` (viewport in the name is the
   *measured* `page.viewportSize()`, not the nominal config -- F-36), `<out>/findings.json`,
   `<out>/report.json`, `<out>/report.md`.
-- **`flows/web.mjs`** -- the 13 screens, in order, and how to reach each from a fresh page; see
+- **`flows/web.mjs`** -- the 15 screens, in order, and how to reach each from a fresh page; see
   "Pinned routes" below. `VIEWPORTS` (1440x900, 1024x768, 390x844 with `isMobile`,
   `deviceScaleFactor: 2`, `hasTouch: true`), `signIn`/`createFirstRunAccount` (the testID-driven
-  auth flows, `connectAndSignIn` kept as an alias for `signIn`) and `clickTabByTestId` (the
-  tab-bar-by-testID workaround, see "F-36" below) live here too.
+  auth flows, `connectAndSignIn` kept as an alias for `signIn`) live here too. `NAV`/`navigateViaNav`
+  drive Requests/Sharing by a real nav click as well as by URL (see "Pinned routes"), reading the
+  768px `isWebWide` breakpoint (`apps/stingstream/hooks/useBreakpoint.ts`) to pick the desktop
+  sidebar's testID or the compact bar/More screen's.
 - **`sweep.mjs`** -- `watchPage(page, {screen, viewport})` (call **before** navigating: console
   errors/warnings against `allowlist.json`, failed responses >= 400 against the same file,
   `pageerror`) and `sweepDom(page, {...})` (call once a screen has settled: page/element overflow,
@@ -318,10 +320,13 @@ Own `package.json` + lockfile, runs with plain `node`.
   4 loaded `<img>`s counts as a row) and says so in its own finding text -- real once the `home-hero`/
   `home-row` `testID`s below land, informational until then, the same spirit as the plan's own
   "optional axe pass, informational."
-- **`allowlist.json`** -- known-benign console/response noise, as regexes. Starts empty on
-  purpose: pass-00's findings are the old-UI baseline and are *meant* to be high (the plan's own
-  words); only add an entry once a finding is genuinely understood and expected, never to make a
-  number look better.
+- **`allowlist.json`** -- known-benign console/response noise, as regexes (`console`/`responses`),
+  plus `smallTextSelectors` -- CSS selectors (not regexes) exempting matching elements from the
+  small-text (<12px) check. Starts empty on purpose: pass-00's findings are the old-UI baseline and
+  are *meant* to be high (the plan's own words); only add an entry once a finding is genuinely
+  understood and expected, never to make a number look better. One entry as of this pass:
+  `[data-testid="shell-tabbar"] *`, for the compact tab bar's 11px labels (`TAB_LABEL_FONT_SIZE`,
+  `tabIcons.ts`) -- deliberate, F-08, not a defect.
 - **`report.mjs`** -- `buildReport(findings, meta)` (importable) and a standalone CLI
   (`node report.mjs --in findings.json --out <dir>`) producing the same `report.json`/`report.md`
   shape `shots.mjs` writes directly.
@@ -343,33 +348,29 @@ Own `package.json` + lockfile, runs with plain `node`.
 
 ### Pinned routes
 
-**Updated 2026-09-06 (pass-02 critique, F-36).** WP1's web shell has not landed yet, and merging
-WP3/WP-GATE/WP-CORE/WP-TV-SHELL/WP-TV-LOGIN in the meantime changed what a bare URL resolves to:
-`/requests`, `/groups`, and by the same construction `/search`, `/manage`, `/downloads`, now hit a
-library-by-id catch-all route that spins forever and fires a ~400-request storm at the server in
-about 3 seconds (the plan's F-21). That is not merely stale, it is actively harmful to keep doing,
-so as of this pass **none of the six are pinned to a URL any more** -- `flows/web.mjs` reaches them
-by clicking the bottom tab bar's own testID instead (see "F-36" below), which fails cleanly
-(element not wired up yet) rather than hammering the server.
+**Updated 2026-09-06 (WP1 landed on master, `dbdee21`) -- the pass-02 TODO above is resolved.**
+WP1 gave every section a real URL of its own (`apps/stingstream/components/shell/tabIcons.ts`
+`TAB_PATHS`, plus Sharing/Settings/Sessions, which are not tab groups) and each route group also
+has a named file at its own path, so the old collision at `/` (F-20/F-21: `/requests` etc. fell
+through to a `(libraries)/[libraryId]` catch-all and spun, hammering the server with a
+~400-request storm) is gone -- confirmed live, this pass, that every route below lands on the
+right screen. Almost everything is pinned to a direct URL again as a result.
 
 | Screen | Reached by | Notes |
 |---|---|---|
 | Login / first-run | `/login` | One route for the server-address step, the first-run create-account form, and the sign-in form; which one renders is state, not URL |
-| Home | `/` | |
-| Settings | `/settings` | **Still** direct navigation -- confirmed still correct on pass-02, unlike the six below |
-| Search | tab testID | not a URL -- see "F-36" |
-| Requests | tab testID | not a URL -- see "F-36" |
-| Sharing (still "Groups") | `/settings` then a row click | no bottom tab; reached via Settings, itself still pinned |
-| Manage | tab testID | not a URL -- see "F-36" |
-| Transfers (still "Downloads") | tab testID | not a URL -- see "F-36" |
-| Library | tab testID | not a URL -- see "F-36"; `04-library-movies` stays a best-effort text click after it |
+| Home | `/` | `/home` also exists, as a redirect |
+| Library | `/library` | `04-library-movies` stays a best-effort text click after it (no `library-card` testID yet) |
+| Settings | `/settings` | |
+| Requests | `/requests` -- **and** a nav click | Both paths, on purpose: `08-requests` navigates by URL, then *also* clicks `tab-requests` (the compact bar at <768px, the desktop sidebar row at >=768px -- same testID, `tabTestID()` is shared) and checks the URL again. Requests was pass-02's worst F-20/F-21 case, so this screen keeps double-checking it. |
+| Sharing | `/sharing` -- **and** a nav click | Same "both paths" treatment as Requests. No compact-bar tab of its own: at <768px reached via `tab-more` -> `more-sharing` inside `more-screen`; at >=768px a direct sidebar row, `tab-sharing`. |
+| Search | `/search` | |
+| Manage | `/manage` | |
+| Transfers | `/transfers` | |
+| Favorites | `/favorites` | New this pass (`14-favorites`) |
+| More | `/more` | New this pass (`13-more`), **390px only** -- the "More" screen is a compact-only concept (`buildMoreItems`); at >=768px the same rows are direct sidebar items and there is nothing distinct to shoot |
 | Details | **not pinned** | keyed by item id; reached by clicking a poster in the same session |
 | Player | **not pinned** | reached by clicking Play from a reached Details screen |
-
-**TODO (WP1):** re-pin Search/Library/Requests/Manage/Transfers/Sharing/Settings to real URLs once
-WP1 lands `/home`, `/search`, `/library`, `/requests`, `/sharing`, `/manage`, `/transfers`,
-`/settings` (the plan's own eventual set) -- tracked in `flows/web.mjs`'s own file header, not just
-here, so whoever picks this up sees it in the code they are editing.
 
 ### Real bugs found pinning these routes (already on the plan's bug list; not fixed here)
 
@@ -504,7 +505,13 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `firstrun-username` / `firstrun-password` / `firstrun-confirm` / `firstrun-submit` | First-run form fields + submit | WP3 | **Landed** |
 | `login-server-url` / `login-connect` | Server URL field + Connect button | WP3 | **Landed** |
 | `login-username` / `login-password` / `login-submit` | Sign-in form fields + submit | WP3 | **Landed** |
-| `tab-home` / `tab-library` / `tab-search` / `tab-favorites` / `tab-settings` / `tab-requests` / `tab-manage` / `tab-transfers` | Sidebar/tab-bar items | WP1 | Not landed. The bottom tab bar today auto-assigns `tab-(home)`, `tab-(search)`, `tab-(favorites)`, `tab-(libraries)`, `tab-(manage)`, `tab-(downloads)`, `tab-(requests)` -- the literal Expo Router group names (parens included) from whatever tab component is in use, not a deliberate `testID='tab-home'` prop. `flows/web.mjs`'s `clickTabByTestId` uses these as an interim measure; F-20 (the tab bar does not navigate) means clicking any of them does not actually change screens yet either. |
+| `tab-home` / `tab-search` / `tab-library` / `tab-requests` / `tab-more` | Compact bottom tab bar (`shell-tabbar`, <768px) and desktop sidebar (`buildSidebarItems.ts`, >=768px) -- same testID, shared via `tabTestID()` | WP1 | **Landed** 2026-09-06 (`dbdee21`). The old auto-assigned `tab-(home)`-style ids (literal Expo Router group names) are gone; querying for one now finds nothing. |
+| `tab-favorites` / `tab-watchlists` / `tab-custom-links` / `tab-manage` / `tab-transfers` | Same shared `tabTestID()` ids -- desktop sidebar rows, and (for the ones not on the compact bar) rows inside the phone's `more-screen` too | WP1 | **Landed** |
+| `tab-sharing` / `tab-settings` | Desktop sidebar-only rows (>=768px) for Sharing/Settings, which are not tab groups | WP1 | **Landed** |
+| `more-sharing` / `more-settings` / `more-sessions` | Phone-only `more-screen` rows (<768px) for the same three destinations | WP1 | **Landed** |
+| `shell-tabbar` | The compact bottom tab bar's own container | WP1 | **Landed** |
+| `more-screen` | The phone "More" screen's container | WP1 | **Landed** |
+| `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron | WP1 | **Landed** |
 | `home-hero` | The Home hero/spotlight | WP4 | Not landed |
 | `home-row` | Each Home row container | WP4 | Not landed |
 | `library-card` | A poster/card in a grid | WP2 | Not landed |
@@ -649,3 +656,98 @@ sharing, search) -- the verification bar this pass was held to. 354 findings tot
 to real, specific causes (console noise matching the critique's own F-23 list, tab-label overflow
 at 390px matching F-20's "every label truncates," the visible `/jellyfin` URL matching F-30), none
 of them the marker false-positive or the fuzzy-selector failures this pass set out to fix.
+
+---
+
+## Pass-04 (WP1 route/testID re-pin, `dbdee21`, 2026-09-06)
+
+Run against a fresh node: fresh `bunx expo export` of master (`dbdee21` -- WP1 landed, plus
+everything through it), `-ForceCopy` to pick up the current `stingstream.exe`/Jellyfin build,
+`-Fresh -Seed` (real artwork, the F-12 default). `shots.mjs --first-run --creds` -- all 16 screens
+(the 13 from pass-03 plus `13-more` and `14-favorites`) x 3 viewports.
+`.win-temp\ui-loop\wp1-repin\`.
+
+**Re-pin -- fixed and confirmed.** Every section in "Pinned routes" above now navigates the way
+that table says: direct `page.goto()` for Home/Library/Settings/Search/Manage/Transfers/Favorites,
+`13-more` gated to 390px only, and `08-requests`/`09-sharing` doing BOTH a direct URL nav and a
+`navigateViaNav()` click (the compact bar + More screen at 390px, the desktop sidebar at
+1024/1440px) with a URL check after each. **Zero `navigate-failed` findings on any of these nine
+screens, at any of the three viewports** -- the acceptance bar this pass was held to. Confirmed by
+hand, not just by the absence of a finding: read `08-requests-1440x900.png` and
+`09-sharing-390x844.png` back after the run -- Requests highlights correctly in the desktop
+sidebar, Sharing's content renders correctly reached via `tab-more` -> `more-sharing` at 390px, and
+`13-more-390x844.png` shows the real More screen (Favorites / Manage, Transfers, Sessions /
+Sharing, Settings -- Watchlists and Custom Links absent because this seed's settings do not turn
+either on, which is correct, not a bug).
+
+The 11 `navigate-failed` findings that remain are exactly the ones expected to remain, all
+`optional: true`, none of them one of the nine: `00b-first-run-lan` x3 (`--lan` was not passed this
+run), `00-first-run-local` x2 at the 2nd/3rd viewport (the account already exists by then --
+`firstRunAccountCreated` behaving exactly as pass-03 documented), `05-details` x3 and `06-player`
+x3 (the best-effort `img`/`getByRole` click landed on the Library screen's own "Movies"/"TV Shows"
+tile rather than a real item poster -- `library-card`/`details-play` still have no testID, per the
+contract table; not a regression, `03-library`/`04-library-movies` reaching the Library screen at
+all is new this pass, `05`/`06` were skipped outright before it).
+
+**Small-text allowlist -- fixed and confirmed.** `allowlist.json`'s new `smallTextSelectors`
+(`[data-testid="shell-tabbar"] *`) suppresses the compact bar's 11px labels: confirmed live, both
+ways -- a direct `page.evaluate()` against a signed-in 390px session found `shell-tabbar`'s five
+labels ("Home"/"Search"/"Library"/"Requests"/"More") really are 11px, and the same run's 62
+small-text findings contain zero of them (they are all real: `02-home`'s year badges at 390px,
+e.g. `<div> 11px "1922"`). The allowlist is a CSS-selector exemption, not a blanket size bump --
+confirmed it does not swallow an unrelated genuine finding.
+
+**Seed library-tile images -- fixed within this package's scope; one root cause is not this
+package's to fix.** `New-LibraryTileImage` (new function, `ui-seed-media.ps1`) never writes a
+`folder.jpg` for `Movies`/`TV` in real-artwork mode (confirmed live: `real artwork: no local
+folder.jpg for Movies (Jellyfin composes it from posters)` in this run's own log), and in
+`-OfflineArtwork` mode writes a plain hue-gradient `folder.jpg` with no `DrawString` call at all
+(confirmed by reading the file back: a clean diagonal gradient, no text, no library name). That
+said: **the "Movies"/"TV Shows" name shown twice on the Libraries grid is still visible in this
+pass's own `03-library-1440x900.png`**, with real artwork and no local `folder.jpg` from this
+script either way. Reading the screenshot closely, the large centered text is baked into the
+library's own composed tile *above* the app's own smaller "Movies"/"TV Shows" card caption below
+it -- i.e. it is Jellyfin's/the app's own rendering of the library's auto-composed cover image,
+not a file `ui-seed-media.ps1` ever writes (this script writes no `Movies`/`TV` folder image at
+all in real-artwork mode, and never did before this pass either). This package owns no file that
+produces that overlay -- it is either Jellyfin's own CollectionFolder image compositing or a
+client-side card treatment in `apps/stingstream/**`, both out of `tools/ui-seed-media.ps1`'s reach.
+Flagging for whichever work package owns the Library screen's card component or the
+CollectionFolder image request, rather than silently marking this done.
+
+**Credential handling -- fixed and confirmed, including the exact failure WP2 reported.**
+`lib/authFile.mjs`'s `readAdminCredentials()` (read a node's `runtime.json` directly) is removed
+outright, along with every `--pass-file` consumer (`shots.mjs`, `scripts/drive-login.mjs`,
+`scripts/drive-startup.mjs`, `tools/ui-startup.ps1`'s two Playwright invocations) -- WP2 found the
+real bug this was hiding: WP-CORE's setup renames the bootstrap admin and scrubs the generated
+password out of `runtime.json` once setup completes, so a *second* script run against the same,
+by-then-set-up data dir (exactly what `ui-startup.ps1`'s own "restart, then an ordinary login" step
+does) threw instead of signing in. Every script in this package now uses the F-36 `--creds` file
+(`{username,password}`, never `runtime.json`) end to end: `drive-startup.mjs` drives the real
+first-run screen itself and writes the account it creates to `--creds`; `drive-login.mjs` reads it
+back for the restart pass; `ui-startup.ps1` threads one `$CredsPath` (`<DataDir>\ui-loop-creds.json`,
+a top-level script variable for the same PowerShell-scoping reason `$DataDir` is) through both
+steps.
+
+`ui-startup.ps1 -DriveUi`'s own end-to-end run could not complete this pass -- see "T_healthy
+contention" below, an unrelated infrastructure problem -- so both new code paths were verified
+directly against the pass-04 node instead, by hand, after confirming its `runtime.json` really had
+been scrubbed (`jellyfin_admin` had `{"username":"stingstream"}`, no `password` key -- the exact
+state that broke `readAdminCredentials()`): `node scripts/drive-login.mjs --creds ...` against it
+signed in and reached Home in 10.97s; `node scripts/drive-startup.mjs --creds ...` against the same
+already-set-up node correctly took the "no first-run setup screen -- signing in with --creds"
+branch and reached Home in 17.51s. Both are the exact scenario WP2 reported broken, both now work.
+
+**T_healthy contention (infrastructure, not a regression).** Two `-DriveUi` attempts both failed at
+`T_healthy` (100s timeout, `/healthz` never answered) before ever reaching the Playwright step --
+neither is one of this pass's own screens or scripts. `tasklist` showed 17-21 concurrent
+`stingstream.exe` processes on this shared machine both times (several other agents' nodes
+building/running at once -- the same contention pass-00's own verification section documents
+missing `T_healthy`/`T_wired` for). Confirmed this is not a functional break in the current build:
+this pass's OTHER node (the one `shots.mjs` ran all 16 screens against, above), started earlier and
+never restarted, answered `/healthz` with `"status":"ok"` and both `jellyfin`/`mesh` `"state":
+"healthy"` at the same moment the second `-DriveUi` attempt was timing out. Not re-attempted a
+third time given the trend (131.3s vs. 87.0s for the same "wipe -> seed -> start" step, second
+attempt slower) -- worth another `-DriveUi` run once the machine is less loaded, but is a real gap:
+the budget-timing numbers (`FCP`/`T_setup`/`T_home`/`T_home2`) this section reported in pass-00 are
+not re-confirmed this pass.
