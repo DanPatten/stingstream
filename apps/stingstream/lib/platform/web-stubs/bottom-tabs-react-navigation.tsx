@@ -20,9 +20,22 @@
  * `webModuleStubs` in `metro.config.js`).
  */
 
+import { useRouter } from "expo-router";
 import { createBottomTabNavigator } from "expo-router/js-tabs";
 import type { ComponentProps } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icon } from "@/components/common/Icon";
+import { Text } from "@/components/common/Text";
+import {
+  TAB_LABEL_FONT_SIZE,
+  tabIcon,
+  tabPath,
+  tabTestID,
+} from "@/components/shell/tabIcons";
+import { tokens } from "@/constants/theme";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 
 const { Navigator: JsBottomTabNavigator } = createBottomTabNavigator();
 
@@ -37,26 +50,66 @@ type NativeOnlyNavigatorProps = {
   hapticFeedbackEnabled?: boolean;
   disablePageAnimations?: boolean;
   labeled?: boolean;
+  tabLabelStyle?: {
+    fontSize?: number;
+    fontFamily?: string;
+    fontWeight?: string;
+  };
   rippleColor?: string;
   tabBarStyle?: { backgroundColor?: string } & Record<string, unknown>;
   tabBarActiveTintColor?: string;
   tabBarInactiveTintColor?: string;
+  /**
+   * Real in the native package, and load bearing here: above 768 px the web
+   * shell puts a sidebar where the bar would be, and the navigator underneath
+   * has to be the same one it was at 767 — see `WebShellLayout`.
+   */
+  tabBarHidden?: boolean;
 };
 
-const ACTIVE_TINT_FALLBACK = "#9333EA";
-const INACTIVE_TINT_FALLBACK = "#8E8E93";
-const BAR_BACKGROUND_FALLBACK = "#121212";
+/** The bar's own height, before the device's bottom inset is added. */
+const TAB_BAR_HEIGHT = 56;
 
-function WebTabBar({
-  state,
-  descriptors,
-  navigation,
-  backgroundColor,
-  activeTintColor,
-  inactiveTintColor,
-}: any) {
+/**
+ * The width below which the labels go and the glyphs stand alone.
+ *
+ * Kept in step with `ICON_ONLY_BELOW` in `app/(auth)/(tabs)/_layout.tsx`, which
+ * is the same rule for the native bar: five items across 360 px is 72 px each,
+ * and below that a label would have to be cut short — which pass-01 F-08 says
+ * it may not be.
+ */
+const ICON_ONLY_BELOW = 360;
+
+/**
+ * The compact web tab bar.
+ *
+ * The native navigator's `tabBarIcon` returns an SF Symbol descriptor on iOS
+ * and a `require()`d PNG on Android; on web it returns `{ sfSymbol }`, which is
+ * an object nothing can draw — which is why this bar was six words in a row
+ * with no glyphs at all. So it does not consult `tabBarIcon`: it draws the same
+ * `Icon` the desktop sidebar draws, from the same table
+ * (`components/shell/tabIcons.ts`), so a tab looks the same at 390 px as it
+ * does at 1440.
+ */
+function WebTabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+  const { accent } = useTheme();
+  const { width } = useBreakpoint();
+  const router = useRouter();
+  const labelled = width >= ICON_ONLY_BELOW;
+
   return (
-    <View style={[styles.bar, { backgroundColor }]}>
+    <View
+      accessibilityRole='tablist'
+      testID='shell-tabbar'
+      style={[
+        styles.bar,
+        {
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         // The native navigator's way of hiding a tab; no JS equivalent.
@@ -71,30 +124,53 @@ function WebTabBar({
             target: route.key,
             canPreventDefault: true,
           });
-          if (!focused && !event.defaultPrevented) {
-            navigation.navigate(route.name, route.params);
-          }
+          if (focused || event.defaultPrevented) return;
+          // By URL, not by a NAVIGATE action aimed at this navigator.
+          //
+          // A dispatch switches the tab but leaves the group on its `index`,
+          // and a group's index is `/` — so the address bar said `/` whatever
+          // you pressed, the browser's back button had nothing to go back to,
+          // and a refresh landed on Home (pass-02 F-20). `tabPath` gives each
+          // section the address of its named route, and expo-router does the
+          // rest, history included.
+          router.navigate(tabPath(route.name) as never);
         };
 
         return (
           <Pressable
             key={route.key}
-            accessibilityRole='button'
-            accessibilityState={focused ? { selected: true } : {}}
+            accessibilityRole='tab'
+            accessibilityState={{ selected: focused }}
+            // react-native-web 0.21 no longer maps `accessibilityState` onto
+            // the DOM, so the selected state needs the W3C prop as well.
+            aria-selected={focused}
             accessibilityLabel={options?.tabBarAccessibilityLabel ?? label}
-            testID={options?.tabBarButtonTestID ?? `tab-${route.name}`}
+            testID={options?.tabBarButtonTestID ?? tabTestID(route.name)}
             onPress={onPress}
             style={styles.item}
           >
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.label,
-                { color: focused ? activeTintColor : inactiveTintColor },
-              ]}
-            >
-              {label}
-            </Text>
+            <Icon
+              name={tabIcon(route.name)}
+              size={22}
+              color={focused ? accent[500] : tokens.color.text.tertiary}
+            />
+            {labelled ? (
+              <Text
+                // 11 px, per pass-01 F-08. Five labels have to fit a 360 px bar
+                // without one of them being cut short, and "Requests" is the
+                // long one; `numberOfLines` is a backstop, not the plan.
+                variant='micro'
+                weight={focused ? "semibold" : "medium"}
+                numberOfLines={1}
+                style={{
+                  marginTop: 2,
+                  fontSize: TAB_LABEL_FONT_SIZE,
+                  color: focused ? accent[500] : tokens.color.text.tertiary,
+                }}
+              >
+                {label}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}
@@ -107,19 +183,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
     justifyContent: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.12)",
-    minHeight: 52,
+    borderTopWidth: 1,
+    borderTopColor: tokens.color.border.subtle,
+    backgroundColor: tokens.color.bg["1"],
   },
   item: {
     flexGrow: 1,
     flexBasis: 0,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
-  label: { fontSize: 13, fontWeight: "600" },
 });
 
 function NativeBottomTabsWebNavigator({
@@ -129,11 +203,15 @@ function NativeBottomTabsWebNavigator({
   translucent: _translucent,
   hapticFeedbackEnabled: _hapticFeedbackEnabled,
   disablePageAnimations: _disablePageAnimations,
+  // The bar below decides for itself whether it can afford labels, from the
+  // same width rule the native navigator is given.
   labeled: _labeled,
+  tabLabelStyle: _tabLabelStyle,
   rippleColor: _rippleColor,
-  tabBarStyle,
-  tabBarActiveTintColor,
-  tabBarInactiveTintColor,
+  tabBarStyle: _tabBarStyle,
+  tabBarActiveTintColor: _tabBarActiveTintColor,
+  tabBarInactiveTintColor: _tabBarInactiveTintColor,
+  tabBarHidden,
   screenOptions,
   ...rest
 }: NativeOnlyNavigatorProps & Record<string, any>) {
@@ -146,16 +224,9 @@ function NativeBottomTabsWebNavigator({
           ...(typeof screenOptions === "object" ? screenOptions : null),
         } as any
       }
-      tabBar={(props: any) => (
-        <WebTabBar
-          {...props}
-          backgroundColor={
-            tabBarStyle?.backgroundColor ?? BAR_BACKGROUND_FALLBACK
-          }
-          activeTintColor={tabBarActiveTintColor ?? ACTIVE_TINT_FALLBACK}
-          inactiveTintColor={tabBarInactiveTintColor ?? INACTIVE_TINT_FALLBACK}
-        />
-      )}
+      tabBar={
+        tabBarHidden ? () => null : (props: any) => <WebTabBar {...props} />
+      }
     />
   );
 }

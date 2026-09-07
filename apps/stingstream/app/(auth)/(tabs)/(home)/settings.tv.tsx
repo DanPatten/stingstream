@@ -858,7 +858,7 @@ export default function SettingsTV() {
             value={user?.Name || "-"}
             onPress={handleSwitchUser}
             disabled={!hasOtherAccounts || isAnyModalOpen}
-            isFirst
+            isFirst={hasOtherAccounts}
           />
 
           {/* Security Section */}
@@ -874,6 +874,11 @@ export default function SettingsTV() {
                   updateSettings({ inactivityTimeout: value }),
               })
             }
+            // The household-TV common case is exactly one account, which
+            // disables (and defocuses) the row above -- see its isFirst.
+            // Without a fallback here, that single-account setup lands the
+            // whole screen with no preferred focus at all.
+            isFirst={!hasOtherAccounts}
           />
 
           {/* Video Player Section */}

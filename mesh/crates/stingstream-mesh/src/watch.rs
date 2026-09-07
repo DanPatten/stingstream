@@ -178,6 +178,26 @@ pub struct Command {
     /// When the leader sent it, on the leader's clock. The difference from `at_ms` is the head
     /// start it allowed for the network.
     pub emitted_ms: Millis,
+    /// Whether the leader has *ended the session*, as distinct from stopping playback.
+    ///
+    /// The two are not the same thing and used to be conflated: [`CommandKind::Stop`] was taken to
+    /// mean "the party is over", so every stop closed the session on every follower while the
+    /// leader — which never sets its own `closed` from a command — carried on thinking it was
+    /// open. A follower that closes a session tears its bridge down, and any attempt to seat it
+    /// afterwards is refused as "this node is not in that session".
+    ///
+    /// It broke M7 in CI run 34052650751: the bridge's own seat joining an *idle* SyncPlay group
+    /// is answered by Jellyfin with a `Stop`, the leader relayed it (18:56:42.070916, `kind:
+    /// "Stop"`), and node B's bridge stopped bridging 0.3 s later — so the harness's next call,
+    /// seating B's bridge, got a 409.
+    ///
+    /// Now the flag travels explicitly, taken from the leader's own record: only
+    /// [`crate::node::MeshNode::watch_leave`] sets it, and it does so *before* broadcasting the
+    /// stop that carries it. `#[serde(default)]` so a command from a build that predates the field
+    /// reads as "not closed", which is the safe half — a session that outlives its leader is
+    /// dropped when the leader stops reporting, and one closed too eagerly cannot be reopened.
+    #[serde(default)]
+    pub closed: bool,
 }
 
 /// How far ahead of "now" a leader schedules a resume.
@@ -279,6 +299,17 @@ pub struct Registry {
     sessions: Arc<Mutex<HashMap<String, WatchSession>>>,
 }
 
+/// What [`Registry::apply_command`] did with a command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Applied {
+    /// It was applied.
+    Yes,
+    /// This node knows no such session, so there was nothing to apply it to.
+    NoSuchSession,
+    /// Its sequence is no newer than the one already applied: a duplicate or a reordering.
+    Stale,
+}
+
 /// How long a participant may go without reporting before the leader drops it.
 ///
 /// Followers report on every position update and at least every few seconds, so this is several
@@ -354,6 +385,49 @@ impl Registry {
         f(session);
         session.updated_at_ms = now_ms();
         Some(session.clone())
+    }
+
+    /// Apply one of the leader's commands to the session it names.
+    ///
+    /// `local_at` is the command's `at_ms` already converted onto **this** node's clock; the
+    /// conversion needs a measured offset, which is the caller's business and not the registry's.
+    ///
+    /// The rules, all three of which exist because getting one wrong is invisible until a room
+    /// full of people is watching the wrong frame:
+    ///
+    /// * a command whose sequence is not ahead of what has been applied is ignored, so a
+    ///   duplicated or reordered delivery is harmless rather than a seek backwards;
+    /// * a seek does not change whether the film is playing — except from `Idle`, where there is
+    ///   nothing to keep and `Paused` is the honest answer;
+    /// * **only [`Command::closed`] closes a session.** Stopping playback and ending the party are
+    ///   different things, and inferring the second from the first is what broke M7 — see
+    ///   [`Command::closed`]. Once closed it stays closed: a command that predates the leader's
+    ///   decision must not reopen the invite.
+    pub fn apply_command(&self, command: &Command, local_at: Millis) -> Applied {
+        let mut guard = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(session) = guard.get_mut(&command.session) else {
+            return Applied::NoSuchSession;
+        };
+        if command.seq <= session.seq && session.seq != 0 {
+            return Applied::Stale;
+        }
+        session.seq = command.seq;
+        session.position_ms = command.position_ms;
+        session.at_ms = local_at;
+        session.state = match command.kind {
+            CommandKind::Play => WatchState::Playing,
+            CommandKind::Pause | CommandKind::Seek => {
+                if session.state == WatchState::Playing && command.kind == CommandKind::Seek {
+                    WatchState::Playing
+                } else {
+                    WatchState::Paused
+                }
+            }
+            CommandKind::Stop => WatchState::Idle,
+        };
+        session.closed |= command.closed;
+        session.updated_at_ms = now_ms();
+        Applied::Yes
     }
 
     pub fn remove(&self, id: &str) -> Option<WatchSession> {
@@ -543,6 +617,100 @@ mod tests {
         let closed_at = reg.get("a").unwrap().updated_at_ms;
         assert!(reg.sweep(closed_at + 1).is_empty());
         assert_eq!(reg.sweep(closed_at + CLOSED_LINGER_MS + 1), vec!["a"]);
+    }
+
+    fn command(session: &str, seq: u64, kind: CommandKind) -> Command {
+        Command {
+            session: session.into(),
+            seq,
+            kind,
+            position_ms: 90_000,
+            at_ms: 2_000_000,
+            emitted_ms: 2_000_000,
+            closed: false,
+        }
+    }
+
+    /// The M7 regression, at the level the decision is made.
+    ///
+    /// Jellyfin answers a session that joins an idle SyncPlay group with a `Stop`, and the bridge's
+    /// own seat is such a session -- so a leader relays a stop for no reason a person would
+    /// recognise. Taking that to mean "the party is over" tore every follower's bridge down and
+    /// made the next `attach` a 409 (CI run 34052650751).
+    #[test]
+    fn a_stop_stops_playback_without_ending_the_session() {
+        let reg = Registry::new();
+        reg.put(session("a", 1));
+        assert_eq!(
+            reg.apply_command(&command("a", 2, CommandKind::Stop), 2_000_000),
+            Applied::Yes
+        );
+        let after = reg.get("a").unwrap();
+        assert_eq!(after.state, WatchState::Idle);
+        assert!(!after.closed, "a stop must not end the session");
+        assert_eq!(reg.open().len(), 1, "the invite is still up");
+    }
+
+    #[test]
+    fn only_the_leaders_own_flag_ends_a_session() {
+        let reg = Registry::new();
+        reg.put(session("a", 1));
+        let mut ending = command("a", 2, CommandKind::Stop);
+        ending.closed = true;
+        assert_eq!(reg.apply_command(&ending, 2_000_000), Applied::Yes);
+        assert!(reg.get("a").unwrap().closed);
+        assert!(reg.open().is_empty(), "the invite comes down");
+    }
+
+    /// A command in flight when the leader ended the party can arrive afterwards. It must not put
+    /// the invite back up.
+    #[test]
+    fn a_closed_session_is_never_reopened_by_a_later_command() {
+        let reg = Registry::new();
+        reg.put(session("a", 1));
+        let mut ending = command("a", 2, CommandKind::Stop);
+        ending.closed = true;
+        reg.apply_command(&ending, 2_000_000);
+        reg.apply_command(&command("a", 3, CommandKind::Play), 2_000_000);
+        assert!(reg.get("a").unwrap().closed);
+    }
+
+    #[test]
+    fn a_command_no_newer_than_the_last_is_ignored() {
+        let reg = Registry::new();
+        reg.put(session("a", 4));
+        assert_eq!(
+            reg.apply_command(&command("a", 4, CommandKind::Pause), 2_000_000),
+            Applied::Stale
+        );
+        assert_eq!(reg.get("a").unwrap().state, WatchState::Playing);
+        assert_eq!(
+            reg.apply_command(&command("b", 9, CommandKind::Pause), 2_000_000),
+            Applied::NoSuchSession
+        );
+    }
+
+    #[test]
+    fn a_seek_keeps_a_playing_session_playing_and_wakes_an_idle_one_to_paused() {
+        let reg = Registry::new();
+        reg.put(session("a", 1));
+        reg.apply_command(&command("a", 2, CommandKind::Seek), 2_000_000);
+        assert_eq!(reg.get("a").unwrap().state, WatchState::Playing);
+
+        reg.apply_command(&command("a", 3, CommandKind::Stop), 2_000_000);
+        reg.apply_command(&command("a", 4, CommandKind::Seek), 2_000_000);
+        assert_eq!(reg.get("a").unwrap().state, WatchState::Paused);
+    }
+
+    /// A node running an older build sends no `closed` at all. It must read as "not closed" rather
+    /// than failing to parse, which would drop the command entirely.
+    #[test]
+    fn a_command_from_a_build_without_the_closed_flag_still_reads() {
+        let json = r#"{"session":"a","seq":2,"kind":"stop","position_ms":10,
+                       "at_ms":1000,"emitted_ms":1000}"#;
+        let parsed: Command = serde_json::from_str(json).unwrap();
+        assert!(!parsed.closed);
+        assert_eq!(parsed.kind, CommandKind::Stop);
     }
 
     #[test]

@@ -8,7 +8,11 @@ import {
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
+  type Age,
   authHeaders,
+  type GroupCounts,
+  type GroupSyncState,
+  type LinkPath,
   type MemberRow,
   type MeshGroupMembers,
   type MeshInvite,
@@ -72,11 +76,23 @@ export {
   fetchMeshInvite,
   fetchMeshPeers,
   fetchMeshStatus,
+  groupCounts,
+  groupSyncState,
+  initials,
+  latestPeerActivity,
+  memberDisplayName,
   memberRoster,
+  pathCategory,
+  rttLabel,
+  shortenNodeId,
 } from "./meshApi";
 /** Re-exported so a screen can take the record without reaching past this module. */
 export type { SideDoorRecord } from "./sidedoor";
 export type {
+  Age,
+  GroupCounts,
+  GroupSyncState,
+  LinkPath,
   MemberRow,
   MeshGroupMembers,
   MeshInvite,
@@ -139,6 +155,10 @@ export function useNodeMeshGroups(): UseQueryResult<MeshNodeGroup[]> {
     enabled: authed,
     // Membership changes rarely; the peer list below is what needs to be fresh.
     refetchInterval: 30_000,
+    // A 503 (the mesh child is down) is not transient in the way a dropped packet is — retrying
+    // the app default's three times just delays the "mesh isn't running" state the screen already
+    // has for exactly this.
+    retry: 1,
   });
 }
 
@@ -157,6 +177,7 @@ export function useNodeMeshPeers(
       ).map(toPeer),
     enabled: authed,
     refetchInterval: 10_000,
+    retry: 1,
   });
 }
 
@@ -292,6 +313,7 @@ export function useNodeMeshMembers(
     // Slower than the peer list: a roster changes when somebody is invited or removed, not when a
     // laptop goes to sleep.
     refetchInterval: 30_000,
+    retry: 1,
   });
 }
 

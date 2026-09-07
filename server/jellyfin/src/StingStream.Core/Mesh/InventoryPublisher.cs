@@ -117,7 +117,16 @@ public sealed class InventoryPublisher : BackgroundService
         }
     }
 
-    private async Task PassAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// One pass: refresh the capacity when it is due, then publish either a snapshot or a delta.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Public so a test can drive a pass without a hosted service and a three-second timer. The
+    /// order inside it is the whole of the fix for the M4 flake and is worth a test of its own.
+    /// </remarks>
+    public async Task PassAsync(CancellationToken cancellationToken)
     {
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
         if (groups is null)
@@ -149,10 +158,28 @@ public sealed class InventoryPublisher : BackgroundService
 
         if (now >= _nextSnapshotUtc)
         {
+            // Drain **before** reading the records, never after.
+            //
+            // A snapshot supersedes everything queued *at the moment it reads the database* — and
+            // only that. Draining afterwards throws away every change that landed while the
+            // snapshot was being built and sent, because those keys were queued too late to be in
+            // the read and are then discarded rather than left for the next delta. Nothing
+            // re-publishes them until the fifteen-minute snapshot timer comes round again.
+            //
+            // That is not hypothetical: it is CI runs 34053018232 and 34060142479, twice with the
+            // same shape. Node B hashed three files at 19:06:17.016, .067 and .338 and published
+            // its first snapshot at .093 — so a hash written between the snapshot's read and its
+            // drain had its upsert swallowed, and the only delta that followed carried the one
+            // file hashed *after* the drain. Node A's index held that film hash-less for the rest
+            // of the run, and the M4 harness failed waiting 300 s for a hash that had been
+            // computed in a tenth of a second and was never going to be sent again.
+            //
+            // Draining first is safe in the other direction: `InventoryChangeFeed.Upserted` is
+            // called *after* the record is written, so every key taken here is already on disk and
+            // therefore in the read that follows.
+            _changes.Drain();
             await PublishSnapshotAsync(groups, cancellationToken).ConfigureAwait(false);
             _nextSnapshotUtc = now + SnapshotInterval;
-            // A snapshot supersedes everything queued.
-            _changes.Drain();
         }
         else if (_changes.HasChanges)
         {
@@ -213,9 +240,14 @@ public sealed class InventoryPublisher : BackgroundService
         {
             cancellationToken.ThrowIfCancellationRequested();
             await _mesh.PutInventoryAsync(group.Group, records, cancellationToken).ConfigureAwait(false);
+            // The hashed count is here because a snapshot that is right about *which* titles this
+            // node holds and wrong about their hashes looks identical in a log otherwise -- and
+            // "which of these records carried a hash" is the only question worth asking when a
+            // peer's index is missing one. See the drain-ordering note in PassAsync.
             _logger.LogInformation(
-                "Published {Count} inventory record(s) to group {Group}",
+                "Published {Count} inventory record(s) ({Hashed} hashed) to group {Group}",
                 records.Count,
+                Hashed(records),
                 group.Name);
         }
     }
@@ -255,8 +287,10 @@ public sealed class InventoryPublisher : BackgroundService
             }
 
             _logger.LogInformation(
-                "Published a delta of {Upserts} upsert(s) and {Removals} removal(s) to {Groups} group(s)",
+                "Published a delta of {Upserts} upsert(s) ({Hashed} hashed) and {Removals} "
+                + "removal(s) to {Groups} group(s)",
                 upserts.Count,
+                Hashed(upserts),
                 vanished.Count,
                 groups.Count);
         }
@@ -266,6 +300,23 @@ public sealed class InventoryPublisher : BackgroundService
             _changes.Requeue(upsertKeys, removals);
             throw;
         }
+    }
+
+    /// <summary>How many of these records carry a BLAKE3 hash.</summary>
+    /// <param name="records">The records about to go out.</param>
+    /// <returns>The count.</returns>
+    private static int Hashed(IReadOnlyList<MeshInventoryRecord> records)
+    {
+        var hashed = 0;
+        foreach (var record in records)
+        {
+            if (!string.IsNullOrEmpty(record.FileHash))
+            {
+                hashed++;
+            }
+        }
+
+        return hashed;
     }
 
     /// <summary>

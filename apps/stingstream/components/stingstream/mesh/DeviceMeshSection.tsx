@@ -1,48 +1,38 @@
+import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
-import { Text } from "@/components/common/Text";
-import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
+import { Pill, type PillTone } from "@/components/common/Pill";
 import { useMesh } from "@/providers/MeshProvider";
 
 /**
- * What this device's own embedded node is doing.
+ * What this device's own embedded node is doing, as one status pill.
  *
  * Worth showing plainly, because it is the difference between playback arriving one hop from the
- * holder's disk and playback arriving through the home node — and nothing else in the UI would
- * ever tell the user which of those is happening.
+ * holder's disk and playback arriving through the server — and nothing else in the UI would ever
+ * tell the user which of those is happening. A single line on purpose (pass-02 critique F-34): the
+ * old layout carried a card, a title and an explanatory paragraph that repeated the empty-state
+ * copy below it. A browser (and any build with no embedded mesh) always proxies through the
+ * server, which is a fact worth one sentence, not a diagnostic panel.
  */
 export function DeviceMeshSection() {
-  const { available, running, status, peers, groups } = useMesh();
+  const { t } = useTranslation();
+  const { available, running, status, peers } = useMesh();
 
   if (!available) {
     return (
-      <ListGroup
-        title='This device'
-        description={
-          <Text className='text-[#9899A1] text-xs'>
-            {Platform.OS === "web"
-              ? "The browser cannot speak the mesh protocol, so streams are proxied by your home node. That always works; it is one hop longer."
-              : "This build has no embedded mesh, so streams are proxied by your home node."}
-          </Text>
+      <StatusPill
+        tone='neutral'
+        label={
+          Platform.OS === "web"
+            ? t("sharing.this_device_unavailable_web")
+            : t("sharing.this_device_unavailable_native")
         }
-      >
-        <ListItem title='Embedded node' value='Not available' />
-      </ListGroup>
+      />
     );
   }
 
   if (!running || !status) {
     return (
-      <ListGroup
-        title='This device'
-        description={
-          <Text className='text-[#9899A1] text-xs'>
-            Until it starts, streams are proxied by your home node.
-          </Text>
-        }
-      >
-        <ListItem title='Embedded node' value='Starting…' />
-      </ListGroup>
+      <StatusPill tone='warning' label={t("sharing.this_device_starting")} />
     );
   }
 
@@ -52,61 +42,43 @@ export function DeviceMeshSection() {
   ).length;
   const relayed = online.filter((p) => p.path === "relay").length;
 
+  const label =
+    online.length === 0
+      ? t("sharing.this_device_no_peers")
+      : relayed === 0
+        ? t("sharing.this_device_all_direct", { count: online.length })
+        : direct === 0
+          ? t("sharing.this_device_all_relayed", { count: online.length })
+          : t("sharing.this_device_mixed", { direct, relayed });
+
   return (
-    <ListGroup
-      title='This device'
-      description={
-        <Text className='text-[#9899A1] text-xs'>
-          A light member: it holds no library, publishes no inventory and serves
-          no files. It exists so playback can dial the holder directly instead
-          of going through your home node.
-        </Text>
+    <StatusPill
+      tone={
+        online.length === 0 ? "neutral" : relayed === 0 ? "success" : "info"
       }
-    >
-      <ListItem title='Name' value={status.nodeName} />
-      <ListItem title='Node id' value={shorten(status.nodeId)} />
-      <ListItem title='Local port' value={String(status.localPort)} />
-      <ListItem
-        title='Relay in use'
-        value={status.homeRelay ? host(status.homeRelay) : "none (direct)"}
-      />
-      <ListItem title='Groups' value={String(groups.length)} />
-      <ListItem
-        title='Peers online'
-        value={
-          online.length === 0
-            ? "none"
-            : `${online.length} (${direct} direct, ${relayed} relayed)`
-        }
-      />
-    </ListGroup>
+      label={label}
+    />
   );
 }
 
-/** 64 hex characters do not fit a settings row, and the first 12 identify a node in a log. */
-const shorten = (nodeId: string): string =>
-  nodeId.length > 16 ? `${nodeId.slice(0, 12)}…` : nodeId;
-
-const host = (url: string): string => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-};
-
-/** The one-line summary the Settings screen shows on its Mesh row. */
-export function useMeshSummary(): string {
-  const { available, running, status, peers } = useMesh();
-  if (!available) return "Not on this platform";
-  if (!running || !status) return "Starting…";
-  const online = peers.filter((p) => p.online && !p.isSelf);
-  if (online.length === 0) return "No peers online";
-  const relayed = online.filter((p) => p.path === "relay").length;
-  return relayed === online.length
-    ? `${online.length} online, relayed`
-    : `${online.length} online, direct`;
+function StatusPill({ tone, label }: { tone: PillTone; label: string }) {
+  return (
+    <View testID='sharing-status' style={{ alignItems: "flex-start" }}>
+      <Pill icon='devices' tone={tone} label={label} />
+    </View>
+  );
 }
 
-/** Spacer used by the screens that stack several of these. */
-export const SectionGap = () => <View className='h-4' />;
+/** The one-line summary the Settings screen shows on its Sharing row. */
+export function useMeshSummary(): string {
+  const { t } = useTranslation();
+  const { available, running, status, peers } = useMesh();
+  if (!available) return t("sharing.summary_not_available");
+  if (!running || !status) return t("sharing.this_device_starting");
+  const online = peers.filter((p) => p.online && !p.isSelf);
+  if (online.length === 0) return t("sharing.this_device_no_peers");
+  const relayed = online.filter((p) => p.path === "relay").length;
+  return relayed === online.length
+    ? t("sharing.summary_online_relayed", { count: online.length })
+    : t("sharing.summary_online_direct", { count: online.length });
+}
