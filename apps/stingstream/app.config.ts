@@ -84,6 +84,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   config.extra = { ...config.extra, build: buildMeta };
 
+  // ProfileHeader's version pill on web (components/settings/ProfileHeader.tsx). `Constants.
+  // expoConfig`/`Constants.manifest` resolve through `process.env.APP_MANIFEST` there — a
+  // babel-preset-expo injection baked in at Metro bundle time from whatever app.json looked
+  // like when that module was last transformed, and persistent-cache staleness is a real,
+  // observed failure mode (a version bump landing in app.json and a later `expo export` still
+  // reading the old one). `EXPO_PUBLIC_*` goes through Expo's own, single-purpose inline-env-var
+  // transform instead — set here, before Metro reads a single source file, so the web build
+  // always carries the version this exact config resolved, never a cached one.
+  if (config.version) {
+    process.env.EXPO_PUBLIC_APP_VERSION = config.version;
+  }
+
   return {
     ...(Object.keys(androidConfig).length > 0 && { android: androidConfig }),
     ...config,

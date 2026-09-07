@@ -80,6 +80,10 @@ export function useRequests(
     // Ten seconds, matching the node's own fulfilment pass. Polling faster would only show the
     // same row again; polling slower would leave "Downloading" on screen after it had landed.
     refetchInterval: 10000,
+    // A failed list gets one automatic retry, then the screen's own Retry button — not the
+    // client's default three, which would leave a spinner up for several seconds before a screen
+    // that has already failed finally says so.
+    retry: 1,
   });
 }
 
@@ -119,6 +123,7 @@ export function useRequestSearch(term: string, kind?: "movie" | "series") {
     queryFn: () => searchRequestable(base!, trimmed, kind, token),
     enabled: !!base && trimmed.length > 2,
     staleTime: 60000,
+    retry: 1,
   });
 }
 
@@ -128,6 +133,7 @@ export function useRequestPolicy(group?: string) {
     queryKey: keys.policy(group),
     queryFn: () => fetchRequestPolicy(base!, group, token),
     enabled: !!base,
+    retry: 1,
   });
 }
 
@@ -138,6 +144,7 @@ export function useRequestUsers() {
     queryKey: keys.users,
     queryFn: () => fetchRequestUsers(base!, token),
     enabled: !!base && canApprove,
+    retry: 1,
   });
 }
 
@@ -148,6 +155,7 @@ export function useRequestNotifications(unreadOnly = false) {
     queryFn: () => fetchNotifications(base!, unreadOnly, token),
     enabled: !!base,
     refetchInterval: 30000,
+    retry: 1,
   });
 }
 

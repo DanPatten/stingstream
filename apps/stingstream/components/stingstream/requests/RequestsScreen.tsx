@@ -2,6 +2,8 @@ import { Image } from "expo-image";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
+import { PageContainer } from "@/components/common/PageContainer";
+import { type Segment, Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
 import { TVFilterButton } from "@/components/tv";
 import { TVFocusablePoster } from "@/components/tv/TVFocusablePoster";
@@ -21,7 +23,6 @@ import {
   stateTone,
 } from "@/lib/stingstream/requestsApi";
 import { scaleSize } from "@/utils/scaleSize";
-import { SegmentedControlBar } from "../shared/SegmentedControl";
 import { ApprovalsSection } from "./ApprovalsSection";
 import { DiscoverSection } from "./DiscoverSection";
 import { MyRequestsSection } from "./MyRequestsSection";
@@ -78,7 +79,8 @@ function TVRequestCard({ request }: { request: MemberRequest }) {
             Plain expo-image, not ServerImage: the poster URL is TMDB's or
             TheTVDB's own CDN via the arr lookup, so attaching this node's
             Jellyfin auth headers would leak them to a third party. Same
-            reasoning as RequestPieces' Poster.
+            reasoning `CardArtwork`/`ServerImage` rely on for the phone/web
+            cards this screen's Discover and Alerts sections now share.
           */}
           {request.posterUrl ? (
             <Image
@@ -279,6 +281,7 @@ function TVRequestsScreen() {
  * the room. Same reasoning as the Manage and Downloads tabs being hidden there entirely.
  */
 export function RequestsScreen() {
+  const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
   const [section, setSection] = useState("discover");
@@ -292,31 +295,35 @@ export function RequestsScreen() {
   const pending = counts.data?.pendingApproval ?? 0;
   const unread = counts.data?.unreadNotifications ?? 0;
 
-  const segments = [
-    { key: "discover", label: "Discover" },
-    { key: "mine", label: "My requests" },
+  const segments: Segment[] = [
+    { key: "discover", label: t("requests.tab_discover") },
+    { key: "mine", label: t("requests.tab_mine") },
     {
       key: "alerts",
-      label: unread > 0 ? `Alerts (${unread})` : "Alerts",
+      label: t("requests.tab_alerts"),
+      badge: unread > 0 ? unread : undefined,
     },
     ...(canApprove
       ? [
           {
             key: "approvals",
-            label: pending > 0 ? `Approvals (${pending})` : "Approvals",
+            label: t("requests.tab_approvals"),
+            badge: pending > 0 ? pending : undefined,
           },
-          { key: "policy", label: "Policy" },
+          { key: "policy", label: t("requests.tab_policy") },
         ]
       : []),
   ];
 
   return (
-    <View>
-      <View className='-mx-4 mb-3'>
-        <SegmentedControlBar
+    <PageContainer width='media'>
+      <View testID='requests-tabs'>
+        <Tabs
           segments={segments}
           value={section}
           onChange={setSection}
+          contentInset={0}
+          style={{ marginBottom: 16 }}
         />
       </View>
 
@@ -325,6 +332,6 @@ export function RequestsScreen() {
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
       {section === "policy" && canApprove && <RequestPolicySection />}
-    </View>
+    </PageContainer>
   );
 }

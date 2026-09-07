@@ -360,7 +360,7 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 |---|---|---|
 | Login / first-run | `/login` | One route for the server-address step, the first-run create-account form, and the sign-in form; which one renders is state, not URL |
 | Home | `/` | `/home` also exists, as a redirect |
-| Library | `/library` | `04-library-movies` stays a best-effort text click after it (no `library-card` testID yet) |
+| Library | `/library` | `04-library-movies` stays a best-effort text click after it |
 | Settings | `/settings` | |
 | Requests | `/requests` -- **and** a nav click | Both paths, on purpose: `08-requests` navigates by URL, then *also* clicks `tab-requests` (the compact bar at <768px, the desktop sidebar row at >=768px -- same testID, `tabTestID()` is shared) and checks the URL again. Requests was pass-02's worst F-20/F-21 case, so this screen keeps double-checking it. |
 | Sharing | `/sharing` -- **and** a nav click | Same "both paths" treatment as Requests. No compact-bar tab of its own: at <768px reached via `tab-more` -> `more-sharing` inside `more-screen`; at >=768px a direct sidebar row, `tab-sharing`. |
@@ -369,8 +369,8 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 | Transfers | `/transfers` | |
 | Favorites | `/favorites` | New this pass (`14-favorites`) |
 | More | `/more` | New this pass (`13-more`), **390px only** -- the "More" screen is a compact-only concept (`buildMoreItems`); at >=768px the same rows are direct sidebar items and there is nothing distinct to shoot |
-| Details | **not pinned** | keyed by item id; reached by clicking a poster in the same session |
-| Player | **not pinned** | reached by clicking Play from a reached Details screen |
+| Details | **not pinned** | keyed by item id; `05-details` starts from Home (not wherever the prior screen left off) and clicks the first `library-card`, asserting the resulting URL is not one of the section URLs above -- Home's rows are real item cards only, so this cannot land on a library tile the way the Libraries screen's own `library-card`-tagged tiles could |
+| Player | **not pinned** | `06-player` clicks the details page's own `details-play` testID |
 
 ### Real bugs found pinning these routes (already on the plan's bug list; not fixed here)
 
@@ -514,8 +514,8 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron | WP1 | **Landed** |
 | `home-hero` | The Home hero/spotlight | WP4 | Not landed |
 | `home-row` | Each Home row container | WP4 | Not landed |
-| `library-card` | A poster/card in a grid | WP2 | Not landed |
-| `details-play` | The Play button on Details | WP5 | Not landed |
+| `library-card` | A poster/card -- both a real item card (`components/cards/Card.tsx`) and the Libraries screen's own "Movies"/"TV Shows" tiles (`components/library/LibraryItemCard.tsx`) carry this exact id, not just item cards | WP2 | **Landed** 2026-09-08 |
+| `details-play` | The Play/Resume button on Details (`components/PlayButton.tsx`) | WP5 | **Landed** |
 | `player-video` | The `<video>`/player surface | WP-PLAYER | Not landed |
 | `settings-sharing` | The Sharing entry in Settings | WP10 | Not landed |
 
@@ -751,3 +751,41 @@ third time given the trend (131.3s vs. 87.0s for the same "wipe -> seed -> start
 attempt slower) -- worth another `-DriveUi` run once the machine is less loaded, but is a real gap:
 the budget-timing numbers (`FCP`/`T_setup`/`T_home`/`T_home2`) this section reported in pass-00 are
 not re-confirmed this pass.
+
+---
+
+## Pass-05 (`05-details`/`06-player` re-pin to `library-card`/`details-play`, 2026-09-08)
+
+WP2's/WP5's `library-card`/`details-play` testIDs landed after pass-04. `05-details` used to click
+`page.locator("img").first()`; on a page showing the Libraries screen's own "Movies"/"TV Shows"
+tiles (`components/library/LibraryItemCard.tsx`), the first `<img>` is the tile's own artwork, not
+an item's poster -- confirmed live, this pass, that this is exactly what pass-04's `05-details`
+findings were: `04-library-movies`'s best-effort text click did not reliably land inside the Movies
+library's own item grid, so `05-details` clicked the Libraries tile and bounced straight back.
+
+**Fixed and confirmed.** `library-card` turned out not to be a safe "first match" selector either
+on its own: `LibraryItemCard.tsx` (the Libraries screen's tiles) uses the identical testID as
+`Card.tsx` (a real item card), so "the first `library-card` on the page" is still ambiguous unless
+the page is known to have no library tiles on it at all. `05-details` now starts from Home
+(`gotoUrl(page, base, "home")`) rather than trusting whatever the previous screen left behind --
+Home's rows are real item cards only -- then clicks the first `library-card` there and asserts the
+resulting URL is not one of this file's own fixed section URLs (`Object.values(URLS)`), which is
+the one thing a bounce-back or a stray library click would both produce and a real item route never
+would. `06-player` now clicks the details page's own `details-play` button instead of a
+role/name guess (`getByRole("button", {name: /play|resume/i})`, which pass-04 already flagged as
+best-effort).
+
+Verified with `shots.mjs --only 05-details,06-player` against a fresh node (real artwork,
+`dbdee21`+ master): both screens `ok` at all three viewports, zero `navigate-failed`. Read back by
+hand, not just the absence of a finding: `05-details-1440x900.png` is a fully loaded Nosferatu
+details page (real TMDB poster, rating, overview, cast row -- F-27's no-`<plot>` fix still holding,
+the overview is TMDB's real synopsis, not seed text), and `06-player-1440x900.png` is a real,
+playing video (the seed clip's colour-bar pattern, OSD controls, "Ends at" time) -- the whole
+Home -> item -> playback chain confirmed working, not just "didn't throw." One extra fix along the
+way: the first attempt's `05-details` screenshots caught the details page mid-skeleton
+(`page.waitForLoadState("networkidle")` settles before the item's own data fetch finishes) --
+added a non-fatal wait for `details-play` to become visible before shooting, which doubles as "the
+page has real content" since `06-player` needs that same element anyway. 28 findings across the two
+screens x three viewports (overflow/i18n-key/console/tap-target), none of them `navigate-failed`
+and none introduced by this fix -- the same classes of pre-existing, already-documented app content
+issues earlier passes report.

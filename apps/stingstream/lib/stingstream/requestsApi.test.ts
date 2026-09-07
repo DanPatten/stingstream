@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   type MemberRequest,
   type RequestSearchResult,
+  RequestsUnavailableError,
   requestTitle,
   sameUser,
   searchAction,
+  searchBadgeLabel,
   seasonsLabel,
   selectMine,
   stateLabel,
@@ -13,6 +15,7 @@ import {
   toNotification,
   toPolicy,
   toRequest,
+  toRequestCard,
   toRequestDetail,
   toSearchResult,
 } from "./requestsApi";
@@ -265,5 +268,110 @@ describe("telling a member's own requests from everybody else's", () => {
     // the safe fallback.
     expect(selectMine(rows, undefined)).toHaveLength(2);
     expect(selectMine(undefined, "x")).toEqual([]);
+  });
+});
+
+describe("the Discover poster's badge", () => {
+  const result = (
+    over: Partial<RequestSearchResult> = {},
+  ): RequestSearchResult => ({
+    kind: "movie",
+    title: "Big Buck Bunny",
+    tmdbId: 10378,
+    tvdbId: 0,
+    itemKey: "movie:tmdb:10378",
+    availableInGroup: false,
+    holders: [],
+    ...over,
+  });
+
+  test("held by the group reads as in the library, named holder or not", () => {
+    // Kept to "In library" for both — the two-word badge is the longest string that fits the
+    // artwork it sits on without overflowing (see the function's own comment); "Held by ..." is
+    // the sheet's job, with room for the full sentence.
+    expect(
+      searchBadgeLabel(result({ availableInGroup: true, holders: ["loft"] })),
+    ).toBe("In library");
+    expect(searchBadgeLabel(result({ availableInGroup: true }))).toBe(
+      "In library",
+    );
+  });
+
+  test("an open request badges as requested, not as available", () => {
+    for (const state of ["pending", "approved", "fulfilling"] as const) {
+      expect(searchBadgeLabel(result({ requestState: state }))).toBe(
+        "Requested",
+      );
+    }
+  });
+
+  test("a declined or failed request carries no badge — neither is a permanent no", () => {
+    expect(searchBadgeLabel(result({ requestState: "declined" }))).toBeNull();
+    expect(searchBadgeLabel(result({ requestState: "failed" }))).toBeNull();
+  });
+
+  test("an untouched title carries no badge", () => {
+    expect(searchBadgeLabel(result())).toBeNull();
+  });
+});
+
+describe("toRequestCard", () => {
+  test("a search result becomes a card keyed on its item key", () => {
+    const card = toRequestCard({
+      kind: "series",
+      title: "Lost",
+      year: 2004,
+      posterUrl: "https://image.tmdb.org/lost.jpg",
+      tmdbId: 0,
+      tvdbId: 73739,
+      itemKey: "episode:tvdb:73739:",
+      availableInGroup: true,
+      holders: ["loft"],
+    });
+    expect(card.id).toBe("episode:tvdb:73739:");
+    expect(card.title).toBe("Lost");
+    expect(card.subtitle).toBe("2004");
+    expect(card.imageUrl).toBe("https://image.tmdb.org/lost.jpg");
+    expect(card.imageAlt).toBe("Lost (2004)");
+    expect(card.badgeLabel).toBe("In library");
+    expect(card.placeholder).toBe("series");
+  });
+
+  test("a search result with no item key falls back to a synthetic one, not an empty id", () => {
+    const card = toRequestCard({
+      kind: "movie",
+      title: "Big Buck Bunny",
+      tmdbId: 10378,
+      tvdbId: 0,
+      itemKey: "",
+      availableInGroup: false,
+      holders: [],
+    });
+    expect(card.id).toBe("movie:10378");
+  });
+
+  test("a member's own request becomes a card keyed on the request id, badged with its state", () => {
+    const card = toRequestCard(
+      toRequest({
+        Id: "abc",
+        Kind: "movie",
+        Title: "Sintel",
+        State: "fulfilling",
+      }),
+    );
+    expect(card.id).toBe("abc");
+    expect(card.badgeLabel).toBe("Downloading");
+    expect(card.placeholder).toBe("movie");
+  });
+});
+
+describe("RequestsUnavailableError", () => {
+  test("is an Error, so a query's generic catch still works", () => {
+    const error = new RequestsUnavailableError(
+      "Requests are not set up on this server.",
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error.unavailable).toBe(true);
+    expect(error.message).toBe("Requests are not set up on this server.");
   });
 });

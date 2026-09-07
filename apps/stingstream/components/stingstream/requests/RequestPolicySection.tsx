@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Icon } from "@/components/common/Icon";
+import { Input } from "@/components/common/Input";
+import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
@@ -11,30 +16,10 @@ import {
   useSaveRequestPolicy,
   useSaveRequestUser,
 } from "@/lib/stingstream/requests";
-import { SaveBar, TextFieldRow, ToggleRow } from "../settings/fields";
-import { QueryState } from "../shared/ScreenState";
-import { SegmentedControl } from "../shared/SegmentedControl";
+import { RequestCardSkeletonList } from "./RequestCard";
+import { RequestsErrorState } from "./RequestsErrorState";
 
-const MODES: { key: AutoApproveMode; label: string; detail: string }[] = [
-  {
-    key: "everyone",
-    label: "Everyone",
-    detail:
-      "Every member's requests start straight away. Best in a household where everybody already shares the bandwidth.",
-  },
-  {
-    key: "trusted",
-    label: "Trusted",
-    detail:
-      "Administrators and the members you have marked trusted below skip the queue; everybody else waits.",
-  },
-  {
-    key: "admins_only",
-    label: "Administrators",
-    detail:
-      "Only an administrator's own requests skip the queue. Every other request waits for a decision.",
-  },
-];
+const MODES: AutoApproveMode[] = ["everyone", "trusted", "admins_only"];
 
 /**
  * Who may spend the group's bandwidth without asking, and how much.
@@ -44,6 +29,7 @@ const MODES: { key: AutoApproveMode; label: string; detail: string }[] = [
  * has two policies, and this screen edits the one the picker on Discover would use.
  */
 export function RequestPolicySection() {
+  const { t } = useTranslation();
   const policy = useRequestPolicy();
   const users = useRequestUsers();
   const savePolicy = useSaveRequestPolicy();
@@ -71,10 +57,18 @@ export function RequestPolicySection() {
         weeklyQuota: Number.parseInt(quota, 10) || 0,
       });
       setDirty(false);
-      toast.success("Request policy saved");
+      toast.success(t("requests.policy_saved"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
+  };
+
+  const discard = () => {
+    if (policy.data) {
+      setMode(policy.data.autoApprove);
+      setQuota(String(policy.data.weeklyQuota));
+    }
+    setDirty(false);
   };
 
   const setTrust = async (
@@ -87,103 +81,131 @@ export function RequestPolicySection() {
       await saveUser.mutateAsync({ userId, trusted, weeklyQuota });
       toast.success(
         trusted
-          ? `${userName} is now trusted`
-          : `${userName} is no longer trusted`,
+          ? t("requests.trusted_on", { name: userName })
+          : t("requests.trusted_off", { name: userName }),
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
   };
 
-  return (
-    <QueryState
-      isLoading={policy.isLoading}
-      error={policy.error}
-      onRetry={policy.refetch}
-    >
-      <Text className='text-white text-lg font-semibold mb-2'>
-        Who needs approval
-      </Text>
-      <View className='-mx-4'>
-        <SegmentedControl
-          segments={MODES.map((m) => ({ key: m.key, label: m.label }))}
-          value={mode}
-          onChange={(key) => {
-            setMode(key as AutoApproveMode);
-            setDirty(true);
-          }}
-        />
-      </View>
-      <Text className='text-[#9899A1] text-xs mt-2 mb-3'>
-        {MODES.find((m) => m.key === mode)?.detail}
-      </Text>
+  if (policy.isLoading) return <RequestCardSkeletonList count={3} />;
+  if (policy.error) {
+    return <RequestsErrorState error={policy.error} onRetry={policy.refetch} />;
+  }
 
+  return (
+    <View>
+      <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
+        {t("requests.policy_who_title")}
+      </Text>
       <ListGroup>
-        <TextFieldRow
-          title='Requests per week'
-          subtitle='Per member. 0 means no limit. Declined requests do not count.'
-          value={quota}
-          onChangeText={(v) => {
-            setQuota(v);
-            setDirty(true);
-          }}
-          keyboardType='number-pad'
-          placeholder='0'
-        />
+        {MODES.map((key) => (
+          <ListItem
+            key={key}
+            title={t(`requests.policy_mode_${key}_title`)}
+            subtitle={t(`requests.policy_mode_${key}_detail`)}
+            onPress={() => {
+              setMode(key);
+              setDirty(true);
+            }}
+          >
+            {mode === key ? <Icon name='check' tone='accent' /> : null}
+          </ListItem>
+        ))}
       </ListGroup>
 
-      <SaveBar
-        dirty={dirty}
-        saving={savePolicy.isPending}
-        onSave={save}
-        onDiscard={() => {
-          if (policy.data) {
-            setMode(policy.data.autoApprove);
-            setQuota(String(policy.data.weeklyQuota));
-          }
-          setDirty(false);
-        }}
-      />
-
-      <View className='h-6' />
-
-      <Text className='text-white text-lg font-semibold mb-2'>Members</Text>
-      <QueryState
-        isLoading={users.isLoading}
-        error={users.error}
-        onRetry={users.refetch}
-      >
-        <ListGroup>
-          {(users.data ?? []).map((user) =>
-            user.isAdministrator ? (
-              // An administrator can change this policy, so making them wait for an approval they
-              // could grant themselves is theatre -- the node auto-approves them under every mode
-              // and there is no switch to offer.
-              <ListItem
-                key={user.userId}
-                title={user.userName}
-                subtitle={`Administrator • ${user.requestsThisWeek} request(s) this week`}
-              />
-            ) : (
-              <ToggleRow
-                key={user.userId}
-                title={user.userName}
-                subtitle={`${user.requestsThisWeek} request(s) this week${
-                  user.weeklyQuota > 0 ? ` • own limit ${user.weeklyQuota}` : ""
-                }`}
-                value={user.trusted}
-                onValueChange={(v) =>
-                  setTrust(user.userId, user.userName, v, user.weeklyQuota)
-                }
-              />
-            ),
-          )}
-        </ListGroup>
-        <Text className='text-[#9899A1] text-xs mt-2'>
-          Trusted members skip the queue under the Trusted policy. It has no
-          effect under the other two.
+      <View style={{ marginTop: 16 }}>
+        <Text variant='body' weight='semibold'>
+          {t("requests.policy_quota_title")}
         </Text>
-      </QueryState>
-    </QueryState>
+        <View style={{ marginTop: 8 }}>
+          <Input
+            value={quota}
+            onChangeText={(v) => {
+              setQuota(v);
+              setDirty(true);
+            }}
+            keyboardType='number-pad'
+            placeholder='0'
+          />
+        </View>
+        <Text variant='caption' tone='secondary' style={{ marginTop: 6 }}>
+          {t("requests.policy_quota_detail")}
+        </Text>
+      </View>
+
+      {dirty ? (
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
+          <Button variant='ghost' onPress={discard} style={{ flex: 1 }}>
+            {t("requests.discard")}
+          </Button>
+          <Button
+            variant='primary'
+            loading={savePolicy.isPending}
+            onPress={save}
+            style={{ flex: 1 }}
+          >
+            {t("requests.save_changes")}
+          </Button>
+        </View>
+      ) : null}
+
+      <View style={{ height: 24 }} />
+
+      <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
+        {t("requests.policy_members_title")}
+      </Text>
+      {users.isLoading ? (
+        <RequestCardSkeletonList count={3} />
+      ) : users.error ? (
+        <RequestsErrorState error={users.error} onRetry={users.refetch} />
+      ) : (
+        <>
+          <ListGroup>
+            {(users.data ?? []).map((user) =>
+              user.isAdministrator ? (
+                // An administrator can change this policy, so making them wait for an approval
+                // they could grant themselves is theatre — the node auto-approves them under
+                // every mode, and there is no switch to offer.
+                <ListItem
+                  key={user.userId}
+                  title={user.userName}
+                  subtitle={t("requests.policy_admin_row", {
+                    count: user.requestsThisWeek,
+                  })}
+                />
+              ) : (
+                <ListItem
+                  key={user.userId}
+                  title={user.userName}
+                  subtitle={
+                    user.weeklyQuota > 0
+                      ? t("requests.policy_member_row_quota", {
+                          count: user.requestsThisWeek,
+                          quota: user.weeklyQuota,
+                        })
+                      : t("requests.policy_member_row", {
+                          count: user.requestsThisWeek,
+                        })
+                  }
+                >
+                  <SettingSwitch
+                    value={user.trusted}
+                    disabled={saveUser.isPending}
+                    onValueChange={(v) =>
+                      setTrust(user.userId, user.userName, v, user.weeklyQuota)
+                    }
+                  />
+                </ListItem>
+              ),
+            )}
+          </ListGroup>
+          <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+            {t("requests.policy_trust_hint")}
+          </Text>
+        </>
+      )}
+    </View>
   );
 }
