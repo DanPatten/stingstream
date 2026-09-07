@@ -2,11 +2,15 @@ import { getSystemApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Pressable, ScrollView, View } from "react-native";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { radius, tokens } from "@/constants/theme";
 import { apiAtom } from "@/providers/JellyfinProvider";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 function formatSize(bytes?: number): string {
@@ -17,6 +21,7 @@ function formatSize(bytes?: number): string {
 }
 
 export function LogsSection() {
+  const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const [openLog, setOpenLog] = useState<string | null>(null);
 
@@ -46,16 +51,38 @@ export function LogsSection() {
   if (openLog) {
     return (
       <View>
-        <Text className='text-[#0584FE] mb-2' onPress={() => setOpenLog(null)}>
-          {"< Back to logs"}
+        <Pressable
+          onPress={() => setOpenLog(null)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          <Icon name='chevronLeft' size={16} tone='accent' />
+          <Text tone='accent' weight='semibold' style={{ marginLeft: 2 }}>
+            {t("admin.logs_back_action")}
+          </Text>
+        </Pressable>
+        <Text weight='semibold' style={{ marginBottom: 8 }}>
+          {openLog}
         </Text>
-        <Text className='text-white font-semibold mb-2'>{openLog}</Text>
         <ScrollView
           horizontal
-          className='rounded-xl bg-neutral-900 p-3 max-h-[500px]'
+          style={{
+            borderRadius: radius.md,
+            backgroundColor: tokens.color.bg["1"],
+            maxHeight: 500,
+          }}
+          contentContainerStyle={{ padding: 12 }}
         >
-          <Text className='text-[#9899A1] text-xs font-mono' selectable>
-            {contentLoading ? "Loading…" : (logContent ?? "")}
+          <Text
+            variant='caption'
+            tone='secondary'
+            selectable
+            style={{ fontFamily: "monospace" }}
+          >
+            {contentLoading ? t("admin.logs_loading") : (logContent ?? "")}
           </Text>
         </ScrollView>
       </View>
@@ -64,10 +91,10 @@ export function LogsSection() {
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>Server logs</Text>
+      <ScreenHeaderRow title={t("admin.logs_title")} />
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {!logs || logs.length === 0 ? (
-          <EmptyState title='No log files' />
+          <EmptyState title={t("admin.logs_empty_title")} />
         ) : (
           <ListGroup>
             {logs.map((log) => (
