@@ -21,7 +21,7 @@
 #   * A same-job smoke test on the amd64 leg only: `docker run` and `/healthz`, the same pattern
 #     coordinator.yml's own `image` job uses -- a cross-arch image cannot be `docker run` directly
 #     on a runner of the other architecture, and amd64 is the runner's own arch here.
-name: images
+name: Images
 
 on:
   push:

@@ -1,33 +1,50 @@
-import { getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
+import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
+import { getItemRefreshApi, getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtom } from "jotai";
 import type React from "react";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, View } from "react-native";
-import { AddToFavorites } from "@/components/AddToFavorites";
-import { HeaderButtonGroup } from "@/components/common/HeaderButton";
+import { Platform, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { toast } from "sonner-native";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
+import { PageContainer } from "@/components/common/PageContainer";
+import { SectionHeader } from "@/components/common/SectionHeader";
 import { Image } from "@/components/common/ServerImage";
 import { DownloadItems } from "@/components/DownloadItem";
+import { ActionRow } from "@/components/item/ActionRow";
+import { DetailsHeader } from "@/components/item/DetailsHeader";
+import { ItemPeopleSections } from "@/components/item/ItemPeopleSections";
+import type { MoreMenuAction } from "@/components/item/MoreMenu";
+import { OverviewText } from "@/components/OverviewText";
 import { ParallaxScrollView } from "@/components/ParallaxPage";
+import { Ratings } from "@/components/Ratings";
+import { SimilarItems } from "@/components/SimilarItems";
 import { NextUp } from "@/components/series/NextUp";
 import { SeasonPicker } from "@/components/series/SeasonPicker";
-import { SeriesHeader } from "@/components/series/SeriesHeader";
 import { TVSeriesPage } from "@/components/series/TVSeriesPage";
+import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
 import { Colors } from "@/constants/Colors";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
+import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
+import { useSettings } from "@/utils/atoms/settings";
 import {
   buildOfflineSeriesFromEpisodes,
   getDownloadedEpisodesForSeries,
 } from "@/utils/downloads/offline-series";
-import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
-import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
+import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { getUserItemData } from "@/utils/jellyfin/user-library/getUserItemData";
+import { logAndCaptureError } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
+
+/** Same rhythm as the movie/episode page, so the two read as one screen. */
+const SECTION_GAP = 32;
+const COMPACT_HEADER_HEIGHT = 460;
 
 const page: React.FC = () => {
   const navigation = useNavigation();
@@ -47,6 +64,8 @@ const page: React.FC = () => {
 
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
+  const insets = useSafeAreaInsets();
+  const { isCompact } = useBreakpoint();
   const { getDownloadedItems, downloadedItems } = useDownload();
 
   // For offline mode, construct series data from downloaded episodes
@@ -76,27 +95,12 @@ const page: React.FC = () => {
     return null;
   }, [isOffline, seriesId]);
 
-  const backdropUrl = useMemo(() => {
+  const posterUrl = useMemo(() => {
     if (isOffline && base64Image) {
       return `data:image/jpeg;base64,${base64Image}`;
     }
-    return getBackdropUrl({
-      api,
-      item,
-      quality: 90,
-      width: 1000,
-    });
+    return getPrimaryImageUrl({ api, item, quality: 90, width: 800 });
   }, [isOffline, base64Image, api, item]);
-
-  const logoUrl = useMemo(() => {
-    if (isOffline) {
-      return null; // No logo in offline mode
-    }
-    return getLogoImageUrlById({
-      api,
-      item,
-    });
-  }, [isOffline, api, item]);
 
   const { data: allEpisodes, isLoading } = useQuery({
     queryKey: ["AllEpisodes", seriesId, isOffline, downloadedItems.length],
@@ -125,40 +129,116 @@ const page: React.FC = () => {
     enabled: isOffline || (!!api && !!user?.Id),
   });
 
+  // WP5: the header used to carry a favourite button and a download-series
+  // button with no names on them. Both are named rows on the page itself now —
+  // the header is back and title, which is all a detail page's header is for.
   useEffect(() => {
-    // Don't show header buttons in offline mode
-    if (isOffline) {
-      navigation.setOptions({
-        headerRight: () => null,
+    if (Platform.isTV) return;
+    navigation.setOptions({ headerRight: () => null });
+  }, [navigation]);
+
+  // The top bar names the series rather than the tab a pasted URL landed in.
+  useSetScreenTitle(item?.Name);
+
+  // A series has no file of its own, so its Play is the next episode you have
+  // not finished — the first unwatched one, or the first one at all on a show
+  // nobody has started. Without this the page's primary action was a "Next up"
+  // row three sections down, which is not a primary action.
+  const nextEpisode = useMemo(() => {
+    const episodes = allEpisodes ?? [];
+    return (
+      episodes.find(
+        (episode) =>
+          !episode.UserData?.Played ||
+          (episode.UserData?.PlaybackPositionTicks ?? 0) > 0,
+      ) ?? episodes[0]
+    );
+  }, [allEpisodes]);
+
+  const { settings } = useSettings();
+  const {
+    defaultAudioIndex,
+    defaultBitrate,
+    defaultMediaSource,
+    defaultSubtitleIndex,
+  } = useDefaultPlaySettings(nextEpisode, settings);
+
+  const playOptions = useMemo(
+    () =>
+      nextEpisode
+        ? {
+            bitrate: defaultBitrate,
+            mediaSource: defaultMediaSource ?? undefined,
+            audioIndex: defaultAudioIndex,
+            subtitleIndex: defaultSubtitleIndex ?? -1,
+          }
+        : undefined,
+    [
+      nextEpisode,
+      defaultBitrate,
+      defaultMediaSource,
+      defaultAudioIndex,
+      defaultSubtitleIndex,
+    ],
+  );
+
+  const isAdmin = Boolean(user?.Policy?.IsAdministrator);
+
+  const refreshMetadata = useCallback(async () => {
+    if (!api || !item?.Id) return;
+    try {
+      await getItemRefreshApi(api).refreshItem({
+        itemId: item.Id,
+        metadataRefreshMode: "FullRefresh",
+        imageRefreshMode: "FullRefresh",
       });
-      return;
+      toast.success(t("item.refresh_started"));
+    } catch (error) {
+      logAndCaptureError("Refresh metadata failed", error);
+      toast.error(t("item.refresh_failed"));
+    }
+  }, [api, item?.Id, t]);
+
+  const moreActions = useMemo<MoreMenuAction[]>(() => {
+    const actions: MoreMenuAction[] = [];
+    const episodes: BaseItemDto[] = allEpisodes ?? [];
+
+    if (
+      Platform.OS !== "web" &&
+      !Platform.isTV &&
+      !isOffline &&
+      episodes.length > 0
+    ) {
+      actions.push({
+        key: "download-series",
+        icon: "download",
+        label: t("item_card.download.download_series"),
+        trailing: (
+          <DownloadItems
+            title={t("item_card.download.download_series")}
+            items={episodes}
+            MissingDownloadIconComponent={() => <HeaderIcon name='downloads' />}
+            DownloadedIconComponent={() => (
+              <HeaderIcon name='downloaded' tintColor={Colors.primary} />
+            )}
+          />
+        ),
+      });
     }
 
-    navigation.setOptions({
-      headerRight: () =>
-        !isLoading && item && allEpisodes && allEpisodes.length > 0 ? (
-          <HeaderButtonGroup>
-            <AddToFavorites item={item} />
-            {!Platform.isTV && (
-              <DownloadItems
-                size='large'
-                title={t("item_card.download.download_series")}
-                items={allEpisodes}
-                MissingDownloadIconComponent={() => (
-                  <HeaderIcon name='downloads' />
-                )}
-                DownloadedIconComponent={() => (
-                  <HeaderIcon name='downloaded' tintColor={Colors.primary} />
-                )}
-              />
-            )}
-          </HeaderButtonGroup>
-        ) : null,
-    });
-  }, [allEpisodes, isLoading, item, isOffline]);
+    if (isAdmin && !isOffline) {
+      actions.push({
+        key: "refresh",
+        icon: "refresh",
+        label: t("item.refresh_metadata"),
+        onPress: () => void refreshMetadata(),
+      });
+    }
 
-  // For offline mode, we can show the page even without backdropUrl
-  if (!item || (!isOffline && !backdropUrl)) return null;
+    return actions;
+  }, [allEpisodes, isAdmin, isOffline, refreshMetadata, t]);
+
+  if (!item) return null;
 
   // TV version
   if (Platform.isTV) {
@@ -174,56 +254,68 @@ const page: React.FC = () => {
     );
   }
 
+  const header = (
+    <DetailsHeader
+      item={item}
+      meta={<Ratings item={item} />}
+      actions={
+        <ActionRow
+          // Play belongs to the episode; everything else belongs to the series.
+          item={item}
+          playItem={nextEpisode}
+          selectedOptions={playOptions}
+          moreActions={moreActions}
+        />
+      }
+    />
+  );
+
+  const body = (
+    <PageContainer bleed style={{ paddingTop: 28, gap: SECTION_GAP }}>
+      <OverviewText text={item.Overview} gutter />
+
+      {!isOffline ? <NextUp seriesId={seriesId} /> : null}
+
+      <View testID='details-episodes'>
+        <SectionHeader title={t("item.episodes")} />
+        <SeasonPicker item={item} initialSeasonIndex={Number(seasonIndex)} />
+      </View>
+
+      <ItemPeopleSections item={item} showFilmographies={false} />
+
+      {!isOffline ? <SimilarItems itemId={item.Id} /> : null}
+    </PageContainer>
+  );
+
   return (
     <OfflineModeProvider isOffline={isOffline}>
-      <ParallaxScrollView
-        headerHeight={400}
-        headerImage={
-          backdropUrl ? (
-            <Image
-              source={{
-                uri: backdropUrl,
-              }}
-              style={{
-                width: "100%",
-                height: "100%",
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                width: "100%",
-                height: "100%",
-                backgroundColor: "#1a1a1a",
-              }}
-            />
-          )
-        }
-        logo={
-          logoUrl ? (
-            <Image
-              source={{
-                uri: logoUrl,
-              }}
-              style={{
-                height: 130,
-                width: "100%",
-              }}
-              contentFit='contain'
-            />
-          ) : undefined
-        }
-      >
-        <View className='flex flex-col pt-4'>
-          <SeriesHeader item={item} />
-          {!isOffline && (
-            <View className='mb-4'>
-              <NextUp seriesId={seriesId} />
-            </View>
-          )}
-          <SeasonPicker item={item} initialSeasonIndex={Number(seasonIndex)} />
-        </View>
-      </ParallaxScrollView>
+      {isCompact ? (
+        <ParallaxScrollView
+          headerHeight={COMPACT_HEADER_HEIGHT}
+          headerImage={
+            posterUrl ? (
+              <Image
+                source={posterUrl}
+                style={{ width: "100%", height: "100%" }}
+                contentFit='cover'
+                cachePolicy='memory-disk'
+                transition={300}
+              />
+            ) : (
+              <View style={{ width: "100%", height: "100%" }} />
+            )
+          }
+        >
+          {header}
+          {body}
+        </ParallaxScrollView>
+      ) : (
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          {header}
+          {body}
+          <View style={{ height: insets.bottom + 48 }} />
+        </ScrollView>
+      )}
     </OfflineModeProvider>
   );
 };

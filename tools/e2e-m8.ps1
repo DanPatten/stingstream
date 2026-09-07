@@ -63,6 +63,8 @@
 .EXAMPLE
     pwsh tools/e2e-m8.ps1 -SkipBuild -KeepRunning
 #>
+# CI job name: "e2e: member revocation and re-key" (formerly labelled M8b, this build plan's
+# milestone code for member revocation and re-key).
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -509,10 +511,10 @@ Invoke-Step 'B misses a rotation and catches up on its next dial' {
 
 if (Test-HarnessFailed) {
     Write-Host ''
-    Write-Host 'M8b ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (member revocation and re-key): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M8b ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (member revocation and re-key): PASSED' -ForegroundColor Green
 exit 0

@@ -70,6 +70,8 @@
 .EXAMPLE
     pwsh tools/e2e-m3.ps1 -SkipBuild -SkipCoordinator -KeepRunning
 #>
+# CI job name: "e2e: two nodes — group, federated library, mesh playback" (formerly labelled M3,
+# this build plan's milestone code for the federated-library milestone).
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -515,7 +517,7 @@ if (-not $WorkDir) {
 $ExeSuffix = if ($script:IsWindowsHostCached) { '.exe' } else { '' }
 
 Write-Host ''
-Write-Host 'StingStream M3 acceptance harness' -ForegroundColor White
+Write-Host 'StingStream acceptance: two nodes — group, federated library, mesh playback' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  node A    http://127.0.0.1:$GatewayPortA   (watches)"
@@ -1394,10 +1396,10 @@ if ($SkipCoordinator) {
 
 if ($script:Failed) {
     Write-Host ''
-    Write-Host 'M3 ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (two nodes): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M3 ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (two nodes): PASSED' -ForegroundColor Green
 exit 0

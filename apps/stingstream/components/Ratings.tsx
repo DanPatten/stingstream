@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useMemo } from "react";
 import { View, type ViewProps } from "react-native";
+import { Text } from "@/components/common/Text";
+import { radius, tokens } from "@/constants/theme";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
 import type { MovieDetails } from "@/utils/jellyseerr/server/models/Movie";
@@ -17,51 +19,113 @@ import { Badge } from "./Badge";
 
 interface Props extends ViewProps {
   item?: BaseItemDto | null;
+  /**
+   * Include the age rating. Off by default on the details page, where the
+   * metadata line already carries it and a second copy is just noise.
+   */
+  showOfficialRating?: boolean;
 }
 
-export const Ratings: React.FC<Props> = ({ item, className, ...props }) => {
+/**
+ * A small row of scores under the metadata line.
+ *
+ * Deliberately quiet: these are chips on `bg2` with a glyph, not the loud
+ * outlined badges the fork drew. Ratings are a footnote to a title, and pass-02
+ * had three of them shouting at the top-left corner of the page with no gutter
+ * at all.
+ */
+export const Ratings: React.FC<Props> = ({
+  item,
+  showOfficialRating = false,
+  className,
+  ...props
+}) => {
   if (!item) return null;
+
+  const hasAny =
+    (showOfficialRating && item.OfficialRating) ||
+    item.CommunityRating ||
+    item.CriticRating;
+  if (!hasAny) return <AwardsBadge item={item} />;
+
   return (
-    // The caller's className is appended, not spread over the top: spreading
-    // props last replaces this one outright, which cost the row its layout and
-    // let the badges ride up over whatever sat above them.
     <View
       {...props}
-      className={`flex flex-row flex-wrap items-center mt-2 gap-2 ${className ?? ""}`}
+      className={className}
+      style={[
+        {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 8,
+        },
+        props.style,
+      ]}
     >
-      {item.OfficialRating && (
-        <Badge text={item.OfficialRating} variant='gray' />
-      )}
-      {item.CommunityRating && (
-        <Badge
-          text={item.CommunityRating.toFixed(1)}
-          variant='gray'
-          iconLeft={<Ionicons name='star' size={14} color='gold' />}
+      {showOfficialRating && item.OfficialRating ? (
+        <Chip label={item.OfficialRating} />
+      ) : null}
+
+      {item.CommunityRating ? (
+        <Chip
+          label={item.CommunityRating.toFixed(1)}
+          icon={<Ionicons name='star' size={13} color='#E0B34A' />}
+          accessibilityLabel={`${item.CommunityRating.toFixed(1)} out of 10`}
         />
-      )}
-      {item.CriticRating && (
-        <Badge
-          text={item.CriticRating}
-          variant='gray'
-          iconLeft={
+      ) : null}
+
+      {item.CriticRating ? (
+        <Chip
+          label={`${item.CriticRating}%`}
+          icon={
             <Image
               source={
                 item.CriticRating < 60
                   ? require("@/assets/images/rt_rotten.svg")
                   : require("@/assets/images/rt_fresh.svg")
               }
-              style={{
-                width: 14,
-                height: 14,
-              }}
+              style={{ width: 13, height: 13 }}
             />
           }
         />
-      )}
+      ) : null}
+
       <AwardsBadge item={item} />
     </View>
   );
 };
+
+/**
+ * A rating chip.
+ *
+ * Not `Pill`: a rating is a glyph plus a number, and `Pill`'s icon slot only
+ * takes a name from the semantic registry — there is no Ionicon for "Rotten
+ * Tomatoes" and there should not be one.
+ */
+const Chip: React.FC<{
+  label: string;
+  icon?: React.ReactNode;
+  accessibilityLabel?: string;
+}> = ({ label, icon, accessibilityLabel }) => (
+  <View
+    accessible
+    accessibilityLabel={accessibilityLabel ?? label}
+    style={{
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: tokens.color.bg["3"],
+    }}
+  >
+    {icon}
+    <Text variant='caption' weight='semibold' tone='secondary'>
+      {label}
+    </Text>
+  </View>
+);
 
 export const JellyserrRatings: React.FC<{
   result: MovieResult | TvResult | TvDetails | MovieDetails;

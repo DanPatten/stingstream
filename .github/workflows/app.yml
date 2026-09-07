@@ -27,7 +27,7 @@
 # the app on an emulator, which stays a manual/local step (docs/APP-RELEASE.md §11) rather than a
 # CI job — an Android emulator on a hosted runner is slow and flaky enough that a red build there
 # would as often mean "the runner" as "the app."
-name: app
+name: App
 
 on:
   push:
@@ -112,6 +112,9 @@ jobs:
 
       - name: Unit tests
         working-directory: apps/stingstream
+        # Includes the brand guard (brand.test.ts): zero user-visible "Jellyfin"/"Streamyfin"/
+        # "Radarr"/"Sonarr"/"NZBGet"/"Emby" per the v0.2.0 rebrand decision -- it is a plain
+        # bun:test file, so it runs here as part of the normal suite rather than as a separate step.
         run: bun run test:unit
 
       # `bun run check` is `biome check .` — the whole directory, including `dist/`. That is
@@ -120,6 +123,13 @@ jobs:
       - name: Formatter and lint
         working-directory: apps/stingstream
         run: bun run check
+
+      # `bun scripts/check-i18n-keys.ts`: every translation key used in code exists in every
+      # locale, and no locale carries a key nothing references. Was missing from this job (found
+      # doing the CI naming/drift pass) despite package.json's own `test` script including it.
+      - name: i18n keys check
+        working-directory: apps/stingstream
+        run: bun run i18n:check
 
   ffi:
     name: mesh FFI (host + Android)

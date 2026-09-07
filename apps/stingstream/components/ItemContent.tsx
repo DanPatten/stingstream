@@ -2,39 +2,46 @@ import type {
   BaseItemDto,
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
+import { getItemRefreshApi } from "@jellyfin/sdk/lib/utils/api";
 import { useNavigation } from "expo-router";
 import { useAtom } from "jotai";
-import React, { useEffect, useMemo, useState } from "react";
-import { Platform, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { toast } from "sonner-native";
 import { HeaderButtonGroup } from "@/components/common/HeaderButton";
 import { ItemImage } from "@/components/common/ItemImage";
-import { Image } from "@/components/common/ServerImage";
+import { PageContainer } from "@/components/common/PageContainer";
 import { DownloadSingleItem } from "@/components/DownloadItem";
+import { ActionRow } from "@/components/item/ActionRow";
+import { DetailsHeader } from "@/components/item/DetailsHeader";
 import { ItemPeopleSections } from "@/components/item/ItemPeopleSections";
+import type { MoreMenuAction } from "@/components/item/MoreMenu";
+import { streamsOf } from "@/components/item/metadata";
 import { MediaSourceButton } from "@/components/MediaSourceButton";
 import { OverviewText } from "@/components/OverviewText";
 import { ParallaxScrollView } from "@/components/ParallaxPage";
-import { PlayButton } from "@/components/PlayButton";
-import { PlayedStatus } from "@/components/PlayedStatus";
+import { Ratings } from "@/components/Ratings";
 import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
+import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
 import { SourceChooserButton } from "@/components/stingstream/sources/SourceChooserButton";
 import { type Bitrate } from "@/constants/Playback";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
-import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
-import { usePreferredSourcePreselect } from "@/hooks/useItemSources";
+import {
+  usePreferredSourcePreselect,
+  useSourceChoices,
+} from "@/hooks/useItemSources";
 import { useOrientation } from "@/hooks/useOrientation";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
 import { useSettings } from "@/utils/atoms/settings";
-import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
-import { AddToFavorites } from "./AddToFavorites";
-import { AddToWatchlist } from "./AddToWatchlist";
-import { ItemHeader } from "./ItemHeader";
+import { logAndCaptureError } from "@/utils/log";
 import { ItemTechnicalDetails } from "./ItemTechnicalDetails";
 import { PlayInRemoteSessionButton } from "./PlayInRemoteSession";
 
@@ -56,6 +63,23 @@ interface ItemContentProps {
   isLoading?: boolean;
 }
 
+/**
+ * The parallax header on a phone.
+ *
+ * A poster, not a backdrop, and deliberately: at 390 dp a 2:3 poster is the
+ * shape of the screen, and it is the image the title was designed for. The
+ * *wide* layout is the one that has to use a backdrop, because a poster
+ * stretched across 1440 px is the cropped strip pass-02 shipped (F-26).
+ */
+const COMPACT_HEADER_HEIGHT = {
+  portrait: 460,
+  episode: 260,
+  landscape: 230,
+} as const;
+
+/** Vertical rhythm between the body's sections. */
+const SECTION_GAP = 32;
+
 // Mobile-specific implementation
 const ItemContentMobile: React.FC<ItemContentProps> = ({
   item,
@@ -73,14 +97,20 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       : undefined;
   const { settings } = useSettings();
   const { orientation } = useOrientation();
+  const { isCompact } = useBreakpoint();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [user] = useAtom(userAtom);
+  const { t } = useTranslation();
 
-  const itemColors = useImageColorsReturn({ item });
+  // The desktop top bar says where you are, and on a details page that is the
+  // title itself — not the name of whichever tab expo-router happened to
+  // resolve a pasted URL into (pass-02 F-26).
+  useSetScreenTitle(item?.Name);
 
-  const [loadingLogo, setLoadingLogo] = useState(true);
-  const [headerHeight, setHeaderHeight] = useState(350);
+  const [headerHeight, setHeaderHeight] = useState<number>(
+    COMPACT_HEADER_HEIGHT.portrait,
+  );
 
   const [selectedOptions, setSelectedOptions] = useState<
     SelectedOptions | undefined
@@ -93,19 +123,6 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     defaultMediaSource,
     defaultSubtitleIndex,
   } = useDefaultPlaySettings(itemWithSources ?? item, settings);
-
-  const logoUrl = useMemo(
-    () => (item ? getLogoImageUrlById({ api, item }) : null),
-    [api, item],
-  );
-
-  const onLogoLoad = React.useCallback(() => {
-    setLoadingLogo(false);
-  }, []);
-
-  const loading = useMemo(() => {
-    return Boolean(logoUrl && loadingLogo);
-  }, [loadingLogo, logoUrl]);
 
   // Needs to automatically change the selected to the default values for default indexes.
   useEffect(() => {
@@ -144,156 +161,227 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     enabled: !isOffline,
   });
 
-  useEffect(() => {
-    if (!Platform.isTV && itemWithSources) {
-      navigation.setOptions({
-        headerRight: () =>
-          item && (
-            <HeaderButtonGroup>
-              <Chromecast.Chromecast />
-              {item.Type !== "Program" && (
-                <>
-                  {!Platform.isTV && (
-                    <DownloadSingleItem item={itemWithSources} size='large' />
-                  )}
-                  {user?.Policy?.IsAdministrator &&
-                    !settings.hideRemoteSessionButton && (
-                      <PlayInRemoteSessionButton item={item} size='large' />
-                    )}
+  // Whether "Play from…" has anything to offer. `SourceChooserButton` asks the
+  // same question and renders nothing when the answer is no; asking it here as
+  // well is what keeps the *row* from being an empty label beside an invisible
+  // control. React Query dedupes the two on one key, so it is one request.
+  const { hasChoice } = useSourceChoices(itemWithSources, {
+    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+    enabled: !isOffline,
+  });
 
-                  <PlayedStatus items={[item]} size='large' />
-                  <AddToFavorites item={item} />
-                  {settings.streamyStatsServerUrl &&
-                    !settings.hideWatchlistsTab && (
-                      <AddToWatchlist item={item} />
-                    )}
-                </>
-              )}
-            </HeaderButtonGroup>
-          ),
+  // The header used to carry five unnamed icon buttons — download, remote
+  // session, watched, favourite, watchlist — squeezed into a bar that also
+  // holds the back arrow and the title (pass-02 F-24). Every one of them is now
+  // a named control in the action row or the "…" menu, where there is room for
+  // the word as well as the glyph. Casting is the exception: you have to be
+  // able to *connect* to a receiver before Play can offer to use one.
+  useEffect(() => {
+    if (Platform.isTV) return;
+    navigation.setOptions({
+      headerRight: () =>
+        item ? (
+          <HeaderButtonGroup>
+            <Chromecast.Chromecast />
+          </HeaderButtonGroup>
+        ) : null,
+    });
+  }, [item, navigation]);
+
+  useEffect(() => {
+    if (!item) return;
+    if (orientation !== ScreenOrientation.OrientationLock.PORTRAIT_UP)
+      setHeaderHeight(COMPACT_HEADER_HEIGHT.landscape);
+    else if (item.Type === "Episode")
+      setHeaderHeight(COMPACT_HEADER_HEIGHT.episode);
+    else setHeaderHeight(COMPACT_HEADER_HEIGHT.portrait);
+  }, [item, orientation]);
+
+  const streams = useMemo(
+    () => streamsOf(selectedOptions?.mediaSource, itemWithSources ?? item),
+    [selectedOptions?.mediaSource, itemWithSources, item],
+  );
+
+  const isAdmin = Boolean(user?.Policy?.IsAdministrator);
+
+  const refreshMetadata = useCallback(async () => {
+    if (!api || !item?.Id) return;
+    try {
+      await getItemRefreshApi(api).refreshItem({
+        itemId: item.Id,
+        metadataRefreshMode: "FullRefresh",
+        imageRefreshMode: "FullRefresh",
+      });
+      toast.success(t("item.refresh_started"));
+    } catch (error) {
+      logAndCaptureError("Refresh metadata failed", error);
+      toast.error(t("item.refresh_failed"));
+    }
+  }, [api, item?.Id, t]);
+
+  const moreActions = useMemo<MoreMenuAction[]>(() => {
+    if (!item || !selectedOptions) return [];
+    const actions: MoreMenuAction[] = [];
+
+    if (!isOffline) {
+      actions.push({
+        key: "versions",
+        icon: "sort",
+        label: t("item.versions"),
+        description: selectedOptions.mediaSource?.Name ?? undefined,
+        trailing: (
+          <MediaSourceButton
+            selectedOptions={selectedOptions}
+            setSelectedOptions={setSelectedOptions}
+            item={itemWithSources}
+          />
+        ),
       });
     }
+
+    // Downloading needs a filesystem. On the web the row would be a control
+    // that cannot do anything, which is worse than its absence.
+    if (Platform.OS !== "web" && !Platform.isTV && itemWithSources) {
+      actions.push({
+        key: "download",
+        icon: "download",
+        label: t("item.download"),
+        trailing: <DownloadSingleItem item={itemWithSources} />,
+      });
+    }
+
+    if (isAdmin && !settings.hideRemoteSessionButton && !isOffline) {
+      actions.push({
+        key: "remote",
+        icon: "devices",
+        label: t("item.play_on_device"),
+        trailing: <PlayInRemoteSessionButton item={item} />,
+      });
+    }
+
+    // WP-PLAYER's chooser, only when the title is federated and more than one
+    // node actually holds it. On a single-server library the question ("which
+    // of your servers?") does not exist, and a permanently dead row is worse
+    // than no row.
+    if (hasChoice && !isOffline) {
+      actions.push({
+        key: "play-from",
+        icon: "sharing",
+        label: t("player.source.play_from"),
+        description: t("player.source.play_from_description"),
+        trailing: (
+          <SourceChooserButton
+            item={itemWithSources}
+            currentMediaSourceId={selectedOptions.mediaSource?.Id}
+            onSelect={preselectSource}
+          />
+        ),
+      });
+    }
+
+    if (isAdmin && !isOffline) {
+      actions.push({
+        key: "refresh",
+        icon: "refresh",
+        label: t("item.refresh_metadata"),
+        onPress: () => void refreshMetadata(),
+      });
+    }
+
+    return actions;
   }, [
     item,
-    navigation,
-    user,
     itemWithSources,
+    selectedOptions,
+    isOffline,
+    isAdmin,
     settings.hideRemoteSessionButton,
-    settings.streamyStatsServerUrl,
-    settings.hideWatchlistsTab,
+    refreshMetadata,
+    hasChoice,
+    preselectSource,
+    t,
   ]);
-
-  useEffect(() => {
-    if (item) {
-      if (orientation !== ScreenOrientation.OrientationLock.PORTRAIT_UP)
-        setHeaderHeight(230);
-      else if (item.Type === "Movie") setHeaderHeight(500);
-      else setHeaderHeight(350);
-    }
-  }, [item, orientation]);
 
   if (!item || !selectedOptions) return null;
 
-  return (
-    <View
-      className='flex-1 relative'
-      style={{
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-      }}
-    >
-      <ParallaxScrollView
-        className='flex-1'
-        headerHeight={headerHeight}
-        headerImage={
-          <View style={[{ flex: 1 }]}>
-            <ItemImage
-              variant={
-                item.Type === "Movie" && logoUrl ? "Backdrop" : "Primary"
-              }
-              item={item}
-              style={{
-                width: "100%",
-                height: "100%",
-              }}
-            />
-          </View>
-        }
-        logo={
-          logoUrl ? (
-            <Image
-              source={{
-                uri: logoUrl,
-              }}
-              style={{
-                height: 130,
-                width: "100%",
-              }}
-              contentFit='contain'
-              onLoad={onLogoLoad}
-              onError={onLogoLoad}
-            />
-          ) : (
-            <View />
-          )
-        }
+  const header = (
+    <DetailsHeader
+      item={item}
+      streams={streams}
+      meta={<Ratings item={item} />}
+      actions={
+        <ActionRow
+          item={item}
+          selectedOptions={selectedOptions}
+          moreActions={moreActions}
+        />
+      }
+    />
+  );
+
+  // Overview first, technical facts last — the order the critique asked for and
+  // the order a person reads a film in.
+  const body = (
+    <PageContainer bleed style={{ paddingTop: 28, gap: SECTION_GAP }}>
+      <OverviewText text={item.Overview} gutter />
+
+      {item.Type === "Episode" ? <SeasonEpisodesCarousel item={item} /> : null}
+
+      {item.Type === "Episode" && !isOffline ? (
+        <CurrentSeries item={item} />
+      ) : null}
+
+      {item.Type !== "Program" ? <ItemPeopleSections item={item} /> : null}
+
+      {item.Type !== "Program" && !isOffline ? (
+        <SimilarItems itemId={item.Id} />
+      ) : null}
+
+      {!isOffline && streams.length > 0 ? (
+        <ItemTechnicalDetails source={selectedOptions.mediaSource} />
+      ) : null}
+    </PageContainer>
+  );
+
+  const tail = <View style={{ height: insets.bottom + 48 }} />;
+
+  if (isCompact) {
+    return (
+      <View
+        className='flex-1 relative'
+        style={{
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        }}
       >
-        <View className='flex flex-col bg-transparent shrink'>
-          <View className='flex flex-col px-4 w-full pt-2 mb-2 shrink'>
-            <ItemHeader item={item} className='mb-2' />
+        <ParallaxScrollView
+          className='flex-1'
+          headerHeight={headerHeight}
+          headerImage={
+            <ItemImage
+              variant='Primary'
+              item={item}
+              style={{ width: "100%", height: "100%" }}
+            />
+          }
+        >
+          {header}
+          {body}
+        </ParallaxScrollView>
+      </View>
+    );
+  }
 
-            <View className='flex flex-row px-0 mb-2 justify-between space-x-2'>
-              <PlayButton
-                selectedOptions={selectedOptions}
-                item={item}
-                colors={itemColors}
-              />
-              <View className='w-1' />
-              {!isOffline && (
-                <MediaSourceButton
-                  selectedOptions={selectedOptions}
-                  setSelectedOptions={setSelectedOptions}
-                  item={itemWithSources}
-                  colors={itemColors}
-                />
-              )}
-              {/* WP-PLAYER: "Play from…" before playback, for a federated title held by more than
-                  one server. Renders nothing otherwise, including on every single-server library. */}
-              {!isOffline && (
-                <SourceChooserButton
-                  item={itemWithSources}
-                  currentMediaSourceId={selectedOptions.mediaSource?.Id}
-                  onSelect={preselectSource}
-                />
-              )}
-            </View>
-          </View>
-          {item.Type === "Episode" && (
-            <SeasonEpisodesCarousel item={item} loading={loading} />
-          )}
-
-          {!isOffline &&
-            selectedOptions.mediaSource?.MediaStreams &&
-            selectedOptions.mediaSource.MediaStreams.length > 0 && (
-              <ItemTechnicalDetails source={selectedOptions.mediaSource} />
-            )}
-
-          <OverviewText text={item.Overview} className='px-4 mb-4' />
-
-          {item.Type !== "Program" && (
-            <>
-              {item.Type === "Episode" && !isOffline && (
-                <CurrentSeries item={item} className='mb-2' />
-              )}
-
-              <ItemPeopleSections item={item} />
-
-              {!isOffline && <SimilarItems itemId={item.Id} />}
-            </>
-          )}
-        </View>
-      </ParallaxScrollView>
-    </View>
+  return (
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingBottom: 0 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {header}
+      {body}
+      {tail}
+    </ScrollView>
   );
 };
 

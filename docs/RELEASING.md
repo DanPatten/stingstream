@@ -119,7 +119,7 @@ this section's caching existed):
 | | rust (windows-latest) | 9m 08s |
 | | rust (ubuntu-latest) | 5m 16s |
 | | node (apps/stingstream) | 1m 40s |
-| | e2e (M1/M3/M4/M6/M7/M8b) | 3m 44s – 9m 12s |
+| | e2e — one node / two nodes / source selection / requests / watch together / revocation | 3m 44s – 9m 12s |
 | | **wall clock (longest job)** | **11m 08s** |
 | images.yml (34005933851) | build (amd64) | 28m 36s |
 | | build (arm64) | 24m 43s |
@@ -137,6 +137,11 @@ this section's caching existed):
 | | android release build (unsigned, phone) | 25m 01s |
 | | android release build (unsigned, tv) | 24m 59s |
 | | **wall clock** | **45m 41s** |
+
+`ci.yml` gained an eighth job after this baseline was measured: `e2e: HTTPS side door (ACME)`, a copy of
+`coordinator.yml`'s own `sidedoor` job (see its `3m 06s` row below) so every push/PR gets that harness
+regardless of which paths changed, not only ones touching `mesh/**`/`deploy/coordinator/**`. No baseline
+run for it exists yet inside `ci.yml`; the `coordinator.yml` row is the closest available estimate.
 
 **After**: not yet measured. These runs are the ones the task that added this section describes
 dispatching twice (once to warm every cache, once to measure against a warm cache) -- whoever pushes

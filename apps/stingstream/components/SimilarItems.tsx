@@ -2,7 +2,6 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getLibraryApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { ViewProps } from "react-native";
 import { CardRow } from "@/components/cards/CardRow";
@@ -12,6 +11,14 @@ interface SimilarItemsProps extends ViewProps {
   itemId?: string | null;
 }
 
+/**
+ * "Related" — what the server thinks is like this.
+ *
+ * Films *and* series, where this used to filter everything but `Movie` away and
+ * then draw "No similar items found" under a heading on every episode page. A
+ * section with nothing in it is not a section: `hideIfEmpty` takes it off the
+ * page instead of leaving a heading over an apology.
+ */
 export const SimilarItems: React.FC<SimilarItemsProps> = ({
   itemId,
   ...props
@@ -27,29 +34,24 @@ export const SimilarItems: React.FC<SimilarItemsProps> = ({
       const response = await getLibraryApi(api).getSimilarItems({
         itemId,
         userId: user.Id,
-        limit: 5,
+        limit: 12,
       });
 
       return response.data.Items || [];
     },
-    enabled: !!api && !!user?.Id,
+    enabled: !!api && !!user?.Id && !!itemId,
     staleTime: Number.POSITIVE_INFINITY,
   });
-
-  const movies = useMemo(
-    () => similarItems?.filter((i) => i.Type === "Movie") || [],
-    [similarItems],
-  );
 
   return (
     <CardRow
       enableActionSheet
       {...props}
-      title={t("item_card.similar_items")}
+      title={t("item.related")}
       kind='portrait'
-      items={movies}
+      items={similarItems ?? []}
       loading={isLoading}
-      emptyText={t("item_card.no_similar_items_found")}
+      hideIfEmpty
     />
   );
 };
