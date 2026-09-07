@@ -10,7 +10,7 @@
 #   * `sidedoor` — the HTTPS side door end to end against a local Pebble: a real ACME order, a real
 #                certificate, a real TLS handshake and a real tunnel through the SNI router.
 #   * `image`  — builds the coordinator image, and publishes it to GHCR on master.
-name: coordinator
+name: Coordinator
 
 on:
   push:
