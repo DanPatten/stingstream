@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
 import { verifyAccountPIN } from "@/utils/secureCredentials";
 import { Button } from "./Button";
@@ -94,22 +95,22 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
       Animated.timing(shakeAnimation, {
         toValue: 10,
         duration: 50,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(shakeAnimation, {
         toValue: -10,
         duration: 50,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(shakeAnimation, {
         toValue: 10,
         duration: 50,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
       Animated.timing(shakeAnimation, {
         toValue: 0,
         duration: 50,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
     ]).start();
   };
