@@ -745,7 +745,20 @@
     "tmdb_studio": "TMDB studio",
     "tmdb_network": "TMDB network",
     "tmdb_movie_streaming_services": "TMDB movie streaming services",
-    "tmdb_tv_streaming_services": "TMDB TV streaming services"
+    "tmdb_tv_streaming_services": "TMDB TV streaming services",
+    "empty_title": "Search your library",
+    "empty_detail": "Find movies, series, episodes, people and collections.",
+    "clear_search": "Clear search",
+    "example_search_1": "The Lord of the Rings",
+    "example_search_2": "The Avengers",
+    "example_search_3": "Game of Thrones",
+    "example_search_4": "Breaking Bad",
+    "example_search_5": "Stranger Things",
+    "example_search_6": "The Mandalorian",
+    "recent_searches": "Recent searches",
+    "clear_recent_searches": "Clear",
+    "ask_for_it": "Ask for it",
+    "error_detail": "Try again in a moment."
   },
   "library": {
     "no_results": "No results",

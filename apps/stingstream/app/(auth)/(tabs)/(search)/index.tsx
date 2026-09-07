@@ -5,76 +5,84 @@ import type {
 import { getItemsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { useLocalSearchParams, useNavigation, useSegments } from "expo-router";
+import { useLocalSearchParams, useSegments } from "expo-router";
 import { useAtom } from "jotai";
 import { orderBy, uniqBy } from "lodash";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, ScrollView, TouchableOpacity, View } from "react-native";
+import { Keyboard, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CardRow } from "@/components/cards/CardRow";
-import { Image } from "@/components/common/ServerImage";
+import { EmptyState } from "@/components/common/EmptyState";
+import { Icon } from "@/components/common/Icon";
+import { Input } from "@/components/common/Input";
+import { PageContainer } from "@/components/common/PageContainer";
+import { Pill } from "@/components/common/Pill";
+import { type Segment, Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
-import {
-  getItemNavigation,
-  TouchableItemRouter,
-} from "@/components/common/TouchableItemRouter";
+import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import {
   JellyseerrSearchSort,
   JellyserrIndexPage,
 } from "@/components/jellyseerr/JellyseerrIndexPage";
 import { DiscoverFilters } from "@/components/search/DiscoverFilters";
-import { LoadingSkeleton } from "@/components/search/LoadingSkeleton";
-import { SearchItemWrapper } from "@/components/search/SearchItemWrapper";
-import { SearchTabButtons } from "@/components/search/SearchTabButtons";
+import { SearchPeopleRow } from "@/components/search/SearchPeopleRow";
 import { TVSearchPage } from "@/components/search/TVSearchPage";
+import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
+import { useStingStreamClient } from "@/lib/stingstream/client";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { getIntegrationHeaders } from "@/utils/customHeaders";
-import { isAbortLikeError } from "@/utils/errors";
-import { eventBus } from "@/utils/eventBus";
-import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
 import type {
   MovieResult,
   PersonResult,
   TvResult,
 } from "@/utils/jellyseerr/server/models/Search";
-import { logAndCaptureError } from "@/utils/log";
+import {
+  addRecentSearch,
+  clearRecentSearches,
+  getRecentSearches,
+} from "@/utils/search/recentSearches";
 import { createStreamystatsApi } from "@/utils/streamystats";
 
 type SearchType = "Library" | "Discover";
 
-const exampleSearches = [
-  "Lord of the rings",
-  "Avengers",
-  "Game of Thrones",
-  "Breaking Bad",
-  "Stranger Things",
-  "The Mandalorian",
-];
+/** Drives the live results — fast enough that typing still feels immediate. */
+const RESULTS_DEBOUNCE_MS = 250;
+/**
+ * A second, longer debounce purely for "recent searches": long enough after
+ * the results settle that a search the user paused on gets recorded, not
+ * every intermediate substring of what they typed on the way there.
+ */
+const RECENT_SEARCH_SETTLE_MS = 600;
+/** One automatic retry per query; the EmptyState's own Retry button covers the rest. */
+const LIBRARY_QUERY_RETRY = 1;
+
+const EXAMPLE_SEARCH_KEYS = [
+  "example_search_1",
+  "example_search_2",
+  "example_search_3",
+  "example_search_4",
+  "example_search_5",
+  "example_search_6",
+] as const;
 
 export default function SearchPage() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isWebWide, gutter } = useBreakpoint();
   const { showItemActions } = useTVItemActionModal();
   const segments = useSegments();
   const from = (segments as string[])[2] || "(search)";
 
   const [user] = useAtom(userAtom);
-
+  const [api] = useAtom(apiAtom);
   const { t } = useTranslation();
 
   const searchFilterId = useId();
@@ -83,19 +91,22 @@ export default function SearchPage() {
   const { q } = params as { q: string };
 
   const [searchType, setSearchType] = useState<SearchType>("Library");
-  const [search, setSearch] = useState<string>("");
-
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [search, setSearch] = useState(q ?? "");
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    isWebWide ? (q ?? "") : "",
+  );
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setDebouncedSearch(search), 200);
-    return () => clearTimeout(timeout);
-  }, [search]);
-
-  const [api] = useAtom(apiAtom);
+    setRecentSearches(getRecentSearches());
+  }, []);
 
   const { settings } = useSettings();
   const { jellyseerrApi } = useJellyseerr();
+  const stingStreamClient = useStingStreamClient();
+  const requestsEnabled = Boolean(stingStreamClient);
+  const showDiscoverTab = Boolean(jellyseerrApi);
+
   const [jellyseerrOrderBy, setJellyseerrOrderBy] =
     useState<JellyseerrSearchSort>(
       JellyseerrSearchSort[
@@ -110,11 +121,50 @@ export default function SearchPage() {
     return settings?.searchEngine || "Jellyfin";
   }, [settings]);
 
+  // Web wide: no input of this screen's own — the TopBar's field already owns
+  // `q`, debounced on its own end, so the query follows it directly. Compact:
+  // a deep link or an external navigation can still hand this screen a `q`;
+  // pick it up into the local field the user actually types into.
   useEffect(() => {
-    if (q && q.length > 0) {
-      setSearch(q);
+    if (!isWebWide && q && q.length > 0) setSearch(q);
+  }, [q, isWebWide]);
+
+  useEffect(() => {
+    if (isWebWide) {
+      setDebouncedSearch(q ?? "");
+      return;
     }
-  }, [q]);
+    const timeout = setTimeout(
+      () => setDebouncedSearch(search),
+      RESULTS_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timeout);
+  }, [isWebWide, q, search]);
+
+  // Records a *settled* search, not every keystroke on the way to it.
+  useEffect(() => {
+    if (!debouncedSearch) return;
+    const timeout = setTimeout(() => {
+      setRecentSearches(addRecentSearch(debouncedSearch));
+    }, RECENT_SEARCH_SETTLE_MS);
+    return () => clearTimeout(timeout);
+  }, [debouncedSearch]);
+
+  /** Sets the active query, whichever platform owns the field that drives it. */
+  const fillQuery = useCallback(
+    (value: string) => {
+      if (isWebWide) {
+        router.setParams({ q: value });
+      } else {
+        setSearch(value);
+      }
+    },
+    [isWebWide, router],
+  );
+
+  const handleClearRecentSearches = useCallback(() => {
+    setRecentSearches(clearRecentSearches());
+  }, []);
 
   const searchFn = useCallback(
     async ({
@@ -130,109 +180,105 @@ export default function SearchPage() {
         return [];
       }
 
-      try {
-        if (searchEngine === "Jellyfin") {
-          const searchApi = await getItemsApi(api).getItems(
-            {
-              searchTerm: query,
-              limit: 10,
-              includeItemTypes: types,
-              recursive: true,
-              userId: user?.Id,
-            },
-            { signal },
-          );
+      if (searchEngine === "Jellyfin") {
+        const searchApi = await getItemsApi(api).getItems(
+          {
+            searchTerm: query,
+            limit: 10,
+            includeItemTypes: types,
+            recursive: true,
+            userId: user?.Id,
+          },
+          { signal },
+        );
 
-          return (searchApi.data.Items as BaseItemDto[]) || [];
-        }
+        return (searchApi.data.Items as BaseItemDto[]) || [];
+      }
 
-        if (searchEngine === "Streamystats") {
-          if (!settings?.streamyStatsServerUrl || !api.accessToken) {
-            return [];
-          }
-
-          const streamyStatsApi = createStreamystatsApi({
-            serverUrl: settings.streamyStatsServerUrl,
-            jellyfinToken: api.accessToken,
-          });
-
-          const typeMap: Record<BaseItemKind, string> = {
-            Movie: "movies",
-            Series: "series",
-            Episode: "episodes",
-            Person: "actors",
-            BoxSet: "movies",
-            Audio: "audio",
-          } as Record<BaseItemKind, string>;
-
-          const searchType = types.length === 1 ? typeMap[types[0]] : "media";
-          const response = await streamyStatsApi.searchIds(
-            query,
-            searchType as "movies" | "series" | "episodes" | "actors" | "media",
-            10,
-            signal,
-          );
-
-          const allIds: string[] = [
-            ...(response.data.movies || []),
-            ...(response.data.series || []),
-            ...(response.data.episodes || []),
-            ...(response.data.actors || []),
-            ...(response.data.audio || []),
-          ];
-
-          if (!allIds.length) {
-            return [];
-          }
-
-          const itemsResponse = await getItemsApi(api).getItems(
-            {
-              ids: allIds,
-              enableImageTypes: ["Primary", "Backdrop", "Thumb"],
-            },
-            { signal },
-          );
-
-          return (itemsResponse.data.Items as BaseItemDto[]) || [];
-        }
-
-        // Marlin search
-        if (!settings?.marlinServerUrl) {
+      if (searchEngine === "Streamystats") {
+        if (!settings?.streamyStatsServerUrl || !api.accessToken) {
           return [];
         }
 
-        const url = `${settings.marlinServerUrl}/search?q=${encodeURIComponent(query)}&includeItemTypes=${types
-          .map((type) => encodeURIComponent(type))
-          .join("&includeItemTypes=")}`;
-
-        const response1 = await axios.get(url, {
-          signal,
-          headers: getIntegrationHeaders("marlin"),
+        const streamyStatsApi = createStreamystatsApi({
+          serverUrl: settings.streamyStatsServerUrl,
+          jellyfinToken: api.accessToken,
         });
 
-        const ids = response1.data.ids;
+        const typeMap: Record<BaseItemKind, string> = {
+          Movie: "movies",
+          Series: "series",
+          Episode: "episodes",
+          Person: "actors",
+          BoxSet: "movies",
+          Audio: "audio",
+        } as Record<BaseItemKind, string>;
 
-        if (!ids?.length) {
+        const searchTypeKey = types.length === 1 ? typeMap[types[0]] : "media";
+        const response = await streamyStatsApi.searchIds(
+          query,
+          searchTypeKey as
+            | "movies"
+            | "series"
+            | "episodes"
+            | "actors"
+            | "media",
+          10,
+          signal,
+        );
+
+        const allIds: string[] = [
+          ...(response.data.movies || []),
+          ...(response.data.series || []),
+          ...(response.data.episodes || []),
+          ...(response.data.actors || []),
+          ...(response.data.audio || []),
+        ];
+
+        if (!allIds.length) {
           return [];
         }
 
-        const response2 = await getItemsApi(api).getItems(
+        const itemsResponse = await getItemsApi(api).getItems(
           {
-            ids,
+            ids: allIds,
             enableImageTypes: ["Primary", "Backdrop", "Thumb"],
           },
           { signal },
         );
 
-        return (response2.data.Items as BaseItemDto[]) || [];
-      } catch (error) {
-        // Aborted requests are routine; anything else used to render as
-        // "no results" with no trace of the failure.
-        if (!isAbortLikeError(error)) {
-          logAndCaptureError("Search request failed", error);
-        }
+        return (itemsResponse.data.Items as BaseItemDto[]) || [];
+      }
+
+      // Marlin search
+      if (!settings?.marlinServerUrl) {
         return [];
       }
+
+      const url = `${settings.marlinServerUrl}/search?q=${encodeURIComponent(query)}&includeItemTypes=${types
+        .map((type) => encodeURIComponent(type))
+        .join("&includeItemTypes=")}`;
+
+      const response1 = await axios.get(url, {
+        signal,
+        headers: getIntegrationHeaders("marlin"),
+      });
+
+      const ids = response1.data.ids;
+
+      if (!ids?.length) {
+        return [];
+      }
+
+      const response2 = await getItemsApi(api).getItems(
+        {
+          ids,
+          enableImageTypes: ["Primary", "Backdrop", "Thumb"],
+        },
+        { signal },
+      );
+
+      return (response2.data.Items as BaseItemDto[]) || [];
     },
     [api, searchEngine, settings, user?.Id],
   );
@@ -252,131 +298,66 @@ export default function SearchPage() {
         return [];
       }
 
-      try {
-        const searchApi = await getItemsApi(api).getItems(
-          {
-            searchTerm: query,
-            limit: 10,
-            includeItemTypes: types,
-            recursive: true,
-            userId: user?.Id,
-          },
-          { signal },
-        );
+      const searchApi = await getItemsApi(api).getItems(
+        {
+          searchTerm: query,
+          limit: 10,
+          includeItemTypes: types,
+          recursive: true,
+          userId: user?.Id,
+        },
+        { signal },
+      );
 
-        return (searchApi.data.Items as BaseItemDto[]) || [];
-      } catch (error) {
-        if (!isAbortLikeError(error)) {
-          logAndCaptureError("Music search request failed", error);
-        }
-        return [];
-      }
+      return (searchApi.data.Items as BaseItemDto[]) || [];
     },
     [api, user?.Id],
   );
 
-  type HeaderSearchBarRef = {
-    focus: () => void;
-    blur: () => void;
-    setText: (text: string) => void;
-    clearText: () => void;
-    cancelSearch: () => void;
-  };
+  const libraryEnabled = searchType === "Library" && debouncedSearch.length > 0;
 
-  const searchBarRef = useRef<HeaderSearchBarRef>(null);
-  const navigation = useNavigation();
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerSearchBarOptions: {
-        ref: searchBarRef,
-        placeholder: t("search.search"),
-        onChangeText: (e: any) => {
-          router.setParams({ q: "" });
-          setSearch(e.nativeEvent.text);
-        },
-        hideWhenScrolling: false,
-        autoFocus: false,
-        // Android: color of the user-typed text (was dark and unreadable on the dark header)
-        textColor: "#fff",
-        // Android: placeholder and icon color
-        hintTextColor: "#fff",
-        headerIconColor: "#fff",
-      },
-    });
-  }, [navigation]);
-
-  useEffect(() => {
-    const unsubscribe = eventBus.on("searchTabPressed", () => {
-      // Screen not active
-      if (!searchBarRef.current) {
-        return;
-      }
-      // Screen is active, focus search bar
-      searchBarRef.current?.focus();
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
-  const { data: movies, isFetching: l1 } = useQuery({
+  const moviesQuery = useQuery({
     queryKey: ["search", "movies", debouncedSearch],
     queryFn: ({ signal }) =>
-      searchFn({
-        query: debouncedSearch,
-        types: ["Movie"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      searchFn({ query: debouncedSearch, types: ["Movie"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: series, isFetching: l2 } = useQuery({
+  const seriesQuery = useQuery({
     queryKey: ["search", "series", debouncedSearch],
     queryFn: ({ signal }) =>
-      searchFn({
-        query: debouncedSearch,
-        types: ["Series"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      searchFn({ query: debouncedSearch, types: ["Series"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: episodes, isFetching: l3 } = useQuery({
+  const episodesQuery = useQuery({
     queryKey: ["search", "episodes", debouncedSearch],
     queryFn: ({ signal }) =>
-      searchFn({
-        query: debouncedSearch,
-        types: ["Episode"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      searchFn({ query: debouncedSearch, types: ["Episode"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: collections, isFetching: l7 } = useQuery({
+  const collectionsQuery = useQuery({
     queryKey: ["search", "collections", debouncedSearch],
     queryFn: ({ signal }) =>
-      searchFn({
-        query: debouncedSearch,
-        types: ["BoxSet"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      searchFn({ query: debouncedSearch, types: ["BoxSet"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: actors, isFetching: l8 } = useQuery({
+  const actorsQuery = useQuery({
     queryKey: ["search", "actors", debouncedSearch],
     queryFn: ({ signal }) =>
-      searchFn({
-        query: debouncedSearch,
-        types: ["Person"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      searchFn({ query: debouncedSearch, types: ["Person"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
   // Music search queries - always use Jellyfin since Streamystats doesn't support music
-  const { data: artists, isFetching: l9 } = useQuery({
+  const artistsQuery = useQuery({
     queryKey: ["search", "artists", debouncedSearch],
     queryFn: ({ signal }) =>
       jellyfinSearchFn({
@@ -384,10 +365,11 @@ export default function SearchPage() {
         types: ["MusicArtist"],
         signal,
       }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: albums, isFetching: l10 } = useQuery({
+  const albumsQuery = useQuery({
     queryKey: ["search", "albums", debouncedSearch],
     queryFn: ({ signal }) =>
       jellyfinSearchFn({
@@ -395,58 +377,48 @@ export default function SearchPage() {
         types: ["MusicAlbum"],
         signal,
       }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: songs, isFetching: l11 } = useQuery({
+  const songsQuery = useQuery({
     queryKey: ["search", "songs", debouncedSearch],
     queryFn: ({ signal }) =>
-      jellyfinSearchFn({
-        query: debouncedSearch,
-        types: ["Audio"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      jellyfinSearchFn({ query: debouncedSearch, types: ["Audio"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const { data: playlists, isFetching: l12 } = useQuery({
+  const playlistsQuery = useQuery({
     queryKey: ["search", "playlists", debouncedSearch],
     queryFn: ({ signal }) =>
-      jellyfinSearchFn({
-        query: debouncedSearch,
-        types: ["Playlist"],
-        signal,
-      }),
-    enabled: searchType === "Library" && debouncedSearch.length > 0,
+      jellyfinSearchFn({ query: debouncedSearch, types: ["Playlist"], signal }),
+    enabled: libraryEnabled,
+    retry: LIBRARY_QUERY_RETRY,
   });
 
-  const noResults = useMemo(() => {
-    return !(
-      movies?.length ||
-      episodes?.length ||
-      series?.length ||
-      collections?.length ||
-      actors?.length ||
-      artists?.length ||
-      albums?.length ||
-      songs?.length ||
-      playlists?.length
-    );
-  }, [
-    episodes,
-    movies,
-    series,
-    collections,
-    actors,
-    artists,
-    albums,
-    songs,
-    playlists,
-  ]);
+  const libraryQueries = [
+    moviesQuery,
+    seriesQuery,
+    episodesQuery,
+    collectionsQuery,
+    actorsQuery,
+    artistsQuery,
+    albumsQuery,
+    songsQuery,
+    playlistsQuery,
+  ];
 
-  const loading = useMemo(() => {
-    return l1 || l2 || l3 || l7 || l8 || l9 || l10 || l11 || l12;
-  }, [l1, l2, l3, l7, l8, l9, l10, l11, l12]);
+  const libraryLoading = libraryQueries.some((query) => query.isFetching);
+  const failedLibraryQueries = libraryQueries.filter((query) => query.error);
+  const hasLibraryError = failedLibraryQueries.length > 0;
+  const noLibraryResults = !libraryQueries.some(
+    (query) => (query.data?.length ?? 0) > 0,
+  );
+
+  const retryFailedLibraryQueries = useCallback(() => {
+    for (const query of failedLibraryQueries) void query.refetch();
+  }, [failedLibraryQueries]);
 
   // TV item press handler
   const handleItemPress = useCallback(
@@ -462,14 +434,14 @@ export default function SearchPage() {
     useQuery({
       queryKey: ["search", "jellyseerr", "tv", debouncedSearch],
       queryFn: async () => {
-        const params = {
+        const searchParams = {
           query: new URLSearchParams(debouncedSearch || "").toString(),
         };
         return await Promise.all([
-          jellyseerrApi?.search({ ...params, page: 1 }),
-          jellyseerrApi?.search({ ...params, page: 2 }),
-          jellyseerrApi?.search({ ...params, page: 3 }),
-          jellyseerrApi?.search({ ...params, page: 4 }),
+          jellyseerrApi?.search({ ...searchParams, page: 1 }),
+          jellyseerrApi?.search({ ...searchParams, page: 2 }),
+          jellyseerrApi?.search({ ...searchParams, page: 3 }),
+          jellyseerrApi?.search({ ...searchParams, page: 4 }),
         ]).then((all) =>
           uniqBy(
             all.flatMap((v) => v?.results || []),
@@ -503,7 +475,7 @@ export default function SearchPage() {
         jellyseerrTVResults?.filter(
           (r) => r.mediaType === MediaType.TV,
         ) as TvResult[],
-        [(t) => t?.name?.toLowerCase() === debouncedSearch.toLowerCase()],
+        [(tv) => tv?.name?.toLowerCase() === debouncedSearch.toLowerCase()],
         "desc",
       ),
     [jellyseerrTVResults, debouncedSearch],
@@ -582,17 +554,17 @@ export default function SearchPage() {
         search={search}
         setSearch={setSearch}
         debouncedSearch={debouncedSearch}
-        movies={movies}
-        series={series}
-        episodes={episodes}
-        collections={collections}
-        actors={actors}
-        artists={artists}
-        albums={albums}
-        songs={songs}
-        playlists={playlists}
-        loading={loading}
-        noResults={noResults}
+        movies={moviesQuery.data}
+        series={seriesQuery.data}
+        episodes={episodesQuery.data}
+        collections={collectionsQuery.data}
+        actors={actorsQuery.data}
+        artists={artistsQuery.data}
+        albums={albumsQuery.data}
+        songs={songsQuery.data}
+        playlists={playlistsQuery.data}
+        loading={libraryLoading}
+        noResults={noLibraryResults}
         onItemPress={handleItemPress}
         onItemLongPress={showItemActions}
         searchType={searchType}
@@ -610,31 +582,264 @@ export default function SearchPage() {
     );
   }
 
+  const tabSegments: Segment[] = [
+    { key: "Library", label: t("search.library") },
+    { key: "Discover", label: t("search.discover") },
+  ];
+
+  const askForIt = () => router.push("/(auth)/(tabs)/(requests)");
+
+  const libraryContent =
+    debouncedSearch.length === 0 ? (
+      <View testID='search-empty'>
+        <EmptyState
+          icon='search'
+          title={t("search.empty_title")}
+          detail={t("search.empty_detail")}
+        />
+        <View style={{ paddingHorizontal: gutter, marginTop: -20 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            {EXAMPLE_SEARCH_KEYS.map((key) => {
+              const label = t(`search.${key}`);
+              return (
+                <View testID='search-example-chip' key={key}>
+                  <Pill
+                    label={label}
+                    onPress={() => fillQuery(label)}
+                    style={{ minHeight: tokens.control.minTouchTarget }}
+                  />
+                </View>
+              );
+            })}
+          </View>
+
+          {recentSearches.length > 0 ? (
+            <View style={{ marginTop: 28 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 10,
+                }}
+              >
+                <Text variant='caption' tone='secondary' weight='semibold'>
+                  {t("search.recent_searches")}
+                </Text>
+                <Pressable
+                  accessibilityRole='button'
+                  accessibilityLabel={t("search.clear_recent_searches")}
+                  onPress={handleClearRecentSearches}
+                >
+                  <Text variant='caption' tone='accent' weight='semibold'>
+                    {t("search.clear_recent_searches")}
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {recentSearches.map((recent) => (
+                  <View testID='search-recent-chip' key={recent}>
+                    <Pill
+                      label={recent}
+                      icon='search'
+                      onPress={() => fillQuery(recent)}
+                      style={{ minHeight: tokens.control.minTouchTarget }}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    ) : !libraryLoading && !hasLibraryError && noLibraryResults ? (
+      <View testID='search-empty'>
+        <EmptyState
+          icon='search'
+          title={`${t("search.no_results_found_for")} "${debouncedSearch}"`}
+          action={
+            requestsEnabled
+              ? {
+                  label: t("search.ask_for_it"),
+                  icon: "requests",
+                  onPress: askForIt,
+                }
+              : undefined
+          }
+        />
+      </View>
+    ) : (
+      <View testID='search-results'>
+        {hasLibraryError ? (
+          <View style={{ paddingHorizontal: gutter, marginBottom: 8 }}>
+            <EmptyState
+              icon='warning'
+              title={t("common.something_went_wrong")}
+              detail={t("search.error_detail")}
+              action={{
+                label: t("common.retry"),
+                icon: "refresh",
+                onPress: retryFailedLibraryQueries,
+              }}
+            />
+          </View>
+        ) : null}
+        <CardRow
+          title={t("search.movies")}
+          items={moviesQuery.data}
+          kind='portrait'
+          loading={moviesQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.series")}
+          items={seriesQuery.data}
+          kind='portrait'
+          loading={seriesQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.episodes")}
+          items={episodesQuery.data}
+          kind='wide'
+          loading={episodesQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.collections")}
+          items={collectionsQuery.data}
+          kind='portrait'
+          loading={collectionsQuery.isFetching}
+          hideIfEmpty
+        />
+        <SearchPeopleRow
+          title={t("search.actors")}
+          people={actorsQuery.data}
+          loading={actorsQuery.isFetching}
+          from={from}
+        />
+        <CardRow
+          title={t("search.artists")}
+          items={artistsQuery.data}
+          kind='portrait'
+          loading={artistsQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.albums")}
+          items={albumsQuery.data}
+          kind='portrait'
+          loading={albumsQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.songs")}
+          items={songsQuery.data}
+          kind='portrait'
+          loading={songsQuery.isFetching}
+          hideIfEmpty
+        />
+        <CardRow
+          title={t("search.playlists")}
+          items={playlistsQuery.data}
+          kind='portrait'
+          loading={playlistsQuery.isFetching}
+          hideIfEmpty
+        />
+      </View>
+    );
+
+  const discoverContent = (
+    <JellyserrIndexPage
+      searchQuery={debouncedSearch}
+      sortType={jellyseerrOrderBy}
+      order={jellyseerrSortOrder}
+    />
+  );
+
   return (
     <ScrollView
       keyboardDismissMode='on-drag'
       contentInsetAdjustmentBehavior='automatic'
+      stickyHeaderIndices={!isWebWide ? [0] : undefined}
       contentContainerStyle={{
         paddingLeft: insets.left,
         paddingRight: insets.right,
         paddingBottom: 60,
       }}
     >
-      <View
-        className='flex flex-col'
-        style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
-      >
-        {jellyseerrApi && (
-          <View className='pl-4 pr-4 flex flex-row'>
-            <SearchTabButtons
-              searchType={searchType}
-              setSearchType={setSearchType}
-              t={t}
+      {!isWebWide ? (
+        <View
+          style={{
+            backgroundColor: tokens.color.bg["0"],
+            paddingHorizontal: gutter,
+            paddingVertical: 10,
+          }}
+        >
+          <View style={{ position: "relative", justifyContent: "center" }}>
+            <Input
+              testID='search-input'
+              icon='search'
+              value={search}
+              onChangeText={setSearch}
+              onSubmitEditing={() => Keyboard.dismiss()}
+              returnKeyType='search'
+              placeholder={t("search.search")}
+              accessibilityLabel={t("search.search")}
+              autoCorrect={false}
+              style={search.length > 0 ? { paddingRight: 36 } : undefined}
             />
-            {searchType === "Discover" &&
-              !loading &&
-              noResults &&
-              debouncedSearch.length > 0 && (
+            {search.length > 0 ? (
+              <Pressable
+                accessibilityRole='button'
+                accessibilityLabel={t("search.clear_search")}
+                onPress={() => setSearch("")}
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  height: "100%",
+                  width: 32,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon name='close' size={16} tone='tertiary' />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      <PageContainer
+        width='media'
+        bleed
+        style={{ paddingTop: isWebWide ? 20 : 12 }}
+      >
+        {showDiscoverTab ? (
+          <View
+            testID='search-tabs'
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Tabs
+                segments={tabSegments}
+                value={searchType}
+                onChange={(key) => setSearchType(key as SearchType)}
+              />
+            </View>
+            {searchType === "Discover" && debouncedSearch.length > 0 ? (
+              <View style={{ paddingRight: gutter }}>
                 <DiscoverFilters
                   searchFilterId={searchFilterId}
                   orderFilterId={orderFilterId}
@@ -644,253 +849,15 @@ export default function SearchPage() {
                   setJellyseerrSortOrder={setJellyseerrSortOrder}
                   t={t}
                 />
-              )}
+              </View>
+            ) : null}
           </View>
-        )}
+        ) : null}
 
-        <View className='mt-2'>
-          <LoadingSkeleton isLoading={loading} />
-        </View>
-
-        {searchType === "Library" ? (
-          <View className={l1 || l2 ? "opacity-0" : "opacity-100"}>
-            <CardRow
-              enableActionSheet
-              title={t("search.movies")}
-              items={movies ?? []}
-              kind='portrait'
-              hideIfEmpty
-            />
-            <CardRow
-              enableActionSheet
-              title={t("search.series")}
-              items={series ?? []}
-              kind='portrait'
-              hideIfEmpty
-            />
-            <CardRow
-              enableActionSheet
-              title={t("search.episodes")}
-              items={episodes ?? []}
-              kind='wide'
-              hideIfEmpty
-            />
-            <CardRow
-              enableActionSheet
-              title={t("search.collections")}
-              items={collections ?? []}
-              kind='portrait'
-              hideIfEmpty
-            />
-            <CardRow
-              enableActionSheet
-              title={t("search.actors")}
-              items={actors ?? []}
-              kind='portrait'
-              hideIfEmpty
-            />
-            {/* Music search results */}
-            <SearchItemWrapper
-              items={artists}
-              header={t("search.artists")}
-              renderItem={(item: BaseItemDto) => {
-                const imageUrl = getPrimaryImageUrl({ api, item });
-                return (
-                  <TouchableItemRouter
-                    item={item}
-                    key={item.Id}
-                    className='flex flex-col w-24 mr-2 items-center'
-                  >
-                    <View
-                      style={{
-                        width: 80,
-                        height: 80,
-                        borderRadius: 40,
-                        overflow: "hidden",
-                        backgroundColor: "#1a1a1a",
-                      }}
-                    >
-                      {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit='cover'
-                        />
-                      ) : (
-                        <View className='flex-1 items-center justify-center bg-neutral-800'>
-                          <Text className='text-xl'>👤</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text numberOfLines={2} className='mt-2 text-center'>
-                      {item.Name}
-                    </Text>
-                  </TouchableItemRouter>
-                );
-              }}
-            />
-            <SearchItemWrapper
-              items={albums}
-              header={t("search.albums")}
-              renderItem={(item: BaseItemDto) => {
-                const imageUrl = getPrimaryImageUrl({ api, item });
-                return (
-                  <TouchableItemRouter
-                    item={item}
-                    key={item.Id}
-                    className='flex flex-col w-28 mr-2'
-                  >
-                    <View
-                      style={{
-                        width: 112,
-                        height: 112,
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        backgroundColor: "#1a1a1a",
-                      }}
-                    >
-                      {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit='cover'
-                        />
-                      ) : (
-                        <View className='flex-1 items-center justify-center bg-neutral-800'>
-                          <Text className='text-4xl'>🎵</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text numberOfLines={2} className='mt-2'>
-                      {item.Name}
-                    </Text>
-                    <Text className='opacity-50 text-xs' numberOfLines={1}>
-                      {item.AlbumArtist || item.Artists?.join(", ")}
-                    </Text>
-                  </TouchableItemRouter>
-                );
-              }}
-            />
-            <SearchItemWrapper
-              items={songs}
-              header={t("search.songs")}
-              renderItem={(item: BaseItemDto) => {
-                const imageUrl = getPrimaryImageUrl({ api, item });
-                return (
-                  <TouchableItemRouter
-                    item={item}
-                    key={item.Id}
-                    className='flex flex-col w-28 mr-2'
-                  >
-                    <View
-                      style={{
-                        width: 112,
-                        height: 112,
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        backgroundColor: "#1a1a1a",
-                      }}
-                    >
-                      {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit='cover'
-                        />
-                      ) : (
-                        <View className='flex-1 items-center justify-center bg-neutral-800'>
-                          <Text className='text-4xl'>🎵</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text numberOfLines={2} className='mt-2'>
-                      {item.Name}
-                    </Text>
-                    <Text className='opacity-50 text-xs' numberOfLines={1}>
-                      {item.Artists?.join(", ") || item.AlbumArtist}
-                    </Text>
-                  </TouchableItemRouter>
-                );
-              }}
-            />
-            <SearchItemWrapper
-              items={playlists}
-              header={t("search.playlists")}
-              renderItem={(item: BaseItemDto) => {
-                const imageUrl = getPrimaryImageUrl({ api, item });
-                return (
-                  <TouchableItemRouter
-                    item={item}
-                    key={item.Id}
-                    className='flex flex-col w-28 mr-2'
-                  >
-                    <View
-                      style={{
-                        width: 112,
-                        height: 112,
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        backgroundColor: "#1a1a1a",
-                      }}
-                    >
-                      {imageUrl ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit='cover'
-                        />
-                      ) : (
-                        <View className='flex-1 items-center justify-center bg-neutral-800'>
-                          <Text className='text-4xl'>🎶</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text numberOfLines={2} className='mt-2'>
-                      {item.Name}
-                    </Text>
-                    <Text className='opacity-50 text-xs'>
-                      {item.ChildCount} tracks
-                    </Text>
-                  </TouchableItemRouter>
-                );
-              }}
-            />
-          </View>
-        ) : (
-          <JellyserrIndexPage
-            searchQuery={debouncedSearch}
-            sortType={jellyseerrOrderBy}
-            order={jellyseerrSortOrder}
-          />
-        )}
-
-        {searchType === "Library" &&
-          (!loading && noResults && debouncedSearch.length > 0 ? (
-            <View>
-              <Text className='text-center text-lg font-bold mt-4'>
-                {t("search.no_results_found_for")}
-              </Text>
-              <Text className='text-xs text-purple-600 text-center'>
-                "{debouncedSearch}"
-              </Text>
-            </View>
-          ) : debouncedSearch.length === 0 ? (
-            <View className='mt-2 flex flex-col items-center space-y-2'>
-              {exampleSearches.map((e) => (
-                <TouchableOpacity
-                  onPress={() => {
-                    setSearch(e);
-                    searchBarRef.current?.setText(e);
-                  }}
-                  key={e}
-                  className='mb-2'
-                >
-                  <Text className='text-purple-600'>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null)}
-      </View>
+        {searchType === "Discover" && showDiscoverTab
+          ? discoverContent
+          : libraryContent}
+      </PageContainer>
     </ScrollView>
   );
 }
