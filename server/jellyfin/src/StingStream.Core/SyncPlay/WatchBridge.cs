@@ -192,6 +192,34 @@ public sealed class WatchBridge : BackgroundService
 
         /// <summary>The last drift the bridge measured against the leader.</summary>
         public long DriftMs { get; set; }
+
+        /// <summary>
+        /// True while <see cref="AttachAsync"/> is putting the seat into a local group.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// **Nothing the group says while this is set is a decision anybody made.** Jellyfin tells
+        /// a session what its group is already doing the moment it joins — and for an `Idle` group
+        /// that greeting is a `Stop`, delivered synchronously inside
+        /// <c>ISyncPlayManager.JoinGroup</c>, straight into
+        /// <see cref="BridgeSessionController.SendMessage"/>. Relaying it made a leader announce
+        /// "the film has stopped" to the whole party at the exact instant one of its own users
+        /// opened the film, which is the opposite of what happened.
+        /// </para>
+        /// <para>
+        /// It cost M7 a CI run (34052650751): node A seated its bridge at 18:56:42.070, its mesh
+        /// logged <c>sending a watch command … kind: "Stop"</c> in the same millisecond, and node B
+        /// tore its own bridge down 0.3 s later — so seating B's bridge, the very next thing the
+        /// harness did, was refused with a 409. The mesh half of that (a stop being taken to end
+        /// the session) is fixed in <c>watch::Command::closed</c>; this is the half that stops the
+        /// spurious stop being sent at all.
+        /// </para>
+        /// <para>
+        /// A field on the session rather than a timestamp window: the delivery is synchronous and
+        /// on this thread, so the gate can be exact rather than a guess about how long to wait.
+        /// </para>
+        /// </remarks>
+        public bool Seating { get; set; }
     }
 
     /// <inheritdoc />
@@ -405,6 +433,18 @@ public sealed class WatchBridge : BackgroundService
             return;
         }
 
+        if (bridged.Seating)
+        {
+            // The group greeting a session that has just sat down, not a decision. See
+            // BridgedSession.Seating -- this is where an idle group's `Stop` used to become a
+            // relayed "the party is over".
+            _logger.LogDebug(
+                "Watch session {Session}: ignoring the {Kind} the group sent the seat as it joined",
+                sessionId,
+                kind);
+            return;
+        }
+
         bridged.LocalPositionMs = positionMs;
         bridged.LocalPositionAtMs = atMs;
         bridged.LocalState = kind switch
@@ -559,17 +599,16 @@ public sealed class WatchBridge : BackgroundService
             return;
         }
 
-        GroupStateType local;
-        try
+        // Null rather than an exception is the ordinary answer for a group that has gone -- and for
+        // one the seat's user may not see, which `GetGroup` reports the same way. Either way the
+        // session's own lifecycle handles it and there is nothing to reconcile.
+        var info = Group(seat, bridged.LocalGroupId);
+        if (info is null)
         {
-            local = _syncPlay.GetGroup(seat, bridged.LocalGroupId).State;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException
-                                       or MediaBrowser.Common.Extensions.ResourceNotFoundException)
-        {
-            // The group has gone. The session's own lifecycle handles that; nothing to reconcile.
             return;
         }
+
+        var local = info.State;
 
         // `Waiting` is a group mid-transition -- somebody is buffering -- and is neither playing nor
         // paused yet. Relaying it would be relaying a moment rather than a decision.
@@ -633,7 +672,21 @@ public sealed class WatchBridge : BackgroundService
     {
         if (!_bridged.TryGetValue(sessionId, out var bridged))
         {
-            throw new InvalidOperationException($"This node is not in watch session {sessionId}.");
+            throw new InvalidOperationException(
+                $"This node is not in watch session {sessionId}, so there is nothing to seat. "
+                + "Start it or join it first.");
+        }
+
+        // Idempotent: seating a bridge that is already seated in the same group is a no-op, not a
+        // conflict. A client that retries a request whose answer it never saw, and a second person
+        // on this node opening the same film, both arrive here -- and neither is an error.
+        if (bridged.Seat is not null && bridged.LocalGroupId.Equals(localGroupId))
+        {
+            _logger.LogDebug(
+                "The watch bridge is already seated in local SyncPlay group {Group} for session {Session}",
+                localGroupId,
+                sessionId);
+            return;
         }
 
         // A seat has to belong to *some* user, because a SyncPlay group checks library access per
@@ -653,11 +706,37 @@ public sealed class WatchBridge : BackgroundService
 
         seat.AddController(new BridgeSessionController(sessionId, this));
 
-        _syncPlay.JoinGroup(seat, new JoinGroupRequest(localGroupId), cancellationToken);
-        // Take the seat out of the group's buffering set immediately. Without this a bridge that
-        // never sends `Ready` -- and it never will, having no player -- leaves the group in
-        // `Waiting` forever and nobody on this node can watch anything.
-        _syncPlay.HandleRequest(seat, new IgnoreWaitGroupRequest(true), cancellationToken);
+        // Everything the group says between here and the end of the join is the group describing
+        // itself to a new arrival, not a decision to relay. See BridgedSession.Seating.
+        bridged.Seating = true;
+        try
+        {
+            _syncPlay.JoinGroup(seat, new JoinGroupRequest(localGroupId), cancellationToken);
+            // Take the seat out of the group's buffering set immediately. Without this a bridge
+            // that never sends `Ready` -- and it never will, having no player -- leaves the group
+            // in `Waiting` forever and nobody on this node can watch anything.
+            _syncPlay.HandleRequest(seat, new IgnoreWaitGroupRequest(true), cancellationToken);
+        }
+        finally
+        {
+            bridged.Seating = false;
+        }
+
+        // `JoinGroup` has two branches that refuse **silently**: a group id that names nothing, and
+        // a group whose play queue holds something the seat's user cannot see standalone. Both log
+        // a warning, send the session a group update and return, leaving a caller that assumed
+        // success bridging into a group it is not in -- a watch party where every command lands
+        // nowhere and nothing says why.
+        //
+        // `GetGroup` answers null in exactly those two cases and only those, so one call after the
+        // join turns both into an error somebody can act on.
+        if (Group(seat, localGroupId) is null)
+        {
+            throw new InvalidOperationException(
+                $"Jellyfin would not seat the watch bridge in SyncPlay group {localGroupId}: either "
+                + $"that group has gone, or {user.Username} cannot see everything in its queue. "
+                + "A watch party's members need access to the libraries the group is playing from.");
+        }
 
         bridged.Seat = seat;
         bridged.LocalGroupId = localGroupId;
@@ -665,6 +744,23 @@ public sealed class WatchBridge : BackgroundService
             "The watch bridge is seated in local SyncPlay group {Group} for session {Session}",
             localGroupId,
             sessionId);
+    }
+
+    /// <summary>The seat's view of a local SyncPlay group, or null when it has no such view.</summary>
+    /// <param name="seat">The seat.</param>
+    /// <param name="localGroupId">The group.</param>
+    /// <returns>The group, or null.</returns>
+    private MediaBrowser.Model.SyncPlay.GroupInfoDto? Group(SessionInfo seat, Guid localGroupId)
+    {
+        try
+        {
+            return _syncPlay.GetGroup(seat, localGroupId);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException
+                                       or MediaBrowser.Common.Extensions.ResourceNotFoundException)
+        {
+            return null;
+        }
     }
 
     private async Task StopBridgingAsync(BridgedSession bridged, CancellationToken cancellationToken)

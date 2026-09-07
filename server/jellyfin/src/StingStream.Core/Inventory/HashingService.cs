@@ -38,6 +38,29 @@ public sealed class HashingService : BackgroundService
     private readonly IIdleSignal _idle;
     private readonly IServiceProvider _services;
 
+    /// <summary>Raised by <see cref="EnqueueAsync"/> so a waiting loop starts at once.</summary>
+    /// <remarks>
+    /// <para>
+    /// Without it the queue is only looked at on <see cref="PollInterval"/>, so a file imported a
+    /// second after a poll waits thirty seconds before anything happens to it — and the record's
+    /// hash, and the delta that carries it to the group, wait with it.
+    /// </para>
+    /// <para>
+    /// That delay is what pinned M4's hashing burst to "the node's start plus a multiple of thirty
+    /// seconds", which is close enough to when the harness has the holders join a group for the
+    /// two to collide. They collided in CI runs 34053018232 and 34060142479 — B's first snapshot
+    /// landing 33 ms and 45 ms after a hash — and passed on the run before, where the same burst
+    /// finished twenty-seven seconds early. A queue that is looked at when something is put on it
+    /// takes that alignment out of the system; the poll stays as a backstop for rows this process
+    /// did not queue itself.
+    /// </para>
+    /// <para>
+    /// Capacity one: several enqueues while the loop is busy are one wake-up, which is all they
+    /// need — the loop drains the whole queue before waiting again.
+    /// </para>
+    /// </remarks>
+    private readonly SemaphoreSlim _queued = new(0, 1);
+
     public HashingService(
         ILogger<HashingService> logger,
         CoreDatabase db,
@@ -53,7 +76,14 @@ public sealed class HashingService : BackgroundService
     /// <summary>Files at or above this size are deferred until the node is idle.</summary>
     public long LargeFileThreshold { get; set; } = DefaultLargeFileThreshold;
 
-    /// <summary>How often to look for work when the queue is empty.</summary>
+    /// <summary>
+    /// How long the service waits for work before looking anyway.
+    /// </summary>
+    /// <remarks>
+    /// A backstop rather than the normal path: <see cref="EnqueueAsync"/> wakes the loop, so this
+    /// only covers rows nothing in this process queued — one left behind by a previous run, or one
+    /// whose attempt count has come back under the retry limit.
+    /// </remarks>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Queue a file for hashing. Idempotent, and cheap enough to call from a webhook.</summary>
@@ -102,6 +132,27 @@ public sealed class HashingService : BackgroundService
             ct).ConfigureAwait(false);
 
         _logger.LogDebug("Queued {Path} ({Size} bytes) for BLAKE3 hashing", path, size);
+        Wake();
+    }
+
+    /// <summary>Tell a waiting loop there is something to do. Never blocks, never throws.</summary>
+    private void Wake()
+    {
+        try
+        {
+            if (_queued.CurrentCount == 0)
+            {
+                _queued.Release();
+            }
+        }
+        catch (SemaphoreFullException)
+        {
+            // Two enqueues raced past the count check. One wake-up is all the loop needs.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The service is stopping.
+        }
     }
 
     /// <summary>The stored hash for a path, or <see langword="null"/> when it has not been hashed.</summary>
@@ -138,7 +189,10 @@ public sealed class HashingService : BackgroundService
                 var next = TakeNext();
                 if (next is null)
                 {
-                    await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
+                    // Wait to be told, and look anyway after the poll interval. A file enqueued a
+                    // moment after a poll used to wait the whole interval before anything happened
+                    // to it -- see the note on `_queued`.
+                    await _queued.WaitAsync(PollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -271,6 +325,12 @@ public sealed class HashingService : BackgroundService
     {
         if (string.IsNullOrEmpty(itemId) || !Guid.TryParse(itemId, out var id))
         {
+            // A queue row with no Jellyfin item id -- an arr webhook that fired before the import
+            // resolved. The hash is stored, but no record can be rebuilt from it until something
+            // else refreshes the item, so say so rather than returning in silence.
+            _logger.LogDebug(
+                "Hashed a file with no Jellyfin item id on its queue row; its inventory record "
+                + "gains the hash on the next refresh");
             return;
         }
 
@@ -278,7 +338,15 @@ public sealed class HashingService : BackgroundService
         {
             if (_services.GetService(typeof(IInventoryService)) is IInventoryService inventory)
             {
-                await inventory.RefreshItemAsync(id, cancellationToken).ConfigureAwait(false);
+                var record = await inventory.RefreshItemAsync(id, cancellationToken).ConfigureAwait(false);
+                // The one line that says a finished hash actually reached the thing that publishes
+                // it. Without it, "the hash never arrived on a peer" and "the hash never left this
+                // node" read identically in a log, which is half of what CI run 34053018232 cost.
+                _logger.LogInformation(
+                    "A finished hash reached the inventory record for {ItemId}: {Key} now {State}",
+                    itemId,
+                    record?.ItemKey ?? "(no record)",
+                    record?.FileHash is null ? "carries no hash" : "carries its hash");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException
