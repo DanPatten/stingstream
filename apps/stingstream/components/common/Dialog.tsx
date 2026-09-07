@@ -32,15 +32,23 @@ export interface DialogProps {
 }
 
 /**
- * A modal that is a card on a desktop browser and a bottom sheet everywhere
- * else.
+ * A modal that is a card in a browser and a bottom sheet on a device.
  *
  * `@gorhom/bottom-sheet` is the right shape on a phone and the wrong one at
  * 1440 px, where a panel sliding up from the bottom of a monitor reads as a
- * mobile app in a browser window — which is most of what "clunky" meant. So
- * `isWebWide` gets a centred card with a scrim, Escape and click-outside; every
- * other surface keeps the sheet it already had, through `useGlobalModal` (see
+ * mobile app in a browser window — which is most of what "clunky" meant. So the
+ * web gets a centred card with a scrim, Escape and click-outside; a phone and a
+ * tablet keep the sheet they already had, through `useGlobalModal` (see
  * `openDialog` below).
+ *
+ * The split used to be `isWebWide`, which sent a browser window under 768 px to
+ * the sheet — and on react-native-web `BottomSheetModal.present()` does nothing
+ * at all. Nothing appeared, no error was logged, and the dialog was simply not
+ * there. Driving the player at 390x844 found it through the source chooser, and
+ * the app's own overflow menu (`PlatformDropdown`, same global sheet) opened
+ * nothing at that width either, which is what says the surface is at fault
+ * rather than any one caller. A card at 342 px wide is a perfectly good phone
+ * dialog; nothing at all is not.
  *
  * Never on TV: `docs/conventions/tv.md` rules out React Native's `Modal` and
  * absolutely positioned overlays there — a TV modal is an atom plus a
@@ -55,7 +63,9 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   dismissible = true,
   children,
 }) => {
-  const { isWebWide, width } = useBreakpoint();
+  const { width } = useBreakpoint();
+  // Not `isWebWide`: see above — the sheet does not present on react-native-web at any width.
+  const isCard = Platform.OS === "web" && !Platform.isTV;
   const { showModal, hideModal } = useGlobalModal();
 
   const body = (
@@ -65,7 +75,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       actions={actions}
       onClose={onClose}
       dismissible={dismissible}
-      showClose={isWebWide && dismissible}
+      showClose={isCard && dismissible}
     >
       {children}
     </DialogBody>
@@ -87,19 +97,19 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       target.removeEventListener?.("keydown", onKeyDown as (e: never) => void);
   }, [visible, dismissible, onClose]);
 
-  // Off the wide web the sheet provider owns presentation, so this component
-  // only pushes content into it and takes it back out again.
+  // Off the web the sheet provider owns presentation, so this component only
+  // pushes content into it and takes it back out again.
   useEffect(() => {
-    if (isWebWide) return;
+    if (isCard) return;
     if (visible) showModal(body);
     else hideModal();
     // Deliberately keyed on `visible` alone. `body` is a fresh element every
     // render, so depending on it would re-present the sheet on each one and
     // reset whatever the user was doing inside it. A sheet whose content
     // changes while open should hold that state itself.
-  }, [isWebWide, visible]);
+  }, [isCard, visible]);
 
-  if (!isWebWide) return null;
+  if (!isCard) return null;
 
   return (
     <Modal
