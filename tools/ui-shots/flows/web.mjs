@@ -310,16 +310,40 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
+      // `library-card` (WP2/WP5, landed) is on every item card (components/cards/Card.tsx) --
+      // but ALSO on the Libraries screen's own "Movies"/"TV Shows" tiles
+      // (components/library/LibraryItemCard.tsx uses the identical testID). Clicking "the first
+      // library-card" from wherever 04-library-movies's best-effort text click left us could
+      // therefore land on a library tile, not an item -- confirmed live (2026-09-08): the old
+      // `page.locator("img").first()` selector hit exactly this, clicking the Libraries screen's
+      // own "Movies" tile image and bouncing straight back to Library instead of opening a
+      // details page. Starting from Home instead of trusting 04's outcome sidesteps the ambiguity
+      // outright: Home's rows are real item cards only, never a library tile.
       id: "05-details",
       requiresAuth: true,
       optional: true,
       navigate: async (page) => {
-        // Click the first poster/card on whatever screen we are on (expected: the Movies library,
-        // reached by the previous screen in the same page session). Not pinned to a URL or a
-        // testID -- details pages are keyed by item id, and library-card (docs/UI-LOOP.md's
-        // contract) does not exist on cards yet.
-        const card = page.locator("img").first();
+        await gotoUrl(page, base, "home");
+        const before = page.url();
+        const card = byTestId(page, "library-card").first();
+        await card.waitFor({ state: "visible", timeout: TIMEOUT });
         await card.click({ timeout: TIMEOUT });
+        await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
+        // Assert we actually reached an item's own route, not a bounce back to Home or (had a
+        // library tile been clicked instead) a library's route -- neither is one of the fixed
+        // section URLs above, so a real item id in the path is the one thing that distinguishes
+        // them from every pinned screen this file already knows about.
+        const after = page.url();
+        const afterPath = new URL(after).pathname;
+        if (after === before || Object.values(URLS).includes(afterPath)) {
+          throw new Error(`clicking the first library-card did not reach an item route (still at ${afterPath})`);
+        }
+        // networkidle alone still caught this mid-skeleton (confirmed live, 2026-09-08 -- the
+        // details page's own data fetch finishes after the network settles). details-play is the
+        // one element 06-player also needs, so waiting for it here doubles as "the details page
+        // has real content, not placeholders" -- non-fatal: a details page with no Play button at
+        // all (unlikely, but not this screen's job to assume) should still get a screenshot.
+        await byTestId(page, "details-play").waitFor({ state: "visible", timeout: TIMEOUT }).catch(() => {});
       },
     },
     {
@@ -327,7 +351,10 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       requiresAuth: true,
       optional: true,
       navigate: async (page) => {
-        const playButton = page.getByRole("button", { name: /play|resume/i }).first();
+        // details-play (components/PlayButton.tsx, landed) -- the details page's own Play/Resume
+        // button, not a text/role guess across the whole page.
+        const playButton = byTestId(page, "details-play");
+        await playButton.waitFor({ state: "visible", timeout: TIMEOUT });
         await playButton.click({ timeout: TIMEOUT });
         await page.locator("video").first().waitFor({ state: "attached", timeout: TIMEOUT });
         await page.waitForFunction(() => {

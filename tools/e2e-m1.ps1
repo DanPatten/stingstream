@@ -782,9 +782,25 @@ $Account = Invoke-Step 'First run: create the account' {
     $after = Invoke-Json -Uri "$script:GatewayUrl/stingstream/api/v1/setup/state"
     if ($after.Pending) { throw 'setup/state still says this node is waiting for its first account.' }
 
-    $again = Get-HttpStatus -Uri "$claimUrl/stingstream/api/v1/setup/admin" -Method POST `
+    # A second attempt from the network has to be refused, and *which* refusal it gets is a race
+    # this harness must not pin. The gateway holds the wider door open only while there is a node
+    # to claim, and it learns the node is claimed from a poller: for the second or two before that
+    # poll lands the request still reaches Core and gets the honest 409, and afterwards the route
+    # simply stops existing and it is 404. Both are correct and the difference is timing, so
+    # asserting either one specifically buys a flake and no coverage. What must never happen is a
+    # 200.
+    if ($lan) {
+        $fromLan = Get-HttpStatus -Uri "$claimUrl/stingstream/api/v1/setup/admin" -Method POST `
+            -Body @{ Username = 'someoneelse'; Password = 'another-password' }
+        if ($fromLan -ne 404 -and $fromLan -ne 409) {
+            throw "a second setup/admin from $lan answered $fromLan; a claimed node must refuse it (404 once the gateway knows, 409 until then)."
+        }
+        Write-Host "      a second setup/admin from $lan -> $fromLan (refused)"
+    }
+
+    $again = Get-HttpStatus -Uri "$script:GatewayUrl/stingstream/api/v1/setup/admin" -Method POST `
         -Body @{ Username = 'someoneelse'; Password = 'another-password' }
-    if ($again -ne 409) { throw "a second setup/admin answered $again, not the 409 that closes the window." }
+    if ($again -ne 409) { throw "a second setup/admin from this machine answered $again, not the 409 that closes the window." }
 
     # The server's own front door has to stay shut, or the one-screen first run is a suggestion
     # rather than the only way in. The child runs with --nowebclient, and the startup wizard is
@@ -794,7 +810,7 @@ $Account = Invoke-Step 'First run: create the account' {
     $wizard = Get-HttpStatus -Uri "$script:GatewayUrl/jellyfin/Startup/Configuration"
     if ($wizard -ne 401 -and $wizard -ne 403) { throw "GET /jellyfin/Startup/Configuration answered $wizard; it must refuse." }
 
-    Write-Host "      second setup/admin -> 409, /jellyfin/web -> 404, /jellyfin/Startup/Configuration -> $wizard"
+    Write-Host "      second setup/admin from this machine -> 409, /jellyfin/web -> 404, /jellyfin/Startup/Configuration -> $wizard"
     return $chosen
 }
 

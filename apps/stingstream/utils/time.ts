@@ -1,24 +1,51 @@
+/** Jellyfin counts in 100-nanosecond ticks. */
+const TICKS_PER_SECOND = 10_000_000;
+const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
+const TICKS_PER_HOUR = 60 * TICKS_PER_MINUTE;
+
 /**
- * Converts ticks to a formatted string of hours and minutes.
- * Assumes that ticks are in milliseconds.
+ * A runtime a person would say out loud: `20s`, `34m`, `1h 34m`, `2h`.
  *
- * @param ticks The number of milliseconds.
- * @returns A string formatted as "Xh Ym" where X is hours and Y is minutes.
+ * **Under a minute it counts seconds.** The old version floored to whole
+ * minutes, so a twenty-second clip rendered as "0m" — which is not a duration,
+ * it is the absence of one, and it shipped on the details page's Play button
+ * (pass-02 F-26) and again in the home hero, where WP4 had to work around it
+ * locally. One implementation now, so the next screen that needs a runtime
+ * cannot get the broken one.
+ *
+ * Returns `null` when there is no runtime at all, so a caller can drop the
+ * segment instead of printing a placeholder. `runtimeTicksToMinutes` is the
+ * always-a-string wrapper for callers that have nowhere to put a `null`.
+ */
+export const formatRuntimeTicks = (
+  ticks: number | null | undefined,
+): string | null => {
+  if (!ticks || ticks <= 0) return null;
+
+  if (ticks < TICKS_PER_MINUTE) {
+    return `${Math.max(1, Math.round(ticks / TICKS_PER_SECOND))}s`;
+  }
+
+  const hours = Math.floor(ticks / TICKS_PER_HOUR);
+  const minutes = Math.round((ticks % TICKS_PER_HOUR) / TICKS_PER_MINUTE);
+  // 1h 60m is not a thing anyone writes.
+  if (minutes === 60) return `${hours + 1}h`;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+};
+
+/**
+ * The same string, with `0m` where there is no runtime.
+ *
+ * Kept for the fifteen-odd call sites that render straight into a `Text` and
+ * have nothing sensible to do with a `null`. Prefer `formatRuntimeTicks` in
+ * new code: a row that can omit the runtime reads better than one that claims
+ * a title is zero minutes long.
  */
 export const runtimeTicksToMinutes = (
   ticks: number | null | undefined,
-): string => {
-  if (!ticks) return "0h 0m";
-
-  const ticksPerMinute = 600000000;
-  const ticksPerHour = 36000000000;
-
-  const hours = Math.floor(ticks / ticksPerHour);
-  const minutes = Math.floor((ticks % ticksPerHour) / ticksPerMinute);
-
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-};
+): string => formatRuntimeTicks(ticks) ?? "0m";
 
 export const runtimeTicksToSeconds = (
   ticks: number | null | undefined,

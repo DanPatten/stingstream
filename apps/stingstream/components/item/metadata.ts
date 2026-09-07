@@ -16,44 +16,23 @@ import type {
   MediaSourceInfo,
   MediaStream,
 } from "@jellyfin/sdk/lib/generated-client/models";
-
-/** Jellyfin counts in 100-nanosecond ticks. */
-const TICKS_PER_SECOND = 10_000_000;
-const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
-const TICKS_PER_HOUR = 60 * TICKS_PER_MINUTE;
+import { formatRuntimeTicks } from "@/utils/time";
 
 /**
- * A runtime a human would say out loud.
- *
- * Under a minute it counts seconds, because "0m" is not a duration — it is the
- * absence of one, and a twenty-second clip is a perfectly ordinary thing for a
- * library to hold. Returns `null` rather than a placeholder when there is no
- * runtime at all, so the caller drops the segment instead of printing a dash.
+ * The runtime formatter itself lives in `utils/time.ts`, beside every other
+ * tick helper and with its own tests. It was here first, and while it was, the
+ * home hero had to carry a *second* copy of the same fix — which is exactly how
+ * "0m" survived in one place after being fixed in the other. Re-exported so the
+ * details page keeps importing its formatting from one module.
  */
-export const formatRuntime = (
-  ticks: number | null | undefined,
-): string | null => {
-  if (!ticks || ticks <= 0) return null;
-
-  if (ticks < TICKS_PER_MINUTE) {
-    return `${Math.max(1, Math.round(ticks / TICKS_PER_SECOND))}s`;
-  }
-
-  const hours = Math.floor(ticks / TICKS_PER_HOUR);
-  const minutes = Math.round((ticks % TICKS_PER_HOUR) / TICKS_PER_MINUTE);
-  // 1h 60m is not a thing anyone writes.
-  if (minutes === 60) return `${hours + 1}h`;
-  if (hours === 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-};
+export { formatRuntimeTicks };
 
 /** How much of a runtime is left, for the Play button's resume label. */
 export const formatRemaining = (
   runtimeTicks: number | null | undefined,
   positionTicks: number | null | undefined,
 ): string | null =>
-  formatRuntime(Math.max(0, (runtimeTicks ?? 0) - (positionTicks ?? 0)));
+  formatRuntimeTicks(Math.max(0, (runtimeTicks ?? 0) - (positionTicks ?? 0)));
 
 const year = (value: string | null | undefined): number | null => {
   if (!value) return null;
@@ -102,7 +81,7 @@ export const buildMetadataLine = (
   const segments: (string | null | undefined)[] = [
     episodeLabel,
     formatYears(item),
-    formatRuntime(item.RunTimeTicks),
+    formatRuntimeTicks(item.RunTimeTicks),
     item.OfficialRating,
     item.Genres?.length ? item.Genres.slice(0, maxGenres).join(", ") : null,
   ];

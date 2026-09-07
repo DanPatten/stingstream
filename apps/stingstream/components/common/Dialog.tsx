@@ -18,6 +18,8 @@ export interface DialogAction {
   variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  /** For a screen that needs to find this specific button — a primary submit, say. */
+  testID?: string;
 }
 
 export interface DialogProps {
@@ -214,6 +216,7 @@ const DialogBody: React.FC<
         {actions.map((action, index) => (
           <Button
             key={action.label}
+            testID={action.testID}
             variant={
               action.variant ??
               (index === actions.length - 1 ? "primary" : "ghost")

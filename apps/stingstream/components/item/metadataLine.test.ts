@@ -7,7 +7,6 @@ import {
   buildBadges,
   buildMetadataLine,
   formatRemaining,
-  formatRuntime,
   formatYears,
   streamsOf,
 } from "./metadata";
@@ -22,43 +21,10 @@ const video = (stream: Partial<MediaStream>): MediaStream =>
 const audio = (stream: Partial<MediaStream>): MediaStream =>
   ({ Type: "Audio", ...stream }) as MediaStream;
 
-describe("formatRuntime", () => {
-  test("counts seconds under a minute rather than reporting 0m", () => {
-    // The pass-02 defect verbatim: a 20-second seeded clip whose Play button
-    // was labelled "0m".
-    expect(formatRuntime(seconds(20))).toBe("20s");
-    expect(formatRuntime(seconds(1))).toBe("1s");
-    expect(formatRuntime(seconds(59))).toBe("59s");
-  });
-
-  test("rounds a sub-second runtime up to one second, never to zero", () => {
-    expect(formatRuntime(TICKS_PER_SECOND / 4)).toBe("1s");
-  });
-
-  test("counts minutes below an hour", () => {
-    expect(formatRuntime(minutes(1))).toBe("1m");
-    expect(formatRuntime(minutes(34))).toBe("34m");
-    expect(formatRuntime(minutes(59))).toBe("59m");
-  });
-
-  test("counts hours and minutes above an hour", () => {
-    expect(formatRuntime(hours(1) + minutes(34))).toBe("1h 34m");
-    expect(formatRuntime(hours(2) + minutes(5))).toBe("2h 5m");
-  });
-
-  test("drops a zero minute part and never writes 60m", () => {
-    expect(formatRuntime(hours(2))).toBe("2h");
-    // 1h 59m 40s rounds to 60 minutes, which is two hours.
-    expect(formatRuntime(hours(1) + minutes(59) + seconds(40))).toBe("2h");
-  });
-
-  test("returns null for a missing or nonsensical runtime", () => {
-    expect(formatRuntime(null)).toBeNull();
-    expect(formatRuntime(undefined)).toBeNull();
-    expect(formatRuntime(0)).toBeNull();
-    expect(formatRuntime(-1)).toBeNull();
-  });
-});
+// The runtime formatter itself is `utils/time.ts`'s, and so are its tests
+// (`utils/time.test.ts`) — the home hero renders the same string. What is
+// tested here is what this module adds: what is *left* of a runtime, the years
+// a title covers, the segments of the line, and the quality badges.
 
 describe("formatRemaining", () => {
   test("is what is left, for the resume label", () => {
