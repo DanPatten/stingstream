@@ -10,8 +10,15 @@
  *    node's loopback port, and MPV pulls the bytes off the holder's disk over iroh — one hop,
  *    direct where hole-punching works.
  *  * **anywhere else** — web, a build without the module, a group this device has not joined —
- *    the URL is left exactly as it was, and the home node's gateway proxies `/stream/*` through
- *    its own mesh. Slower, but it always works, and it is why the rewrite may never guess.
+ *    the URL is pointed at the home node's own gateway, which proxies `/stream/*` through its
+ *    mesh. Slower, but it always works, and it is why the rewrite may never guess.
+ *
+ * That second bullet used to say "left exactly as it was", and it was wrong in the way that
+ * mattered: `stingstream.local` resolves nowhere, on any client, ever. A browser handed it got
+ * `ERR_NAME_NOT_RESOLVED` and then `MEDIA_ELEMENT_ERROR: Format error`, which is to say a title
+ * held only by peers did not play at all — the one thing this whole product is for. The Chromecast
+ * path already rewrote to the node origin (`lib/stingstream/castStreamUrl.ts`, `homeFallback`);
+ * {@link rewriteMeshStreamUrlToNode} is the same move for the player.
  *
  * Everything here is a pure function over an explicit context so the rule can be tested without a
  * device; {@link rewriteStreamUrlForMesh} is the thin wrapper that reads the live state.
@@ -137,6 +144,31 @@ export const getMeshRewriteContext = (): MeshRewriteContext => current;
 export const rewriteStreamUrlForMesh = <T extends string | null | undefined>(
   url: T,
 ): T => (url ? (rewriteMeshStreamUrl(url, current) as T) : url);
+
+/**
+ * Point a mesh URL at a node's own gateway.
+ *
+ * The gateway serves `/stream/<group>/<item_key>/<node>` and proxies it through its mesh to the
+ * holder, so this is what makes a federated title playable on every device that is not itself a
+ * mesh member — which is every browser, every phone and every television.
+ *
+ * Applied *after* {@link rewriteStreamUrlForMesh}: a URL that the embedded node already claimed
+ * points at `127.0.0.1` and is no longer a `stingstream.local` URL, so it comes back untouched and
+ * the direct iroh hop is kept. Everything else — no module, not joined, the web — lands here.
+ *
+ * The query suffix is carried through verbatim because it holds the node's signature and expiry,
+ * and the item key is left percent-encoded exactly as the `.strm` wrote it.
+ */
+export const rewriteMeshStreamUrlToNode = (
+  url: string,
+  nodeBaseUrl: string | null | undefined,
+): string => {
+  if (!nodeBaseUrl) return url;
+  const target = parseMeshStreamUrl(url);
+  if (!target) return url;
+  const origin = nodeBaseUrl.replace(/\/+$/, "");
+  return `${origin}/stream/${target.group}/${target.itemKey}/${target.node}${target.suffix}`;
+};
 
 /** True when this URL is one the mesh would handle, whether or not the node is running. */
 export const isMeshStreamUrl = (url: string | null | undefined): boolean =>
