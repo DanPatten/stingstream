@@ -37,7 +37,19 @@ const shadow = (level) =>
 
 module.exports = {
   darkMode: "class",
-  content: ["./app/**/*.{js,jsx,ts,tsx}", "./components/**/*.{js,jsx,ts,tsx}"],
+  // `content` is not only Tailwind's scan list here: `nativewind/babel` skips
+  // any file that does not match it, so a `className` in an unlisted directory
+  // is never transformed and silently does nothing. Every directory that can
+  // hold JSX is listed for that reason, not because Tailwind needs to scan it.
+  content: [
+    "./app/**/*.{js,jsx,ts,tsx}",
+    "./components/**/*.{js,jsx,ts,tsx}",
+    "./hooks/**/*.{js,jsx,ts,tsx}",
+    "./lib/**/*.{js,jsx,ts,tsx}",
+    "./modules/**/*.{js,jsx,ts,tsx}",
+    "./providers/**/*.{js,jsx,ts,tsx}",
+    "./utils/**/*.{js,jsx,ts,tsx}",
+  ],
   theme: {
     extend: {
       screens: {
