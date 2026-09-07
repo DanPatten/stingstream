@@ -12,9 +12,11 @@
     script enables internet image providers and waits for a real poster before Playwright ever
     opens the page, specifically so that step's own timing does not count against T_home. Playwright
     then opens the page, records first-contentful-paint, drives the first-run "Create your
-    StingStream account" screen when present (falling back to signing in with the runtime.json
-    admin credentials, read silently, until WP3 builds that screen), and waits for a poster with
-    naturalWidth > 0 on Home (T_home). With -Lan, a second context hits the LAN URL and checks for
+    StingStream account" screen (creating the account and writing its credentials to a private
+    --creds file, never runtime.json -- WP-CORE scrubs runtime.json's generated password once
+    setup completes, so reading it back out for a later step is not reliable), and waits for a
+    poster with naturalWidth > 0 on Home (T_home). With -Lan, a second context hits the LAN URL and
+    checks for
     the "finish setup on the computer" message (or, before the marker exists, just that the page
     loads). Finally the node is restarted on the same data dir and an ordinary login -> home pass
     is timed again.
@@ -102,6 +104,13 @@ if ($Lan) { $DriveUi = $true }
 $DataDir = Join-Path $WorkDir 'data'
 $LogDir = Join-Path $WorkDir 'logs'
 $ShotsDir = Join-Path $WorkDir 'shots'
+# The F-36 --creds file (a {username,password} JSON for the account drive-startup.mjs creates
+# through the real first-run screen): a top-level script variable, not one assigned inside a
+# step's own `&`-invoked scriptblock, for the same PowerShell-scoping reason $DataDir is --
+# both the "Playwright: ... first-run/login, home" step and the later "Restart ... login" step
+# need it, and a scriptblock's own scope does not survive past that step (see the $ShotsToolDir /
+# $mediaRoot writeups elsewhere in this file for the two times that already bit this package).
+$CredsPath = Join-Path $DataDir 'ui-loop-creds.json'
 New-Item -ItemType Directory -Force -Path $WorkDir, $LogDir, $ShotsDir | Out-Null
 
 # Budgets from docs/UI-LOOP.md / the plan's "Golden startup" acceptance section.
@@ -317,15 +326,19 @@ if (-not $DriveUi) {
             throw "Playwright is not installed under $ShotsToolDir. Run: cd `"$ShotsToolDir`" && npm install."
         }
 
-        # --pass-file, never --pass: the admin password never becomes a process argument (visible
-        # in Get-Process/ps for the process lifetime) or a log line -- drive-startup.mjs reads it
-        # out of runtime.json itself. See docs/UI-LOOP.md and the ground rule this whole package
-        # was built under: never print the generated admin password anywhere.
-        $runtimeJsonPath = Join-Path $DataDir 'runtime.json'
-        $adminUser = $Runtime.jellyfin_admin.username
+        # --creds, never --pass: the account's password never becomes a process argument (visible
+        # in Get-Process/ps for the process lifetime) or a log line -- drive-startup.mjs drives the
+        # real first-run screen (WP3's firstrun-* testIDs) to create the account itself and writes
+        # {username,password} to $CredsPath afterwards, silently. This is the same F-36 --creds
+        # model shots.mjs uses, not runtime.json's admin credentials: WP-CORE's setup renames the
+        # bootstrap admin and scrubs the generated password from runtime.json once setup completes
+        # (confirmed live), so reading it back out for a later step -- which the restart+login step
+        # below used to do -- throws the moment first-run has actually finished. See docs/UI-LOOP.md
+        # and the ground rule this whole package was built under: never print a generated password
+        # anywhere.
         $script:driveResult = & node "$ShotsToolDir/scripts/drive-startup.mjs" `
             --base "http://127.0.0.1:$Port" `
-            --user $adminUser --pass-file $runtimeJsonPath `
+            --creds $CredsPath `
             --out $ShotsDir 2>&1 | Tee-Object -Variable driveOutput
         if ($LASTEXITCODE -ne 0) { throw "drive-startup.mjs failed:`n$($driveOutput -join "`n")" }
         $script:driveJson = ($driveOutput | Select-String -Pattern '^UI_STARTUP_RESULT ' | Select-Object -Last 1)
@@ -351,9 +364,7 @@ if (-not $DriveUi) {
         } | Out-Null
 
         $ShotsToolDir = Join-Path $RepoRoot 'tools/ui-shots'
-        $runtimeJsonPath = Join-Path $DataDir 'runtime.json'
-        $adminUser = $Runtime.jellyfin_admin.username
-        $out = & node "$ShotsToolDir/scripts/drive-login.mjs" --base "http://127.0.0.1:$Port" --user $adminUser --pass-file $runtimeJsonPath --out $ShotsDir 2>&1
+        $out = & node "$ShotsToolDir/scripts/drive-login.mjs" --base "http://127.0.0.1:$Port" --creds $CredsPath --out $ShotsDir 2>&1
         if ($LASTEXITCODE -ne 0) { throw "drive-login.mjs failed:`n$($out -join "`n")" }
         $line = ($out | Select-String -Pattern '^UI_STARTUP_RESULT ' | Select-Object -Last 1)
         if (-not $line) { throw "drive-login.mjs produced no result line:`n$($out -join "`n")" }
