@@ -116,6 +116,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
       emptyText={t("home.no_items")}
       onPressSeeAll={onPressSeeAll}
       seeAllLabel={t("common.seeAll", { defaultValue: "See all" })}
+      seeAllTestID='home-row-see-all'
     />
   );
 };

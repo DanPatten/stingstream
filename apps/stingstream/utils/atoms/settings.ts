@@ -20,6 +20,11 @@ import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { logAndCaptureError, writeInfoLog } from "@/utils/log";
 import {
+  forgetPluginConfigAbsent,
+  rememberPluginConfigAbsent,
+  shouldProbePluginConfig,
+} from "@/utils/pluginProbe";
+import {
   PLUGIN_SETTINGS_KEY,
   readStoredSettings,
   SETTINGS_KEY,
@@ -33,6 +38,16 @@ import {
 } from "./settingsOverrides";
 
 const _STREAMYFIN_PLUGIN_ID = "1e9e5d386e6746158719e98a5c34f004";
+
+/**
+ * A definite "this server does not have it", as opposed to "we could not
+ * ask". Structural rather than `axios.isAxiosError`, so this file does not
+ * take an axios import for one status code.
+ */
+const isAxiosNotFound = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { response?: { status?: number } }).response?.status === 404;
 const STREAMYFIN_PLUGIN_SETTINGS = PLUGIN_SETTINGS_KEY;
 const PLUGIN_APPLIED_DEFAULTS = "STREAMYFIN_PLUGIN_APPLIED_DEFAULTS";
 
@@ -630,7 +645,11 @@ export const defaultValues: Settings = {
   hideVolumeSlider: false,
   hideBrightnessSlider: false,
   usePopularPlugin: true,
-  mergeNextUpAndContinueWatching: false,
+  // One "Continue watching" row, not that row plus a "Next up" one (pass-01
+  // F-11: "Next up" is upstream vocabulary a viewer cannot read). Off by
+  // default upstream; on by default here, and still a switch for anyone who
+  // wants the two rows separated again.
+  mergeNextUpAndContinueWatching: true,
   hiddenHomeHeroSections: [],
   hiddenHomeHeroMediaTypes: [],
   useEpisodeImagesForNextUp: false,
@@ -887,54 +906,81 @@ export const useSettings = () => {
     [_setPluginSettings],
   );
 
-  const refreshStreamyfinPluginSettings = useCallback(async () => {
-    if (!api) {
-      return;
-    }
-    const newPluginSettings = await api.getStreamyfinPluginConfig().then(
-      ({ data }) => {
-        writeInfoLog(
-          "Got plugin settings",
-          redactPluginSettings(data?.settings),
-        );
-        return data?.settings;
-      },
-      (_err) => undefined,
-    );
-    setPluginSettings(newPluginSettings);
+  /**
+   * `force` is for the one place a person deliberately asks: "Refresh from
+   * server" in plugin settings, typically right after installing the plugin.
+   * Every automatic caller — mount, foreground, sign-in — leaves it alone and
+   * gets the cached answer.
+   */
+  const refreshStreamyfinPluginSettings = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (!api) {
+        return;
+      }
+      // Feature-detected once per server, then remembered (pass-02 F-23). This
+      // fires on mount, on foreground and after every sign-in, so on a server
+      // without the plugin it used to put a 404 in the console several times a
+      // session; `shouldProbePluginConfig` is what makes it ask once — and not
+      // at all on a StingStream node, which cannot have the plugin. Leaving the
+      // stored settings alone on a skip matters: an admin's locked values must
+      // survive a launch that never re-asked for them.
+      if (!force && !shouldProbePluginConfig(api.basePath)) {
+        return pluginSettings;
+      }
+      if (force) forgetPluginConfigAbsent(api.basePath);
 
-    // Write against the atom's value at apply time, not the hook's render
-    // snapshot: this runs while the user can be changing settings (the intro
-    // sheet is up during first-run login), and a merge built from the
-    // snapshot resurrected whatever the user had just overwritten.
-    if (newPluginSettings) {
-      setSettings((currentSettings) => {
-        if (!currentSettings) return currentSettings;
+      const newPluginSettings = await api.getStreamyfinPluginConfig().then(
+        ({ data }) => {
+          writeInfoLog(
+            "Got plugin settings",
+            redactPluginSettings(data?.settings),
+          );
+          return data?.settings;
+        },
+        (error) => {
+          // Any failure means "no policy from this server" — a missing plugin,
+          // an unreachable server, a revoked token. Only a definite 404 is
+          // cached as an answer; the rest are asked again next time.
+          if (isAxiosNotFound(error)) rememberPluginConfigAbsent(api.basePath);
+          return undefined;
+        },
+      );
+      setPluginSettings(newPluginSettings);
 
-        const applied = loadAppliedPluginDefaults();
-        const result = pluginRefreshOverlay(
-          currentSettings,
-          newPluginSettings,
-          applied,
-          normalizePluginValue,
-        );
-        if (!result) return currentSettings;
+      // Write against the atom's value at apply time, not the hook's render
+      // snapshot: this runs while the user can be changing settings (the intro
+      // sheet is up during first-run login), and a merge built from the
+      // snapshot resurrected whatever the user had just overwritten.
+      if (newPluginSettings) {
+        setSettings((currentSettings) => {
+          if (!currentSettings) return currentSettings;
 
-        const newSettings = {
-          ...defaultValues,
-          ...currentSettings,
-          ...result.overlay,
-        } as Settings;
-        saveSettings(newSettings);
-        if (result.applied) {
-          storage.setAny(PLUGIN_APPLIED_DEFAULTS, result.applied);
-        }
-        return newSettings;
-      });
-    }
+          const applied = loadAppliedPluginDefaults();
+          const result = pluginRefreshOverlay(
+            currentSettings,
+            newPluginSettings,
+            applied,
+            normalizePluginValue,
+          );
+          if (!result) return currentSettings;
 
-    return newPluginSettings;
-  }, [api, setPluginSettings, setSettings]);
+          const newSettings = {
+            ...defaultValues,
+            ...currentSettings,
+            ...result.overlay,
+          } as Settings;
+          saveSettings(newSettings);
+          if (result.applied) {
+            storage.setAny(PLUGIN_APPLIED_DEFAULTS, result.applied);
+          }
+          return newSettings;
+        });
+      }
+
+      return newPluginSettings;
+    },
+    [api, pluginSettings, setPluginSettings, setSettings],
+  );
 
   const updateSettings = (update: Partial<Settings>) => {
     // Admin-locked settings are enforced at write time too: a control that

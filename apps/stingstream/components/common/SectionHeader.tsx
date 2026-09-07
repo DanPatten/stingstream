@@ -1,4 +1,5 @@
 import { Pressable, View } from "react-native";
+import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -9,6 +10,8 @@ type Props = {
   actionLabel?: string;
   actionDisabled?: boolean;
   onPressAction?: () => void;
+  /** For the screenshot sweep's test-id contract — see `docs/UI-LOOP.md`. */
+  actionTestID?: string;
   /** Drawn between the title and the action — a count pill, a small control. */
   accessory?: React.ReactNode;
 };
@@ -25,6 +28,7 @@ export const SectionHeader: React.FC<Props> = ({
   actionLabel,
   actionDisabled = false,
   onPressAction,
+  actionTestID,
   accessory,
 }) => {
   const { gutter } = useBreakpoint();
@@ -46,6 +50,7 @@ export const SectionHeader: React.FC<Props> = ({
       {accessory}
       {shouldShowAction && (
         <Pressable
+          testID={actionTestID}
           onPress={onPressAction}
           disabled={actionDisabled}
           accessibilityRole='button'
@@ -53,6 +58,10 @@ export const SectionHeader: React.FC<Props> = ({
           style={{
             flexDirection: "row",
             alignItems: "center",
+            // The whole 44 pt, not the 26 pt the two words happen to occupy:
+            // a caption-sized label is the smallest thing on the row and was
+            // the smallest touch target on the home screen with it.
+            minHeight: tokens.control.minTouchTarget,
             paddingVertical: 4,
             paddingLeft: 12,
             opacity: actionDisabled ? 0.4 : 1,
