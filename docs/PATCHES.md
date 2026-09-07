@@ -178,6 +178,42 @@ PlaybackInfo controller would give the client one answer and the transcoder anot
 precisely the failure this hook exists to prevent, since the whole point is that the URL ffmpeg gets
 must differ from the URL the client gets.
 
+**A second edit in the same method, added later: let the decorator veto the remote probe.** One
+extra clause on the `if` that patch 6 narrowed:
+
+```csharp
+if (allowMediaProbe && mediaSources[0].Type != MediaSourceType.Placeholder
+    && _mediaSourceDecorator?.ShouldSkipRemoteProbe(mediaSources) != true
+    && (...))
+```
+
+Patch 6 stopped that condition from firing for a pointer whose media streams were already stamped
+from the group index. It did not — could not — cover a pointer that has *never* been stamped: one a
+person dropped into an ordinary library by hand, or one sitting beside a real file in the same
+folder, which is what an ordinary library becomes the moment a peer also holds a title you have.
+That pointer reaches the condition with no video stream, which is exactly the case the refresh is
+for, so it probes.
+
+The probe is `ffprobe`, in its own process, doing its own DNS — and `stingstream.local` is a marker
+name that resolves only inside *this* process, through `StingStreamLocalHandler`. So it cannot
+succeed, and it does not fail quickly either: it sits on ffprobe's resolve timeout. Measured on a
+three-node rig, `POST /Items/{id}/PlaybackInfo` never returned on five cold loads out of five while
+a local-only title answered in about a second; reduced to one pointer in an otherwise empty library
+it was ten seconds flat, which is the timeout rather than a coincidence. In the node's own log:
+
+```
+[tcp @ ...] Failed to resolve hostname stingstream.local: The name does not resolve
+...: I/O error
+[ERR] MovieMetadataService: Error in Probe Provider for ...\Pointer Only (2001).strm
+MediaBrowser.Common.FfmpegException: ffprobe failed - streams and format are both null.
+```
+
+The veto goes on the decorator interface rather than being an inline `.strm` test, for the reason
+patch 6 exists: "is this one of ours" is a question only StingStream can answer, and a stock build
+with no decorator registered gets a default-implemented `false` and is unaffected. See
+`FederatedSourceDecorator.ShouldSkipRemoteProbe`, which is keyed on the same source the condition
+is keyed on so that a real local file beside a pointer still gets probed.
+
 **Upstream-pull risk:** low. The hook is at the end of a method whose shape has been stable; if the
 method is rewritten, re-add the two lines before the return. `tools/e2e-m4.ps1`'s "Speed first picks
 B; Quality first picks C" step is what catches a regression — without the decorator the order is

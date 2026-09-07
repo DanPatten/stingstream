@@ -600,3 +600,19 @@ things to decide, both Core's:
    version group.
 2. **A deadline.** Even fixed, a `PlaybackInfo` with no timeout is a spinner with no way out on
    any client; every other mesh call has one.
+
+**Both are done (WP-CORE).** The block was `ffprobe`: `GetPlaybackMediaSources` re-probes an item
+whose first source carries no video stream, which a pointer nothing has played yet does not have,
+and the probe runs in its own process doing its own DNS -- so it cannot resolve `stingstream.local`,
+which means something only inside Jellyfin's own process. It sat on ffprobe's resolve timeout. A
+decorator veto (`IMediaSourceDecorator.ShouldSkipRemoteProbe`, `docs/PATCHES.md` 8) skips the probe
+for a StingStream pointer, because the holder published those facts already and the probe could
+never have learned them. Measured on the same reduction: ten seconds flat before, 1.4 s cold and
+0.2 s warm after.
+
+And the scoring pass now has a deadline of its own -- `FederatedSourceDecorator.ScoringDeadline`,
+eight seconds. **What the app sees on timeout is a normal `200` whose sources are in Jellyfin's own
+order, unscored**: the first source may not be the best holder, "Play from..." loses its ordering
+and its per-holder detail, and the server logs a warning. It never hangs. Surfacing that to a
+person -- "we could not work out the best place to play this from" -- is the app's call to make,
+and is WP5/WP-PLAYER's.
