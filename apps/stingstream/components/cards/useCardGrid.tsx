@@ -15,7 +15,10 @@ import { useCardLayout } from "./useCardLayout";
 import { useItemCardBehavior } from "./useItemCardBehavior";
 
 type Options = {
-  items: BaseItemDto[];
+  /** Media items — cards are built here, and presses navigate. */
+  items?: BaseItemDto[];
+  /** Prebuilt cards, for anything that isn't a `BaseItemDto` (a Requests search result). */
+  cards?: CardData[];
   /**
    * Cards per row. Omit to fill the available width automatically: as many
    * columns of at least `gridMinCardWidth` as fit, the way CSS grid's
@@ -32,10 +35,14 @@ type Options = {
    * capped container actually has room for.
    */
   containerWidth?: number;
-  /** Replaces the default navigation. */
+  /** Replaces the default navigation (items mode). */
   onPressItem?: (item: BaseItemDto) => void;
-  /** Replaces the long-press action sheet. */
+  /** Press handler for `cards` mode. */
+  onPressId?: (id: string) => void;
+  /** Replaces the long-press action sheet (items mode). */
   onLongPressItem?: (item: BaseItemDto) => void;
+  /** Long-press handler for `cards` mode. */
+  onLongPressId?: (id: string) => void;
   enableActionSheet?: boolean;
 };
 
@@ -49,11 +56,14 @@ type Options = {
  */
 export function useCardGrid({
   items,
+  cards: providedCards,
   columns: requestedColumns,
   kind = "portrait",
   containerWidth,
   onPressItem,
+  onPressId,
   onLongPressItem,
+  onLongPressId,
   enableActionSheet,
 }: Options) {
   const { width: windowWidth } = useWindowDimensions();
@@ -88,10 +98,13 @@ export function useCardGrid({
   const { cards, handlePress, handleLongPress, actionSheet } =
     useItemCardBehavior({
       items,
+      cards: providedCards,
       kind,
       cardWidth,
       onPressItem,
+      onPressId,
       onLongPressItem,
+      onLongPressId,
       enableActionSheet,
     });
 

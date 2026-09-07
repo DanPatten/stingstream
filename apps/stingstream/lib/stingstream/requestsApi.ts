@@ -1,4 +1,5 @@
 import type { paths } from "@stingstream/api-client";
+import type { CardData, CardPlaceholder } from "@/components/cards/CardData";
 import { authHeaders, both, field, readError } from "./meshApi";
 
 /**
@@ -390,6 +391,81 @@ export const searchAction = (
 };
 
 /**
+ * The corner badge a Discover poster carries — `CardArtwork`'s `badgeLabel`, drawn as a solid
+ * accent pill over the artwork. `searchAction` answers the same question for the button under the
+ * card; this is the tile's own, shorter answer, and `null` means an untouched title carries none.
+ *
+ * Two words at most: `CardArtwork` positions the badge against the artwork's right edge with no
+ * width limit of its own, so on the smallest poster this app draws (`RequestSheet`'s 96 px detail
+ * poster) anything longer overflows past the artwork's left edge before the container's
+ * `overflow: hidden` catches it — confirmed live. "In library" mirrors `docs/REQUESTS.md`'s own
+ * "already in your library" wording, which is also the short one.
+ */
+export const searchBadgeLabel = (
+  result: RequestSearchResult,
+): string | null => {
+  // Held somewhere in the group already — the whole reason Discover annotates results instead of
+  // letting a member find out only after pressing Request.
+  if (result.availableInGroup || result.requestState === "available") {
+    return "In library";
+  }
+  switch (result.requestState) {
+    case "pending":
+    case "approved":
+    case "fulfilling":
+      return "Requested";
+    // Declined and failed are not a permanent no — see `searchAction` — so neither badges the
+    // card, which would read as "do not ask again".
+    default:
+      return null;
+  }
+};
+
+const kindPlaceholder = (kind: "movie" | "series"): CardPlaceholder =>
+  kind === "series" ? "series" : "movie";
+
+/**
+ * `RequestSearchResult` carries `availableInGroup`; `MemberRequest` never does. A real type guard
+ * rather than a boolean handed to a ternary — TypeScript only narrows `source` at the site of the
+ * `in` check itself, not through a variable that remembers the answer.
+ */
+const isSearchResult = (
+  source: RequestSearchResult | MemberRequest,
+): source is RequestSearchResult => "availableInGroup" in source;
+
+/**
+ * A search result or a member's own request, as `CardData` — the shape Discover's poster grid and
+ * its skeletons understand (`components/cards/*`). Kept here rather than in a component: a pure
+ * mapping over the wire shape is what `requestsApi.test.ts` can pin without loading React Native.
+ *
+ * `id` is the item key for a search result — it has no request row yet — and the request's own id
+ * once one exists, so a card stays keyed on the same value across a refetch either way.
+ */
+export const toRequestCard = (
+  source: RequestSearchResult | MemberRequest,
+): CardData =>
+  isSearchResult(source)
+    ? {
+        id:
+          source.itemKey || `${source.kind}:${source.tmdbId || source.tvdbId}`,
+        title: source.title,
+        subtitle: source.year ? String(source.year) : null,
+        imageUrl: source.posterUrl,
+        imageAlt: requestTitle(source),
+        badgeLabel: searchBadgeLabel(source),
+        placeholder: kindPlaceholder(source.kind),
+      }
+    : {
+        id: source.id,
+        title: source.title,
+        subtitle: source.year ? String(source.year) : null,
+        imageUrl: source.posterUrl,
+        imageAlt: requestTitle(source),
+        badgeLabel: stateLabel(source.state),
+        placeholder: kindPlaceholder(source.kind),
+      };
+
+/**
  * Whether two Jellyfin user ids name the same person.
  *
  * Jellyfin issues the same GUID in `N` format (dashless) in its auth claim — which is what Core
@@ -421,6 +497,31 @@ export const selectMine = (
 };
 
 // --- calls --------------------------------------------------------------------------------------
+
+/**
+ * The requests feature is not turned on for this node: `RequestsController` answers 503 rather
+ * than an empty body when its own service can't be reached, the same distinction `meshApi.ts`'s
+ * `MeshUnavailableError` exists for — "nothing has been asked for" and "I could not ask" look
+ * identical in a body and mean opposite things. Every screen catches this one specifically and
+ * shows "Requests are not set up on this server." instead of a generic error with a Retry button
+ * that would only fail the same way again.
+ */
+export class RequestsUnavailableError extends Error {
+  readonly unavailable = true;
+}
+
+/** `readError`, with the 503 case reworded for what it actually means on this API. */
+const readRequestsError = async (
+  res: Response,
+  what: string,
+): Promise<Error> => {
+  if (res.status === 503) {
+    return new RequestsUnavailableError(
+      "Requests are not set up on this server.",
+    );
+  }
+  return readError(res, what);
+};
 
 const json = (accessToken?: string | null): Record<string, string> => ({
   ...authHeaders(accessToken),
@@ -459,7 +560,7 @@ export async function fetchRequests(
   const res = await fetch(url(apiBaseUrl, ROUTES.list, {}, query), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests");
+  if (!res.ok) throw await readRequestsError(res, "GET /requests");
   return ((await res.json()) as unknown[]).map(toRequest);
 }
 
@@ -472,7 +573,7 @@ export async function fetchRequest(
   const res = await fetch(url(apiBaseUrl, ROUTES.one, { id }), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, `GET /requests/${id}`);
+  if (!res.ok) throw await readRequestsError(res, `GET /requests/${id}`);
   return toRequestDetail(await res.json());
 }
 
@@ -484,7 +585,7 @@ export async function fetchRequestCounts(
   const res = await fetch(url(apiBaseUrl, ROUTES.counts), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests/counts");
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/counts");
   return toCounts(await res.json());
 }
 
@@ -500,7 +601,7 @@ export async function searchRequestable(
   const res = await fetch(url(apiBaseUrl, ROUTES.search, {}, query), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests/search");
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/search");
   return ((await res.json()) as unknown[]).map(toSearchResult);
 }
 
@@ -515,7 +616,7 @@ export async function createRequest(
     headers: json(accessToken),
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw await readError(res, "POST /requests");
+  if (!res.ok) throw await readRequestsError(res, "POST /requests");
   return toRequest(await res.json());
 }
 
@@ -538,7 +639,8 @@ export async function decideRequest(
     headers: json(accessToken),
     body: JSON.stringify(reason ? { reason } : {}),
   });
-  if (!res.ok) throw await readError(res, `POST /requests/${id}/${decision}`);
+  if (!res.ok)
+    throw await readRequestsError(res, `POST /requests/${id}/${decision}`);
   return toRequest(await res.json());
 }
 
@@ -552,7 +654,7 @@ export async function deleteRequest(
     method: "DELETE",
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, `DELETE /requests/${id}`);
+  if (!res.ok) throw await readRequestsError(res, `DELETE /requests/${id}`);
 }
 
 /** The group's policy. Readable by every member; writable only by an administrator. */
@@ -565,7 +667,7 @@ export async function fetchRequestPolicy(
   const res = await fetch(url(apiBaseUrl, ROUTES.policy, {}, query), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests/policy");
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/policy");
   return toPolicy(await res.json());
 }
 
@@ -579,7 +681,7 @@ export async function saveRequestPolicy(
     headers: json(accessToken),
     body: JSON.stringify(policy),
   });
-  if (!res.ok) throw await readError(res, "PUT /requests/policy");
+  if (!res.ok) throw await readRequestsError(res, "PUT /requests/policy");
   return toPolicy(await res.json());
 }
 
@@ -591,7 +693,7 @@ export async function fetchRequestUsers(
   const res = await fetch(url(apiBaseUrl, ROUTES.users), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests/users");
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/users");
   return ((await res.json()) as unknown[]).map(toRequestUser);
 }
 
@@ -606,7 +708,8 @@ export async function saveRequestUser(
     headers: json(accessToken),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw await readError(res, `PUT /requests/users/${userId}`);
+  if (!res.ok)
+    throw await readRequestsError(res, `PUT /requests/users/${userId}`);
   return toRequestUser(await res.json());
 }
 
@@ -620,7 +723,8 @@ export async function fetchNotifications(
   const res = await fetch(url(apiBaseUrl, ROUTES.notifications, {}, query), {
     headers: authHeaders(accessToken),
   });
-  if (!res.ok) throw await readError(res, "GET /requests/notifications");
+  if (!res.ok)
+    throw await readRequestsError(res, "GET /requests/notifications");
   return ((await res.json()) as unknown[]).map(toNotification);
 }
 
@@ -635,5 +739,6 @@ export async function markNotificationsRead(
     headers: json(accessToken),
     body: JSON.stringify({ ids }),
   });
-  if (!res.ok) throw await readError(res, "POST /requests/notifications/read");
+  if (!res.ok)
+    throw await readRequestsError(res, "POST /requests/notifications/read");
 }

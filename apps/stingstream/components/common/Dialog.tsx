@@ -18,6 +18,8 @@ export interface DialogAction {
   variant?: ButtonVariant;
   disabled?: boolean;
   loading?: boolean;
+  /** For a screen that needs to find this specific button — a primary submit, say. */
+  testID?: string;
 }
 
 export interface DialogProps {
@@ -29,6 +31,18 @@ export interface DialogProps {
   actions?: DialogAction[];
   /** Suppress the corner close button — a dialog that must be answered. */
   dismissible?: boolean;
+  /**
+   * Use the centred-card `Modal` presentation even below the web-wide breakpoint, web only.
+   *
+   * `@gorhom/bottom-sheet`'s close depends on Reanimated's entering/exiting animation support,
+   * which this web build cannot load (`[Reanimated] Couldn't load entering/exiting animation` in
+   * the console) — confirmed live: on a compact-width web build, Cancel, a backdrop tap and
+   * swipe-to-dismiss all fail to close the sheet, and it stays mounted over every screen the user
+   * navigates to next. Until that is fixed at the source, a caller whose dialog the user must be
+   * able to reliably close opts into the `Modal` path here instead of the sheet. Native phones
+   * are unaffected (their bottom sheet closes normally) and never take this branch.
+   */
+  forceModal?: boolean;
 }
 
 /**
@@ -53,10 +67,12 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   description,
   actions,
   dismissible = true,
+  forceModal = false,
   children,
 }) => {
   const { isWebWide, width } = useBreakpoint();
   const { showModal, hideModal } = useGlobalModal();
+  const useModal = isWebWide || (forceModal && Platform.OS === "web");
 
   const body = (
     <DialogBody
@@ -65,7 +81,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       actions={actions}
       onClose={onClose}
       dismissible={dismissible}
-      showClose={isWebWide && dismissible}
+      showClose={useModal && dismissible}
     >
       {children}
     </DialogBody>
@@ -87,19 +103,19 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
       target.removeEventListener?.("keydown", onKeyDown as (e: never) => void);
   }, [visible, dismissible, onClose]);
 
-  // Off the wide web the sheet provider owns presentation, so this component
-  // only pushes content into it and takes it back out again.
+  // Where the sheet provider owns presentation, this component only pushes content into it and
+  // takes it back out again.
   useEffect(() => {
-    if (isWebWide) return;
+    if (useModal) return;
     if (visible) showModal(body);
     else hideModal();
     // Deliberately keyed on `visible` alone. `body` is a fresh element every
     // render, so depending on it would re-present the sheet on each one and
     // reset whatever the user was doing inside it. A sheet whose content
     // changes while open should hold that state itself.
-  }, [isWebWide, visible]);
+  }, [useModal, visible]);
 
-  if (!isWebWide) return null;
+  if (!useModal) return null;
 
   return (
     <Modal
@@ -204,6 +220,7 @@ const DialogBody: React.FC<
         {actions.map((action, index) => (
           <Button
             key={action.label}
+            testID={action.testID}
             variant={
               action.variant ??
               (index === actions.length - 1 ? "primary" : "ghost")
