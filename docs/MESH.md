@@ -859,6 +859,29 @@ Monotonic per session, minted by the leader. A command or an announcement whose 
 delivery harmless rather than a seek backwards. On a tie — a leader that restarted and began
 counting again — the timestamp breaks it.
 
+### Stopping the film is not ending the party
+
+A command carries a `closed` flag, and it is the **only** thing that ends a session for a follower:
+
+```jsonc
+{ "session": "…", "seq": 8, "kind": "stop", "position_ms": 0,
+  "at_ms": 1788638697580, "emitted_ms": 1788638697580, "closed": false }
+```
+
+`kind: "stop"` means the film has stopped — somebody pressed Stop, and everybody's group goes
+`idle`. `closed: true` means the leader has *left*, and only `POST /mesh/v1/watch/{session}/leave`
+on the leader sets it (before broadcasting the stop that carries it), so the invite comes down on
+every member at once. Older builds sent no flag at all; absent reads as `false`, which is the safe
+half — a session whose leader has genuinely gone is dropped when it stops reporting, while one
+closed too eagerly cannot be reopened.
+
+Inferring the second from the first is what M7 got wrong, and the symptom was nowhere near the
+cause. Jellyfin answers a session that joins an `Idle` SyncPlay group with a `Stop`; the bridge's
+own seat is such a session; so *seating a bridge* made the leader relay a stop, which closed the
+session on every follower while the leader carried on thinking it open — and the follower, having
+closed it, refused the next attempt to seat its own bridge (`409`). See `ARCHITECTURE.md`, "The
+SyncPlay bridge".
+
 ### What Core does with it
 
 `StingStream.Core` holds an ordinary SyncPlay **session seat** in its own node's group, with an

@@ -2101,39 +2101,21 @@ impl MeshNode {
     /// whose sequence is not ahead of what has already been applied is ignored -- which is what
     /// makes a duplicated or reordered delivery harmless rather than a seek backwards.
     pub fn watch_apply(&self, command: &crate::watch::Command, leader_clock: crate::watch::Clock) -> bool {
-        let Some(existing) = self.watch.get(&command.session) else {
-            return false;
-        };
-        if command.seq <= existing.seq && existing.seq != 0 {
-            tracing::debug!(
-                session = %command.session, seq = command.seq, have = existing.seq,
-                "ignoring a watch command no newer than the one already applied"
-            );
-            return false;
-        }
+        // The clock conversion is this node's business; the rules for what a command does to a
+        // session live next to the command itself, in `crate::watch`, where they are testable
+        // without a running node.
         let local_at = leader_clock.from_peer(command.at_ms);
-        self.watch.update(&command.session, |s| {
-            s.seq = command.seq;
-            s.position_ms = command.position_ms;
-            s.at_ms = local_at;
-            s.state = match command.kind {
-                crate::watch::CommandKind::Play => crate::watch::WatchState::Playing,
-                crate::watch::CommandKind::Pause | crate::watch::CommandKind::Seek => {
-                    // A seek does not change whether it is playing, so keep what we had -- except
-                    // from Idle, where there is nothing to keep and Paused is the honest answer.
-                    if s.state == crate::watch::WatchState::Playing
-                        && command.kind == crate::watch::CommandKind::Seek
-                    {
-                        crate::watch::WatchState::Playing
-                    } else {
-                        crate::watch::WatchState::Paused
-                    }
-                }
-                crate::watch::CommandKind::Stop => crate::watch::WatchState::Idle,
-            };
-            s.closed = command.kind == crate::watch::CommandKind::Stop;
-        });
-        true
+        match self.watch.apply_command(command, local_at) {
+            crate::watch::Applied::Yes => true,
+            crate::watch::Applied::Stale => {
+                tracing::debug!(
+                    session = %command.session, seq = command.seq,
+                    "ignoring a watch command no newer than the one already applied"
+                );
+                false
+            }
+            crate::watch::Applied::NoSuchSession => false,
+        }
     }
 
     /// The clock offset and round trip this node has measured to `node`.
@@ -2288,21 +2270,23 @@ impl MeshNode {
             _ => now,
         };
 
-        let seq = self
-            .watch
-            .update(session_id, |s| {
-                s.seq += 1;
-                s.position_ms = position_ms;
-                s.at_ms = at;
-                s.state = match kind {
-                    crate::watch::CommandKind::Play => crate::watch::WatchState::Playing,
-                    crate::watch::CommandKind::Pause => crate::watch::WatchState::Paused,
-                    crate::watch::CommandKind::Seek => s.state,
-                    crate::watch::CommandKind::Stop => crate::watch::WatchState::Idle,
-                };
-            })
-            .map(|s| s.seq)
-            .unwrap_or(1);
+        // The updated record, not just its sequence: `closed` rides the command, and the only node
+        // entitled to say a session is over is this one -- `watch_leave` sets the flag before it
+        // asks for this broadcast, so reading it back here is reading the leader's own decision
+        // rather than inferring one from the command kind. See `watch::Command::closed`.
+        let updated = self.watch.update(session_id, |s| {
+            s.seq += 1;
+            s.position_ms = position_ms;
+            s.at_ms = at;
+            s.state = match kind {
+                crate::watch::CommandKind::Play => crate::watch::WatchState::Playing,
+                crate::watch::CommandKind::Pause => crate::watch::WatchState::Paused,
+                crate::watch::CommandKind::Seek => s.state,
+                crate::watch::CommandKind::Stop => crate::watch::WatchState::Idle,
+            };
+        });
+        let seq = updated.as_ref().map(|s| s.seq).unwrap_or(1);
+        let closed = updated.as_ref().is_some_and(|s| s.closed);
 
         let command = crate::watch::Command {
             session: session_id.to_string(),
@@ -2311,10 +2295,11 @@ impl MeshNode {
             position_ms,
             at_ms: at,
             emitted_ms: now,
+            closed,
         };
 
         tracing::info!(
-            group = %group.id, session = session_id, seq, ?kind, position_ms,
+            group = %group.id, session = session_id, seq, ?kind, position_ms, closed,
             lead_ms = at.saturating_sub(now), followers = followers.len(),
             "sending a watch command"
         );

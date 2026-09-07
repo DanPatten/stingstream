@@ -423,7 +423,7 @@ function Get-NodeLog {
 
 trap {
     Write-Host ''
-    Write-Host "e2e-m4: aborting -- $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "e2e-m4: aborting -- $(Get-FailureText $_)" -ForegroundColor Red
     continue
 }
 
@@ -599,7 +599,15 @@ Invoke-Step "Both holders' inventories reach A's index" {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30 } catch { $null }
         if (-not $index) { return 'no answer' }
         $hashed = @($index.entries | Where-Object { -not [string]::IsNullOrEmpty((Get-Member-Value $_ 'fileHash')) })
-        "index has $(@($index.entries).Count) entr(ies), $($hashed.Count) hashed"
+        # Name the entries that are still short, not just how many. "4 of 5 hashed" is true of five
+        # different failures; "movie:tmdb:10378 from stingstream-b" is one of them, and is what
+        # turned CI runs 34053018232 and 34060142479 from a mystery into a publisher bug.
+        $short = @($index.entries |
+            Where-Object { [string]::IsNullOrEmpty((Get-Member-Value $_ 'fileHash')) } |
+            ForEach-Object { "$($_.itemKey) from $(Get-Member-Value $_ 'nodeName')" })
+        $text = "index has $(@($index.entries).Count) entr(ies), $($hashed.Count) hashed"
+        if ($short.Count -gt 0) { $text += "; still unhashed: $($short -join ', ')" }
+        $text
     }
 
     foreach ($e in ($entries | Sort-Object itemKey, nodeName)) {

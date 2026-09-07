@@ -8,15 +8,18 @@ import {
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import {
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useStackScreenOptions,
+  useTabRootScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 
 const Chromecast = Platform.isTV ? null : require("@/components/Chromecast");
 
 import { useAtom } from "jotai";
 import { useSessions, type useSessionsProps } from "@/hooks/useSessions";
+import { useDownload } from "@/providers/DownloadProvider";
 import { userAtom } from "@/providers/JellyfinProvider";
 
 // Keeps cold boot on the Home tab.
@@ -46,13 +49,15 @@ export const unstable_settings = { anchor: "index" };
 export default function IndexLayout() {
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
+  const { isCompact } = useBreakpoint();
+  const screenOptions = useStackScreenOptions();
+  const tabRootOptions = useTabRootScreenOptions();
 
   return (
-    <Stack screenOptions={stackScreenOptions}>
+    <Stack screenOptions={screenOptions}>
       <Stack.Screen
         name='index'
         options={{
-          headerShown: !Platform.isTV,
           headerTitle: t("tabs.home"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -60,11 +65,40 @@ export default function IndexLayout() {
           headerRight: () =>
             Platform.isTV ? null : (
               <HeaderButtonGroup>
-                <Chromecast.Chromecast />
-                {user?.Policy?.IsAdministrator && <SessionsButton />}
+                <DownloadsButton />
+                <Chromecast.Chromecast
+                  accessibilityLabel={t("shell.cast_to_device")}
+                />
+                {/*
+                  Three actions is the ceiling on compact (pass-02, cross-cutting
+                  rule 3), and with the app mark now holding the leading edge
+                  there is no room for a fourth. Sessions is the one that goes:
+                  it is administrator-only, it is about the server rather than
+                  about this screen, and it is a row in More — and, at ≥ 768, a
+                  button in the top bar.
+                */}
+                {user?.Policy?.IsAdministrator && !isCompact && (
+                  <SessionsButton />
+                )}
                 <SettingsButton />
               </HeaderButtonGroup>
             ),
+          ...tabRootOptions,
+        }}
+      />
+      <Stack.Screen
+        name='home'
+        // A redirect to `/`, so it must not paint a header on the way through.
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name='sharing'
+        options={{
+          title: "Sharing",
+          headerShown: !Platform.isTV,
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
         }}
       />
       <Stack.Screen
@@ -249,7 +283,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/admin/page'
         options={{
-          title: "Admin",
+          title: "Users & libraries",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -259,7 +293,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/node/page'
         options={{
-          title: "Node status",
+          title: "Server status",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -269,7 +303,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/groups/page'
         options={{
-          title: "Groups",
+          title: "Sharing",
           headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
@@ -323,11 +357,42 @@ export default function IndexLayout() {
   );
 }
 
-const SettingsButton = () => {
+/**
+ * The shortcut to what you have saved for offline.
+ *
+ * It used to be a `headerLeft` that `Home.tsx` installed on itself, which is
+ * the slot pass-01 F-13 gives to the app mark — the leading edge is the app's
+ * identity, and everything you can *do* with the screen belongs on the right.
+ * Moving it here also puts it beside the other three header actions instead of
+ * behind a `navigation.setOptions` in a screen effect.
+ */
+const DownloadsButton = () => {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { downloadedItems } = useDownload();
 
   return (
-    <HeaderButton onPress={() => router.push("/(auth)/settings")}>
+    <HeaderButton
+      accessibilityLabel={t("home.downloads.downloads_title")}
+      onPress={() => router.push("/(auth)/downloads")}
+    >
+      <HeaderIcon
+        name='downloads'
+        tintColor={downloadedItems.length > 0 ? Colors.primary : "white"}
+      />
+    </HeaderButton>
+  );
+};
+
+const SettingsButton = () => {
+  const router = useRouter();
+  const { t } = useTranslation();
+
+  return (
+    <HeaderButton
+      accessibilityLabel={t("tabs.settings")}
+      onPress={() => router.push("/(auth)/settings")}
+    >
       <HeaderIcon name='settings' />
     </HeaderButton>
   );
@@ -335,10 +400,14 @@ const SettingsButton = () => {
 
 const SessionsButton = () => {
   const router = useRouter();
+  const { t } = useTranslation();
   const { sessions = [] } = useSessions({} as useSessionsProps);
 
   return (
-    <HeaderButton onPress={() => router.push("/(auth)/sessions")}>
+    <HeaderButton
+      accessibilityLabel={t("home.sessions.title")}
+      onPress={() => router.push("/(auth)/sessions")}
+    >
       <HeaderIcon
         name='sessions'
         tintColor={sessions.length === 0 ? "white" : Colors.primary}

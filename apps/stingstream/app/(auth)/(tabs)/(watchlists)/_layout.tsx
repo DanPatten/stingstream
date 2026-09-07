@@ -1,11 +1,13 @@
 import { Stack } from "expo-router";
+import type { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
 import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import {
   nestedTabPageScreenOptions,
-  stackScreenOptions,
+  useMoreChildScreenOptions,
+  useStackScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
 import useRouter from "@/hooks/useAppRouter";
 import { useStreamystatsEnabled } from "@/hooks/useWatchlists";
@@ -13,37 +15,43 @@ import { useStreamystatsEnabled } from "@/hooks/useWatchlists";
 // The promoted-watchlists "See all" on the home page pushes a fully qualified
 // `(watchlists)` path from the home tab, which would otherwise build this tab's
 // stack as just [detail] — no back button, and the tab pinned to that watchlist.
-// Same reasoning as the `(libraries)` layout; see the comment there.
-export const unstable_settings = Platform.isTV ? {} : { anchor: "index" };
+// Same reasoning as the `(libraries)` layout; see the comment there, including
+// why the anchor is the named route rather than `index`.
+export const unstable_settings = Platform.isTV ? {} : { anchor: "watchlists" };
 
 export default function WatchlistsLayout() {
   const { t } = useTranslation();
   const router = useRouter();
   const streamystatsEnabled = useStreamystatsEnabled();
+  const screenOptions = useStackScreenOptions();
+  const moreChildOptions = useMoreChildScreenOptions();
+
+  // One options object for two routes: the group's `index` (which is
+  // `/`, and which the phone's tab bar lands on) and the named route
+  // that gives the section a URL of its own — `watchlists`. See
+  // `(watchlists)/watchlists.tsx`.
+  const sectionOptions: ComponentProps<typeof Stack.Screen>["options"] = {
+    headerTitle: t("watchlists.title"),
+    headerBlurEffect: "none",
+    headerTransparent: Platform.OS === "ios",
+    headerShadowVisible: false,
+    headerRight: streamystatsEnabled
+      ? () => (
+          <HeaderButton
+            accessibilityLabel={t("watchlists.create_title")}
+            onPress={() => router.push("/(auth)/(tabs)/(watchlists)/create")}
+          >
+            <HeaderIcon name='add' />
+          </HeaderButton>
+        )
+      : undefined,
+    ...moreChildOptions,
+  };
 
   return (
-    <Stack screenOptions={stackScreenOptions}>
-      <Stack.Screen
-        name='index'
-        options={{
-          headerShown: !Platform.isTV,
-          headerTitle: t("watchlists.title"),
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-          headerRight: streamystatsEnabled
-            ? () => (
-                <HeaderButton
-                  onPress={() =>
-                    router.push("/(auth)/(tabs)/(watchlists)/create")
-                  }
-                >
-                  <HeaderIcon name='add' />
-                </HeaderButton>
-              )
-            : undefined,
-        }}
-      />
+    <Stack screenOptions={screenOptions}>
+      <Stack.Screen name='index' options={sectionOptions} />
+      <Stack.Screen name='watchlists' options={sectionOptions} />
       <Stack.Screen
         name='[watchlistId]'
         options={{
