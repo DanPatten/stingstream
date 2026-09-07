@@ -83,6 +83,7 @@
 .EXAMPLE
     pwsh tools/e2e-m4.ps1 -SkipBuild -KeepRunning
 #>
+# CI job name: "e2e: source selection, failover, pin" (formerly labelled M4)
 [CmdletBinding()]
 param(
     [string]$WorkDir,
@@ -167,7 +168,7 @@ $ExeSuffix = if ($IsWin) { '.exe' } else { '' }
 $SupervisorExe = Join-Path $RepoRoot "mesh/target/debug/stingstream$ExeSuffix"
 
 Write-Host ''
-Write-Host 'StingStream M4 acceptance harness' -ForegroundColor White
+Write-Host 'StingStream acceptance: source selection, failover, pin' -ForegroundColor White
 Write-Host "  repo      $RepoRoot"
 Write-Host "  work      $WorkDir"
 Write-Host "  node A    http://127.0.0.1:$GatewayPortA   (watches, scores, transcodes, pins)"
@@ -1101,10 +1102,10 @@ Invoke-Step 'Killing B mid-stream continues from C with no error' {
 
 if (Test-HarnessFailed) {
     Write-Host ''
-    Write-Host 'M4 ACCEPTANCE: FAILED' -ForegroundColor Red
+    Write-Host 'ACCEPTANCE (source selection): FAILED' -ForegroundColor Red
     exit 1
 }
 
 Write-Host ''
-Write-Host 'M4 ACCEPTANCE: PASSED' -ForegroundColor Green
+Write-Host 'ACCEPTANCE (source selection): PASSED' -ForegroundColor Green
 exit 0
