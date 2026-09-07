@@ -1,4 +1,5 @@
 import { useAtomValue } from "jotai";
+import { useTranslation } from "react-i18next";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { EmptyState } from "./ScreenState";
 
@@ -15,12 +16,14 @@ export function useIsStingStreamAdmin(): boolean {
 }
 
 export function RequiresAdmin({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const isAdmin = useIsStingStreamAdmin();
   if (!isAdmin) {
     return (
       <EmptyState
-        title='Administrators only'
-        detail='This server manages the movie manager, the series manager and downloads under your admin account — sign in as an administrator to use it.'
+        icon='user'
+        title={t("admin.requires_admin_title")}
+        detail={t("admin.requires_admin_detail")}
       />
     );
   }

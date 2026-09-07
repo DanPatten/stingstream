@@ -6,6 +6,7 @@ import {
   type MeshRewriteContext,
   parseMeshStreamUrl,
   rewriteMeshStreamUrl,
+  rewriteMeshStreamUrlToNode,
   rewriteStreamUrlForMesh,
   setMeshRewriteContext,
 } from "./streamUrl";
@@ -198,5 +199,52 @@ describe("isMeshStreamUrl", () => {
       isMeshStreamUrl("https://jellyfin.example.com/Videos/a/stream"),
     ).toBe(false);
     expect(isMeshStreamUrl(undefined)).toBe(false);
+  });
+});
+
+describe("rewriteMeshStreamUrlToNode", () => {
+  const NODE_ORIGIN = "http://192.168.1.20:8790";
+
+  test("sends a mesh URL to the node's own gateway", () => {
+    expect(rewriteMeshStreamUrlToNode(url(), NODE_ORIGIN)).toBe(
+      `${NODE_ORIGIN}/stream/${GROUP}/${ITEM}/${NODE}`,
+    );
+  });
+
+  test("carries the signature and expiry, which the gateway checks", () => {
+    const signed = `${url()}?exp=1788782480&sig=1517fca284becbcdd2c804b49fecc50a`;
+    expect(rewriteMeshStreamUrlToNode(signed, NODE_ORIGIN)).toBe(
+      `${NODE_ORIGIN}/stream/${GROUP}/${ITEM}/${NODE}?exp=1788782480&sig=1517fca284becbcdd2c804b49fecc50a`,
+    );
+  });
+
+  test("leaves the item key percent-encoded exactly as the .strm wrote it", () => {
+    const encoded = url(`/stream/${GROUP}/movie%3Atmdb%3A45745/${NODE}`);
+    expect(rewriteMeshStreamUrlToNode(encoded, NODE_ORIGIN)).toBe(
+      `${NODE_ORIGIN}/stream/${GROUP}/movie%3Atmdb%3A45745/${NODE}`,
+    );
+  });
+
+  test("does not double the slash when the origin has a trailing one", () => {
+    expect(rewriteMeshStreamUrlToNode(url(), `${NODE_ORIGIN}/`)).toBe(
+      `${NODE_ORIGIN}/stream/${GROUP}/${ITEM}/${NODE}`,
+    );
+  });
+
+  test("leaves a URL the embedded mesh already claimed alone", () => {
+    // rewriteStreamUrlForMesh ran first and pointed it at the loopback port; that is the direct
+    // iroh hop and must not be sent back through the home node.
+    const local = `http://127.0.0.1:43210/stream/${GROUP}/${ITEM}/${NODE}`;
+    expect(rewriteMeshStreamUrlToNode(local, NODE_ORIGIN)).toBe(local);
+  });
+
+  test("leaves anything that is not a mesh URL alone", () => {
+    const jellyfin = "https://jellyfin.example.com/Videos/a/stream?static=true";
+    expect(rewriteMeshStreamUrlToNode(jellyfin, NODE_ORIGIN)).toBe(jellyfin);
+  });
+
+  test("with no node origin to point at, changes nothing", () => {
+    expect(rewriteMeshStreamUrlToNode(url(), null)).toBe(url());
+    expect(rewriteMeshStreamUrlToNode(url(), "")).toBe(url());
   });
 });

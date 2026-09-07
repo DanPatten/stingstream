@@ -38,21 +38,27 @@
 .PARAMETER OfflineArtwork
     Off by default as of F-12 (Dan: "tests must use real movie images, never placeholders") --
     real TMDB/TVDB artwork is now the default for everyone, agents included. Pass this to fall
-    back to the old deterministic offline gradients (600x900 poster.jpg / 1920x1080 fanart.jpg,
-    hue derived from a hash of the title, title text only, rendered with System.Drawing) for the
-    rare case that matters more than real images -- e.g. no network access at all.
+    back to the old deterministic offline gradients (600x900 poster.jpg / 1920x1080 fanart.jpg per
+    item, hue derived from a hash of the title, title text only, rendered with System.Drawing) for
+    the rare case that matters more than real images -- e.g. no network access at all. The Movies/
+    TV Shows library's OWN tile (New-LibraryTileImage) follows the same switch but never carries
+    text either way: a per-item poster's whole point is the item's own title, but a library is not
+    an item, and painting its name onto the tile just duplicates the label the Libraries grid's
+    own card already renders (confirmed live -- "Movies" shown twice on the same card, fixed by
+    removing the text rather than repositioning it).
 
     The default (real artwork) needed two things confirmed live and handled, not just assumed
     (2026-09-06): StingStream.Core's first-run wiring creates the Movies/TV Shows libraries with
     `EnableInternetProviders: false` (docs/UI-LOOP.md has the finding), and a local image file
     takes priority over any fetched image regardless of that setting, once one exists in the
     item's folder. So real-artwork mode does two things, not one: never write poster.jpg/
-    fanart.jpg in the first place, AND (via -RefreshNodeUrl, below, since this needs a running
-    node's API) flip EnableInternetProviders on for both libraries before triggering the refresh
-    that actually fetches something. tools/ui-node.ps1 -Seed drives both halves in the right
-    order; calling this script by hand before a node has ever started only does the first half
-    (skipping local images) -- pair it with a second call using -RefreshNodeUrl once the node is
-    up, or the library will simply have no images until you do.
+    fanart.jpg (or the library's own folder.jpg) in the first place, AND (via -RefreshNodeUrl,
+    below, since this needs a running node's API) flip EnableInternetProviders on for both
+    libraries before triggering the refresh that actually fetches something. tools/ui-node.ps1
+    -Seed drives both halves in the right order; calling this script by hand before a node has
+    ever started only does the first half (skipping local images) -- pair it with a second call
+    using -RefreshNodeUrl once the node is up, or the library will simply have no images until you
+    do.
 
 .PARAMETER RefreshNodeUrl
     Optional. If the media root belongs to a node that is already running (a re-seed, not the
@@ -280,6 +286,51 @@ function New-SeedArtwork {
     Write-Host "      wrote poster.jpg + fanart.jpg for $Title (hue $hue)"
 }
 
+function New-LibraryTileImage {
+    <#
+    .SYNOPSIS
+        The Movies/TV Shows library's OWN folder.jpg, at <MediaRoot>\Movies or <MediaRoot>\TV --
+        deliberately separate from New-SeedArtwork, which is per-ITEM and paints the item's own
+        title on purpose. A library is not an item: painting its NAME onto this tile duplicates
+        the label the Libraries grid's own card already renders for it (confirmed live -- the
+        card showed "Movies" twice, once as the card's real label and once baked into the tile
+        bitmap under it).
+    .DESCRIPTION
+        Real-artwork mode (the default, F-12) writes nothing here at all -- the same reasoning
+        Install-Movie/Install-Series's own per-item skip uses: a local image always wins over
+        anything fetched or composed regardless of library settings, so writing one here, even a
+        blank one, would stop Jellyfin from composing the library's own tile out of its real,
+        fetched item posters once the scan completes. -OfflineArtwork mode still needs *something*
+        (no per-item fetch to compose from), so it gets a plain gradient, same hue-from-title
+        trick as New-SeedArtwork -- but with no DrawString call at all, not even the library's own
+        name: unlike an item, a library's name is not this bitmap's job to say.
+    #>
+    param([Parameter(Mandatory)][string]$Folder, [Parameter(Mandatory)][string]$LibraryName)
+    if (-not $OfflineArtwork) {
+        Write-Host "      real artwork: no local folder.jpg for $LibraryName (Jellyfin composes it from posters)" -ForegroundColor DarkGray
+        return
+    }
+    $tilePath = Join-Path $Folder 'folder.jpg'
+    if ((Test-Path $tilePath) -and -not $Force) {
+        Write-Host "      skip (exists): folder.jpg for $LibraryName" -ForegroundColor DarkGray
+        return
+    }
+    $hue = Get-TitleHue -Text $LibraryName
+    $colorA = ConvertTo-HsvColor -H $hue -S 0.55 -V 0.25
+    $colorB = ConvertTo-HsvColor -H (($hue + 40) % 360) -S 0.45 -V 0.70
+    $bmp = New-Object System.Drawing.Bitmap 1920, 1080
+    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $gfx.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $rect = New-Object System.Drawing.Rectangle 0, 0, 1920, 1080
+        $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect, $colorA, $colorB, 45.0)
+        try { $gfx.FillRectangle($brush, $rect) } finally { $brush.Dispose() }
+        # No DrawString -- plain gradient, no text. See .DESCRIPTION above.
+        $bmp.Save($tilePath, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    } finally { $gfx.Dispose(); $bmp.Dispose() }
+    Write-Host "      wrote folder.jpg (plain gradient, no text) for $LibraryName"
+}
+
 # --- NFOs, lifted from e2e-m4.ps1 (movie) and extended (series) --------------------------------
 
 function Write-MovieNfo {
@@ -386,6 +437,8 @@ Write-Host "  movies      $($Movies.Count)"
 Write-Host "  series      $($Series.Count)"
 
 New-Item -ItemType Directory -Force -Path (Join-Path $MediaRoot 'Movies'), (Join-Path $MediaRoot 'TV') | Out-Null
+New-LibraryTileImage -Folder (Join-Path $MediaRoot 'Movies') -LibraryName 'Movies'
+New-LibraryTileImage -Folder (Join-Path $MediaRoot 'TV') -LibraryName 'TV Shows'
 
 Write-Head 'Movies'
 foreach ($m in $Movies) {

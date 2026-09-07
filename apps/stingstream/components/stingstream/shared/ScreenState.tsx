@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import { Loader } from "@/components/Loader";
+import { radius, tokens } from "@/constants/theme";
 
 /**
  * `EmptyState` now lives in `components/common` so every screen shares one, not
@@ -11,16 +12,36 @@ import { Loader } from "@/components/Loader";
  */
 export { EmptyState } from "@/components/common/EmptyState";
 
-export function LoadingState() {
+/**
+ * A `ListGroup`-shaped stand-in, since every StingStream screen that calls
+ * `QueryState` renders one once its data lands. A spinner says "something is
+ * happening"; this says roughly what, and holds the layout so nothing jumps
+ * when the real rows arrive — the critique's "skeletons, never a spinner" rule.
+ */
+export function LoadingState({ rows = 4 }: { rows?: number }) {
   return (
     <View
+      accessibilityRole='progressbar'
+      accessibilityLabel='Loading'
       style={{
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 64,
+        borderRadius: radius.md,
+        overflow: "hidden",
+        backgroundColor: tokens.color.bg["1"],
       }}
     >
-      <Loader />
+      {Array.from({ length: rows }, (_, index) => (
+        <View
+          key={index}
+          style={{
+            padding: 16,
+            borderBottomWidth: index < rows - 1 ? 1 : 0,
+            borderBottomColor: tokens.color.border.subtle,
+          }}
+        >
+          <Skeleton width='55%' height={14} />
+          <Skeleton width='35%' height={11} style={{ marginTop: 8 }} />
+        </View>
+      ))}
     </View>
   );
 }
@@ -76,14 +97,17 @@ export function QueryState({
   isLoading,
   error,
   onRetry,
+  loadingRows,
   children,
 }: {
   isLoading: boolean;
   error: unknown;
   onRetry?: () => void;
+  /** How many skeleton rows to show while loading. Defaults to 4. */
+  loadingRows?: number;
   children: React.ReactNode;
 }) {
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <LoadingState rows={loadingRows} />;
   if (error)
     return (
       <ErrorState

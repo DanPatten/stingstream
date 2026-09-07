@@ -346,7 +346,15 @@ const hasArtwork = (
   kind: CardKind,
   useEpisodePoster: boolean,
 ): boolean => {
-  // Whatever `getPrimaryImageUrl` would find a tag for.
+  // Whatever `getPrimaryImageUrl` would find a tag for — right for the
+  // portrait branch below, which delegates to it (via `getPortraitImageUrl`)
+  // for anything but an episode. `getWideImageUrl` is a different function
+  // with a narrower fallback chain (a Thumb tag, a parent's Thumb, or the
+  // item's own Primary — never a backdrop), so using this same value for the
+  // `wide` branches below asked for an image that function would never
+  // actually request: confirmed live on a Highway Patrol episode whose only
+  // tag was its series' `ParentBackdropImageTags`, which drew a real 404
+  // instead of the placeholder tile this function exists to put up.
   const primaryish = Boolean(
     item.ImageTags?.Primary ??
       item.BackdropImageTags?.[0] ??
@@ -360,13 +368,17 @@ const hasArtwork = (
       : primaryish;
   }
 
+  // `getWideImageUrl`'s own "primary" fallback is always the item's own
+  // Primary tag, whichever branch reaches it — never a backdrop.
+  const ownPrimary = Boolean(item.ImageTags?.Primary);
+
   if (item.Type === "Episode" && !useEpisodePoster) {
     return (
-      Boolean(item.ParentThumbItemId && item.ParentThumbImageTag) || primaryish
+      Boolean(item.ParentThumbItemId && item.ParentThumbImageTag) || ownPrimary
     );
   }
 
-  return Boolean(item.ImageTags?.Thumb) || primaryish;
+  return Boolean(item.ImageTags?.Thumb) || ownPrimary;
 };
 
 /** Anything that holds other items rather than being watchable itself. */

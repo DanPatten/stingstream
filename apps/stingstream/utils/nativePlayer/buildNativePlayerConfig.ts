@@ -7,7 +7,7 @@ import { getUserLibraryApi } from "@jellyfin/sdk/lib/utils/api";
 import type { OrientationLock as OrientationLockType } from "expo-screen-orientation";
 import type { TFunction } from "i18next";
 import { Platform } from "react-native";
-import { BITRATES } from "@/components/BitrateSelector";
+import { BITRATES } from "@/constants/Playback";
 import type {
   NativePlayerConfig,
   NativePlayerStrings,

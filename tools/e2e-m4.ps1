@@ -125,11 +125,18 @@ $Titles = @(
     [pscustomobject]@{
         Key = 'notld'; Tmdb = 10331; Title = 'Night of the Living Dead'; Year = 1968
         ItemKey = 'movie:tmdb:10331'
+    },
+    # Not installed with the others: this one is copied in while the group is up, to prove a node
+    # advertises a file that appeared after it started without anyone calling the rebuild endpoint.
+    [pscustomobject]@{
+        Key = 'nosferatu'; Tmdb = 653; Title = 'Nosferatu'; Year = 1922
+        ItemKey = 'movie:tmdb:653'
     }
 )
 $Bunny = $Titles[0]
 $Sita = $Titles[1]
 $Notld = $Titles[2]
+$Dropped = $Titles[3]
 
 # B's link, capped so a 30 MB read takes a measurable few seconds rather than finishing before the
 # harness can kill it. Still far above what any of these files needs, so B always "fits".
@@ -502,6 +509,9 @@ $Media = Invoke-Step 'Generate two encodes of one film, and two more films' {
     $result['sita'] = New-Clip -Path (Join-Path $MediaDir 'sita.mkv') -Width 1280 -Height 720 -Seconds 20 -Bitrate '12M'
     # The film only B has: the dedupe and pin target.
     $result['notld'] = New-Clip -Path (Join-Path $MediaDir 'notld.mkv') -Width 1280 -Height 720 -Seconds 20 -Bitrate '2M'
+    # The film nobody has yet. Short, because nothing scores it -- it exists only to be dropped into
+    # a running node's folder and appear on a peer.
+    $result['nosferatu'] = New-Clip -Path (Join-Path $MediaDir 'nosferatu.mkv') -Width 1280 -Height 720 -Seconds 6 -Bitrate '2M'
     return $result
 }
 
@@ -529,13 +539,14 @@ Invoke-Step 'Start node C (the throttled holder) with a 4K Big Buck Bunny and th
 Invoke-Step 'B and C build inventory records for what they hold' {
     foreach ($node in @($NodeB, $NodeC)) {
         $want = if ($node.Name -eq 'B') { 3 } else { 2 }
+        # A plain wait. This used to re-POST `/inventory/rebuild` on every failed poll, because a
+        # library that has just been created can finish its first scan after the one rebuild
+        # first-run wiring does, and nothing in Core was watching for that. `InventoryWatcher` is
+        # now, so the node inventories what it holds on its own -- and the harness prodding it
+        # would hide the very thing the step is supposed to be checking.
         $inventory = Wait-Until -What "node $($node.Name) to inventory $want film(s)" -Seconds 420 -PollSeconds 5 -Condition {
             $inv = try { Invoke-Node $node '/stingstream/api/v1/inventory' -TimeoutSec 60 } catch { $null }
             if ($inv -and $inv.total -ge $want) { return $inv }
-            # A library that has just been created can take a while to finish its first scan; a
-            # rebuild is idempotent and is what turns "scanned" into "inventoried" without waiting
-            # for the next timer.
-            try { Invoke-Node $node '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
             return $null
         } -Describe {
             $inv = try { Invoke-Node $node '/stingstream/api/v1/inventory' -TimeoutSec 30 } catch { $null }
@@ -711,6 +722,36 @@ Invoke-Step "A measures both links, and they differ" {
     }
     Add-HarnessNote ("Measured links from A: B {0:N0} Mbit/s, C {1:N0} Mbit/s (throttled)." -f `
         ($stats['B'].throughputBps / 1e6), ($stats['C'].throughputBps / 1e6))
+
+    # Give C's one stream slot back before anything scores it.
+    #
+    # C is deliberately capped at a single concurrent stream, and the read above used it. A learns
+    # that a slot is free again from C's *heartbeat*, which the mesh publishes on a twenty-second
+    # timer -- so a beat that happens to be captured while the read is open leaves A believing C is
+    # saturated for up to a beat afterwards, and the scorer applies its "at its advertised stream
+    # limit" penalty to a node that is idle. Seen for real: quality_first scored
+    # `stingstream-c -916.6 ... 1 of 1 stream slots in use` and chose B, which is the right answer
+    # to the wrong question.
+    #
+    # Waiting here rather than raising the next step's tolerance, because the next step's subject is
+    # the scoring formula and it should be given the world the formula is meant to score.
+    Wait-Until -What "C's stream slot to be free again in A's view" -Seconds 90 -PollSeconds 3 -Condition {
+        $s = try {
+            Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers/$($NodeC.MeshId)/stats?group=$($Group.group)" -TimeoutSec 30
+        } catch { $null }
+        if (-not $s) { return $false }
+        $active = Get-Member-Value $s 'activeDirectStreams'
+        # Null means the beat has not carried the number at all, which is not evidence of a busy
+        # node; only a positive count is.
+        return ($null -eq $active) -or ([int]$active -le 0)
+    } -Describe {
+        $s = try {
+            Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers/$($NodeC.MeshId)/stats?group=$($Group.group)" -TimeoutSec 30
+        } catch { $null }
+        if ($s) {
+            "C: $(Get-Member-Value $s 'activeDirectStreams') of $(Get-Member-Value $s 'maxDirectStreams') stream slot(s) in use"
+        } else { 'no answer' }
+    } | Out-Null
 }
 
 # ============================================================================================
@@ -951,6 +992,53 @@ Invoke-Step 'Pinning it copies it here, drops the pointer, and makes A a holder'
     }
     Add-HarnessNote ("Pin: {0} copied from {1} to {2}; holders went from 1 to {3}." -f `
         $Notld.Title, $done.nodeName, $done.targetPath, $holders.Count)
+}
+
+# ============================================================================================
+Invoke-Step 'A film dropped into a running holder reaches the group on its own' {
+    <#
+        The one thing nothing in `StingStream.Core` used to do: notice.
+
+        `RebuildAllAsync` ran from first-run wiring, from a completed pin, and from
+        `POST /inventory/rebuild`; per-item refreshes came from the arrs' import webhooks and from a
+        finished hash. Nothing watched the library. So a holder with no arrs -- which is what B is,
+        and what the `storage-node` profile is -- had a title Jellyfin knew about and the group had
+        never heard of, until somebody thought to call an API by hand. Both acceptance harnesses
+        were papering over it by re-POSTing a rebuild in a polling loop, which is how it was found.
+
+        `InventoryWatcher` subscribes to Jellyfin's own item events and rebuilds once the library
+        has been quiet for five seconds, and `InventoryPublisher` sends the delta on its next pass.
+        So: copy a film in, ask Jellyfin to scan, and wait for it to arrive on A.
+
+        **This step must never call `/inventory/rebuild`.** That is the whole assertion.
+    #>
+    $target = Install-Movie -Node $NodeB -Title $Dropped -SourceFile $Media['nosferatu']
+    Write-Host "      dropped $($Dropped.Title) into B's Movies folder at $target"
+
+    # A scan through Jellyfin's own API, exactly as a person pressing "Scan All Libraries" would.
+    Invoke-Jellyfin $NodeB '/Library/Refresh' -Method POST -TimeoutSec 120 | Out-Null
+
+    $entry = Wait-Until -What "$($Dropped.ItemKey) to reach A's index with no rebuild call" -Seconds 60 -PollSeconds 3 -Condition {
+        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 60 } catch { $null }
+        if (-not $index) { return $null }
+        $found = @($index.entries | Where-Object { $_.itemKey -eq $Dropped.ItemKey })
+        if ($found.Count -ge 1) { return $found[0] }
+        return $null
+    } -Describe {
+        $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 30 } catch { $null }
+        $onB = if ($inv) { @($inv.records | Where-Object { $_.itemKey -eq $Dropped.ItemKey }).Count } else { '?' }
+        $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30 } catch { $null }
+        $onA = if ($index) { @($index.entries | Where-Object { $_.itemKey -eq $Dropped.ItemKey }).Count } else { '?' }
+        "B has $onB record(s) for it, A's index has $onA"
+    }
+
+    if ((Get-Member-Value $entry 'nodeName') -ne 'stingstream-b') {
+        throw "the dropped film reached A's index from $(Get-Member-Value $entry 'nodeName'), not from B."
+    }
+    Write-Host ("      {0} reached A's index from {1} without anyone asking for a rebuild" -f `
+        $Dropped.ItemKey, (Get-Member-Value $entry 'nodeName'))
+    Add-HarnessNote ("A file dropped into a running holder reached the group's index on its own, " +
+        'via the library-event watcher.')
 }
 
 # ============================================================================================

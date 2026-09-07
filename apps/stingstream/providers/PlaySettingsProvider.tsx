@@ -6,7 +6,7 @@ import { useAtomValue } from "jotai";
 import type React from "react";
 import { createContext, useCallback, useContext, useState } from "react";
 import { Platform } from "react-native";
-import type { Bitrate } from "@/components/BitrateSelector";
+import type { Bitrate } from "@/constants/Playback";
 import { getActivePlayerType, settingsAtom } from "@/utils/atoms/settings";
 import { getStreamUrl } from "@/utils/jellyfin/media/getStreamUrl";
 import { logAndCaptureError } from "@/utils/log";

@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { formatTimeString } from "@/utils/time";
 
@@ -10,8 +10,11 @@ interface TimeDisplayProps {
 }
 
 /**
- * Displays current time and remaining time.
- * MPV player uses milliseconds for time values.
+ * Elapsed on the left, remaining and "Ends at" on the right. The player's clock is milliseconds.
+ *
+ * Inline styles, like the rest of the OSD: NativeWind v2's classes do not apply in the exported
+ * web bundle, and these three readings stacked into a column instead of sitting at the two ends of
+ * the seek bar.
  */
 export const TimeDisplay: FC<TimeDisplayProps> = ({
   currentTime,
@@ -22,7 +25,6 @@ export const TimeDisplay: FC<TimeDisplayProps> = ({
   const getFinishTime = () => {
     if (!Number.isFinite(remainingTime)) return "—";
     const now = new Date();
-    // remainingTime is in ms
     const finishTime = new Date(now.getTime() + remainingTime);
     return finishTime.toLocaleTimeString([], {
       hour: "2-digit",
@@ -32,18 +34,31 @@ export const TimeDisplay: FC<TimeDisplayProps> = ({
   };
 
   return (
-    <View className='flex flex-row items-center justify-between mt-2'>
-      <Text className='text-[12px] text-neutral-400'>
+    <View style={styles.row}>
+      <Text variant='caption' tone='secondary'>
         {formatTimeString(currentTime, "ms")}
       </Text>
-      <View className='flex flex-col items-end'>
-        <Text className='text-[12px] text-neutral-400'>
+      <View style={styles.right}>
+        <Text variant='caption' tone='secondary'>
           -{formatTimeString(remainingTime, "ms")}
         </Text>
-        <Text className='text-[10px] text-neutral-500 opacity-70'>
+        <Text variant='micro' tone='tertiary'>
           {t("player.ends_at", { time: getFinishTime() })}
         </Text>
       </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  right: {
+    flexDirection: "column",
+    alignItems: "flex-end",
+  },
+});
