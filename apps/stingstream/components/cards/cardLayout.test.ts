@@ -323,6 +323,56 @@ describe("card artwork", () => {
     ).toContain("/Items/series-1/Images/Primary");
   });
 
+  test("a wide episode card with only its series' backdrop gets no image URL", () => {
+    // `getWideImageUrl` never falls back to a backdrop tag (only a parent's
+    // Thumb, or the episode's own Primary) — a Highway Patrol episode with
+    // `ParentBackdropImageTags` set but no Thumb/own-Primary tag used to pass
+    // `hasArtwork`'s check anyway and draw a real 404 instead of the
+    // placeholder tile.
+    const [card] = buildItemCards(
+      [
+        {
+          Id: "ep-1",
+          Name: "Pilot",
+          Type: "Episode",
+          SeriesId: "series-1",
+          ParentBackdropItemId: "series-1",
+          ParentBackdropImageTags: ["bd"],
+        } as never,
+      ],
+      { api, kind: "wide" },
+    );
+    expect(card.imageUrl).toBeUndefined();
+    expect(card.placeholder).toBe("episode");
+  });
+
+  test("a wide episode card still uses its parent's Thumb when one exists", () => {
+    const [card] = buildItemCards(
+      [
+        {
+          Id: "ep-1",
+          Name: "Pilot",
+          Type: "Episode",
+          SeriesId: "series-1",
+          ParentThumbItemId: "series-1",
+          ParentThumbImageTag: "th",
+        } as never,
+      ],
+      { api, kind: "wide" },
+    );
+    expect(card.imageUrl).toContain("/Items/series-1/Images/Thumb");
+  });
+
+  test("a wide (non-episode) card with only a backdrop gets no image URL either", () => {
+    // Same mismatch, the general case: `getWideImageUrl`'s own fallback is
+    // the item's own Primary tag, never a backdrop.
+    const [card] = buildItemCards([movie({ BackdropImageTags: ["bd"] })], {
+      api,
+      kind: "wide",
+    });
+    expect(card.imageUrl).toBeUndefined();
+  });
+
   test("every card carries the placeholder its type calls for", () => {
     const [card] = buildItemCards([movie()], { api, kind: "portrait" });
     expect(card.placeholder).toBe("movie");
