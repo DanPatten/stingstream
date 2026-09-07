@@ -22,7 +22,7 @@ import {
   getDownloadedSeasonNumbers,
 } from "@/utils/downloads/offline-series";
 import { getUserItemData } from "@/utils/jellyfin/user-library/getUserItemData";
-import { runtimeTicksToSeconds } from "@/utils/time";
+import { formatRuntimeTicksExact } from "@/utils/time";
 import { HEADER_LAYOUT, ICON_SIZES } from "./constants";
 
 type Props = {
@@ -150,7 +150,7 @@ export const EpisodeList: React.FC<Props> = ({ item, close, goToItem }) => {
     });
     return base.map((card) => ({
       ...card,
-      detail: runtimeTicksToSeconds(episodeById.get(card.id)?.RunTimeTicks),
+      detail: formatRuntimeTicksExact(episodeById.get(card.id)?.RunTimeTicks),
     }));
   }, [episodes, api, item.Id, episodeById]);
 

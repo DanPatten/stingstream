@@ -18,7 +18,7 @@ import {
   buildOfflineSeasons,
   getDownloadedEpisodesForSeason,
 } from "@/utils/downloads/offline-series";
-import { runtimeTicksToSeconds } from "@/utils/time";
+import { formatRuntimeTicksExact } from "@/utils/time";
 import { buildItemCards, type CardData } from "../cards/CardData";
 import { CardListRow } from "../cards/CardListRow";
 import { useItemCardBehavior } from "../cards/useItemCardBehavior";
@@ -163,7 +163,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
     });
     return base.map((card) => ({
       ...card,
-      detail: runtimeTicksToSeconds(episodeById.get(card.id)?.RunTimeTicks),
+      detail: formatRuntimeTicksExact(episodeById.get(card.id)?.RunTimeTicks),
     }));
   }, [episodes, api, episodeById]);
 

@@ -7,7 +7,7 @@
 .DESCRIPTION
     Never runs out of the repository's own build outputs and never touches the shared `dist/` --
     see docs/CONTRIBUTING.md rule 3 and docs/UI-LOOP.md. Everything lives under
-    E:\Dan\Documents\Repos\.win-temp\ui-loop\ by default, well away from the repo working tree.
+    <repo>\.local\ui-loop\ by default, git-ignored, well away from the repo's tracked files.
 
     Tier A (edit -> visible in seconds): pass -DevServer to a URL that `bunx expo start --web
     --port 8081` is already serving. This proxies `/` and the fallback through the gateway
@@ -93,14 +93,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$PrivateCopy = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\bin',
-    [string]$DataDir = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\data',
+    [string]$PrivateCopy = (Join-Path $PSScriptRoot '..\.local\ui-loop\bin'),
+    [string]$DataDir = (Join-Path $PSScriptRoot '..\.local\ui-loop\data'),
     [switch]$Fresh,
     [switch]$ForceCopy,
     [int]$Port = 8795,
     [switch]$WithArrs,
     [ValidateSet('0.0.0.0', '127.0.0.1')][string]$Bind = '0.0.0.0',
-    [string]$WebDist = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\web-dist',
+    [string]$WebDist = (Join-Path $PSScriptRoot '..\.local\ui-loop\web-dist'),
     [string]$DevServer,
     [switch]$Seed,
     [switch]$OfflineArtwork,

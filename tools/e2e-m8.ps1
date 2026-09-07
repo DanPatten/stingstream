@@ -87,7 +87,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 if (-not $WorkDir) {
     $WorkDir = if ($env:STINGSTREAM_E2E_WORKDIR) { $env:STINGSTREAM_E2E_WORKDIR }
-    elseif (Test-Path 'E:\') { 'E:\Dan\Documents\Repos\.e2e-m8' }
+    elseif (Test-Path 'E:\') { Join-Path $RepoRoot '.local\e2e\e2e-m8' }
     else { Join-Path ([System.IO.Path]::GetTempPath()) 'stingstream-e2e-m8' }
 }
 

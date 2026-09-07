@@ -413,9 +413,9 @@ if (-not (Test-Path (Join-Path $RepoRoot 'docs/ARCHITECTURE.md'))) {
 }
 
 if (-not $WorkDir) {
-    # Beside the repository, not inside it: this directory holds a whole node's data and would
-    # otherwise show up in every git status for the rest of the milestone.
-    $WorkDir = Join-Path (Split-Path -Parent $RepoRoot) '.stingstream-e2e'
+    # Under .local/, git-ignored: this directory holds a whole node's data and must never show up
+    # in git status for the rest of the milestone.
+    $WorkDir = Join-Path $RepoRoot '.local\e2e\stingstream-e2e'
 }
 
 $IsWindowsHost = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
@@ -473,7 +473,7 @@ try {
 Invoke-Step 'Build' {
     if ($SkipBuild) { Write-Host '      -SkipBuild: assuming everything is built'; return }
 
-    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path (Split-Path -Parent $RepoRoot) '.nuget-packages' }
+    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $RepoRoot '.local\caches\nuget-packages' }
 
     Write-Host '      cargo build -p stingstream'
     & cargo build --manifest-path (Join-Path $RepoRoot 'mesh/Cargo.toml') -p stingstream
@@ -969,13 +969,38 @@ Invoke-Step 'The local libraries fetch metadata from the internet' {
     # options", which disable nothing. So the invariant to hold is that these two libraries carry
     # **no** TypeOptions entries -- and the federated Shared libraries, which m3 covers, carry one
     # per type precisely to turn the internet off.
-    $folders = Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders)
+    #
+    # Waited for, and read through Get-Member-Value throughout. Both are answers to the same fact:
+    # this list is not a constant. First-run wiring creates the two libraries on a background pass
+    # and a refresh can be in flight over them, so a single read can come back short, empty, or --
+    # as CI found once, aborting this step under Set-StrictMode -- carrying an entry with no Name
+    # at all. None of that is a failure worth reporting; not having the libraries a minute later
+    # is.
+    #
+    # **Pipe the result, never `@()` it.** Windows PowerShell's ConvertFrom-Json hands back a JSON
+    # array as one `Object[]` rather than as a stream of objects, so `@(Invoke-Json ...)` wraps it
+    # into a one-element array *containing the array* -- and every property read on that element
+    # then finds nothing. It looks exactly like a server returning no libraries, which is a whole
+    # afternoon if you believe it. Piping unrolls, in both editions.
+    $folders = Wait-Until -What 'the local Movies and TV Shows libraries' -Seconds 120 -PollSeconds 3 -Condition {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        $named = @($all | Where-Object { Get-Member-Value $_ 'Name' })
+        $have = @($named | ForEach-Object { Get-Member-Value $_ 'Name' })
+        if (($have -contains 'Movies') -and ($have -contains 'TV Shows')) { return ,$named }
+        return $null
+    } -Describe {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        "libraries so far: $((@($all | ForEach-Object { Get-Member-Value $_ 'Name' } | Where-Object { $_ }) -join ', '))"
+    }
+
     foreach ($name in 'Movies', 'TV Shows') {
-        $folder = @($folders | Where-Object { $_.Name -eq $name })
-        if ($folder.Count -ne 1) { throw "expected exactly one library called $name; found $($folder.Count)." }
-        $types = @(Get-Member-Value $folder[0].LibraryOptions 'TypeOptions')
-        if ($types.Count -ne 0) {
-            throw "the $name library carries $($types.Count) TypeOptions entr(y/ies), which is an allow-list that turns the internet providers off."
+        # Every match, not just the first: two libraries of one name is not a state this asserts
+        # about, and if it ever happened the invariant has to hold for both anyway.
+        foreach ($folder in @($folders | Where-Object { (Get-Member-Value $_ 'Name') -eq $name })) {
+            $types = @(Get-Member-Value (Get-Member-Value $folder 'LibraryOptions') 'TypeOptions')
+            if ($types.Count -ne 0) {
+                throw "the $name library carries $($types.Count) TypeOptions entr(y/ies), which is an allow-list that turns the internet providers off."
+            }
         }
         Write-Host "      $name : no TypeOptions allow-list, so the server's own providers apply"
     }
@@ -995,11 +1020,12 @@ Invoke-Step 'The local libraries fetch metadata from the internet' {
         $i = try {
             Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($MovieItem.Id)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
         } catch { $null }
-        if ($i) { "no TMDB id on $($i.Name) yet" } else { 'no answer yet' }
+        if ($i) { "no TMDB id on $(Get-Member-Value $i 'Name') yet" } else { 'no answer yet' }
     }
 
-    $images = @((Get-Member-Value $item 'ImageTags').PSObject.Properties.Name)
-    Write-Host "      $($item.Name): tmdb=$($item.ProviderIds.Tmdb)  images=$($images -join ',')"
+    $tags = Get-Member-Value $item 'ImageTags'
+    $images = @(if ($tags) { $tags.PSObject.Properties.Name })
+    Write-Host "      $(Get-Member-Value $item 'Name'): tmdb=$((Get-Member-Value $item 'ProviderIds').Tmdb)  images=$($images -join ',')"
     if ($images -notcontains 'Primary') { throw "the imported film has no poster; the metadata providers are not reaching the internet." }
 }
 

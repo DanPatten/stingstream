@@ -88,7 +88,7 @@ $Exe = if ($script:IsWindowsHostCached) { '.exe' } else { '' }
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $WorkDir) {
     $WorkDir = if ($script:IsWindowsHostCached) {
-        Join-Path (Split-Path -Parent $RepoRoot) '.win-temp\stingstream-sidedoor'
+        Join-Path $RepoRoot '.local\e2e\stingstream-sidedoor'
     } else {
         Join-Path ([IO.Path]::GetTempPath()) 'stingstream-sidedoor'
     }

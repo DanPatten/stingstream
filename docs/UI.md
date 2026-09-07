@@ -260,7 +260,7 @@ just jellyfin/radarr/sonarr):
 
 ```powershell
 # One-time (or after a fresh server-side change lands): stage a private copy.
-$bin = "E:\Dan\Documents\Repos\.win-temp\stingstream-m2-bin"
+$bin = "E:\Dan\Documents\Repos\StingStream\.local\scratch\stingstream-m2-bin"
 New-Item -ItemType Directory -Force `
   "$bin\bin\jellyfin", "$bin\bin\radarr", "$bin\bin\sonarr", `
   "$bin\bin\ffmpeg\win64", "$bin\bin\nzbget\win64", "$bin\bin\mesh" | Out-Null
@@ -280,7 +280,7 @@ Copy-Item "third_party\nzbget\bin\win64\*" "$bin\bin\nzbget\win64\" -Recurse -Fo
 # because the "look in apps/stingstream/dist automatically" default only applies in --dev; Prod
 # mode (which --install-root selects) has no repo root to derive it from.
 & "$bin\stingstream.exe" --install-root $bin `
-  --data-dir "E:\Dan\Documents\Repos\.win-temp\stingstream-m2-dev" `
+  --data-dir "E:\Dan\Documents\Repos\StingStream\.local\scratch\stingstream-m2-dev" `
   --web-dist "apps\stingstream\dist"
 ```
 

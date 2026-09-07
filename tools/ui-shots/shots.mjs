@@ -3,13 +3,13 @@
 // findings, and write a report. See docs/UI-LOOP.md.
 //
 //   # A node whose first-run setup is already complete:
-//   node shots.mjs --base http://127.0.0.1:8795 --out ..\.win-temp\ui-loop\pass-02\web \
-//     --creds ..\.win-temp\ui-loop\creds.json [--lan http://192.168.0.16:8795] \
+//   node shots.mjs --base http://127.0.0.1:8795 --out ..\.local\ui-loop\pass-02\web \
+//     --creds ..\.local\ui-loop\creds.json [--lan http://192.168.0.16:8795] \
 //     [--only 02-home,05-details]
 //
 //   # A fresh node: create the account through the real first-run screen, and remember it.
-//   node shots.mjs --base http://127.0.0.1:8795 --out ..\.win-temp\ui-loop\pass-02\web \
-//     --first-run --creds ..\.win-temp\ui-loop\creds.json
+//   node shots.mjs --base http://127.0.0.1:8795 --out ..\.local\ui-loop\pass-02\web \
+//     --first-run --creds ..\.local\ui-loop\creds.json
 //
 // One browser, one fresh context per viewport (dark, reduced-motion, per the plan), one page per
 // context walked through every screen IN ORDER so a screen that depends on a prior action (Details

@@ -69,15 +69,15 @@
     Leave the node running afterwards instead of stopping it.
 
 .EXAMPLE
-    powershell tools\ui-startup.ps1 -WebDist E:\Dan\Documents\Repos\.win-temp\ui-loop\web-dist -DriveUi -Lan
+    powershell tools\ui-startup.ps1 -WebDist E:\Dan\Documents\Repos\StingStream\.local\ui-loop\web-dist -DriveUi -Lan
 
 .EXAMPLE
     powershell tools\ui-startup.ps1        # HTTP-only budgets, no browser
 #>
 [CmdletBinding()]
 param(
-    [string]$PrivateCopy = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\bin',
-    [string]$WorkDir = 'E:\Dan\Documents\Repos\.win-temp\ui-loop\startup',
+    [string]$PrivateCopy = (Join-Path $PSScriptRoot '..\.local\ui-loop\bin'),
+    [string]$WorkDir = (Join-Path $PSScriptRoot '..\.local\ui-loop\startup'),
     [int]$Port = 8796,
     [switch]$WithArrs,
     [string]$WebDist,
@@ -319,7 +319,7 @@ if (-not $DriveUi) {
         # $shotsDir/$ShotsDir would be the SAME variable and the second assignment would silently
         # clobber the screenshot output directory with this tool directory. Confirmed live
         # (2026-09-06): that exact collision sent drive-startup.mjs's screenshots into
-        # tools/ui-shots/ itself instead of the private .win-temp\ui-loop\startup\shots\ directory.
+        # tools/ui-shots/ itself instead of the private .local\ui-loop\startup\shots\ directory.
         # Named distinctly on purpose; do not rename this back to anything spelled "shotsdir".
         $ShotsToolDir = Join-Path $RepoRoot 'tools/ui-shots'
         if (-not (Test-Path (Join-Path $ShotsToolDir 'node_modules/playwright'))) {

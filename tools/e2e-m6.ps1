@@ -151,7 +151,7 @@ if (-not (Test-Path (Join-Path $RepoRoot 'docs/ARCHITECTURE.md'))) {
     throw "e2e-m6: could not find the StingStream repository root from $PSScriptRoot."
 }
 if (-not $WorkDir) {
-    $WorkDir = Join-Path (Split-Path -Parent $RepoRoot) '.stingstream-e2e-m6'
+    $WorkDir = Join-Path $RepoRoot '.local\e2e\stingstream-e2e-m6'
 }
 
 $IsWin = ($PSVersionTable.PSVersion.Major -lt 6) -or $IsWindows
@@ -376,7 +376,7 @@ try {
 Invoke-Step 'Build' {
     if ($SkipBuild) { Write-Host '      -SkipBuild: assuming everything is built'; return }
 
-    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path (Split-Path -Parent $RepoRoot) '.nuget-packages' }
+    $env:NUGET_PACKAGES = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $RepoRoot '.local\caches\nuget-packages' }
 
     Write-Host '      cargo build -p stingstream'
     & cargo build --manifest-path (Join-Path $RepoRoot 'mesh/Cargo.toml') -p stingstream
