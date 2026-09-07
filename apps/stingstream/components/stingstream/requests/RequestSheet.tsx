@@ -101,12 +101,6 @@ export function RequestSheet({
       onClose={onClose}
       title={requestTitle(shown)}
       dismissible={!create.isPending}
-      // See `Dialog`'s own doc comment: the bottom sheet this would otherwise use cannot be
-      // closed at all on a compact-width web build (Reanimated's exit animation, which the sheet's
-      // dismiss depends on, fails to load there) — confirmed live: Cancel, a backdrop tap and
-      // swipe-down all left it stuck open, blocking every screen navigated to afterwards. The
-      // centred-card Modal closes reliably; native phones are unaffected and keep the sheet.
-      forceModal
       actions={[
         {
           label: t("common.cancel"),

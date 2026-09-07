@@ -3,15 +3,17 @@ import { getConfigurationApi } from "@jellyfin/sdk/lib/utils/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
-import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { SaveBar, TextFieldRow, ToggleRow } from "../settings/fields";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
 
 export function TranscodingSection() {
+  const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<EncodingOptions | null>(null);
@@ -39,27 +41,29 @@ export function TranscodingSection() {
       });
     },
     onSuccess: () => {
-      toast.success("Transcoding settings saved");
+      toast.success(t("admin.transcoding_save_success"));
       queryClient.invalidateQueries({
         queryKey: ["stingstream", "jellyfin-encoding-config"],
       });
     },
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : "Could not save"),
+      toast.error(
+        err instanceof Error ? err.message : t("admin.transcoding_save_error"),
+      ),
   });
 
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(data);
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>Transcoding</Text>
+      <ScreenHeaderRow title={t("admin.transcoding_title")} />
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {draft && (
           <>
             <ListGroup>
               <TextFieldRow
-                title='Hardware acceleration'
-                subtitle='none, qsv, nvenc, amf, vaapi, videotoolbox, rkmpp...'
+                title={t("admin.transcoding_hwaccel_title")}
+                subtitle={t("admin.transcoding_hwaccel_detail")}
                 value={draft.HardwareAccelerationType ?? "none"}
                 onChangeText={(v) =>
                   setDraft((d) =>
@@ -68,8 +72,8 @@ export function TranscodingSection() {
                 }
               />
               <TextFieldRow
-                title='Encoding thread count'
-                subtitle='-1 uses the default'
+                title={t("admin.transcoding_thread_count_title")}
+                subtitle={t("admin.transcoding_thread_count_detail")}
                 keyboardType='number-pad'
                 value={String(draft.EncodingThreadCount ?? -1)}
                 onChangeText={(v) =>
@@ -84,22 +88,22 @@ export function TranscodingSection() {
                 }
               />
               <TextFieldRow
-                title='Transcoding temp path'
-                subtitle='Empty uses the default cache path'
+                title={t("admin.transcoding_temp_path_title")}
+                subtitle={t("admin.transcoding_temp_path_detail")}
                 value={draft.TranscodingTempPath ?? ""}
                 onChangeText={(v) =>
                   setDraft((d) => (d ? { ...d, TranscodingTempPath: v } : d))
                 }
               />
               <ToggleRow
-                title='Throttle transcodes once caught up'
+                title={t("admin.transcoding_throttle_title")}
                 value={draft.EnableThrottling ?? false}
                 onValueChange={(v) =>
                   setDraft((d) => (d ? { ...d, EnableThrottling: v } : d))
                 }
               />
               <ToggleRow
-                title='Delete unwatched HLS segments'
+                title={t("admin.transcoding_delete_segments_title")}
                 value={draft.EnableSegmentDeletion ?? false}
                 onValueChange={(v) =>
                   setDraft((d) => (d ? { ...d, EnableSegmentDeletion: v } : d))

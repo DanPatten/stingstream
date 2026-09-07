@@ -1,19 +1,41 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { radius, tokens } from "@/constants/theme";
 import {
   type NodeStatus,
   useMeshStatus,
   useNodeStatus,
 } from "@/lib/stingstream/hooks";
+import type { HealthzChild } from "@/lib/stingstream/status";
 import { useHealthz } from "@/lib/stingstream/status";
 import { GapNotice } from "../shared/GapNotice";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
 import { SideDoorSection } from "./SideDoorSection";
 
-function stateColor(state: string): "default" | "red" {
-  return state === "healthy" ? "default" : "red";
+/** "jellyfin"/"radarr"/"sonarr"/"nzbget"/"mesh" reach the UI verbatim from the
+ * supervisor — data, not text this app wrote — and every one of those first
+ * four is a name the brand rule bans from view. */
+function childLabel(t: TFunction, name: string): string {
+  switch (name) {
+    case "jellyfin":
+      return t("server_status.child_jellyfin");
+    case "radarr":
+      return t("server_status.child_radarr");
+    case "sonarr":
+      return t("server_status.child_sonarr");
+    case "nzbget":
+      return t("server_status.child_nzbget");
+    case "mesh":
+      return t("server_status.child_mesh");
+    default:
+      return name;
+  }
 }
 
 /**
@@ -36,7 +58,60 @@ function versionOf(
   return fromHealthz || fromCore || "—";
 }
 
+function childTone(child: HealthzChild): PillTone {
+  if (!child.enabled) return "neutral";
+  return child.state === "healthy" ? "success" : "danger";
+}
+
+function ChildCard({
+  child,
+  status,
+}: {
+  child: HealthzChild;
+  status: NodeStatus | undefined;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View
+      style={{
+        width: 180,
+        borderRadius: radius.md,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 12,
+        marginRight: 12,
+        marginBottom: 12,
+      }}
+    >
+      <Text weight='semibold' numberOfLines={1}>
+        {childLabel(t, child.name)}
+      </Text>
+      <Pill
+        label={child.enabled ? child.state : t("server_status.child_disabled")}
+        tone={childTone(child)}
+        size='sm'
+        style={{ marginTop: 8, alignSelf: "flex-start" }}
+      />
+      <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+        {t("server_status.child_version", {
+          version: versionOf(child.name, child.version, status),
+        })}
+      </Text>
+      {child.port ? (
+        <Text variant='caption' tone='secondary'>
+          {t("server_status.child_port", { port: child.port })}
+        </Text>
+      ) : null}
+      {child.restarts ? (
+        <Text variant='micro' tone='tertiary' style={{ marginTop: 4 }}>
+          {t("server_status.child_restarts", { count: child.restarts })}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function NodeStatusScreen() {
+  const { t } = useTranslation();
   const healthz = useHealthz();
   const status = useNodeStatus();
   const mesh = useMeshStatus();
@@ -49,112 +124,119 @@ export function NodeStatusScreen() {
     >
       {healthz.data && (
         <>
-          <Text className='text-white text-lg font-semibold mb-2'>Node</Text>
+          <ScreenHeaderRow title={t("server_status.server_section_title")} />
           <ListGroup>
-            <ListItem title='Name' value={healthz.data.node.name} />
-            <ListItem title='Node id' value={healthz.data.node.id} />
             <ListItem
-              title='Mode'
-              value={healthz.data.node.dev ? "--dev" : "installed"}
+              title={t("server_status.name_field")}
+              value={healthz.data.node.name}
             />
             <ListItem
-              title='Data directory'
+              title={t("server_status.server_id_field")}
+              value={healthz.data.node.id}
+            />
+            <ListItem
+              title={t("server_status.mode_field")}
+              value={
+                healthz.data.node.dev
+                  ? t("server_status.mode_dev")
+                  : t("server_status.mode_installed")
+              }
+            />
+            <ListItem
+              title={t("server_status.data_dir_field")}
               value={healthz.data.node.data_dir}
             />
             <ListItem
-              title='Gateway port'
+              title={t("server_status.gateway_port_field")}
               value={String(healthz.data.gateway.port)}
             />
           </ListGroup>
 
-          <View className='h-4' />
+          <View style={{ height: 16 }} />
 
-          <Text className='text-white text-lg font-semibold mb-2'>
-            Children
-          </Text>
-          <ListGroup
-            description={
-              <Text className='text-[#9899A1] text-xs'>
-                A version of "—" means the child is disabled, not answering, or
-                has no way to be asked — a real state, not an error.
-              </Text>
-            }
+          <ScreenHeaderRow title={t("server_status.children_section_title")} />
+          <View
+            testID='server-status-cards'
+            style={{ flexDirection: "row", flexWrap: "wrap" }}
           >
             {healthz.data.children.map((child) => (
-              <ListItem
-                key={child.name}
-                title={child.name}
-                subtitle={[
-                  child.enabled ? child.state : "disabled",
-                  child.port ? `port ${child.port}` : null,
-                  child.restarts ? `${child.restarts} restart(s)` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" • ")}
-                value={versionOf(child.name, child.version, status.data)}
-                textColor={child.enabled ? stateColor(child.state) : "default"}
-              />
+              <ChildCard key={child.name} child={child} status={status.data} />
             ))}
-          </ListGroup>
-
-          <View className='h-4' />
-
-          <Text className='text-white text-lg font-semibold mb-2'>
-            StingStream.Core
+          </View>
+          <Text variant='caption' tone='secondary' style={{ marginTop: -4 }}>
+            {t("server_status.version_unknown_hint")}
           </Text>
+
+          <View style={{ height: 16 }} />
+
+          <ScreenHeaderRow title={t("server_status.core_section_title")} />
           {status.data && (
             <ListGroup>
               <ListItem
-                title='First run'
-                value={status.data.FirstRun ? "yes" : "no"}
+                title={t("server_status.first_run_field")}
+                value={
+                  status.data.FirstRun
+                    ? t("server_status.yes")
+                    : t("server_status.no")
+                }
               />
               <ListItem
-                title='Inventory records'
+                title={t("server_status.inventory_records_field")}
                 value={String(status.data.InventoryRecords)}
               />
               <ListItem
-                title='Hashing queue'
+                title={t("server_status.hashing_queue_field")}
                 value={String(status.data.Hashing?.Queued ?? 0)}
               />
               <ListItem
-                title='Core database'
-                value={status.data.CoreDatabase ?? "unknown"}
+                title={t("server_status.core_database_field")}
+                value={status.data.CoreDatabase ?? t("server_status.unknown")}
               />
             </ListGroup>
           )}
 
-          <View className='h-4' />
+          <View style={{ height: 16 }} />
 
-          <Text className='text-white text-lg font-semibold mb-2'>Mesh</Text>
+          <ScreenHeaderRow title={t("server_status.sharing_section_title")} />
           {mesh.data ? (
             <ListGroup>
-              <ListItem title='Node id' value={mesh.data.Node} />
-              <ListItem title='Version' value={mesh.data.Version} />
               <ListItem
-                title='Groups joined'
+                title={t("server_status.server_id_field")}
+                value={mesh.data.Node}
+              />
+              <ListItem
+                title={t("server_status.version_field")}
+                value={mesh.data.Version}
+              />
+              <ListItem
+                title={t("server_status.groups_joined_field")}
                 value={String(mesh.data.Groups ?? 0)}
               />
               <ListItem
-                title='Available streams'
+                title={t("server_status.available_streams_field")}
                 value={String(mesh.data.AvailableStreams ?? 0)}
               />
               <ListItem
-                title='Relay'
-                value={mesh.data.RelayUrls?.join(", ") || "none"}
+                title={t("server_status.relay_field")}
+                value={
+                  mesh.data.RelayUrls?.join(", ") || t("server_status.none")
+                }
               />
               <ListItem
-                title='Direct addresses'
-                value={mesh.data.DirectAddrs?.join(", ") || "none"}
+                title={t("server_status.direct_addresses_field")}
+                value={
+                  mesh.data.DirectAddrs?.join(", ") || t("server_status.none")
+                }
               />
             </ListGroup>
           ) : (
             <GapNotice
-              title="Mesh status isn't available"
-              detail="This node's mesh isn't answering — see docs/ARCHITECTURE.md for M3's mesh status."
+              title={t("server_status.mesh_unavailable_title")}
+              detail={t("server_status.mesh_unavailable_detail")}
             />
           )}
 
-          <View className='h-4' />
+          <View style={{ height: 16 }} />
 
           <SideDoorSection />
         </>

@@ -1,10 +1,15 @@
 import { useMemo, useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/common/Input";
+import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type QualityProfileView,
   useDeleteQualityProfile,
@@ -12,7 +17,9 @@ import {
   useQualityVocabulary,
   useSaveQualityProfile,
 } from "@/lib/stingstream/hooks";
+import { arrAppLabel } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 import { SaveBar, TextFieldRow } from "./fields";
 
@@ -37,6 +44,7 @@ export function QualityProfilesSection({
   onSave: (next: string) => Promise<void>;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState<QualityProfileView | null>(null);
   const [creating, setCreating] = useState(false);
@@ -46,35 +54,45 @@ export function QualityProfilesSection({
 
   const del = async (name: string) => {
     const ok = await confirmDestructive(
-      `Delete "${name}"?`,
-      "The profile is removed from both the movie manager and the series manager. An app will refuse if any title is still using it.",
+      t("server_settings.quality_profiles_delete_confirm_title", { name }),
+      t("server_settings.quality_profiles_delete_confirm_message"),
     );
     if (!ok) return;
     try {
       const result = await remove.mutateAsync(name);
-      toast.success(result?.Detail?.join("; ") || "Deleted");
+      toast.success(
+        result?.Detail?.join("; ") ||
+          t("server_settings.quality_profiles_deleted_toast"),
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not delete");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("server_settings.quality_profiles_delete_error"),
+      );
     }
   };
 
   return (
     <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>
-          Quality profiles
-        </Text>
-        <TouchableOpacity
-          onPress={() => {
-            setEditing(null);
-            setCreating((v) => !v);
-          }}
-        >
-          <Text className='text-[#0584FE] font-semibold'>
-            {creating ? "Cancel" : "+ New"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <ScreenHeaderRow
+        title={t("server_settings.quality_profiles_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon={creating ? "close" : "add"}
+            onPress={() => {
+              setEditing(null);
+              setCreating((v) => !v);
+            }}
+          >
+            {creating
+              ? t("common.cancel")
+              : t("server_settings.quality_profiles_new_action")}
+          </Button>
+        }
+      />
 
       {creating && (
         <ProfileEditor initial={null} onDone={() => setCreating(false)} />
@@ -87,8 +105,8 @@ export function QualityProfilesSection({
       >
         {(profiles.data ?? []).length === 0 ? (
           <EmptyState
-            title='No quality profiles'
-            detail='Neither app has one, which normally means neither has finished starting. Press "+ New" to create one in both.'
+            title={t("server_settings.quality_profiles_empty_title")}
+            detail={t("server_settings.quality_profiles_empty_detail")}
           />
         ) : (
           <ListGroup>
@@ -96,26 +114,38 @@ export function QualityProfilesSection({
               <View key={p.Name}>
                 <ListItem
                   title={p.Name ?? ""}
-                  subtitle={describe(p)}
+                  subtitle={describe(t, p)}
                   subtitleColor={p.InSync === false ? "red" : "default"}
-                  value={p.IsDefault ? "Default" : undefined}
+                  value={
+                    p.IsDefault
+                      ? t("server_settings.quality_profiles_default_value")
+                      : undefined
+                  }
                   showArrow
                   onPress={() =>
                     setEditing(editing?.Name === p.Name ? null : p)
                   }
                 />
                 {editing?.Name === p.Name && (
-                  <View className='bg-neutral-800 px-4 py-3'>
+                  <View
+                    style={{
+                      backgroundColor: tokens.color.bg["2"],
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                    }}
+                  >
                     <ProfileEditor
                       initial={p}
                       onDone={() => setEditing(null)}
                     />
-                    <TouchableOpacity
-                      className='mt-3'
+                    <Pressable
+                      style={{ marginTop: 12 }}
                       onPress={() => void del(p.Name ?? "")}
                     >
-                      <Text className='text-red-400'>Delete this profile</Text>
-                    </TouchableOpacity>
+                      <Text tone='danger' weight='semibold'>
+                        {t("server_settings.quality_profiles_delete_action")}
+                      </Text>
+                    </Pressable>
                   </View>
                 )}
               </View>
@@ -124,12 +154,12 @@ export function QualityProfilesSection({
         )}
       </QueryState>
 
-      <View className='h-4' />
+      <View style={{ height: 16 }} />
 
       <ListGroup>
         <TextFieldRow
-          title='Default profile name'
-          subtitle='Used when adding a title without picking one. Empty means "whatever the app lists first".'
+          title={t("server_settings.quality_profiles_default_name_title")}
+          subtitle={t("server_settings.quality_profiles_default_name_detail")}
           value={draft}
           onChangeText={setDraft}
         />
@@ -141,9 +171,15 @@ export function QualityProfilesSection({
         onSave={async () => {
           try {
             await onSave(draft);
-            toast.success("Default quality profile saved");
+            toast.success(
+              t("server_settings.quality_profiles_default_saved_toast"),
+            );
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Could not save");
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("server_settings.save_error"),
+            );
           }
         }}
       />
@@ -151,16 +187,23 @@ export function QualityProfilesSection({
   );
 }
 
-function describe(p: QualityProfileView): string {
+function describe(
+  t: ReturnType<typeof useTranslation>["t"],
+  p: QualityProfileView,
+): string {
   const allowed = (p.Items ?? []).filter((i) => i.Allowed).length;
   const bits = [
-    `${allowed} quality group(s) allowed`,
-    p.Cutoff ? `cutoff ${p.Cutoff}` : null,
-    p.UpgradeAllowed ? "upgrades on" : "upgrades off",
-    (p.Apps ?? []).join(" + "),
+    t("server_settings.quality_profiles_groups_allowed", { count: allowed }),
+    p.Cutoff
+      ? t("server_settings.quality_profiles_cutoff", { cutoff: p.Cutoff })
+      : null,
+    p.UpgradeAllowed
+      ? t("server_settings.quality_profiles_upgrades_on")
+      : t("server_settings.quality_profiles_upgrades_off"),
+    (p.Apps ?? []).map((app) => arrAppLabel(t, app)).join(" + "),
   ];
   if (p.InSync === false && (p.Apps ?? []).length > 1) {
-    bits.push("the two apps disagree");
+    bits.push(t("server_settings.quality_profiles_apps_disagree"));
   }
   return bits.filter(Boolean).join(" • ");
 }
@@ -180,6 +223,8 @@ function ProfileEditor({
   initial: QualityProfileView | null;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
   const vocabulary = useQualityVocabulary();
   const save = useSaveQualityProfile();
   const isNew = initial === null;
@@ -218,11 +263,11 @@ function ProfileEditor({
 
   const submit = async () => {
     if (!name.trim()) {
-      toast.error("A profile needs a name");
+      toast.error(t("server_settings.quality_profiles_name_required"));
       return;
     }
     if (allowed.length === 0) {
-      toast.error("Allow at least one quality");
+      toast.error(t("server_settings.quality_profiles_allow_one_required"));
       return;
     }
     try {
@@ -237,7 +282,12 @@ function ProfileEditor({
       });
       const unsupported = Object.entries(result?.Profile?.Unsupported ?? {})
         .filter(([, list]) => (list ?? []).length > 0)
-        .map(([app, list]) => `${app} has no ${(list ?? []).join(", ")}`);
+        .map(([app, list]) =>
+          t("server_settings.quality_profiles_app_has_no", {
+            app: arrAppLabel(t, app),
+            list: (list ?? []).join(", "),
+          }),
+        );
       toast.success(
         [result?.Detail?.join("; "), ...unsupported]
           .filter(Boolean)
@@ -246,117 +296,163 @@ function ProfileEditor({
       onDone();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Could not save the profile",
+        err instanceof Error
+          ? err.message
+          : t("server_settings.quality_profiles_save_error"),
       );
     }
   };
 
   return (
-    <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-      <TextInput
-        placeholder='Profile name, e.g. 1080p'
-        placeholderTextColor='#5A5960'
+    <View
+      style={{
+        borderRadius: radius.lg,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 16,
+        marginBottom: 12,
+      }}
+    >
+      <Input
+        placeholder={t("server_settings.quality_profiles_name_placeholder")}
         value={name}
         editable={isNew}
         onChangeText={setName}
-        className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+        style={{ marginBottom: 8 }}
       />
       {!isNew && (
-        <Text className='text-[#9899A1] text-xs mb-2'>
-          The name is the profile's identity in both apps, so it cannot be
-          renamed here — a rename that succeeded in one app and failed in the
-          other would leave two half-profiles. Create the new one and delete
-          this.
+        <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+          {t("server_settings.quality_profiles_rename_hint")}
         </Text>
       )}
 
-      <TouchableOpacity
-        onPress={() => setUpgrade((v) => !v)}
-        className='flex-row items-center mb-3'
-      >
-        <View
-          className='w-5 h-5 rounded mr-2 items-center justify-center'
-          style={{ backgroundColor: upgrade ? Colors.primary : "#1f1f1f" }}
-        >
-          {upgrade && <Text className='text-white text-xs'>{"✓"}</Text>}
-        </View>
-        <Text className='text-white'>
-          Upgrade an existing file when a better release appears
-        </Text>
-      </TouchableOpacity>
-
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white font-semibold'>Allowed qualities</Text>
-        <TouchableOpacity onPress={() => setShowAll((v) => !v)}>
-          <Text className='text-[#0584FE] text-xs'>
-            {showAll ? "Shared only" : "Show every quality"}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      <Text className='text-[#9899A1] text-xs mb-2'>
-        {showAll
-          ? "Every quality either app knows. One app will ignore what it does not have, and say so when you save."
-          : "The qualities the movie manager and the series manager both understand — the safe set for a profile that governs films and series alike."}
-      </Text>
-
-      <View className='flex-row flex-wrap gap-2 mb-3'>
-        {names.map((q) => (
-          <TouchableOpacity
-            key={q}
-            onPress={() => toggle(q)}
-            className='rounded-full px-3 py-1'
-            style={{
-              backgroundColor: allowed.includes(q) ? Colors.primary : "#2a2a2a",
-            }}
-          >
-            <Text className='text-white text-xs'>{q}</Text>
-          </TouchableOpacity>
-        ))}
-        {names.length === 0 && (
-          <Text className='text-[#9899A1] text-xs'>
-            {vocabulary.isLoading
-              ? "Reading each app's quality list…"
-              : "Neither app answered with a quality list."}
-          </Text>
-        )}
-      </View>
-
-      <Text className='text-white font-semibold mb-1'>Upgrade until</Text>
-      <View className='flex-row flex-wrap gap-2 mb-3'>
-        {allowed.map((q) => (
-          <TouchableOpacity
-            key={q}
-            onPress={() => setCutoff(q)}
-            className='rounded-full px-3 py-1'
-            style={{ backgroundColor: cutoff === q ? "#9334E9" : "#2a2a2a" }}
-          >
-            <Text className='text-white text-xs'>{q}</Text>
-          </TouchableOpacity>
-        ))}
-        {allowed.length === 0 && (
-          <Text className='text-[#9899A1] text-xs'>
-            Pick some qualities first — the cutoff has to be one of them.
-          </Text>
-        )}
-      </View>
-
-      <TouchableOpacity
-        disabled={save.isPending}
-        onPress={() => void submit()}
-        className='rounded-lg py-2 items-center'
+      <View
         style={{
-          backgroundColor: Colors.primary,
-          opacity: save.isPending ? 0.5 : 1,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
         }}
       >
-        <Text className='text-white font-semibold'>
-          {save.isPending
-            ? "Saving into both apps…"
-            : isNew
-              ? "Create in both apps"
-              : "Save to both apps"}
+        <Text style={{ flex: 1, marginRight: 12 }}>
+          {t("server_settings.quality_profiles_upgrade_title")}
         </Text>
-      </TouchableOpacity>
+        <SettingSwitch value={upgrade} onValueChange={setUpgrade} />
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 4,
+        }}
+      >
+        <Text weight='semibold'>
+          {t("server_settings.quality_profiles_allowed_qualities_title")}
+        </Text>
+        <Pressable onPress={() => setShowAll((v) => !v)}>
+          <Text variant='caption' tone='accent'>
+            {showAll
+              ? t("server_settings.quality_profiles_shared_only_action")
+              : t("server_settings.quality_profiles_show_every_action")}
+          </Text>
+        </Pressable>
+      </View>
+      <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+        {showAll
+          ? t("server_settings.quality_profiles_showing_every_detail")
+          : t("server_settings.quality_profiles_showing_shared_detail")}
+      </Text>
+
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        {names.map((q) => (
+          <Pressable
+            key={q}
+            onPress={() => toggle(q)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: radius.pill,
+              backgroundColor: allowed.includes(q)
+                ? accent[500]
+                : tokens.color.bg["3"],
+            }}
+          >
+            <Text
+              variant='caption'
+              weight='semibold'
+              tone={allowed.includes(q) ? "onAccent" : "secondary"}
+            >
+              {q}
+            </Text>
+          </Pressable>
+        ))}
+        {names.length === 0 && (
+          <Text variant='caption' tone='secondary'>
+            {vocabulary.isLoading
+              ? t("server_settings.quality_profiles_reading_vocabulary")
+              : t("server_settings.quality_profiles_no_vocabulary")}
+          </Text>
+        )}
+      </View>
+
+      <Text weight='semibold' style={{ marginBottom: 4 }}>
+        {t("server_settings.quality_profiles_upgrade_until_title")}
+      </Text>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        {allowed.map((q) => (
+          <Pressable
+            key={q}
+            onPress={() => setCutoff(q)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: radius.pill,
+              backgroundColor:
+                cutoff === q ? accent[500] : tokens.color.bg["3"],
+            }}
+          >
+            <Text
+              variant='caption'
+              weight='semibold'
+              tone={cutoff === q ? "onAccent" : "secondary"}
+            >
+              {q}
+            </Text>
+          </Pressable>
+        ))}
+        {allowed.length === 0 && (
+          <Text variant='caption' tone='secondary'>
+            {t("server_settings.quality_profiles_pick_qualities_first")}
+          </Text>
+        )}
+      </View>
+
+      <Button
+        variant='primary'
+        loading={save.isPending}
+        onPress={() => void submit()}
+      >
+        {save.isPending
+          ? t("server_settings.quality_profiles_saving_action")
+          : isNew
+            ? t("server_settings.quality_profiles_create_action")
+            : t("server_settings.quality_profiles_save_action")}
+      </Button>
     </View>
   );
 }

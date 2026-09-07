@@ -2,7 +2,7 @@ import type {
   BaseItemDto,
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
-import { Bitrate } from "@/components/BitrateSelector";
+import { Bitrate } from "@/constants/Playback";
 
 /**
  * Represents the data for downloaded trickplay files.

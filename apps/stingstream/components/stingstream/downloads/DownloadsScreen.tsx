@@ -1,8 +1,15 @@
-import { TouchableOpacity, View } from "react-native";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
+import { Icon, type IconName } from "@/components/common/Icon";
+import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { radius, tokens } from "@/constants/theme";
+import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { formatBytes } from "@/lib/stingstream/arr-types";
 import {
   type DownloadItem,
@@ -11,17 +18,59 @@ import {
   useNodeStatus,
 } from "@/lib/stingstream/hooks";
 import { useHealthz } from "@/lib/stingstream/status";
+import { arrAppLabel } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 function rate(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
+function EngineCard({
+  title,
+  tone,
+  state,
+  detail,
+}: {
+  title: string;
+  tone: PillTone;
+  state: string;
+  detail?: string;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        borderRadius: radius.md,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 12,
+      }}
+    >
+      <Text weight='semibold' numberOfLines={1}>
+        {title}
+      </Text>
+      <Pill
+        label={state}
+        tone={tone}
+        size='sm'
+        style={{ marginTop: 8, alignSelf: "flex-start" }}
+      />
+      {detail ? (
+        <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+          {detail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function DownloadsScreen() {
+  const { t } = useTranslation();
   const status = useNodeStatus();
   const healthz = useHealthz();
   const downloads = useDownloads();
+  const router = useRouter();
 
   const nzbget = healthz.data?.children.find((c) => c.name === "nzbget");
   const torrents = status.data?.Torrents;
@@ -34,49 +83,85 @@ export function DownloadsScreen() {
       error={status.error}
       onRetry={status.refetch}
     >
-      <Text className='text-white text-lg font-semibold mb-2'>
-        Engine health
-      </Text>
+      <ScreenHeaderRow title={t("transfers.engine_health_title")} />
+      <View
+        testID='transfers-engine-cards'
+        style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}
+      >
+        <EngineCard
+          title={t("transfers.torrent_engine")}
+          tone={torrents?.Running ? "success" : "danger"}
+          state={
+            torrents?.Running
+              ? t("transfers.engine_running")
+              : t("transfers.engine_stopped")
+          }
+          detail={
+            torrents?.Running
+              ? t("transfers.torrent_engine_running", {
+                  count: torrents.Count ?? 0,
+                  down: rate(torrents.DownloadRate ?? 0),
+                  up: rate(torrents.UploadRate ?? 0),
+                })
+              : undefined
+          }
+        />
+        <EngineCard
+          title={t("transfers.usenet_engine")}
+          tone={
+            !nzbget
+              ? "neutral"
+              : nzbget.state === "healthy"
+                ? "success"
+                : "danger"
+          }
+          state={
+            nzbget
+              ? nzbget.state
+              : healthz.isLoading
+                ? t("transfers.checking")
+                : t("transfers.unknown")
+          }
+          detail={[
+            nzbget?.version
+              ? t("transfers.engine_version", { version: nzbget.version })
+              : null,
+            nzbget?.restarts
+              ? t("transfers.restart_count", { count: nzbget.restarts })
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" • ")}
+        />
+      </View>
       <ListGroup>
         <ListItem
-          title='Torrent engine'
-          subtitle={
-            torrents?.Running
-              ? `Running • ${torrents.Count ?? 0} active • ${rate(torrents.DownloadRate ?? 0)} down / ${rate(torrents.UploadRate ?? 0)} up`
-              : "Stopped"
-          }
-          textColor={torrents?.Running ? "default" : "red"}
-        />
-        <ListItem
-          title='Usenet engine'
-          subtitle={
-            nzbget
-              ? `${nzbget.state}${nzbget.restarts ? ` • ${nzbget.restarts} restart(s)` : ""}`
-              : healthz.isLoading
-                ? "Checking…"
-                : "Unknown"
-          }
-          textColor={nzbget?.state === "healthy" ? "default" : "red"}
-        />
-        <ListItem
-          title='Hashing queue'
-          subtitle={`${hashing?.Queued ?? 0} file(s) queued for BLAKE3 hashing`}
+          title={t("transfers.hashing_queue")}
+          subtitle={t("transfers.hashing_queue_detail", {
+            count: hashing?.Queued ?? 0,
+          })}
         />
       </ListGroup>
 
-      <View className='h-4' />
+      <View style={{ height: 16 }} />
 
-      <View className='flex-row items-baseline justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>Downloads</Text>
-        {downloads.data && (
-          <Text className='text-[#9899A1] text-xs'>
-            {rate(downloads.data.TotalDownloadRate ?? 0)} down
-            {downloads.data.TotalUploadRate
-              ? ` / ${rate(downloads.data.TotalUploadRate)} up`
-              : ""}
-          </Text>
-        )}
-      </View>
+      <ScreenHeaderRow
+        title={t("transfers.title")}
+        accessory={
+          downloads.data ? (
+            <Text variant='caption' tone='secondary'>
+              {downloads.data.TotalUploadRate
+                ? t("transfers.rate_down_up", {
+                    down: rate(downloads.data.TotalDownloadRate ?? 0),
+                    up: rate(downloads.data.TotalUploadRate),
+                  })
+                : t("transfers.rate_down", {
+                    down: rate(downloads.data.TotalDownloadRate ?? 0),
+                  })}
+            </Text>
+          ) : undefined
+        }
+      />
 
       <QueryState
         isLoading={downloads.isLoading}
@@ -85,11 +170,16 @@ export function DownloadsScreen() {
       >
         {items.length === 0 ? (
           <EmptyState
-            title='Nothing downloading'
-            detail={engineNote(downloads.data?.Engines)}
+            title={t("transfers.empty_title")}
+            detail={t("transfers.empty_detail")}
+            icon='download'
+            action={{
+              label: t("transfers.empty_action"),
+              onPress: () => router.push("/(auth)/(tabs)/(search)"),
+            }}
           />
         ) : (
-          <ListGroup>
+          <ListGroup testID='transfers-list'>
             {items.map((item) => (
               <DownloadRow key={item.Id} item={item} />
             ))}
@@ -100,8 +190,8 @@ export function DownloadsScreen() {
       {/* Only when there is a list above it: the empty state already carries this line as its
           detail, and saying it twice reads like two different problems. */}
       {items.length > 0 && downloads.data?.Engines && (
-        <Text className='text-[#9899A1] text-xs mt-2'>
-          {engineNote(downloads.data.Engines)}
+        <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+          {engineNote(t, downloads.data.Engines)}
         </Text>
       )}
     </QueryState>
@@ -116,17 +206,22 @@ export function DownloadsScreen() {
  * cannot tell them apart sends somebody looking for a bug that is not there.
  */
 function engineNote(
-  engines: Record<string, string> | undefined,
+  t: TFunction,
+  engines: Record<string, string>,
 ): string | undefined {
-  if (!engines) return undefined;
   const bad = Object.entries(engines).filter(([, v]) => v !== "ok");
   if (bad.length === 0) {
-    return `Reporting: ${Object.keys(engines).join(", ")}.`;
+    return t("transfers.engines_reporting", {
+      engines: Object.keys(engines).join(", "),
+    });
   }
-  return `Not reporting: ${bad.map(([k, v]) => `${k} (${v})`).join(", ")}.`;
+  return t("transfers.engines_not_reporting", {
+    engines: bad.map(([k, v]) => `${k} (${v})`).join(", "),
+  });
 }
 
 function DownloadRow({ item }: { item: DownloadItem }) {
+  const { t } = useTranslation();
   const action = useDownloadAction();
 
   const run = async (
@@ -135,11 +230,13 @@ function DownloadRow({ item }: { item: DownloadItem }) {
   ) => {
     if (kind === "remove") {
       const ok = await confirmDestructive(
-        `Remove ${item.Title}?`,
+        t("transfers.remove_confirm_title", { title: item.Title }),
         deleteFiles
-          ? "The download is cancelled and what has been fetched so far is deleted."
-          : "The download is cancelled. Files already fetched are left on disk.",
-        deleteFiles ? "Remove and delete" : "Remove",
+          ? t("transfers.remove_confirm_message_files")
+          : t("transfers.remove_confirm_message"),
+        deleteFiles
+          ? t("transfers.remove_with_files_action")
+          : t("common.remove"),
       );
       if (!ok) return;
     }
@@ -150,11 +247,13 @@ function DownloadRow({ item }: { item: DownloadItem }) {
         id: item.EngineId ?? "",
         deleteFiles,
       });
-      toast.success(result?.Message ?? "Done");
+      toast.success(result?.Message ?? t("transfers.action_done"));
     } catch (err) {
       // A 409 is the engine's honest answer ("this one tracks the download
       // rather than holding it"), not a crash, so it is shown as a message.
-      toast.error(err instanceof Error ? err.message : "The engine refused");
+      toast.error(
+        err instanceof Error ? err.message : t("transfers.action_refused"),
+      );
     }
   };
 
@@ -162,37 +261,49 @@ function DownloadRow({ item }: { item: DownloadItem }) {
     <View>
       <ListItem
         title={item.Title || item.Id || ""}
-        subtitle={describe(item)}
+        subtitle={describe(t, item)}
         subtitleColor={item.State === "failed" ? "red" : "default"}
         value={percent(item)}
       />
-      <View className='bg-neutral-900 px-4 pb-3'>
+      <View
+        style={{
+          backgroundColor: tokens.color.bg["2"],
+          paddingHorizontal: 16,
+          paddingBottom: 12,
+        }}
+      >
         <ProgressBar item={item} />
-        <View className='flex-row gap-2 mt-2'>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
           {item.CanPause && (
-            <RowAction
-              label='Pause'
+            <IconAction
+              icon='pause'
+              label={t("transfers.pause_action")}
               busy={action.isPending}
               onPress={() => void run("pause")}
             />
           )}
           {item.CanResume && (
-            <RowAction
-              label='Resume'
+            <IconAction
+              icon='play'
+              label={t("transfers.resume_action")}
               busy={action.isPending}
               onPress={() => void run("resume")}
             />
           )}
           {item.CanRemove && (
             <>
-              <RowAction
-                label='Remove'
+              <IconAction
+                icon='close'
+                label={t("transfers.remove_action_for", { title: item.Title })}
                 tone='red'
                 busy={action.isPending}
                 onPress={() => void run("remove", false)}
               />
-              <RowAction
-                label='Remove + files'
+              <IconAction
+                icon='delete'
+                label={t("transfers.remove_with_files_action_for", {
+                  title: item.Title,
+                })}
                 tone='red'
                 busy={action.isPending}
                 onPress={() => void run("remove", true)}
@@ -206,17 +317,25 @@ function DownloadRow({ item }: { item: DownloadItem }) {
 }
 
 function ProgressBar({ item }: { item: DownloadItem }) {
+  const { accent } = useTheme();
   const fraction = Math.max(0, Math.min(1, item.Progress ?? 0));
   const colour =
     item.State === "failed"
-      ? "#b91c1c"
+      ? tokens.color.state.danger
       : item.State === "paused"
-        ? "#6b7280"
+        ? tokens.color.text.tertiary
         : item.State === "completed"
-          ? "#16a34a"
-          : "#0584FE";
+          ? tokens.color.state.success
+          : accent[500];
   return (
-    <View className='h-1.5 rounded-full overflow-hidden bg-neutral-800'>
+    <View
+      style={{
+        height: 6,
+        borderRadius: radius.pill,
+        overflow: "hidden",
+        backgroundColor: tokens.color.bg["3"],
+      }}
+    >
       <View
         style={{
           width: `${fraction * 100}%`,
@@ -231,73 +350,96 @@ function ProgressBar({ item }: { item: DownloadItem }) {
 const percent = (item: DownloadItem): string =>
   item.Progress == null ? "—" : `${Math.round(item.Progress * 100)}%`;
 
-function describe(item: DownloadItem): string {
-  const bits: string[] = [STATES[item.State ?? ""] ?? item.State ?? ""];
+function describe(t: TFunction, item: DownloadItem): string {
+  const bits: string[] = [stateLabel(t, item.State)];
   if (item.SizeBytes) {
     bits.push(
       `${formatBytes(item.DownloadedBytes ?? 0)} / ${formatBytes(item.SizeBytes)}`,
     );
   }
   if (item.DownloadRate) bits.push(rate(item.DownloadRate));
-  if (item.Eta) bits.push(eta(item.Eta));
-  bits.push(ENGINES[item.Engine ?? ""] ?? item.Engine ?? "");
-  if (item.App && item.App !== item.Engine) bits.push(`for ${item.App}`);
+  if (item.Eta) bits.push(eta(t, item.Eta));
+  bits.push(engineLabel(t, item.Engine));
+  if (item.App && item.App !== item.Engine) {
+    bits.push(t("transfers.tracked_by", { app: arrAppLabel(t, item.App) }));
+  }
   if (item.ErrorMessage) bits.push(item.ErrorMessage);
   return bits.filter(Boolean).join(" • ");
 }
 
-const STATES: Record<string, string> = {
-  downloading: "Downloading",
-  queued: "Queued",
-  paused: "Paused",
-  stalled: "Stalled",
-  importing: "Importing",
-  completed: "Completed",
-  failed: "Failed",
-};
-
-const ENGINES: Record<string, string> = {
-  torrent: "torrent",
-  usenet: "usenet",
-  radarr: "tracked by the movie manager",
-  sonarr: "tracked by the series manager",
-};
-
-function eta(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s left`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m left`;
-  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h left`;
-  return `${Math.round(seconds / 86_400)}d left`;
+function stateLabel(t: TFunction, state: string | null | undefined): string {
+  switch (state) {
+    case "downloading":
+      return t("transfers.state_downloading");
+    case "queued":
+      return t("transfers.state_queued");
+    case "paused":
+      return t("transfers.state_paused");
+    case "stalled":
+      return t("transfers.state_stalled");
+    case "importing":
+      return t("transfers.state_importing");
+    case "completed":
+      return t("transfers.state_completed");
+    case "failed":
+      return t("transfers.state_failed");
+    default:
+      return state ?? "";
+  }
 }
 
-function RowAction({
+function engineLabel(t: TFunction, engine: string | null | undefined): string {
+  if (engine === "torrent") return t("transfers.engine_torrent");
+  if (engine === "usenet") return t("transfers.engine_usenet");
+  return engine ?? "";
+}
+
+function eta(t: TFunction, seconds: number): string {
+  if (seconds < 60)
+    return t("transfers.eta_seconds", { count: Math.round(seconds) });
+  if (seconds < 3600)
+    return t("transfers.eta_minutes", { count: Math.round(seconds / 60) });
+  if (seconds < 86_400)
+    return t("transfers.eta_hours", { count: Math.round(seconds / 3600) });
+  return t("transfers.eta_days", { count: Math.round(seconds / 86_400) });
+}
+
+/** A round icon button for a per-row transfer action — pause, resume, remove. */
+function IconAction({
+  icon,
   label,
   onPress,
   tone,
   busy,
 }: {
+  icon: IconName;
   label: string;
   onPress: () => void;
   tone?: "red";
   busy?: boolean;
 }) {
   return (
-    <TouchableOpacity
+    <Pressable
       disabled={busy}
       onPress={onPress}
-      className='rounded-lg px-3 py-1.5'
+      accessibilityRole='button'
+      accessibilityLabel={label}
+      hitSlop={6}
       style={{
-        backgroundColor: tone === "red" ? "#3f1d1d" : "#2a2a2a",
+        width: 40,
+        height: 40,
+        borderRadius: radius.sm,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: tokens.color.bg["3"],
         opacity: busy ? 0.5 : 1,
       }}
     >
-      <Text
-        className={
-          tone === "red" ? "text-red-400 text-xs" : "text-white text-xs"
-        }
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
+      <Icon
+        name={icon}
+        size={18}
+        tone={tone === "red" ? "danger" : "primary"}
+      />
+    </Pressable>
   );
 }

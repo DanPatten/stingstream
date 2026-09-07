@@ -10,12 +10,13 @@ import { t } from "i18next";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
-import { BITRATES, type Bitrate } from "@/components/BitrateSelector";
+import { BITRATES, type Bitrate } from "@/constants/Playback";
 import {
   ACCENT_NAMES,
   type AccentName,
   DEFAULT_ACCENT,
 } from "@/constants/theme";
+import type { PlaybackPolicy } from "@/lib/stingstream/sourceChooser";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { logAndCaptureError, writeInfoLog } from "@/utils/log";
@@ -488,6 +489,16 @@ export type Settings = {
    * `constants/theme.ts`.
    */
   accent: AccentName;
+  /**
+   * Which end of the trade-off "Play from…" leans on when a title is held by more than one server
+   * in the group: the fastest holder, or the best encode.
+   *
+   * Per-device rather than per-account on purpose — the same library is watched on a laptop on
+   * fibre and a tablet on hotel wifi. The node has a policy of its own and ranks under it; when the
+   * two disagree this one wins for what the app orders and recommends, so a chooser opened here
+   * answers the question this device asked.
+   */
+  playbackPolicy: PlaybackPolicy;
   // Audio look-ahead caching
   audioLookaheadEnabled: boolean;
   audioLookaheadCount: number;
@@ -646,6 +657,9 @@ export const defaultValues: Settings = {
   hideRemoteSessionButton: false,
   hideWatchlistsTab: false,
   accent: DEFAULT_ACCENT,
+  // Starting sooner is the answer people expect from a "play" button; quality is the deliberate
+  // choice, so it is the one you go and make.
+  playbackPolicy: "speed_first",
   // Audio look-ahead caching defaults
   audioLookaheadEnabled: true,
   audioLookaheadCount: 1,

@@ -1,6 +1,7 @@
-import { Ionicons } from "@expo/vector-icons";
 import { View } from "react-native";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { radius, tokens } from "@/constants/theme";
 
 /**
  * Rendered in place of a section StingStream.Core does not expose an
@@ -15,10 +16,31 @@ export function GapNotice({
   detail: string;
 }) {
   return (
-    <View className='rounded-xl bg-neutral-900 p-4 items-center'>
-      <Ionicons name='construct-outline' size={22} color='#9899A1' />
-      <Text className='text-white font-semibold mt-2 text-center'>{title}</Text>
-      <Text className='text-[#9899A1] text-xs text-center mt-1'>{detail}</Text>
+    <View
+      style={{
+        borderRadius: radius.md,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 16,
+        alignItems: "center",
+      }}
+    >
+      <Icon name='info' size={22} tone='secondary' />
+      <Text
+        variant='body'
+        weight='semibold'
+        align='center'
+        style={{ marginTop: 8 }}
+      >
+        {title}
+      </Text>
+      <Text
+        variant='caption'
+        tone='secondary'
+        align='center'
+        style={{ marginTop: 4 }}
+      >
+        {detail}
+      </Text>
     </View>
   );
 }

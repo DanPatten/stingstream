@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { controlsTimeoutForPlatform } from "./constants";
 
 interface UseControlsTimeoutProps {
   showControls: boolean;
@@ -14,7 +15,9 @@ export const useControlsTimeout = ({
   isSliding,
   episodeView,
   onHideControls,
-  timeout = 10000,
+  // The default is the surface's own number rather than a shared 10 s, so a caller that does not
+  // pass one behaves like the rest of the OSD instead of lingering more than twice as long.
+  timeout = controlsTimeoutForPlatform(),
   disabled = false,
 }: UseControlsTimeoutProps) => {
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);

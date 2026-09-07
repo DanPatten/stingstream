@@ -5,12 +5,18 @@ import type {
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { BaseItemKind } from "@jellyfin/sdk/lib/generated-client/models/base-item-kind";
 import { getMediaInfoApi } from "@jellyfin/sdk/lib/utils/api";
-import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
+import {
+  getNodeBaseUrl,
+  getStingStreamApiBaseUrl,
+} from "@stingstream/api-client";
 import { redactUrl } from "@/lib/stingstream/redactUrl";
 import { bestOnlineSource, fetchItemSources } from "@/lib/stingstream/sources";
 import type { DownloadQuality } from "@/utils/atoms/settings";
 import { markExpectedError } from "../../errors";
-import { rewriteStreamUrlForMesh } from "../../mesh/streamUrl";
+import {
+  rewriteMeshStreamUrlToNode,
+  rewriteStreamUrlForMesh,
+} from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
 import type { AudioTranscodeModeType } from "../../profiles/native";
 
@@ -108,14 +114,21 @@ const getPlaybackUrl = (
   // `https://stingstream.local/stream/<group>/<item_key>/<node>`, and this is the one place the
   // app sees that URL before handing it to a player. `rewriteStreamUrlForMesh` points it at the
   // embedded mesh's loopback port when this device has joined the group, so MPV pulls the bytes
-  // off the holder's disk over iroh; otherwise it returns the URL untouched and the home node's
-  // gateway proxies `/stream/*` instead. See docs/APP-MESH.md.
+  // off the holder's disk over iroh. Otherwise it comes back unchanged — and unchanged is
+  // unplayable: `stingstream.local` resolves nowhere, so a browser answered
+  // `ERR_NAME_NOT_RESOLVED` and then `MEDIA_ELEMENT_ERROR: Format error`, and a title held only by
+  // peers did not play. `rewriteMeshStreamUrlToNode` sends it to the node's own gateway instead,
+  // which proxies `/stream/*` through its mesh — the same home fallback the Chromecast path has
+  // always used. See docs/APP-MESH.md.
   if (
     mediaSource?.IsRemote &&
     mediaSource?.Protocol === "Http" &&
     mediaSource?.Path
   ) {
-    const remote = rewriteStreamUrlForMesh(mediaSource.Path);
+    const remote = rewriteMeshStreamUrlToNode(
+      rewriteStreamUrlForMesh(mediaSource.Path),
+      api.basePath ? getNodeBaseUrl(api.basePath) : null,
+    );
     console.log(
       "Video is remote stream, using direct Path:",
       redactUrl(remote),

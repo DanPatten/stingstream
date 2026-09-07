@@ -42,6 +42,22 @@ import type {
   TechnicalInfo,
 } from "./MpvPlayer.types";
 
+/**
+ * What a browser can do that libmpv's shared contract does not describe.
+ *
+ * `MpvPlayerViewRef` is the cross-platform surface and stays that: adding volume to it would
+ * oblige the two native backends to implement something a phone and a television both delegate to
+ * the OS. On the web the page *is* the mixer — there is no system volume to defer to and no
+ * hardware key to press — so the keyboard's `m` and a future volume slider need these three.
+ */
+export type MpvPlayerWebRef = MpvPlayerViewRef & {
+  /** Spelled to match the DOM, alongside the contract's `setMute`. Same effect. */
+  setMuted: (muted: boolean) => Promise<void>;
+  /** 0…1, clamped. */
+  setVolume: (volume: number) => Promise<void>;
+  getVolume: () => Promise<number>;
+};
+
 /** Jellyfin hands us `.m3u8` for every transcode; everything else is direct play. */
 const isHlsUrl = (url: string) => /\.m3u8(\?|$)/i.test(url);
 
@@ -56,7 +72,7 @@ const bufferedAhead = (video: HTMLVideoElement): number => {
   return 0;
 };
 
-const MpvPlayerViewWeb = React.forwardRef<MpvPlayerViewRef, MpvPlayerViewProps>(
+const MpvPlayerViewWeb = React.forwardRef<MpvPlayerWebRef, MpvPlayerViewProps>(
   function MpvPlayerViewWeb(props, ref) {
     // Only the source/style are read during render; every `on*` callback is
     // reached through `cbRef` below so that a new callback identity does not
@@ -250,7 +266,7 @@ const MpvPlayerViewWeb = React.forwardRef<MpvPlayerViewRef, MpvPlayerViewProps>(
     }, [url, startPosition]);
 
     // ---- imperative surface ---------------------------------------------
-    React.useImperativeHandle(ref, (): MpvPlayerViewRef => {
+    React.useImperativeHandle(ref, (): MpvPlayerWebRef => {
       const v = () => videoRef.current;
       const noop = async () => {};
 
@@ -291,6 +307,17 @@ const MpvPlayerViewWeb = React.forwardRef<MpvPlayerViewRef, MpvPlayerViewProps>(
           const video = v();
           if (video) video.muted = muted;
         },
+        setMuted: async (muted: boolean) => {
+          const video = v();
+          if (video) video.muted = muted;
+        },
+        setVolume: async (volume: number) => {
+          const video = v();
+          // The DOM throws IndexSizeError outside 0…1 rather than clamping, and a slider that
+          // overshoots by a rounding error would take the player down with it.
+          if (video) video.volume = Math.min(1, Math.max(0, volume));
+        },
+        getVolume: async () => v()?.volume ?? 1,
         isPaused: async () => v()?.paused ?? true,
         getCurrentPosition: async () => v()?.currentTime ?? 0,
         getDuration: async () => {
@@ -499,6 +526,9 @@ const MpvPlayerViewWeb = React.forwardRef<MpvPlayerViewRef, MpvPlayerViewProps>(
             from the Jellyfin item's subtitle streams. */}
         <video
           ref={videoRef}
+          // The one stable handle on the picture itself, for the browser tests that
+          // drive the OSD: everything else on this screen is an overlay above it.
+          data-testid='player-video'
           autoPlay={autoplay !== false}
           loop={Boolean(loop)}
           playsInline
