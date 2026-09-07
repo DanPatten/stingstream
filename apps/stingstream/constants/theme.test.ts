@@ -266,18 +266,24 @@ describe("typeStyle", () => {
       heading: [20, 21, 22],
       body: [15, 16, 16],
       caption: [13, 13, 13],
-      micro: [11, 12, 12],
+      micro: [12, 12, 12],
     });
   });
 
-  test("no body text falls below the 12 px floor the sweep enforces", () => {
-    // `micro` is the one deliberate exception: badges and timestamps, never a
-    // sentence. Everything a screen sets as running text has to clear 12.
-    for (const variant of ["body", "caption"] as TypeVariant[]) {
+  test("nothing on the scale falls below the 12 px floor", () => {
+    // 12 px is the accessibility floor the screenshot sweep enforces: anything
+    // under it is a finding, and `micro` used to be the one exception at 11.
+    // It is not any more — the 11 was chosen only because pass-01 asked the tab
+    // bar for "10-11 px", and five labels fit a 360 dp bar at 12 anyway. There
+    // is now no size in the system a screen can legitimately reach for that is
+    // too small to read.
+    for (const variant of Object.keys(tokens.type) as TypeVariant[]) {
       for (const breakpoint of BREAKPOINTS) {
-        expect(typeStyle(variant, breakpoint).fontSize).toBeGreaterThanOrEqual(
-          12,
-        );
+        expect({
+          variant,
+          breakpoint,
+          ok: typeStyle(variant, breakpoint).fontSize >= 12,
+        }).toEqual({ variant, breakpoint, ok: true });
       }
     }
   });

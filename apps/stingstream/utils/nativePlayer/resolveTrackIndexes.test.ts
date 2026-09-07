@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type {
   BaseItemDto,
   MediaStream,
@@ -7,9 +7,7 @@ import { clearMmkv, stubMmkv } from "@/test-utils/mmkv";
 import type { Settings } from "@/utils/atoms/settings";
 
 stubMmkv();
-mock.module("@/components/BitrateSelector", () => ({
-  BITRATES: [{ key: "Max", value: undefined }],
-}));
+// BITRATES is plain data in `constants/Playback.ts` now — no component module to mock away.
 
 const { resolveTrackIndexes } = await import("./resolveTrackIndexes");
 

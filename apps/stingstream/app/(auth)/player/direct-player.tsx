@@ -6,7 +6,9 @@ import {
   PlaybackProgressInfo,
   RepeatMode,
 } from "@jellyfin/sdk/lib/generated-client";
+import { ItemFields } from "@jellyfin/sdk/lib/generated-client/models";
 import {
+  getItemsApi,
   getMediaInfoApi,
   getPlaystateApi,
   getUserLibraryApi,
@@ -25,7 +27,6 @@ import {
   View,
 } from "react-native";
 import { useAnimatedReaction, useSharedValue } from "react-native-reanimated";
-import { BITRATES } from "@/components/BitrateSelector";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 import { AutoSubtitleNotice } from "@/components/video-player/controls/AutoSubtitleNotice";
@@ -42,15 +43,17 @@ import {
   updatePlaybackSpeedSettings,
 } from "@/components/video-player/controls/utils/playback-speed-settings";
 import { VideoPlayerView } from "@/components/video-player/VideoPlayerView";
-import { PROGRESS_REPORT_INTERVAL } from "@/constants/Playback";
+import { BITRATES, PROGRESS_REPORT_INTERVAL } from "@/constants/Playback";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useItemSources } from "@/hooks/useItemSources";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useOrientation } from "@/hooks/useOrientation";
 import { usePlaybackManager } from "@/hooks/usePlaybackManager";
 import usePlaybackSpeed from "@/hooks/usePlaybackSpeed";
 import { useInvalidatePlaybackProgressCache } from "@/hooks/useRevalidatePlaybackProgressCache";
 import { useWebSocket } from "@/hooks/useWebsockets";
+import { buildSourceChoices } from "@/lib/stingstream/sourceChooser";
 import {
   type MpvOnErrorEventPayload,
   type MpvOnPlaybackStateChangePayload,
@@ -83,6 +86,7 @@ import {
   isImageBasedSubtitle,
 } from "@/utils/jellyfin/subtitleUtils";
 import { logAndCaptureError, writeToLog } from "@/utils/log";
+import { buildSwitchQuery } from "@/utils/nativePlayer/switchQuery";
 import {
   getEffectiveSubtitleMarginY,
   getEffectiveSubtitleScale,
@@ -375,6 +379,32 @@ export default function DirectPlayerPage() {
             userId: user?.Id,
           });
           fetchedItem = res.data;
+
+          // "Play from…" joins `MediaSources` to the mesh's holder list, and
+          // `GET /Users/{id}/Items/{id}` only carries them when the server
+          // decided the client asked for them — the details page requests them
+          // by name for the same reason. One extra call, only when the first
+          // answer came back without them, and never fatal: a failure here
+          // costs the source chooser, not playback.
+          if (!fetchedItem?.MediaSources?.length) {
+            try {
+              const withSources = await getItemsApi(api).getItems({
+                ids: [itemId],
+                userId: user?.Id,
+                fields: [ItemFields.MediaSources, ItemFields.MediaStreams],
+              });
+              const sources = withSources.data.Items?.[0]?.MediaSources;
+              if (sources?.length && fetchedItem) {
+                fetchedItem = { ...fetchedItem, MediaSources: sources };
+              }
+            } catch (error) {
+              writeToLog(
+                "INFO",
+                "Could not load MediaSources for the source chooser",
+                error,
+              );
+            }
+          }
         }
         setItem(fetchedItem);
         setItemStatus({ isLoading: false, isError: false });
@@ -717,7 +747,13 @@ export default function DirectPlayerPage() {
     // screensaver. activateKeepAwakeAsync() is tag-scoped to this module
     // and only released on the "paused" event; without this, navigating
     // away mid-play leaves FLAG_KEEP_SCREEN_ON set on the window.
-    deactivateKeepAwake();
+    //
+    // Rejections swallowed: on the web this is `navigator.wakeLock`, which
+    // refuses the request outright on a hidden or unfocused document and then
+    // throws "has not activated yet" on release. That is the browser's answer,
+    // not a fault, and an unhandled rejection here is a console error over a
+    // film that is playing perfectly well.
+    deactivateKeepAwake().catch(() => {});
   }, [
     videoRef,
     reportPlaybackStopped,
@@ -1113,7 +1149,8 @@ export default function DirectPlayerPage() {
         setHasPlaybackStarted(true);
         // Pause inactivity timer during playback (TV only)
         pauseInactivityTimer();
-        await activateKeepAwakeAsync();
+        // Same reason as the release above: a browser may simply refuse the lock.
+        await activateKeepAwakeAsync().catch(() => {});
         return;
       }
 
@@ -1121,7 +1158,7 @@ export default function DirectPlayerPage() {
         setPlaying(false);
         // Resume inactivity timer when paused (TV only)
         resumeInactivityTimer();
-        await deactivateKeepAwake();
+        await deactivateKeepAwake().catch(() => {});
         return;
       }
 
@@ -1280,6 +1317,90 @@ export default function DirectPlayerPage() {
       bitrateValue,
       router,
       progress,
+    ],
+  );
+
+  // --- "Play from…" -------------------------------------------------------
+  //
+  // Which nodes hold this title, and how each one is reaching us. Fetched here rather than inside
+  // the two `Controls` so both platforms see the same list, and so the pill can tell whether it is
+  // a button before the user presses it.
+  const { data: itemSources, policy: playbackPolicy } = useItemSources(item);
+
+  const localSourceLabel = t("player.source.this_server");
+  const sourceChoices = useMemo(
+    () =>
+      buildSourceChoices(item?.MediaSources, itemSources, {
+        currentMediaSourceId: stream?.mediaSource?.Id,
+        policy: playbackPolicy,
+        localLabel: localSourceLabel,
+      }),
+    [
+      item?.MediaSources,
+      itemSources,
+      stream?.mediaSource?.Id,
+      playbackPolicy,
+      localSourceLabel,
+    ],
+  );
+
+  /**
+   * Play the same title from a different holder, from where it is now.
+   *
+   * The same move `replaceWithTrackSelection` makes for a track change — destroy the mpv instance,
+   * rewrite the route, let the player remount and re-negotiate — with the media source swapped.
+   * Track *indexes* cannot be carried across verbatim: another holder's file is a different encode
+   * with a different stream order, so the new source's defaults are resolved through
+   * `getDefaultPlaySettings`, which ranks the outgoing selection against the incoming streams the
+   * way `goToNextItem` does between episodes.
+   */
+  const switchMediaSource = useCallback(
+    (mediaSourceId: string) => {
+      const target = item?.MediaSources?.find((s) => s.Id === mediaSourceId);
+      if (!item?.Id || !target || target.Id === stream?.mediaSource?.Id) return;
+
+      const {
+        audioIndex: defaultAudioIndex,
+        subtitleIndex: defaultSubtitleIndex,
+      } = getDefaultPlaySettings(
+        // `getDefaultPlaySettings` reads `MediaSources[0]`, so the source being switched *to* is
+        // handed to it as the only one.
+        { ...item, MediaSources: [target] },
+        settings,
+        {
+          indexes: {
+            audioIndex: currentAudioIndex,
+            subtitleIndex: currentSubtitleIndex,
+          },
+          source: stream?.mediaSource ?? undefined,
+        },
+      );
+
+      const query = buildSwitchQuery({
+        itemId: item.Id,
+        mediaSourceId,
+        progressMs: progress.get(),
+        audioIndex: defaultAudioIndex,
+        subtitleIndex: defaultSubtitleIndex,
+        bitrateValue,
+        offline,
+      });
+
+      // Before navigating, same rationale as goToNextItem: Expo Router briefly holds two players
+      // during the transition and two decoders OOM-kill low-RAM devices.
+      videoRef.current?.destroy().catch(() => {});
+      router.replace(`player/direct-player?${query}` as any);
+    },
+    [
+      item,
+      settings,
+      stream?.mediaSource,
+      currentAudioIndex,
+      currentSubtitleIndex,
+      bitrateValue,
+      offline,
+      progress,
+      router,
     ],
   );
 
@@ -1794,6 +1915,8 @@ export default function DirectPlayerPage() {
                   playMethod={playMethod}
                   transcodeReasons={transcodeReasons}
                   downloadedFiles={downloadedFiles}
+                  sourceChoices={sourceChoices}
+                  onSwitchMediaSource={switchMediaSource}
                 />
               ) : (
                 <Controls
@@ -1826,6 +1949,10 @@ export default function DirectPlayerPage() {
                   getTechnicalInfo={getTechnicalInfo}
                   playMethod={playMethod}
                   transcodeReasons={transcodeReasons}
+                  isMuted={isMuted}
+                  onToggleMute={toggleMute}
+                  sourceChoices={sourceChoices}
+                  onSwitchMediaSource={switchMediaSource}
                 />
               ))}
           </View>

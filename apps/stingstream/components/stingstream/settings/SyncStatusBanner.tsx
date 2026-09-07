@@ -1,49 +1,86 @@
-import { TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
 import { useRunSync, useSyncStatus } from "@/lib/stingstream/hooks";
+import { arrAppLabel } from "../shared/arrLabels";
 
-/** Per-app ("Omniarr") sync status, and a manual re-sync button. */
+/** One sentence and one pill summarising sync into the movie manager and the
+ * series manager, plus a manual re-sync button. */
 export function SyncStatusBanner() {
+  const { t } = useTranslation();
   const { data: statuses } = useSyncStatus();
   const runSync = useRunSync();
 
   const onSync = async () => {
     try {
       await runSync.mutateAsync();
-      toast.success("Synced into both apps");
+      toast.success(t("server_settings.sync_now_success"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("server_settings.sync_now_error"),
+      );
     }
   };
 
+  const failed = (statuses ?? []).filter((s) => !s.Ok);
+  const summary =
+    !statuses || statuses.length === 0
+      ? t("server_settings.sync_not_yet")
+      : failed.length === 0
+        ? t("server_settings.sync_all_synced")
+        : t("server_settings.sync_some_failed", {
+            apps: failed.map((s) => arrAppLabel(t, s.App)).join(", "),
+          });
+
   return (
-    <View className='rounded-xl bg-neutral-900 p-3 mb-3 flex-row items-center justify-between'>
-      <View className='flex-1 pr-3'>
-        {(statuses ?? []).map((s) => (
-          <Text
-            key={s.App}
-            className={s.Ok ? "text-[#9899A1] text-xs" : "text-red-500 text-xs"}
-          >
-            {s.App}: {s.Ok ? "synced" : "sync failed"}
-            {s.Message ? ` — ${s.Message}` : ""}
-          </Text>
-        ))}
-        {(!statuses || statuses.length === 0) && (
-          <Text className='text-[#9899A1] text-xs'>Not synced yet</Text>
-        )}
-      </View>
-      <TouchableOpacity
-        onPress={onSync}
-        disabled={runSync.isPending}
-        className='rounded-lg px-3 py-2'
-        style={{ backgroundColor: Colors.primary }}
-      >
-        <Text className='text-white font-semibold'>
-          {runSync.isPending ? "Syncing…" : "Sync now"}
+    <View
+      style={{
+        borderRadius: radius.lg,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 12,
+        marginBottom: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}
+    >
+      <View style={{ flex: 1, marginRight: 12 }}>
+        <Pill
+          label={
+            !statuses || statuses.length === 0
+              ? t("server_settings.sync_pill_unknown")
+              : failed.length === 0
+                ? t("server_settings.sync_pill_synced")
+                : t("server_settings.sync_pill_failed")
+          }
+          tone={
+            !statuses || statuses.length === 0
+              ? "neutral"
+              : failed.length === 0
+                ? "success"
+                : "danger"
+          }
+          size='sm'
+          style={{ marginBottom: 6 }}
+        />
+        <Text variant='caption' tone='secondary'>
+          {summary}
         </Text>
-      </TouchableOpacity>
+      </View>
+      <Button
+        variant='secondary'
+        size='sm'
+        loading={runSync.isPending}
+        onPress={() => void onSync()}
+      >
+        {t("server_settings.sync_now_action")}
+      </Button>
     </View>
   );
 }
