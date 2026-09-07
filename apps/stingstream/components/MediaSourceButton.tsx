@@ -7,6 +7,7 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
+import { tokens } from "@/constants/theme";
 import type { ThemeColors } from "@/hooks/useImageColorsReturn";
 import { useSettings } from "@/utils/atoms/settings";
 import { rememberSeriesTrackFromRow } from "@/utils/seriesTrackMemory";
@@ -35,9 +36,12 @@ export const MediaSourceButton: React.FC<Props> = ({
   const { settings } = useSettings();
   const [open, setOpen] = useState(false);
 
+  // WP5: the fallback used to be the fork's purple, which is the one colour
+  // `docs/UI-DESIGN.md` rules out — and once the details page stopped tinting
+  // this button from the poster, the fallback became what everybody saw.
   const effectiveColors = colors || {
-    primary: "#7c3aed",
-    text: "#000000",
+    primary: tokens.color.bg["3"],
+    text: tokens.color.text.primary,
   };
 
   useEffect(() => {
@@ -185,6 +189,8 @@ export const MediaSourceButton: React.FC<Props> = ({
     <TouchableOpacity
       disabled={!item}
       onPress={() => setOpen(true)}
+      accessibilityRole='button'
+      accessibilityLabel={t("item_card.media_options")}
       className='relative'
     >
       <View
