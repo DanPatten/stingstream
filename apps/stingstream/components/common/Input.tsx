@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useScaledTVTypography } from "@/constants/TVTypography";
-import { radius, resolveTextStyle, tokens } from "@/constants/theme";
+import { motion, radius, resolveTextStyle, tokens } from "@/constants/theme";
 import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { FormError } from "./FormError";
@@ -45,6 +45,7 @@ export function Input(props: InputProps) {
   } = props;
   const inputRef = useRef<TextInput>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
   const { accent } = useTheme();
   const breakpoint = useBreakpointName();
@@ -156,19 +157,30 @@ export function Input(props: InputProps) {
     );
   }
 
-  // The rule is the whole focus affordance: an input on bg2 sitting on bg1 is
-  // already distinct, so focus brightens the edge rather than adding a ring
-  // that would fight the button's.
+  // The rule *is* the focus affordance. An input on bg2 sitting on bg1 is
+  // already a distinct shape, so focus brightens its edge rather than adding an
+  // outline ring, which would sit outside the rounded rule and read as a second
+  // border. Hover is the same idea one step quieter: the pointer is over the
+  // field, but the caret is not in it yet.
+  //
+  //   error > focused > hovered > rest
+  //
+  // in that order, because an invalid field must stay red while it is being
+  // corrected — which is exactly when it is also focused.
   const borderColor = error
     ? tokens.color.state.danger
     : isFocused
       ? accent[400]
-      : tokens.color.border.subtle;
+      : isHovered && editable
+        ? tokens.color.border.strong
+        : tokens.color.border.subtle;
 
   return (
     <View>
       <View
         className={extraClassName}
+        onPointerEnter={() => setIsHovered(true)}
+        onPointerLeave={() => setIsHovered(false)}
         style={[
           {
             minHeight: tokens.control.minTouchTarget,
@@ -178,8 +190,17 @@ export function Input(props: InputProps) {
             borderRadius: radius.md,
             borderWidth: 1,
             borderColor,
-            backgroundColor: tokens.color.bg["2"],
+            backgroundColor:
+              isHovered && editable && !isFocused
+                ? tokens.color.bg["3"]
+                : tokens.color.bg["2"],
             opacity: editable ? 1 : tokens.control.disabledOpacity,
+            ...(Platform.OS === "web"
+              ? ({
+                  cursor: editable ? "text" : "not-allowed",
+                  transitionDuration: `${motion.fast}ms`,
+                } as object)
+              : null),
           },
           style,
         ]}

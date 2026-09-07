@@ -25,3 +25,43 @@ export function readAdminCredentials(passFilePath) {
   }
   return { username: admin.username, password: admin.password };
 }
+
+/**
+ * F-36 (pass-02 critique): once a node's first-run setup completes, WP-CORE scrubs the generated
+ * admin password out of runtime.json (by design -- it should not live forever), so
+ * readAdminCredentials() above stops working for a node that has already been set up. This is the
+ * credentials file shots.mjs reads with --creds for that case: a plain {username, password} JSON,
+ * chosen by whoever ran --first-run (or by hand), living wherever the caller points it -- never
+ * inside the repo, and not runtime.json.
+ *
+ * @param {string} credsFilePath
+ * @returns {{username: string, password: string}}
+ */
+export function readCreds(credsFilePath) {
+  if (!credsFilePath) {
+    throw new Error("--creds is required (a path to a {username,password} JSON file)");
+  }
+  let creds;
+  try {
+    creds = JSON.parse(fs.readFileSync(credsFilePath, "utf8"));
+  } catch (err) {
+    throw new Error(`could not read --creds ${credsFilePath}: ${err.message}`);
+  }
+  if (!creds.username || !creds.password) {
+    throw new Error(`${credsFilePath} has no username/password`);
+  }
+  return { username: creds.username, password: creds.password };
+}
+
+/**
+ * Written by --first-run once it creates the account through the firstrun-* form, so a later run
+ * against the same (now set-up) node can sign back in with --creds instead of trying to create
+ * the account again. Never logged; the caller passes the in-memory values straight through.
+ *
+ * @param {string} credsFilePath
+ * @param {{username: string, password: string}} creds
+ */
+export function writeCreds(credsFilePath, creds) {
+  if (!credsFilePath) return;
+  fs.writeFileSync(credsFilePath, JSON.stringify({ username: creds.username, password: creds.password }, null, 2));
+}

@@ -21,7 +21,6 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BackHandler,
-  FlatList,
   Platform,
   ScrollView,
   useWindowDimensions,
@@ -30,11 +29,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CardData } from "@/components/cards/CardData";
 import { useCardGrid } from "@/components/cards/useCardGrid";
+import { EmptyState } from "@/components/common/EmptyState";
+import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
+import { SkeletonGrid } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
-import { FilterButton } from "@/components/filters/FilterButton";
-import { ResetFiltersButton } from "@/components/filters/ResetFiltersButton";
+import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
 import { Loader } from "@/components/Loader";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
@@ -42,7 +43,9 @@ import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
 import { TVImageBudget } from "@/constants/TVImageBudget";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { maxWidth } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useFilterReset } from "@/hooks/useFilterReset";
 import { useOrientation } from "@/hooks/useOrientation";
 import { useRefreshLibraryOnFocus } from "@/hooks/useRefreshLibraryOnFocus";
@@ -78,6 +81,19 @@ import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
 const TV_PLAYLIST_SQUARE_SIZE = 180;
 
+/**
+ * `Platform.isTV` as an actual boolean.
+ *
+ * react-native-web does not define `isTV` at all, so on web `Platform.isTV` is
+ * `undefined`, and `undefined && somethingTrue` is `undefined` — not `false`.
+ * React Query reads `enabled: undefined` as "not specified", which means
+ * **enabled**: the three TV-only filter queries below were running on every
+ * web library page, and on a path that is not a library at all (`/requests`
+ * falling through to this route) each one retried its 400 three times, which
+ * is where the observed burst of failed `Items/Filters` requests came from.
+ */
+const isTV = Platform.isTV === true;
+
 const Page = () => {
   const searchParams = useLocalSearchParams() as {
     libraryId: string;
@@ -94,6 +110,7 @@ const Page = () => {
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const { width: screenWidth } = useWindowDimensions();
+  const { isWebWide } = useBreakpoint();
 
   const [selectedGenres, setSelectedGenres] = useAtom(genreFilterAtom);
   const [selectedYears, setSelectedYears] = useAtom(yearFilterAtom);
@@ -150,7 +167,7 @@ const Page = () => {
       });
       return response.data.Genres || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   const { data: tvYearOptions } = useQuery({
@@ -163,7 +180,7 @@ const Page = () => {
       });
       return response.data.Years || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   const { data: tvTagOptions } = useQuery({
@@ -176,7 +193,7 @@ const Page = () => {
       });
       return response.data.Tags || [];
     },
-    enabled: Platform.isTV && !!api && !!user?.Id && !!libraryId,
+    enabled: isTV && !!api && !!user?.Id && !!libraryId,
   });
 
   // The "See All" params describe how to open the screen, not a state to hold:
@@ -323,19 +340,6 @@ const Page = () => {
     [libraryId, tagPreference, setTagPreference, setSelectedTags],
   );
 
-  const nrOfCols = useMemo(() => {
-    if (Platform.isTV) {
-      // TV uses flexWrap, so nrOfCols is just for mobile
-      return 1;
-    }
-    if (screenWidth < 300) return 2;
-    if (screenWidth < 500) return 3;
-    if (screenWidth < 800) return 5;
-    if (screenWidth < 1000) return 6;
-    if (screenWidth < 1500) return 7;
-    return 6;
-  }, [screenWidth, orientation]);
-
   /**
    * How many posters fit across, derived rather than guessed.
    *
@@ -363,7 +367,11 @@ const Page = () => {
     posterCard.spacing,
   ]);
 
-  const { data: library, isLoading: isLibraryLoading } = useQuery({
+  const {
+    data: library,
+    isLoading: isLibraryLoading,
+    isError: isLibraryError,
+  } = useQuery({
     queryKey: ["library", libraryId],
     queryFn: async () => {
       if (!api) return null;
@@ -375,7 +383,20 @@ const Page = () => {
     },
     enabled: !!api && !!user?.Id && !!libraryId,
     staleTime: 60 * 1000,
+    // Every path the web app cannot route yet — /requests, /search, /manage —
+    // falls through to this screen with its own name as the library id. The
+    // server answers 404 immediately and will answer 404 again; retrying turned
+    // one wrong URL into a burst of failed requests and a spinner that never
+    // stopped. One ask, then say so.
+    retry: false,
   });
+
+  /**
+   * There is no such library. Either the id is not one (an unrouted path
+   * arriving here as `[libraryId]`) or it has been removed since the link was
+   * made. Both are a dead end, not a slow load.
+   */
+  const libraryNotFound = isLibraryError;
 
   const navigation = useNavigation();
   useEffect(() => {
@@ -543,9 +564,16 @@ const Page = () => {
     }
   }, [isFetching, flatData]);
 
+  // A "media" page's content tops out at `maxWidth.media` regardless of the
+  // browser window, so the grid's auto-column formula has to size against
+  // that capped width too — otherwise a 2560px monitor gets more columns than
+  // the (narrower, centered) page actually has room for.
+  const gridContainerWidth = Math.min(screenWidth, maxWidth.media);
+
   const grid = useCardGrid({
     items: flatData,
-    columns: nrOfCols,
+    kind: "portrait",
+    containerWidth: gridContainerWidth,
     enableActionSheet: true,
   });
 
@@ -633,152 +661,24 @@ const Page = () => {
   const generalFilters = useFilterOptions();
   const ListHeaderComponent = useCallback(
     () => (
-      <FlatList
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{
-          display: "flex",
-          paddingHorizontal: 15,
-          paddingVertical: 16,
-          flexDirection: "row",
-        }}
-        data={[
-          {
-            key: "reset",
-            component: <ResetFiltersButton libraryId={libraryId} />,
-          },
-          {
-            key: "genre",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='genreFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Genres || [];
-                }}
-                set={setGenres}
-                values={selectedGenres}
-                title={t("library.filters.genres")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "year",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='yearFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Years || [];
-                }}
-                set={setYears}
-                values={selectedYears}
-                title={t("library.filters.years")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "tags",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='tagsFilter'
-                queryFn={async () => {
-                  if (!api) return null;
-                  const response = await getFilterApi(
-                    api,
-                  ).getQueryFiltersLegacy({
-                    userId: user?.Id,
-                    parentId: libraryId,
-                  });
-                  return response.data.Tags || [];
-                }}
-                set={setTags}
-                values={selectedTags}
-                title={t("library.filters.tags")}
-                renderItemLabel={(item) => item.toString()}
-              />
-            ),
-          },
-          {
-            key: "sortBy",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='sortBy'
-                queryFn={async () => sortOptions.map((s) => s.key)}
-                set={setSortBy}
-                values={sortBy}
-                title={t("library.filters.sort_by")}
-                renderItemLabel={(item) =>
-                  sortOptions.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-          {
-            key: "sortOrder",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='sortOrder'
-                queryFn={async () => sortOrderOptions.map((s) => s.key)}
-                set={setSortOrder}
-                values={sortOrder}
-                title={t("library.filters.sort_order")}
-                renderItemLabel={(item) =>
-                  sortOrderOptions.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-          {
-            key: "filterOptions",
-            component: (
-              <FilterButton
-                className='mr-1'
-                id={libraryId}
-                queryKey='filters'
-                queryFn={async () => generalFilters.map((s) => s.key)}
-                set={setFilter}
-                values={filterBy}
-                title={t("library.filters.filter_by")}
-                renderItemLabel={(item) =>
-                  generalFilters.find((i) => i.key === item)?.value || ""
-                }
-              />
-            ),
-          },
-        ]}
-        renderItem={({ item }) => item.component}
-        keyExtractor={(item) => item.key}
+      <LibraryFilterBar
+        libraryId={libraryId}
+        selectedGenres={selectedGenres}
+        setGenres={setGenres}
+        selectedYears={selectedYears}
+        setYears={setYears}
+        selectedTags={selectedTags}
+        setTags={setTags}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        sortOrder={sortOrder}
+        setSortOrder={setSortOrder}
+        filterBy={filterBy}
+        setFilter={setFilter}
       />
     ),
     [
       libraryId,
-      api,
-      user?.Id,
       selectedGenres,
       setGenres,
       selectedYears,
@@ -791,7 +691,6 @@ const Page = () => {
       setSortOrder,
       filterBy,
       setFilter,
-      generalFilters,
     ],
   );
 
@@ -969,41 +868,70 @@ const Page = () => {
   }, [showOptions, t, tvFilterByOptions, setFilter, _setFilterBy]);
 
   const insets = useSafeAreaInsets();
+  const isGridLoading = isLoading || isLibraryLoading;
 
-  if (isLoading || isLibraryLoading)
+  if (Platform.isTV && isGridLoading)
     return (
       <View className='w-full h-full flex items-center justify-center'>
         <Loader />
       </View>
     );
 
-  // Mobile return
+  // Mobile / web return
   if (!Platform.isTV) {
+    if (libraryNotFound) {
+      return (
+        <PageContainer width='media' style={{ flex: 1 }}>
+          <EmptyState
+            title={t("library.not_found")}
+            style={{ paddingTop: "20%" }}
+          />
+        </PageContainer>
+      );
+    }
+
     return (
-      <>
+      <PageContainer width='media' bleed style={{ flex: 1 }}>
         <FlashList
+          testID='library-grid'
           ref={flashListRef}
-          key={orientation}
+          // Columns change with a browser resize (auto-fill from the
+          // available width, bug 4) as well as with orientation — React
+          // Native does not re-layout `numColumns` on its own, so both have
+          // to remount the list.
+          key={`${orientation}-${grid.columns}`}
           ListEmptyComponent={
-            <View className='flex flex-col items-center justify-center h-full'>
-              <Text className='font-bold text-xl text-neutral-500'>
-                {t("library.no_results")}
-              </Text>
-            </View>
+            // A grid of tiles at the exact geometry the posters will occupy,
+            // rather than a spinner in the middle of an empty page: nothing
+            // moves when the real cards arrive.
+            isGridLoading ? (
+              <SkeletonGrid kind='portrait' columns={grid.columns} />
+            ) : (
+              <EmptyState
+                title={t("library.no_results")}
+                style={{ paddingTop: "20%" }}
+              />
+            )
           }
+          // The filter bar rides along on a phone but stays put at the top of
+          // the page once there's room for a sidebar/topbar shell around it.
+          stickyHeaderIndices={isWebWide ? [0] : undefined}
           contentInsetAdjustmentBehavior='automatic'
           data={grid.data}
           renderItem={grid.renderItem}
-          extraData={[orientation, nrOfCols]}
+          extraData={[orientation, grid.columns]}
           keyExtractor={grid.keyExtractor}
-          numColumns={nrOfCols}
+          numColumns={grid.columns}
           onEndReached={() => {
             if (hasNextPage) {
               fetchNextPage();
             }
           }}
           onEndReachedThreshold={1}
-          ListHeaderComponent={ListHeaderComponent}
+          // No library, no filters to offer — and, more to the point, six
+          // chips each asking the server for the values of a filter on a
+          // parent that does not exist.
+          ListHeaderComponent={library ? ListHeaderComponent : undefined}
           contentContainerStyle={{
             paddingBottom: 24,
             paddingLeft: insets.left,
@@ -1014,7 +942,7 @@ const Page = () => {
           )}
         />
         {grid.actionSheet}
-      </>
+      </PageContainer>
     );
   }
 

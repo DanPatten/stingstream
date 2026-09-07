@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Helper for tools/ui-startup.ps1 -DriveUi: one Playwright pass over a freshly-started node --
-// first-contentful-paint, the first-run "Create your StingStream account" screen when present
-// (falling back to an ordinary sign-in with the runtime.json admin credentials until WP3 builds
-// it), and a wait for Home to show a real poster. Prints one line, `UI_STARTUP_RESULT {json}`,
-// which the calling PowerShell parses; everything else on stdout is just progress logging.
+// first-contentful-paint, the first-run "Create your StingStream account" screen (WP3's
+// firstrun-* testIDs, landed on master 2026-09-06) when present, falling back to an ordinary
+// sign-in with the runtime.json admin credentials for a pre-WP3 build, and a wait for Home to
+// show a real poster. Prints one line, `UI_STARTUP_RESULT {json}`, which the calling PowerShell
+// parses; everything else on stdout is just progress logging.
 //
 //   node drive-startup.mjs --base http://127.0.0.1:8796 --out <dir> [--user stingstream]
 //     --pass-file <path to runtime.json> [--lan http://192.168.0.16:8796]
@@ -11,7 +12,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { connectAndSignIn } from "../flows/web.mjs";
+import { connectAndSignIn, createFirstRunAccount } from "../flows/web.mjs";
 import { readAdminCredentials } from "../lib/authFile.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -82,29 +83,20 @@ async function main() {
     result.fcpSeconds = await measureFcpSeconds(page);
     console.log(`FCP: ${result.fcpSeconds}`);
 
-    // First-run "Create your StingStream account" (WP3) if it exists yet; otherwise ordinary
-    // sign-in with the seeded admin account. Text-matched, not testID-matched -- see
-    // docs/UI-LOOP.md's testID contract and flows/web.mjs's file-header note on why.
-    // waitFor (not isVisible, which does not retry and races the SPA's own hydration -- see
-    // flows/web.mjs's isVisibleSoon note) so a slow-to-hydrate page is not mistaken for "no setup
-    // screen exists".
-    const setupHeading = page.getByText(/create your stingstream account/i).first();
-    const hasSetupScreen = await setupHeading.waitFor({ state: "visible", timeout: 6000 }).then(() => true).catch(() => false);
+    // First-run "Create your StingStream account" (WP3's firstrun-* testIDs, landed on master
+    // 2026-09-06 -- see docs/UI-LOOP.md's testID contract) if it exists yet; otherwise ordinary
+    // sign-in with the seeded admin account.
+    const hasSetupScreen = await page
+      .locator('[data-testid="firstrun-username"]')
+      .waitFor({ state: "visible", timeout: 6000 })
+      .then(() => true)
+      .catch(() => false);
     if (hasSetupScreen) {
-      console.log("first-run setup screen found -- WP3 has landed");
+      console.log("first-run setup screen found (firstrun-username) -- WP3 has landed");
       const tSetup = Date.now();
       await page.screenshot({ path: path.join(args.out, "startup-02-setup.png") });
-      const usernameField = page.getByRole("textbox", { name: /username/i }).first();
-      const passwordField = page.getByRole("textbox", { name: /^password$/i }).first();
-      const confirmField = page.getByRole("textbox", { name: /confirm/i }).first();
-      await usernameField.fill(user).catch(() => {});
-      await passwordField.fill(creds.password).catch(() => {});
-      if (await confirmField.waitFor({ state: "visible", timeout: 2000 }).then(() => true).catch(() => false)) {
-        await confirmField.fill(creds.password).catch(() => {});
-      }
+      await createFirstRunAccount(page, { base: args.base, username: user, password: creds.password });
       result.setupSeconds = (Date.now() - tSetup) / 1000;
-      const submit = page.getByRole("button", { name: /create|continue|sign up|submit/i }).first();
-      await submit.click({ timeout: 10000 }).catch(() => {});
       await page.screenshot({ path: path.join(args.out, "startup-03-submitted.png") });
     } else {
       console.log("no first-run setup screen yet (pre-WP3 build) -- falling back to sign-in");

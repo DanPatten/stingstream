@@ -46,12 +46,17 @@ export function useWatchSessions(group?: string | null) {
   const { base, token } = useConnection();
   return useQuery({
     queryKey: keys.list(group),
-    enabled: Boolean(base),
+    // **Only with a group.** Core answers 409 to a group-less list — a node in
+    // none has nothing to be invited to, and a node in several is being asked
+    // to guess — and the browser logs every 409 as a console error, so the
+    // banner was printing two of them on every screen the app has (pass-02
+    // F-23) to learn something it already knew from `useNodeMeshGroups`.
+    enabled: Boolean(base) && Boolean(group),
     refetchInterval: 15_000,
     queryFn: () => fetchWatchSessions(base as string, token, group ?? null),
-    // An invite that never arrives is a feature that does not exist, but a node with no group, or
-    // one whose mesh is restarting, must not put a red banner in front of somebody trying to watch
-    // a film. Both answer with an error here and both are simply "no invites".
+    // An invite that never arrives is a feature that does not exist, but a node whose mesh is
+    // restarting must not put a red banner in front of somebody trying to watch a film. It answers
+    // with an error here, and that is simply "no invites".
     retry: false,
   });
 }

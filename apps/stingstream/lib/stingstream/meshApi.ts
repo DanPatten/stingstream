@@ -384,6 +384,96 @@ export const ageOf = (
   return { token: null, at };
 };
 
+// --- the Sharing screen's cards, decided here so they can be tested -----------------------------
+//
+// `GroupCard` and `MemberCard` are presentation only: every number and label they show is computed
+// here, pure, so the display logic can be tested without mounting a component.
+
+/** How many members a group has, and how many are online right now, from the peer list. */
+export interface GroupCounts {
+  members: number;
+  online: number;
+}
+
+/** `useNodeMeshPeers(null)`'s rows, narrowed to one group and counted. */
+export const groupCounts = (
+  peers: readonly MeshNodePeer[] | undefined,
+  group: string,
+): GroupCounts => {
+  const rows = (peers ?? []).filter(
+    (p) => p.group.toLowerCase() === group.toLowerCase(),
+  );
+  return { members: rows.length, online: rows.filter((p) => p.online).length };
+};
+
+export type GroupSyncState = "synced" | "syncing";
+
+/**
+ * Whether the Sharing screen's card should say a group is fully synced to this device or still
+ * catching up.
+ *
+ * "Syncing" is not an error: a group the home node just created or joined has not reached the
+ * embedded light node yet (`MeshProvider`'s sync runs on a timer, not instantly), and the card says
+ * so rather than implying the group is already live everywhere it should be.
+ */
+export const groupSyncState = (
+  meshAvailable: boolean,
+  joinedOnThisDevice: boolean,
+): GroupSyncState =>
+  meshAvailable && !joinedOnThisDevice ? "syncing" : "synced";
+
+/** The three link states a member row can be in, collapsed from the mesh's own path strings. */
+export type LinkPath = "direct" | "relayed" | "connecting";
+
+/** `direct`/`mixed` read as one path — both mean bytes travel peer to peer without a relay. */
+export const pathCategory = (path: string | null | undefined): LinkPath => {
+  if (path === "direct" || path === "mixed") return "direct";
+  if (path === "relay") return "relayed";
+  return "connecting";
+};
+
+/** A round trip in a form worth putting on a card, or null when nothing has been measured yet. */
+export const rttLabel = (rttMs: number | null | undefined): string | null =>
+  rttMs != null ? `${rttMs} ms` : null;
+
+/** A member's name, or a readable piece of its node id until it has said what it is called. */
+export const memberDisplayName = (
+  member: Pick<MeshMember, "node" | "nodeName">,
+): string => member.nodeName || shortenNodeId(member.node);
+
+/** 64 hex characters do not fit a card, and the first 12 identify a node in a log. */
+export const shortenNodeId = (nodeId: string): string =>
+  nodeId.length > 16 ? `${nodeId.slice(0, 12)}…` : nodeId;
+
+/**
+ * One or two letters for an avatar: initials from a name with words in it, or the first two
+ * characters of a bare node id when nothing has been named yet.
+ */
+export const initials = (name: string): string => {
+  const trimmed = name.trim();
+  if (!trimmed) return "?";
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
+  }
+  return trimmed.slice(0, 2).toUpperCase();
+};
+
+/**
+ * The most recent moment any peer of a group was heard from — a stand-in for "last synced" on the
+ * Sharing screen's group card, since the mesh has no per-group sync timestamp of its own.
+ */
+export const latestPeerActivity = (
+  peers: readonly MeshNodePeer[],
+): Age | null => {
+  let best: Age | null = null;
+  for (const peer of peers) {
+    const age = ageOf(peer.lastSeen);
+    if (age && (!best || age.at > best.at)) best = age;
+  }
+  return best;
+};
+
 /**
  * Do something irreversible only once it is both allowed and confirmed.
  *
@@ -427,8 +517,11 @@ export const readError = async (
   // node side that distinction stops the federated materializer deleting every pointer during a
   // mesh restart; here it stops the Group screen telling the user they belong to nothing.
   if (res.status === 503) {
+    // Not shown to the user as-is — the screen catches `MeshUnavailableError` and shows its own
+    // translated copy (`sharing.mesh_unavailable_detail`) instead, so this message never has to
+    // clear the "no node, no mesh" wording rule; it exists for logs and error reporting.
     return new MeshUnavailableError(
-      "This node's mesh isn't answering. Groups and peers are unavailable until it comes back; playback still works through the home node.",
+      "Sharing isn't answering on this server. Groups and peers are unavailable until it comes back; playback still works through the server.",
     );
   }
   let detail = `${res.status}`;

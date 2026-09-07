@@ -20,13 +20,14 @@ import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import {
   type AccentPalette,
-  motion,
+  fade,
+  interaction,
   radius,
   rgba,
   tokens,
-  webFocusRing,
 } from "@/constants/theme";
 import { useHaptic } from "@/hooks/useHaptic";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { scaleSize } from "@/utils/scaleSize";
 import { Loader } from "./Loader";
@@ -216,12 +217,13 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
   ...props
 }) => {
   const [focused, setFocused] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [pressed, setPressed] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
-  const { accent, accentName } = useTheme();
+  const { accent } = useTheme();
   const lightHapticFeedback = useHaptic("light");
   const resolved = resolveButtonVariant(variant, color);
+  // `loading` counts as disabled: the press is already in flight, and a button
+  // that still lights up under the cursor invites a second one.
+  const states = usePressableStates({ disabled: disabled || loading });
 
   if (Platform.isTV) {
     const animateTo = (v: number) =>
@@ -285,14 +287,37 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
 
   const metrics = SIZES[size];
   const isInert = disabled || loading;
-  const state = pressed ? "pressed" : hovered ? "hovered" : "rest";
   const fills = FILLS[resolved.variant](accent);
-  const fill = resolved.outlined ? "transparent" : fills[state];
+  // "disabled" is not one of the three fills; it is the rest fill faded. Doing
+  // it here rather than with an `opacity` on the whole button is what the
+  // critique asked for (F-32/F-37): a uniform fade leaves a fully legible
+  // label floating on an almost invisible fill, which reads as a link. Fill
+  // 35 %, label 60 % keeps the label the more solid of the two, so the control
+  // still looks like a button — a switched-off one.
+  const paint = isInert
+    ? "rest"
+    : states.pressed
+      ? "pressed"
+      : states.hovered
+        ? "hovered"
+        : "rest";
+  const dim = (value: string, alpha: number) =>
+    isInert ? fade(value, alpha) : value;
+
+  const fill = resolved.outlined
+    ? "transparent"
+    : dim(fills[paint], interaction.disabledFillAlpha);
   // Outlined draws the fill as a rule instead: the same colour, on the edge.
   // Its label has to leave the filled palette with it, or a dark `onAccent`
   // would be drawn on the page background and disappear.
-  const border = resolved.outlined ? fills.outline : fills.border;
-  const label = resolved.outlined ? fills.outline : fills.label;
+  const border = dim(
+    resolved.outlined ? fills.outline : fills.border,
+    interaction.disabledFillAlpha,
+  );
+  const label = dim(
+    resolved.outlined ? fills.outline : fills.label,
+    interaction.disabledLabelAlpha,
+  );
 
   return (
     <Pressable
@@ -303,12 +328,7 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
         onPress();
         lightHapticFeedback();
       }}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
+      {...states.handlers}
       disabled={isInert}
       style={[
         {
@@ -322,25 +342,19 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
           flexDirection: "row",
           alignItems: "center",
           justifyContent: justify === "between" ? "space-between" : "center",
-          opacity: isInert ? tokens.control.disabledOpacity : 1,
-          ...(Platform.OS === "web"
-            ? {
-                // A button that does not say "click me" under the cursor reads
-                // as a label. `transitionDuration` is web-only and ignored by
-                // the native renderers.
-                cursor: isInert ? "not-allowed" : "pointer",
-                transitionDuration: `${motion.fast}ms`,
-                ...webFocusRing(focused, accentName),
-              }
-            : null),
+          // Cursor, transition and the keyboard focus ring. A button that does
+          // not say "click me" under the pointer reads as a label.
+          ...states.webStyle,
         } as ViewStyle,
         style,
       ]}
       {...props}
     >
       {loading ? (
+        // Drawn in the label's own colour: the accent default would be
+        // invisible on a primary button's accent fill.
         <View className='p-0.5'>
-          <Loader />
+          <Loader color={label} />
         </View>
       ) : (
         <>

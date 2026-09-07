@@ -4,9 +4,17 @@ import {
   canManageMembers,
   canRemoveMember,
   confirmedAction,
+  groupCounts,
+  groupSyncState,
+  initials,
+  latestPeerActivity,
   type MeshMember,
   type MeshNodePeer,
+  memberDisplayName,
   memberRoster,
+  pathCategory,
+  rttLabel,
+  shortenNodeId,
   toMembers,
   toRotation,
 } from "./meshApi";
@@ -257,6 +265,145 @@ describe("ageOf", () => {
   test("a rotation stamped by a node whose clock runs fast is not in the future", () => {
     // `rotatedAt` comes from the rotating node's clock, so a few seconds of skew is ordinary.
     expect(ageOf(now + 5_000, now)?.token).toBe("1m");
+  });
+});
+
+describe("groupCounts", () => {
+  const peer = (over: Partial<MeshNodePeer> = {}): MeshNodePeer => ({
+    group: "gggg",
+    node: "aaaa",
+    nodeName: "attic",
+    online: true,
+    firstSeen: "2026-09-01T00:00:00Z",
+    ...over,
+  });
+
+  test("counts only the named group, case-insensitively", () => {
+    const counts = groupCounts(
+      [
+        peer({ group: "GGGG", node: "a", online: true }),
+        peer({ group: "gggg", node: "b", online: false }),
+        peer({ group: "other", node: "c", online: true }),
+      ],
+      "gggg",
+    );
+    expect(counts).toEqual({ members: 2, online: 1 });
+  });
+
+  test("an empty or missing peer list is zero of both", () => {
+    expect(groupCounts(undefined, "gggg")).toEqual({ members: 0, online: 0 });
+    expect(groupCounts([], "gggg")).toEqual({ members: 0, online: 0 });
+  });
+});
+
+describe("groupSyncState", () => {
+  test("syncing only when this device's mesh exists and has not joined yet", () => {
+    expect(groupSyncState(true, false)).toBe("syncing");
+    expect(groupSyncState(true, true)).toBe("synced");
+    // No embedded mesh on this platform (e.g. web, iOS): nothing to sync, so never "syncing".
+    expect(groupSyncState(false, false)).toBe("synced");
+    expect(groupSyncState(false, true)).toBe("synced");
+  });
+});
+
+describe("pathCategory", () => {
+  test("direct and mixed both read as direct", () => {
+    expect(pathCategory("direct")).toBe("direct");
+    expect(pathCategory("mixed")).toBe("direct");
+  });
+
+  test("relay reads as relayed", () => {
+    expect(pathCategory("relay")).toBe("relayed");
+  });
+
+  test("anything else, including nothing yet, reads as connecting", () => {
+    expect(pathCategory(null)).toBe("connecting");
+    expect(pathCategory(undefined)).toBe("connecting");
+    expect(pathCategory("")).toBe("connecting");
+  });
+});
+
+describe("rttLabel", () => {
+  test("formats a measured round trip", () => {
+    expect(rttLabel(42)).toBe("42 ms");
+    expect(rttLabel(0)).toBe("0 ms");
+  });
+
+  test("null when nothing has been measured", () => {
+    expect(rttLabel(null)).toBeNull();
+    expect(rttLabel(undefined)).toBeNull();
+  });
+});
+
+describe("memberDisplayName / shortenNodeId", () => {
+  test("prefers the name a member has announced", () => {
+    expect(memberDisplayName({ node: "aaaa1111", nodeName: "attic" })).toBe(
+      "attic",
+    );
+  });
+
+  test("falls back to a shortened node id when nothing has been announced", () => {
+    const long = "0123456789abcdef0123456789abcdef";
+    expect(memberDisplayName({ node: long, nodeName: "" })).toBe(
+      shortenNodeId(long),
+    );
+    expect(shortenNodeId(long)).toBe("0123456789ab…");
+  });
+
+  test("a short node id is left alone", () => {
+    expect(shortenNodeId("abc123")).toBe("abc123");
+  });
+});
+
+describe("initials", () => {
+  test("two words give one letter each", () => {
+    expect(initials("attic loft")).toBe("AL");
+  });
+
+  test("one word gives its first two letters", () => {
+    expect(initials("attic")).toBe("AT");
+  });
+
+  test("a bare node id gives its first two characters", () => {
+    expect(initials("aaaa1111")).toBe("AA");
+  });
+
+  test("nothing at all is a question mark, not an empty avatar", () => {
+    expect(initials("")).toBe("?");
+    expect(initials("   ")).toBe("?");
+  });
+});
+
+describe("latestPeerActivity", () => {
+  test("picks the most recently seen peer", () => {
+    const activity = latestPeerActivity([
+      {
+        group: "g",
+        node: "a",
+        nodeName: "a",
+        online: false,
+        firstSeen: "",
+        lastSeen: "2026-09-01T00:00:00Z",
+      },
+      {
+        group: "g",
+        node: "b",
+        nodeName: "b",
+        online: true,
+        firstSeen: "",
+        lastSeen: "2026-09-05T00:00:00Z",
+      },
+    ]);
+    expect(activity?.at).toBe(Date.parse("2026-09-05T00:00:00Z"));
+  });
+
+  test("null when no peer has ever been seen", () => {
+    expect(
+      latestPeerActivity([
+        { group: "g", node: "a", nodeName: "a", online: false, firstSeen: "" },
+      ]),
+    ).toBeNull();
+    expect(latestPeerActivity([])).toBeNull();
   });
 });
 

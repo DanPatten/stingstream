@@ -5,6 +5,8 @@ import {
   type BreakpointName,
   DEFAULT_ACCENT,
   elevation,
+  fade,
+  interaction,
   resolveTextStyle,
   rgba,
   type TypeVariant,
@@ -340,10 +342,57 @@ describe("resolveTextStyle", () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
+describe("interaction", () => {
+  test("the overlays are alphas, not colours", () => {
+    for (const alpha of [
+      interaction.hoverOverlay,
+      interaction.pressedOverlay,
+      interaction.disabledFillAlpha,
+      interaction.disabledLabelAlpha,
+      interaction.skeletonMinOpacity,
+    ]) {
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("pressed is stronger than hover", () => {
+    // Otherwise pressing a control that is already hovered makes it *less*
+    // lit, which reads as the press not registering.
+    expect(interaction.pressedOverlay).toBeGreaterThan(
+      interaction.hoverOverlay,
+    );
+  });
+
+  test("a disabled label stays more solid than its fill", () => {
+    // The rule the whole two-alpha scheme exists for: fade them equally and
+    // the label floats on an invisible fill, which reads as a link rather
+    // than as a switched-off button. See docs/UI-DESIGN.md.
+    expect(interaction.disabledLabelAlpha).toBeGreaterThan(
+      interaction.disabledFillAlpha,
+    );
+  });
+
+  test("a disabled primary button is still visible", () => {
+    // 35 % of the accent on bg0 has to stay distinguishable from the page, or
+    // the button disappears instead of switching off.
+    const faded = fade(accentPalette()[500], interaction.disabledFillAlpha);
+    expect(faded).toBe("rgba(31,199,181,0.35)");
+  });
+});
+
 describe("helpers", () => {
   test("rgba expands both hex forms", () => {
     expect(rgba("#1FC7B5", 0.12)).toBe("rgba(31,199,181,0.12)");
     expect(rgba("#FFF", 1)).toBe("rgba(255,255,255,1)");
+  });
+
+  test("fade thins a colour and leaves the non-colours alone", () => {
+    expect(fade("#1FC7B5", 0.35)).toBe("rgba(31,199,181,0.35)");
+    // A ghost button's rest fill is the literal string, not a colour, and a
+    // caller should not have to special-case it before asking for 35 % of it.
+    expect(fade("transparent", 0.35)).toBe("transparent");
+    expect(fade("rgba(255,255,255,0.08)", 0.5)).toBe("rgba(255,255,255,0.08)");
   });
 
   test("elevation carries an Android value as well as a shadow", () => {

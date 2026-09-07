@@ -22,6 +22,23 @@ export const hasMeaningfulSettingValue = (value: unknown): boolean =>
   value !== undefined && value !== null && value !== "";
 
 /**
+ * Keep a value inside a fixed set of allowed values, falling back to a default otherwise.
+ *
+ * Generic rather than accent-specific so this file can stay free of any one setting's own module —
+ * `utils/atoms/settings.ts` calls this for `accent` with `ACCENT_NAMES`/`DEFAULT_ACCENT` from
+ * `constants/theme`, but the check itself does not need to know that. Without it, a stored or
+ * plugin-supplied value outside the known set — corrupt storage, a downgrade after a release added
+ * a fourth accent, an admin typo in a locked plugin value — reaches `accentPalette()`, which indexes
+ * the token JSON by name and returns `undefined` for anything else, crashing the first component
+ * that reads `.500` off the result.
+ */
+export const withinAllowedValues = <T>(
+  value: T,
+  allowed: readonly T[],
+  fallback: T,
+): T => (allowed.includes(value) ? value : fallback);
+
+/**
  * Settings an unlocked plugin default must never seed. Crash-report consent
  * can only change by explicit user action (or an admin lock): the intro sheet
  * is the opt-out surface and it is available before the first plugin sync

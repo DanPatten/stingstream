@@ -1,24 +1,32 @@
 import { requireOptionalNativeModule } from "expo";
 import { useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { radius, tokens } from "@/constants/theme";
 import { useMintMeshInvite } from "@/lib/stingstream/mesh";
 import { LoadingState } from "../shared/ScreenState";
 
 /**
  * An invite code, as text and as a QR.
  *
- * An invite carries the group id, its **secret**, this node's address and the group's coordinator
- * — everything needed to become a member. So it is minted on demand rather than displayed by
- * default, it is never cached by React Query, and the screen says plainly what handing it over
- * means. base58check is what makes it survivable when read aloud: no look-alike characters, and a
- * checksum that catches a transposition before it becomes a confusing join failure.
+ * An invite carries the group id, its **secret**, this node's address and the group's rendezvous
+ * server — everything needed to become a member. So it is minted on demand rather than displayed
+ * by default, it is never cached by React Query, and the copy says plainly what handing it over
+ * means and that removing a member later invalidates it. base58check is what makes it survivable
+ * when read aloud: no look-alike characters, and a checksum that catches a transposition before it
+ * becomes a confusing join failure.
  *
  * The QR is the same string, not a URL. Anything that scans it and does not know what it is gets
  * an opaque blob, which is the right outcome.
+ *
+ * Content only — no title, no outer card. `GroupDetailScreen` hosts this inside a `Dialog`, which
+ * already supplies both; `CreateGroupScreen` hosts it inside its own `FormCard`, under a heading it
+ * writes itself.
  */
 export function InviteCard({
   group,
@@ -27,6 +35,7 @@ export function InviteCard({
   group: string;
   groupName: string;
 }) {
+  const { t } = useTranslation();
   const mint = useMintMeshInvite();
   const code = mint.data?.code;
 
@@ -42,55 +51,58 @@ export function InviteCard({
     if (Platform.OS === "web") {
       try {
         await navigator.clipboard.writeText(code);
-        toast.success("Invite code copied");
+        toast.success(t("sharing.invite_copied"));
       } catch {
-        toast.error("Could not copy — select the code and copy it by hand.");
+        toast.error(t("sharing.invite_copy_failed"));
       }
       return;
     }
     // Builds that do not ship the expo-clipboard native module: probe first, as the rest of the
     // app does (components/settings/QuickConnect.tsx).
     if (!requireOptionalNativeModule("ExpoClipboard")) {
-      toast.error("Clipboard is not available in this build.");
+      toast.error(t("sharing.invite_clipboard_unavailable"));
       return;
     }
     const Clipboard = await import("expo-clipboard");
     await Clipboard.setStringAsync(code);
-    toast.success("Invite code copied");
-  }, [code]);
+    toast.success(t("sharing.invite_copied"));
+  }, [code, t]);
 
   if (mint.isPending) return <LoadingState />;
 
   if (mint.error || !code) {
     return (
-      <View className='rounded-xl bg-neutral-900 p-4'>
-        <Text className='text-red-500 font-semibold'>
-          Could not mint an invite
+      <View>
+        <Text variant='body' weight='semibold' tone='danger'>
+          {t("sharing.invite_mint_failed_title")}
         </Text>
-        <Text className='text-[#9899A1] text-xs mt-1'>
-          {mint.error instanceof Error ? mint.error.message : "Unknown error"}
+        <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
+          {mint.error instanceof Error
+            ? mint.error.message
+            : t("common.something_went_wrong")}
         </Text>
-        <View className='h-3' />
-        <Button color='black' onPress={() => mint.mutate(group)}>
-          Try again
+        <View style={{ height: 12 }} />
+        <Button variant='secondary' onPress={() => mint.mutate(group)}>
+          {t("sharing.try_again")}
         </Button>
       </View>
     );
   }
 
   return (
-    <View className='rounded-xl bg-neutral-900 p-4'>
-      <Text className='text-white font-semibold'>
-        Invite to {groupName || "this group"}
-      </Text>
-      <Text className='text-[#9899A1] text-xs mt-1'>
-        This code carries the group secret. Anyone who has it can join and see
-        everything the group holds, so send it the way you would send a
-        password.
+    <View>
+      <Text variant='caption' tone='secondary'>
+        {t("sharing.invite_description", { group: groupName || group })}
       </Text>
 
-      <View className='items-center my-4'>
-        <View className='p-3 rounded-xl bg-white'>
+      <View style={{ alignItems: "center", marginVertical: 16 }}>
+        <View
+          style={{
+            padding: 12,
+            borderRadius: radius.md,
+            backgroundColor: "#FFFFFF",
+          }}
+        >
           <QRCode
             value={code}
             size={Platform.isTV ? 260 : 200}
@@ -100,26 +112,57 @@ export function InviteCard({
         </View>
       </View>
 
-      <View className='rounded-lg bg-neutral-800 p-3'>
-        <Text className='text-white text-xs' selectable>
+      <View
+        style={{
+          borderRadius: radius.sm,
+          backgroundColor: tokens.color.bg["2"],
+          padding: 12,
+        }}
+      >
+        <Text variant='caption' selectable>
           {code}
         </Text>
       </View>
 
       {!Platform.isTV && (
         <>
-          <View className='h-3' />
-          <Button color='black' onPress={copy}>
-            Copy code
+          <View style={{ height: 12 }} />
+          <Button variant='secondary' icon='link' onPress={copy}>
+            {t("sharing.invite_copy_code")}
           </Button>
         </>
       )}
 
-      <Text className='text-[#9899A1] text-xs mt-3'>
-        Joining needs a member online, so keep this node running until they are
-        in — unless the group has a coordinator, which remembers member
-        addresses for exactly this case.
-      </Text>
+      <View style={{ flexDirection: "row", marginTop: 12 }}>
+        <Icon
+          name='warning'
+          tone='tertiary'
+          size={14}
+          style={{ marginTop: 2 }}
+        />
+        <Text
+          variant='caption'
+          tone='tertiary'
+          style={{ marginLeft: 6, flex: 1 }}
+        >
+          {t("sharing.invite_note_online")}
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", marginTop: 6 }}>
+        <Icon
+          name='warning'
+          tone='tertiary'
+          size={14}
+          style={{ marginTop: 2 }}
+        />
+        <Text
+          variant='caption'
+          tone='tertiary'
+          style={{ marginLeft: 6, flex: 1 }}
+        >
+          {t("sharing.invite_note_revocation")}
+        </Text>
+      </View>
     </View>
   );
 }

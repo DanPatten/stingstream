@@ -1,10 +1,17 @@
 import { useMemo } from "react";
-import { Platform, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
+import { Button } from "@/components/Button";
+import { Icon } from "@/components/common/Icon";
+import { PageContainer } from "@/components/common/PageContainer";
 import { Text } from "@/components/common/Text";
-import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
+import { radius, rgba, tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import {
+  groupCounts,
+  groupSyncState,
+  latestPeerActivity,
   MeshUnavailableError,
   useNodeMeshGroups,
   useNodeMeshPeers,
@@ -12,19 +19,24 @@ import {
 import { useMesh } from "@/providers/MeshProvider";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
-import { EmptyState, QueryState } from "../shared/ScreenState";
+import { QueryState } from "../shared/ScreenState";
 import { DeviceMeshSection } from "./DeviceMeshSection";
+import { GroupCard } from "./GroupCard";
 
 /**
- * The groups this node belongs to.
+ * The groups this server belongs to.
  *
- * The list comes from the **home node**, which is where the library and the group secrets live.
- * This device's own membership follows it automatically (see `MeshProvider`), and the pill on
- * each row says whether the phone has caught up — a group the node joined a moment ago will show
- * "syncing" until the next membership sync.
+ * The list comes from the **server**, which is where the library and the group secrets live. This
+ * device's own membership follows it automatically (see `MeshProvider`), which is what each card's
+ * synced/syncing pill reports. Creating and joining are elevated on the server — a group is the
+ * server's identity in the mesh, not a per-user setting — so a non-administrator sees the same
+ * cards with both actions disabled and a one-line reason, rather than a button that would answer
+ * 403.
  */
 export function GroupsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
+  const { accent } = useTheme();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(null);
   const mesh = useMesh();
@@ -35,130 +47,165 @@ export function GroupsScreen() {
     [mesh.groups],
   );
 
-  const countsFor = (group: string) => {
-    const rows = (peers.data ?? []).filter((p) => p.group === group);
-    return {
-      members: rows.length,
-      online: rows.filter((p) => p.online).length,
-    };
-  };
-
-  // A node whose mesh child is down answers 503, and that is emphatically not "you belong to no
-  // groups" — showing the empty state would tell the user their group had vanished. It gets its
-  // own line, and this device's own section still renders below it, because the phone's mesh is
-  // a separate thing that may well be fine.
+  // A server whose mesh child is down answers 503, and that is emphatically not "you belong to no
+  // groups" — showing the empty state would tell the user their group had vanished. It gets its own
+  // line, and this device's own status card still renders above it, because the phone's mesh is a
+  // separate thing that may well be fine.
   if (groups.error instanceof MeshUnavailableError) {
     return (
-      <>
+      <PageContainer width='settings'>
         <DeviceMeshSection />
-        <View className='h-4' />
+        <View style={{ height: 16 }} />
         <GapNotice
-          title="This node's mesh isn't answering"
-          detail={groups.error.message}
+          title={t("sharing.mesh_unavailable_title")}
+          detail={t("sharing.mesh_unavailable_detail")}
         />
-      </>
+      </PageContainer>
     );
   }
 
+  const rows = groups.data ?? [];
+
   return (
-    <QueryState
-      isLoading={groups.isLoading}
-      error={groups.error}
-      onRetry={groups.refetch}
-    >
+    <PageContainer width='settings'>
       <DeviceMeshSection />
+      <View style={{ height: 16 }} />
 
-      <View className='h-4' />
-
-      <ListGroup title='Groups'>
-        {(groups.data ?? []).map((group) => {
-          const { members, online } = countsFor(group.group);
-          return (
-            <ListItem
-              key={group.group}
-              title={group.name || "Unnamed group"}
-              subtitle={[
-                `${members} member${members === 1 ? "" : "s"}`,
-                `${online} online`,
-                group.coordinator ? "own coordinator" : "no coordinator",
-                mesh.available && !joinedHere.has(group.group.toLowerCase())
-                  ? "syncing to this device"
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" • ")}
-              showArrow
-              onPress={() =>
-                router.push(`/settings/groups/${group.group}/page`)
-              }
-            />
-          );
-        })}
-        {(groups.data ?? []).length === 0 && (
-          <ListItem
-            title='No groups yet'
-            subtitle='Create one, or join a friend’s with their invite code.'
-          />
-        )}
-      </ListGroup>
-
-      <View className='h-4' />
-
-      {/* Both are RequiresElevation on the node: a group is the node's identity in the mesh,
-          not a per-user setting. */}
-      {isAdmin ? (
-        <ListGroup>
-          <ListItem
-            title='Create group'
-            textColor='blue'
-            showArrow
-            onPress={() => router.push("/settings/groups/create/page")}
-          />
-          <ListItem
-            title='Join group'
-            subtitle={
-              Platform.isTV
-                ? "Enter an invite code"
-                : "Paste an invite code, or scan a QR"
-            }
-            textColor='blue'
-            showArrow
-            onPress={() => router.push("/settings/groups/join/page")}
-          />
-        </ListGroup>
-      ) : (
-        <ListGroup
-          description={
-            <Text className='text-[#9899A1] text-xs'>
-              Creating and joining groups are administrator actions on your home
-              node. Your device already follows whichever groups it belongs to.
+      <QueryState
+        isLoading={groups.isLoading}
+        error={groups.error}
+        onRetry={groups.refetch}
+      >
+        {rows.length > 0 ? (
+          <View>
+            {rows.map((group) => {
+              const counts = groupCounts(peers.data, group.group);
+              const groupPeers = (peers.data ?? []).filter(
+                (p) => p.group.toLowerCase() === group.group.toLowerCase(),
+              );
+              return (
+                <GroupCard
+                  key={group.group}
+                  group={group}
+                  members={counts.members}
+                  online={counts.online}
+                  syncState={groupSyncState(
+                    mesh.available,
+                    joinedHere.has(group.group.toLowerCase()),
+                  )}
+                  lastActiveToken={
+                    latestPeerActivity(groupPeers)?.token ?? null
+                  }
+                  onPress={() =>
+                    router.push(`/settings/groups/${group.group}/page`)
+                  }
+                />
+              );
+            })}
+          </View>
+        ) : (
+          <View style={{ alignItems: "center", paddingVertical: 32 }}>
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: rgba(accent[500], 0.12),
+                marginBottom: 16,
+              }}
+            >
+              <Icon name='sharing' size={26} tone='accent' />
+            </View>
+            <Text variant='heading' weight='semibold' align='center'>
+              {t("sharing.empty_title")}
             </Text>
-          }
+            <Text
+              variant='caption'
+              tone='secondary'
+              align='center'
+              style={{ marginTop: 6, maxWidth: tokens.maxWidth.prose }}
+            >
+              {t("sharing.empty_detail")}
+            </Text>
+          </View>
+        )}
+
+        <View style={{ height: 16 }} />
+
+        <SharingActions
+          isAdmin={isAdmin}
+          onCreate={() => router.push("/settings/groups/create/page")}
+          onJoin={() => router.push("/settings/groups/join/page")}
+        />
+
+        {mesh.syncError && (
+          <View
+            style={{
+              marginTop: 16,
+              borderRadius: radius.md,
+              backgroundColor: tokens.color.bg["1"],
+              padding: 14,
+            }}
+          >
+            <Text variant='body' weight='semibold' tone='danger'>
+              {t("sharing.sync_error_title")}
+            </Text>
+            <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
+              {mesh.syncError}
+            </Text>
+            <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+              {t("sharing.sync_error_detail")}
+            </Text>
+          </View>
+        )}
+      </QueryState>
+    </PageContainer>
+  );
+}
+
+function SharingActions({
+  isAdmin,
+  onCreate,
+  onJoin,
+}: {
+  isAdmin: boolean;
+  onCreate: () => void;
+  onJoin: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <View>
+      <Button
+        testID='sharing-create'
+        variant='primary'
+        icon='add'
+        disabled={!isAdmin}
+        onPress={onCreate}
+      >
+        {t("sharing.create_group_button")}
+      </Button>
+      <View style={{ height: 8 }} />
+      <Button
+        testID='sharing-join'
+        variant='secondary'
+        icon='link'
+        disabled={!isAdmin}
+        onPress={onJoin}
+      >
+        {t("sharing.join_group_button")}
+      </Button>
+      {!isAdmin && (
+        <Text
+          variant='caption'
+          tone='secondary'
+          align='center'
+          style={{ marginTop: 8 }}
         >
-          <ListItem title='Managed by an administrator' />
-        </ListGroup>
+          {t("sharing.admin_only_reason")}
+        </Text>
       )}
-
-      {mesh.syncError && (
-        <View className='mt-4 rounded-xl bg-neutral-900 p-4'>
-          <Text className='text-red-500 font-semibold'>
-            This device could not join every group
-          </Text>
-          <Text className='text-[#9899A1] text-xs mt-1'>{mesh.syncError}</Text>
-          <Text className='text-[#9899A1] text-xs mt-2'>
-            Playback still works — the home node proxies the stream instead.
-          </Text>
-        </View>
-      )}
-
-      {(groups.data ?? []).length === 0 && !groups.isLoading && (
-        <View className='mt-4'>
-          <EmptyState
-            title='Nothing is shared yet'
-            detail='A group is a set of nodes that pool their libraries. Nothing leaves a group, and there is no directory — the only way in is an invite code.'
-          />
-        </View>
-      )}
-    </QueryState>
+    </View>
   );
 }

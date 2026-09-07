@@ -17,6 +17,7 @@
 //! on the gateway maps to `/jellyfin/stingstream/...` upstream. That asymmetry is the whole reason
 //! [`proxy::Upstream::upstream_prefix`] exists.
 
+pub mod brand;
 pub mod listen;
 pub mod proxy;
 pub mod web;
@@ -447,7 +448,7 @@ async fn inject_into_html(response: Response, marker: &web::Marker<'_>) -> Respo
         // Labelled text/html and not UTF-8. Serve what came back rather than mangling it.
         return Response::from_parts(parts, Body::from(bytes));
     };
-    let injected = web::inject_marker(html, marker).into_bytes();
+    let injected = web::inject(html, marker).into_bytes();
     parts
         .headers
         .insert(header::CONTENT_LENGTH, HeaderValue::from(injected.len()));
@@ -1233,7 +1234,9 @@ mod tests {
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header(header::CONTENT_LENGTH, "44")
             .header(header::ETAG, "\"abc\"")
-            .body(Body::from("<html><head><title>a</title></head></html>"))
+            .body(Body::from(
+                "<html><head><title>a</title></head><body><div id=\"root\"></div></body></html>",
+            ))
             .unwrap();
         let out = inject_into_html(html, &marker).await;
         let len: usize = out
@@ -1250,6 +1253,10 @@ mod tests {
         let body = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(body.contains("__STINGSTREAM_NODE__"));
         assert!(body.contains("<title>a</title>"));
+        // The dev-server path gets the splash too -- it is the loop everybody iterates in, and a
+        // three-second blank page there is the same three-second blank page.
+        assert!(body.contains("<div id=\"root\"></div><div id=\"ss-splash\""));
+        assert!(body.contains("#root:not(:empty)+#ss-splash"));
 
         // A JavaScript bundle from the same dev server is served byte for byte.
         let js = Response::builder()
