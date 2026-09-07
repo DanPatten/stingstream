@@ -43,5 +43,27 @@ namespace MediaBrowser.Controller.Library
             User user,
             IReadOnlyList<MediaSourceInfo> sources,
             CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Whether a remote content probe of these sources would be pointless, or worse.
+        /// </summary>
+        /// <param name="sources">The sources, as <c>GetStaticMediaSources</c> produced them.</param>
+        /// <returns><c>true</c> to skip the probe refresh.</returns>
+        /// <remarks>
+        /// <para>
+        /// <c>GetPlaybackMediaSources</c> re-probes an item whose first source carries no video
+        /// stream, on the reasonable assumption that a file it knows nothing about is worth
+        /// looking at. For a StingStream pointer that assumption is wrong twice over: the holder
+        /// has already published everything the probe would rediscover, and the probe cannot
+        /// succeed anyway — it shells out to <c>ffprobe</c>, a separate process that does its own
+        /// DNS and so cannot resolve the marker host the pointer is written against. What actually
+        /// happens is that PlaybackInfo blocks for <c>ffprobe</c>'s resolve timeout, on every cold
+        /// load, and the client sits on a spinner.
+        /// </para>
+        /// <para>
+        /// Defaults to <c>false</c>, so an implementation with no opinion changes nothing.
+        /// </para>
+        /// </remarks>
+        bool ShouldSkipRemoteProbe(IReadOnlyList<MediaSourceInfo> sources) => false;
     }
 }

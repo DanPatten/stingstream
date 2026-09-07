@@ -81,6 +81,45 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
         _logger = logger;
     }
 
+    /// <summary>
+    /// How long the whole scoring pass may take before the sources are served unscored.
+    /// </summary>
+    /// <remarks>
+    /// PlaybackInfo is the call the player waits on with nothing on screen, and every part of this
+    /// pass talks to the mesh — which can be slow for honest reasons: a peer on a bad link, a
+    /// coordinator mid-restart, an index lookup behind a cold cache. Unbounded, any of those is an
+    /// endless spinner in the app with no error and nothing in the console. Bounded, the worst case
+    /// is the M3 behaviour: the same sources, in Jellyfin's own order, which still play.
+    ///
+    /// Eight seconds because it has to be longer than a slow-but-working lookup and shorter than a
+    /// person's patience; measured passes on a healthy three-node rig come back in tens of
+    /// milliseconds.
+    /// </remarks>
+    public static readonly TimeSpan ScoringDeadline = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    /// Whether a media source is a StingStream federated pointer.
+    /// </summary>
+    /// <param name="source">The source to look at.</param>
+    /// <returns>True when its path is one of this node's stream URLs.</returns>
+    /// <remarks>
+    /// The path, not the file name: Jellyfin reads a <c>.strm</c> and puts its *contents* in
+    /// <see cref="MediaSourceInfo.Path"/>, so what is tested here is the URL, and
+    /// <see cref="FederatedLayout.TryParseStreamUrl"/> is strict about the host. A file somebody
+    /// put in a library by hand that merely looks similar is not one of ours.
+    /// </remarks>
+    public static bool IsFederatedPointer(MediaSourceInfo? source)
+        => FederatedLayout.TryParseStreamUrl(source?.Path, out _, out _, out _);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Keyed on the first source because that is the one <c>GetPlaybackMediaSources</c> tests
+    /// before deciding to probe: matching its question exactly is what keeps this from vetoing a
+    /// probe of a real local file that happens to sit in a folder beside a pointer.
+    /// </remarks>
+    public bool ShouldSkipRemoteProbe(IReadOnlyList<MediaSourceInfo> sources)
+        => sources is { Count: > 0 } && IsFederatedPointer(sources[0]);
+
     /// <inheritdoc />
     public Task<IReadOnlyList<MediaSourceInfo>> DecorateAsync(
         BaseItem item,
@@ -125,10 +164,23 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
             return sources;
         }
 
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(ScoringDeadline);
+
         try
         {
-            return await ApplyCoreAsync(label, userId, sources, federated, cancellationToken)
+            return await ApplyCoreAsync(label, userId, sources, federated, deadline.Token)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Ours, not the caller's -- the caller giving up is not something to log or recover
+            // from. See ScoringDeadline for why there is one at all.
+            _logger.LogWarning(
+                "Scoring the federated sources of {Item} took longer than {Seconds:0}s; using them unordered",
+                label,
+                ScoringDeadline.TotalSeconds);
+            return sources;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
