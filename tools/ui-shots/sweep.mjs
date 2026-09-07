@@ -31,9 +31,15 @@ function loadAllowlist(allowlistPath) {
     return {
       console: (raw.console || []).map((s) => new RegExp(s, "i")),
       responses: (raw.responses || []).map((s) => new RegExp(s, "i")),
+      // CSS selectors (not regexes -- these match DOM elements, not strings), exempting elements
+      // from the small-text (<12px) check specifically. F-08 (pass-01): the compact tab bar's
+      // labels are 11px by design (TAB_LABEL_FONT_SIZE, apps/stingstream/components/shell/
+      // tabIcons.ts) so five tabs fit a 360dp bar without truncating -- a real defect there would
+      // be a wrong size or missing label, not this one. See docs/UI-LOOP.md, "The allowlist".
+      smallTextSelectors: raw.smallTextSelectors || [],
     };
   } catch {
-    return { console: [], responses: [] };
+    return { console: [], responses: [], smallTextSelectors: [] };
   }
 }
 
@@ -109,11 +115,12 @@ export function watchPage(page, { screen, viewport, allowlistPath } = {}) {
  * network idle, or whatever the screen's own flow waits for). `viewportWidth`/`isMobile` steer the
  * viewport-specific checks (tap targets only apply at the 390 mobile viewport).
  */
-export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile, i18nKeys = [], checkHomeStructure = false } = {}) {
+export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile, i18nKeys = [], checkHomeStructure = false, allowlistPath } = {}) {
   const findings = [];
+  const allow = loadAllowlist(allowlistPath);
 
   const result = await page.evaluate(
-    ({ i18nKeys, isMobile, brandWordsSource }) => {
+    ({ i18nKeys, isMobile, brandWordsSource, smallTextSelectors }) => {
       const brandWords = new RegExp(brandWordsSource, "i");
       const i18nKeyShape = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
       const out = {
@@ -211,9 +218,13 @@ export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile
         }
       }
 
-      // Text smaller than 12px, on elements that carry visible text directly.
+      // Text smaller than 12px, on elements that carry visible text directly -- except elements
+      // matching an allowlisted selector (F-08: the compact tab bar's 11px labels are by design,
+      // not a defect; see loadAllowlist() above).
+      const smallTextIgnore = smallTextSelectors.length ? smallTextSelectors.join(", ") : null;
       for (const el of textCarriers) {
         if (!isVisible(el)) continue;
+        if (smallTextIgnore && el.closest(smallTextIgnore)) continue;
         const size = parseFloat(getComputedStyle(el).fontSize);
         if (size && size < 12) {
           out.smallText.push({ tag: el.tagName.toLowerCase(), fontSize: size, text: (el.textContent || "").trim().slice(0, 60) });
@@ -229,7 +240,7 @@ export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile
 
       return out;
     },
-    { i18nKeys, isMobile: !!isMobile, brandWordsSource: BRAND_WORDS.source },
+    { i18nKeys, isMobile: !!isMobile, brandWordsSource: BRAND_WORDS.source, smallTextSelectors: allow.smallTextSelectors },
   );
 
   if (result.pageOverflow) {

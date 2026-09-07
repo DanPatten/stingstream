@@ -21,7 +21,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text } from "@/components/common/Text";
+import { CountdownRing } from "@/components/video-player/controls/CountdownRing";
+import { nextUpLabel } from "@/components/video-player/controls/NextEpisodeCountDownButton";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { useTheme } from "@/hooks/useTheme";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { scaleSize } from "@/utils/scaleSize";
 import { useTVFocusAnimation } from "./hooks/useTVFocusAnimation";
@@ -64,6 +67,7 @@ export const TVNextEpisodeCountdown: FC<TVNextEpisodeCountdownProps> = ({
 }) => {
   const typography = useScaledTVTypography();
   const { t } = useTranslation();
+  const { accent } = useTheme();
   const progress = useSharedValue(0);
   const cancelled = useSharedValue(false);
   const onFinishRef = useRef(onFinish);
@@ -144,10 +148,6 @@ export const TVNextEpisodeCountdown: FC<TVNextEpisodeCountdownProps> = ({
     };
   }, [show, isPlaying, progress, cancelled]);
 
-  const progressStyle = useAnimatedStyle(() => ({
-    width: `${progress.value * 100}%`,
-  }));
-
   const styles = useMemo(() => createStyles(typography), [typography]);
 
   if (!show) return null;
@@ -177,20 +177,28 @@ export const TVNextEpisodeCountdown: FC<TVNextEpisodeCountdownProps> = ({
               )}
 
               <View style={styles.content}>
-                <Text style={styles.label}>{t("player.next_episode")}</Text>
+                <Text style={styles.label}>{t("player.next_up")}</Text>
 
                 <Text style={styles.seriesName} numberOfLines={1}>
                   {nextItem.SeriesName}
                 </Text>
 
                 <Text style={styles.episodeInfo} numberOfLines={1}>
-                  S{nextItem.ParentIndexNumber}E{nextItem.IndexNumber} -{" "}
-                  {nextItem.Name}
+                  {nextUpLabel(nextItem)}
                 </Text>
+              </View>
 
-                <View style={styles.progressContainer}>
-                  <Animated.View style={[styles.progressBar, progressStyle]} />
-                </View>
+              {/* The bar under the text read as "how much of the next episode you have watched".
+                  A ring around a play glyph is a timer, which is what it is. Same card as phone
+                  and web, at ten-foot scale. */}
+              <View style={styles.ring}>
+                <CountdownRing
+                  progress={progress}
+                  size={scaleSize(56)}
+                  strokeWidth={scaleSize(4)}
+                  color={accent[500]}
+                  trackColor='rgba(255,255,255,0.25)'
+                />
               </View>
             </View>
           </BlurView>
@@ -236,6 +244,10 @@ const createStyles = (typography: ReturnType<typeof useScaledTVTypography>) =>
       justifyContent: "center",
       width: scaleSize(280),
     },
+    ring: {
+      justifyContent: "center",
+      paddingRight: scaleSize(20),
+    },
     label: {
       fontSize: typography.callout,
       color: "rgba(255,255,255,0.5)",
@@ -253,17 +265,6 @@ const createStyles = (typography: ReturnType<typeof useScaledTVTypography>) =>
       color: "#fff",
       fontWeight: "600",
       marginBottom: scaleSize(12),
-    },
-    progressContainer: {
-      height: scaleSize(4),
-      backgroundColor: "rgba(255,255,255,0.2)",
-      borderRadius: scaleSize(2),
-      overflow: "hidden",
-    },
-    progressBar: {
-      height: "100%",
-      backgroundColor: "#fff",
-      borderRadius: scaleSize(2),
     },
     returnFocusGuide: {
       height: 1,

@@ -17,7 +17,6 @@ mock.module("expo", () => ({
   // codecSupport probes the native MPV module; under bun:test there is none.
   requireOptionalNativeModule: () => null,
 }));
-mock.module("@/components/BitrateSelector", () => ({}));
 stubCustomHeaders();
 // No proxy headers in these specs, set per test so another file cannot
 // leave its own behind.

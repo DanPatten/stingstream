@@ -33,6 +33,7 @@ import { useTVLinkDeviceModal } from "@/hooks/useTVLinkDeviceModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
 import { useTVUserSwitchModal } from "@/hooks/useTVUserSwitchModal";
 import { APP_LANGUAGES } from "@/i18n";
+import type { PlaybackPolicy } from "@/lib/stingstream/sourceChooser";
 import { clearCache as clearAudioCache } from "@/providers/AudioStorage";
 import {
   apiAtom,
@@ -214,38 +215,33 @@ export default function SettingsTV() {
   /**
    * Which source the player prefers when the group holds several copies.
    *
-   * `playbackPolicy` is appended to the settings atom by the player package;
-   * until that lands this reads through a cast with a default, so the row is
-   * live from the day the TV settings screen ships rather than a day after.
+   * The same `settings.playbackPolicy` the phone's Playback page and the
+   * player's "Play from" chooser write, and the same two labels the chooser's
+   * tabs carry — one concept, named once.
    */
-  const playbackPolicy =
-    (settings as { playbackPolicy?: "speed_first" | "quality_first" })
-      .playbackPolicy ?? "speed_first";
+  const playbackPolicy = settings.playbackPolicy;
 
   const playbackPolicyLabel =
     playbackPolicy === "quality_first"
-      ? t("tv.settings.play_from_quality")
-      : t("tv.settings.play_from_speed");
+      ? t("player.source.policy_quality")
+      : t("player.source.policy_speed");
 
   const handleShowPlaybackPolicy = () => {
-    showOptions({
+    showOptions<PlaybackPolicy>({
       title: t("tv.settings.play_from"),
       options: [
         {
-          label: t("tv.settings.play_from_speed"),
+          label: t("player.source.policy_speed"),
           value: "speed_first",
           selected: playbackPolicy === "speed_first",
         },
         {
-          label: t("tv.settings.play_from_quality"),
+          label: t("player.source.policy_quality"),
           value: "quality_first",
           selected: playbackPolicy === "quality_first",
         },
       ],
-      onSelect: (value: string) =>
-        updateSettings({
-          playbackPolicy: value,
-        } as unknown as Parameters<typeof updateSettings>[0]),
+      onSelect: (value) => updateSettings({ playbackPolicy: value }),
     });
   };
 

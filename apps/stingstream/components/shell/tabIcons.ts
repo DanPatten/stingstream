@@ -1,6 +1,7 @@
 import type { Ionicons } from "@expo/vector-icons";
 import type { CollectionType } from "@jellyfin/sdk/lib/generated-client/models";
 import type { IconName } from "@/components/common/Icon";
+import { typeStyle } from "@/constants/theme";
 
 /**
  * The vocabulary the two web navigators share.
@@ -137,12 +138,19 @@ export const tabPath = (routeName: string): string =>
 /**
  * The compact tab bar's label size, in px, for both navigators.
  *
- * Pass-01 F-08 asks for 10–11 px, which is `micro` at compact — small enough
- * that five labels fit a 360 dp bar without one of them being cut short, which
- * was the actual defect. Below `ICON_ONLY_BELOW` the labels go entirely rather
- * than shrink further.
+ * Read from the type scale rather than written down, so the native bar and the
+ * web stub cannot drift from `micro` or from each other: the web stub renders a
+ * `Text variant="micro"` and the native navigator takes a raw `fontSize`, and
+ * before this they were two literals that happened to agree.
+ *
+ * `micro` at compact is 12 px, which is the accessibility floor the screenshot
+ * sweep enforces — text below it is a finding. It was 11 for one pass, chosen
+ * only because F-08 asked for "10–11 px"; five labels still fit a 360 dp bar at
+ * 12, which was the defect F-08 was actually about. Below `ICON_ONLY_BELOW` the
+ * labels go entirely rather than shrink further, because shrinking under the
+ * floor is not an option.
  */
-export const TAB_LABEL_FONT_SIZE = 11;
+export const TAB_LABEL_FONT_SIZE = typeStyle("micro", "compact").fontSize;
 
 /** The glyph for a tab group, falling back to a neutral one for a new group. */
 export const tabIcon = (routeName: string): IconName =>

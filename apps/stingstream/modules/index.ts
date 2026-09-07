@@ -22,6 +22,7 @@ export type {
   HeroCarouselViewProps,
 } from "./hero-carousel";
 export { HeroCarouselView, isHeroCarouselAvailable } from "./hero-carousel";
+export { isHeroAvailable } from "./isHeroAvailable";
 // MPV Player (iOS + Android)
 // Presented native player (iOS + Android phone/tablet)
 export type {

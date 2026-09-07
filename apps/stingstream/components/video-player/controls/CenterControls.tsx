@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { FC } from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
@@ -43,6 +44,7 @@ export const CenterControls: FC<CenterControlsProps> = ({
 }) => {
   const { settings } = useSettings();
   const insets = useControlsSafeAreaInsets();
+  const { t } = useTranslation();
 
   return (
     <View
@@ -74,7 +76,13 @@ export const CenterControls: FC<CenterControlsProps> = ({
       )}
 
       {!Platform.isTV && (
-        <TouchableOpacity onPress={handleSkipBackward}>
+        <TouchableOpacity
+          onPress={handleSkipBackward}
+          accessibilityRole='button'
+          accessibilityLabel={t("player.skip_back_seconds", {
+            seconds: settings?.rewindSkipTime,
+          })}
+        >
           <View
             style={{
               position: "relative",
@@ -110,6 +118,8 @@ export const CenterControls: FC<CenterControlsProps> = ({
           onPress={goToPreviousChapter}
           disabled={!hasPreviousChapter}
           style={{ opacity: hasPreviousChapter ? 1 : 0.3 }}
+          accessibilityRole='button'
+          accessibilityLabel={t("player.previous_chapter")}
         >
           <Ionicons
             name='play-back'
@@ -120,7 +130,11 @@ export const CenterControls: FC<CenterControlsProps> = ({
       )}
 
       <View style={Platform.isTV ? { flex: 1, alignItems: "center" } : {}}>
-        <TouchableOpacity onPress={togglePlay}>
+        <TouchableOpacity
+          onPress={togglePlay}
+          accessibilityRole='button'
+          accessibilityLabel={isPlaying ? t("player.pause") : t("player.play")}
+        >
           {!isBuffering ? (
             <Ionicons
               name={isPlaying ? "pause" : "play"}
@@ -138,6 +152,8 @@ export const CenterControls: FC<CenterControlsProps> = ({
           onPress={goToNextChapter}
           disabled={!hasNextChapter}
           style={{ opacity: hasNextChapter ? 1 : 0.3 }}
+          accessibilityRole='button'
+          accessibilityLabel={t("player.next_chapter")}
         >
           <Ionicons
             name='play-forward'
@@ -148,7 +164,13 @@ export const CenterControls: FC<CenterControlsProps> = ({
       )}
 
       {!Platform.isTV && (
-        <TouchableOpacity onPress={handleSkipForward}>
+        <TouchableOpacity
+          onPress={handleSkipForward}
+          accessibilityRole='button'
+          accessibilityLabel={t("player.skip_forward_seconds", {
+            seconds: settings?.forwardSkipTime,
+          })}
+        >
           <View
             style={{
               position: "relative",

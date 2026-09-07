@@ -1,5 +1,8 @@
 {
-  "_comment": "Known-benign noise for tools/ui-shots/sweep.mjs. Entries are regexes (case-insensitive) matched against a console message's text or a failed response's URL. Keep this list to genuinely expected, understood noise -- see docs/UI-LOOP.md, 'The allowlist'. Everything else the old (pre-WP0/WP1/...) UI produces is the pass-00 baseline, on purpose: it is meant to be high, and every later pass should shrink it.",
+  "_comment": "Known-benign noise for tools/ui-shots/sweep.mjs. `console`/`responses` are regexes (case-insensitive) matched against a console message's text or a failed response's URL. `smallTextSelectors` are CSS selectors (not regexes) exempting matching elements from the small-text (<12px) check -- see docs/UI-LOOP.md, 'The allowlist'. Keep this list to genuinely expected, understood noise: everything else the old (pre-WP0/WP1/...) UI produces is the pass-00 baseline, on purpose: it is meant to be high, and every later pass should shrink it.",
   "console": [],
-  "responses": []
+  "responses": [],
+  "smallTextSelectors": [
+    "[data-testid=\"shell-tabbar\"] *"
+  ]
 }

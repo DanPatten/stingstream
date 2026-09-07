@@ -1,3 +1,5 @@
+import type { Api } from "@jellyfin/sdk";
+import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
 import type { FC } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,6 +32,9 @@ interface Props {
   isPlaying: boolean;
   /** Id of the item being played, to scope the countdown to it. */
   itemId?: string | null;
+  /** The episode the countdown card names and illustrates. */
+  nextItem?: BaseItemDto | null;
+  api?: Api | null;
   skipIntro: () => void;
   skipCredit: () => void;
   onNextEpisodeFinish: () => void;
@@ -91,6 +96,8 @@ export const SkipSegmentOverlay: FC<Props> = ({
   remainingTime,
   isPlaying,
   itemId,
+  nextItem,
+  api,
   skipIntro,
   skipCredit,
   onNextEpisodeFinish,
@@ -155,6 +162,8 @@ export const SkipSegmentOverlay: FC<Props> = ({
         remainingMs={remainingTime}
         isPlaying={isPlaying}
         itemId={itemId}
+        nextItem={nextItem}
+        api={api}
         onFinish={onNextEpisodeFinish}
         onPress={onNextEpisodePress}
       />

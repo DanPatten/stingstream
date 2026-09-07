@@ -1,11 +1,15 @@
 import { useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
 import type { NotificationSettings } from "@/lib/stingstream/hooks";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { SaveBar, ToggleRow } from "./fields";
 
 export function NotificationsSection({
@@ -17,27 +21,26 @@ export function NotificationsSection({
   onSave: (next: NotificationSettings) => Promise<void>;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value);
   const dirty = JSON.stringify(draft) !== JSON.stringify(value);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
 
   const events: { key: keyof NotificationSettings; label: string }[] = [
-    { key: "OnGrab", label: "On grab" },
-    { key: "OnDownload", label: "On import" },
-    { key: "OnUpgrade", label: "On upgrade" },
-    { key: "OnRename", label: "On rename" },
-    { key: "OnDelete", label: "On delete" },
+    { key: "OnGrab", label: t("server_settings.notifications_on_grab") },
+    { key: "OnDownload", label: t("server_settings.notifications_on_import") },
+    { key: "OnUpgrade", label: t("server_settings.notifications_on_upgrade") },
+    { key: "OnRename", label: t("server_settings.notifications_on_rename") },
+    { key: "OnDelete", label: t("server_settings.notifications_on_delete") },
   ];
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>
-        Notifications
-      </Text>
-      <ListGroup title="StingStream's own webhook (drives the federated import path)">
+      <ScreenHeaderRow title={t("server_settings.notifications_title")} />
+      <ListGroup title={t("server_settings.notifications_webhook_group_title")}>
         <ToggleRow
-          title='Enabled'
+          title={t("server_settings.notifications_enabled_title")}
           value={draft.WebhookEnabled ?? false}
           onValueChange={(v) => setDraft((d) => ({ ...d, WebhookEnabled: v }))}
         />
@@ -51,49 +54,66 @@ export function NotificationsSection({
         ))}
       </ListGroup>
 
-      <View className='h-3' />
+      <View style={{ height: 12 }} />
 
-      <ListGroup title='Extra webhooks'>
+      <ListGroup title={t("server_settings.notifications_extra_group_title")}>
         {(draft.Extra ?? []).map((wh, i) => (
           <ListItem
             key={wh.Id ?? i}
-            title={wh.Name || wh.Url || "Webhook"}
-            subtitle={wh.Enabled ? "Enabled" : "Disabled"}
+            title={
+              wh.Name ||
+              wh.Url ||
+              t("server_settings.notifications_webhook_fallback_name")
+            }
+            subtitle={
+              wh.Enabled
+                ? t("server_settings.notifications_enabled_label")
+                : t("server_settings.notifications_disabled_label")
+            }
             onPress={() =>
               setDraft((d) => ({
                 ...d,
                 Extra: (d.Extra ?? []).filter((_, idx) => idx !== i),
               }))
             }
+            textColor='red'
           >
-            <Text className='text-red-600'>Remove</Text>
+            <Text tone='danger'>{t("common.remove")}</Text>
           </ListItem>
         ))}
         {(draft.Extra ?? []).length === 0 && (
-          <ListItem title='None configured' />
+          <ListItem
+            title={t("server_settings.notifications_none_configured")}
+          />
         )}
       </ListGroup>
 
-      <View className='rounded-xl bg-neutral-900 p-3 mt-2'>
-        <TextInput
-          placeholder='Name'
-          placeholderTextColor='#5A5960'
+      <View
+        style={{
+          borderRadius: radius.lg,
+          backgroundColor: tokens.color.bg["1"],
+          padding: 16,
+          marginTop: 12,
+        }}
+      >
+        <Input
+          placeholder={t("server_settings.notifications_name_placeholder")}
           value={newName}
           onChangeText={setNewName}
-          className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+          style={{ marginBottom: 8 }}
         />
-        <TextInput
-          placeholder='Webhook URL'
-          placeholderTextColor='#5A5960'
+        <Input
+          placeholder={t("server_settings.notifications_url_placeholder")}
           autoCapitalize='none'
           value={newUrl}
           onChangeText={setNewUrl}
-          className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+          style={{ marginBottom: 12 }}
         />
-        <TouchableOpacity
+        <Button
+          variant='secondary'
           onPress={() => {
             if (!newUrl.trim()) {
-              toast.error("A webhook URL is required");
+              toast.error(t("server_settings.notifications_url_required"));
               return;
             }
             setDraft((d) => ({
@@ -112,11 +132,9 @@ export function NotificationsSection({
             setNewName("");
             setNewUrl("");
           }}
-          className='rounded-lg py-2 items-center'
-          style={{ backgroundColor: Colors.primary }}
         >
-          <Text className='text-white font-semibold'>Add webhook</Text>
-        </TouchableOpacity>
+          {t("server_settings.notifications_add_webhook_action")}
+        </Button>
       </View>
 
       <SaveBar
@@ -126,9 +144,13 @@ export function NotificationsSection({
         onSave={async () => {
           try {
             await onSave(draft);
-            toast.success("Notification settings saved");
+            toast.success(t("server_settings.notifications_save_success"));
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Could not save");
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("server_settings.save_error"),
+            );
           }
         }}
       />

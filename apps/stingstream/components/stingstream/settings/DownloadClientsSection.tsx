@@ -1,10 +1,15 @@
 import { useState } from "react";
-import { TextInput, TouchableOpacity, View } from "react-native";
+import { useTranslation } from "react-i18next";
+import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/common/Input";
+import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Colors } from "@/constants/Colors";
+import { radius, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type ConnectivityTestResult,
   type DownloadClientSettings,
@@ -15,6 +20,7 @@ import {
   useTestExternalDownloadClient,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
+import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 import { SaveBar, TextFieldRow, ToggleRow } from "./fields";
 
@@ -27,6 +33,7 @@ export function DownloadClientsSection({
   onSave: (next: DownloadClientSettings) => Promise<void>;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value);
   const dirty = JSON.stringify(draft) !== JSON.stringify(value);
 
@@ -37,30 +44,28 @@ export function DownloadClientsSection({
 
   return (
     <View>
-      <Text className='text-white text-lg font-semibold mb-2'>
-        Download clients
-      </Text>
+      <ScreenHeaderRow title={t("server_settings.download_clients_title")} />
 
-      <ListGroup title='Torrent engine (embedded, MonoTorrent)'>
+      <ListGroup title={t("server_settings.torrent_engine_group_title")}>
         <ToggleRow
-          title='Enabled'
+          title={t("server_settings.enabled_label")}
           value={draft.TorrentsEnabled ?? false}
           onValueChange={(v) => set("TorrentsEnabled", v)}
         />
         <ToggleRow
-          title='Join public BitTorrent DHT'
-          subtitle='Off by default. A trackerless magnet is refused up front rather than stalling while off.'
+          title={t("server_settings.torrent_dht_title")}
+          subtitle={t("server_settings.torrent_dht_detail")}
           value={draft.TorrentDhtEnabled ?? false}
           onValueChange={(v) => set("TorrentDhtEnabled", v)}
         />
         <ToggleRow
-          title='Local peer discovery'
+          title={t("server_settings.torrent_local_peer_discovery_title")}
           value={draft.TorrentLocalPeerDiscovery ?? false}
           onValueChange={(v) => set("TorrentLocalPeerDiscovery", v)}
         />
         <TextFieldRow
-          title='Listen port'
-          subtitle='0 asks the OS for an ephemeral port'
+          title={t("server_settings.torrent_listen_port_title")}
+          subtitle={t("server_settings.torrent_listen_port_detail")}
           value={String(draft.TorrentListenPort ?? 0)}
           keyboardType='number-pad'
           onChangeText={(v) =>
@@ -69,34 +74,34 @@ export function DownloadClientsSection({
         />
       </ListGroup>
 
-      <View className='h-3' />
+      <View style={{ height: 12 }} />
 
-      <ListGroup title='Usenet engine (bundled)'>
+      <ListGroup title={t("server_settings.usenet_engine_group_title")}>
         <ToggleRow
-          title='Enabled'
+          title={t("server_settings.enabled_label")}
           value={draft.UsenetEnabled ?? false}
           onValueChange={(v) => set("UsenetEnabled", v)}
         />
       </ListGroup>
 
-      <View className='h-3' />
+      <View style={{ height: 12 }} />
 
-      <ListGroup title='Housekeeping'>
+      <ListGroup title={t("server_settings.housekeeping_group_title")}>
         <ToggleRow
-          title='Remove completed downloads'
+          title={t("server_settings.remove_completed_title")}
           value={draft.RemoveCompletedDownloads ?? false}
           onValueChange={(v) => set("RemoveCompletedDownloads", v)}
         />
         <ToggleRow
-          title='Remove failed downloads'
+          title={t("server_settings.remove_failed_title")}
           value={draft.RemoveFailedDownloads ?? false}
           onValueChange={(v) => set("RemoveFailedDownloads", v)}
         />
       </ListGroup>
 
-      <View className='h-4' />
+      <View style={{ height: 16 }} />
       <ExternalClients />
-      <View className='h-2' />
+      <View style={{ height: 8 }} />
 
       <SaveBar
         dirty={dirty}
@@ -105,9 +110,13 @@ export function DownloadClientsSection({
         onSave={async () => {
           try {
             await onSave(draft);
-            toast.success("Download client settings saved");
+            toast.success(t("server_settings.download_clients_save_success"));
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Could not save");
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("server_settings.save_error"),
+            );
           }
         }}
       />
@@ -126,12 +135,15 @@ export function DownloadClientsSection({
  * has it.
  */
 function ExternalClients() {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
   const clients = useExternalDownloadClients();
   const add = useAddExternalDownloadClient();
   const remove = useDeleteExternalDownloadClient();
   const test = useTestExternalDownloadClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ExternalDownloadClientSettings>(emptyClient);
+  const [showPassword, setShowPassword] = useState(false);
   const [verdict, setVerdict] = useState<ConnectivityTestResult | null>(null);
 
   const set = <K extends keyof ExternalDownloadClientSettings>(
@@ -142,13 +154,18 @@ function ExternalClients() {
   const submit = async () => {
     try {
       await add.mutateAsync(form);
-      toast.success(`Added "${form.Name}" to both apps`);
+      toast.success(
+        t("server_settings.external_clients_added_toast", { name: form.Name }),
+      );
       setForm(emptyClient);
       setVerdict(null);
+      setShowPassword(false);
       setOpen(false);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Could not add the client",
+        err instanceof Error
+          ? err.message
+          : t("server_settings.external_clients_add_error"),
       );
     }
   };
@@ -161,179 +178,235 @@ function ExternalClients() {
       setVerdict({
         Ok: false,
         Message:
-          err instanceof Error ? err.message : "Neither app could be asked.",
+          err instanceof Error
+            ? err.message
+            : t("server_settings.indexers_test_error"),
       });
     }
   };
 
   const del = async (client: ExternalDownloadClientSettings) => {
     const ok = await confirmDestructive(
-      `Remove "${client.Name}"?`,
-      "It is removed from StingStream's settings and from the movie manager and the series manager. Downloads already running in it are not touched.",
-      "Remove",
+      t("server_settings.external_clients_remove_confirm_title", {
+        name: client.Name,
+      }),
+      t("server_settings.external_clients_remove_confirm_message"),
+      t("common.remove"),
     );
     if (!ok) return;
     try {
       const result = await remove.mutateAsync(client.Id ?? "");
-      toast.success(result?.Detail?.join("; ") || "Removed");
+      toast.success(
+        result?.Detail?.join("; ") ||
+          t("server_settings.external_clients_removed_toast"),
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("server_settings.external_clients_remove_error"),
+      );
     }
   };
 
   return (
     <View>
-      <View className='flex-row items-center justify-between mb-2'>
-        <Text className='text-white text-lg font-semibold'>
-          Your own download clients
-        </Text>
-        <TouchableOpacity
-          onPress={() => {
-            setVerdict(null);
-            setOpen((v) => !v);
-          }}
-        >
-          <Text className='text-[#0584FE] font-semibold'>
-            {open ? "Cancel" : "+ Add"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <ScreenHeaderRow
+        title={t("server_settings.external_clients_title")}
+        accessory={
+          <Button
+            variant='secondary'
+            size='sm'
+            icon={open ? "close" : "add"}
+            onPress={() => {
+              setVerdict(null);
+              setOpen((v) => !v);
+            }}
+          >
+            {open
+              ? t("common.cancel")
+              : t("server_settings.external_clients_add_action")}
+          </Button>
+        }
+      />
 
       {open && (
-        <View className='rounded-xl bg-neutral-900 p-4 mb-3'>
-          <Text className='text-[#9899A1] text-xs mb-2'>
-            A client running somewhere else — a seedbox, an existing qBittorrent
-            or SABnzbd. It is registered in both the movie manager and the
-            series manager alongside the engines above, at a lower priority, so
-            the embedded ones stay the default.
+        <View
+          style={{
+            borderRadius: radius.lg,
+            backgroundColor: tokens.color.bg["1"],
+            padding: 16,
+            marginBottom: 12,
+          }}
+        >
+          <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+            {t("server_settings.external_clients_explainer")}
           </Text>
-          <TextInput
-            placeholder='Name'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("server_settings.external_clients_name_placeholder")}
             value={form.Name ?? ""}
             onChangeText={(v) => set("Name", v)}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <View className='flex-row flex-wrap gap-2 mb-2'>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
             {IMPLEMENTATIONS.map((impl) => (
-              <TouchableOpacity
+              <Pressable
                 key={impl.value}
                 onPress={() => {
                   set("Implementation", impl.value);
                   set("Protocol", impl.protocol);
                   set("Port", impl.port);
                 }}
-                className='rounded-full px-3 py-1'
                 style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
                   backgroundColor:
                     form.Implementation === impl.value
-                      ? Colors.primary
-                      : "#2a2a2a",
+                      ? accent[500]
+                      : tokens.color.bg["3"],
                 }}
               >
-                <Text className='text-white text-xs'>{impl.label}</Text>
-              </TouchableOpacity>
+                <Text
+                  variant='caption'
+                  weight='semibold'
+                  tone={
+                    form.Implementation === impl.value
+                      ? "onAccent"
+                      : "secondary"
+                  }
+                >
+                  {impl.label}
+                </Text>
+              </Pressable>
             ))}
           </View>
-          <TextInput
-            placeholder='Host, e.g. 192.168.1.20 or seedbox.example.org'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("server_settings.external_clients_host_placeholder")}
             autoCapitalize='none'
             value={form.Host ?? ""}
             onChangeText={(v) => set("Host", v)}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='Port'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t("server_settings.external_clients_port_placeholder")}
             keyboardType='number-pad'
             value={String(form.Port ?? 0)}
             onChangeText={(v) => set("Port", Number.parseInt(v, 10) || 0)}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='Username (or leave blank)'
-            placeholderTextColor='#5A5960'
+          <Input
+            placeholder={t(
+              "server_settings.external_clients_username_placeholder",
+            )}
             autoCapitalize='none'
             value={form.Username ?? ""}
             onChangeText={(v) => set("Username", v)}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
+            style={{ marginBottom: 8 }}
           />
-          <TextInput
-            placeholder='Password, or an API key for SABnzbd'
-            placeholderTextColor='#5A5960'
-            autoCapitalize='none'
-            secureTextEntry
-            value={form.Password ?? ""}
-            onChangeText={(v) => set("Password", v)}
-            className='bg-neutral-800 text-white rounded-lg px-3 py-2 mb-2'
-          />
-          <View className='flex-row gap-2 mb-2'>
-            <TextInput
-              placeholder='Movie category'
-              placeholderTextColor='#5A5960'
-              autoCapitalize='none'
-              value={form.MovieCategory ?? ""}
-              onChangeText={(v) => set("MovieCategory", v)}
-              className='flex-1 bg-neutral-800 text-white rounded-lg px-3 py-2'
-            />
-            <TextInput
-              placeholder='TV category'
-              placeholderTextColor='#5A5960'
-              autoCapitalize='none'
-              value={form.TvCategory ?? ""}
-              onChangeText={(v) => set("TvCategory", v)}
-              className='flex-1 bg-neutral-800 text-white rounded-lg px-3 py-2'
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Input
+                placeholder={t(
+                  "server_settings.external_clients_password_placeholder",
+                )}
+                autoCapitalize='none'
+                secureTextEntry={!showPassword}
+                value={form.Password ?? ""}
+                onChangeText={(v) => set("Password", v)}
+              />
+            </View>
+            <Pressable
+              onPress={() => setShowPassword((v) => !v)}
+              hitSlop={8}
+              accessibilityRole='button'
+            >
+              <Text variant='caption' weight='semibold' tone='accent'>
+                {showPassword ? t("common.hide") : t("common.show")}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Input
+                placeholder={t(
+                  "server_settings.external_clients_movie_category_placeholder",
+                )}
+                autoCapitalize='none'
+                value={form.MovieCategory ?? ""}
+                onChangeText={(v) => set("MovieCategory", v)}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Input
+                placeholder={t(
+                  "server_settings.external_clients_tv_category_placeholder",
+                )}
+                autoCapitalize='none'
+                value={form.TvCategory ?? ""}
+                onChangeText={(v) => set("TvCategory", v)}
+              />
+            </View>
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <Text>{t("server_settings.external_clients_use_ssl_title")}</Text>
+            <SettingSwitch
+              value={form.UseSsl ?? false}
+              onValueChange={(v) => set("UseSsl", v)}
             />
           </View>
-          <TouchableOpacity
-            onPress={() => set("UseSsl", !form.UseSsl)}
-            className='flex-row items-center mb-3'
-          >
-            <View
-              className='w-5 h-5 rounded mr-2 items-center justify-center'
-              style={{
-                backgroundColor: form.UseSsl ? Colors.primary : "#1f1f1f",
-              }}
-            >
-              {form.UseSsl && <Text className='text-white text-xs'>✓</Text>}
-            </View>
-            <Text className='text-white'>Connect over HTTPS</Text>
-          </TouchableOpacity>
 
           {verdict && (
             <Text
-              className={
-                verdict.Ok
-                  ? "text-green-500 text-xs mb-2"
-                  : "text-red-500 text-xs mb-2"
-              }
+              variant='caption'
+              tone={verdict.Ok ? undefined : "danger"}
+              style={[
+                { marginBottom: 8 },
+                verdict.Ok ? { color: tokens.color.state.success } : undefined,
+              ]}
             >
-              {verdict.Ok ? "✓ " : "✕ "}
               {verdict.Message}
             </Text>
           )}
 
-          <View className='flex-row gap-2'>
-            <TouchableOpacity
-              disabled={test.isPending}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button
+              variant='secondary'
+              style={{ flex: 1 }}
+              loading={test.isPending}
               onPress={() => void runTest()}
-              className='flex-1 rounded-lg py-2 items-center bg-neutral-800'
             >
-              <Text className='text-white'>
-                {test.isPending ? "Testing…" : "Test"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              disabled={add.isPending}
+              {t("server_settings.test_action")}
+            </Button>
+            <Button
+              variant='primary'
+              style={{ flex: 1 }}
+              loading={add.isPending}
               onPress={() => void submit()}
-              className='flex-1 rounded-lg py-2 items-center'
-              style={{ backgroundColor: Colors.primary }}
             >
-              <Text className='text-white font-semibold'>
-                {add.isPending ? "Adding…" : "Add client"}
-              </Text>
-            </TouchableOpacity>
+              {t("server_settings.external_clients_add_client_action")}
+            </Button>
           </View>
         </View>
       )}
@@ -345,8 +418,8 @@ function ExternalClients() {
       >
         {(clients.data ?? []).length === 0 ? (
           <EmptyState
-            title='No external clients'
-            detail='StingStream downloads through its own two engines. Add one here if you already run a client somewhere else.'
+            title={t("server_settings.external_clients_empty_title")}
+            detail={t("server_settings.external_clients_empty_detail")}
           />
         ) : (
           <ListGroup>
@@ -357,19 +430,28 @@ function ExternalClients() {
                 subtitle={[
                   c.Implementation,
                   `${c.UseSsl ? "https" : "http"}://${c.Host}:${c.Port}`,
-                  c.Protocol,
                   c.ForMovies && c.ForSeries
-                    ? "Movies + Series"
+                    ? t("server_settings.indexers_for_both")
                     : c.ForMovies
-                      ? "Movies"
-                      : "Series",
+                      ? t("server_settings.indexers_for_movies")
+                      : t("server_settings.indexers_for_series"),
                 ]
                   .filter(Boolean)
                   .join(" • ")}
-                textColor='red'
-                onPress={() => void del(c)}
               >
-                <Text className='text-red-600'>Remove</Text>
+                <Pressable
+                  onPress={() => void del(c)}
+                  hitSlop={8}
+                  accessibilityRole='button'
+                  accessibilityLabel={t(
+                    "server_settings.external_clients_remove_action",
+                    { name: c.Name },
+                  )}
+                >
+                  <Text tone='danger' weight='semibold'>
+                    {t("common.remove")}
+                  </Text>
+                </Pressable>
               </ListItem>
             ))}
           </ListGroup>

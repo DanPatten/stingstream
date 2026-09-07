@@ -76,18 +76,30 @@ StingStream "attic" is up.
   Media API    http://127.0.0.1:8790/jellyfin/
   Sharing      http://127.0.0.1:8790/stingstream/mesh/v1/status
   Data         C:\Users\dan\AppData\Local\StingStream
+  On this LAN  http://192.168.0.16:8790
   Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)
 
-  First run: open http://127.0.0.1:8790 to create your account.
+  First run: open http://192.168.0.16:8790 (or http://127.0.0.1:8790 on this computer)
+  to create your account.
 ```
 
 **It prints no credentials, on purpose.** It used to print the generated administrator username
 and password, which was wrong twice over: a Windows service's stderr goes nowhere at all, so the
 one audience who most needed it never saw it, and on a console it put a working password into
 scrollback, screenshots and CI logs. The account is created on the first screen the app shows
-instead, and only a browser **on this machine** may create it — the gateway refuses
-`/stingstream/api/v1/setup/admin` to any other peer, and from a phone the app says to finish setup
-on the computer running StingStream.
+instead.
+
+**Who may create it** is a network question, not a machine one (Dan, 2026-09-07): a browser on
+**this machine or on this network** may, and nobody else ever. The gateway answers
+`/stingstream/api/v1/setup/admin` with `404 no such route` to any peer outside RFC 1918
+(`10/8`, `172.16/12`, `192.168/16`), IPv4 link-local, IPv6 unique-local or link-local, or loopback
+— and closes the wider door again once the node has been claimed. It started out loopback-only,
+which was the wrong bar: a great many of these are installed on a machine with no screen, and
+"walk to the server" is a worse first five minutes than the risk it avoided. The arr webhook
+(`/stingstream/api/v1/webhooks`) is unaffected and stays loopback-only.
+
+That is also why the banner leads with the LAN address: `localhost` is useless from the phone or
+laptop the person setting it up is actually holding.
 
 Useful flags:
 
@@ -171,17 +183,31 @@ and the SPA-fallback path, never an asset — is spliced at serve time, before `
 ```html
 <meta name="stingstream-node" content="1">
 <script>window.__STINGSTREAM_NODE__={"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1",
-  "loopback":true,"setupPending":true,"nodeName":"attic","version":"0.2.0"}</script>
+  "loopback":true,"trustedPeer":true,"setupPending":true,"nodeName":"attic","version":"0.2.0",
+  "addresses":["http://192.168.0.16:8790"]}</script>
 ```
 
 so the app knows before first paint that it is on a node, which server it is, and whether to show
 the setup screen — rather than flashing a "which server?" form while a probe is in flight. It is
 injected rather than built in, so the same bundle served by `npx serve` correctly reports that it
-is *not* a node. Two of the fields are per request, which is why `index.html` is `no-cache`:
-`loopback` is this connection's real socket peer (not anything the client claimed), and
-`setupPending` is the gateway's cached view of whether anybody has created an account here yet —
-`true`, `false`, or `null` when nobody has been able to ask the server's Core yet. `/healthz`
-carries the same boolean as `setup_pending`.
+is *not* a node. Field order is part of the contract.
+
+Four of the fields are per request, which is why `index.html` is `no-cache`:
+
+| Field | What it is |
+|---|---|
+| `loopback` | this connection's real socket peer is on this machine — not anything the client claimed |
+| `trustedPeer` | the peer is on this machine **or on a private network**, i.e. one of the peers allowed to create the first account. This is what the setup screen keys off; `loopback` alone would send everybody with a headless install to a machine that has no screen |
+| `setupPending` | the gateway's cached view of whether anybody has created an account here yet — `true`, `false`, or **`null` when nobody has been able to ask** the server's Core yet. `null` is a real state and the app has to handle it |
+| `addresses` | base URLs another device on this network could open the node at, so the app can show something better than `localhost`. **Empty for an untrusted peer**, and empty on a node bound to loopback |
+
+`/healthz` carries `setup_pending` and `addresses` too (the latter on the full, loopback-only
+document only — a stranger is told the status, never the shape of the network behind it).
+
+`setupPending` is refreshed on demand when a page is served or `/healthz` is asked, at most once
+every five seconds and never once it is `false`, on top of the background poll every fifteen. That
+is not belt and braces: without it the page load immediately after somebody finishes the setup
+screen is told the server still needs setting up.
 
 ### Iterating on the app against a real node (`--web-dev-server`)
 

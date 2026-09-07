@@ -7,13 +7,13 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
+import { BITRATES } from "@/constants/Playback";
 import { tokens } from "@/constants/theme";
 import type { ThemeColors } from "@/hooks/useImageColorsReturn";
 import { useSettings } from "@/utils/atoms/settings";
 import { rememberSeriesTrackFromRow } from "@/utils/seriesTrackMemory";
 import { SUBTITLES_OFF } from "@/utils/subtitles/subtitleIndex";
 import { buildAudioMenu, buildSubtitleMenu } from "@/utils/subtitles/trackMenu";
-import { BITRATES } from "./BitrateSelector";
 import type { SelectedOptions } from "./ItemContent";
 import { type OptionGroup, PlatformDropdown } from "./PlatformDropdown";
 

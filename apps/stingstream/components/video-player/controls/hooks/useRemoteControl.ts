@@ -60,6 +60,38 @@ interface UseRemoteControlProps {
  * This hook handles:
  * - Showing controls on any button press
  * - Play/pause button on TV remote
+ *
+ * ## The whole D-pad map, in one place
+ *
+ * Written down because it is split across three files — this hook takes the raw key events,
+ * `Controls.tv.tsx` owns the focus targets and the guides, and the native focus engine moves focus
+ * on its own — so the only complete description of "what the remote does" used to be the three of
+ * them read together.
+ *
+ * **Controls hidden** (the video is the whole screen; an invisible focus-stealing overlay holds
+ * focus so no hidden button can be selected):
+ *
+ * | Key | What happens |
+ * |---|---|
+ * | LEFT / RIGHT | Seek ∓10 s, with the minimal seek bar and the trickplay bubble; the controls stay hidden |
+ * | LEFT / RIGHT held | Scrubbing that accelerates while held (`LONG_PRESS_*` in `constants.ts`) and lands on release |
+ * | UP / DOWN | Show the controls with Play focused |
+ * | SELECT | Toggle play/pause and show the controls |
+ * | PLAY / PAUSE / PLAY_PAUSE | Toggle play/pause |
+ * | BACK | Confirm, then leave the player |
+ *
+ * **Controls shown:**
+ *
+ * | Key | What happens |
+ * |---|---|
+ * | D-pad | Moves focus, through the guides `Controls.tv.tsx` stacks between rows |
+ * | LEFT / RIGHT on the progress bar | Scrub, with the trickplay bubble; focus is trapped there until UP/DOWN |
+ * | UP from the transport row | The skip card, the next-episode card, or the source pill |
+ * | SELECT on the source pill | Opens "Play from…" |
+ * | DOWN from the source pill | Back to Play, not to the progress bar underneath it |
+ * | BACK | Hide the controls (it does not leave the player) |
+ *
+ * The mechanics below are unchanged by that table; it documents them.
  */
 export function useRemoteControl({
   showControls,

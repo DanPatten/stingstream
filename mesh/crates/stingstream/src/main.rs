@@ -471,27 +471,44 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // password has already been through setup (that is the only thing that removes it), so it can
     // answer without asking anybody; everything else asks Core on loopback until it can.
     let setup = if rt.holds_admin_password() {
-        let handle = stingstream::setup::SetupHandle::default();
         match rt.child("jellyfin").filter(|c| c.enabled) {
-            Some(jellyfin) => stingstream::setup::spawn(
-                jellyfin.base_url.clone(),
-                layout.runtime_json(),
-                handle.clone(),
-                shutdown_rx.clone(),
-            ),
+            Some(jellyfin) => {
+                let handle = stingstream::setup::SetupHandle::polling(
+                    &jellyfin.base_url,
+                    layout.runtime_json(),
+                );
+                stingstream::setup::spawn(handle.clone(), shutdown_rx.clone());
+                handle
+            }
             // No Jellyfin means no Core to ask, and nothing to scrub on the strength of. The
             // marker reports null and the app falls back to its ordinary sign-in path.
-            None => tracing::info!(
-                "the media server is not enabled on this node, so first-run setup state stays \
-                 unknown"
-            ),
+            None => {
+                tracing::info!(
+                    "the media server is not enabled on this node, so first-run setup state stays \
+                     unknown"
+                );
+                stingstream::setup::SetupHandle::default()
+            }
         }
-        handle
     } else {
         stingstream::setup::SetupHandle::known(false)
     };
 
-    print_banner(&rt, mode.is_dev(), &web, mesh_node_id.as_deref());
+    // Worked out once for the banner and the log line; the gateway keeps its own short-lived cache
+    // for the marker and /healthz, because a laptop changes network and this answer goes stale.
+    let lan = gateway::lan_base_urls(&config.gateway.bind, config.gateway.port);
+    if lan.is_empty() {
+        tracing::info!(
+            bind = %config.gateway.bind,
+            "no LAN address to advertise; this node is reachable on loopback only"
+        );
+    } else {
+        tracing::info!(
+            addresses = %lan.join(", "),
+            "reachable from this network"
+        );
+    }
+    print_banner(&rt, mode.is_dev(), &web, mesh_node_id.as_deref(), &lan);
 
     let app = gateway::router_with_web(node.clone(), web, setup);
     let server = {
@@ -781,7 +798,13 @@ fn resolve_web_dist(config: &Config, mode: &Mode, dev_server_named: bool) -> gat
 /// (`service.rs`), so the one audience who most needed it never saw it; and on a console it put a
 /// working password into scrollback, screenshots and CI logs. The account is created through the
 /// setup screen now, and the only thing worth saying is where that screen is.
-fn print_banner(rt: &Runtime, dev: bool, web: &gateway::WebSource, mesh_node: Option<&str>) {
+fn print_banner(
+    rt: &Runtime,
+    dev: bool,
+    web: &gateway::WebSource,
+    mesh_node: Option<&str>,
+    lan: &[String],
+) {
     let mut lines = vec![
         format!("StingStream \"{}\" is up.", rt.node_name),
         format!("  Open         {}", rt.gateway.local_url),
@@ -791,6 +814,12 @@ fn print_banner(rt: &Runtime, dev: bool, web: &gateway::WebSource, mesh_node: Op
         format!("  Sharing      {}/stingstream/mesh/v1/status", rt.gateway.local_url),
         format!("  Data         {}", rt.data_dir.display()),
     ];
+    for (i, url) in lan.iter().enumerate() {
+        lines.push(format!(
+            "  {:<12} {url}",
+            if i == 0 { "On this LAN" } else { "" }
+        ));
+    }
     if let Some(node) = mesh_node {
         lines.push(format!("  Node id      {node}"));
     }
@@ -811,12 +840,23 @@ fn print_banner(rt: &Runtime, dev: bool, web: &gateway::WebSource, mesh_node: Op
     // server been set up?" before Core is even listening.
     if rt.holds_admin_password() {
         lines.push(String::new());
-        lines.push(format!(
-            "  First run: open {} to create your account.",
-            rt.gateway.local_url
-        ));
+        lines.push(format!("  First run: open {}", first_run_url(rt, lan)));
+        lines.push("  to create your account.".into());
     }
     eprintln!("\n{}\n", lines.join("\n"));
+}
+
+/// Where to tell somebody to go on a node nobody has set up yet.
+///
+/// **`localhost` on its own is useless**, and it was all this said: a great many of these are
+/// installed on a machine with no screen, and the person setting one up is holding a laptop or a
+/// phone on the same network. So the LAN address leads, and loopback follows as the one that works
+/// if you *are* at the machine. A node bound to loopback has no LAN address and gets the old line.
+fn first_run_url(rt: &Runtime, lan: &[String]) -> String {
+    match lan.first() {
+        Some(url) => format!("{url} (or {} on this computer)", rt.gateway.local_url),
+        None => rt.gateway.local_url.clone(),
+    }
 }
 
 /// Ctrl+C on every platform, plus SIGTERM where it exists (Docker and systemd send it).

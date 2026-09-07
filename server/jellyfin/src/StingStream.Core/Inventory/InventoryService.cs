@@ -94,15 +94,29 @@ public sealed class InventoryService : IInventoryService
     /// <summary>
     /// Where this node materializes its peers' titles. Items under it are pointers, not files.
     /// </summary>
-    private string? FederatedRoot()
+    private string? FederatedRoot() => FederatedRootOf(_runtime);
+
+    /// <summary>
+    /// Where a node materializes its peers' titles. Items under it are pointers, not files.
+    /// </summary>
+    /// <param name="runtime">The node runtime.</param>
+    /// <returns>The federated root, or null when this server has no data directory.</returns>
+    /// <remarks>
+    /// Static because <see cref="InventoryWatcher"/> needs the same answer to know which library
+    /// changes are worth waking for, and two copies of this would be two chances to disagree about
+    /// what counts as a pointer.
+    /// </remarks>
+    public static string? FederatedRootOf(INodeRuntimeProvider runtime)
     {
-        var configured = _runtime.Current?.Paths.Federated;
+        ArgumentNullException.ThrowIfNull(runtime);
+
+        var configured = runtime.Current?.Paths.Federated;
         if (!string.IsNullOrWhiteSpace(configured))
         {
             return configured;
         }
 
-        var dataDir = _runtime.DataDirectory;
+        var dataDir = runtime.DataDirectory;
         return string.IsNullOrWhiteSpace(dataDir) ? null : Path.Combine(dataDir, "federated");
     }
 

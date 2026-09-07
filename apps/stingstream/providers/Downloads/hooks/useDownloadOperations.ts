@@ -7,7 +7,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import DeviceInfo from "react-native-device-info";
 import { toast } from "sonner-native";
-import type { Bitrate } from "@/components/BitrateSelector";
+import type { Bitrate } from "@/constants/Playback";
 import useImageStorage from "@/hooks/useImageStorage";
 import { BackgroundDownloader } from "@/modules";
 import { getJellyfinHeadersForUrl } from "@/utils/customHeaders";

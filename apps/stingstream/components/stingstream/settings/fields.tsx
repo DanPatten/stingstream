@@ -1,7 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { TextInput, View } from "react-native";
+import { Button } from "@/components/Button";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
-import { Text } from "@/components/common/Text";
 import { ListItem } from "@/components/list/ListItem";
+import { resolveTextStyle, tokens } from "@/constants/theme";
+import { useBreakpointName } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 
 export function TextFieldRow({
   title,
@@ -18,15 +22,19 @@ export function TextFieldRow({
   placeholder?: string;
   keyboardType?: "default" | "number-pad";
 }) {
+  const breakpoint = useBreakpointName();
   return (
     <ListItem title={title} subtitle={subtitle}>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor='#5A5960'
+        placeholderTextColor={tokens.color.text.tertiary}
         keyboardType={keyboardType}
-        className='text-white text-right min-w-[120px]'
+        style={[
+          resolveTextStyle("body", "primary", "regular", breakpoint),
+          { textAlign: "right", minWidth: 120 },
+        ]}
       />
     </ListItem>
   );
@@ -43,9 +51,14 @@ export function ToggleRow({
   value: boolean;
   onValueChange: (v: boolean) => void;
 }) {
+  const { accent } = useTheme();
   return (
     <ListItem title={title} subtitle={subtitle}>
-      <SettingSwitch value={value} onValueChange={onValueChange} />
+      <SettingSwitch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: accent[500] }}
+      />
     </ListItem>
   );
 }
@@ -61,22 +74,21 @@ export function SaveBar({
   onSave: () => void;
   onDiscard: () => void;
 }) {
+  const { t } = useTranslation();
   if (!dirty) return null;
   return (
-    <View className='flex-row gap-3 mt-3'>
-      <View className='flex-1 rounded-lg py-2 items-center bg-neutral-800'>
-        <Text className='text-white' onPress={onDiscard}>
-          Discard
-        </Text>
-      </View>
-      <View className='flex-1 rounded-lg py-2 items-center bg-[#9334E9]'>
-        <Text
-          className='text-white font-semibold'
-          onPress={saving ? undefined : onSave}
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </Text>
-      </View>
+    <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+      <Button variant='secondary' style={{ flex: 1 }} onPress={onDiscard}>
+        {t("server_settings.discard_action")}
+      </Button>
+      <Button
+        variant='primary'
+        style={{ flex: 1 }}
+        loading={saving}
+        onPress={onSave}
+      >
+        {t("server_settings.save_action")}
+      </Button>
     </View>
   );
 }

@@ -10,7 +10,6 @@ import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
-import { type Bitrate } from "@/components/BitrateSelector";
 import { HeaderButtonGroup } from "@/components/common/HeaderButton";
 import { ItemImage } from "@/components/common/ItemImage";
 import { PageContainer } from "@/components/common/PageContainer";
@@ -28,8 +27,14 @@ import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
+import { SourceChooserButton } from "@/components/stingstream/sources/SourceChooserButton";
+import { type Bitrate } from "@/constants/Playback";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
+import {
+  usePreferredSourcePreselect,
+  useSourceChoices,
+} from "@/hooks/useItemSources";
 import { useOrientation } from "@/hooks/useOrientation";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -136,6 +141,35 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     downloadedTracks,
   ]);
 
+  // WP-PLAYER: the node ranked this title's holders under *its* policy. When this device asks for
+  // the other one, the selection follows before Play is ever pressed — otherwise the setting is
+  // silently ignored by the one button it exists for.
+  const preselectSource = React.useCallback(
+    (mediaSourceId: string) => {
+      const chosen = itemWithSources?.MediaSources?.find(
+        (source) => source.Id === mediaSourceId,
+      );
+      if (!chosen) return;
+      setSelectedOptions((prev) => prev && { ...prev, mediaSource: chosen });
+    },
+    [itemWithSources],
+  );
+
+  usePreferredSourcePreselect(itemWithSources, {
+    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+    onPreselect: preselectSource,
+    enabled: !isOffline,
+  });
+
+  // Whether "Play from…" has anything to offer. `SourceChooserButton` asks the
+  // same question and renders nothing when the answer is no; asking it here as
+  // well is what keeps the *row* from being an empty label beside an invisible
+  // control. React Query dedupes the two on one key, so it is one request.
+  const { hasChoice } = useSourceChoices(itemWithSources, {
+    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+    enabled: !isOffline,
+  });
+
   // The header used to carry five unnamed icon buttons — download, remote
   // session, watched, favourite, watchlist — squeezed into a bar that also
   // holds the back arrow and the title (pass-02 F-24). Every one of them is now
@@ -225,23 +259,25 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       });
     }
 
-    // WP-PLAYER owns "Play from…" (hooks/useItemSources +
-    // components/stingstream/sources/SourceChooserButton). It renders nothing
-    // unless the title is federated and more than one node holds it, so it can
-    // be a permanent row here. Merging that branch adds:
-    //
-    //   actions.push({
-    //     key: "play-from",
-    //     icon: "sharing",
-    //     label: t("player.source.play_from"),
-    //     trailing: (
-    //       <SourceChooserButton
-    //         item={itemWithSources}
-    //         currentMediaSourceId={selectedOptions.mediaSource?.Id}
-    //         onSelect={preselectSource}
-    //       />
-    //     ),
-    //   });
+    // WP-PLAYER's chooser, only when the title is federated and more than one
+    // node actually holds it. On a single-server library the question ("which
+    // of your servers?") does not exist, and a permanently dead row is worse
+    // than no row.
+    if (hasChoice && !isOffline) {
+      actions.push({
+        key: "play-from",
+        icon: "sharing",
+        label: t("player.source.play_from"),
+        description: t("player.source.play_from_description"),
+        trailing: (
+          <SourceChooserButton
+            item={itemWithSources}
+            currentMediaSourceId={selectedOptions.mediaSource?.Id}
+            onSelect={preselectSource}
+          />
+        ),
+      });
+    }
 
     if (isAdmin && !isOffline) {
       actions.push({
@@ -261,6 +297,8 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     isAdmin,
     settings.hideRemoteSessionButton,
     refreshMetadata,
+    hasChoice,
+    preselectSource,
     t,
   ]);
 

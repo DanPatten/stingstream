@@ -1,39 +1,44 @@
+import type { Api } from "@jellyfin/sdk";
+import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
 import type React from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import {
-  TouchableOpacity,
-  type TouchableOpacityProps,
-  View,
-} from "react-native";
-import Animated, {
   cancelAnimation,
   Easing,
-  useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { Icon } from "@/components/common/Icon";
+import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
+import { radius, rgba, tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
+import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
+import { CountdownRing } from "./CountdownRing";
 import { CONTROLS_CONSTANTS } from "./constants";
 
-interface NextEpisodeCountDownButtonProps extends TouchableOpacityProps {
+interface NextEpisodeCountDownButtonProps {
   onFinish?: () => void;
   onPress?: () => void;
   show: boolean;
-  // When false, the button is shown as a plain tap target with no fill
-  // animation and never auto-advances — used when the trigger that revealed
-  // it (e.g. credits-segment metadata) isn't reliable enough to act on
-  // without the user confirming.
+  // When false, the card is shown as a plain tap target with no ring animation
+  // and never auto-advances — used when the trigger that revealed it (e.g.
+  // credits-segment metadata) isn't reliable enough to act on without the user
+  // confirming.
   autoAdvance?: boolean;
   /** Media time left in the current item, in milliseconds. */
   remainingMs: number;
   isPlaying: boolean;
   /** Id of the item being played, to scope the countdown to it. */
   itemId?: string | null;
+  /** The episode being counted down to — the card's thumbnail and title. */
+  nextItem?: BaseItemDto | null;
+  api?: Api | null;
 }
 
-/** Media time the fill represents, matching the window the button appears in. */
+/** Media time the ring represents, matching the window the card appears in. */
 const COUNTDOWN_WINDOW_MS = CONTROLS_CONSTANTS.NEXT_EPISODE_COUNTDOWN_MS;
 /**
  * The player reports its position about once a second, so the last sample of
@@ -41,9 +46,28 @@ const COUNTDOWN_WINDOW_MS = CONTROLS_CONSTANTS.NEXT_EPISODE_COUNTDOWN_MS;
  * the end of the item.
  */
 const END_OF_ITEM_MS = 1000;
-/** One position sample: the interval a single fill step has to cover. */
+/** One position sample: the interval a single ring step has to cover. */
 const SAMPLE_MS = 1000;
 
+const RING_SIZE = 44;
+
+/** `S1E3 · The Title`, or just the title when the numbering is missing. */
+export const nextUpLabel = (item: BaseItemDto | null | undefined): string => {
+  if (!item) return "";
+  const code =
+    item.ParentIndexNumber != null && item.IndexNumber != null
+      ? `S${item.ParentIndexNumber}E${item.IndexNumber}`
+      : null;
+  return [code, item.Name].filter(Boolean).join(" · ");
+};
+
+/**
+ * "Next up" on phone and web: a thumbnail, what is coming, and a ring that runs out.
+ *
+ * The predecessor was a 128 px pill reading "Next episode" with a bar sweeping across it — no
+ * indication of *which* episode, and a fill that read as progress rather than as a countdown. This
+ * is the same card the television shows, at phone scale.
+ */
 const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
   onFinish,
   onPress,
@@ -52,8 +76,11 @@ const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
   remainingMs,
   isPlaying,
   itemId,
-  ...props
+  nextItem,
+  api = null,
 }) => {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
   const progress = useSharedValue(0);
   // Advancing is one-way per appearance: without this, any re-render inside
   // the end-of-item window would navigate again.
@@ -83,7 +110,7 @@ const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
       return;
     }
 
-    // Pausing freezes the fill where it stands. Without cancelling, the tween
+    // Pausing freezes the ring where it stands. Without cancelling, the tween
     // already in flight would keep creeping for up to a sample after playback
     // stopped.
     if (!isPlaying) {
@@ -91,9 +118,9 @@ const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
       return;
     }
 
-    // Reach for the next sample instead of jumping to it, so the fill moves
+    // Reach for the next sample instead of jumping to it, so the ring moves
     // smoothly between two position reports. Paused playback stops moving the
-    // target, which leaves the fill where it is instead of emptying it.
+    // target, which leaves the ring where it is instead of emptying it.
     progress.value = withTiming(target, {
       duration: SAMPLE_MS,
       easing: Easing.linear,
@@ -109,7 +136,7 @@ const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
     if (countedItemRef.current !== itemId) {
       countedItemRef.current = itemId;
       // An in-place episode switch keeps this mounted with `show` still true,
-      // so without emptying the fill the new item would inherit the old one's
+      // so without emptying the ring the new item would inherit the old one's
       // while its first media-clock sample is still the outgoing episode's.
       cancelAnimation(progress);
       progress.value = 0;
@@ -131,43 +158,81 @@ const NextEpisodeCountDownButton: React.FC<NextEpisodeCountDownButtonProps> = ({
     onFinish();
   }, [show, autoAdvance, remainingMs, isPlaying, itemId, onFinish, progress]);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      position: "absolute",
-      left: 0,
-      top: 0,
-      bottom: 0,
-      width: `${progress.value * 100}%`,
-      backgroundColor: Colors.primary,
-    };
-  });
+  const imageUrl = useMemo(
+    () =>
+      nextItem
+        ? getPrimaryImageUrl({ api, item: nextItem, width: 320, quality: 80 })
+        : null,
+    [api, nextItem],
+  );
 
-  const handlePress = () => {
-    if (onPress) {
-      onPress();
-    }
-  };
-
-  const { t } = useTranslation();
+  const label = nextUpLabel(nextItem);
 
   if (!show) {
     return null;
   }
 
   return (
-    <TouchableOpacity
-      className='w-32 overflow-hidden rounded-md bg-black/60 border border-neutral-900'
-      {...props}
-      onPress={handlePress}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole='button'
+      accessibilityLabel={`${t("player.next_up")}${label ? `: ${label}` : ""}`}
+      style={({ pressed }) => [
+        styles.card,
+        pressed ? { opacity: 0.85 } : null,
+        Platform.OS === "web" ? ({ cursor: "pointer" } as never) : null,
+      ]}
     >
-      <Animated.View style={animatedStyle} />
-      <View className='px-3 py-2'>
-        <Text numberOfLines={1} className='text-center text-sm font-bold'>
-          {t("player.next_episode")}
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.thumbnail} />
+      ) : null}
+      <View style={styles.body}>
+        <Text variant='micro' tone='tertiary' style={styles.kicker}>
+          {t("player.next_up")}
+        </Text>
+        <Text variant='body' weight='semibold' numberOfLines={1}>
+          {label || t("player.next_episode")}
         </Text>
       </View>
-    </TouchableOpacity>
+      <CountdownRing
+        progress={progress}
+        size={RING_SIZE}
+        strokeWidth={3}
+        color={accent[500]}
+        trackColor={rgba("#FFFFFF", 0.25)}
+      >
+        <Icon name='play' size={16} tone='primary' />
+      </CountdownRing>
+    </Pressable>
   );
 };
+
+const styles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    maxWidth: 340,
+    borderRadius: radius.md,
+    overflow: "hidden",
+    backgroundColor: rgba(tokens.color.bg["0"], 0.82),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.color.border.subtle,
+    paddingRight: 12,
+  },
+  thumbnail: {
+    width: 84,
+    height: 48,
+    backgroundColor: tokens.color.bg["2"],
+  },
+  body: {
+    flexShrink: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  kicker: {
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+});
 
 export default NextEpisodeCountDownButton;
