@@ -17,10 +17,17 @@ import {
   useNavigation,
 } from "expo-router";
 import { useAtom } from "jotai";
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   BackHandler,
+  type LayoutChangeEvent,
   Platform,
   ScrollView,
   useWindowDimensions,
@@ -564,16 +571,22 @@ const Page = () => {
     }
   }, [isFetching, flatData]);
 
-  // A "media" page's content tops out at `maxWidth.media` regardless of the
-  // browser window, so the grid's auto-column formula has to size against
-  // that capped width too — otherwise a 2560px monitor gets more columns than
-  // the (narrower, centered) page actually has room for.
-  const gridContainerWidth = Math.min(screenWidth, maxWidth.media);
+  // How wide the grid actually renders, measured rather than derived from the
+  // window. The window is not the answer twice over: a "media" page's content
+  // tops out at `maxWidth.media`, and on a wide browser the web shell puts a
+  // 240px sidebar beside it. Deriving 8 columns from 1440 when the page only
+  // has 1136 of them pushed the last column past the right edge (seen: cards
+  // reaching 1453px in a 1440px window). `useWindowDimensions` is only the
+  // first-frame guess, before the layout pass reports the real number.
+  const [measuredGridWidth, setMeasuredGridWidth] = useState(0);
+  const handleGridLayout = useCallback((event: LayoutChangeEvent) => {
+    setMeasuredGridWidth(event.nativeEvent.layout.width);
+  }, []);
 
   const grid = useCardGrid({
     items: flatData,
     kind: "portrait",
-    containerWidth: gridContainerWidth,
+    containerWidth: measuredGridWidth || Math.min(screenWidth, maxWidth.media),
     enableActionSheet: true,
   });
 
@@ -892,55 +905,58 @@ const Page = () => {
 
     return (
       <PageContainer width='media' bleed style={{ flex: 1 }}>
-        <FlashList
-          testID='library-grid'
-          ref={flashListRef}
-          // Columns change with a browser resize (auto-fill from the
-          // available width, bug 4) as well as with orientation — React
-          // Native does not re-layout `numColumns` on its own, so both have
-          // to remount the list.
-          key={`${orientation}-${grid.columns}`}
-          ListEmptyComponent={
-            // A grid of tiles at the exact geometry the posters will occupy,
-            // rather than a spinner in the middle of an empty page: nothing
-            // moves when the real cards arrive.
-            isGridLoading ? (
-              <SkeletonGrid kind='portrait' columns={grid.columns} />
-            ) : (
-              <EmptyState
-                title={t("library.no_results")}
-                style={{ paddingTop: "20%" }}
-              />
-            )
-          }
-          // The filter bar rides along on a phone but stays put at the top of
-          // the page once there's room for a sidebar/topbar shell around it.
-          stickyHeaderIndices={isWebWide ? [0] : undefined}
-          contentInsetAdjustmentBehavior='automatic'
-          data={grid.data}
-          renderItem={grid.renderItem}
-          extraData={[orientation, grid.columns]}
-          keyExtractor={grid.keyExtractor}
-          numColumns={grid.columns}
-          onEndReached={() => {
-            if (hasNextPage) {
-              fetchNextPage();
+        {/* Measures what the grid is really given, sidebar and all. */}
+        <View style={{ flex: 1 }} onLayout={handleGridLayout}>
+          <FlashList
+            testID='library-grid'
+            ref={flashListRef}
+            // Columns change with a browser resize (auto-fill from the
+            // available width, bug 4) as well as with orientation — React
+            // Native does not re-layout `numColumns` on its own, so both have
+            // to remount the list.
+            key={`${orientation}-${grid.columns}`}
+            ListEmptyComponent={
+              // A grid of tiles at the exact geometry the posters will occupy,
+              // rather than a spinner in the middle of an empty page: nothing
+              // moves when the real cards arrive.
+              isGridLoading ? (
+                <SkeletonGrid kind='portrait' columns={grid.columns} />
+              ) : (
+                <EmptyState
+                  title={t("library.no_results")}
+                  style={{ paddingTop: "20%" }}
+                />
+              )
             }
-          }}
-          onEndReachedThreshold={1}
-          // No library, no filters to offer — and, more to the point, six
-          // chips each asking the server for the values of a filter on a
-          // parent that does not exist.
-          ListHeaderComponent={library ? ListHeaderComponent : undefined}
-          contentContainerStyle={{
-            paddingBottom: 24,
-            paddingLeft: insets.left,
-            paddingRight: insets.right,
-          }}
-          ItemSeparatorComponent={() => (
-            <View style={{ height: grid.rowGap }} />
-          )}
-        />
+            // The filter bar rides along on a phone but stays put at the top of
+            // the page once there's room for a sidebar/topbar shell around it.
+            stickyHeaderIndices={isWebWide ? [0] : undefined}
+            contentInsetAdjustmentBehavior='automatic'
+            data={grid.data}
+            renderItem={grid.renderItem}
+            extraData={[orientation, grid.columns]}
+            keyExtractor={grid.keyExtractor}
+            numColumns={grid.columns}
+            onEndReached={() => {
+              if (hasNextPage) {
+                fetchNextPage();
+              }
+            }}
+            onEndReachedThreshold={1}
+            // No library, no filters to offer — and, more to the point, six
+            // chips each asking the server for the values of a filter on a
+            // parent that does not exist.
+            ListHeaderComponent={library ? ListHeaderComponent : undefined}
+            contentContainerStyle={{
+              paddingBottom: 24,
+              paddingLeft: insets.left,
+              paddingRight: insets.right,
+            }}
+            ItemSeparatorComponent={() => (
+              <View style={{ height: grid.rowGap }} />
+            )}
+          />
+        </View>
         {grid.actionSheet}
       </PageContainer>
     );

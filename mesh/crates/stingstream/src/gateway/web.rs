@@ -130,13 +130,21 @@ pub struct Marker<'a> {
     /// This node's display name, for "Sign in to {name}" — never the machine's hostname as seen by
     /// Jellyfin.
     pub node_name: &'a str,
-    /// Whether *this request* came from the machine the node runs on. The setup screen is offered
-    /// only to a local browser; everyone else is told where to finish setup.
+    /// Whether *this request* came from the machine the node runs on.
     pub loopback: bool,
+    /// Whether this request came from loopback **or from a private network** — the peers allowed
+    /// to create the first account (`gateway::is_private_or_local`). This is what the setup screen
+    /// keys off: `loopback` alone would send everybody with a headless install to a machine that
+    /// has no screen.
+    pub trusted_peer: bool,
     /// The gateway's cached view of Core's first-run setup state: `Some(true)` pending,
     /// `Some(false)` done, `None` when nobody knows yet (Core not up, or too old to have the
     /// endpoint). `None` is a real answer and the app must handle it.
     pub setup_pending: Option<bool>,
+    /// Base URLs another device on this network could open the node at. **Empty for an untrusted
+    /// peer**, on the same reasoning that keeps them off a stranger's `/healthz`: it is the app on
+    /// a trusted network that needs them, to show somebody an address that is not `localhost`.
+    pub addresses: &'a [String],
 }
 
 /// The JSON payload of the marker. Field order is part of the contract, and `serde` preserves it.
@@ -147,9 +155,11 @@ struct MarkerJson<'a> {
     jellyfin: &'a str,
     api: &'a str,
     loopback: bool,
+    trusted_peer: bool,
     setup_pending: Option<bool>,
     node_name: &'a str,
     version: &'a str,
+    addresses: &'a [String],
 }
 
 impl Marker<'_> {
@@ -160,9 +170,11 @@ impl Marker<'_> {
             jellyfin: super::JELLYFIN_PREFIX,
             api: "/stingstream/api/v1",
             loopback: self.loopback,
+            trusted_peer: self.trusted_peer,
             setup_pending: self.setup_pending,
             node_name: self.node_name,
             version: env!("CARGO_PKG_VERSION"),
+            addresses: if self.trusted_peer { self.addresses } else { &[] },
         })
         // The only failure mode `to_string` has here is a serializer that cannot fail on these
         // types; a node without a marker is better than a node that panics serving its own page.
@@ -679,7 +691,11 @@ mod tests {
         Marker {
             node_name,
             loopback,
+            // Loopback is a private address, so the ordinary fixture is trusted; the tests that
+            // care about the difference build their own.
+            trusted_peer: loopback,
             setup_pending,
+            addresses: &[],
         }
     }
 
@@ -695,10 +711,43 @@ mod tests {
         assert!(html.contains("window.__STINGSTREAM_NODE__="));
         // Field order is part of the contract other packages read.
         let expected = format!(
-            r#"{{"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1","loopback":true,"setupPending":true,"nodeName":"attic","version":"{}"}}"#,
+            r#"{{"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1","loopback":true,"trustedPeer":true,"setupPending":true,"nodeName":"attic","version":"{}","addresses":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert!(html.contains(&expected), "{html}");
+    }
+
+    /// `addresses` is what lets the app show somebody an address that is not `localhost`, and
+    /// `trustedPeer` is what the setup screen keys off -- `loopback` alone would send everybody
+    /// with a headless install to a machine that has no screen.
+    #[test]
+    fn the_marker_carries_reachable_addresses_but_only_to_a_peer_that_may_use_them() {
+        let addrs = vec!["http://192.168.0.16:8790".to_string(), "http://[fd00::1]:8790".to_string()];
+
+        let trusted = Marker {
+            node_name: "attic",
+            loopback: false,
+            trusted_peer: true,
+            setup_pending: Some(true),
+            addresses: &addrs,
+        }
+        .html();
+        assert!(trusted.contains(r#""loopback":false,"trustedPeer":true"#));
+        assert!(trusted.contains(r#""addresses":["http://192.168.0.16:8790","http://[fd00::1]:8790"]"#));
+
+        // A peer from the internet is told nothing about the shape of the network behind it, on
+        // the same reasoning that keeps `lan_ips` off a stranger's /healthz.
+        let stranger = Marker {
+            node_name: "attic",
+            loopback: false,
+            trusted_peer: false,
+            setup_pending: Some(true),
+            addresses: &addrs,
+        }
+        .html();
+        assert!(stranger.contains(r#""trustedPeer":false"#));
+        assert!(stranger.contains(r#""addresses":[]"#));
+        assert!(!stranger.contains("192.168.0.16"));
     }
 
     #[test]
