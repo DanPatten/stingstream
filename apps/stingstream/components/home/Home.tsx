@@ -591,21 +591,24 @@ const HomeMobile = () => {
         paddingBottom: 32,
       }}
     >
-      <HomeHeroCarousel />
       {/*
-        `bleed`, because a row is not page content: its cards scroll past the
-        gutter and the row applies the gutter itself, to its first card and to
-        its own heading, so the two line up. The container is still what stops
-        the rows running the whole width of a 2560 px monitor.
+        `bleed`, because neither the hero nor a row is page content in the way
+        a paragraph is: the hero is a full-bleed picture and a row's cards
+        scroll past the gutter, and both apply the gutter themselves — to the
+        hero's copy, to a row's first card and to its heading — so all three
+        line up on one left edge. The container is still what stops the page
+        running the whole width of a 2560 px monitor, and the hero is inside it
+        for exactly that reason: a hero bled to the window with rows capped at
+        1440 would start its title 230 px left of every heading below it.
       */}
       <PageContainer
         width='media'
         bleed
         style={{
-          paddingTop: 16,
           gap: 24,
         }}
       >
+        <HomeHeroCarousel />
         {sections.map((section, index) => {
           // Render Streamystats sections after Recently Added sections
           // For default sections: place after Recently Added, before Suggested Movies (if present)
