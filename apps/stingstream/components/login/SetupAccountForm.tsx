@@ -1,18 +1,20 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Keyboard, Pressable, View } from "react-native";
+import { Keyboard, View } from "react-native";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { tokens } from "@/constants/theme";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   isSetupFormValid,
   PASSWORD_MIN_LENGTH,
   type SetupFormErrors,
   validateSetupForm,
 } from "@/lib/stingstream/setup";
+import { FocusPressable } from "./FocusPressable";
 
 export interface SetupAccountFormProps {
   /** Creates the account and signs in. Throws with a ready-to-show sentence when it cannot. */
@@ -32,6 +34,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   onSubmit,
 }) => {
   const { t } = useTranslation();
+  const { isCompact } = useBreakpoint();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -74,7 +77,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   }, [busy, username, password, confirm, onSubmit, t]);
 
   const revealToggle = (
-    <Pressable
+    <FocusPressable
       onPress={() => setRevealed((v) => !v)}
       accessibilityRole='button'
       accessibilityLabel={
@@ -96,14 +99,15 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
         size={18}
         color={tokens.color.text.tertiary}
       />
-    </Pressable>
+    </FocusPressable>
   );
 
   return (
     <View testID='firstrun-create-account'>
-      {/* `title`, not `display`: this heading is a whole sentence and wraps to three lines in a
-          420 px card at the larger step, which reads as a poster rather than as a form. */}
-      <Text variant='title' weight='bold'>
+      {/* `title` (26–32 px) from 768 up: at `display` size this whole sentence wrapped to three
+          lines even in the wider 460 px card, which read as a poster rather than as a form.
+          `display` stays for the phone card, where it is the one headline on the screen. */}
+      <Text variant={isCompact ? "display" : "title"} weight='bold'>
         {t("setup.title")}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>

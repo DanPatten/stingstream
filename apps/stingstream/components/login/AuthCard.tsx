@@ -6,8 +6,14 @@ import { elevation, radius, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
-/** The card never grows past this, at any window width. */
+/** The card never grows past this, below the wide desktop step. */
 const MAX_WIDTH = 420;
+/** From here up, the card and the wordmark above it both get a size bump (F-32). */
+const WIDE_DESKTOP_WIDTH = 1024;
+/** The card at and above `WIDE_DESKTOP_WIDTH` — enough room for "Sign in" and the
+ * create-account sentence to hold one line at `title` size without the card reading
+ * as a poster. */
+const MAX_WIDTH_WIDE = 460;
 
 /**
  * The one surface every pre-session screen sits on: connecting, first run, sign in, address form.
@@ -19,8 +25,11 @@ const MAX_WIDTH = 420;
  * the direct answer to "it doesn't say StingStream anywhere".
  */
 export const AuthCard: React.FC<PropsWithChildren> = ({ children }) => {
-  const { isWebWide, gutter } = useBreakpoint();
+  const { isWebWide, gutter, width } = useBreakpoint();
   const { accent } = useTheme();
+  // A literal 1024 rather than the `expanded` token (1280): the plan's verification widths are
+  // 1440/1024/390, and the card should already be at its widest by the middle one.
+  const isWideDesktop = isWebWide && width >= WIDE_DESKTOP_WIDTH;
 
   return (
     <View
@@ -40,9 +49,14 @@ export const AuthCard: React.FC<PropsWithChildren> = ({ children }) => {
         }}
         keyboardShouldPersistTaps='handled'
       >
-        <View style={{ width: "100%", maxWidth: MAX_WIDTH }}>
+        <View
+          style={{
+            width: "100%",
+            maxWidth: isWideDesktop ? MAX_WIDTH_WIDE : MAX_WIDTH,
+          }}
+        >
           <View style={{ alignItems: "center", marginBottom: 24 }}>
-            <StingStreamWordmark height={isWebWide ? 34 : 30} />
+            <StingStreamWordmark height={isWideDesktop ? 40 : 28} />
           </View>
           <View
             style={[
