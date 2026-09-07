@@ -114,7 +114,7 @@
       "lineHeight": 1.4
     },
     "micro": {
-      "size": { "compact": 11, "medium": 12, "expanded": 12 },
+      "size": { "compact": 12, "medium": 12, "expanded": 12 },
       "lineHeight": 1.3
     }
   },

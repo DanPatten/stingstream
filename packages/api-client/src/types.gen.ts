@@ -1408,9 +1408,17 @@ export interface paths {
         /**
          * Seat the bridge in a local SyncPlay group, so this node's own users are carried with it.
          * @description Separate from joining because the two happen at different moments: a member joins the
-         *     session as soon as they accept the invite, and a *local* SyncPlay group exists only once
-         *     somebody on this node actually opens the film. Between the two the bridge still follows the
-         *     leader's positions — it simply has nothing local to drive yet.
+         *                 session as soon as they accept the invite, and a *local* SyncPlay group exists only once
+         *                 somebody on this node actually opens the film. Between the two the bridge still follows the
+         *                 leader's positions — it simply has nothing local to drive yet.
+         *
+         *     **Idempotent.** Seating a bridge that is already seated in the same group answers
+         *                 `204`, not a conflict: a retried request whose answer was never seen, and a second
+         *                 person on this node opening the same film, both land here and neither is an error.
+         *
+         *     A `409` carries the reason in its `detail`, and it is logged. That is not
+         *                 decoration: the one time this failed in CI the whole record of it was the string "409
+         *                 (Conflict)", which named none of the three quite different things that produce one.
          */
         post: operations["Watch_AttachWatchSession"];
         delete?: never;
@@ -5358,11 +5366,14 @@ export interface components {
         SetupState: {
             /** @description True while nobody has created an account on this node yet. */
             Pending?: boolean;
-            /**
-             * @description True when this request came from the machine the node runs on, which is the only place the
-             *     account can be created.
-             */
+            /** @description True when this request came from the machine the node itself runs on. */
             Loopback?: boolean;
+            /**
+             * @description True when this request came from somewhere the node trusts — itself, or the network it is
+             *     on. The first account can only be created from such an address; from anywhere else the
+             *     endpoint that creates it answers as though it did not exist.
+             */
+            TrustedPeer?: boolean;
         };
         /**
          * @description "Omniarr": the one settings model StingStream keeps, pushed idempotently into both Radarr and
@@ -11175,7 +11186,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Seated. */
+            /** @description Seated, or already seated in that group. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -11196,7 +11207,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description This node is not in that session. */
+            /** @description This node is not in that session, or Jellyfin would not seat it. */
             409: {
                 headers: {
                     [name: string]: unknown;

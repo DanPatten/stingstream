@@ -600,30 +600,21 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
         Invoke-Node $node '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 300 | Out-Null
     }
 
-    # Rebuild on every failed poll, not once before the wait -- the same shape `tools/e2e-m4.ps1`
-    # uses, and for the same reason. Nothing in `StingStream.Core` rebuilds the inventory when
-    # Jellyfin finishes a scan: `FirstRunService` does it at start-up, `PinService` after a pin, and
-    # the arrs' webhooks per import -- and B runs no arrs. So a single rebuild that lands before the
-    # scan has matched the film leaves B holding one record and nothing ever adds the other.
-    # Observed under load: "Rebuilt 1 inventory record(s) from 2 local item(s)", then a 180 s wait
-    # for a film that was never going to appear. A rebuild is idempotent and is what turns
-    # "scanned" into "inventoried".
+    # A plain wait. This used to re-POST `/inventory/rebuild` on every failed poll, because B runs
+    # no arrs and nothing in Core rebuilt when a scan finished -- a single rebuild that landed
+    # before the scan had matched the film left B holding one record for good. `InventoryWatcher`
+    # now rebuilds when the library settles, so the node gets there on its own.
     #
-    # 300 s rather than 180 s, and the extra is not padding: this step now waits for Jellyfin's
+    # 300 s rather than 180 s, and the extra is not padding: this step waits for Jellyfin's
     # *metadata* pass, not just its scan. `BuildRecordingKey` will not name a recording before
     # `PremiereDate` or a completed refresh gives it something stable to be named after, which is
     # what stops the key changing under the group -- so the record legitimately appears later than
-    # it used to. Measured across three local runs with two harnesses on one machine: 58 s, 129 s
-    # and 146 s.
+    # it used to. Measured across local runs with two harnesses on one machine: 58 s to 155 s.
     Wait-Until -What "B's inventory to carry the film and the recording" -Seconds 300 -PollSeconds 3 -Condition {
         $inv = Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 60
         $keys = @($inv.Records | ForEach-Object { $_.ItemKey })
-        if (($keys -contains $Film.ItemKey) -and
-            @($keys | Where-Object { $_ -like "$RecordingKeyPrefix*" }).Count -ge 1) {
-            return $true
-        }
-        try { Invoke-Node $NodeB '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
-        return $false
+        ($keys -contains $Film.ItemKey) -and
+            @($keys | Where-Object { $_ -like "$RecordingKeyPrefix*" }).Count -ge 1
     } -Describe {
         $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory?limit=200' -TimeoutSec 30 } catch { $null }
         if ($inv) { (@($inv.Records | ForEach-Object { $_.ItemKey })) -join ', ' } else { 'no answer' }
@@ -744,11 +735,7 @@ Invoke-Step "Both holders' inventories reach A's index" {
         $entries = @(Get-Member-Value $index 'Entries')
         $film = @($entries | Where-Object { $_.ItemKey -eq $Film.ItemKey })
         $rec = @($entries | Where-Object { $_.ItemKey -like "$RecordingKeyPrefix*" })
-        if (($film.Count -ge 2) -and ($rec.Count -ge 1)) { return $true }
-        # C's scan can finish after the rebuild above, and nothing re-runs one on its own -- see the
-        # note on the same loop in the previous step.
-        try { Invoke-Node $NodeC '/stingstream/api/v1/inventory/rebuild' -Method POST -TimeoutSec 120 | Out-Null } catch { }
-        return $false
+        ($film.Count -ge 2) -and ($rec.Count -ge 1)
     } -Describe {
         $index = try { Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/index" -TimeoutSec 30 } catch { $null }
         if (-not $index) { return 'no answer' }
