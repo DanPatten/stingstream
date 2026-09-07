@@ -1,4 +1,3 @@
-import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import {
   getUserLibraryApi,
   getUserViewsApi,
@@ -6,14 +5,15 @@ import {
 import { FlashList } from "@shopify/flash-list";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Loader } from "@/components/Loader";
 import { LibraryItemCard } from "@/components/library/LibraryItemCard";
+import { maxWidth } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
@@ -28,7 +28,8 @@ export const Libraries: React.FC = () => {
   const [user] = useAtom(userAtom);
   const queryClient = useQueryClient();
   const { settings } = useSettings();
-  const { name: breakpointName } = useBreakpoint();
+  const { name: breakpointName, gutter } = useBreakpoint();
+  const { width: windowWidth } = useWindowDimensions();
 
   const { t } = useTranslation();
 
@@ -75,6 +76,22 @@ export const Libraries: React.FC = () => {
   const insets = useSafeAreaInsets();
   const columns = COLUMNS[breakpointName];
 
+  // Widths in pixels, derived once, rather than percentages inside a cell
+  // whose own width is the list's business: on Android a `width: "50%"` cell
+  // inside FlashList's `numColumns` resolved against the *cell*, not the row,
+  // and the cards came out a quarter of the size they should have been. This
+  // is the same arithmetic `useCardGrid` does, for the same reason.
+  // `PageContainer` (not `bleed`) has already taken the gutter off both sides.
+  const listWidth =
+    Math.min(windowWidth, maxWidth.media) -
+    gutter * 2 -
+    insets.left -
+    insets.right;
+  const cellWidth = listWidth / columns;
+  const cardWidth = Math.floor(
+    (listWidth - COLUMN_GAP * (columns - 1)) / columns,
+  );
+
   if (isLoading)
     return (
       <View className='justify-center items-center h-full'>
@@ -110,17 +127,18 @@ export const Libraries: React.FC = () => {
           return (
             <View
               style={{
-                // A stated fraction of the row, not `flex: 1`: a last row of
-                // one library in a three-column grid must sit in the first
-                // column, not stretch itself across all three.
-                width: `${100 / columns}%`,
+                // Stated, not `flex: 1`: a last row of one library in a
+                // three-column grid must sit in the first column, not stretch
+                // itself across all three.
+                width: cellWidth,
                 flexGrow: 0,
                 flexShrink: 0,
-                paddingLeft: column === 0 ? 0 : COLUMN_GAP / 2,
-                paddingRight: column === columns - 1 ? 0 : COLUMN_GAP / 2,
+                // A cell is wider than the card it holds, so each card is
+                // nudged within its column to keep the gaps even.
+                paddingLeft: (column * COLUMN_GAP) / columns,
               }}
             >
-              <LibraryFlexCard library={item} />
+              <LibraryItemCard library={item} width={cardWidth} />
             </View>
           );
         }}
@@ -128,21 +146,5 @@ export const Libraries: React.FC = () => {
         ItemSeparatorComponent={() => <View style={{ height: ROW_GAP }} />}
       />
     </PageContainer>
-  );
-};
-
-/**
- * `LibraryItemCard` takes an explicit pixel width, but a `flex: 1` grid cell
- * only knows its width once it has laid out — so this measures itself and
- * hands that width down, rather than the grid trying to precompute it from
- * the container/column math a second time.
- */
-const LibraryFlexCard: React.FC<{ library: BaseItemDto }> = ({ library }) => {
-  const [width, setWidth] = useState(0);
-
-  return (
-    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {width > 0 && <LibraryItemCard library={library} width={width} />}
-    </View>
   );
 };
