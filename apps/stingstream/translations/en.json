@@ -190,8 +190,21 @@
         "switch_user": "Switch user on this server",
         "current": "current"
       },
-      "categories": {
-        "title": "Categories"
+      "sections": {
+        "general": "General",
+        "sharing": "Sharing",
+        "this_device": "This device",
+        "this_device_web": "Streams go through your server on the web.",
+        "server": "Server",
+        "server_settings": "Server settings",
+        "server_settings_hint": "Indexers, download clients, quality profiles, root folders, naming, notifications",
+        "users_and_libraries": "Users & libraries",
+        "users_and_libraries_hint": "Users, libraries, transcoding, logs",
+        "server_status": "Server status",
+        "server_status_hint": "Children, versions, data directory, ports",
+        "account": "Account",
+        "sign_out": "Sign out",
+        "generic_server": "your StingStream server"
       },
       "playback_controls": {
         "title": "Playback & controls"
@@ -218,7 +231,11 @@
         "display_size_small": "Small",
         "display_size_default": "Default",
         "display_size_large": "Large",
-        "display_size_extra_large": "Extra large"
+        "display_size_extra_large": "Extra large",
+        "accent_title": "Accent colour",
+        "accent_teal": "Teal",
+        "accent_violet": "Violet",
+        "accent_amber": "Amber"
       },
       "network": {
         "title": "Network",
@@ -257,6 +274,17 @@
         "server": "Server",
         "token": "Token",
         "app_version": "App version"
+      },
+      "about": {
+        "title": "About",
+        "server_address": "Server address",
+        "show": "Show",
+        "hide": "Hide",
+        "copy": "Copy",
+        "copied": "Copied to clipboard",
+        "copy_failed": "Could not copy — select the token and copy it by hand.",
+        "take_the_tour": "Take the tour",
+        "licences": "Licences"
       },
       "link_device": {
         "title": "Link a device",
