@@ -12,7 +12,7 @@ import {
 } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { usePressableStates } from "@/hooks/usePressableStates";
-import { isHeroCarouselAvailable } from "@/modules";
+import { isHeroAvailable } from "@/modules";
 import { useSettings } from "@/utils/atoms/settings";
 import { Icon } from "../common/Icon";
 import { ListGroup } from "../list/ListGroup";
@@ -107,10 +107,11 @@ export const AppearanceSettings: React.FC = () => {
             }
           />
         </ListItem>
-        {/* The switch tracks the native view rather than a platform: it is
-            the only way back once the carousel's own menu turns it off, so it
-            has to be offered wherever the carousel can render. */}
-        {isHeroCarouselAvailable() && (
+        {/* `isHeroAvailable` (not `isHeroCarouselAvailable`, which only answers "is the native
+            paged view in this binary"): WP4's `HeroSpotlight` gives web and Android a hero built
+            in React Native, so the switch that turns it off has to exist wherever a hero can
+            render, not just where the native view can. */}
+        {isHeroAvailable() && (
           <ListItem
             title={t("home.settings.appearance.show_hero_carousel")}
             subtitle={t("home.settings.appearance.show_hero_carousel_hint")}
