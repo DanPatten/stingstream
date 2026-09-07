@@ -37,6 +37,8 @@ interface Props extends ViewProps {
   /** Renders a "See all" action next to the title. */
   onPressSeeAll?: () => void;
   seeAllLabel?: string;
+  /** For the screenshot sweep's test-id contract — see `docs/UI-LOOP.md`. */
+  seeAllTestID?: string;
   kind?: CardKind;
 
   /** Media items — cards, navigation and the action sheet are handled here. */
@@ -108,6 +110,7 @@ export const CardRow: React.FC<Props> = ({
   title,
   onPressSeeAll,
   seeAllLabel,
+  seeAllTestID,
   kind = "wide",
   items,
   cards: providedCards,
@@ -271,6 +274,7 @@ export const CardRow: React.FC<Props> = ({
           actionLabel={seeAllLabel}
           actionDisabled={loading}
           onPressAction={onPressSeeAll}
+          actionTestID={seeAllTestID}
           accessory={headerAccessory}
         />
       )}

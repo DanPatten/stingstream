@@ -165,7 +165,13 @@
       "groups": "Groups",
       "media": "Media",
       "tv_shows": "TV shows",
-      "disable": "Disable hero"
+      "disable": "Disable hero",
+      "resume": "Resume",
+      "more_info": "More info",
+      "previous": "Previous item",
+      "next": "Next item",
+      "go_to_slide": "Show item {{index}} of {{count}}",
+      "position": "Item {{index}} of {{count}}"
     },
     "intro": {
       "welcome_to_streamyfin": "Welcome to StingStream",
