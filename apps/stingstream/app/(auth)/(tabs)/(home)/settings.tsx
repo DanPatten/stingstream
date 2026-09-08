@@ -9,6 +9,7 @@ import { ListItem } from "@/components/list/ListItem";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { AppLanguageSelector } from "@/components/settings/AppLanguageSelector";
 import { LinkDevice } from "@/components/settings/LinkDevice";
+import { PasskeysSection } from "@/components/settings/PasskeysSection";
 import { ProfileHeader } from "@/components/settings/ProfileHeader";
 import { StorageSettings } from "@/components/settings/StorageSettings";
 import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
@@ -170,6 +171,9 @@ function SettingsMobile() {
 
           <View className='mb-4' testID='settings-section-account'>
             <LinkDevice className='mb-4' />
+            {/* Draws nothing unless this browser and this server can both do a passkey, so a phone
+                and a server without a domain never see a section they cannot use. */}
+            <PasskeysSection className='mb-4' />
             <ListGroup title={t("home.settings.sections.account")}>
               <ListItem
                 testID='settings-sign-out'

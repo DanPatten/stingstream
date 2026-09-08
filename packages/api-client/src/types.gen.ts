@@ -849,6 +849,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this server can offer passkeys, and what they would be bound to.
+         * @description Anonymous, because the sign-in screen has to know whether to draw the button before anybody
+         *     has signed in. It reveals the server's own domain, which is the address the caller used to
+         *     reach it.
+         */
+        get: operations["Passkeys_StingStreamPasskeySupport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The passkeys on the calling account. */
+        get: operations["Passkeys_StingStreamPasskeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/credentials/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the calling account's passkeys.
+         * @description Scoped to the caller in the delete itself, not by a check before it, so a credential id
+         *     belonging to somebody else cannot be removed by guessing one.
+         */
+        delete: operations["Passkeys_StingStreamDeletePasskey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/credentials/{id}/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rename one of the calling account's passkeys. */
+        post: operations["Passkeys_StingStreamRenamePasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/login/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start signing in with a passkey.
+         * @description Anonymous, and it takes no username: the credentials are discoverable, so the authenticator
+         *     offers what it holds for this domain. Which also means this endpoint cannot be used to ask
+         *     whether an account exists here.
+         */
+        post: operations["Passkeys_StingStreamBeginPasskeyLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/login/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish signing in with a passkey.
+         * @description Ends at `AuthenticateDirect` rather than `AuthenticateNewSession`: there is no
+         *     password to check, because the proof already happened in the ceremony. That is the whole
+         *     difference between the two methods, and using the wrong one here would mean asking for a
+         *     credential this flow exists to avoid.
+         */
+        post: operations["Passkeys_StingStreamFinishPasskeyLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/register/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start adding a passkey to the calling account. */
+        post: operations["Passkeys_StingStreamBeginPasskeyRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/passkeys/register/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish adding a passkey. */
+        post: operations["Passkeys_StingStreamFinishPasskeyRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/qualityprofiles": {
         parameters: {
             query?: never;
@@ -4500,6 +4656,63 @@ export interface components {
             versions?: components["schemas"]["VersionInfo"][];
             /** @description Gets or sets the image url for the package. */
             imageUrl?: string | null;
+        };
+        /** @description A challenge, and the id to carry it back with. */
+        PasskeyChallenge: {
+            /** @description The id the `finish` call must present. */
+            Ceremony?: string;
+            /** @description The WebAuthn options, in the `{publicKey: …}` envelope. */
+            Options?: unknown;
+        };
+        /** @description One sentence saying why a passkey request was refused. */
+        PasskeyError: {
+            /** @description The sentence, written for the person reading it. */
+            Error?: string;
+        };
+        /** @description A new name for a passkey. */
+        PasskeyLabelRequest: {
+            /** @description The name. */
+            Label?: string | null;
+        };
+        /** @description A finished sign-in ceremony. */
+        PasskeyLoginRequest: {
+            /** @description The ceremony id from `login/begin`. */
+            Ceremony?: string | null;
+            /** @description What the authenticator produced, verbatim. */
+            Credential?: unknown;
+        };
+        /** @description A finished registration ceremony. */
+        PasskeyRegistrationRequest: {
+            /** @description The ceremony id from `register/begin`. */
+            Ceremony?: string | null;
+            /** @description What the authenticator produced, verbatim. */
+            Credential?: unknown;
+            /** @description What to call it. Optional. */
+            Label?: string | null;
+        };
+        /** @description One registered passkey, as its owner sees it. */
+        PasskeySummary: {
+            /** @description The credential id, base64url. */
+            Id?: string;
+            /** @description What its owner called it. */
+            Label?: string;
+            /** @description When it was registered, ISO 8601. */
+            CreatedAt?: string;
+            /** @description When it last signed in, ISO 8601, or null. */
+            LastUsedAt?: string | null;
+            /** @description False when it was made for an address this server no longer answers to. */
+            Usable?: boolean;
+            /** @description The domain it was made for. */
+            RelyingParty?: string;
+        };
+        /** @description Whether this server can offer passkeys. */
+        PasskeySupportState: {
+            /** @description True when a ceremony would work. */
+            Supported?: boolean;
+            /** @description One sentence saying why not, or null. */
+            Reason?: string | null;
+            /** @description The domain passkeys bind to, or null. */
+            RelyingParty?: string | null;
         };
         /**
          * @description The person kind.
@@ -9278,6 +9491,450 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    Passkeys_StingStreamPasskeySupport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer, and a sentence when it is no. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeySupportState"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamPasskeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeySummary"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamDeletePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The credential id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such passkey on this account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamRenamePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The credential id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The new name. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasskeyLabelRequest"];
+                "text/json": components["schemas"]["PasskeyLabelRequest"];
+                "application/*+json": components["schemas"]["PasskeyLabelRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such passkey on this account. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamBeginPasskeyLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The challenge to answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyChallenge"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This server cannot offer passkeys; the sentence says why. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamFinishPasskeyLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The ceremony id and what the authenticator produced. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasskeyLoginRequest"];
+                "text/json": components["schemas"]["PasskeyLoginRequest"];
+                "application/*+json": components["schemas"]["PasskeyLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description A session, exactly as a password sign-in produces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticationResult"];
+                };
+            };
+            /** @description It could not be verified. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamBeginPasskeyRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The challenge to answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyChallenge"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This server cannot offer passkeys; the sentence says why. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Passkeys_StingStreamFinishPasskeyRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The ceremony id and what the authenticator produced. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasskeyRegistrationRequest"];
+                "text/json": components["schemas"]["PasskeyRegistrationRequest"];
+                "application/*+json": components["schemas"]["PasskeyRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description It could not be verified; the sentence says what to do. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };

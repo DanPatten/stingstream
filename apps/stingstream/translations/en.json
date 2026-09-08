@@ -2018,5 +2018,21 @@
     "status_revoked": "Withdrawn",
     "revoke": "Withdraw",
     "revoked": "Invite withdrawn"
+  },
+  "passkeys": {
+    "title": "Passkeys",
+    "detail": "Sign in with your fingerprint, face or security key instead of a password. Your password still works.",
+    "empty_detail": "Sign in with your fingerprint, face or security key instead of typing a password. It works on {{domain}}, and your password still works everywhere.",
+    "add": "Add a passkey",
+    "added": "Passkey added",
+    "default_label": "Passkey",
+    "remove": "Remove",
+    "removed": "Passkey removed",
+    "row_added": "Added {{date}}",
+    "row_other_domain": "Made for {{domain}} — it will not work at this server's current address.",
+    "error_unavailable": "Passkeys are not available on this server.",
+    "error_register": "That passkey could not be added.",
+    "error_remove": "That passkey could not be removed.",
+    "error_sign_in": "That passkey could not be used to sign in."
   }
 }

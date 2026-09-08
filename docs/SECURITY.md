@@ -186,6 +186,10 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/invites`, `/invites/libraries`, `/invites/{id}` | GET, POST, DELETE | Admin. Minting hands out an account on this server, so it is the owner's decision and not a member's |
 | `/stingstream/api/v1/invites/lookup` | POST | Anonymous + a 256-bit token in the **body**. Answers 404 for a token nobody minted and 410 with a reason for one that is spent, expired or withdrawn — distinguishable only to somebody already holding the token, which is the person the link was sent to |
 | `/stingstream/api/v1/invites/accept` | POST | Anonymous + the same token, single use, enforced by `UPDATE ... WHERE redeemed_at IS NULL` rather than by a read-then-write. Creates a user with `EnableAllFolders = false` and exactly the invite's `EnabledFolders` |
+| `/stingstream/api/v1/passkeys` | GET | Anonymous. Reveals one boolean and the server's own domain — which is the address the caller used to reach it |
+| `/stingstream/api/v1/passkeys/credentials`, `/credentials/{id}`, `/credentials/{id}/rename` | GET, POST, DELETE | Session. Scoped to the caller inside the SQL, not by a check before it, so another account's credential id cannot be removed by guessing one |
+| `/stingstream/api/v1/passkeys/register/{begin,finish}` | POST | Session. Registering adds a second way into an account, so it takes somebody who has already proved they hold the first |
+| `/stingstream/api/v1/passkeys/login/{begin,finish}` | POST | Anonymous — the passkey *is* the credential. Usernameless, so it cannot be used to ask whether an account exists here. The challenge lives on the server, is single-use and expires in five minutes, and outstanding ones are capped |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
@@ -350,6 +354,14 @@ every invite opened through them. There is no coordinator any more, and `sharing
 lost the fallback that produced such a link: a node builds a link from **its own** address or from
 nothing at all. Nothing third-party is now in the path of any invite. Recorded rather than deleted
 because the reasoning is the reason person invites carry their token in a fragment too.
+
+**R13 — A passkey is only as bound as the domain it was made on.** Credentials are registered
+against the server's own address, so moving to a different domain strands every one of them: the
+browser will not offer a credential whose relying-party id does not match the page. Nothing is lost
+— a password always works, and the Passkeys list marks the stranded ones with the domain they were
+made for rather than letting them read as broken — but somebody who changes their address will have
+to register again. That is inherent to WebAuthn rather than a choice here, and it is the reason
+`localhost` is refused: a credential that works once, at the keyboard, is worse than none.
 
 **R12 — A person invite is a bearer token in a chat message.** `POST /invites/accept` creates an
 account on this server for whoever presents the token, so anybody who can read the message can take

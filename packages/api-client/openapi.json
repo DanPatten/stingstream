@@ -3539,6 +3539,640 @@
         ]
       }
     },
+    "/stingstream/api/v1/passkeys": {
+      "get": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Whether this server can offer passkeys, and what they would be bound to.",
+        "description": "Anonymous, because the sign-in screen has to know whether to draw the button before anybody\r\nhas signed in. It reveals the server's own domain, which is the address the caller used to\r\nreach it.",
+        "operationId": "StingStreamPasskeySupport",
+        "responses": {
+          "200": {
+            "description": "The answer, and a sentence when it is no.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeySupportState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/credentials": {
+      "get": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "The passkeys on the calling account.",
+        "operationId": "StingStreamPasskeys",
+        "responses": {
+          "200": {
+            "description": "The list, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PasskeySummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/credentials/{id}": {
+      "delete": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Remove one of the calling account's passkeys.",
+        "description": "Scoped to the caller in the delete itself, not by a check before it, so a credential id\r\nbelonging to somebody else cannot be removed by guessing one.",
+        "operationId": "StingStreamDeletePasskey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The credential id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such passkey on this account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/credentials/{id}/rename": {
+      "post": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Rename one of the calling account's passkeys.",
+        "operationId": "StingStreamRenamePasskey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The credential id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The new name.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLabelRequest"
+                  }
+                ],
+                "description": "A new name for a passkey."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLabelRequest"
+                  }
+                ],
+                "description": "A new name for a passkey."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLabelRequest"
+                  }
+                ],
+                "description": "A new name for a passkey."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Renamed."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such passkey on this account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/login/begin": {
+      "post": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Start signing in with a passkey.",
+        "description": "Anonymous, and it takes no username: the credentials are discoverable, so the authenticator\r\noffers what it holds for this domain. Which also means this endpoint cannot be used to ask\r\nwhether an account exists here.",
+        "operationId": "StingStreamBeginPasskeyLogin",
+        "responses": {
+          "200": {
+            "description": "The challenge to answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyChallenge"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "This server cannot offer passkeys; the sentence says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/login/finish": {
+      "post": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Finish signing in with a passkey.",
+        "description": "Ends at `AuthenticateDirect` rather than `AuthenticateNewSession`: there is no\r\npassword to check, because the proof already happened in the ceremony. That is the whole\r\ndifference between the two methods, and using the wrong one here would mean asking for a\r\ncredential this flow exists to avoid.",
+        "operationId": "StingStreamFinishPasskeyLogin",
+        "requestBody": {
+          "description": "The ceremony id and what the authenticator produced.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLoginRequest"
+                  }
+                ],
+                "description": "A finished sign-in ceremony."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLoginRequest"
+                  }
+                ],
+                "description": "A finished sign-in ceremony."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyLoginRequest"
+                  }
+                ],
+                "description": "A finished sign-in ceremony."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A session, exactly as a password sign-in produces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "It could not be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/register/begin": {
+      "post": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Start adding a passkey to the calling account.",
+        "operationId": "StingStreamBeginPasskeyRegistration",
+        "responses": {
+          "200": {
+            "description": "The challenge to answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyChallenge"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "This server cannot offer passkeys; the sentence says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/passkeys/register/finish": {
+      "post": {
+        "tags": [
+          "Passkeys"
+        ],
+        "summary": "Finish adding a passkey.",
+        "operationId": "StingStreamFinishPasskeyRegistration",
+        "requestBody": {
+          "description": "The ceremony id and what the authenticator produced.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyRegistrationRequest"
+                  }
+                ],
+                "description": "A finished registration ceremony."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyRegistrationRequest"
+                  }
+                ],
+                "description": "A finished registration ceremony."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/PasskeyRegistrationRequest"
+                  }
+                ],
+                "description": "A finished registration ceremony."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Registered."
+          },
+          "400": {
+            "description": "It could not be verified; the sentence says what to do.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/qualityprofiles": {
       "get": {
         "tags": [
@@ -14798,6 +15432,131 @@
         "additionalProperties": false,
         "description": "Class PackageInfo."
       },
+      "PasskeyChallenge": {
+        "type": "object",
+        "properties": {
+          "Ceremony": {
+            "type": "string",
+            "description": "The id the `finish` call must present."
+          },
+          "Options": {
+            "description": "The WebAuthn options, in the `{publicKey: …}` envelope."
+          }
+        },
+        "additionalProperties": false,
+        "description": "A challenge, and the id to carry it back with."
+      },
+      "PasskeyError": {
+        "type": "object",
+        "properties": {
+          "Error": {
+            "type": "string",
+            "description": "The sentence, written for the person reading it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One sentence saying why a passkey request was refused."
+      },
+      "PasskeyLabelRequest": {
+        "type": "object",
+        "properties": {
+          "Label": {
+            "type": "string",
+            "description": "The name.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A new name for a passkey."
+      },
+      "PasskeyLoginRequest": {
+        "type": "object",
+        "properties": {
+          "Ceremony": {
+            "type": "string",
+            "description": "The ceremony id from `login/begin`.",
+            "nullable": true
+          },
+          "Credential": {
+            "description": "What the authenticator produced, verbatim."
+          }
+        },
+        "additionalProperties": false,
+        "description": "A finished sign-in ceremony."
+      },
+      "PasskeyRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "Ceremony": {
+            "type": "string",
+            "description": "The ceremony id from `register/begin`.",
+            "nullable": true
+          },
+          "Credential": {
+            "description": "What the authenticator produced, verbatim."
+          },
+          "Label": {
+            "type": "string",
+            "description": "What to call it. Optional.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A finished registration ceremony."
+      },
+      "PasskeySummary": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "The credential id, base64url."
+          },
+          "Label": {
+            "type": "string",
+            "description": "What its owner called it."
+          },
+          "CreatedAt": {
+            "type": "string",
+            "description": "When it was registered, ISO 8601."
+          },
+          "LastUsedAt": {
+            "type": "string",
+            "description": "When it last signed in, ISO 8601, or null.",
+            "nullable": true
+          },
+          "Usable": {
+            "type": "boolean",
+            "description": "False when it was made for an address this server no longer answers to."
+          },
+          "RelyingParty": {
+            "type": "string",
+            "description": "The domain it was made for."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One registered passkey, as its owner sees it."
+      },
+      "PasskeySupportState": {
+        "type": "object",
+        "properties": {
+          "Supported": {
+            "type": "boolean",
+            "description": "True when a ceremony would work."
+          },
+          "Reason": {
+            "type": "string",
+            "description": "One sentence saying why not, or null.",
+            "nullable": true
+          },
+          "RelyingParty": {
+            "type": "string",
+            "description": "The domain passkeys bind to, or null.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Whether this server can offer passkeys."
+      },
       "PersonKind": {
         "enum": [
           "Unknown",
@@ -20452,6 +21211,9 @@
     },
     {
       "name": "Mesh"
+    },
+    {
+      "name": "Passkeys"
     },
     {
       "name": "QualityProfiles"

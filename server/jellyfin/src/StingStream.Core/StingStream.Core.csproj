@@ -53,6 +53,7 @@
     <!-- Added to Directory.Packages.props by StingStream; see docs/PATCHES.md. -->
     <PackageReference Include="MonoTorrent" />
     <PackageReference Include="Blake3" />
+    <PackageReference Include="Fido2" />
   </ItemGroup>
 
   <ItemGroup>

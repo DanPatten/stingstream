@@ -105,9 +105,48 @@ describe("encoding a reply", () => {
       response: {
         attestationObject: toBase64Url(bytes(3, 4)),
         clientDataJSON: toBase64Url(bytes(5, 6)),
+        // Present even when the browser has no `getTransports`, because the server refuses a body
+        // without it -- `[Required]` on Fido2NetLib's own model, checked by ASP.NET before any of
+        // this reaches the ceremony. An absent field is a 400 nobody could debug from the browser.
+        transports: [],
       },
       extensions: {},
+      clientExtensionResults: {},
     });
+  });
+
+  test("a registration carries the transports the browser does report", () => {
+    const credential = {
+      id: "credential-id",
+      rawId: bytes(1, 2),
+      type: "public-key",
+      response: {
+        attestationObject: bytes(3, 4),
+        clientDataJSON: bytes(5, 6),
+        getTransports: () => ["internal", "hybrid"],
+      },
+      getClientExtensionResults: () => ({ credProps: { rk: true } }),
+    } as unknown as PublicKeyCredential;
+
+    const encoded = encodeRegistration(credential);
+    expect(encoded.response.transports).toEqual(["internal", "hybrid"]);
+    expect(encoded.clientExtensionResults).toEqual({ credProps: { rk: true } });
+  });
+
+  test("a browser that throws from getClientExtensionResults still produces a valid body", () => {
+    // It is a method call into the browser's own credential object, and the one thing that must
+    // not happen is a registration failing on the reporting of extensions nobody asked for.
+    const credential = {
+      id: "credential-id",
+      rawId: bytes(1),
+      type: "public-key",
+      response: { attestationObject: bytes(2), clientDataJSON: bytes(3) },
+      getClientExtensionResults: () => {
+        throw new Error("no");
+      },
+    } as unknown as PublicKeyCredential;
+
+    expect(encodeRegistration(credential).clientExtensionResults).toEqual({});
   });
 
   test("an assertion sends null for a missing user handle", () => {
@@ -126,6 +165,8 @@ describe("encoding a reply", () => {
     } as unknown as PublicKeyCredential;
 
     expect(encodeAssertion(credential).response.userHandle).toBeNull();
+    // Required by the server on this ceremony too, for the same reason.
+    expect(encodeAssertion(credential).clientExtensionResults).toEqual({});
   });
 });
 

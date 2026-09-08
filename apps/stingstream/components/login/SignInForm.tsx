@@ -31,13 +31,16 @@ export interface SignInFormProps {
   onSignInWithCode?: () => void;
   /**
    * Shown as a "Use a passkey" link, and **only when there is one to use**: the screen passes this
-   * in when both this device and the account service can do passkeys. A password always works, so
-   * the absence of this link is an ordinary state rather than a degraded one.
+   * in when both this device and this server can do passkeys. A password always works, so the
+   * absence of this link is an ordinary state rather than a degraded one.
    *
-   * Takes the username because that is what the service needs to know which credentials to offer,
-   * and it is already typed into the field above.
+   * **It takes no username, and that is the change.** It used to, because a central service had to
+   * be told which account's credentials to offer. A server's own passkeys are discoverable, so the
+   * authenticator already knows which ones it holds for this domain — press the button and you are
+   * in, with nothing typed. Which is also why the link is live from the moment the form appears
+   * rather than waiting for a field somebody no longer has to fill in.
    */
-  onSignInWithPasskey?: (username: string) => Promise<void>;
+  onSignInWithPasskey?: () => Promise<void>;
   /** Clears the connected server and goes back to the address form. */
   onUseDifferentServer?: () => void;
   /**
@@ -95,12 +98,12 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   }, [busy, username, password, onSubmit, t]);
 
   const submitPasskey = useCallback(async () => {
-    if (busy || !onSignInWithPasskey || username.trim().length === 0) return;
+    if (busy || !onSignInWithPasskey) return;
     Keyboard.dismiss();
     setError(null);
     setBusy(true);
     try {
-      await onSignInWithPasskey(username.trim());
+      await onSignInWithPasskey();
     } catch (e) {
       setError(
         e instanceof Error && e.message
@@ -110,7 +113,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
     } finally {
       setBusy(false);
     }
-  }, [busy, username, onSignInWithPasskey, t]);
+  }, [busy, onSignInWithPasskey, t]);
 
   // The address form stays reachable on a node — a phone pointed at the wrong server has to be
   // able to leave — but it is not offered as a step. On a node it hides behind Advanced.
@@ -249,20 +252,17 @@ export const SignInForm: React.FC<SignInFormProps> = ({
 
       {/* Under the password button rather than beside it: a passkey is the shortcut, not the
           method, and with no email on an account the password is the credential that always works.
-          Disabled until a username is typed, because that is what the service needs to know which
-          credentials to offer — the field above is the only place it can come from. */}
+          Live from the moment it is drawn — a server's passkeys are discoverable, so there is
+          nothing to type first. */}
       {onSignInWithPasskey ? (
         <FocusPressable
           testID='login-sign-in-with-passkey'
           onPress={() => void submitPasskey()}
           accessibilityRole='button'
-          disabled={busy || username.trim().length === 0}
+          disabled={busy}
           style={{ paddingVertical: 14, alignSelf: "center" }}
         >
-          <Text
-            variant='body'
-            tone={username.trim().length === 0 ? "tertiary" : "accent"}
-          >
+          <Text variant='body' tone={busy ? "tertiary" : "accent"}>
             {t("login.sign_in_with_passkey")}
           </Text>
         </FocusPressable>

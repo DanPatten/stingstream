@@ -11,7 +11,9 @@ import {
   type NodeContext,
   useNodeContext,
 } from "@/hooks/useNodeContext";
+import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
+import { signInWithPasskey } from "@/lib/stingstream/passkeysApi";
 import {
   createAdmin,
   getSetupState,
@@ -82,6 +84,7 @@ export const LoginScreen: React.FC = () => {
     loginWithPassword,
     initiateQuickConnect,
     stopQuickConnectPolling,
+    adoptSession,
   } = useJellyfin();
 
   const params = useLocalSearchParams<{
@@ -98,6 +101,9 @@ export const LoginScreen: React.FC = () => {
   const [phase, setPhase] = useState<Phase>(
     nodeContext ? "connecting" : "serverForm",
   );
+  // Both halves have to say yes -- this browser, and a server with a domain to bind to. Null
+  // while it is still being asked, so no link flashes and disappears.
+  const passkeys = usePasskeySupport();
   const [serverName, setServerName] = useState<string | null>(
     nodeContext?.nodeName ?? null,
   );
@@ -317,6 +323,35 @@ export const LoginScreen: React.FC = () => {
     [keepSignedIn, login, serverName, setPendingAccountSave],
   );
 
+  /**
+   * Sign in with a passkey, which takes nothing typed.
+   *
+   * The credential is discoverable, so the authenticator offers what it holds for this domain and
+   * the server resolves the account from the user handle inside the assertion. A dismissed prompt
+   * resolves to null and does nothing, because changing your mind is not a failure.
+   *
+   * The session is then established through the provider's own path rather than by adopting the
+   * token this call returned -- the same reasoning first run and invite redemption use, and the
+   * reason all three end up on Home the same way.
+   */
+  const handleSignInWithPasskey = useCallback(async () => {
+    if (!nodeContext) throw new Error(t("passkeys.error_unavailable"));
+
+    const result = await signInWithPasskey(nodeContext.origin);
+    if (!result) return;
+
+    if (!api?.basePath) {
+      await connectTo(jellyfinUrlFor(nodeContext));
+    }
+    if (!result.accessToken || !result.userId) {
+      throw new Error(t("passkeys.error_sign_in"));
+    }
+    adoptSession(result.accessToken, {
+      Id: result.userId,
+      Name: result.username,
+    });
+  }, [adoptSession, api?.basePath, connectTo, nodeContext, t]);
+
   const handleCreateAccount = useCallback(
     async (username: string, password: string) => {
       if (!nodeContext) throw new Error(t("setup.error_unexpected"));
@@ -457,6 +492,9 @@ export const LoginScreen: React.FC = () => {
               Platform.OS === "web" ? undefined : handleSignInWithCode
             }
             onUseDifferentServer={handleUseDifferentServer}
+            onSignInWithPasskey={
+              passkeys?.supported ? handleSignInWithPasskey : undefined
+            }
           />
         ) : null}
 

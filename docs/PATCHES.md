@@ -89,11 +89,17 @@ is harmless; StingStream registers a second (named `openapi`, served at
 document is requested first is cached and then returned at *both* URLs. This is an upstream bug
 rather than a StingStream-specific need, and a good candidate to send upstream.
 
-### 5. `Directory.Packages.props` — two package versions
+### 5. `Directory.Packages.props` — three package versions
 
-`MonoTorrent` 3.0.2 (the in-process torrent engine) and `Blake3` 3.0.2 (file hashing for the
-inventory record). Central package management means a new dependency has to be declared there; both
-entries carry a comment marking them as StingStream's.
+`MonoTorrent` 3.0.2 (the in-process torrent engine), `Blake3` 3.0.2 (file hashing for the inventory
+record) and `Fido2` 4.0.1 (passkeys). Central package management means a new dependency has to be
+declared there; all three entries carry a comment marking them as StingStream's.
+
+`Fido2` is the package name; the library and its namespace are `Fido2NetLib`. MIT. It is what makes
+passkeys possible on every platform a node ships to: the Rust alternative reaches OpenSSL, which
+does not build on a stock Windows toolchain, while this one is pure .NET over `libsodium` — and
+libsodium ships prebuilt natives for every RID the release publishes, so a self-contained publish
+carries the right one with nothing to install.
 
 ### 6. `Emby.Server.Implementations/Library/MediaSourceManager.cs` — stop probing every `.strm`
 

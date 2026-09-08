@@ -85,9 +85,25 @@ export const decodeOptions = (
     PublicKeyCredentialRequestOptions;
 };
 
-/** A registration reply, in the shape `RegisterPublicKeyCredential` deserialises from. */
+/**
+ * A registration reply, in the shape the server deserialises from.
+ *
+ * **`transports` and `clientExtensionResults` are not optional decoration.** The server rejects a
+ * body without them before any of this reaches the ceremony code — they are `[Required]` on
+ * Fido2NetLib's own model and ASP.NET validates it — and both are things the browser genuinely
+ * knows. `transports` is how an authenticator says it speaks USB or NFC or hybrid, which is what
+ * lets a later sign-in offer it over the right channel; `getTransports` is missing on some older
+ * Safari builds, so an empty list stands in rather than the field going absent.
+ *
+ * `extensions` stays for now because the server still accepts it, but it is the deprecated spelling
+ * of `clientExtensionResults` and is the one to drop when nothing reads it.
+ */
 export const encodeRegistration = (credential: PublicKeyCredential) => {
   const response = credential.response as AuthenticatorAttestationResponse;
+  const transports =
+    typeof response.getTransports === "function"
+      ? response.getTransports()
+      : [];
   return {
     id: credential.id,
     rawId: toBase64Url(credential.rawId),
@@ -95,9 +111,28 @@ export const encodeRegistration = (credential: PublicKeyCredential) => {
     response: {
       attestationObject: toBase64Url(response.attestationObject),
       clientDataJSON: toBase64Url(response.clientDataJSON),
+      transports,
     },
     extensions: {},
+    clientExtensionResults: clientExtensions(credential),
   };
+};
+
+/**
+ * Whatever the browser reports for the extensions that were asked for.
+ *
+ * Empty in the ordinary case, because this app asks for none — but the field has to be present, and
+ * `getClientExtensionResults` is a method rather than a property so an older browser can simply not
+ * have it.
+ */
+const clientExtensions = (credential: PublicKeyCredential): object => {
+  try {
+    return typeof credential.getClientExtensionResults === "function"
+      ? (credential.getClientExtensionResults() ?? {})
+      : {};
+  } catch {
+    return {};
+  }
 };
 
 /** A sign-in reply, in the shape `PublicKeyCredential` deserialises from. */
@@ -116,6 +151,7 @@ export const encodeAssertion = (credential: PublicKeyCredential) => {
       userHandle: response.userHandle ? toBase64Url(response.userHandle) : null,
     },
     extensions: {},
+    clientExtensionResults: clientExtensions(credential),
   };
 };
 

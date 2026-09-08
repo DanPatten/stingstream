@@ -179,6 +179,15 @@ interface JellyfinContextValue {
   ) => Promise<void>;
   removeSavedCredential: (serverUrl: string, userId: string) => Promise<void>;
   switchServerUrl: (newUrl: string) => void;
+  /**
+   * Adopt a session the server has already granted.
+   *
+   * For the sign-ins that never see a password: Quick Connect, where the proof happened on another
+   * device, and a passkey, where it happened in the authenticator. Both end with a token and a
+   * user and nothing left to verify, so `login` — which exists to exchange a password for exactly
+   * this — has nothing to do.
+   */
+  adoptSession: (accessToken: string, user: UserDto) => void;
 }
 
 const JellyfinContext = createContext<JellyfinContextValue | undefined>(
@@ -270,6 +279,25 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   // state. A single response interceptor on the authenticated api clears the
   // session on the first 401 so the app drops cleanly to the login screen.
   const sessionExpiredRef = useRef(false);
+
+  /**
+   * Adopt a session the server has already granted.
+   *
+   * The four things every token-first sign-in has to do, in one place. Quick Connect did them
+   * inline; a passkey sign-in needs exactly the same four, and two copies of "this is what being
+   * signed in means" is how one of them ends up missing the `storage.set` and logging somebody out
+   * on the next launch.
+   */
+  const adoptSession = useCallback(
+    (accessToken: string, nextUser: UserDto) => {
+      if (!jellyfin || !api?.basePath) return;
+      setUser(nextUser);
+      setApi(createApiWithCustomHeaders(jellyfin, api.basePath, accessToken));
+      storage.set("token", accessToken);
+      storage.set("user", JSON.stringify(nextUser));
+    },
+    [api?.basePath, jellyfin],
+  );
 
   // Shared teardown for manual logout AND forced session expiry — keeping it
   // in one place prevents the two paths from drifting (a 401 expiry must wipe
@@ -415,12 +443,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
           );
 
           const { AccessToken, User } = authResponse.data;
-          setUser(User);
-          setApi(
-            createApiWithCustomHeaders(jellyfin, api.basePath, AccessToken),
-          );
-          storage.set("token", AccessToken);
-          storage.set("user", JSON.stringify(User));
+          adoptSession(AccessToken, User);
           return true;
         }
       }
@@ -1066,6 +1089,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     removeSavedCredential: (serverUrl, userId) =>
       removeSavedCredentialMutation.mutateAsync({ serverUrl, userId }),
     switchServerUrl,
+    adoptSession,
   };
 
   useEffect(() => {

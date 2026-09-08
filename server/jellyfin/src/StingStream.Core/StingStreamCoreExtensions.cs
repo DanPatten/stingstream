@@ -16,6 +16,7 @@ using StingStream.Core.Inventory;
 using StingStream.Core.Invites;
 using StingStream.Core.Library;
 using StingStream.Core.Mesh;
+using StingStream.Core.Passkeys;
 using StingStream.Core.Playback;
 using StingStream.Core.Requests;
 using StingStream.Core.SyncPlay;
@@ -160,6 +161,11 @@ public static class StingStreamCoreExtensions
         // the libraries the administrator picked -- which is what makes "you get invited to a
         // server and you create an account" true without anything central. See Invites/.
         services.AddStingStreamInvites();
+
+        // Passkeys, bound to this server's own domain (Part 5, WP4). In C# over Fido2NetLib rather
+        // than in the mesh: `webauthn-rs` reaches OpenSSL, which is why the deleted version had to
+        // hide behind a Cargo feature and could never work on a Windows node. See Passkeys/.
+        services.AddStingStreamPasskeys();
 
         // Subtitles the group wants, fetched once by the node that holds the file and published
         // with its inventory record (M7). Jellyfin's own scheduled task would fetch on every node
