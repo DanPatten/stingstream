@@ -399,8 +399,16 @@ function Get-Member-Value {
     #>
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
-    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
-    return $Object.$Name
+    # Indexed, not `.PSObject.Properties.Name -contains`. That test reads a property off a
+    # *collection*, which PowerShell answers by enumerating its members -- and under
+    # Set-StrictMode -Version Latest, enumerating an empty collection for a member it does not
+    # have is a terminating error. So the old form threw "The property 'Name' cannot be found on
+    # this object" for exactly the input this function exists to survive: an object with no
+    # properties at all, `{}`, which is what Jellyfin sends for an item with no artwork yet. The
+    # indexer answers $null instead of throwing, for every shape.
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
 }
 
 function Get-ShortHash {

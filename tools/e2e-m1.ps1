@@ -221,8 +221,16 @@ function Get-Member-Value {
     #>
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
-    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
-    return $Object.$Name
+    # Indexed, not `.PSObject.Properties.Name -contains`. That test reads a property off a
+    # *collection*, which PowerShell answers by enumerating its members -- and under
+    # Set-StrictMode -Version Latest, enumerating an empty collection for a member it does not
+    # have is a terminating error. So the old form threw "The property 'Name' cannot be found on
+    # this object" for exactly the input this function exists to survive: an object with no
+    # properties at all, `{}`, which is what Jellyfin sends for an item with no artwork yet. The
+    # indexer answers $null instead of throwing, for every shape.
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
 }
 
 function Start-Tool {
@@ -1008,25 +1016,38 @@ Invoke-Step 'The local libraries fetch metadata from the internet' {
     # And the consequence, on the film this run actually imported: the arrs name the file, and the
     # server is what turns that into a poster and an overview. Nothing else in this harness would
     # notice if that stopped happening.
+    # Read once, through the guard, rather than `$MovieItem.Id` inside two script blocks: the same
+    # member-enumeration rule applies to it, and a failure there would be swallowed by Wait-Until's
+    # own catch and reported as a timeout three minutes later instead of as what it is.
+    $movieId = Get-Member-Value $MovieItem 'Id'
+    if (-not $movieId) { throw 'the imported film has no Id to ask about.' }
+
     $item = Wait-Until -What 'the imported film to pick up its provider ids and artwork' -Seconds 180 -PollSeconds 5 -Condition {
         $i = try {
-            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($MovieItem.Id)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
+            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($movieId)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
         } catch { $null }
         if (-not $i) { return $null }
-        $ids = Get-Member-Value $i 'ProviderIds'
-        if ($ids -and (Get-Member-Value $ids 'Tmdb')) { return $i }
+        if (Get-Member-Value (Get-Member-Value $i 'ProviderIds') 'Tmdb') { return $i }
         return $null
     } -Describe {
         $i = try {
-            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($MovieItem.Id)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
+            Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items/$($movieId)?userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders)
         } catch { $null }
         if ($i) { "no TMDB id on $(Get-Member-Value $i 'Name') yet" } else { 'no answer yet' }
     }
 
+    # Per-property, not `.PSObject.Properties.Name`: `ImageTags` is `{}` on an item whose artwork
+    # has not landed, and reading a member off an empty collection is a terminating error under
+    # Set-StrictMode. That is the whole of the CI failure this step kept aborting with, and it fired
+    # here rather than in the library read above -- which is why hardening that half did not help.
     $tags = Get-Member-Value $item 'ImageTags'
-    $images = @(if ($tags) { $tags.PSObject.Properties.Name })
-    Write-Host "      $(Get-Member-Value $item 'Name'): tmdb=$((Get-Member-Value $item 'ProviderIds').Tmdb)  images=$($images -join ',')"
-    if ($images -notcontains 'Primary') { throw "the imported film has no poster; the metadata providers are not reaching the internet." }
+    $images = @($tags.PSObject.Properties | ForEach-Object { $_.Name })
+    $tmdb = Get-Member-Value (Get-Member-Value $item 'ProviderIds') 'Tmdb'
+    Write-Host "      $(Get-Member-Value $item 'Name'): tmdb=$tmdb  images=$($images -join ',')"
+    if ($images -notcontains 'Primary') {
+        throw ("the imported film has no poster; the metadata providers are not reaching the " +
+            "internet. ImageTags held: $($images -join ', ')")
+    }
 }
 
 # ============================================================================================
