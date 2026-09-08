@@ -213,6 +213,27 @@ stingstream-accounts \
 | `STINGSTREAM_ACCOUNTS_DATA` | where `accounts.db` and `signing.key` live |
 | `STINGSTREAM_ACCOUNTS_ORIGIN` | the public origin — **the passkey relying-party id** |
 
+`GET /healthz` answers `commit` and `passkeys_built`. The first is what makes a deploy provable —
+push, watch `accounts.yml` publish the image, watch this change to match — and the second because
+"this build has no passkey support" and "this deploy has no origin" look identical from outside and
+need completely different fixes.
+
+### On Railway
+
+The image is `ghcr.io/danpatten/stingstream-accounts:latest`, published by `.github/workflows/
+accounts.yml` on every master push that touches the crate or its Dockerfile. Deploy it the same way
+the coordinator is deployed — from the image, with image auto-updates on — and not from a GitHub
+App connection, which is not configured and is not needed.
+
+**A volume at `/data` is not optional.** Railway's container filesystem does not survive a redeploy,
+so without one every account and the signing key vanish on the next deploy: everybody is signed out
+everywhere, and every node has to re-fetch a key that no longer matches the one it cached. The
+service will start perfectly happily without it and lose everything later, which is the worst shape
+a mistake like this can take.
+
+Set `STINGSTREAM_ACCOUNTS_ORIGIN` to the service's own public URL **after** generating the domain,
+and then leave it alone: every passkey registered is bound to that hostname for its whole life.
+
 ### SQLite, not Postgres
 
 The plan said Postgres and this is SQLite. The mesh already stores state this way, so the patterns

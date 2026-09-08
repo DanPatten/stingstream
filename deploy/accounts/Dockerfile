@@ -68,8 +68,17 @@ RUN mkdir -p mesh/crates/stingstream/src \
  && rm -rf mesh/crates/*/src
 
 COPY mesh/crates ./mesh/crates
-# cargo caches by mtime; the dummy build left stale fingerprints for our own crates.
-RUN touch mesh/crates/stingstream-accounts/src/main.rs mesh/crates/stingstream-accounts/src/lib.rs \
+# cargo caches by mtime, and the dummy build above left a fingerprint for **every** workspace
+# member it compiled -- including the ones it compiled from an empty `lib.rs`. `COPY` preserves the
+# context's mtimes, which in a fresh checkout are older than the dummy build, so cargo reuses the
+# empty artifact and the real code then cannot find anything in it.
+#
+# So: touch every source file, not a hand-written list. The list *was* the bug. It named only the
+# crates this image builds directly, so `stingstream-token` -- a path dependency of them, added in
+# Part 4 -- was stubbed here and never touched again, and the build failed with "cannot find
+# function `verify` in crate `stingstream_token`", which reads as broken code rather than a stale
+# fingerprint. A list that must be updated whenever a crate joins the workspace will rot again.
+RUN find mesh/crates -name '*.rs' -exec touch {} + \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-accounts --features passkeys \
  && strip mesh/target/release/stingstream-accounts
 
