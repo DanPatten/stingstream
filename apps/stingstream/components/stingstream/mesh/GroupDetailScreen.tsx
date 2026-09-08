@@ -22,14 +22,15 @@ import { confirmDestructive } from "../shared/confirm";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
-import {
-  type CoordinatorChoice,
-  CoordinatorPicker,
-  coordinatorChoiceReady,
-  coordinatorChoiceValue,
-} from "./CoordinatorPicker";
 import { GroupMembers } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
+import {
+  emptySharingAddress,
+  SharingAddress,
+  type SharingAddressValue,
+  sharingAddressCoordinator,
+  sharingAddressReady,
+} from "./SharingAddress";
 
 /**
  * One group: who is in it, how they are reached, its rendezvous server, and the way out.
@@ -277,12 +278,12 @@ function ChangeCoordinator({
   current: string | null;
 }) {
   const { t } = useTranslation();
-  const [choice, setChoice] = useState<CoordinatorChoice>(
-    current ? { kind: "custom", url: current } : { kind: "default" },
+  const [choice, setChoice] = useState<SharingAddressValue>(
+    emptySharingAddress(current ?? ""),
   );
   const setCoordinator = useSetGroupCoordinator();
 
-  const next = coordinatorChoiceValue(choice);
+  const next = sharingAddressCoordinator(choice);
   const unchanged = (next ?? null) === (current ?? null);
 
   const save = async () => {
@@ -300,7 +301,7 @@ function ChangeCoordinator({
 
   return (
     <View>
-      <CoordinatorPicker
+      <SharingAddress
         value={choice}
         onChange={setChoice}
         disabled={setCoordinator.isPending}
@@ -312,9 +313,7 @@ function ChangeCoordinator({
       <Button
         variant='primary'
         disabled={
-          unchanged ||
-          !coordinatorChoiceReady(choice) ||
-          setCoordinator.isPending
+          unchanged || !sharingAddressReady(choice) || setCoordinator.isPending
         }
         loading={setCoordinator.isPending}
         onPress={() => void save()}
@@ -332,12 +331,10 @@ function ReadOnlyCoordinator({ coordinator }: { coordinator: string | null }) {
   return (
     <View>
       <Text variant='body' weight='semibold'>
-        {t("sharing.rendezvous_title")}
+        {t("sharing.address_label")}
       </Text>
       <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
-        {coordinator
-          ? hostOf(coordinator)
-          : t("sharing.rendezvous_default_subtitle")}
+        {coordinator ? hostOf(coordinator) : t("sharing.address_none")}
       </Text>
     </View>
   );

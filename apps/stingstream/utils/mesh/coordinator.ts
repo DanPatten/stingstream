@@ -48,9 +48,28 @@ export type CoordinatorCheck =
   | { state: "idle" }
   | { state: "checking" }
   | { state: "ok"; url: string; health: CoordinatorHealth }
+  /**
+   * The address is a StingStream **server**, not a shared coordinator — somebody's own domain
+   * pointing at their own node. A group set up this way needs no coordinator at all: members
+   * reach that address directly, and it is what share links are built from.
+   */
+  | { state: "own-server"; url: string; name?: string }
   | { state: "invalid"; message: string }
   | { state: "unreachable"; url: string; message: string }
   | { state: "not-a-coordinator"; url: string; message: string };
+
+/**
+ * What a node's own `/healthz` looks like, as far as telling it apart from a coordinator goes.
+ *
+ * A node answers with the children it supervises; a coordinator answers with `mode`. Neither
+ * field appears on the other, so one request classifies the address without asking the user which
+ * kind of thing they typed.
+ */
+interface NodeHealth {
+  ok?: boolean;
+  children?: { name?: string }[];
+  node_name?: string;
+}
 
 /**
  * Turn what the user typed into the URL the group will carry.
@@ -126,17 +145,22 @@ export const checkCoordinator = async (
         message: `${url} answered ${res.status} on /healthz.`,
       };
     }
-    const health = (await res.json()) as CoordinatorHealth;
+    const health = (await res.json()) as CoordinatorHealth & NodeHealth;
     // `mode` is the field only a StingStream coordinator has. Checking it is what stops a
     // Kubernetes ingress with its own /healthz from being accepted as one.
-    if (!health || typeof health.mode !== "string" || !health.ok) {
-      return {
-        state: "not-a-coordinator",
-        url,
-        message: `${url} answered, but not like a StingStream coordinator.`,
-      };
+    if (health && typeof health.mode === "string" && health.ok) {
+      return { state: "ok", url, health };
     }
-    return { state: "ok", url, health };
+    // A node instead: somebody's own domain in front of their own server. Equally valid here —
+    // it means the group needs no coordinator, because members reach that address directly.
+    if (health && Array.isArray(health.children)) {
+      return { state: "own-server", url, name: health.node_name };
+    }
+    return {
+      state: "not-a-coordinator",
+      url,
+      message: `${url} answered, but it is not StingStream.`,
+    };
   } catch (error) {
     const aborted = (error as Error)?.name === "AbortError";
     return {

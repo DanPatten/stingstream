@@ -8,14 +8,15 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { useCreateMeshGroup } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
-import {
-  type CoordinatorChoice,
-  CoordinatorPicker,
-  coordinatorChoiceReady,
-  coordinatorChoiceValue,
-} from "./CoordinatorPicker";
 import { FormCard } from "./FormCard";
 import { InviteCard } from "./InviteCard";
+import {
+  emptySharingAddress,
+  SharingAddress,
+  type SharingAddressValue,
+  sharingAddressCoordinator,
+  sharingAddressReady,
+} from "./SharingAddress";
 
 /**
  * Create a group on the server, then show the invite so it can be handed on straight away.
@@ -26,9 +27,9 @@ import { InviteCard } from "./InviteCard";
 export function CreateGroupScreen() {
   const { t } = useTranslation();
   const [name, setName] = useState("");
-  const [coordinator, setCoordinator] = useState<CoordinatorChoice>({
-    kind: "default",
-  });
+  const [address, setAddress] = useState<SharingAddressValue>(
+    emptySharingAddress(),
+  );
   const [created, setCreated] = useState<{ id: string; name: string } | null>(
     null,
   );
@@ -36,14 +37,14 @@ export function CreateGroupScreen() {
   const create = useCreateMeshGroup();
   const mesh = useMesh();
 
-  const ready = name.trim().length > 0 && coordinatorChoiceReady(coordinator);
+  const ready = name.trim().length > 0 && sharingAddressReady(address);
 
   const onCreate = async () => {
     setError(null);
     try {
       const group = await create.mutateAsync({
         name: name.trim(),
-        coordinator: coordinatorChoiceValue(coordinator),
+        coordinator: sharingAddressCoordinator(address),
       });
       setCreated({ id: group.group, name: group.name });
       // The phone joins the new group as a light member straight away, so the very first thing
@@ -101,9 +102,17 @@ export function CreateGroupScreen() {
 
           <View style={{ height: 16 }} />
 
-          <CoordinatorPicker
-            value={coordinator}
-            onChange={setCoordinator}
+          <Text
+            variant='caption'
+            tone='secondary'
+            weight='medium'
+            style={{ marginBottom: 6 }}
+          >
+            {t("sharing.address_label")}
+          </Text>
+          <SharingAddress
+            value={address}
+            onChange={setAddress}
             disabled={create.isPending}
           />
 

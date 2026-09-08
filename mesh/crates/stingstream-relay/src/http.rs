@@ -22,7 +22,7 @@
 //! default, so the number is visible to whoever changes one of these handlers next.
 
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -470,8 +470,22 @@ fn short_commit() -> &'static str {
     }
 }
 
-async fn healthz(State(state): State<AppState>) -> Json<Health> {
-    Json(Health {
+/// `GET /healthz`, readable from a browser on any origin.
+///
+/// The app's sharing screen asks this address what it is before it will store it on a group — that
+/// is the check that tells a coordinator from somebody's own server, and that stops a typo being
+/// discovered weeks later as joins that quietly fail. That request comes from a **page served by
+/// somebody's node**, so it is cross-origin by construction, and without this header the browser
+/// discards the answer before the app ever sees it: the field cannot verify even the address it
+/// ships with.
+///
+/// Allowing any origin costs nothing here. Every field in this response is already public and
+/// unauthenticated by design — a stranger has to be able to read it to configure themselves
+/// against this coordinator at all — and there is no cookie, no session and nothing per-caller to
+/// leak. The header is scoped to this one route rather than applied to the router, so the
+/// rendezvous, register, probe and ACME endpoints keep refusing browsers as they should.
+async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
+    let body = Json(Health {
         ok: true,
         mode: state.cfg.mode.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -483,7 +497,8 @@ async fn healthz(State(state): State<AppState>) -> Json<Health> {
         sni_router: state.cfg.sni.enabled,
         dns_zone: state.zone.as_ref().map(|z| z.origin.clone()),
         dns_provider: state.dns.name(),
-    })
+    });
+    ([(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")], body)
 }
 
 /// The check every rendezvous route makes first.
@@ -1171,6 +1186,25 @@ mod tests {
             ..Default::default()
         };
         AppState::new(cfg, None).expect("a default config builds a state")
+    }
+
+    /// The sharing field reads this from a page served by somebody else's node, so the answer is
+    /// cross-origin every single time. Without the header the browser throws it away before the app
+    /// sees it, and the field cannot even verify the address it ships with — which is exactly the
+    /// bug this replaced. Pinned here because it is invisible from the server's own side: every
+    /// curl and every test that reads the body passes whether the header is there or not.
+    #[tokio::test]
+    async fn healthz_is_readable_by_a_browser_on_another_origin() {
+        let response = healthz(State(state_with(false))).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap()),
+            Some("*"),
+            "the app's coordinator probe runs in a browser and needs this to see the answer"
+        );
     }
 
     fn forwarded(value: &str) -> HeaderMap {
