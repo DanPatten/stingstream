@@ -220,10 +220,19 @@ need completely different fixes.
 
 ### On Railway
 
-The image is `ghcr.io/danpatten/stingstream-accounts:latest`, published by `.github/workflows/
-accounts.yml` on every master push that touches the crate or its Dockerfile. Deploy it the same way
-the coordinator is deployed — from the image, with image auto-updates on — and not from a GitHub
-App connection, which is not configured and is not needed.
+**Live since 2026-09-08** at `https://stingstream-accounts-production.up.railway.app`, in the
+`stingstream` project's `production` environment, alongside the coordinator. That address is the
+shipped `DEFAULT_ACCOUNT_SERVICE`, so a stock node needs no configuration to find it.
+
+The image is `ghcr.io/danpatten/stingstream-accounts:latest`, published by
+`.github/workflows/accounts.yml` on every master push that touches the crate or its Dockerfile.
+Deployed from the image, not from a GitHub App connection — which is not configured and is not
+needed.
+
+**Image auto-updates are OFF on this service** (the coordinator's are on). The Railway CLI cannot
+set that; it is a dashboard toggle on the service's Settings → Deploy → "Update to the latest tag".
+Until somebody turns it on, a new image is picked up with `railway redeploy --service
+stingstream-accounts`, and `/healthz`'s `commit` is how you check which build is actually live.
 
 **A volume at `/data` is not optional.** Railway's container filesystem does not survive a redeploy,
 so without one every account and the signing key vanish on the next deploy: everybody is signed out
