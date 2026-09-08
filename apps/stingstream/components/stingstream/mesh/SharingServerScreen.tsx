@@ -12,6 +12,7 @@ import {
   useSetMeshSharingSettings,
 } from "@/lib/stingstream/mesh";
 import { COORDINATOR_GUIDE_URL } from "@/utils/mesh/coordinator";
+import { isUntouched } from "@/utils/mesh/sharingAddress";
 import { FormCard } from "./FormCard";
 import {
   DEFAULT_SHARING_SERVER,
@@ -59,20 +60,9 @@ export function SharingServerScreen() {
     setLoaded(true);
   }, [loaded, settings.data]);
 
-  /**
-   * A value already stored is left alone, whatever the check says about it now.
-   *
-   * The check runs from *this browser*, and this browser is not necessarily where the address is
-   * reachable from — an admin on mobile data editing a domain that only resolves at home would
-   * otherwise find the field marked wrong, `Save` disabled by a value they had not touched, and the
-   * other field unsaveable because of it. Worse, saving would then write `null` over an address
-   * that was fine. So an untouched value is passed straight back through, and only something
-   * actually typed has to satisfy the check.
-   */
-  const untouched = (
-    value: SharingAddressValue,
-    stored: string | null | undefined,
-  ) => value.input.trim() === (stored ?? "").trim();
+  // `isUntouched` is why a value already stored survives a check that cannot run from here — see
+  // its own comment. Only something actually typed has to satisfy the probe.
+  const untouched = isUntouched;
 
   const serverStored = settings.data?.coordinatorDefault;
   const ownStored = settings.data?.publicAddress;

@@ -11,6 +11,12 @@ import {
   describeCoordinator,
   normalizeCoordinatorUrl,
 } from "@/utils/mesh/coordinator";
+import {
+  isBlank,
+  isShippedDefault,
+  type SharingAddressAccept,
+  type SharingAddressValue,
+} from "@/utils/mesh/sharingAddress";
 
 /**
  * One address field, checked live against whatever answers at it.
@@ -31,72 +37,18 @@ import {
  * what it is before anything stores it.
  */
 
-/** What a field will take. */
-export type SharingAddressAccept = "coordinator" | "own-server";
-
-/** Prefilled into the sharing-server field, so the common case is "leave it alone". */
-export const DEFAULT_SHARING_SERVER =
-  "https://stingstream-coordinator-production.up.railway.app";
-
-export type SharingAddressValue = {
-  /** Exactly what is in the field, so the parent can round-trip it. */
-  input: string;
-  /** What the probe made of it; idle until it has answered. */
-  check: CoordinatorCheck;
-};
-
-export const sharingAddress = (input = ""): SharingAddressValue => ({
-  input,
-  check: { state: "idle" },
-});
-
-const isBlank = (value: SharingAddressValue) => value.input.trim().length === 0;
-
-/** The address we ship, untouched. Not a guess a typo could be hiding in. */
-const isShippedDefault = (value: SharingAddressValue) =>
-  value.input.trim() === DEFAULT_SHARING_SERVER;
-
-/**
- * Whether this field's value can be saved.
- *
- * Blank is always fine — clearing an address is an ordinary thing to do, and for the sharing server
- * it is how somebody says they want no server at all.
- *
- * The **shipped address counts as ready even when its check has not succeeded.** It is ours rather
- * than something typed, so there is no typo for the check to catch, and a coordinator having a
- * moment — or a browser that discarded the answer for want of a CORS header, which every
- * coordinator built before this session's fix does — must not be able to stop somebody saving a
- * setting. An address that was *typed* and answered wrong still blocks, which is the case the check
- * exists for.
- */
-export const sharingAddressReady = (
-  value: SharingAddressValue,
-  accept: SharingAddressAccept,
-): boolean => {
-  if (isBlank(value)) return true;
-  if (accept === "coordinator") {
-    return value.check.state === "ok" || isShippedDefault(value);
-  }
-  return value.check.state === "own-server";
-};
-
-/** The URL to store, or `null` when there is nothing usable in the field. */
-export const sharingAddressUrl = (
-  value: SharingAddressValue,
-  accept: SharingAddressAccept,
-): string | null => {
-  if (isBlank(value)) return null;
-  if (accept === "coordinator") {
-    if (value.check.state === "ok") return value.check.url;
-    // The shipped address still counts when the check could not complete — see above. Without
-    // this the field would show an address while the setting was quietly saved empty.
-    if (isShippedDefault(value) && value.check.state !== "own-server") {
-      return DEFAULT_SHARING_SERVER;
-    }
-    return null;
-  }
-  return value.check.state === "own-server" ? value.check.url : null;
-};
+// The rules live in `utils/mesh/sharingAddress.ts`, outside React, where `bun:test` can reach
+// them — a field that says one thing while the node stores another is the failure this rework
+// exists to remove, and no screenshot catches it. Re-exported so nothing importing this component
+// has to know where they moved.
+export {
+  DEFAULT_SHARING_SERVER,
+  type SharingAddressAccept,
+  type SharingAddressValue,
+  sharingAddress,
+  sharingAddressReady,
+  sharingAddressUrl,
+} from "@/utils/mesh/sharingAddress";
 
 /** A hostname is typed a character at a time and each check is a network round trip. */
 const CHECK_DELAY_MS = 600;

@@ -5,6 +5,7 @@ import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { space } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
+import type { GroupVisibility as Visibility } from "@/utils/mesh/visibility";
 
 /**
  * How people connect to a group: through a server, or not.
@@ -30,7 +31,13 @@ import { useTheme } from "@/hooks/useTheme";
  * choice between two things should not come with a text field attached to one of them.
  */
 
-export type GroupVisibility = "public" | "private";
+// Same split as `SharingAddress`: the rule that decides Public from Private lives in
+// `utils/mesh/visibility.ts` where a test can reach it, and comes back out through here.
+export {
+  coordinatorFor,
+  type GroupVisibility,
+  visibilityOf,
+} from "@/utils/mesh/visibility";
 
 export function PublicPrivateChoice({
   value,
@@ -39,8 +46,8 @@ export function PublicPrivateChoice({
   publicAvailable,
   disabled,
 }: {
-  value: GroupVisibility;
-  onChange: (next: GroupVisibility) => void;
+  value: Visibility;
+  onChange: (next: Visibility) => void;
   publicAvailable: boolean;
   disabled?: boolean;
 }) {
@@ -94,20 +101,3 @@ const Selected = ({ on }: { on: boolean }) => {
     </View>
   );
 };
-
-/**
- * A group is Public exactly when it carries a coordinator.
- *
- * One function so the create screen, the group screen and any test agree on it. There is no third
- * state and no flag: the coordinator's presence *is* the visibility, which is what keeps a group
- * read back from the node from disagreeing with the radio that made it.
- */
-export const visibilityOf = (
-  coordinator: string | null | undefined,
-): GroupVisibility => (coordinator?.trim() ? "public" : "private");
-
-/** The `coordinator` to send when creating or changing a group. */
-export const coordinatorFor = (
-  visibility: GroupVisibility,
-  sharingServer: string | null,
-): string | null => (visibility === "public" ? sharingServer : null);

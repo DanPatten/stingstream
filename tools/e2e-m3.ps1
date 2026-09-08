@@ -937,6 +937,77 @@ Invoke-Step "A changes the group's coordinator and B follows" {
 }
 
 # ============================================================================================
+Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
+    <#
+        The acceptance for the Public/Private rework.
+
+        Two claims, and both are the sort that fail silently. First, that a node with no address of
+        its own hands out a bare code -- if `url` came back non-null here, every invite would carry
+        a host somebody had never configured. Second, that setting an address makes the very next
+        invite a link built from it, with the code in the *fragment*, which is what keeps the group
+        secret out of every access log between the two people.
+
+        The address is never dialled. `sharing.public_address` is a string the node validates and
+        stores; nothing connects to it until somebody opens the link, which is a browser's job. So
+        a domain that does not resolve is exactly the right thing to test with -- as with the
+        coordinator step above, a step that needed a live host would be testing the host.
+    #>
+    $settingsPath = '/stingstream/api/v1/mesh/settings/sharing'
+
+    # 1. Nothing configured: a code, and no link.
+    $before = Invoke-Node $NodeA $settingsPath
+    if (Get-Member-Value $before 'PublicAddress') {
+        throw "node A already has a public address: $(Get-Member-Value $before 'PublicAddress')"
+    }
+    $plain = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
+    if (-not $plain.code) { throw 'A minted no invite code.' }
+    if (Get-Member-Value $plain 'Url') {
+        throw "with no address set the invite must be a bare code; it carried $(Get-Member-Value $plain 'Url')"
+    }
+    Write-Host '      no address set: a bare code, as before'
+
+    # 2. Set one, and the next invite is a link built from it.
+    $domain = 'https://e2e-node.example'
+    $saved = Invoke-Node $NodeA $settingsPath -Method PUT -Body @{ publicAddress = $domain } -TimeoutSec 60
+    if ((Get-Member-Value $saved 'PublicAddress') -ne $domain) {
+        throw "A did not store the address; it has '$(Get-Member-Value $saved 'PublicAddress')'"
+    }
+
+    $linked = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
+    $url = Get-Member-Value $linked 'Url'
+    if (-not $url) { throw 'an address is set, so the invite should have carried a link' }
+    if ($url -ne "$domain/join#$($linked.code)") {
+        throw "the link is not the code wrapped in the address: $url"
+    }
+    # The half that matters: everything before the '#' is what a server would see, and the code is
+    # not in it.
+    $beforeHash = $url.Split('#')[0]
+    if ($beforeHash.Contains($linked.code)) {
+        throw 'the code leaked out of the fragment and into the path'
+    }
+    Write-Host "      address set: $beforeHash#<code in the fragment>"
+
+    # 3. Clearing it goes back to a code, so this is a setting and not a one-way door.
+    $clearedAddr = Invoke-Node $NodeA $settingsPath -Method PUT -Body @{ publicAddress = $null } -TimeoutSec 60
+    if (Get-Member-Value $clearedAddr 'PublicAddress') { throw 'A did not clear the address' }
+    $again = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
+    if (Get-Member-Value $again 'Url') { throw 'the address was cleared, so the link should be gone' }
+    Write-Host '      cleared: back to a bare code'
+
+    # 4. An address a link cannot be built from is refused rather than stored. A raw IP is the one
+    #    people reach for first and the one that fails latest: it rotates, no certificate authority
+    #    will issue for it, and behind CGNAT it does not exist at all.
+    $refused = $false
+    try {
+        Invoke-Node $NodeA $settingsPath -Method PUT -Body @{ publicAddress = '203.0.113.9' } -TimeoutSec 60
+    } catch {
+        $refused = $true
+    }
+    if (-not $refused) { throw 'a bare IP address was accepted as a public address' }
+    Write-Host '      a raw IP address is refused, not stored'
+}
+
+# ============================================================================================
 Invoke-Step "B's inventory appears in A's group index" {
     # Five minutes, not one. Gossip converges in about a second -- both nodes log the snapshot
     # arriving -- but the node is answering this through Jellyfin, and a Jellyfin that has just
