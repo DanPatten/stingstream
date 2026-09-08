@@ -33,19 +33,15 @@ pub mod inventory;
 pub mod node;
 pub mod peer;
 pub mod proto;
-pub mod rendezvous;
 pub mod requests;
 pub mod score;
 pub mod sharing;
-pub mod sidedoor;
-pub mod tunnel;
 pub mod util;
 pub mod watch;
 
 pub use config::MeshConfig;
 pub use group::{Group, GroupId, GroupSecret, Invite};
 pub use node::MeshNode;
-pub use sidedoor::{SideDoor, SideDoorCandidate};
 
 /// ALPN for peer-to-peer HTTP/1.1 over iroh. One request per bidirectional QUIC stream.
 /// This crate's version, as `/mesh/v1/status` reports it.

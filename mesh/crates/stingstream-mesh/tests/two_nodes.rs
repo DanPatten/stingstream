@@ -136,8 +136,7 @@ async fn two_nodes_join_gossip_and_stream_with_no_coordinator() -> Result<()> {
     let (root, a, b) = spawn_pair().await?;
 
     // --- A creates a group with no coordinator at all ---------------------------------------
-    let group = a.create_group("The Attic", None).await?;
-    assert!(group.coordinator.is_none());
+    let group = a.create_group("The Attic").await?;
 
     let code = a.invite(&group.id).await?;
     assert!(!code.is_empty());
@@ -253,7 +252,7 @@ async fn two_nodes_join_gossip_and_stream_with_no_coordinator() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()> {
     let (root, a, b) = spawn_pair().await?;
-    let group = a.create_group("edges", None).await?;
+    let group = a.create_group("edges").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     let media = root.path().join("b-media");
@@ -334,7 +333,7 @@ async fn a_whole_file_request_and_the_edges_of_the_range_grammar() -> Result<()>
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_outside_the_group_cannot_connect() -> Result<()> {
     let (_root, a, b) = spawn_pair().await?;
-    let group = a.create_group("private", None).await?;
+    let group = a.create_group("private").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     // C knows the group *id* — it is public enough to appear in an invite — but not the secret.
@@ -344,8 +343,6 @@ async fn a_node_outside_the_group_cannot_connect() -> Result<()> {
         id: group.id,
         name: "private".into(),
         secret: stingstream_mesh::group::GroupSecret::generate(),
-        coordinator: None,
-        coordinator_stamp: stingstream_mesh::group::CoordinatorStamp::unstamped(),
         created_at: "2026-09-05T00:00:00Z".into(),
     };
     c.db.upsert_group(&fake)?;
@@ -370,7 +367,7 @@ async fn a_node_outside_the_group_cannot_connect() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_delta_reaches_the_other_node() -> Result<()> {
     let (root, a, b) = spawn_pair().await?;
-    let group = a.create_group("deltas", None).await?;
+    let group = a.create_group("deltas").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     let media = root.path().join("b-media");
@@ -407,96 +404,6 @@ async fn a_delta_reaches_the_other_node() -> Result<()> {
     Ok(())
 }
 
-/// A group's coordinator can be changed after creation, and the other member follows (M4.5).
-///
-/// The acceptance for the change-coordinator work, in miniature and with no infrastructure at all:
-/// two nodes, a group created with no coordinator, and A pointing it somewhere else afterwards.
-///
-/// The URL is never dialled — [`MeshNode::set_coordinator`] adds it to the relay map and announces
-/// at its rendezvous, both of which fail quietly against an address that answers nothing, which is
-/// the point. What is under test is the *record*: that it is stamped, that it is gossiped, that B
-/// applies it, that B's own invite codes then carry it, and that the last-writer-wins rule refuses
-/// to go backwards. A test that needed a live coordinator would be testing the coordinator.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_coordinator_change_reaches_the_other_node() -> Result<()> {
-    let (_root, a, b) = spawn_pair().await?;
-    let group = a.create_group("movers", None).await?;
-    let joined = b.join(&a.invite(&group.id).await?).await?;
-    assert_eq!(joined.via, JoinRoute::Inviter, "B must have reached A");
-    assert!(
-        b.groups().await.iter().all(|g| g.coordinator.is_none()),
-        "the group starts with no coordinator, which is the zero-server default"
-    );
-
-    // A changes it. B has to hear about it over gossip alone.
-    let wanted: url::Url = "https://coord.example.test/".parse()?;
-    let after = a.set_coordinator(&group.id, Some(wanted.clone())).await?;
-    assert_eq!(after.coordinator.as_ref(), Some(&wanted));
-    assert!(
-        after.coordinator_stamp.is_stamped(),
-        "a change this node made must carry its own stamp"
-    );
-    assert_eq!(after.coordinator_stamp.by, a.node_id());
-
-    wait_for("B to adopt the new coordinator", Duration::from_secs(30), || async {
-        let g = b.groups().await.into_iter().find(|g| g.id == group.id)?;
-        (g.coordinator.as_ref() == Some(&wanted)).then_some(g)
-    })
-    .await?;
-
-    // B's own invite codes now carry the new value, which is what "regenerating invite codes to
-    // carry the new value" has to mean for a member that did not make the change.
-    let code = b.invite(&group.id).await?;
-    let decoded = stingstream_mesh::group::Invite::decode(&code)?;
-    assert_eq!(
-        decoded.coordinator.as_ref(),
-        Some(&wanted),
-        "an invite minted after the change must carry the new coordinator"
-    );
-
-    // A stale record loses. This is the rule that stops a member that was offline during the change
-    // from dragging the whole group back to the old coordinator when it returns.
-    let stale = stingstream_mesh::group::CoordinatorStamp {
-        at: after.coordinator_stamp.at.saturating_sub(1_000),
-        by: b.node_id(),
-    };
-    let applied = b.db.apply_coordinator(&group.id, None, &stale)?;
-    assert!(!applied, "an older stamp must not be applied");
-    let still = b
-        .groups()
-        .await
-        .into_iter()
-        .find(|g| g.id == group.id)
-        .expect("B is still a member");
-    assert_eq!(still.coordinator.as_ref(), Some(&wanted));
-
-    // And clearing it is a real change, not "no opinion": a group can go back to running on public
-    // infrastructure, and that has to propagate like any other value.
-    b.set_coordinator(&group.id, None).await?;
-    wait_for("A to adopt the cleared coordinator", Duration::from_secs(30), || async {
-        let g = a.groups().await.into_iter().find(|g| g.id == group.id)?;
-        g.coordinator.is_none().then_some(g)
-    })
-    .await?;
-
-    a.shutdown().await;
-    b.shutdown().await;
-    Ok(())
-}
-
-/// A node whose mainline DHT is useless still comes up, and still finds its peer (M4.5).
-///
-/// The regression, in the shape that actually happened: the DHT was registered on the endpoint
-/// *builder*, so a `Dht::new` that could not bind its UDP socket — no usable interface, a captive
-/// network, an OS that refused it — failed `bind()` and the whole node exited, taking two working
-/// discovery routes down with the optional third. A node on 8790 died that way on 2026-09-05 with
-/// "Could not bootstrap the routing table" as the last thing in its log.
-///
-/// Here both nodes have `mainline_dht = true` and a bootstrap list pointing at a documentation
-/// address that answers nothing (RFC 5737 TEST-NET-1). Everything else stays as the other tests
-/// have it — no n0 relays, no n0 DNS — so the *only* addressing either node has is the invite
-/// code. If the DHT's uselessness reached the endpoint at all, neither node would exist; if it
-/// reached discovery, the join would fail. The assertion is that a whole group works anyway.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_useless_dht_does_not_stop_a_node_or_its_group() -> Result<()> {
     let root = tempfile::tempdir()?;
@@ -514,7 +421,7 @@ async fn a_useless_dht_does_not_stop_a_node_or_its_group() -> Result<()> {
     let b = MeshNode::spawn(with_dead_dht(root.path().join("b"), "loft")).await?;
 
     // And a group works end to end on the routes that are left.
-    let group = a.create_group("dht-is-down", None).await?;
+    let group = a.create_group("dht-is-down").await?;
     let outcome = b.join(&a.invite(&group.id).await?).await?;
     assert_eq!(
         outcome.via,
@@ -570,7 +477,7 @@ async fn a_holder_that_lost_its_file_is_failed_past_and_the_index_is_corrected()
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
     let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
 
-    let group = a.create_group("stale", None).await?;
+    let group = a.create_group("stale").await?;
     b.join(&a.invite(&group.id).await?).await?;
     c.join(&a.invite(&group.id).await?).await?;
 
@@ -671,7 +578,7 @@ async fn a_pointer_to_a_node_that_never_held_it_falls_back_to_a_different_encode
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
     let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
 
-    let group = a.create_group("widening", None).await?;
+    let group = a.create_group("widening").await?;
     b.join(&a.invite(&group.id).await?).await?;
     c.join(&a.invite(&group.id).await?).await?;
 
@@ -738,7 +645,7 @@ async fn two_nodes_watch_the_same_film_in_sync() -> Result<()> {
     const BUDGET_MS: i64 = 250;
 
     let (_root, a, b) = spawn_pair().await?;
-    let group = a.create_group("film club", None).await?;
+    let group = a.create_group("film club").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     let item_key = "movie:tmdb:16205";
@@ -879,7 +786,7 @@ async fn only_the_leader_may_command_a_watch_session() -> Result<()> {
     use stingstream_mesh::watch::{CommandKind, WatchState};
 
     let (_root, a, b) = spawn_pair().await?;
-    let group = a.create_group("film club", None).await?;
+    let group = a.create_group("film club").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     let session = a

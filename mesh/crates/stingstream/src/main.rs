@@ -528,34 +528,33 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
         })
     });
 
-    // The side door, once everything it needs is up: the mesh (for the group's coordinator, iroh's
-    // observed addresses and the heartbeat it publishes on) and the gateway port it is about to
-    // advertise. It never fails the node: every problem is a state on /healthz and a retry.
-    let side_door = if config.sidedoor.enabled {
-        let ctx = sidedoor::SideDoorContext {
-            data_dir: data_dir.clone(),
-            cfg: config.sidedoor.clone(),
-            store: certs.clone(),
-            handle: node.side_door.clone(),
-            gateway_port: config.gateway.port,
-            extra_https_port: https_server.as_ref().map(|_| config.gateway.https_port),
-            mesh: mesh.as_ref().map(|m| m.node.clone()),
-        };
-        let rx = shutdown_rx.clone();
-        Some(tokio::spawn(async move { sidedoor::run(ctx, rx).await }))
+    // Whether a browser can reach this node over HTTPS. A report, not a loop: there is no
+    // coordinator to register with and no ACME to run any more (Part 5), so the whole answer is
+    // "is TLS on, and is there a certificate in `tls/`?" — which is decided here, once, and
+    // refreshed by the certificate store when a file appears.
+    if config.gateway.tls {
+        let info = certs.info();
+        if info.is_none() {
+            tracing::info!(
+                "HTTPS is on but {}/tls holds no certificate, so this node is serving plain HTTP.                  Put a certificate there, or front the node with a tunnel — see docs/SIDEDOOR.md",
+                data_dir.display()
+            );
+        }
+        node.side_door.set(sidedoor::SideDoorStatus::from_certificate(
+            mesh_node_id.clone().unwrap_or_default(),
+            config.gateway.https_port,
+            info,
+            None,
+        ));
     } else {
-        tracing::info!("the HTTPS side door is off ([sidedoor] enabled = false)");
-        None
-    };
+        tracing::info!("HTTPS is off ([gateway] tls = false)");
+    }
 
     shutdown_signal.await;
     tracing::info!("shutting down");
     let _ = shutdown_tx.send(true);
 
     if let Some(t) = supervisor_task {
-        let _ = t.await;
-    }
-    if let Some(t) = side_door {
         let _ = t.await;
     }
     let _ = server.await;

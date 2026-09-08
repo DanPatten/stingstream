@@ -170,8 +170,7 @@ fn a_light_node_joins_streams_from_a_holder_and_serves_nothing_itself() -> Resul
 
     // --- a full node holding one file ---------------------------------------------------------
     let full: Arc<MeshNode> = rt.block_on(MeshNode::spawn(full_config(&root.path().join("full"))))?;
-    let group = rt.block_on(full.create_group("The Attic", None))?;
-    assert!(group.coordinator.is_none(), "zero-server by default");
+    let group = rt.block_on(full.create_group("The Attic"))?;
 
     let media = root.path().join("media");
     std::fs::create_dir_all(&media)?;

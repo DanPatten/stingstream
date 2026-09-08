@@ -88,8 +88,6 @@ pub struct GroupInfo {
     /// 64-character hex, the same id the `/stream` URL carries.
     pub id: String,
     pub name: String,
-    /// The group's coordinator, if it has one. `None` is the zero-server default.
-    pub coordinator: Option<String>,
     pub created_at: String,
     /// Members known to this node, including itself.
     pub members: u32,
@@ -118,7 +116,6 @@ pub struct PeerInfo {
 pub struct JoinResult {
     pub group: String,
     pub name: String,
-    pub coordinator: Option<String>,
     /// `inviter`, `rendezvous` or `none`. `none` still means the group was joined — it exists
     /// locally and syncs when a member appears — but nobody answered, which is usually a mistake
     /// worth telling the user about.
@@ -349,11 +346,9 @@ impl MeshHandle {
             anyhow::Ok(JoinResult {
                 group: outcome.group.id.to_string(),
                 name: outcome.group.name.clone(),
-                coordinator: outcome.group.coordinator.as_ref().map(|u| u.to_string()),
                 via: match outcome.via {
                     stingstream_mesh::node::JoinRoute::None => "none",
                     stingstream_mesh::node::JoinRoute::Inviter => "inviter",
-                    stingstream_mesh::node::JoinRoute::Rendezvous => "rendezvous",
                 }
                 .to_string(),
                 contacted: outcome.contacted,
@@ -389,7 +384,6 @@ impl MeshHandle {
                 out.push(GroupInfo {
                     id: g.id.to_string(),
                     name: g.name,
-                    coordinator: g.coordinator.map(|u| u.to_string()),
                     created_at: g.created_at,
                     members: peers.len() as u32,
                     online: peers.iter().filter(|p| p.online && p.node != me).count() as u32,

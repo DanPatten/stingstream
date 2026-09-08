@@ -37,10 +37,6 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
-        .route(
-            "/mesh/v1/groups/{group}/coordinator",
-            put(set_coordinator),
-        )
         .route("/mesh/v1/groups/{group}", axum::routing::delete(leave_group))
         .route("/mesh/v1/groups/{group}/members", get(list_members))
         .route(
@@ -53,7 +49,6 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             put(put_inventory).patch(patch_inventory),
         )
         .route("/mesh/v1/capacity", get(get_capacity).put(put_capacity))
-        .route("/mesh/v1/sidedoor", get(get_side_door).put(put_side_door))
         .route("/mesh/v1/fulfilment", get(get_fulfilment).put(put_fulfilment))
         .route("/mesh/v1/index", get(index))
         .route("/mesh/v1/peers", get(peers))
@@ -172,10 +167,6 @@ struct StatusBody {
     available_streams: usize,
     relay_urls: Vec<String>,
     direct_addrs: Vec<String>,
-    /// Where a browser can reach this node over HTTPS, when the side door is up. Absent on a node
-    /// with no coordinator or no certificate. See [`crate::sidedoor`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    side_door: Option<crate::sidedoor::SideDoor>,
     /// What the mainline-DHT address lookup is doing.
     ///
     /// Always present, because "off" and "unavailable" are different answers and a support
@@ -203,7 +194,6 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
         available_streams: node.available_streams(),
         relay_urls: addr.relay_urls().map(|u| u.to_string()).collect(),
         direct_addrs: addr.ip_addrs().map(|a| a.to_string()).collect(),
-        side_door: node.side_door(),
         dht: node.dht_state(),
         protocol: crate::proto::status(),
     })
@@ -215,7 +205,6 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
 struct GroupBody {
     group: String,
     name: String,
-    coordinator: Option<String>,
     created_at: String,
 }
 
@@ -227,7 +216,6 @@ async fn list_groups(State(node): State<Arc<MeshNode>>) -> Json<Vec<GroupBody>> 
             .map(|g| GroupBody {
                 group: g.id.to_string(),
                 name: g.name,
-                coordinator: g.coordinator.map(|u| u.to_string()),
                 created_at: g.created_at,
             })
             .collect(),
@@ -238,26 +226,16 @@ async fn list_groups(State(node): State<Arc<MeshNode>>) -> Json<Vec<GroupBody>> 
 struct CreateGroup {
     #[serde(default)]
     name: String,
-    #[serde(default)]
-    coordinator: Option<String>,
 }
 
 async fn create_group(
     State(node): State<Arc<MeshNode>>,
     Json(body): Json<CreateGroup>,
 ) -> ApiResult<Json<GroupBody>> {
-    let coordinator = match body.coordinator.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(u) => Some(
-            u.parse::<url::Url>()
-                .map_err(|e| ApiError::bad_request(format!("coordinator is not a url: {e}")))?,
-        ),
-    };
-    let g = node.create_group(&body.name, coordinator).await?;
+    let g = node.create_group(&body.name).await?;
     Ok(Json(GroupBody {
         group: g.id.to_string(),
         name: g.name,
-        coordinator: g.coordinator.map(|u| u.to_string()),
         created_at: g.created_at,
     }))
 }
@@ -271,7 +249,6 @@ struct JoinBody {
 struct JoinResponse {
     group: String,
     name: String,
-    coordinator: Option<String>,
     via: crate::node::JoinRoute,
     contacted: Vec<String>,
 }
@@ -284,7 +261,6 @@ async fn join_group(
     Ok(Json(JoinResponse {
         group: outcome.group.id.to_string(),
         name: outcome.group.name.clone(),
-        coordinator: outcome.group.coordinator.as_ref().map(|u| u.to_string()),
         via: outcome.via,
         contacted: outcome.contacted,
     }))
@@ -352,45 +328,7 @@ async fn put_sharing(
     Ok(Json(stored.into()))
 }
 
-#[derive(Deserialize)]
-struct SetCoordinator {
-    /// The new coordinator URL. Null, absent or empty means "go back to public infrastructure".
-    #[serde(default)]
-    coordinator: Option<String>,
-}
 
-/// `PUT /mesh/v1/groups/{group}/coordinator` — point a group at a different coordinator (M4.5).
-///
-/// A group's coordinator used to be fixed at creation, which meant a group that outgrew the shared
-/// fallback, or whose owner's VPS moved, had to be rebuilt from scratch and re-joined by every
-/// member. This changes it in place: the node stamps the change, re-seeds its own relay map,
-/// announces at the new coordinator's rendezvous and gossips a signed record that every other
-/// member applies under the same last-writer-wins rule. Invite codes minted afterwards carry the
-/// new value, because [`MeshNode::invite`] reads the group fresh.
-///
-/// Idempotent in the useful sense: setting the value it already has still bumps the stamp and
-/// re-announces, which is a reasonable way to repair a member that somehow missed the change.
-async fn set_coordinator(
-    State(node): State<Arc<MeshNode>>,
-    Path(group): Path<String>,
-    Json(body): Json<SetCoordinator>,
-) -> ApiResult<Json<GroupBody>> {
-    let id = parse_group(&group)?;
-    let coordinator = match body.coordinator.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(u) => Some(
-            u.parse::<url::Url>()
-                .map_err(|e| ApiError::bad_request(format!("coordinator is not a url: {e}")))?,
-        ),
-    };
-    let g = node.set_coordinator(&id, coordinator).await?;
-    Ok(Json(GroupBody {
-        group: g.id.to_string(),
-        name: g.name,
-        coordinator: g.coordinator.map(|u| u.to_string()),
-        created_at: g.created_at,
-    }))
-}
 
 /// `GET /mesh/v1/groups/{group}/members` — the group's membership, removed members included.
 async fn list_members(
@@ -544,23 +482,7 @@ async fn get_capacity(State(node): State<Arc<MeshNode>>) -> Json<crate::inventor
     Json(node.capacity())
 }
 
-/// `PUT /mesh/v1/sidedoor` — publish this node's side-door candidates into the group.
-///
-/// The supervisor calls [`MeshNode::set_side_door`] directly when the mesh runs in its process,
-/// which is the default. This route is what the same supervisor uses when it does not
-/// (`[mesh] embedded = false`), and what a test or a script uses to inspect or clear the record.
-/// An empty body clears it.
-async fn put_side_door(
-    State(node): State<Arc<MeshNode>>,
-    body: Option<Json<crate::sidedoor::SideDoor>>,
-) -> ApiResult<Json<serde_json::Value>> {
-    node.set_side_door(body.map(|Json(sd)| sd))?;
-    Ok(Json(serde_json::json!({ "side_door": node.side_door() })))
-}
 
-async fn get_side_door(State(node): State<Arc<MeshNode>>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "side_door": node.side_door() }))
-}
 
 #[derive(serde::Serialize, Deserialize)]
 struct Fulfilment {

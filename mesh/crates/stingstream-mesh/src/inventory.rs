@@ -279,11 +279,6 @@ pub struct Heartbeat {
     /// folder, and room. See [`Heartbeat::can_fulfil_movies`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub can_fulfil_tv: Option<bool>,
-    /// Where a *browser* can reach this node over HTTPS — the side door's candidate hostnames and
-    /// the coordinator's last reachability verdict. `None` on a node with no coordinator or no
-    /// certificate, which is the zero-server default. See [`crate::sidedoor`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub side_door: Option<crate::sidedoor::SideDoor>,
 }
 
 /// One node's view of one item, as it appears in the merged index.

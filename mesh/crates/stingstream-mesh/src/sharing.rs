@@ -109,27 +109,19 @@ pub fn normalize_public_address(input: &str) -> Result<Option<String>> {
     Ok(Some(format!("{}://{host}{port}", url.scheme())))
 }
 
-/// The link an invite should be handed out as, or `None` when there is no host to build one from.
+/// The link an invite should be handed out as, or `None` when this node has no address to build
+/// one from.
 ///
-/// Precedence is deliberate. **This node's own address first**, because that is the only host the
-/// person minting the link controls and the only one that keeps the code out of anybody else's
-/// hands. **The group's coordinator second**, which works but means the coordinator's `/join` page
-/// reads the code out of the fragment in the visitor's browser in order to redirect — see
-/// `docs/SECURITY.md`. **`None` last**, and the caller shows the bare code, which is exactly what
-/// happens for a member who has configured nothing.
-pub fn invite_link(
-    public_address: Option<&str>,
-    coordinator: Option<&url::Url>,
-    code: &str,
-) -> Option<String> {
+/// **This node's own address, or nothing.** It used to fall back to the group's coordinator, which
+/// worked but meant the coordinator's `/join` page read the code out of the fragment in the
+/// visitor's browser in order to redirect — a real exposure, recorded in `docs/SECURITY.md`. With
+/// the coordinator gone (Part 5) the fallback goes with it, and the honest answer for a node that
+/// has set no address is `None`: the caller shows the bare code, which is exactly what happens for
+/// somebody who has configured nothing.
+pub fn invite_link(public_address: Option<&str>, code: &str) -> Option<String> {
     let host = match public_address {
         Some(a) if !a.is_empty() => a.trim_end_matches('/').to_string(),
-        _ => {
-            let c = coordinator?;
-            let host = c.host_str()?;
-            let port = c.port().map(|p| format!(":{p}")).unwrap_or_default();
-            format!("{}://{host}{port}", c.scheme())
-        }
+        _ => return None,
     };
     // The code rides in the fragment, which a browser never puts on the wire. Without that it would
     // sit in the access log of every server and proxy the link passed through, and the code carries
@@ -194,37 +186,31 @@ mod tests {
         );
     }
 
+    /// A node with no address of its own has no link to give, and says so rather than inventing
+    /// one. There used to be a fallback to the group's coordinator; it is gone with the
+    /// coordinator, and `None` means the caller shows the bare code.
     #[test]
-    fn a_link_prefers_this_nodes_own_address_over_the_coordinator() {
-        let coord: url::Url = "https://coord.example.org/".parse().unwrap();
+    fn a_link_needs_this_nodes_own_address() {
         assert_eq!(
-            invite_link(Some("https://media.example.com"), Some(&coord), "CODE"),
+            invite_link(Some("https://media.example.com"), "CODE"),
             Some("https://media.example.com/join#CODE".into())
         );
-        assert_eq!(
-            invite_link(None, Some(&coord), "CODE"),
-            Some("https://coord.example.org/join#CODE".into())
-        );
-        assert_eq!(invite_link(None, None, "CODE"), None);
-        assert_eq!(invite_link(Some(""), None, "CODE"), None);
+        assert_eq!(invite_link(None, "CODE"), None);
+        assert_eq!(invite_link(Some(""), "CODE"), None);
     }
 
-    /// The coordinator arrives as a parsed `Url`, whose `Display` ends in a slash. Pasting that
-    /// straight into a link gives `https://host//join`, which is a different path.
+    /// A stored address may or may not carry a trailing slash; appending `/join` to one that does
+    /// gives `https://host//join`, which is a different path.
     #[test]
     fn a_link_never_doubles_the_slash() {
-        let coord: url::Url = "https://coord.example.org/".parse().unwrap();
-        let link = invite_link(None, Some(&coord), "CODE").unwrap();
+        let link = invite_link(Some("https://media.example.com/"), "CODE").unwrap();
         assert!(!link.contains("//join"), "{link}");
-        assert_eq!(
-            invite_link(Some("https://media.example.com/"), None, "CODE"),
-            Some("https://media.example.com/join#CODE".into())
-        );
+        assert_eq!(link, "https://media.example.com/join#CODE");
     }
 
     #[test]
     fn the_code_rides_in_the_fragment_so_no_server_logs_it() {
-        let link = invite_link(Some("https://media.example.com"), None, "CODE").unwrap();
+        let link = invite_link(Some("https://media.example.com"), "CODE").unwrap();
         let (path, fragment) = link.split_once('#').expect("a link carries a fragment");
         assert!(path.ends_with("/join"), "{path}");
         assert_eq!(fragment, "CODE");

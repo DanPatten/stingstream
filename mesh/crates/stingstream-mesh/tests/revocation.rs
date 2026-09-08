@@ -116,7 +116,7 @@ async fn a_removed_member_is_locked_out_and_the_rest_of_the_group_carries_on() -
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
     let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
 
-    let group = a.create_group("the-house", None).await?;
+    let group = a.create_group("the-house").await?;
     let old_code = a.invite(&group.id).await?;
     b.join(&old_code).await?;
     c.join(&old_code).await?;
@@ -284,7 +284,7 @@ async fn a_member_that_missed_a_rotation_catches_up_on_its_next_dial() -> Result
     let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
 
-    let group = a.create_group("the-house", None).await?;
+    let group = a.create_group("the-house").await?;
     b.join(&a.invite(&group.id).await?).await?;
     wait_for("A to see B as a member", Duration::from_secs(20), || async {
         a.db.peer(&group.id, &b.node_id()).ok().flatten()
@@ -338,7 +338,7 @@ async fn a_rotated_node_pushes_the_new_secret_to_one_that_is_behind() -> Result<
     let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
 
-    let group = a.create_group("the-house", None).await?;
+    let group = a.create_group("the-house").await?;
     b.join(&a.invite(&group.id).await?).await?;
     wait_for("A to see B as a member", Duration::from_secs(20), || async {
         a.db.peer(&group.id, &b.node_id()).ok().flatten()
@@ -400,7 +400,7 @@ async fn a_rotation_from_a_stranger_or_against_ourselves_is_refused() -> Result<
     let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
     let b = MeshNode::spawn(offline_config(&root.path().join("b"), "loft")).await?;
 
-    let group = a.create_group("the-house", None).await?;
+    let group = a.create_group("the-house").await?;
     b.join(&a.invite(&group.id).await?).await?;
     wait_for("B to see A as a member", Duration::from_secs(20), || async {
         b.db.peer(&group.id, &a.node_id()).ok().flatten()
@@ -534,7 +534,7 @@ async fn a_peer_speaking_an_incompatible_major_is_refused_at_the_handshake() -> 
     init_logs();
     let root = tempfile::tempdir()?;
     let a = MeshNode::spawn(offline_config(&root.path().join("a"), "attic")).await?;
-    let group = a.create_group("the-house", None).await?;
+    let group = a.create_group("the-house").await?;
 
     let dialer = MeshNode::spawn(offline_config(&root.path().join("d"), "wrong-build")).await?;
     dialer.remember(&a.addr());
@@ -683,11 +683,9 @@ async fn a_node_starts_and_serves_with_every_outbound_dependency_broken() -> Res
         started.elapsed()
     );
 
-    // A group with an explicitly unreachable coordinator: creating it, inviting into it and
-    // joining it all have to work on the invite code alone.
-    let group = a
-        .create_group("no-infrastructure", Some(unreachable.parse()?))
-        .await?;
+    // Creating a group, inviting into it and joining it all have to work on the invite code alone,
+    // with no infrastructure of any kind behind them.
+    let group = a.create_group("no-infrastructure").await?;
     b.join(&a.invite(&group.id).await?).await?;
 
     let file = root.path().join("a-media/one.mkv");
@@ -727,7 +725,7 @@ async fn a_lone_node_restarts_into_its_own_library() -> Result<()> {
     let dir = root.path().join("a");
 
     let a = MeshNode::spawn(offline_config(&dir, "attic")).await?;
-    let group = a.create_group("alone", None).await?;
+    let group = a.create_group("alone").await?;
     let file = root.path().join("media/one.mkv");
     write_file(&file, 4096)?;
     a.put_inventory(&group.id, &[record("movie:tmdb:1", &file, 4096, "hash-a")])

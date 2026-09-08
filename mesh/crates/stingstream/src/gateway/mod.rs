@@ -332,7 +332,7 @@ async fn sidedoor_hello(State(state): State<GatewayState>, req: Request) -> Resp
         "node": sd.node,
         "secure": secure,
         "client_ip": peer_addr(&req).map(|a| a.ip().to_string()),
-        "direct_https": sd.direct_https,
+        "https": sd.state,
     });
     (
         StatusCode::OK,

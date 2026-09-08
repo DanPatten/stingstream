@@ -29,7 +29,7 @@ use std::sync::{Mutex, MutexGuard};
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::group::{CoordinatorStamp, Group, GroupId, GroupSecret};
+use crate::group::{Group, GroupId, GroupSecret};
 use crate::inventory::{Heartbeat, IndexEntry, InventoryRecord, WireRecord};
 use crate::requests::{ClaimRecord, RequestRecord, RequestView};
 use crate::util::{now_rfc3339, restrict_to_owner};
@@ -324,8 +324,8 @@ impl Db {
         self.lock()
             .execute(
                 "INSERT INTO groups
-                     (group_id, name, secret, coordinator, coordinator_at, coordinator_by, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     (group_id, name, secret, created_at)
+                 VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(group_id) DO UPDATE SET
                      name = excluded.name,
                      -- Only a group that has never rotated takes its secret from here. The one
@@ -335,30 +335,11 @@ impl Db {
                      -- already moved off. After the first rotation the secret comes from
                      -- `apply_rekey` and nowhere else. (M8b)
                      secret = CASE WHEN groups.secret_epoch = 0
-                                   THEN excluded.secret ELSE groups.secret END,
-                     -- The coordinator is the one mutable field, and it has its own conflict rule
-                     -- (last writer wins, see CoordinatorStamp). An unstamped write -- a re-join
-                     -- from an invite code, which is the only caller that has one -- must not
-                     -- clobber a stamped value this node already agreed with the group about.
-                     coordinator = CASE
-                         WHEN excluded.coordinator_at > groups.coordinator_at
-                              OR (excluded.coordinator_at = groups.coordinator_at
-                                  AND excluded.coordinator_by > groups.coordinator_by)
-                              OR groups.coordinator_at = 0
-                         THEN excluded.coordinator ELSE groups.coordinator END,
-                     coordinator_at = MAX(excluded.coordinator_at, groups.coordinator_at),
-                     coordinator_by = CASE
-                         WHEN excluded.coordinator_at > groups.coordinator_at
-                              OR (excluded.coordinator_at = groups.coordinator_at
-                                  AND excluded.coordinator_by > groups.coordinator_by)
-                         THEN excluded.coordinator_by ELSE groups.coordinator_by END",
+                                   THEN excluded.secret ELSE groups.secret END",
                 params![
                     g.id.to_string(),
                     g.name,
                     g.secret.as_bytes().to_vec(),
-                    g.coordinator.as_ref().map(|u| u.to_string()),
-                    g.coordinator_stamp.at as i64,
-                    g.coordinator_stamp.by,
                     g.created_at,
                 ],
             )
@@ -370,7 +351,7 @@ impl Db {
         let conn = self.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT group_id, name, secret, coordinator, created_at, coordinator_at,                  coordinator_by FROM groups ORDER BY created_at",
+                "SELECT group_id, name, secret, created_at FROM groups ORDER BY created_at",
             )
             .context("listing groups")?;
         let rows = stmt
@@ -379,17 +360,13 @@ impl Db {
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, Vec<u8>>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, String>(4)?,
-                    r.get::<_, i64>(5)?,
-                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(3)?,
                 ))
             })
             .context("listing groups")?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, name, secret, coordinator, created_at, coordinator_at, coordinator_by) =
-                row.context("reading a group row")?;
+            let (id, name, secret, created_at) = row.context("reading a group row")?;
             let Ok(id) = id.parse::<GroupId>() else {
                 tracing::warn!(group = id, "skipping a group row with an unreadable id");
                 continue;
@@ -404,11 +381,6 @@ impl Db {
                 id,
                 name,
                 secret: GroupSecret(s),
-                coordinator: coordinator.and_then(|c| c.parse().ok()),
-                coordinator_stamp: CoordinatorStamp {
-                    at: coordinator_at.max(0) as u64,
-                    by: coordinator_by,
-                },
                 created_at,
             });
         }
@@ -419,39 +391,6 @@ impl Db {
         Ok(self.groups()?.into_iter().find(|g| &g.id == id))
     }
 
-    /// Apply a coordinator change, if it beats what this node already holds.
-    ///
-    /// The comparison and the write are **one statement**, so two gossip messages arriving at once
-    /// cannot both read the old stamp and both decide they win. A read-then-write here would be a
-    /// real race, not a theoretical one: a member rejoining the group receives every neighbour's
-    /// config record within the same few milliseconds.
-    ///
-    /// Returns `true` when the row actually changed, which is what tells the caller whether to
-    /// re-seed the relay map and re-announce — doing that on every duplicate record would have two
-    /// members ping-ponging announcements at each other forever.
-    pub fn apply_coordinator(
-        &self,
-        group: &GroupId,
-        coordinator: Option<&str>,
-        stamp: &CoordinatorStamp,
-    ) -> Result<bool> {
-        let n = self
-            .lock()
-            .execute(
-                "UPDATE groups
-                    SET coordinator = ?2, coordinator_at = ?3, coordinator_by = ?4
-                  WHERE group_id = ?1
-                    AND (?3 > coordinator_at OR (?3 = coordinator_at AND ?4 > coordinator_by))",
-                params![
-                    group.to_string(),
-                    coordinator,
-                    stamp.at as i64,
-                    stamp.by,
-                ],
-            )
-            .context("applying a coordinator change")?;
-        Ok(n > 0)
-    }
 
     /// Leave a group: drop its membership, index rows and secret.
     /// The rotation state of a group: which epoch its secret is at, and the previous secret while
@@ -692,9 +631,8 @@ impl Db {
                 "UPDATE peers SET online = 1, last_seen = ?3,
                         max_direct_streams = ?4, max_transcodes = ?5,
                         active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8,
-                        side_door = COALESCE(?9, side_door),
-                        can_fulfil_movies = COALESCE(?10, can_fulfil_movies),
-                        can_fulfil_tv = COALESCE(?11, can_fulfil_tv)
+                        can_fulfil_movies = COALESCE(?9, can_fulfil_movies),
+                        can_fulfil_tv = COALESCE(?10, can_fulfil_tv)
                  WHERE group_id = ?1 AND node_id = ?2",
                 params![
                     group.to_string(),
@@ -705,14 +643,7 @@ impl Db {
                     hb.active_direct_streams as i64,
                     hb.active_transcodes as i64,
                     hb.free_space as i64,
-                    // COALESCE, not a plain assignment: a heartbeat that carries no side door is
-                    // the normal state for a node that has one and is mid-renewal, and blanking
-                    // the candidates on every such beat would make a peer flicker in and out of
-                    // being reachable by a browser.
-                    hb.side_door
-                        .as_ref()
-                        .and_then(|sd| serde_json::to_string(sd).ok()),
-                    // COALESCE for the same reason as the side door: a beat built from Core's
+                    // COALESCE rather than a plain assignment: a beat built from Core's
                     // capacity push carries neither field, and it must not erase what the node last
                     // said it could do. A node that has just lost its last indexer sends an
                     // explicit `false` and does stop volunteering on the next beat.
@@ -764,7 +695,7 @@ impl Db {
         let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
                           active_transcodes, free_space, throughput_bps, throughput_samples,
-                          throughput_at, side_door, can_fulfil_movies, can_fulfil_tv
+                          throughput_at, can_fulfil_movies, can_fulfil_tv
                    FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
@@ -786,18 +717,11 @@ impl Db {
                     throughput_bps: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
                     throughput_samples: r.get::<_, Option<i64>>(14)?.map(|v| v as u64),
                     throughput_at: r.get(15)?,
-                    // A row written before this column existed, or by a peer with no side door,
-                    // simply has none. Unparseable JSON is treated the same way rather than
-                    // failing the whole listing: one confused peer must not blank the Group screen.
-                    side_door: r
-                        .get::<_, Option<String>>(16)?
-                        .as_deref()
-                        .and_then(|j| serde_json::from_str(j).ok()),
                     // NULL is "a peer that has not said", which the request router must read as
                     // "no" -- volunteering a node that cannot search would strand the request on
                     // it until the claim times out.
-                    can_fulfil_movies: r.get::<_, Option<i64>>(17)?.unwrap_or(0) != 0,
-                    can_fulfil_tv: r.get::<_, Option<i64>>(18)?.unwrap_or(0) != 0,
+                    can_fulfil_movies: r.get::<_, Option<i64>>(16)?.unwrap_or(0) != 0,
+                    can_fulfil_tv: r.get::<_, Option<i64>>(17)?.unwrap_or(0) != 0,
                 })
             })
             .context("listing peers")?;
@@ -1563,10 +1487,6 @@ pub struct PeerRow {
     pub throughput_samples: Option<u64>,
     /// When the average was last updated, RFC 3339.
     pub throughput_at: Option<String>,
-    /// Where a browser can reach this peer over HTTPS, as the peer last gossiped it. `None` for a
-    /// peer with no coordinator or no certificate. See [`crate::sidedoor`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub side_door: Option<crate::sidedoor::SideDoor>,
     /// Whether this peer advertises that it could grab a film — see
     /// [`crate::inventory::Heartbeat::can_fulfil_movies`]. False for a peer that has not said.
     #[serde(default)]
@@ -1586,8 +1506,6 @@ mod tests {
             id: GroupId::generate(),
             name: "attic".into(),
             secret: GroupSecret::generate(),
-            coordinator: None,
-            coordinator_stamp: CoordinatorStamp::unstamped(),
             created_at: now_rfc3339(),
         }
     }

@@ -494,18 +494,6 @@ impl Config {
              already serves HTTPS on its own port when a certificate exists",
             self.gateway.https_port
         );
-        anyhow::ensure!(
-            self.sidedoor.register_interval_secs > 0 && self.sidedoor.register_interval_secs < 900,
-            "config.toml: sidedoor.register_interval_secs must be between 1 and 899; the \
-             coordinator forgets a registration after 900 seconds"
-        );
-        anyhow::ensure!(
-            (1..=89).contains(&self.sidedoor.renew_after_days),
-            "config.toml: sidedoor.renew_after_days must be between 1 and 89 (a certificate from \
-             Let's Encrypt is valid for 90)"
-        );
-        crate::sidedoor::acme::Directory::parse(&self.sidedoor.acme_directory)
-            .map_err(|e| anyhow::anyhow!("config.toml: sidedoor.{e}"))?;
         Ok(())
     }
 
