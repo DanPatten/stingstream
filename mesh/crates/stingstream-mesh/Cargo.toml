@@ -58,10 +58,8 @@ tower = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
-stingstream-token = { path = "../stingstream-token" }
 
 [dev-dependencies]
-stingstream-accounts = { path = "../stingstream-accounts" }
 # `/stream` hands back an `axum::body::Body` since M4 wrapped it for failover, so the integration
 # test needs the type to drain it.
 axum = "0.8"

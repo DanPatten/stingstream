@@ -41,17 +41,10 @@ COPY mesh/crates/stingstream-relay/Cargo.toml ./mesh/crates/stingstream-relay/
 # manifest before it builds any of it, so a member whose Cargo.toml is absent fails the build
 # outright. `stingstream-mesh-ffi` joined the workspace in M3c and was not added here.
 COPY mesh/crates/stingstream-mesh-ffi/Cargo.toml ./mesh/crates/stingstream-mesh-ffi/
-# The account service and the token crate joined the workspace in Part 4. Nothing to do with the
-# coordinator and this image does not build them -- but cargo loads the whole workspace manifest
-# before building any of it, so a member whose Cargo.toml is absent fails outright.
-COPY mesh/crates/stingstream-accounts/Cargo.toml ./mesh/crates/stingstream-accounts/
-COPY mesh/crates/stingstream-token/Cargo.toml ./mesh/crates/stingstream-token/
 RUN mkdir -p mesh/crates/stingstream/src \
              mesh/crates/stingstream-mesh/src \
              mesh/crates/stingstream-relay/src \
              mesh/crates/stingstream-mesh-ffi/src \
-             mesh/crates/stingstream-accounts/src \
-             mesh/crates/stingstream-token/src \
  && echo 'fn main() {}' > mesh/crates/stingstream/src/main.rs \
  && echo '' > mesh/crates/stingstream/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh/src/main.rs \
@@ -60,9 +53,6 @@ RUN mkdir -p mesh/crates/stingstream/src \
  && echo '' > mesh/crates/stingstream-relay/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh-ffi/src/bindgen.rs \
  && echo '' > mesh/crates/stingstream-mesh-ffi/src/lib.rs \
- && echo 'fn main() {}' > mesh/crates/stingstream-accounts/src/main.rs \
- && echo '' > mesh/crates/stingstream-accounts/src/lib.rs \
- && echo '' > mesh/crates/stingstream-token/src/lib.rs \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-relay \
  && rm -rf mesh/crates/*/src
 
@@ -72,11 +62,11 @@ COPY mesh/crates ./mesh/crates
 # context's mtimes, which in a fresh checkout are older than the dummy build, so cargo reuses the
 # empty artifact and the real code then cannot find anything in it.
 #
-# So: touch every source file, not a hand-written list. The list *was* the bug. It named only the
-# crates this image builds directly, so `stingstream-token` -- a path dependency of them, added in
-# Part 4 -- was stubbed here and never touched again, and the build failed with "cannot find
-# function `verify` in crate `stingstream_token`", which reads as broken code rather than a stale
-# fingerprint. A list that must be updated whenever a crate joins the workspace will rot again.
+# So: touch every source file, not a hand-written list. The list *was* the bug: it named only the
+# crates this image builds directly, so a **path dependency** of one of them could be stubbed here
+# and never touched again — and the build then failed with "cannot find function `verify` in crate
+# X", which reads as broken code rather than a stale fingerprint. A list that has to be updated
+# whenever a crate joins the workspace will rot again; this cannot.
 RUN find mesh/crates -name '*.rs' -exec touch {} + \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-relay \
  && strip mesh/target/release/stingstream-relay

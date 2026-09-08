@@ -6,23 +6,12 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal";
-import { useLoginNodeAccount } from "@/hooks/useLoginNodeAccount";
 import {
   jellyfinUrlFor,
   type NodeContext,
   useNodeContext,
 } from "@/hooks/useNodeContext";
-import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
-import {
-  type AccountServer,
-  DEFAULT_ACCOUNT_SERVICE,
-  fetchMe,
-  isServiceUnreachable,
-  serverOrigin,
-  signIn as signInToAccountService,
-  signInWithPasskey,
-} from "@/lib/stingstream/accountsApi";
 import {
   createAdmin,
   getSetupState,
@@ -34,10 +23,6 @@ import {
   useJellyfin,
   userAtom,
 } from "@/providers/JellyfinProvider";
-import {
-  rememberAccountSession,
-  takeAccountSession,
-} from "@/utils/accounts/session";
 import type { CustomHeader } from "@/utils/customHeaders";
 import {
   checkJellyfinServer,
@@ -45,7 +30,6 @@ import {
   ServerTooOldError,
 } from "@/utils/jellyfin/checkServer";
 import type { SavedServer } from "@/utils/secureCredentials";
-import { AccountSignInForm } from "./AccountSignInForm";
 import { AuthCard } from "./AuthCard";
 import { ServerForm } from "./ServerForm";
 import { SetupAccountForm } from "./SetupAccountForm";
@@ -64,7 +48,6 @@ type Phase =
   | "setup"
   | "setupElsewhere"
   | "signIn"
-  | "account"
   | "serverForm";
 
 /** How many times to retry the silent auto-connect before falling back to the address form. */
@@ -95,7 +78,6 @@ export const LoginScreen: React.FC = () => {
     setServer,
     removeServer,
     login,
-    loginWithAccountToken,
     loginWithSavedCredential,
     loginWithPassword,
     initiateQuickConnect,
@@ -108,27 +90,14 @@ export const LoginScreen: React.FC = () => {
     password?: string;
   }>();
 
-  // Not served by a node? Ask who you are, not where your server is. The address form is still
-  // reachable from the account card, for somebody self-hosting an account service or opening a
-  // machine no service has heard of — but it is no longer the first question anybody meets, which
-  // is the whole of Dan's complaint about the join page.
-  // Whether this server has an account at all, and where. Read once, before anybody types: it is
-  // what decides whether a sign-in goes anywhere but here.
-  const nodeAccount = useLoginNodeAccount(nodeContext?.origin ?? null);
-
-  // Whether a passkey button should exist at all — this device and the service both have to be able
-  // to. Asked here, once, rather than inside the form, so the form only ever renders a link it
-  // knows works.
-  const accountService = nodeAccount?.claimed ? nodeAccount.service : null;
-  const passkeys = usePasskeySupport(accountService);
+  // Not served by a node? Then this is a bare app build that has never been pointed anywhere, and
+  // the address form is the only honest first card: there is nothing central left to ask who you
+  // are (Part 5). In practice almost nobody arrives here — an invite link carries the address,
+  // LAN discovery finds servers at home, and a remembered server skips it entirely.
 
   const [phase, setPhase] = useState<Phase>(
-    nodeContext ? "connecting" : "account",
+    nodeContext ? "connecting" : "serverForm",
   );
-  const [accountServers, setAccountServers] = useState<AccountServer[] | null>(
-    null,
-  );
-  const [openingNode, setOpeningNode] = useState<string | null>(null);
   const [serverName, setServerName] = useState<string | null>(
     nodeContext?.nodeName ?? null,
   );
@@ -175,7 +144,7 @@ export const LoginScreen: React.FC = () => {
       await setServer({ address: result.url });
       return result.name || null;
     },
-    [loginWithAccountToken, setServer, t],
+    [setServer, t],
   );
 
   /** The address form's Connect, with the three failures it can report worded for a person. */
@@ -329,114 +298,23 @@ export const LoginScreen: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   /**
-   * One username and one password, tried in two places.
+   * A username and a password, checked by the server in front of you.
    *
-   * This is the shape Dan asked for and the shape Plex has: **the account service first, this
-   * server second.** Nobody is asked which kind of sign-in they want, because nobody knows — and
-   * the answer changes depending on whether a service they have never heard of happens to be up.
-   *
-   * The order and the fallbacks, in the order they matter:
-   *
-   * 1. **A server with no account never calls anywhere.** Accounts are optional; a node that has
-   *    not been claimed signs people in exactly as it always did, with no dependency added and no
-   *    round trip spent finding that out.
-   * 2. **The service is unreachable → sign in here instead**, and say so. This is the case the
-   *    fallback exists for: a central account service whose downtime stopped people watching their
-   *    own films would be indefensible in a self-hosted product.
-   * 3. **The service says no → still try here.** Not everybody with a login on this server has an
-   *    account: local users exist, and always will. Their password failing centrally is expected,
-   *    not an error worth showing.
-   *
-   * A failure at the end reports the **local** refusal, because that is the one the person can act
-   * on: they are typing a password at a server, and "that username and password do not match" is
-   * true of the thing in front of them.
+   * It used to try a central account service first and fall back to here. There is no central
+   * service any more (Part 5): a server holds its own accounts, and you get one because somebody
+   * invited you to theirs. So this is the whole of signing in, and the error it reports is the one
+   * the person can act on.
    */
   const handleSignIn = useCallback(
     async (username: string, password: string) => {
-      const finish = () => {
-        // The protection picker shows AFTER a successful login, from the root — this screen
-        // unmounts the moment the session exists, so it cannot host the modal itself.
-        if (keepSignedIn) {
-          setPendingAccountSave({ serverName: serverName ?? undefined });
-        }
-      };
-
-      const service = accountService;
-      if (!service || !nodeContext) {
-        await login(username, password, serverName ?? undefined);
-        finish();
-        return;
-      }
-
-      try {
-        const session = await signInToAccountService(
-          service,
-          username,
-          password,
-        );
-        rememberAccountSession(session.token);
-        await loginWithAccountToken(nodeContext.origin, session.token);
-        finish();
-        return;
-      } catch (e) {
-        // Unreachable is worth telling somebody about — they are signed in, but new devices and new
-        // shares will not work until the service is back, and a silent local sign-in would leave
-        // them wondering later why their other machines cannot see this one.
-        if (isServiceUnreachable(e)) {
-          await login(username, password, serverName ?? undefined);
-          toast.warning(t("account.signed_in_locally"));
-          finish();
-          return;
-        }
-      }
-
-      // Rejected centrally: a local-only user, or simply the wrong password. Either way the local
-      // attempt is the one whose answer is worth showing.
       await login(username, password, serverName ?? undefined);
-      finish();
-    },
-    [
-      accountService,
-      keepSignedIn,
-      login,
-      loginWithAccountToken,
-      nodeContext,
-      serverName,
-      setPendingAccountSave,
-      t,
-    ],
-  );
-
-  /**
-   * The same sign-in, with the passkey standing in for the password.
-   *
-   * Only ever reachable when the service said it can do this, so there is no local fallback here
-   * and there should not be: a passkey is a credential the account service holds, and there is
-   * nothing on this server it could be checked against. Somebody whose passkey fails still has the
-   * password field above it, which is the fallback.
-   *
-   * A dismissed browser prompt returns null and is not an error — that is somebody changing their
-   * mind, and an alarming message under the form would be wrong.
-   */
-  const handleSignInWithPasskey = useCallback(
-    async (username: string) => {
-      if (!accountService || !nodeContext) return;
-      const session = await signInWithPasskey(accountService, username);
-      if (!session) return;
-      rememberAccountSession(session.token);
-      await loginWithAccountToken(nodeContext.origin, session.token);
+      // The protection picker shows AFTER a successful login, from the root — this screen
+      // unmounts the moment the session exists, so it cannot host the modal itself.
       if (keepSignedIn) {
         setPendingAccountSave({ serverName: serverName ?? undefined });
       }
     },
-    [
-      accountService,
-      keepSignedIn,
-      loginWithAccountToken,
-      nodeContext,
-      serverName,
-      setPendingAccountSave,
-    ],
+    [keepSignedIn, login, serverName, setPendingAccountSave],
   );
 
   const handleCreateAccount = useCallback(
@@ -536,67 +414,6 @@ export const LoginScreen: React.FC = () => {
 
   // ---------------------------------------------------------------------------
 
-  /**
-   * Sign in to the account service, then decide what to do with the result.
-   *
-   * Two outcomes, and the good one is invisible: if this page is served by a node, the token is
-   * spent on *that* node straight away and the person never sees a list. A list only appears when
-   * there is a genuine choice to make.
-   */
-  const handleAccountSignIn = useCallback(
-    async (username: string, password: string) => {
-      const session = await signInToAccountService(
-        DEFAULT_ACCOUNT_SERVICE,
-        username,
-        password,
-      );
-      rememberAccountSession(session.token);
-
-      const me = await fetchMe(DEFAULT_ACCOUNT_SERVICE, session.token);
-
-      const here = nodeContext?.origin;
-      const thisOne = here
-        ? me.servers.find((s) => serverOrigin(s) === here.replace(/\/+$/, ""))
-        : undefined;
-      if (here && thisOne) {
-        await openServerWithAccount(thisOne, session.token);
-        return;
-      }
-      // Exactly one reachable server is not a choice, so it is not offered as one.
-      const reachable = me.servers.filter((s) => serverOrigin(s) !== null);
-      if (reachable.length === 1) {
-        await openServerWithAccount(reachable[0], session.token);
-        return;
-      }
-      setAccountServers(me.servers);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodeContext],
-  );
-
-  /**
-   * Open one server with an account token.
-   *
-   * The exchange goes to the **server**, not to the account service: it verifies the token itself
-   * against a key it cached when it was claimed. That is why this works with the account service
-   * switched off, and it is the reason the whole design is signature-based.
-   */
-  const openServerWithAccount = useCallback(
-    async (server: AccountServer, token: string) => {
-      const origin = serverOrigin(server);
-      if (!origin) throw new Error(t("account.server_no_address"));
-      setOpeningNode(server.node);
-      try {
-        await setServer({ address: origin });
-        await loginWithAccountToken(origin, token);
-      } finally {
-        setOpeningNode(null);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setServer, t],
-  );
-
   return (
     <>
       <AuthCard>
@@ -639,23 +456,7 @@ export const LoginScreen: React.FC = () => {
             onSignInWithCode={
               Platform.OS === "web" ? undefined : handleSignInWithCode
             }
-            onSignInWithPasskey={
-              passkeys.usable ? handleSignInWithPasskey : undefined
-            }
             onUseDifferentServer={handleUseDifferentServer}
-          />
-        ) : null}
-
-        {phase === "account" ? (
-          <AccountSignInForm
-            onSubmit={handleAccountSignIn}
-            servers={accountServers}
-            busyNode={openingNode}
-            onPickServer={(server) => {
-              const token = takeAccountSession();
-              if (token) void openServerWithAccount(server, token);
-            }}
-            onUseServerAddress={() => setPhase("serverForm")}
           />
         ) : null}
 

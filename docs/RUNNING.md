@@ -704,53 +704,6 @@ The two `cargo test` steps run **before any node is started**, and that is not t
 a running `stingstream-mesh.exe` holds the file `cargo test` has to relink, and the failure arrives
 as exit 101 dressed up as a test failure.
 
-### `tools/e2e-accounts.ps1` — who is allowed in
-
-```powershell
-pwsh tools/e2e-accounts.ps1 -SkipBuild
-```
-
-One real `stingstream-accounts` process on a throwaway SQLite file and three **standalone mesh
-nodes**, each with its own iroh identity. No Jellyfin, no media, no `-PrivateCopy` — there is
-nothing to copy. Twenty-one steps in about eleven seconds once the binaries are built.
-
-The account service is the front door to everybody's media, so what this harness is for is the
-**door policy**, and every assertion in it is the kind that fails without a browser:
-
-1. **Registration refuses an unsigned request**, and refuses a signature that does not verify —
-   shaped exactly like a real one, with a real node id and a plausible timestamp, wrong only where
-   it counts. If either passed, the service would be an open sign-up page on the public internet.
-   The forged one is also checked to have left **no account behind**.
-2. A registers `alice`, B registers `bob`, and **a second account from the same server is refused**:
-   one install must not be an unlimited supply of them.
-3. `BOB` is refused while `bob` exists. Usernames are case-folded because a username here is the
-   **sharing address**, and two that look identical written down are how a library gets shared with
-   the wrong person.
-4. A wrong password and an unknown username come back **byte-identical** — status and body. Telling
-   them apart would make this endpoint a way to enumerate the sharing addresses.
-5. `/me` lists the server alice owns; sharing with `@bob` puts it in bob's list marked not-owned,
-   with **exactly** the libraries named. And bob cannot share out a server he does not own.
-6. **The service is stopped**, and node A still accepts alice's token — the acceptance line for the
-   whole design, since a node verifies against a public key it cached when it was claimed. With the
-   service still down, a token with a single character of its signature changed is refused, and so
-   is one that does not name node A. That last one is bob's token from **before** alice shared with
-   him: the token he is given *after* the share names A quite legitimately, and asserting on it
-   would have been a test that could only ever fail. Both are checked, because the pair is the
-   whole of why revoking a share bites on the next token rather than this one.
-7. `GET /accounts/v1/passkeys` answers whether or not the feature was compiled in, and when it says
-   unsupported the ceremony routes answer **501 rather than 404** — a client has to be able to tell
-   "cannot do passkeys" apart from "older than passkeys".
-8. Revoking a share removes A from bob's **next** `/me`. Asserted on the next token rather than the
-   current one, because that is the truth: an issued token stays good until it expires
-   (`docs/SECURITY.md` R14).
-
-The service is started with **no `--origin`**, so passkeys are off. A passkey is bound to an origin
-for its whole life, and registering credentials against a `127.0.0.1:<random>` that exists for
-ninety seconds would be worse than not testing them.
-
-What it deliberately does not cover is the Jellyfin half — a token becoming a local user who sees a
-federated library. That needs two full nodes, which is `e2e-m3.ps1`'s job.
-
 ### `-PrivateCopy`: not holding the repository's build outputs open
 
 A running node holds `mesh/target/debug/` and `server/*/bin/` open, so nobody can rebuild while it is
@@ -767,8 +720,8 @@ powershell tools\e2e-m4.ps1 -SkipBuild `
 ```
 
 **`e2e-m1`, `e2e-m4`, `e2e-m6` and `e2e-m7` all take it**, and on a shared checkout you should
-always pass it. `e2e-m3` and `e2e-sidedoor` do not have it yet; `e2e-m8` and `e2e-accounts` have
-nothing to copy (standalone mesh nodes, no Jellyfin).
+always pass it. `e2e-m3` and `e2e-sidedoor` do not have it yet; `e2e-m8` has nothing to copy
+(standalone mesh nodes, no Jellyfin).
 
 The copy is made once and reused; `-Force` remakes it after a rebuild. CI has a checkout to itself
 and does not use it.

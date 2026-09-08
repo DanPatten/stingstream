@@ -101,17 +101,6 @@ function SettingsMobile() {
 
           <View className='mb-4' testID='settings-section-sharing'>
             <ListGroup title={t("home.settings.sections.sharing")}>
-              {/* People first, servers second. Sharing with somebody is the thing people came to
-                  do; the mesh underneath is the thing that makes it work. */}
-              {isAdmin && (
-                <ListItem
-                  testID='settings-share-people'
-                  onPress={() => router.push("/settings/share")}
-                  showArrow
-                  title={t("share.give_title")}
-                  subtitle={t("share.received_title")}
-                />
-              )}
               <ListItem
                 testID='settings-sharing'
                 onPress={() => router.push("/settings/groups")}
@@ -169,18 +158,6 @@ function SettingsMobile() {
           <View className='mb-4' testID='settings-section-account'>
             <LinkDevice className='mb-4' />
             <ListGroup title={t("home.settings.sections.account")}>
-              {/* Administrator only: an account is this *server's*, and creating one is a request
-                  the server signs. Somebody watching in this household does not get to claim the
-                  machine they are watching on. */}
-              {isAdmin && (
-                <ListItem
-                  testID='settings-account'
-                  onPress={() => router.push("/settings/account")}
-                  showArrow
-                  title={t("account.settings_title")}
-                  subtitle={t("account.settings_hint")}
-                />
-              )}
               <ListItem
                 testID='settings-sign-out'
                 textColor='red'
