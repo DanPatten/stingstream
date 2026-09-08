@@ -139,7 +139,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/playback-controls/page'
+        name='settings/playback-controls'
         options={{
           title: t("home.settings.playback_controls.title"),
           headerBlurEffect: "none",
@@ -148,7 +148,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/audio-subtitles/page'
+        name='settings/audio-subtitles'
         options={{
           title: t("home.settings.audio_subtitles.title"),
           headerBlurEffect: "none",
@@ -157,7 +157,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/segment-skip/page'
+        name='settings/segment-skip'
         options={{
           title: t("home.settings.other.segment_skip_settings"),
           headerBlurEffect: "none",
@@ -166,7 +166,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/appearance/page'
+        name='settings/appearance'
         options={{
           title: t("home.settings.appearance.title"),
           headerBlurEffect: "none",
@@ -175,7 +175,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/music/page'
+        name='settings/music'
         options={{
           title: t("home.settings.music.title"),
           headerBlurEffect: "none",
@@ -184,7 +184,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/appearance/hide-libraries/page'
+        name='settings/appearance/hide-libraries'
         options={{
           title: t("home.settings.other.hide_libraries"),
           headerBlurEffect: "none",
@@ -193,7 +193,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/plugins/page'
+        name='settings/plugins'
         options={{
           title: t("home.settings.plugins.plugins_title"),
           headerBlurEffect: "none",
@@ -202,7 +202,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/plugins/marlin-search/page'
+        name='settings/plugins/marlin-search'
         options={{
           title: "Marlin Search",
           headerBlurEffect: "none",
@@ -211,7 +211,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/plugins/jellyseerr/page'
+        name='settings/plugins/jellyseerr'
         options={{
           title: "Jellyseerr",
           headerBlurEffect: "none",
@@ -220,7 +220,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/plugins/streamystats/page'
+        name='settings/plugins/streamystats'
         options={{
           title: "Streamystats",
           headerBlurEffect: "none",
@@ -229,7 +229,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/plugins/kefinTweaks/page'
+        name='settings/plugins/kefinTweaks'
         options={{
           title: "KefinTweaks",
           headerBlurEffect: "none",
@@ -238,7 +238,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/intro/page'
+        name='settings/intro'
         options={{
           title: t("home.settings.intro.title"),
           headerBlurEffect: "none",
@@ -247,7 +247,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/logs/page'
+        name='settings/logs'
         options={{
           title: t("home.settings.logs.logs_title"),
           headerBlurEffect: "none",
@@ -256,7 +256,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/network/page'
+        name='settings/network'
         options={{
           title: t("home.settings.network.title"),
           headerBlurEffect: "none",
@@ -265,7 +265,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/server/page'
+        name='settings/server'
         options={{
           title: "Server settings",
           headerBlurEffect: "none",
@@ -274,7 +274,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/admin/page'
+        name='settings/admin'
         options={{
           title: "Users & libraries",
           headerBlurEffect: "none",
@@ -283,7 +283,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/node/page'
+        name='settings/node'
         options={{
           title: "Server status",
           headerBlurEffect: "none",
@@ -292,7 +292,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/page'
+        name='settings/groups'
         options={{
           title: "Sharing",
           headerBlurEffect: "none",
@@ -301,7 +301,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/create/page'
+        name='settings/groups/create'
         options={{
           title: "Create group",
           headerBlurEffect: "none",
@@ -310,7 +310,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/join/page'
+        name='settings/groups/join'
         options={{
           title: "Join group",
           headerBlurEffect: "none",
@@ -319,7 +319,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/[group]/page'
+        name='settings/groups/[group]'
         options={{
           title: "Group",
           headerBlurEffect: "none",

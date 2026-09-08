@@ -59,32 +59,32 @@ function SettingsMobile() {
             </View>
             <ListGroup title={t("home.settings.sections.general")}>
               <ListItem
-                onPress={() => router.push("/settings/appearance/page")}
+                onPress={() => router.push("/settings/appearance")}
                 showArrow
                 title={t("home.settings.appearance.title")}
               />
               <ListItem
-                onPress={() => router.push("/settings/playback-controls/page")}
+                onPress={() => router.push("/settings/playback-controls")}
                 showArrow
                 title={t("home.settings.playback_controls.title")}
               />
               <ListItem
-                onPress={() => router.push("/settings/audio-subtitles/page")}
+                onPress={() => router.push("/settings/audio-subtitles")}
                 showArrow
                 title={t("home.settings.audio_subtitles.title")}
               />
               <ListItem
-                onPress={() => router.push("/settings/music/page")}
+                onPress={() => router.push("/settings/music")}
                 showArrow
                 title={t("home.settings.music.title")}
               />
               <ListItem
-                onPress={() => router.push("/settings/network/page")}
+                onPress={() => router.push("/settings/network")}
                 showArrow
                 title={t("home.settings.network.title")}
               />
               <ListItem
-                onPress={() => router.push("/settings/plugins/page")}
+                onPress={() => router.push("/settings/plugins")}
                 showArrow
                 title={t("home.settings.plugins.plugins_title")}
               />
@@ -103,7 +103,7 @@ function SettingsMobile() {
             <ListGroup title={t("home.settings.sections.sharing")}>
               <ListItem
                 testID='settings-sharing'
-                onPress={() => router.push("/settings/groups/page")}
+                onPress={() => router.push("/settings/groups")}
                 showArrow
                 title={t("home.settings.sections.sharing")}
               />
@@ -127,13 +127,13 @@ function SettingsMobile() {
             <View className='mb-4' testID='settings-section-server'>
               <ListGroup title={t("home.settings.sections.server")}>
                 <ListItem
-                  onPress={() => router.push("/settings/server/page")}
+                  onPress={() => router.push("/settings/server")}
                   showArrow
                   title={t("home.settings.sections.server_settings")}
                   subtitle={t("home.settings.sections.server_settings_hint")}
                 />
                 <ListItem
-                  onPress={() => router.push("/settings/admin/page")}
+                  onPress={() => router.push("/settings/admin")}
                   showArrow
                   title={t("home.settings.sections.users_and_libraries")}
                   subtitle={t(
@@ -141,13 +141,13 @@ function SettingsMobile() {
                   )}
                 />
                 <ListItem
-                  onPress={() => router.push("/settings/node/page")}
+                  onPress={() => router.push("/settings/node")}
                   showArrow
                   title={t("home.settings.sections.server_status")}
                   subtitle={t("home.settings.sections.server_status_hint")}
                 />
                 <ListItem
-                  onPress={() => router.push("/settings/logs/page")}
+                  onPress={() => router.push("/settings/logs")}
                   showArrow
                   title={t("home.settings.logs.logs_title")}
                 />

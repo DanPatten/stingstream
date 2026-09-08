@@ -36,17 +36,17 @@ export const PluginSettings = () => {
           `jellyseerr*` settings keys, the `utils/jellyseerr` submodule) so an upstream pull still
           merges; nothing routes to them. See docs/REQUESTS.md. */}
       <ListItem
-        onPress={() => router.push("/settings/plugins/streamystats/page")}
+        onPress={() => router.push("/settings/plugins/streamystats")}
         title='Streamystats'
         showArrow
       />
       <ListItem
-        onPress={() => router.push("/settings/plugins/marlin-search/page")}
+        onPress={() => router.push("/settings/plugins/marlin-search")}
         title='Marlin Search'
         showArrow
       />
       <ListItem
-        onPress={() => router.push("/settings/plugins/kefinTweaks/page")}
+        onPress={() => router.push("/settings/plugins/kefinTweaks")}
         title='KefinTweaks'
         showArrow
       />

@@ -272,7 +272,7 @@ export const PlaybackControlsSettings: React.FC = () => {
         <ListItem
           title={t("home.settings.other.segment_skip_settings")}
           subtitle={t("home.settings.other.segment_skip_settings_description")}
-          onPress={() => router.push("/settings/segment-skip/page")}
+          onPress={() => router.push("/settings/segment-skip")}
         >
           <Ionicons name='chevron-forward' size={20} color='#8E8D91' />
         </ListItem>

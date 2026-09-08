@@ -1,38 +1,65 @@
 import type { Api } from "@jellyfin/sdk";
 import type { BaseItemKind } from "@jellyfin/sdk/lib/generated-client";
 import { getItemsApi } from "@jellyfin/sdk/lib/utils/api";
+import { useQueryClient } from "@tanstack/react-query";
 import { t } from "i18next";
 import { useAtom } from "jotai";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { View } from "react-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { InfiniteScrollingCollectionList } from "./InfiniteScrollingCollectionList";
 
-type FavoriteTypes =
-  | "Series"
-  | "Movie"
-  | "Episode"
-  | "Video"
-  | "BoxSet"
-  | "Playlist";
-/** Which of the six favourite kinds came back with nothing in it. */
-type EmptinessByKind = Record<FavoriteTypes, boolean>;
+/**
+ * The six row queries, by the key each row registers below.
+ *
+ * "Is this page empty" is read back out of the query cache rather than recorded as state while
+ * fetching. The recorded version was wrong on every visit but the first: `setEmptyState` only ran
+ * inside the fetcher, so a return visit — served from cache, fetcher never called — left every flag
+ * at its mounted default while all six rows hid themselves through `hideIfEmpty`, and the screen
+ * came up blank with no explanation (pass-03, found by WP1). The cache is the one source both the
+ * rows and this banner already agree on.
+ */
+const FAVORITE_QUERY_KEYS = [
+  ["home", "favorites", "series"],
+  ["home", "favorites", "movies"],
+  ["home", "favorites", "episodes"],
+  ["home", "favorites", "videos"],
+  ["home", "favorites", "boxsets"],
+  ["home", "favorites", "playlists"],
+] as const;
+
+/** An infinite query's cached shape, as much of it as this file needs. */
+type CachedPages = { pages?: unknown[][] } | undefined;
 
 export const Favorites = () => {
   const router = useRouter();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const pageSize = 20;
-  const [emptyState, setEmptyState] = useState<EmptinessByKind>({
-    Series: false,
-    Movie: false,
-    Episode: false,
-    Video: false,
-    BoxSet: false,
-    Playlist: false,
-  });
+  const queryClient = useQueryClient();
+
+  const subscribe = useCallback(
+    (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
+    [queryClient],
+  );
+  // A kind counts as empty only once it has *loaded* and come back with nothing; a kind that has
+  // not loaded is unknown, not empty, so the banner never flashes before the rows have answered.
+  const readAllEmpty = useCallback(
+    () =>
+      FAVORITE_QUERY_KEYS.every((key) => {
+        const data = queryClient.getQueryData<CachedPages>(key);
+        if (!data?.pages) return false;
+        return data.pages.every((page) => (page?.length ?? 0) === 0);
+      }),
+    [queryClient],
+  );
+  const areAllEmpty = useSyncExternalStore(
+    subscribe,
+    readAllEmpty,
+    () => false,
+  );
 
   const fetchFavoritesByType = useCallback(
     async (
@@ -54,41 +81,10 @@ export const Favorites = () => {
         limit: limit,
         includeItemTypes: [itemType],
       });
-      const items = response.data.Items || [];
-
-      // Update empty state for this specific type only for the first page
-      if (startIndex === 0) {
-        setEmptyState((prev) => ({
-          ...prev,
-          [itemType as FavoriteTypes]: items.length === 0,
-        }));
-      }
-
-      return items;
+      return response.data.Items || [];
     },
     [api, user],
   );
-
-  // Reset empty state when component mounts or dependencies change
-  useEffect(() => {
-    setEmptyState({
-      Series: false,
-      Movie: false,
-      Episode: false,
-      Video: false,
-      BoxSet: false,
-      Playlist: false,
-    });
-  }, [api, user]);
-
-  // Check if all categories that have been loaded are empty
-  const areAllEmpty = () => {
-    const loadedCategories = Object.values(emptyState);
-    return (
-      loadedCategories.length > 0 &&
-      loadedCategories.every((isEmpty) => isEmpty)
-    );
-  };
 
   const fetchFavoriteSeries = useCallback(
     ({ pageParam }: { pageParam: number }) =>
@@ -172,7 +168,7 @@ export const Favorites = () => {
         shared component is the design system's answer to "there is nothing
         here", tinted glyph included.
       */}
-      {areAllEmpty() && (
+      {areAllEmpty && (
         <EmptyState
           icon='favorite'
           title={t("favorites.noDataTitle")}

@@ -122,7 +122,7 @@ export const AboutSection: React.FC = () => {
         </View>
       )}
       <ListItem
-        onPress={() => router.push("/settings/intro/page")}
+        onPress={() => router.push("/settings/intro")}
         showArrow
         title={t("home.settings.about.take_the_tour")}
       />

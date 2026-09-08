@@ -115,9 +115,7 @@ const NotConfiguredState: React.FC = () => {
       </Text>
       <Button
         onPress={() =>
-          router.push(
-            "/(auth)/(tabs)/(home)/settings/plugins/streamystats/page",
-          )
+          router.push("/(auth)/(tabs)/(home)/settings/plugins/streamystats")
         }
         className='px-6'
       >

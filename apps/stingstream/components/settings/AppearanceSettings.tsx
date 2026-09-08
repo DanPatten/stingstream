@@ -179,9 +179,7 @@ export const AppearanceSettings: React.FC = () => {
           </ListItem>
         )}
         <ListItem
-          onPress={() =>
-            router.push("/settings/appearance/hide-libraries/page")
-          }
+          onPress={() => router.push("/settings/appearance/hide-libraries")}
           title={t("home.settings.other.hide_libraries")}
           subtitle={t("home.settings.other.select_libraries_you_want_to_hide")}
           showArrow

@@ -160,7 +160,7 @@ export const OtherSettings: React.FC = () => {
           />
         </ListItem>
         <ListItem
-          onPress={() => router.push("/settings/hide-libraries/page")}
+          onPress={() => router.push("/settings/hide-libraries")}
           title={t("home.settings.other.hide_libraries")}
           showArrow
         />

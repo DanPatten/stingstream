@@ -136,8 +136,8 @@ export function GroupsScreen() {
 
         <SharingActions
           isAdmin={isAdmin}
-          onCreate={() => router.push("/settings/groups/create/page")}
-          onJoin={() => router.push("/settings/groups/join/page")}
+          onCreate={() => router.push("/settings/groups/create")}
+          onJoin={() => router.push("/settings/groups/join")}
         />
 
         {mesh.syncError && (
