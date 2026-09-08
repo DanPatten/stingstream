@@ -60,6 +60,7 @@ const PROXY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/join", get(join_page))
         .route("/healthz", get(healthz))
         .route(
             "/rendezvous/v1/groups/{id}",
@@ -392,19 +393,114 @@ Disallow: /
 
 // --- routes ---------------------------------------------------------------------------------
 
+/// Shared by the portal and the join page: enough style to look deliberate, and nothing more.
+const PAGE_STYLE: &str = "<style>\
+    :root{color-scheme:dark}\
+    body{font:16px/1.6 system-ui,sans-serif;margin:3rem auto;max-width:38rem;padding:0 1rem;\
+         background:#0B0C0F;color:#F2F3F5}\
+    h1{font-size:1.4rem;margin:0 0 1rem}\
+    a{color:#4FD9CA}\
+    input{font:inherit;width:100%;box-sizing:border-box;padding:.6rem .7rem;border-radius:8px;\
+          border:1px solid rgba(255,255,255,.16);background:#1C1E23;color:inherit}\
+    button{font:inherit;margin-top:.7rem;padding:.6rem 1.1rem;border-radius:8px;border:0;\
+           background:#1FC7B5;color:#04201D;font-weight:600;cursor:pointer}\
+    .muted{color:#B4B7BD;font-size:.9rem}\
+    </style>";
+
+/// Where the browser remembers which server is yours. Read by both pages below, and written only
+/// when somebody types one in.
+const SERVER_KEY: &str = "stingstream.server";
+
+/// `GET /` — the portal.
+///
+/// Dan asked for the shape `plex.tv` has: open the shared address, end up at your own server. This
+/// is that, with the account database left out. The browser remembers which server is yours and
+/// this page forwards to it; **signing in always happens on your own node**, so the coordinator
+/// never sees a username, a password or a session, and there is nothing here for anybody to
+/// breach. The cost is that the memory is per-browser, so a new device is asked once.
+///
+/// It still says what the coordinator is underneath, because somebody who got here by reading a
+/// URL out of a settings screen deserves an answer to "what is this thing".
 async fn index(State(state): State<AppState>) -> Html<String> {
     Html(format!(
-        "<!doctype html><meta charset=utf-8><title>StingStream coordinator</title>\
-         <style>body{{font:16px/1.6 system-ui;margin:3rem auto;max-width:38rem;padding:0 1rem}}</style>\
-         <h1>StingStream coordinator</h1>\
-         <p>This is a <a href=\"https://github.com/DanPatten/stingstream\">StingStream</a> \
-         coordinator running in <strong>{}</strong> mode. It relays iroh traffic for groups that \
-         cannot connect directly, keeps an encrypted rendezvous list so a group can be joined when \
-         the inviter is offline, and fronts the HTTPS side door.</p>\
-         <p>It holds no media, no accounts and no group secrets. \
-         <a href=\"/healthz\">Health</a>.</p>",
-        state.cfg.mode
+        "<!doctype html><meta charset=utf-8><title>StingStream</title>{style}\
+         <h1>StingStream</h1>\
+         <div id=go hidden><p>Taking you to your server…</p>\
+         <p class=muted><a id=forget href=\"#\">Use a different server</a></p></div>\
+         <div id=ask hidden><p>Which server is yours?</p>\
+         <form id=f><input id=u placeholder=\"media.example.com\" autocomplete=url \
+         autocapitalize=off spellcheck=false><button type=submit>Continue</button></form>\
+         <p class=muted>The address of your own StingStream server. It is remembered in this \
+         browser only — you sign in there, not here.</p></div>\
+         <p class=muted>This is a StingStream <strong>{mode}</strong>-mode coordinator. It \
+         introduces members of a group to each other and passes a connection along when two homes \
+         cannot reach each other directly. It holds no media, no accounts and no group secrets. \
+         <a href=\"/healthz\">Health</a> · \
+         <a href=\"https://github.com/DanPatten/stingstream\">Source</a>.</p>\
+         {script}",
+        style = PAGE_STYLE,
+        mode = state.cfg.mode,
+        script = portal_script(""),
     ))
+}
+
+/// `GET /join` — where an invite link built from *this* coordinator lands.
+///
+/// A redirect page rather than the app itself, deliberately. Serving the bundle here would put 12
+/// MB on the coordinator's bill for every invite anybody opened, and would pin a copy of the app to
+/// whatever version the coordinator was last deployed with — a second thing to keep in step with
+/// every node in every group, for no gain. A few hundred bytes that forward to the visitor's own
+/// server has neither problem.
+///
+/// The code is in the fragment, so it never reaches this server: not in the request, not in this
+/// access log, not in any proxy's log in front of it. The script reads it in the browser only to
+/// put it back on the end of the redirect. That is still one more place the code is handled than a
+/// link built from somebody's own domain, which is why a node prefers its own address when it has
+/// one — see `docs/SECURITY.md`.
+async fn join_page() -> Html<String> {
+    Html(format!(
+        "<!doctype html><meta charset=utf-8><title>Join a StingStream group</title>{style}\
+         <h1>Join a group</h1>\
+         <div id=go hidden><p>Opening your invite on your server…</p>\
+         <p class=muted><a id=forget href=\"#\">Use a different server</a></p></div>\
+         <div id=ask hidden><p>Which server is yours?</p>\
+         <form id=f><input id=u placeholder=\"media.example.com\" autocomplete=url \
+         autocapitalize=off spellcheck=false><button type=submit>Continue</button></form>\
+         <p class=muted>Your invite is taken to your own server, where you sign in and accept it. \
+         This page sends it nowhere.</p></div>\
+         <noscript><p class=muted>This page needs JavaScript to read your invite, because the \
+         invite lives in the part of the address a browser keeps to itself. Paste the whole link \
+         into StingStream → Settings → Sharing → Join instead.</p></noscript>\
+         {script}",
+        style = PAGE_STYLE,
+        script = portal_script("/join"),
+    ))
+}
+
+/// The script both pages share: remember a server, then forward to it.
+///
+/// `path` is what to open once there — the portal sends you to the root, the join page to `/join`,
+/// where the app reads the fragment this carries across.
+fn portal_script(path: &str) -> String {
+    format!(
+        "<script>(function(){{\
+          var K={key:?},P={path:?};\
+          function norm(v){{v=(v||'').trim().replace(/\\/+$/,'');if(!v)return'';\
+            return /^https?:\\/\\//i.test(v)?v:'https://'+v;}}\
+          function go(s){{location.replace(norm(s)+P+location.hash);}}\
+          var saved='';try{{saved=localStorage.getItem(K)||'';}}catch(e){{}}\
+          var ask=document.getElementById('ask'),g=document.getElementById('go');\
+          if(saved){{g.hidden=false;go(saved);}}else{{ask.hidden=false;}}\
+          document.getElementById('f').addEventListener('submit',function(e){{\
+            e.preventDefault();var v=norm(document.getElementById('u').value);if(!v)return;\
+            try{{localStorage.setItem(K,v);}}catch(e){{}}go(v);}});\
+          document.getElementById('forget').addEventListener('click',function(e){{\
+            e.preventDefault();try{{localStorage.removeItem(K);}}catch(e){{}}\
+            g.hidden=true;ask.hidden=false;}});\
+        }})();</script>",
+        key = SERVER_KEY,
+        path = path,
+    )
 }
 
 /// What `GET /healthz` answers.
@@ -1205,6 +1301,46 @@ mod tests {
             Some("*"),
             "the app's coordinator probe runs in a browser and needs this to see the answer"
         );
+    }
+
+    /// The join page forwards an invite to whichever server the visitor calls theirs. What it must
+    /// never do is *carry* the invite: the code lives in the fragment, so it is not in the request
+    /// this handler saw, and nothing here may put it into the page or into a log.
+    #[tokio::test]
+    async fn the_join_page_forwards_an_invite_without_ever_holding_one() {
+        let body = join_page().await.0;
+        assert!(
+            body.contains("location.replace") && body.contains("location.hash"),
+            "the fragment is carried across by the browser, not by this server"
+        );
+        assert!(
+            body.contains(SERVER_KEY),
+            "it forwards to the server this browser remembers"
+        );
+        assert!(
+            body.contains("<noscript>"),
+            "a browser with no scripting cannot read a fragment, and should be told what to do \
+             rather than shown a page that quietly does nothing"
+        );
+        // The page is a few hundred bytes on purpose: serving the app here would put megabytes on
+        // the coordinator's bill for every invite opened, and pin a copy of the app to whatever
+        // version this was last deployed with.
+        assert!(body.len() < 4096, "join page grew to {} bytes", body.len());
+    }
+
+    /// The portal is the `plex.tv` shape Dan asked for, minus the accounts. The claim it makes about
+    /// itself — no media, no accounts, no secrets — is only true while nothing here collects any, so
+    /// the page is pinned to having exactly one field and no password.
+    #[tokio::test]
+    async fn the_portal_asks_for_a_server_and_never_for_a_password() {
+        let body = index(State(state_with(false))).await.0;
+        assert_eq!(body.matches("<input").count(), 1, "one field: the address");
+        assert!(!body.contains("type=password") && !body.to_lowercase().contains("password"));
+        assert!(
+            body.contains("no media, no accounts and no group secrets"),
+            "it should keep saying what it is"
+        );
+        assert!(body.contains("/healthz"), "and offer the way to check");
     }
 
     fn forwarded(value: &str) -> HeaderMap {
