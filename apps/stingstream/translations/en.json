@@ -1410,8 +1410,6 @@
     "invite_copy_failed": "Could not copy — select the code and copy it by hand.",
     "invite_clipboard_unavailable": "Clipboard is not available in this build.",
     "invite_mint_failed_title": "Could not mint an invite",
-    "invite_note_online": "Joining needs a member online, so keep this server running until they are in — unless the group has a sharing server, which remembers member addresses for exactly this case.",
-    "invite_note_revocation": "An invite stops working once a member is removed — a fresh one is needed after that.",
     "try_again": "Try again",
     "create_title": "New group",
     "create_detail": "A group is a set of servers that pool their libraries. Nothing leaves a group, there is no public directory, and the only way in is an invite link.",

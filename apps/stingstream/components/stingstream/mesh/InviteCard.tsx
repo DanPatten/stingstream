@@ -5,7 +5,6 @@ import { Platform, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
 import { useMintMeshInvite } from "@/lib/stingstream/mesh";
@@ -16,8 +15,15 @@ import { LoadingState } from "../shared/ScreenState";
  *
  * An invite carries the group id, its **secret**, this node's address and the group's sharing
  * server — everything needed to become a member. So it is minted on demand rather than shown by
- * default, it is never cached by React Query, and the copy says plainly what handing it over means
- * and that removing a member later invalidates it.
+ * default, it is never cached by React Query, and one line says the thing that is not obvious:
+ * whoever opens it is in.
+ *
+ * That one line is all the prose there is. Two footnotes used to sit under the link — that joining
+ * needs a member online, and that removing a member invalidates old invites. Dan cut both, and both
+ * deserved it. The first was *obvious* ("as long as the server is up it will work") and, since a
+ * node started being seeded with a sharing server, no longer even true for most people: rendezvous
+ * covers exactly that case. The second is real but belongs where somebody can act on it, which is
+ * the confirmation shown when they remove a member — and it is already there, in full.
  *
  * **A link, and only a link.** It used to be a 250-character base58 code, with the link added
  * beside it once nodes could build one. Dan, seeing both: *"QR code is fine but it should just be a
@@ -140,12 +146,13 @@ export function InviteCard({
         }}
       >
         {/*
-          Clamped to two lines. The link is a host plus a 250-character base58 code, so unclamped it
-          filled nine lines of the card with noise nobody reads — and the two ways it is actually
-          handed over are the QR above and Copy below. The full string stays in the DOM, so
-          selecting it still selects all of it.
+          Shown whole, never truncated. It was clamped to two lines for a pass because it is a host
+          plus 250 characters of base58 and filled a lot of card — but Dan asked for the full thing,
+          and he is right: an ellipsis in the middle of a credential is the one place a person
+          cannot tell "this is styling" from "this is what I copied". Tall and complete beats short
+          and ambiguous.
         */}
-        <Text variant='caption' selectable numberOfLines={2}>
+        <Text variant='caption' selectable>
           {link}
         </Text>
       </View>
@@ -158,37 +165,6 @@ export function InviteCard({
           </Button>
         </>
       )}
-
-      <View style={{ flexDirection: "row", marginTop: 12 }}>
-        <Icon
-          name='warning'
-          tone='tertiary'
-          size={14}
-          style={{ marginTop: 2 }}
-        />
-        <Text
-          variant='caption'
-          tone='tertiary'
-          style={{ marginLeft: 6, flex: 1 }}
-        >
-          {t("sharing.invite_note_online")}
-        </Text>
-      </View>
-      <View style={{ flexDirection: "row", marginTop: 6 }}>
-        <Icon
-          name='warning'
-          tone='tertiary'
-          size={14}
-          style={{ marginTop: 2 }}
-        />
-        <Text
-          variant='caption'
-          tone='tertiary'
-          style={{ marginLeft: 6, flex: 1 }}
-        >
-          {t("sharing.invite_note_revocation")}
-        </Text>
-      </View>
     </View>
   );
 }
