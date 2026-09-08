@@ -2217,11 +2217,6 @@ data class GroupInfo (
     , 
     var `name`: kotlin.String
     , 
-    /**
-     * The group's coordinator, if it has one. `None` is the zero-server default.
-     */
-    var `coordinator`: kotlin.String?
-    , 
     var `createdAt`: kotlin.String
     , 
     /**
@@ -2251,7 +2246,6 @@ public object FfiConverterTypeGroupInfo: FfiConverterRustBuffer<GroupInfo> {
         return GroupInfo(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
@@ -2261,7 +2255,6 @@ public object FfiConverterTypeGroupInfo: FfiConverterRustBuffer<GroupInfo> {
     override fun allocationSize(value: GroupInfo) = (
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`name`) +
-            FfiConverterOptionalString.allocationSize(value.`coordinator`) +
             FfiConverterString.allocationSize(value.`createdAt`) +
             FfiConverterUInt.allocationSize(value.`members`) +
             FfiConverterUInt.allocationSize(value.`online`)
@@ -2270,7 +2263,6 @@ public object FfiConverterTypeGroupInfo: FfiConverterRustBuffer<GroupInfo> {
     override fun write(value: GroupInfo, buf: ByteBuffer) {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`name`, buf)
-            FfiConverterOptionalString.write(value.`coordinator`, buf)
             FfiConverterString.write(value.`createdAt`, buf)
             FfiConverterUInt.write(value.`members`, buf)
             FfiConverterUInt.write(value.`online`, buf)
@@ -2287,12 +2279,10 @@ data class JoinResult (
     , 
     var `name`: kotlin.String
     , 
-    var `coordinator`: kotlin.String?
-    , 
     /**
-     * `inviter`, `rendezvous` or `none`. `none` still means the group was joined — it exists
-     * locally and syncs when a member appears — but nobody answered, which is usually a mistake
-     * worth telling the user about.
+     * `inviter` or `none`. `none` still means the group was joined — it exists locally and syncs
+     * when a member appears — but nobody answered, which is usually a mistake worth telling the
+     * user about.
      */
     var `via`: kotlin.String
     , 
@@ -2318,7 +2308,6 @@ public object FfiConverterTypeJoinResult: FfiConverterRustBuffer<JoinResult> {
         return JoinResult(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterOptionalString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterSequenceString.read(buf),
         )
@@ -2327,7 +2316,6 @@ public object FfiConverterTypeJoinResult: FfiConverterRustBuffer<JoinResult> {
     override fun allocationSize(value: JoinResult) = (
             FfiConverterString.allocationSize(value.`group`) +
             FfiConverterString.allocationSize(value.`name`) +
-            FfiConverterOptionalString.allocationSize(value.`coordinator`) +
             FfiConverterString.allocationSize(value.`via`) +
             FfiConverterSequenceString.allocationSize(value.`contacted`)
     )
@@ -2335,7 +2323,6 @@ public object FfiConverterTypeJoinResult: FfiConverterRustBuffer<JoinResult> {
     override fun write(value: JoinResult, buf: ByteBuffer) {
             FfiConverterString.write(value.`group`, buf)
             FfiConverterString.write(value.`name`, buf)
-            FfiConverterOptionalString.write(value.`coordinator`, buf)
             FfiConverterString.write(value.`via`, buf)
             FfiConverterSequenceString.write(value.`contacted`, buf)
     }

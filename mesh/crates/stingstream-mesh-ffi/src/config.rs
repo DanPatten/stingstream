@@ -43,7 +43,7 @@ pub struct MeshConfigInput {
     ///
     /// Defaults to **false** here, unlike a full node. The DHT is chatty, converges slowly and
     /// keeps a socket busy; on a phone that is battery and metered data spent on a discovery
-    /// route the invite code and the coordinator already cover.
+    /// route the invite code already covers.
     #[serde(alias = "mainline_dht")]
     pub mainline_dht: bool,
 

@@ -116,9 +116,9 @@ pub struct PeerInfo {
 pub struct JoinResult {
     pub group: String,
     pub name: String,
-    /// `inviter`, `rendezvous` or `none`. `none` still means the group was joined — it exists
-    /// locally and syncs when a member appears — but nobody answered, which is usually a mistake
-    /// worth telling the user about.
+    /// `inviter` or `none`. `none` still means the group was joined — it exists locally and syncs
+    /// when a member appears — but nobody answered, which is usually a mistake worth telling the
+    /// user about.
     pub via: String,
     /// Node ids that answered.
     pub contacted: Vec<String>,
@@ -558,7 +558,7 @@ mod tests {
     fn offline_json() -> String {
         r#"{"nodeName":"test-phone","light":true,"apiPort":0,
             "n0Dns":false,"n0Relays":false,"mainlineDht":false,
-            "fallbackCoordinator":"","heartbeatSecs":1,"peerTimeoutSecs":10}"#
+            "heartbeatSecs":1,"peerTimeoutSecs":10}"#
             .to_string()
     }
 
