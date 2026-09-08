@@ -954,11 +954,20 @@ Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
     #>
     $settingsPath = '/stingstream/api/v1/mesh/settings/sharing'
 
-    # 1. Nothing configured: a code, and no link.
+    # 1. A node arrives with a sharing server already set, and no address of its own.
     $before = Invoke-Node $NodeA $settingsPath
     if (Get-Member-Value $before 'PublicAddress') {
         throw "node A already has a public address: $(Get-Member-Value $before 'PublicAddress')"
     }
+    # Seeded when the database was first opened, not prefilled into a form. Prefilling was what
+    # made creating a group have to cope with there being no server, and every "set a sharing
+    # server first" state in the UI existed to describe that gap.
+    $seeded = Get-Member-Value $before 'CoordinatorDefault'
+    if (-not $seeded) { throw 'a new node should start with a sharing server already set' }
+    Write-Host "      seeded sharing server: $seeded"
+
+    # This group has no coordinator (the step above cleared it), and node A has no domain, so there
+    # is nothing to build a link from.
     $plain = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
     if (-not $plain.code) { throw 'A minted no invite code.' }
     if (Get-Member-Value $plain 'Url') {

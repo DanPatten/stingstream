@@ -13,9 +13,7 @@ import {
 } from "@/lib/stingstream/mesh";
 import { COORDINATOR_GUIDE_URL } from "@/utils/mesh/coordinator";
 import { isUntouched } from "@/utils/mesh/sharingAddress";
-import { FormCard } from "./FormCard";
 import {
-  DEFAULT_SHARING_SERVER,
   SharingAddress,
   type SharingAddressValue,
   sharingAddress,
@@ -24,23 +22,19 @@ import {
 } from "./SharingAddress";
 
 /**
- * Settings → Sharing → **Sharing server**: the two addresses this node uses.
+ * The two addresses this server uses, under **Advanced** on the Sharing screen.
  *
- * They are on a settings page rather than on the New group screen because that screen asks one
- * question — Public or Private — and a question with a text field bolted to one of its answers is
- * how the old coordinator picker became unreadable. Dan's instruction was to put the box here and
- * leave a link there.
+ * They are here, folded away, because neither is a decision anybody has to make. The sharing server
+ * arrives already set (`sharing::DEFAULT_SHARING_SERVER`, seeded when the database is first
+ * opened), and your own domain is for people who have one. Every earlier version of this put one or
+ * both in front of somebody creating a group and asked them to choose — a picker, then a field, then
+ * a radio — and each time the answer was that nobody knows what to pick, because it is not a
+ * question about them.
  *
- * **Two fields, not one.** The first attempt at this used a single auto-detecting box, on the
- * theory that "where people reach you" was one idea. It is not. Which server introduces members,
- * and which domain a link points at, are independent: you can be Public through the shared server
- * *and* have your own domain for links, or Private *and* have one. A single box forces a choice
- * between them that does not exist, which is precisely the confusion it was meant to remove.
- *
- * Neither field is required. With both empty this node makes Private groups and hands out codes,
- * which is a complete and supported way to use StingStream — it is what the mesh has always done.
+ * What is left is a settings section: it says what the values do, and it is where you go when you
+ * want to change one.
  */
-export function SharingServerScreen() {
+export function SharingAddresses() {
   const { t } = useTranslation();
   const settings = useMeshSharingSettings();
   const save = useSetMeshSharingSettings();
@@ -60,25 +54,26 @@ export function SharingServerScreen() {
     setLoaded(true);
   }, [loaded, settings.data]);
 
-  // `isUntouched` is why a value already stored survives a check that cannot run from here — see
-  // its own comment. Only something actually typed has to satisfy the probe.
-  const untouched = isUntouched;
-
   const serverStored = settings.data?.coordinatorDefault;
   const ownStored = settings.data?.publicAddress;
 
+  // `isUntouched` is why a value already stored survives a check that cannot run from this browser
+  // — see its own comment. Only something actually typed has to satisfy the probe.
   const ready =
-    (untouched(server, serverStored) ||
+    (isUntouched(server, serverStored) ||
       sharingAddressReady(server, "coordinator")) &&
-    (untouched(own, ownStored) || sharingAddressReady(own, "own-server"));
+    (isUntouched(own, ownStored) || sharingAddressReady(own, "own-server"));
+
+  const changed =
+    !isUntouched(server, serverStored) || !isUntouched(own, ownStored);
 
   const onSave = async () => {
     setError(null);
     const next: MeshSharingSettings = {
-      coordinatorDefault: untouched(server, serverStored)
+      coordinatorDefault: isUntouched(server, serverStored)
         ? (serverStored ?? null)
         : sharingAddressUrl(server, "coordinator"),
-      publicAddress: untouched(own, ownStored)
+      publicAddress: isUntouched(own, ownStored)
         ? (ownStored ?? null)
         : sharingAddressUrl(own, "own-server"),
     };
@@ -96,18 +91,7 @@ export function SharingServerScreen() {
   };
 
   return (
-    <FormCard>
-      <Text variant='title' weight='semibold'>
-        {t("sharing.server_page_title")}
-      </Text>
-      <Text
-        variant='caption'
-        tone='secondary'
-        style={{ marginTop: 4, marginBottom: 20 }}
-      >
-        {t("sharing.server_page_detail")}
-      </Text>
-
+    <View>
       <Field
         label={t("sharing.server_field_label")}
         hint={t("sharing.server_field_hint")}
@@ -117,7 +101,7 @@ export function SharingServerScreen() {
           onChange={setServer}
           accept='coordinator'
           disabled={save.isPending}
-          placeholder={DEFAULT_SHARING_SERVER}
+          placeholder={t("sharing.server_field_placeholder")}
           blankHint={t("sharing.server_field_blank")}
           testID='sharing-server-address'
         />
@@ -140,9 +124,12 @@ export function SharingServerScreen() {
 
       <FormError message={error} />
 
-      <View style={{ height: 20 }} />
-
-      <Button onPress={onSave} disabled={!ready} loading={save.isPending}>
+      <Button
+        onPress={onSave}
+        disabled={!ready || !changed}
+        loading={save.isPending}
+        style={{ marginTop: 4 }}
+      >
         {t("sharing.server_save")}
       </Button>
 
@@ -151,7 +138,7 @@ export function SharingServerScreen() {
         size='sm'
         onPress={() => setExplainerOpen(true)}
         testID='sharing-address-explainer'
-        style={{ alignSelf: "flex-start", marginTop: 12 }}
+        style={{ alignSelf: "flex-start", marginTop: 8 }}
       >
         {t("sharing.address_learn_more")}
       </Button>
@@ -163,12 +150,8 @@ export function SharingServerScreen() {
       >
         <View style={{ gap: 12 }}>
           <Explains
-            title={t("sharing.address_explainer_shared_title")}
-            body={t("sharing.address_explainer_shared_body")}
-          />
-          <Explains
-            title={t("sharing.address_explainer_empty_title")}
-            body={t("sharing.address_explainer_empty_body")}
+            title={t("sharing.address_explainer_server_title")}
+            body={t("sharing.address_explainer_server_body")}
           />
           <Explains
             title={t("sharing.address_explainer_own_title")}
@@ -191,7 +174,7 @@ export function SharingServerScreen() {
           </Button>
         </View>
       </Dialog>
-    </FormCard>
+    </View>
   );
 }
 

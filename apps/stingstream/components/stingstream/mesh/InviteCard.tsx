@@ -12,31 +12,24 @@ import { useMintMeshInvite } from "@/lib/stingstream/mesh";
 import { LoadingState } from "../shared/ScreenState";
 
 /**
- * An invite code, as text and as a QR.
+ * An invite, as a link and as a QR of that link.
  *
- * An invite carries the group id, its **secret**, this node's address and the group's rendezvous
- * server — everything needed to become a member. So it is minted on demand rather than displayed
- * by default, it is never cached by React Query, and the copy says plainly what handing it over
- * means and that removing a member later invalidates it. base58check is what makes it survivable
- * when read aloud: no look-alike characters, and a checksum that catches a transposition before it
- * becomes a confusing join failure.
+ * An invite carries the group id, its **secret**, this node's address and the group's sharing
+ * server — everything needed to become a member. So it is minted on demand rather than shown by
+ * default, it is never cached by React Query, and the copy says plainly what handing it over means
+ * and that removing a member later invalidates it.
  *
- * **The link.** When this node has an address to build one from, the invite is handed out as
- * `https://<host>/join#<code>` — the same code, wrapped in something a person can open, which is
- * what people already know how to send each other. The code sits in the fragment, which a browser
- * never puts on the wire, so it stays out of the access log of every server and proxy the link
- * passes through. Where the host comes from is `sharing::invite_link` on the node.
+ * **A link, and only a link.** It used to be a 250-character base58 code, with the link added
+ * beside it once nodes could build one. Dan, seeing both: *"QR code is fine but it should just be a
+ * URL, no standalone code."* He is right — two representations of one secret is two things to
+ * explain and two ways to send the wrong one. The code still exists inside the link, and
+ * `JoinGroupScreen` still accepts a bare one because every invite handed out before this is one;
+ * nothing hands one out any more.
  *
- * With no host the screen falls back to the bare code, unchanged. That is not a degraded state to
- * apologise for: a member who has configured no domain, in a group with no server, has nowhere to
- * point a link, and the code has always worked.
- *
- * The QR carries whichever of the two is on offer. A scanned link opens; a scanned code is an
- * opaque blob to anything that does not know what it is, which is the right outcome.
- *
- * Content only — no title, no outer card. `GroupDetailScreen` hosts this inside a `Dialog`, which
- * already supplies both; `CreateGroupScreen` hosts it inside its own `FormCard`, under a heading it
- * writes itself.
+ * There is always a host to build a link from, because a node is seeded with a sharing server when
+ * its database is first opened (`sharing::DEFAULT_SHARING_SERVER`). The one way to have none is to
+ * clear that setting *and* have no domain of your own, which is a deliberate act by somebody who
+ * knows what they are doing — so it gets an explanation rather than a silent fallback.
  */
 export function InviteCard({
   group,
@@ -49,9 +42,6 @@ export function InviteCard({
   const mint = useMintMeshInvite();
   const code = mint.data?.code;
   const link = mint.data?.url ?? null;
-  // One value for the QR, the copy button and the box below them, so the three can never disagree
-  // about what was handed over.
-  const shared = link ?? code;
 
   useEffect(() => {
     mint.mutate(group);
@@ -61,10 +51,10 @@ export function InviteCard({
   }, [group]);
 
   const copy = useCallback(async () => {
-    if (!shared) return;
+    if (!link) return;
     if (Platform.OS === "web") {
       try {
-        await navigator.clipboard.writeText(shared);
+        await navigator.clipboard.writeText(link);
         toast.success(t("sharing.invite_copied"));
       } catch {
         toast.error(t("sharing.invite_copy_failed"));
@@ -78,13 +68,13 @@ export function InviteCard({
       return;
     }
     const Clipboard = await import("expo-clipboard");
-    await Clipboard.setStringAsync(shared);
+    await Clipboard.setStringAsync(link);
     toast.success(t("sharing.invite_copied"));
-  }, [shared, t]);
+  }, [link, t]);
 
   if (mint.isPending) return <LoadingState />;
 
-  if (mint.error || !code || !shared) {
+  if (mint.error || !code) {
     return (
       <View>
         <Text variant='body' weight='semibold' tone='danger'>
@@ -103,15 +93,26 @@ export function InviteCard({
     );
   }
 
+  // No host to point a link at. Reachable only by clearing the seeded sharing server *and* having
+  // no domain, which is a deliberate act — so it gets a sentence saying which setting to look at,
+  // rather than silently falling back to the 250-character code this screen just stopped showing.
+  if (!link) {
+    return (
+      <View>
+        <Text variant='body' weight='semibold'>
+          {t("sharing.invite_no_host_title")}
+        </Text>
+        <Text variant='caption' tone='secondary' style={{ marginTop: 6 }}>
+          {t("sharing.invite_no_host_detail")}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View>
       <Text variant='caption' tone='secondary'>
-        {t(
-          link
-            ? "sharing.invite_link_description"
-            : "sharing.invite_description",
-          { group: groupName || group },
-        )}
+        {t("sharing.invite_link_description", { group: groupName || group })}
       </Text>
 
       <View style={{ alignItems: "center", marginVertical: 16 }}>
@@ -123,7 +124,7 @@ export function InviteCard({
           }}
         >
           <QRCode
-            value={shared}
+            value={link}
             size={Platform.isTV ? 260 : 200}
             color='#000000'
             backgroundColor='#FFFFFF'
@@ -139,7 +140,7 @@ export function InviteCard({
         }}
       >
         <Text variant='caption' selectable>
-          {shared}
+          {link}
         </Text>
       </View>
 
@@ -147,7 +148,7 @@ export function InviteCard({
         <>
           <View style={{ height: 12 }} />
           <Button variant='secondary' icon='link' onPress={copy}>
-            {t(link ? "sharing.invite_copy_link" : "sharing.invite_copy_code")}
+            {t("sharing.invite_copy_link")}
           </Button>
         </>
       )}
@@ -182,25 +183,6 @@ export function InviteCard({
           {t("sharing.invite_note_revocation")}
         </Text>
       </View>
-      {/* Otherwise the only honest reading of a code where a link was expected is that something
-          is broken. It is a setting nobody has filled in, and saying so is one line. */}
-      {!link && (
-        <View style={{ flexDirection: "row", marginTop: 6 }}>
-          <Icon
-            name='info'
-            tone='tertiary'
-            size={14}
-            style={{ marginTop: 2 }}
-          />
-          <Text
-            variant='caption'
-            tone='tertiary'
-            style={{ marginLeft: 6, flex: 1 }}
-          >
-            {t("sharing.invite_note_no_link")}
-          </Text>
-        </View>
-      )}
     </View>
   );
 }

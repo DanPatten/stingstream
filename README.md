@@ -84,11 +84,12 @@ Groups are private by design. There is no public list, no search for strangers, 
 someone outside a group to see what's in it. An invite is the only way in, and removing a member
 makes every invite handed out before then stop working.
 
-When you make a group you choose one thing: **Public** or **Private**. Public means members are
-introduced by a server, which also passes the connection along when two homes cannot reach each
-other directly — so it works on almost any network. Private means the two computers talk directly
-with no StingStream server involved at all, which some networks will not allow. Neither choice
-changes who can see your library: only people you invite, either way.
+Making a group asks for a name and nothing else. Behind it, a small server introduces members to
+each other and passes a connection along when two homes cannot reach each other directly — which is
+what makes it work on almost any connection. It never sees your library: what goes through it is
+encrypted, and it holds no accounts and no keys. You can point that setting at a server you run
+yourself, or empty it so your computers only ever connect directly; both live under Sharing →
+Advanced, and neither changes who can see your library.
 
 Your watch history, favourites and resume points never leave your own computer.
 
@@ -96,15 +97,15 @@ Your watch history, favourites and resume points never leave your own computer.
 
 ## Do I need to run a server somewhere?
 
-No. Two homes with ordinary internet can form a **Private** group with nothing else involved:
-StingStream finds the other computer and connects directly, and falls back to well-known public
-relays when a direct connection is impossible.
+No. Every install comes pointed at a small shared **sharing server** that introduces members and
+carries a connection on the networks where a direct one cannot be made — a firewall that blocks the
+traffic, or an internet connection with no address of its own. It never holds media, accounts or
+keys, and where a direct connection is possible your files go straight from one computer to the
+other without touching it.
 
-A **Public** group uses a sharing server to introduce members and to carry a connection on the
-networks where a direct one cannot be made — carrier-grade NAT, or a firewall that blocks the
-traffic outright. One is filled in for you, and you can point that setting at your own instead:
-Settings → Sharing → Sharing server. Running your own is documented in
-[`deploy/coordinator/README.md`](deploy/coordinator/README.md).
+You can point that setting at a server you run yourself, or empty it so your computers only ever
+connect directly. Both are under Settings → Sharing → Advanced, and running your own is documented
+in [`deploy/coordinator/README.md`](deploy/coordinator/README.md).
 
 The same page has a second, separate box: **your server's address**, if you have pointed a domain
 at your computer. That one is only about invites. With it set, an invite is a link a friend can

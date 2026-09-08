@@ -318,23 +318,22 @@ the same screens; the ten-foot differences are handled inside them.
 | Screen | |
 |---|---|
 | `groups/page` | this device's own node (id, port, relay in use, peer counts), then the home node's groups with member/online counts and whether this device has caught up |
-| `groups/create` | name + Public/Private → the invite, shown immediately |
-| `groups/server` | the two addresses this node uses: which sharing server, and its own domain |
-| `groups/join/page` | paste, scan a QR (phone only), or type it. A TV gets paste and typing — no camera, and 250 base58 characters on a D-pad is why base58 has no look-alike characters |
-| `groups/[group]` | members with online state and direct/relayed, Public/Private, "show invite", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
+| `groups/create` | a name → the invite, shown immediately |
+| `groups/[group]` | members with online state and direct/relayed, the group's server, "show invite", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
 | `/join` | where an invite link lands: reads the code out of the fragment and hands it to Join |
 
-**Public or Private** is the only question the create screen asks about connectivity. Public means
-the group carries a coordinator — members are introduced through it, and it passes a connection
-along when a direct one is impossible. Private means it carries none. A group is Public exactly when
-it has a coordinator, so there is no separate flag and nothing that can disagree with the node.
+**The create screen asks for a name and nothing else.** A group takes its server from
+`sharing.coordinator_default` on the node that created it, which is seeded with the shipped address
+when the database is first opened — so there is no state where the screen has to explain itself.
+Three earlier versions asked instead (a coordinator picker, a free-text address, then a
+Public/Private radio) and each was rejected for the same reason: it is not a question about the
+person answering it.
 
-**Which** server Public uses is a setting rather than a field on that screen, and it lives beside a
-second one on `groups/server`:
+Both addresses live under **Advanced** on the Sharing screen, and nowhere else:
 
 | Field | Stored as | For |
 |---|---|---|
-| Sharing server | `sharing.coordinator_default` | copied onto a group created as Public |
+| Sharing server | `sharing.coordinator_default` | copied onto a group when it is created |
 | Your server's address | `sharing.public_address` | building invite links |
 
 Both are checked live against `https://<host>/healthz`, and the answer says which kind of thing it

@@ -17,11 +17,13 @@ import {
   useNodeMeshPeers,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
 import { DeviceMeshSection } from "./DeviceMeshSection";
 import { GroupCard } from "./GroupCard";
+import { SharingAddresses } from "./SharingAddresses";
 
 /**
  * The groups this server belongs to.
@@ -139,6 +141,18 @@ export function GroupsScreen() {
           onCreate={() => router.push("/settings/groups/create")}
           onJoin={() => router.push("/settings/groups/join")}
         />
+
+        {/* The addresses live here, folded away, and nowhere else. Neither is a decision anybody
+            has to make — the sharing server arrives already set — so putting either in front of
+            somebody creating a group is what made three earlier versions of that screen
+            unreadable. */}
+        {isAdmin && (
+          <View style={{ marginTop: 8 }}>
+            <Disclosure title={t("sharing.advanced_title")}>
+              <SharingAddresses />
+            </Disclosure>
+          </View>
+        )}
 
         {mesh.syncError && (
           <View

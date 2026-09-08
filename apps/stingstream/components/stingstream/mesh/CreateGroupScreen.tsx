@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
@@ -7,8 +6,6 @@ import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
 import {
   useCreateMeshGroup,
   useMeshSharingSettings,
@@ -16,27 +13,22 @@ import {
 import { useMesh } from "@/providers/MeshProvider";
 import { FormCard } from "./FormCard";
 import { InviteCard } from "./InviteCard";
-import {
-  coordinatorFor,
-  type GroupVisibility,
-  PublicPrivateChoice,
-} from "./PublicPrivateChoice";
 
 /**
- * Create a group on the server, then show the invite so it can be handed on straight away.
+ * Create a group, then show the invite so it can be handed on straight away.
  *
- * Creating is deliberately a two-stage screen rather than a modal that closes: a group with no
- * other members does nothing at all, and the invite is the only thing that changes that.
+ * Two stages rather than a modal that closes: a group with no other members does nothing at all,
+ * and the invite is the only thing that changes that.
  *
- * Two questions, and only two: what to call it, and whether people reach it through a server. Which
- * server lives in Settings — see `SharingServerScreen` for why that is a settings page and not a
- * field here.
+ * **One question, and it is the name.** This screen has been through a coordinator picker, a
+ * free-text address field and a Public/Private radio, and every one of them asked the person
+ * creating a group to make a networking decision they had no basis for. The server it uses is this
+ * node's sharing server, which arrives already set; changing it is a settings job, under Advanced
+ * on the Sharing screen, where somebody who wants it will go looking.
  */
 export function CreateGroupScreen() {
   const { t } = useTranslation();
-  const router = useRouter();
   const [name, setName] = useState("");
-  const [visibility, setVisibility] = useState<GroupVisibility>("public");
   const [created, setCreated] = useState<{ id: string; name: string } | null>(
     null,
   );
@@ -45,16 +37,10 @@ export function CreateGroupScreen() {
   const settings = useMeshSharingSettings();
   const mesh = useMesh();
 
-  const sharingServer = settings.data?.coordinatorDefault ?? null;
-  // Until the query has settled there is nothing to say, so Public stays available and Create waits
-  // — better than flashing "set a sharing server first" at somebody who has one. A *failed* query
-  // counts as settled with nothing: Public then goes unavailable rather than staying selected and
-  // quietly creating a Private group, which is the one outcome that must not happen silently.
+  // Wait for the settings rather than racing them: creating with `coordinator: null` because the
+  // query had not landed yet would make a group that is quietly server-less, and nothing on screen
+  // would ever say so.
   const settled = settings.isSuccess || settings.isError;
-  const publicAvailable = !settled || !!sharingServer;
-  const effective: GroupVisibility =
-    visibility === "public" && !publicAvailable ? "private" : visibility;
-
   const ready = name.trim().length > 0 && settled;
 
   const onCreate = async () => {
@@ -62,7 +48,7 @@ export function CreateGroupScreen() {
     try {
       const group = await create.mutateAsync({
         name: name.trim(),
-        coordinator: coordinatorFor(effective, sharingServer),
+        coordinator: settings.data?.coordinatorDefault ?? null,
       });
       setCreated({ id: group.group, name: group.name });
       // The phone joins the new group as a light member straight away, so the very first thing
@@ -117,31 +103,6 @@ export function CreateGroupScreen() {
               ready && !create.isPending && void onCreate()
             }
           />
-
-          <View style={{ height: 16 }} />
-
-          <PublicPrivateChoice
-            value={effective}
-            onChange={setVisibility}
-            publicAvailable={publicAvailable}
-            disabled={create.isPending}
-          />
-
-          {/* The address itself is one tap away rather than in the form. Showing which server is
-              configured is the part that has to be here: a choice called "Public" means nothing
-              without saying public through what. */}
-          <View style={{ marginTop: 12 }}>
-            <ListGroup>
-              <ListItem
-                testID='sharing-server-link'
-                title={t("home.settings.sections.sharing_server")}
-                subtitle={sharingServer ?? t("sharing.server_row_none")}
-                showArrow
-                disabled={create.isPending}
-                onPress={() => router.push("/settings/groups/server")}
-              />
-            </ListGroup>
-          </View>
 
           <FormError message={error} />
 

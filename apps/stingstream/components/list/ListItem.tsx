@@ -125,74 +125,88 @@ const ListItemContent = ({
   const { accent } = useTheme();
 
   return (
-    <>
-      <View
-        style={{ flexDirection: "row", alignItems: "center", width: "100%" }}
-      >
-        {icon && (
-          <View
-            style={{
-              borderRadius: radius.sm,
-              height: 32,
-              width: 32,
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 10,
-              backgroundColor: tokens.color.bg["3"],
-            }}
-          >
-            <Icon name={icon} size={18} tone='secondary' />
-          </View>
-        )}
-        {/* The label sizes to its content and only shrinks if it alone
+    <View style={{ flexDirection: "row", alignItems: "center", width: "100%" }}>
+      {icon && (
+        <View
+          style={{
+            borderRadius: radius.sm,
+            height: 32,
+            width: 32,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 10,
+            backgroundColor: tokens.color.bg["3"],
+          }}
+        >
+          <Icon name={icon} size={18} tone='secondary' />
+        </View>
+      )}
+      {/* The label sizes to its content and only shrinks if it alone
             overflows; the value column takes whatever is left. That ordering
             matters — the label used to be `flex-1` with a zero basis, so a long
             value (the dev build string, say) collapsed it to an ellipsis, while
             the value itself had no shrink of its own and ran straight past the
             row to be clipped by the screen edge. */}
-        <View style={{ flexShrink: 1 }}>
+      <View style={{ flexShrink: 1 }}>
+        <Text
+          style={{
+            color:
+              textColor === "blue"
+                ? accent[500]
+                : textColor === "red"
+                  ? tokens.color.state.danger
+                  : tokens.color.text.primary,
+          }}
+          numberOfLines={1}
+        >
+          {title}
+        </Text>
+        {subtitle && (
           <Text
-            style={{
-              color:
-                textColor === "blue"
-                  ? accent[500]
-                  : textColor === "red"
-                    ? tokens.color.state.danger
-                    : tokens.color.text.primary,
-            }}
-            numberOfLines={1}
+            variant='caption'
+            tone={subtitleColor === "red" ? "danger" : "secondary"}
+            style={{ marginTop: 2 }}
+            numberOfLines={2}
           >
-            {title}
+            {subtitle}
           </Text>
-          {subtitle && (
-            <Text
-              variant='caption'
-              tone={subtitleColor === "red" ? "danger" : "secondary"}
-              style={{ marginTop: 2 }}
-              numberOfLines={2}
-            >
-              {subtitle}
-            </Text>
-          )}
-        </View>
-        {value && (
-          // Values here are diagnostics — build string, token, server URL —
-          // that are only useful in full, so wrap rather than truncate. The row
-          // has a min height, not a fixed one, so it grows to fit.
-          <View style={{ flex: 1, alignItems: "flex-end", paddingLeft: 12 }}>
-            <Text selectable tone='secondary' align='right'>
-              {value}
-            </Text>
-          </View>
-        )}
-        {children && <View style={{ marginLeft: "auto" }}>{children}</View>}
-        {showArrow && (
-          <View style={{ marginLeft: children ? 4 : "auto" }}>
-            <Icon name='chevronRight' size={18} tone='tertiary' />
-          </View>
         )}
       </View>
-      {iconAfter}
-    </>
+      {value && (
+        // Values here are diagnostics — build string, token, server URL —
+        // that are only useful in full, so wrap rather than truncate. The row
+        // has a min height, not a fixed one, so it grows to fit.
+        <View style={{ flex: 1, alignItems: "flex-end", paddingLeft: 12 }}>
+          <Text selectable tone='secondary' align='right'>
+            {value}
+          </Text>
+        </View>
+      )}
+      {children && <View style={{ marginLeft: "auto" }}>{children}</View>}
+      {showArrow && (
+        <View style={{ marginLeft: children ? 4 : "auto" }}>
+          <Icon name='chevronRight' size={18} tone='tertiary' />
+        </View>
+      )}
+      {/*
+          Inside the row, not after it. This used to sit outside the `width: "100%"` view above as
+          its sibling, which laid it out past the end of a full-width row: every consumer got a
+          glyph half-clipped by the card edge, whatever they passed. `AboutSection` already works
+          around it in a comment, and custom links has been quietly wearing it.
+
+          `marginLeft: "auto"` only when nothing else has claimed the gap, so a row that also has a
+          value, children or an arrow keeps its existing spacing.
+        */}
+      {iconAfter && (
+        <View
+          style={{
+            marginLeft: value || children || showArrow ? 8 : "auto",
+            flexShrink: 0,
+          }}
+        >
+          {iconAfter}
+        </View>
+      )}
+    </View>
   );
 };

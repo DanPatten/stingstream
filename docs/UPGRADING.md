@@ -369,3 +369,19 @@ before.
 
 The Join screen accepts a link or a code in the field, from the clipboard and from the QR scanner,
 so nobody has to know which they were sent.
+
+### v0.2.0: a node starts with a sharing server
+
+`sharing.coordinator_default` is seeded with the shipped address the first time a node's `mesh.db`
+is opened, so a new install has a sharing server without anybody being asked for one, and groups it
+creates carry that server.
+
+It was previously *prefilled into a settings form*, which is not the same thing: until somebody
+opened that form and saved, the node had none, and creating a group had to cope with that — which
+is where the short-lived Public/Private choice and its "set a sharing server first" state came from.
+Both are gone.
+
+**An existing node is seeded on its next start** if it has never had the setting. A node whose
+setting was **cleared on purpose** stores an empty string, which counts as set, so a deliberate
+clear survives every restart. Nothing else changes: the value is copied onto a group when the group
+is created, and the group is the authority from then on.

@@ -1,11 +1,9 @@
-import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, Pressable, View } from "react-native";
+import { Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Dialog } from "@/components/common/Dialog";
-import { Icon } from "@/components/common/Icon";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
@@ -23,17 +21,12 @@ import {
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { confirmDestructive } from "../shared/confirm";
+import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
 import { GroupMembers } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
-import {
-  coordinatorFor,
-  type GroupVisibility,
-  PublicPrivateChoice,
-  visibilityOf,
-} from "./PublicPrivateChoice";
 
 /**
  * One group: who is in it, how they are reached, its rendezvous server, and the way out.
@@ -225,55 +218,15 @@ export function GroupDetailScreen({ group }: { group: string }) {
 }
 
 /** A collapsed-by-default section — the shape "Advanced" needs and nothing else in this app has. */
-function Disclosure({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <View>
-      <Pressable
-        accessibilityRole='button'
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen((v) => !v)}
-        style={[
-          {
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingVertical: 12,
-          },
-          Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null,
-        ]}
-      >
-        <Text variant='heading' weight='semibold'>
-          {title}
-        </Text>
-        <Icon
-          name={open ? "chevronUp" : "chevronDown"}
-          size={18}
-          tone='secondary'
-        />
-      </Pressable>
-      {open && <View>{children}</View>}
-    </View>
-  );
-}
-
 /**
- * Make an existing group Public or Private, with the same two rows the create screen uses.
+ * The group's sharing server: what it is, and one way to change it.
  *
- * The warning is the point. This is not like changing a setting on this device: it reaches every
- * member through gossip, and a member that is offline right now adopts it when it comes back. So
- * the copy says who it affects and when.
+ * No field and no choice. A group takes its server from the node that created it, so the only thing
+ * worth offering here is "make this group use the server this node uses now" — for the case where
+ * somebody has since changed that setting and wants an existing group to follow.
  *
- * Which server Public means is this node's Sharing server setting, exactly as at creation — a group
- * is Public precisely when it carries a coordinator, so there is no third state to represent and
- * nothing here can disagree with what the node reports back.
+ * The note is the point. This is not a setting on this device: it reaches every member through
+ * gossip, and a member that is offline right now adopts it when it comes back.
  */
 function ChangeCoordinator({
   group,
@@ -283,29 +236,22 @@ function ChangeCoordinator({
   current: string | null;
 }) {
   const { t } = useTranslation();
-  const router = useRouter();
   const settings = useMeshSharingSettings();
-  const [choice, setChoice] = useState<GroupVisibility>(visibilityOf(current));
   const setCoordinator = useSetGroupCoordinator();
 
-  const sharingServer = settings.data?.coordinatorDefault ?? null;
-  // A failed query counts as settled with nothing, so Public goes unavailable rather than staying
-  // selected and quietly making the group Private. Same reasoning as the create screen.
+  const nodeServer = settings.data?.coordinatorDefault ?? null;
   const settled = settings.isSuccess || settings.isError;
-  const publicAvailable = !settled || !!sharingServer;
-  const next = coordinatorFor(choice, sharingServer);
-  const unchanged = (next ?? null) === (current ?? null);
-  // The group is already Public, through a *different* server than this node would use now. The
-  // radio cannot show that on its own — it would read as "no change" while the button was live and
-  // pressing it would move the group — so the difference is written out.
-  const movesServer = choice === "public" && !!current && !unchanged;
+  // Only offer the move when there is somewhere to move to and it is somewhere else. Everything
+  // else — still loading, already matching, nothing configured — is no button at all rather than a
+  // button that does nothing.
+  const canFollow = settled && (nodeServer ?? null) !== (current ?? null);
 
   const save = async () => {
     try {
-      await setCoordinator.mutateAsync({ group, coordinator: next });
+      await setCoordinator.mutateAsync({ group, coordinator: nodeServer });
       toast.success(
-        next
-          ? t("sharing.rendezvous_change_success", { host: hostOf(next) })
+        nodeServer
+          ? t("sharing.rendezvous_change_success", { host: hostOf(nodeServer) })
           : t("sharing.rendezvous_change_success_default"),
       );
     } catch (error) {
@@ -315,61 +261,50 @@ function ChangeCoordinator({
 
   return (
     <View>
-      <PublicPrivateChoice
-        value={choice}
-        onChange={setChoice}
-        publicAvailable={publicAvailable}
-        disabled={setCoordinator.isPending}
-      />
-      <View style={{ marginTop: 12 }}>
-        <ListGroup>
-          <ListItem
-            title={t("home.settings.sections.sharing_server")}
-            subtitle={sharingServer ?? t("sharing.server_row_none")}
-            showArrow
+      <ListGroup>
+        <ListItem
+          title={t("sharing.group_server_label")}
+          subtitle={current ? hostOf(current) : t("sharing.group_server_none")}
+        />
+      </ListGroup>
+
+      {canFollow && (
+        <>
+          <Text variant='caption' tone='accent' style={{ marginTop: 12 }}>
+            {t("sharing.group_server_differs", {
+              from: current ? hostOf(current) : t("sharing.group_server_none"),
+              to: nodeServer
+                ? hostOf(nodeServer)
+                : t("sharing.group_server_none"),
+            })}
+          </Text>
+          <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
+            {t("sharing.rendezvous_change_note")}
+          </Text>
+          <View style={{ height: 12 }} />
+          <Button
+            variant='primary'
             disabled={setCoordinator.isPending}
-            onPress={() => router.push("/settings/groups/server")}
-          />
-        </ListGroup>
-      </View>
-      {movesServer && (
-        <Text variant='caption' tone='accent' style={{ marginTop: 12 }}>
-          {t("sharing.server_moves_note", {
-            from: hostOf(current ?? ""),
-            to: hostOf(next ?? ""),
-          })}
-        </Text>
+            loading={setCoordinator.isPending}
+            onPress={() => void save()}
+          >
+            {t("sharing.group_server_follow")}
+          </Button>
+        </>
       )}
-      <Text variant='caption' tone='secondary' style={{ marginTop: 12 }}>
-        {t("sharing.rendezvous_change_note")}
-      </Text>
-      <View style={{ height: 12 }} />
-      <Button
-        variant='primary'
-        disabled={unchanged || setCoordinator.isPending}
-        loading={setCoordinator.isPending}
-        onPress={() => void save()}
-      >
-        {unchanged
-          ? t("sharing.rendezvous_no_change")
-          : t("sharing.rendezvous_change_button")}
-      </Button>
     </View>
   );
 }
 
 function ReadOnlyCoordinator({ coordinator }: { coordinator: string | null }) {
   const { t } = useTranslation();
-  const visibility = visibilityOf(coordinator);
   return (
     <View>
       <Text variant='body' weight='semibold'>
-        {t("sharing.connect_label")}
+        {t("sharing.group_server_label")}
       </Text>
       <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
-        {visibility === "public"
-          ? t("sharing.read_only_public", { host: hostOf(coordinator ?? "") })
-          : t("sharing.read_only_private")}
+        {coordinator ? hostOf(coordinator) : t("sharing.group_server_none")}
       </Text>
     </View>
   );
