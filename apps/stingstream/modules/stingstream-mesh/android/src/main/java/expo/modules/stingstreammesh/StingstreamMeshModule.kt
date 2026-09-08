@@ -384,7 +384,6 @@ class StingstreamMeshModule : Module() {
   private fun groupMap(g: GroupInfo): Map<String, Any?> = mapOf(
     "id" to g.id,
     "name" to g.name,
-    "coordinator" to g.coordinator,
     "createdAt" to g.createdAt,
     "members" to g.members.toInt(),
     "online" to g.online.toInt(),
@@ -404,7 +403,6 @@ class StingstreamMeshModule : Module() {
   private fun joinMap(j: JoinResult): Map<String, Any?> = mapOf(
     "group" to j.group,
     "name" to j.name,
-    "coordinator" to j.coordinator,
     "via" to j.via,
     "contacted" to j.contacted,
   )
