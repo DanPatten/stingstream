@@ -16,7 +16,6 @@ import { useHealthz } from "@/lib/stingstream/status";
 import { GapNotice } from "../shared/GapNotice";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
-import { SideDoorSection } from "./SideDoorSection";
 
 /** "jellyfin"/"radarr"/"sonarr"/"nzbget"/"mesh" reach the UI verbatim from the
  * supervisor — data, not text this app wrote — and every one of those first
@@ -237,8 +236,6 @@ export function NodeStatusScreen() {
           )}
 
           <View style={{ height: 16 }} />
-
-          <SideDoorSection />
         </>
       )}
     </QueryState>

@@ -6,10 +6,7 @@ import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import {
-  useCreateMeshGroup,
-  useMeshSharingSettings,
-} from "@/lib/stingstream/mesh";
+import { useCreateMeshGroup } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { FormCard } from "./FormCard";
 import { InviteCard } from "./InviteCard";
@@ -34,22 +31,14 @@ export function CreateGroupScreen() {
   );
   const [error, setError] = useState<string | null>(null);
   const create = useCreateMeshGroup();
-  const settings = useMeshSharingSettings();
   const mesh = useMesh();
 
-  // Wait for the settings rather than racing them: creating with `coordinator: null` because the
-  // query had not landed yet would make a group that is quietly server-less, and nothing on screen
-  // would ever say so.
-  const settled = settings.isSuccess || settings.isError;
-  const ready = name.trim().length > 0 && settled;
+  const ready = name.trim().length > 0;
 
   const onCreate = async () => {
     setError(null);
     try {
-      const group = await create.mutateAsync({
-        name: name.trim(),
-        coordinator: settings.data?.coordinatorDefault ?? null,
-      });
+      const group = await create.mutateAsync({ name: name.trim() });
       setCreated({ id: group.group, name: group.name });
       // The phone joins the new group as a light member straight away, so the very first thing
       // played from it goes peer to peer rather than through the server.

@@ -36,14 +36,22 @@
  * ## DNS rebinding
  *
  * Some routers (OpenWrt's dnsmasq, pfSense, Fritz!Box) refuse to return a private address from a
- * public DNS name, which breaks `lan.<nodeid>` specifically. {@link diagnoseRebinding} spots the
- * signature — the LAN *name* failed while the LAN *address* answers — and
+ * public DNS name — which breaks a domain somebody has pointed at their own machine.
+ * {@link diagnoseRebinding} spots the signature — the *name* failed while the LAN *address*
+ * answers — and
  * {@link plainLanFallback} produces the plain-HTTP URL that still works, with a warning the UI is
  * expected to show, because it is genuinely a downgrade.
  */
 
-/** The three kinds of hostname a node publishes, plus the un-encrypted fallback. */
-export type SideDoorKind = "lan" | "pub" | "relay" | "lan-ip-http";
+/**
+ * Where a browser can try to reach a node.
+ *
+ * There used to be three HTTPS names, all under a coordinator's DNS zone and all covered by one
+ * wildcard certificate. With the coordinator gone (Part 5) a node has at most one address — the
+ * domain its owner pointed at it — so there is one kind to race, and the plain-HTTP LAN fallback
+ * beneath it.
+ */
+export type SideDoorKind = "own" | "lan-ip-http";
 
 export interface SideDoorCandidate {
   kind: SideDoorKind;
@@ -53,20 +61,14 @@ export interface SideDoorCandidate {
   url: string;
 }
 
-/** `ok`, `blocked` or `unknown` — the coordinator's last verdict on the `pub` name. */
-export type DirectHttps = "ok" | "blocked" | "unknown";
-
 /**
  * What a node publishes about its side door. Mirrors `stingstream_mesh::sidedoor::SideDoor`;
  * every optional field really can be missing, because the Rust side skips `None`.
  */
 export interface SideDoorRecord {
-  /** The node id in z-base-32 — the label inside every hostname. */
+  /** The node id, so a remembered winner is keyed to the node it was raced for. */
   node: string;
-  zone?: string;
-  coordinator?: string;
   candidates: SideDoorCandidate[];
-  direct_https?: DirectHttps;
   cert_expiry?: string;
   /** The node's private addresses, for the DNS-rebinding fallback. */
   lan_ips?: string[];
@@ -83,7 +85,8 @@ export interface Hello {
   node: string;
   secure: boolean;
   client_ip?: string | null;
-  direct_https?: DirectHttps;
+  /** Whether the node is serving HTTPS at all: `off`, `no_certificate` or `ready`. */
+  https?: "off" | "no_certificate" | "ready";
 }
 
 /** One candidate's outcome. */
@@ -128,23 +131,13 @@ const LAST_SUFFIX = "last";
 /**
  * Which candidates to open, in the order they should be started.
  *
- * They are raced in parallel, so the order is a tie-break rather than a priority — but it is a
- * real one: `lan` is started first because when it works it wins by an order of magnitude, and
- * `relay` last because it is the only one that always costs a second hop through somebody else's
- * server.
- *
- * A `pub` name the coordinator has already found unreachable is dropped rather than raced. That
- * verdict comes from a real TLS handshake attempted from outside, which is a much better test than
- * anything this side can run, and skipping it saves the client a full timeout on the one candidate
- * most likely to hang rather than fail.
+ * A node has at most one HTTPS address now — the domain its owner pointed at it — so this is a
+ * list of one, or of none. It stays a list because [`raceSideDoor`] races it against the
+ * plain-HTTP LAN fallback and picks the encrypted winner, and because a node with two addresses is
+ * a plausible thing to want later.
  */
 export function candidatesToTry(record: SideDoorRecord): SideDoorCandidate[] {
-  const order: SideDoorKind[] = ["lan", "pub", "relay"];
-  const blocked = record.direct_https === "blocked";
-  return order
-    .map((kind) => record.candidates.find((c) => c.kind === kind))
-    .filter((c): c is SideDoorCandidate => !!c)
-    .filter((c) => !(blocked && c.kind === "pub"));
+  return record.candidates.filter((c) => c.kind === "own");
 }
 
 /** The plain-HTTP URL for a node's LAN address, or `null` when it published none. */
@@ -175,7 +168,7 @@ export function diagnoseRebinding(outcomes: ProbeOutcome[]): {
   rebinding: boolean;
   reason: string;
 } {
-  const lanName = outcomes.find((o) => o.candidate.kind === "lan");
+  const lanName = outcomes.find((o) => o.candidate.kind === "own");
   const lanIp = outcomes.find((o) => o.candidate.kind === "lan-ip-http");
   if (!lanName || !lanIp) {
     return { rebinding: false, reason: "not enough was tried to tell" };
@@ -475,123 +468,46 @@ export function forgetWinner(
 // Building a record from what the app can already see
 // ---------------------------------------------------------------------------------------------
 
-/** z-base-32, the encoding every side-door hostname uses. */
-const Z32 = "ybndrfg8ejkmcpqxot1uwisza345h769";
-
 /**
- * A node id in the form its hostnames use.
+ * The one HTTPS address a node has, if its owner has set one.
  *
- * The mesh reports node ids as 64 hex characters, which is what iroh prints; a DNS label holds 63,
- * so the side door uses z-base-32 instead (52 characters for the same 32 bytes). This is the
- * conversion, and it is the only place in the app that needs to know the difference.
- */
-export function nodeIdToZ32(hex: string): string | null {
-  const clean = hex.trim().toLowerCase();
-  if (!/^[0-9a-f]+$/.test(clean) || clean.length % 2 !== 0) return null;
-  const bytes: number[] = [];
-  for (let i = 0; i < clean.length; i += 2) {
-    bytes.push(Number.parseInt(clean.slice(i, i + 2), 16));
-  }
-  let out = "";
-  let buffer = 0;
-  let bits = 0;
-  for (const b of bytes) {
-    buffer = (buffer << 8) | b;
-    bits += 8;
-    while (bits >= 5) {
-      out += Z32[(buffer >> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  // The last group is left-aligned and zero-padded, which is what z-base-32 specifies.
-  if (bits > 0) out += Z32[(buffer << (5 - bits)) & 31];
-  return out;
-}
-
-/** The inverse, so the conversion can be checked rather than believed. */
-export function z32ToNodeId(z32: string): string | null {
-  let buffer = 0;
-  let bits = 0;
-  const bytes: number[] = [];
-  for (const ch of z32.trim()) {
-    const v = Z32.indexOf(ch);
-    if (v < 0) return null;
-    buffer = (buffer << 5) | v;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((buffer >> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** The coordinator's public discovery record, `GET /node/v1/{node}`. */
-export interface DiscoveryRecord {
-  node: string;
-  names?: {
-    lan: string;
-    public: string;
-    relay: string;
-    wildcard: string;
-    acme_challenge: string;
-  };
-  direct_https?: DirectHttps;
-  last_probe?: string;
-  updated_at?: string;
-}
-
-/**
- * Build a racing record from the coordinator's public discovery record.
+ * This used to be assembled from a coordinator's discovery record, which minted three hostnames
+ * under its own DNS zone. There is no coordinator now, so the only address a node can have is the
+ * one somebody pointed at it under Settings → Sharing — and that is a string the node already
+ * hands the app.
  *
- * The fallback path, for when the home node's own API has not passed the side door through: the
- * coordinator publishes the same three names to anyone who asks. What it does *not* publish is the
- * ports — it has no reason to know them — so they are supplied here, defaulting to the gateway's
- * 8790 and the SNI router's 443. A node with a port mapping on some other number is the case this
- * cannot serve, which is why the node's own record is preferred when it is available.
+ * `null` for the ordinary case of a node with no domain: it is reachable on its own network and
+ * through the app's mesh, and a browser away from home has nothing to try. Saying so is better
+ * than racing something that cannot work.
  */
-export function sideDoorFromDiscovery(
-  record: DiscoveryRecord,
-  opts: { httpsPort?: number; relayPort?: number } = {},
+export function ownAddressRecord(
+  node: string,
+  publicAddress: string | null | undefined,
+  lan?: { ips?: string[]; httpPort?: number },
 ): SideDoorRecord | null {
-  if (!record.names) return null;
-  const httpsPort = opts.httpsPort ?? 8790;
-  const relayPort = opts.relayPort ?? 443;
-  const mk = (kind: SideDoorKind, host: string, port: number) => ({
-    kind,
-    host,
-    port,
-    url: `https://${host}:${port}`,
-  });
-  return {
-    node: record.node,
-    candidates: [
-      mk("lan", record.names.lan, httpsPort),
-      mk("pub", record.names.public, httpsPort),
-      mk("relay", record.names.relay, relayPort),
-    ],
-    direct_https: record.direct_https,
-    updated_at: record.updated_at,
-  };
-}
+  const address = publicAddress?.trim().replace(/\/+$/, "");
+  if (!address) return null;
 
-/** Fetch that record from a coordinator. `null` when the coordinator has never seen the node. */
-export async function fetchDiscoveryRecord(
-  coordinatorUrl: string,
-  nodeZ32: string,
-  opts: { fetchImpl?: typeof fetch; signal?: AbortSignal } = {},
-): Promise<DiscoveryRecord | null> {
-  const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
-  const base = coordinatorUrl.replace(/\/+$/, "");
+  let url: URL;
   try {
-    const res = await fetchImpl(`${base}/node/v1/${nodeZ32}`, {
-      credentials: "omit",
-      cache: "no-store",
-      signal: opts.signal,
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as DiscoveryRecord;
+    url = new URL(address);
   } catch {
     return null;
   }
+  if (url.protocol !== "https:") return null;
+
+  const port = url.port ? Number(url.port) : 443;
+  return {
+    node,
+    candidates: [
+      {
+        kind: "own",
+        host: url.hostname,
+        port,
+        url: `${url.protocol}//${url.host}`,
+      },
+    ],
+    lan_ips: lan?.ips,
+    http_port: lan?.httpPort,
+  };
 }

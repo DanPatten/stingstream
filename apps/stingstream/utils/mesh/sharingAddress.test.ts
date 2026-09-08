@@ -1,134 +1,95 @@
 import { describe, expect, test } from "bun:test";
-import type { CoordinatorCheck } from "./coordinator";
 import {
-  DEFAULT_SHARING_SERVER,
+  isBlank,
   isUntouched,
   sharingAddress,
+  sharingAddressProblem,
   sharingAddressReady,
   sharingAddressUrl,
 } from "./sharingAddress";
 
-const withCheck = (input: string, check: CoordinatorCheck) => ({
-  input,
-  check,
-});
-
-const coordinator = (url: string): CoordinatorCheck => ({
-  state: "ok",
-  url,
-  health: {
-    ok: true,
-    mode: "lite",
-    version: "0.1.0",
-    uptime_secs: 1,
-    relay: true,
-    quic_address_discovery: false,
-    rendezvous: true,
-    sni_router: false,
-    dns_zone: null,
-    dns_provider: "none",
-  },
-});
-
-const node = (url: string): CoordinatorCheck => ({
-  state: "own-server",
-  url,
-  name: "attic",
-});
-
-const unreachable = (url: string): CoordinatorCheck => ({
-  state: "unreachable",
-  url,
-  message: `Could not reach ${url}.`,
-});
-
-describe("each field takes one kind of address", () => {
-  test("a coordinator is right for the sharing server and wrong for your own", () => {
-    const value = withCheck(
-      "coord.example.org",
-      coordinator("https://coord.example.org"),
-    );
-    expect(sharingAddressReady(value, "coordinator")).toBe(true);
-    expect(sharingAddressUrl(value, "coordinator")).toBe(
-      "https://coord.example.org",
-    );
-    expect(sharingAddressReady(value, "own-server")).toBe(false);
-    expect(sharingAddressUrl(value, "own-server")).toBeNull();
+/**
+ * These four rules are the node's (`stingstream_mesh::sharing::normalize_public_address`), checked
+ * here too so somebody is told at the keyboard rather than after pressing Save. Each rejection is
+ * a value that produces a link which *looks* right and does not work, which is exactly the kind of
+ * mistake no screenshot catches.
+ */
+describe("sharingAddressProblem", () => {
+  test("a domain is fine, with or without a scheme", () => {
+    expect(
+      sharingAddressProblem(sharingAddress("https://media.example.com")),
+    ).toBeNull();
+    expect(
+      sharingAddressProblem(sharingAddress("media.example.com")),
+    ).toBeNull();
+    expect(
+      sharingAddressProblem(sharingAddress("media.example.com:8443")),
+    ).toBeNull();
   });
 
-  test("a node is right for your own address and wrong for the sharing server", () => {
-    const value = withCheck(
-      "media.example.com",
-      node("https://media.example.com"),
+  // A residential address rotates, no certificate authority will issue for one, and behind
+  // carrier-grade NAT there is no inbound address at all. It is the first thing people try.
+  test("a bare IP address is refused, v4 and v6", () => {
+    expect(sharingAddressProblem(sharingAddress("203.0.113.9"))).toBe(
+      "ip-address",
     );
-    expect(sharingAddressReady(value, "own-server")).toBe(true);
-    expect(sharingAddressUrl(value, "own-server")).toBe(
+    expect(
+      sharingAddressProblem(sharingAddress("https://203.0.113.9:8790")),
+    ).toBe("ip-address");
+    expect(sharingAddressProblem(sharingAddress("https://[2001:db8::1]"))).toBe(
+      "ip-address",
+    );
+  });
+
+  // The thing this opens is a browser app; outside a secure context `crypto.randomUUID` and secure
+  // storage are simply absent. This fork already hit that crash once, on LAN origins.
+  test("plain http is refused", () => {
+    expect(
+      sharingAddressProblem(sharingAddress("http://media.example.com")),
+    ).toBe("insecure");
+  });
+
+  test("a single-label host is refused, because only you can resolve it", () => {
+    expect(sharingAddressProblem(sharingAddress("nas"))).toBe("single-label");
+  });
+
+  test("blank is not a problem — clearing the address is an ordinary thing to do", () => {
+    expect(sharingAddressProblem(sharingAddress(""))).toBeNull();
+    expect(sharingAddressProblem(sharingAddress("   "))).toBeNull();
+    expect(sharingAddressReady(sharingAddress(""))).toBe(true);
+    expect(isBlank(sharingAddress("  "))).toBe(true);
+  });
+});
+
+describe("sharingAddressUrl", () => {
+  test("stores an origin, so appending /join never doubles a slash", () => {
+    expect(
+      sharingAddressUrl(sharingAddress("https://media.example.com/")),
+    ).toBe("https://media.example.com");
+    expect(sharingAddressUrl(sharingAddress("media.example.com"))).toBe(
       "https://media.example.com",
     );
-    expect(sharingAddressReady(value, "coordinator")).toBe(false);
-    expect(sharingAddressUrl(value, "coordinator")).toBeNull();
-  });
-
-  test("blank is ready for either, and stores nothing", () => {
-    for (const accept of ["coordinator", "own-server"] as const) {
-      expect(sharingAddressReady(sharingAddress(""), accept)).toBe(true);
-      expect(sharingAddressUrl(sharingAddress("   "), accept)).toBeNull();
-    }
-  });
-
-  test("a typed address that answered wrong blocks the save", () => {
-    const value = withCheck(
-      "typo.example.org",
-      unreachable("https://typo.example.org"),
+    expect(sharingAddressUrl(sharingAddress("media.example.com:8443"))).toBe(
+      "https://media.example.com:8443",
     );
-    expect(sharingAddressReady(value, "coordinator")).toBe(false);
-    expect(sharingAddressUrl(value, "coordinator")).toBeNull();
+  });
+
+  test("nothing usable stores null rather than something half-parsed", () => {
+    expect(sharingAddressUrl(sharingAddress(""))).toBeNull();
+    expect(sharingAddressUrl(sharingAddress("203.0.113.9"))).toBeNull();
+    expect(
+      sharingAddressUrl(sharingAddress("http://media.example.com")),
+    ).toBeNull();
   });
 });
 
 /**
- * The address we ship is not something anybody typed, so there is no typo for the check to catch —
- * and the check itself is the part most likely to fail for reasons that are nobody's fault: a
- * coordinator having a moment, or one built before `/healthz` carried a CORS header, whose answer
- * the browser discards before the app ever sees it. Blocking on that would make a fresh install
- * unable to keep the setting it was shipped with.
+ * The failure this guards is specific and was live once: an admin editing a domain that only
+ * resolves at home, from mobile data, found Save disabled by a value they had never typed — and
+ * worse, a save that wrote `null` over an address that was fine.
  */
-describe("the shipped address is trusted when its check cannot complete", () => {
-  test("unreachable is still ready, and still stores the address", () => {
-    const value = withCheck(
-      DEFAULT_SHARING_SERVER,
-      unreachable(DEFAULT_SHARING_SERVER),
-    );
-    expect(sharingAddressReady(value, "coordinator")).toBe(true);
-    expect(sharingAddressUrl(value, "coordinator")).toBe(
-      DEFAULT_SHARING_SERVER,
-    );
-  });
-
-  test("but not when it turns out to be a node, which is a real contradiction", () => {
-    const value = withCheck(
-      DEFAULT_SHARING_SERVER,
-      node(DEFAULT_SHARING_SERVER),
-    );
-    expect(sharingAddressUrl(value, "coordinator")).toBeNull();
-  });
-
-  test("and the leniency does not extend to anything else", () => {
-    const value = withCheck(
-      "coord.example.org",
-      unreachable("https://coord.example.org"),
-    );
-    expect(sharingAddressReady(value, "coordinator")).toBe(false);
-  });
-});
-
-/**
- * The check runs from whichever browser the admin is sitting in front of, which is not necessarily
- * where the address resolves. Without this, editing one field on mobile data would mark the *other*
- * one wrong and then save `null` over an address that was perfectly fine.
- */
-describe("a value the node already stored is left alone", () => {
-  test("untouched matches what was stored, trimmed", () => {
+describe("isUntouched", () => {
+  test("a value straight from the node is left alone", () => {
     expect(
       isUntouched(
         sharingAddress("https://media.example.com"),
@@ -137,21 +98,20 @@ describe("a value the node already stored is left alone", () => {
     ).toBe(true);
     expect(
       isUntouched(
-        sharingAddress("  https://media.example.com  "),
+        sharingAddress(" https://media.example.com "),
         "https://media.example.com",
       ),
     ).toBe(true);
     expect(isUntouched(sharingAddress(""), null)).toBe(true);
-    expect(isUntouched(sharingAddress(""), undefined)).toBe(true);
   });
 
-  test("and an edit is no longer untouched", () => {
+  test("anything actually typed is not", () => {
     expect(
       isUntouched(
         sharingAddress("https://other.example.com"),
         "https://media.example.com",
       ),
     ).toBe(false);
-    expect(isUntouched(sharingAddress("media.example.com"), null)).toBe(false);
+    expect(isUntouched(sharingAddress("x"), null)).toBe(false);
   });
 });

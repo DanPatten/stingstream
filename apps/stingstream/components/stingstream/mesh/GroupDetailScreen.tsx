@@ -14,10 +14,8 @@ import {
   canManageMembers,
   MeshUnavailableError,
   useLeaveMeshGroup,
-  useMeshSharingSettings,
   useNodeMeshGroups,
   useNodeMeshPeers,
-  useSetGroupCoordinator,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { confirmDestructive } from "../shared/confirm";
@@ -174,15 +172,6 @@ export function GroupDetailScreen({ group }: { group: string }) {
         <View style={{ height: 20 }} />
 
         <Disclosure title={t("sharing.advanced_title")}>
-          {isAdmin ? (
-            <ChangeCoordinator
-              group={group}
-              current={info?.coordinator ?? null}
-            />
-          ) : (
-            <ReadOnlyCoordinator coordinator={info?.coordinator ?? null} />
-          )}
-
           {isAdmin && (
             <View
               style={{
@@ -214,99 +203,6 @@ export function GroupDetailScreen({ group }: { group: string }) {
         </Disclosure>
       </QueryState>
     </PageContainer>
-  );
-}
-
-/** A collapsed-by-default section — the shape "Advanced" needs and nothing else in this app has. */
-/**
- * The group's sharing server: what it is, and one way to change it.
- *
- * No field and no choice. A group takes its server from the node that created it, so the only thing
- * worth offering here is "make this group use the server this node uses now" — for the case where
- * somebody has since changed that setting and wants an existing group to follow.
- *
- * The note is the point. This is not a setting on this device: it reaches every member through
- * gossip, and a member that is offline right now adopts it when it comes back.
- */
-function ChangeCoordinator({
-  group,
-  current,
-}: {
-  group: string;
-  current: string | null;
-}) {
-  const { t } = useTranslation();
-  const settings = useMeshSharingSettings();
-  const setCoordinator = useSetGroupCoordinator();
-
-  const nodeServer = settings.data?.coordinatorDefault ?? null;
-  const settled = settings.isSuccess || settings.isError;
-  // Only offer the move when there is somewhere to move to and it is somewhere else. Everything
-  // else — still loading, already matching, nothing configured — is no button at all rather than a
-  // button that does nothing.
-  const canFollow = settled && (nodeServer ?? null) !== (current ?? null);
-
-  const save = async () => {
-    try {
-      await setCoordinator.mutateAsync({ group, coordinator: nodeServer });
-      toast.success(
-        nodeServer
-          ? t("sharing.rendezvous_change_success", { host: hostOf(nodeServer) })
-          : t("sharing.rendezvous_change_success_default"),
-      );
-    } catch (error) {
-      toast.error((error as Error).message);
-    }
-  };
-
-  return (
-    <View>
-      <ListGroup>
-        <ListItem
-          title={t("sharing.group_server_label")}
-          subtitle={current ? hostOf(current) : t("sharing.group_server_none")}
-        />
-      </ListGroup>
-
-      {canFollow && (
-        <>
-          <Text variant='caption' tone='accent' style={{ marginTop: 12 }}>
-            {t("sharing.group_server_differs", {
-              from: current ? hostOf(current) : t("sharing.group_server_none"),
-              to: nodeServer
-                ? hostOf(nodeServer)
-                : t("sharing.group_server_none"),
-            })}
-          </Text>
-          <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
-            {t("sharing.rendezvous_change_note")}
-          </Text>
-          <View style={{ height: 12 }} />
-          <Button
-            variant='primary'
-            disabled={setCoordinator.isPending}
-            loading={setCoordinator.isPending}
-            onPress={() => void save()}
-          >
-            {t("sharing.group_server_follow")}
-          </Button>
-        </>
-      )}
-    </View>
-  );
-}
-
-function ReadOnlyCoordinator({ coordinator }: { coordinator: string | null }) {
-  const { t } = useTranslation();
-  return (
-    <View>
-      <Text variant='body' weight='semibold'>
-        {t("sharing.group_server_label")}
-      </Text>
-      <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
-        {coordinator ? hostOf(coordinator) : t("sharing.group_server_none")}
-      </Text>
-    </View>
   );
 }
 

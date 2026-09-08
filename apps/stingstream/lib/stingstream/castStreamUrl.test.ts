@@ -3,7 +3,6 @@ import {
   parseFederatedStreamPath,
   resolveCastStreamUrl,
 } from "./castStreamUrl";
-import { nodeIdToZ32 } from "./sidedoor";
 
 // castStreamUrl.ts deliberately imports the mesh's plain-fetch layer from `./meshApi`, not the
 // React Query hooks in `./mesh` — the latter reaches `providers/JellyfinProvider` at module
@@ -130,7 +129,7 @@ describe("resolveCastStreamUrl", () => {
     expect(result).toBeNull();
   });
 
-  test("races the peer's own gossiped side door when the home node's mesh has it", async () => {
+  test("races the peer's own address when the home node's mesh has it", async () => {
     const { impl } = fakeFetch({
       [PEERS_URL]: {
         body: [
@@ -143,10 +142,10 @@ describe("resolveCastStreamUrl", () => {
               node: "peerz32",
               candidates: [
                 {
-                  kind: "lan",
-                  host: "lan.peerz32.direct.example.org",
+                  kind: "own",
+                  host: "peer.example.com",
                   port: 8790,
-                  url: "https://lan.peerz32.direct.example.org:8790",
+                  url: "https://peer.example.com:8790",
                 },
               ],
               updated_at: "2026-09-05T00:00:00Z",
@@ -154,7 +153,7 @@ describe("resolveCastStreamUrl", () => {
           },
         ],
       },
-      "https://lan.peerz32.direct.example.org:8790/sidedoor/v1/hello": {
+      "https://peer.example.com:8790/sidedoor/v1/hello": {
         body: {
           ok: true,
           node: "peerz32",
@@ -171,9 +170,9 @@ describe("resolveCastStreamUrl", () => {
     })) as CastStreamResolution;
 
     expect(result.via).toBe("sidedoor");
-    expect(result.kind).toBe("lan");
+    expect(result.kind).toBe("own");
     expect(result.url).toBe(
-      `https://lan.peerz32.direct.example.org:8790${suffix(PEER_NODE)}`,
+      `https://peer.example.com:8790${suffix(PEER_NODE)}`,
     );
   });
 
@@ -188,17 +187,17 @@ describe("resolveCastStreamUrl", () => {
             node: "homez32",
             candidates: [
               {
-                kind: "pub",
-                host: "pub.homez32.direct.example.org",
+                kind: "own",
+                host: "home.example.com",
                 port: 8790,
-                url: "https://pub.homez32.direct.example.org:8790",
+                url: "https://home.example.com:8790",
               },
             ],
             updated_at: "2026-09-05T00:00:00Z",
           },
         },
       },
-      "https://pub.homez32.direct.example.org:8790/sidedoor/v1/hello": {
+      "https://home.example.com:8790/sidedoor/v1/hello": {
         body: { ok: true, node: "homez32", secure: true },
       },
     });
@@ -211,80 +210,7 @@ describe("resolveCastStreamUrl", () => {
 
     expect(result.via).toBe("sidedoor");
     expect(result.url).toBe(
-      `https://pub.homez32.direct.example.org:8790${suffix(HOME_NODE)}`,
-    );
-  });
-
-  test("falls back to the home gateway when the peer's node id cannot be turned into a z32 hostname label either", async () => {
-    // PEER_NODE is not valid hex, so nodeIdToZ32 rejects it — the coordinator discovery-record
-    // path (source 2) has nothing to look up with, on top of the peer carrying no SideDoor
-    // (source 1). See the next test for the discovery-record success path with a real hex id.
-    const { impl } = fakeFetch({
-      [PEERS_URL]: { body: [{ Group: GROUP, Node: PEER_NODE, Online: true }] },
-      [GROUPS_URL]: {
-        body: [
-          {
-            Group: GROUP,
-            Name: "home",
-            Coordinator: "https://coordinator.example.org",
-          },
-        ],
-      },
-    });
-    globalThis.fetch = impl;
-
-    const result = (await resolveCastStreamUrl({
-      jellyfinBasePath: "https://jellyfin.example.com",
-      federatedPath: `https://stingstream.local/stream/${GROUP}/${ITEM_KEY}/${PEER_NODE}`,
-    })) as CastStreamResolution;
-
-    expect(result.via).toBe("home");
-    expect(result.url).toBe(`https://jellyfin.example.com${suffix(PEER_NODE)}`);
-  });
-
-  test("falls back to the coordinator's public discovery record when the peer carries no SideDoor field", async () => {
-    const hexNode = "ab".repeat(32);
-    const z32 = nodeIdToZ32(hexNode)!;
-    const coordinator = "https://coordinator.example.org";
-    const peersUrl =
-      "https://jellyfin.example.com/stingstream/api/v1/mesh/peers?group=g2";
-    const { impl } = fakeFetch({
-      [peersUrl]: { body: [{ Group: "g2", Node: hexNode, Online: true }] },
-      [GROUPS_URL]: {
-        body: [{ Group: "g2", Name: "home", Coordinator: coordinator }],
-      },
-      [`${coordinator}/node/v1/${z32}`]: {
-        body: {
-          node: z32,
-          names: {
-            lan: "lan.x.direct.example.org",
-            public: "pub.x.direct.example.org",
-            relay: "relay.x.direct.example.org",
-            wildcard: "*.x.direct.example.org",
-            acme_challenge: "_acme-challenge.x.direct.example.org",
-          },
-        },
-      },
-      "https://pub.x.direct.example.org:8790/sidedoor/v1/hello": {
-        body: { ok: true, node: z32, secure: true },
-      },
-      "https://lan.x.direct.example.org:8790/sidedoor/v1/hello": {
-        status: 500,
-      },
-      "https://relay.x.direct.example.org:443/sidedoor/v1/hello": {
-        status: 500,
-      },
-    });
-    globalThis.fetch = impl;
-
-    const result = (await resolveCastStreamUrl({
-      jellyfinBasePath: "https://jellyfin.example.com",
-      federatedPath: `https://stingstream.local/stream/g2/${ITEM_KEY}/${hexNode}`,
-    })) as CastStreamResolution;
-
-    expect(result.via).toBe("sidedoor");
-    expect(result.url).toBe(
-      `https://pub.x.direct.example.org:8790/stream/g2/${encodeURIComponent(ITEM_KEY)}/${hexNode}`,
+      `https://home.example.com:8790${suffix(HOME_NODE)}`,
     );
   });
 
@@ -300,10 +226,10 @@ describe("resolveCastStreamUrl", () => {
               node: "peerz32",
               candidates: [
                 {
-                  kind: "lan",
-                  host: "lan.peerz32.direct.example.org",
+                  kind: "own",
+                  host: "peer.example.com",
                   port: 8790,
-                  url: "https://lan.peerz32.direct.example.org:8790",
+                  url: "https://peer.example.com:8790",
                 },
               ],
               updated_at: "2026-09-05T00:00:00Z",
@@ -311,7 +237,7 @@ describe("resolveCastStreamUrl", () => {
           },
         ],
       },
-      "https://lan.peerz32.direct.example.org:8790/sidedoor/v1/hello": {
+      "https://peer.example.com:8790/sidedoor/v1/hello": {
         status: 500,
       },
     });

@@ -12,14 +12,15 @@ import {
 } from "react";
 import { Platform } from "react-native";
 import { useWifiSSID } from "@/hooks/useWifiSSID";
-import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
-  fetchDiscoveryRecord,
-  nodeIdToZ32,
+  useMeshSharingSettings,
+  useNodeMeshStatus,
+} from "@/lib/stingstream/mesh";
+import {
+  ownAddressRecord,
   raceSideDoor,
   type SideDoorChoice,
   type SideDoorRecord,
-  sideDoorFromDiscovery,
 } from "@/lib/stingstream/sidedoor";
 import { apiAtom, useJellyfin } from "@/providers/JellyfinProvider";
 import { storage } from "@/utils/mmkv";
@@ -104,15 +105,15 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
   // --- the HTTPS side door, web bundle only --------------------------------------------------
   //
   // A native build dials its home node over the mesh, so none of this applies to it. A browser
-  // cannot, and the address it should use depends entirely on where it is standing: the LAN name
-  // at home, the public name away, the coordinator's tunnel on a network that blocks everything
-  // else. Racing all three is faster and far more reliable than guessing, and the winner is
-  // remembered per network, so this normally costs one request per load.
+  // cannot, and the address it should use depends on where it is standing: the machine itself at
+  // home, the owner's own domain away. Racing is faster and more reliable than guessing, and the
+  // winner is remembered per network, so this normally costs one request per load.
   //
-  // The candidates come from the home node's own record when it publishes one, and from the
-  // coordinator's public discovery record otherwise -- `docs/SIDEDOOR.md` has both shapes.
+  // The only candidate is the address the node's owner set under Sharing. A node without one is
+  // reachable on its own network and through the app's mesh, and not from a browser elsewhere --
+  // see `docs/SIDEDOOR.md`.
   const { data: meshStatus } = useNodeMeshStatus();
-  const { data: meshGroups } = useNodeMeshGroups();
+  const { data: sharing } = useMeshSharingSettings();
   const racedNodeRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -127,17 +128,13 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
     let cancelled = false;
     const controller = new AbortController();
     (async () => {
-      let record: SideDoorRecord | null = meshStatus?.sideDoor ?? null;
-      if (!record) {
-        const coordinator = meshGroups?.find((g) => g.coordinator)?.coordinator;
-        const z32 = nodeIdToZ32(node);
-        if (coordinator && z32) {
-          const discovery = await fetchDiscoveryRecord(coordinator, z32, {
-            signal: controller.signal,
-          });
-          record = discovery ? sideDoorFromDiscovery(discovery) : null;
-        }
-      }
+      // The node's own address, when its owner has set one. Nothing else can be raced now: the
+      // three coordinator-issued hostnames went with the coordinator, so a node with no domain is
+      // simply not reachable from a browser away from home, and racing would say so slowly.
+      const record: SideDoorRecord | null = ownAddressRecord(
+        node,
+        sharing?.publicAddress,
+      );
       if (!record || cancelled) return;
 
       const choice = await raceSideDoor(record, { signal: controller.signal });
@@ -160,8 +157,7 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
     };
   }, [
     meshStatus?.node,
-    meshStatus?.sideDoor,
-    meshGroups,
+    sharing?.publicAddress,
     switchServerUrl,
     api?.basePath,
   ]);

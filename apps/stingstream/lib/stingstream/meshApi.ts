@@ -20,8 +20,8 @@ import type { SideDoorRecord } from "./sidedoor";
  * `GET /mesh/groups`, and the body of `POST /mesh/groups`.
  *
  * Every nullable field here is **optional**, not `T | null`: Core omits nulls from its JSON
- * rather than serialising them, so a group with no coordinator has no `coordinator` key at all.
- * Typing it as `string | null` would let code assume the key is present.
+ * rather than serialising them, so an unset field has no key at all. Typing it as `string | null`
+ * would let code assume the key is present.
  */
 export interface MeshNodeGroup {
   group: string;
@@ -30,7 +30,6 @@ export interface MeshNodeGroup {
    * Absent for the zero-server default. The mesh normalises what it stores — `https://host`
    * comes back as `https://host/` — so never compare this to what a user typed.
    */
-  coordinator?: string | null;
   createdAt: string;
 }
 
@@ -69,9 +68,9 @@ export interface MeshNodeStatus {
   /**
    * Where a browser can reach this node over HTTPS (`docs/SIDEDOOR.md`).
    *
-   * Optional twice over: a node with no coordinator publishes none, and Core only forwards the
-   * field on a build that knows about it. Absent means "race nothing"; the web bundle falls back
-   * to the coordinator's public discovery record.
+   * Absent means "race nothing", which is the ordinary state for a node whose owner has set no
+   * address: it is reachable on its own network and through the app's mesh, and not from a browser
+   * anywhere else.
    */
   sideDoor?: SideDoorRecord | null;
 }
@@ -81,9 +80,8 @@ export interface MeshInvite {
   /**
    * The same invite as a link, or `null` when this node has no host to build one from.
    *
-   * Null is an ordinary outcome and not a failure: a member with no address of their own, in a
-   * group with no coordinator, has nowhere to point a link, and the screen shows the code as it
-   * always did.
+   * Null is an ordinary outcome and not a failure: a member with no address of their own has
+   * nowhere to point a link, and the screen shows the bare code instead.
    */
   url: string | null;
 }
@@ -98,15 +96,12 @@ export interface MeshInvite {
 export interface MeshSharingSettings {
   /** A domain pointed at this node, origin only. `null` when unset. */
   publicAddress: string | null;
-  /** The sharing server a newly created Public group adopts. `null` when unset. */
-  coordinatorDefault: string | null;
 }
 
 export interface MeshJoinResponse {
   group: string;
   name: string;
-  coordinator?: string | null;
-  via: "inviter" | "rendezvous" | "none";
+  via: "inviter" | "none";
   contacted: string[];
 }
 
@@ -203,7 +198,6 @@ export const both = (camel: string): string[] => [
 export const toGroup = (raw: unknown): MeshNodeGroup => ({
   group: field<string>(raw, ...both("group")) ?? "",
   name: field<string>(raw, ...both("name")) ?? "",
-  coordinator: field<string>(raw, ...both("coordinator")),
   createdAt: field<string>(raw, ...both("createdAt")) ?? "",
 });
 
@@ -245,7 +239,6 @@ export const toStatus = (raw: unknown): MeshNodeStatus => ({
 export const toJoin = (raw: unknown): MeshJoinResponse => ({
   group: field<string>(raw, ...both("group")) ?? "",
   name: field<string>(raw, ...both("name")) ?? "",
-  coordinator: field<string>(raw, ...both("coordinator")),
   via: (field<string>(raw, ...both("via")) ??
     "none") as MeshJoinResponse["via"],
   contacted: field<string[]>(raw, ...both("contacted")) ?? [],
@@ -292,7 +285,6 @@ export const toSharingSettings = (raw: unknown): MeshSharingSettings => {
     field<string>(raw, ...both(name))?.trim() || null;
   return {
     publicAddress: read("publicAddress"),
-    coordinatorDefault: read("coordinatorDefault"),
   };
 };
 

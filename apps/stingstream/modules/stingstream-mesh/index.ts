@@ -44,7 +44,6 @@ export type MeshStatus = {
 export type MeshGroup = {
   id: string;
   name: string;
-  coordinator: string | null;
   createdAt: string;
   /** Members known to this node, including itself. */
   members: number;
@@ -66,12 +65,11 @@ export type MeshPeer = {
 export type MeshJoinResult = {
   group: string;
   name: string;
-  coordinator: string | null;
   /**
-   * `inviter`, `rendezvous`, or `none` when the group was created locally but nobody answered.
+   * `inviter`, or `none` when the group was created locally but nobody answered.
    * `none` is a success the user should still be told about.
    */
-  via: "inviter" | "rendezvous" | "none";
+  via: "inviter" | "none";
   contacted: string[];
 };
 
@@ -110,8 +108,6 @@ export type MeshStartConfig = {
   n0Dns?: boolean;
   mainlineDht?: boolean;
   n0Relays?: boolean;
-  /** `""` disables the built-in fallback coordinator entirely. */
-  fallbackCoordinator?: string;
   logFilter?: string;
 };
 

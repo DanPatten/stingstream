@@ -276,7 +276,6 @@ export function useSetMeshSharingSettings() {
           method: "PUT",
           body: JSON.stringify({
             publicAddress: next.publicAddress,
-            coordinatorDefault: next.coordinatorDefault,
           }),
         }),
       ),
@@ -300,39 +299,6 @@ export function useJoinMeshGroupOnNode() {
           body: JSON.stringify({ code: code.trim() }),
         }),
       ),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
-  });
-}
-
-/**
- * Point a group at a different coordinator. Administrator only.
- *
- * `coordinator: null` is a real value — it puts the group back on public infrastructure — so this
- * takes an explicit null rather than an optional field. The home node does the whole change: it
- * stamps it, re-seeds its own relay map, announces at the new coordinator's rendezvous and gossips
- * a signed record every other member applies under a last-writer-wins rule. Nothing here has to
- * poll for that; the other members' own screens follow within a gossip round.
- *
- * Invite codes minted afterwards carry the new value automatically, so a code copied *before* the
- * change is not invalidated — it still joins, and the joiner adopts the real coordinator from the
- * group's own gossip. See `docs/MESH.md`, "Changing a group's coordinator".
- */
-export function useSetGroupCoordinator() {
-  const { request } = useMeshApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      group,
-      coordinator,
-    }: {
-      group: string;
-      coordinator: string | null;
-    }) =>
-      request<unknown>(`/groups/${encodeURIComponent(group)}/coordinator`, {
-        method: "PUT",
-        body: JSON.stringify({ coordinator }),
-      }).then(toGroup),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
   });

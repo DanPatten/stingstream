@@ -4,12 +4,9 @@ import {
 } from "@stingstream/api-client";
 import { fetchMeshGroups, fetchMeshPeers, fetchMeshStatus } from "./meshApi";
 import {
-  fetchDiscoveryRecord,
-  nodeIdToZ32,
   raceSideDoor,
   type SideDoorKind,
   type SideDoorRecord,
-  sideDoorFromDiscovery,
 } from "./sidedoor";
 
 /**
@@ -142,8 +139,9 @@ async function findSideDoorRecord(
   accessToken: string | null | undefined,
   lookupTimeoutMs: number,
 ): Promise<SideDoorRecord | null> {
-  // Source 1: the home node's own mesh.
-  const fromHome = await withTimeout(
+  // The home node's own mesh is the only source: with no coordinator there is no public
+  // discovery record to fall back to.
+  return withTimeout(
     (async (): Promise<SideDoorRecord | null> => {
       const peers = await fetchMeshPeers(apiBaseUrl, ref.group, accessToken);
       const peer = peers.find(
@@ -158,25 +156,6 @@ async function findSideDoorRecord(
         return status.sideDoor;
       }
       return null;
-    })().catch(() => null),
-    lookupTimeoutMs,
-    null,
-  );
-  if (fromHome) return fromHome;
-
-  // Source 2: the coordinator's own public discovery record.
-  return withTimeout(
-    (async (): Promise<SideDoorRecord | null> => {
-      const groups = await fetchMeshGroups(apiBaseUrl, accessToken);
-      const coordinator = groups.find(
-        (g) => g.group.toLowerCase() === ref.group.toLowerCase(),
-      )?.coordinator;
-      if (!coordinator) return null;
-      const z32 = nodeIdToZ32(ref.node);
-      if (!z32) return null;
-      const discovery = await fetchDiscoveryRecord(coordinator, z32);
-      if (!discovery) return null;
-      return sideDoorFromDiscovery(discovery);
     })().catch(() => null),
     lookupTimeoutMs,
     null,
