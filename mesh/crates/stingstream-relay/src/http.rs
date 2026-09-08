@@ -405,33 +405,46 @@ const PAGE_STYLE: &str = "<style>\
     button{font:inherit;margin-top:.7rem;padding:.6rem 1.1rem;border-radius:8px;border:0;\
            background:#1FC7B5;color:#04201D;font-weight:600;cursor:pointer}\
     .muted{color:#B4B7BD;font-size:.9rem}\
+    .btn{display:inline-block;text-decoration:none;padding:.6rem 1.1rem;border-radius:8px;\
+         background:#1FC7B5;color:#04201D;font-weight:600}\
+    details{margin-top:1.5rem}\
+    summary{cursor:pointer}\
     </style>";
 
 /// Where the browser remembers which server is yours. Read by both pages below, and written only
 /// when somebody types one in.
 const SERVER_KEY: &str = "stingstream.server";
 
+/// Where these pages send somebody to sign in, unless the deployment names another.
+///
+/// A coordinator and an account service are separate things — different data, different blast
+/// radius, deliberately different deployments — so this is a link rather than a route.
+const DEFAULT_ACCOUNTS_URL: &str = "https://stingstream-accounts-production.up.railway.app";
+
 /// `GET /` — the portal.
 ///
-/// Dan asked for the shape `plex.tv` has: open the shared address, end up at your own server. This
-/// is that, with the account database left out. The browser remembers which server is yours and
-/// this page forwards to it; **signing in always happens on your own node**, so the coordinator
-/// never sees a username, a password or a session, and there is nothing here for anybody to
-/// breach. The cost is that the memory is per-browser, so a new device is asked once.
+/// Dan asked for the shape `plex.tv` has: open the shared address, end up at your own server. With
+/// accounts that is now literally what happens — sign in, and the app knows which servers are
+/// yours. The remembered-server path stays underneath for somebody who has not made an account, and
+/// as the thing that makes a second visit instant.
 ///
-/// It still says what the coordinator is underneath, because somebody who got here by reading a
-/// URL out of a settings screen deserves an answer to "what is this thing".
+/// **Signing in still happens on your own node.** This page hands you to the account service and
+/// the account service hands you a token your server checks itself; the coordinator never sees a
+/// password and holds no session.
 async fn index(State(state): State<AppState>) -> Html<String> {
     Html(format!(
         "<!doctype html><meta charset=utf-8><title>StingStream</title>{style}\
          <h1>StingStream</h1>\
          <div id=go hidden><p>Taking you to your server…</p>\
          <p class=muted><a id=forget href=\"#\">Use a different server</a></p></div>\
-         <div id=ask hidden><p>Which server is yours?</p>\
+         <div id=ask hidden>\
+         <p>Sign in and your servers are already there.</p>\
+         <p><a class=btn href=\"{accounts}\">Sign in</a></p>\
+         <details><summary class=muted>I know my server's address</summary>\
          <form id=f><input id=u placeholder=\"media.example.com\" autocomplete=url \
          autocapitalize=off spellcheck=false><button type=submit>Continue</button></form>\
-         <p class=muted>The address of your own StingStream server. It is remembered in this \
-         browser only — you sign in there, not here.</p></div>\
+         <p class=muted>Remembered in this browser only — you sign in there, not here.</p>\
+         </details></div>\
          <p class=muted>This is a StingStream <strong>{mode}</strong>-mode coordinator. It \
          introduces members of a group to each other and passes a connection along when two homes \
          cannot reach each other directly. It holds no media, no accounts and no group secrets. \
@@ -440,39 +453,49 @@ async fn index(State(state): State<AppState>) -> Html<String> {
          {script}",
         style = PAGE_STYLE,
         mode = state.cfg.mode,
+        accounts = state.cfg.accounts_url.as_deref().unwrap_or(DEFAULT_ACCOUNTS_URL),
         script = portal_script(""),
     ))
 }
 
 /// `GET /join` — where an invite link built from *this* coordinator lands.
 ///
-/// A redirect page rather than the app itself, deliberately. Serving the bundle here would put 12
-/// MB on the coordinator's bill for every invite anybody opened, and would pin a copy of the app to
-/// whatever version the coordinator was last deployed with — a second thing to keep in step with
-/// every node in every group, for no gain. A few hundred bytes that forward to the visitor's own
-/// server has neither problem.
+/// Dan, looking at the version of this page that opened with "Which server is yours?": *"why is it
+/// asking me for a server, that should be optional and not required, first step is to ask the user
+/// to login or create an account."* He was right, and the reason it asked is that nothing central
+/// knew who anybody was. Now something does, so the page leads with **sign in** and the address is
+/// the fallback underneath it.
 ///
-/// The code is in the fragment, so it never reaches this server: not in the request, not in this
+/// Still a redirect page rather than the app. Serving the bundle here would put twelve megabytes on
+/// the coordinator's bill for every invite anybody opened, and pin a copy of the app to whatever
+/// version this was last deployed with — one more thing to keep in step with every node in every
+/// group, for nothing.
+///
+/// The invite is in the fragment, so it never reaches this server: not in the request, not in the
 /// access log, not in any proxy's log in front of it. The script reads it in the browser only to
-/// put it back on the end of the redirect. That is still one more place the code is handled than a
-/// link built from somebody's own domain, which is why a node prefers its own address when it has
-/// one — see `docs/SECURITY.md`.
-async fn join_page() -> Html<String> {
+/// carry it across the redirect. `docs/SECURITY.md` R11 records what that costs.
+async fn join_page(State(state): State<AppState>) -> Html<String> {
     Html(format!(
         "<!doctype html><meta charset=utf-8><title>Join a StingStream group</title>{style}\
          <h1>Join a group</h1>\
          <div id=go hidden><p>Opening your invite on your server…</p>\
          <p class=muted><a id=forget href=\"#\">Use a different server</a></p></div>\
-         <div id=ask hidden><p>Which server is yours?</p>\
+         <div id=ask hidden>\
+         <p>Sign in with your StingStream account and your invite opens on your own server.</p>\
+         <p><a class=btn href=\"{accounts}\">Sign in</a></p>\
+         <p class=muted>No account? They are created on a server you own, under Settings → \
+         Account. If somebody is sharing with you, ask them for an invite.</p>\
+         <details><summary class=muted>I know my server's address</summary>\
          <form id=f><input id=u placeholder=\"media.example.com\" autocomplete=url \
          autocapitalize=off spellcheck=false><button type=submit>Continue</button></form>\
-         <p class=muted>Your invite is taken to your own server, where you sign in and accept it. \
-         This page sends it nowhere.</p></div>\
+         <p class=muted>Your invite is taken there, where you sign in and accept it. This page \
+         sends it nowhere.</p></details></div>\
          <noscript><p class=muted>This page needs JavaScript to read your invite, because the \
          invite lives in the part of the address a browser keeps to itself. Paste the whole link \
          into StingStream → Settings → Sharing → Join instead.</p></noscript>\
          {script}",
         style = PAGE_STYLE,
+        accounts = state.cfg.accounts_url.as_deref().unwrap_or(DEFAULT_ACCOUNTS_URL),
         script = portal_script("/join"),
     ))
 }
@@ -1335,7 +1358,7 @@ mod tests {
     /// this handler saw, and nothing here may put it into the page or into a log.
     #[tokio::test]
     async fn the_join_page_forwards_an_invite_without_ever_holding_one() {
-        let body = join_page().await.0;
+        let body = join_page(State(state_with(false))).await.0;
         assert!(
             body.contains("location.replace") && body.contains("location.hash"),
             "the fragment is carried across by the browser, not by this server"
@@ -1345,6 +1368,10 @@ mod tests {
             "it forwards to the server this browser remembers"
         );
         assert!(
+            body.contains("Sign in"),
+            "the first thing offered is signing in, not an address — Dan's whole point"
+        );
+        assert!(
             body.contains("<noscript>"),
             "a browser with no scripting cannot read a fragment, and should be told what to do \
              rather than shown a page that quietly does nothing"
@@ -1352,7 +1379,7 @@ mod tests {
         // The page is a few hundred bytes on purpose: serving the app here would put megabytes on
         // the coordinator's bill for every invite opened, and pin a copy of the app to whatever
         // version this was last deployed with.
-        assert!(body.len() < 4096, "join page grew to {} bytes", body.len());
+        assert!(body.len() < 8192, "join page grew to {} bytes", body.len());
     }
 
     /// The portal is the `plex.tv` shape Dan asked for, minus the accounts. The claim it makes about

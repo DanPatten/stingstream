@@ -101,6 +101,17 @@ function SettingsMobile() {
 
           <View className='mb-4' testID='settings-section-sharing'>
             <ListGroup title={t("home.settings.sections.sharing")}>
+              {/* People first, servers second. Sharing with somebody is the thing people came to
+                  do; the mesh underneath is the thing that makes it work. */}
+              {isAdmin && (
+                <ListItem
+                  testID='settings-share-people'
+                  onPress={() => router.push("/settings/share")}
+                  showArrow
+                  title={t("share.give_title")}
+                  subtitle={t("share.received_title")}
+                />
+              )}
               <ListItem
                 testID='settings-sharing'
                 onPress={() => router.push("/settings/groups")}

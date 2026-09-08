@@ -72,6 +72,14 @@ pub struct Config {
     /// Rendezvous entries and node registrations are deliberately in memory only, so a coordinator
     /// needs no volume: members refresh well inside the entry TTL, so a restart self-heals.
     pub data_dir: Option<PathBuf>,
+    /// The account service the portal and the join page send people to sign in at.
+    ///
+    /// A link, not a route: a coordinator and an account service hold completely different data
+    /// with completely different blast radii, and they are deliberately separate deployments. This
+    /// coordinator never sees a password, a session or an account — it only knows where to point.
+    /// `None` uses the address baked into the build.
+    #[serde(default)]
+    pub accounts_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,6 +258,7 @@ impl Default for Config {
             registry: RegistryConfig::default(),
             limits: RateLimitConfig::default(),
             data_dir: None,
+            accounts_url: None,
         }
     }
 }

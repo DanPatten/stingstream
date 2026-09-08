@@ -2023,5 +2023,20 @@
     "reset_detail": "There is no email on your account, so this is the only way to change it: from a server you own. Keep one reachable.",
     "reset_submit": "Set a new password",
     "reset_done": "Password changed"
+  },
+  "share": {
+    "give_title": "People you share with",
+    "give_detail": "By username. With no email on an account, a username is how somebody is named — and it is the only thing they have to tell you.",
+    "username_placeholder": "Username",
+    "give_submit": "Share my library",
+    "shared_with": "Shared with {{username}}",
+    "stopped_with": "Stopped sharing with {{username}}",
+    "received_title": "Shared with you",
+    "received_detail": "Their titles appear in your library alongside your own, with the film streaming from their computer when you press play.",
+    "received_empty": "Nobody yet.",
+    "libraries": "{{libraries}}",
+    "all_libraries": "Everything",
+    "needs_account_title": "Sign in with your StingStream account",
+    "needs_account_detail": "Sharing is between accounts, and this device signed in with a server password instead. Sign out and sign in with your account to see what people have shared with you."
   }
 }
