@@ -10,6 +10,12 @@
 #
 # To update one: `gh api repos/<owner>/<repo>/git/ref/tags/vX --jq .object.sha`, put it here, and
 # update the comment. Dependabot understands this form and will offer the bump.
+#
+# **Artifact retention.** Every upload here sets `retention-days`, because GitHub's default is 90
+# and that is wrong for all of it: a build output is reproducible from its commit, and a failed
+# run's logs are read within days or never. Left at the default these reached ~1,100 live artifacts
+# and 27 GiB, at which point an upload began failing with a 403 from the artifact service — a
+# failure that reads as a broken harness and is not one.
 
 name: CI
 
@@ -225,6 +231,8 @@ jobs:
           name: stingstream-web-dist
           path: apps/stingstream/dist/
           if-no-files-found: error
+          # A build output, reproducible from its commit by the job above.
+          retention-days: 7
 
   # The M1 acceptance harness: the test that decides whether a node actually works. It builds a
   # node, generates two test media files with the fetched jellyfin-ffmpeg, seeds them from a
@@ -360,6 +368,8 @@ jobs:
             .e2e-work/data/radarr/logs/
             .e2e-work/data/sonarr/logs/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   # The M3 acceptance harness: two complete nodes on one runner, a group with nothing hosted behind
   # it, and a peer's film playing out of the other node's own Jellyfin. Everything M1 does, plus the
@@ -486,6 +496,8 @@ jobs:
             .e2e-m3-work/node-a/sonarr/logs/
             .e2e-m3-work/node-b/sonarr/logs/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
       - name: Collect node A's federated tree
         if: always()
@@ -513,6 +525,8 @@ jobs:
           name: e2e-m3-federated
           path: .e2e-m3-artifacts/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   # The M4 acceptance harness: three nodes, two encodes of one film, and a source choice that has to
   # be right. Lighter than the M3 job despite having one more node, because none of the three runs
@@ -598,6 +612,8 @@ jobs:
             .e2e-m4-work/node-b/runtime.json
             .e2e-m4-work/node-c/runtime.json
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
       - name: Collect node A's federated tree and pinned media
         if: always()
@@ -625,6 +641,8 @@ jobs:
           name: e2e-m4-federated
           path: .e2e-m4-artifacts/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   # The M6 acceptance harness: a member with no indexers asks for a series, and somebody else's node
   # goes and gets it. Two nodes, but deliberately lopsided -- node A runs Jellyfin and the mesh only,
@@ -720,6 +738,8 @@ jobs:
             .e2e-m6-work/node-a/runtime.json
             .e2e-m6-work/node-b/runtime.json
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
       # The request rows and the claims, straight out of both databases. When a request is stuck the
       # question is always "which node thinks it owns this", and the answer is two tables.
@@ -758,6 +778,8 @@ jobs:
           name: e2e-m6-requests
           path: .e2e-m6-artifacts/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   # The M7 acceptance harness: watch together across nodes, subtitles that travel with a title, DVR
   # recordings that federate, and the two bugs M5 handed on.
@@ -846,6 +868,8 @@ jobs:
             .e2e-m7-work/node-b/runtime.json
             .e2e-m7-work/node-c/runtime.json
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
       # What A materialized: the pointers, the subtitle sidecars beside them, and the Shared
       # Recordings tree. A failure in the subtitle or recording steps is nearly always visible in
@@ -873,6 +897,8 @@ jobs:
           name: e2e-m7-federated
           path: .e2e-m7-artifacts/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   e2e-m8:
     name: "e2e: member revocation and re-key"
@@ -911,6 +937,8 @@ jobs:
           name: e2e-m8-logs
           path: .e2e-m8-work/logs/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   e2e-accounts:
     name: "e2e: accounts — registration, sharing, offline tokens"
@@ -963,6 +991,8 @@ jobs:
           name: e2e-accounts-logs
           path: .e2e-accounts-work/logs/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   # The HTTPS side-door acceptance harness: a coordinator in Full mode, a local Pebble (Let's
   # Encrypt's own test CA), and a node that gets a real ACME certificate and serves it through the
@@ -1014,3 +1044,5 @@ jobs:
           name: e2e-sidedoor-logs
           path: .e2e-sidedoor-work/logs/
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14

@@ -111,7 +111,27 @@ async fn healthz(State(state): State<Shared>) -> impl IntoResponse {
         "service": "stingstream-accounts",
         "version": env!("CARGO_PKG_VERSION"),
         "origin": state.origin,
+        "commit": short_commit(),
+        // Whether this build can do passkeys at all, which is a different question from whether it
+        // is *configured* to (`/accounts/v1/passkeys` answers that one). Here because "the deploy
+        // did not build the feature" and "the deploy has no origin" look identical from outside
+        // otherwise, and they need completely different fixes.
+        "passkeys_built": cfg!(feature = "passkeys"),
     }))
+}
+
+/// The first 7 characters of `GIT_SHA` (a full 40-character hex commit), or the whole thing if it
+/// is ever shorter -- `"unknown"`, the default, included.
+///
+/// The same field the coordinator reports, for the same reason: it is what makes an auto-deploy
+/// provable end to end. Push, watch the image publish, then watch this change to match. Without it
+/// "did my change go out?" is answered by guessing.
+fn short_commit() -> &'static str {
+    let sha = option_env!("GIT_SHA").unwrap_or("unknown");
+    match sha.char_indices().nth(7) {
+        Some((i, _)) => &sha[..i],
+        None => sha,
+    }
 }
 
 /// The public key nodes cache to verify tokens.

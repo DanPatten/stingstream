@@ -9,7 +9,13 @@
 #                UDP blocked so the connection has to fall back to the relay on TCP.
 #   * `sidedoor` — the HTTPS side door end to end against a local Pebble: a real ACME order, a real
 #                certificate, a real TLS handshake and a real tunnel through the SNI router.
-#   * `image`  — builds the coordinator image, and publishes it to GHCR on master.
+#   * `image`  — builds the coordinator image, and publishes it to GHCR on master.#
+# **Artifact retention.** Every upload here sets `retention-days`, because GitHub's default is 90
+# and that is wrong for all of it: a build output is reproducible from its commit, and a failed
+# run's logs are read within days or never. Left at the default these reached ~1,100 live artifacts
+# and 27 GiB, at which point an upload began failing with a 403 from the artifact service — a
+# failure that reads as a broken harness and is not one.
+
 name: Coordinator
 
 on:
@@ -114,6 +120,8 @@ jobs:
             /tmp/stingstream-nat/*.log
             /tmp/stingstream-nat/*/*.log
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   sidedoor:
     name: HTTPS side door (Pebble)
@@ -152,6 +160,8 @@ jobs:
           name: sidedoor-logs
           path: /tmp/stingstream-sidedoor/logs/*.log
           if-no-files-found: warn
+          # Two weeks; see the retention note in this file's header.
+          retention-days: 14
 
   image:
     name: coordinator image
