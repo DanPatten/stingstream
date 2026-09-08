@@ -10,9 +10,9 @@
 #
 # To join an existing group on first run, point STINGSTREAM_JOIN_CODE_FILE at a file containing an
 # invite code minted by another member (chmod 600) -- see docs/RUNNING.md "Running two nodes on one
-# machine" for how to mint one, and deploy/coordinator/compose.yml's own storage-node service for
-# why this is a file rather than a plain variable (an invite code carries the group's secret key
-# material). Leave it unset to run this node standalone; a group can always be created or joined
+# machine" for how to mint one. It is a file rather than a plain variable because an invite code
+# carries the group's secret key material, and a variable is visible to anything that can read the
+# process table. Leave it unset to run this node standalone; a group can always be created or joined
 # later from the web UI.
 #
 # Pinning: `:latest` moves every time master publishes a new image (images.yml). For an unattended

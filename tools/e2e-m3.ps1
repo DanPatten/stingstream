@@ -18,9 +18,8 @@
       3. Starts node B, waits for it to be healthy, and drives the movie and the episode all the
          way to an import.
       4. Starts node A, empty.
-      5. A creates a group with NO coordinator. B joins with A's invite code, A then changes the
-         group's coordinator and B follows over gossip (M4.5). Nothing anyone hosts
-         is involved: iroh's public relays and, on one machine, plain loopback.
+      5. A creates a group and B joins with A's invite code. Nothing anyone hosts is involved:
+         iroh's public relays and, on one machine, plain loopback.
       6. Asserts B's inventory reaches A's group index.
       7. Asserts A materialized Shared Movies and Shared TV entries with a poster, an overview and
          a resolution badge -- through Jellyfin's own API, as a client would see them.
@@ -32,9 +31,6 @@
          versions of one episode into one Season folder and asking whether they became one item.
      10. Stops B and asserts A's items are tagged unavailable within a minute; starts B and asserts
          the tag clears.
-     11. Repeats the group join with Dan's Railway coordinator configured, and runs a rendezvous
-         join with the inviter offline using three standalone mesh nodes.
-
     Every step is timed and reported. A non-zero exit code means M3 does not pass.
 
 .PARAMETER WorkDir
@@ -50,11 +46,6 @@
 .PARAMETER SkipBuild
     Assume everything is already built. Much faster when iterating.
 
-.PARAMETER SkipCoordinator
-    Skip the two steps that talk to Dan's Railway coordinator. They need the internet and they cost
-    metered egress on his bill, so CI skips them; the zero-server steps are the ones that must pass
-    everywhere.
-
 .PARAMETER KeepRunning
     Leave both nodes running when the harness finishes, for poking at.
 
@@ -68,7 +59,7 @@
     pwsh tools/e2e-m3.ps1
 
 .EXAMPLE
-    pwsh tools/e2e-m3.ps1 -SkipBuild -SkipCoordinator -KeepRunning
+    pwsh tools/e2e-m3.ps1 -SkipBuild -KeepRunning
 #>
 # CI job name: "e2e: two nodes — group, federated library, mesh playback" (formerly labelled M3,
 # this build plan's milestone code for the federated-library milestone).
@@ -78,7 +69,6 @@ param(
     [int]$GatewayPortA = 8890,
     [int]$GatewayPortB = 8990,
     [switch]$SkipBuild,
-    [switch]$SkipCoordinator,
     [switch]$KeepRunning,
     [switch]$KeepData,
     [int]$TimeoutSeconds = 600
@@ -109,9 +99,6 @@ $SeriesTitle = 'The Beverly Hillbillies'
 $EpisodeRelease = 'The.Beverly.Hillbillies.S01E01.1080p.WEB.x264-TEST'
 $EpisodeFileName = "$EpisodeRelease.mkv"
 $EpisodeDeclaredSize = 500MB
-
-# Dan's Railway coordinator, as docs/MESH.md records it.
-$FallbackCoordinator = 'https://stingstream-coordinator-production.up.railway.app'
 
 # How long A may take to notice B has gone. The acceptance says a minute; the harness configures
 # the mesh's gossip timings down so the whole run is not dominated by this one wait, and asserts
@@ -192,18 +179,6 @@ function Wait-Until {
     throw "Timed out after ${Seconds}s waiting for: $What. Last seen: $last"
 }
 
-function Test-SameUrl {
-    <#
-    .SYNOPSIS
-        Compare two URLs, ignoring a trailing slash.
-    .DESCRIPTION
-        The mesh parses a coordinator with Rust's `url` crate, which normalises
-        `https://host` to `https://host/`. An exact string comparison against what was sent in
-        would therefore always fail, and would look like "the group did not keep its coordinator".
-    #>
-    param([string]$A, [string]$B)
-    return ([string]$A).TrimEnd('/') -eq ([string]$B).TrimEnd('/')
-}
 
 function Get-Member-Value {
     <#
@@ -213,7 +188,7 @@ function Get-Member-Value {
         Set-StrictMode -Version Latest turns "property that does not exist" into a terminating
         error, and both APIs this harness talks to omit properties whose value is null -- ASP.NET
         with DefaultIgnoreCondition.WhenWritingNull, serde with skip_serializing_if. So a group
-        with no coordinator has no `coordinator` key at all, and reading it directly is fatal
+        with no public address has no `publicAddress` key at all, and reading it directly is fatal
         rather than $null. Every optional field goes through here.
     #>
     param($Object, [string]$Name)
@@ -243,8 +218,8 @@ function Find-Group {
 
         In this file that does not throw; it silently fails to match. Which is worse than throwing,
         because a polling loop built on it does not report "the list was empty", it reports
-        "B never adopted the new coordinator" a hundred and twenty seconds later, and sends whoever
-        reads that looking for a fault in the gossip protocol.
+        "B never saw A's inventory" a hundred and twenty seconds later, and sends whoever reads
+        that looking for a fault in the gossip protocol.
 
         M6 hit the same shape counting Radarr's movies (`@(Invoke-Node …/movies).Count -eq 0` reads
         an empty library as holding one film). Worth lifting into `e2e-common.ps1` next time
@@ -849,13 +824,10 @@ Invoke-Step 'Start node A (the watcher)' {
 }
 
 # ============================================================================================
-$Group = Invoke-Step 'A creates a group with no coordinator, B joins by invite' {
+$Group = Invoke-Step 'A creates a group, B joins by invite' {
     $group = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{ name = 'E2E Attic' }
     if (-not $group.group) { throw 'A did not create a group.' }
-    # Absent, not null: a group with no coordinator has no such key at all.
-    $coordinator = Get-Member-Value $group 'coordinator'
-    if ($coordinator) { throw "the group must have no coordinator; it has $coordinator" }
-    Write-Host "      group $($group.group) '$($group.name)', coordinator: none"
+    Write-Host "      group $($group.group) '$($group.name)'"
 
     $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
     if (-not $invite.code) { throw 'A minted no invite code.' }
@@ -869,73 +841,6 @@ $Group = Invoke-Step 'A creates a group with no coordinator, B joins by invite' 
 }
 
 # ============================================================================================
-Invoke-Step "A changes the group's coordinator and B follows" {
-    <#
-        M4.5. A group's coordinator used to be fixed at creation; this is the acceptance for
-        changing it in place.
-
-        The URL is never dialled and does not have to exist. `set_coordinator` adds it to the relay
-        map and announces at its rendezvous, both of which fail quietly against an address that
-        answers nothing -- which is the point. What is under test is the *record*: that A stamps it,
-        that it reaches B over gossip alone with nothing pushing it there, that B's own invite codes
-        then carry it, and that clearing it propagates the same way. A step that needed a live
-        coordinator would be testing the coordinator, and would need the internet, which every other
-        step here deliberately does not.
-
-        Timing: gossip converges in about a second between two nodes on loopback, but the request
-        goes through Jellyfin, so the same generous window the index step uses applies here.
-    #>
-    $wanted = 'https://e2e-coordinator.example/'
-
-    $changed = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/coordinator" `
-        -Method PUT -Body @{ coordinator = $wanted } -TimeoutSec 120
-    if (-not (Test-SameUrl (Get-Member-Value $changed 'coordinator') $wanted)) {
-        throw "A did not store the coordinator; it has '$(Get-Member-Value $changed 'coordinator')'"
-    }
-    Write-Host "      A set it to $wanted"
-
-    $deadline = (Get-Date).AddSeconds(120)
-    $adopted = $false
-    while ((Get-Date) -lt $deadline) {
-        $mine = Find-Group (Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups') $Group.group
-        if ($mine -and (Test-SameUrl (Get-Member-Value $mine 'coordinator') $wanted)) {
-            $adopted = $true
-            break
-        }
-        Start-Sleep -Milliseconds 500
-    }
-    if (-not $adopted) { throw 'B never adopted the new coordinator.' }
-    Write-Host '      B adopted it over gossip, with nothing pushing it there'
-
-    # A code minted *after* the change carries the new value -- which is what "regenerating invite
-    # codes" amounts to for a member that did not make the change.
-    $invite = Invoke-Node $NodeB "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
-    if (-not $invite.code) { throw 'B minted no invite code after the change.' }
-    Write-Host "      B minted a fresh invite carrying it"
-
-    # Clearing it is a real value, not "no opinion", and it propagates the same way -- from the node
-    # that did *not* make the first change, so this also shows the record is not owned by whoever
-    # created the group.
-    $cleared = Invoke-Node $NodeB "/stingstream/api/v1/mesh/groups/$($Group.group)/coordinator" `
-        -Method PUT -Body @{ coordinator = $null } -TimeoutSec 120
-    if (Get-Member-Value $cleared 'coordinator') {
-        throw "B did not clear the coordinator; it has '$(Get-Member-Value $cleared 'coordinator')'"
-    }
-
-    $deadline = (Get-Date).AddSeconds(120)
-    $back = $false
-    while ((Get-Date) -lt $deadline) {
-        $mine = Find-Group (Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups') $Group.group
-        if ($mine -and -not (Get-Member-Value $mine 'coordinator')) {
-            $back = $true
-            break
-        }
-        Start-Sleep -Milliseconds 500
-    }
-    if (-not $back) { throw 'A never adopted the cleared coordinator.' }
-    Write-Host '      B cleared it and A followed; the group is back on public infrastructure'
-}
-
 # ============================================================================================
 Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
     <#
@@ -949,8 +854,8 @@ Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
 
         The address is never dialled. `sharing.public_address` is a string the node validates and
         stores; nothing connects to it until somebody opens the link, which is a browser's job. So
-        a domain that does not resolve is exactly the right thing to test with -- as with the
-        coordinator step above, a step that needed a live host would be testing the host.
+        a domain that does not resolve is exactly the right thing to test with: a step that
+        needed a live host would be testing the host.
     #>
     $settingsPath = '/stingstream/api/v1/mesh/settings/sharing'
 
@@ -959,15 +864,7 @@ Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
     if (Get-Member-Value $before 'PublicAddress') {
         throw "node A already has a public address: $(Get-Member-Value $before 'PublicAddress')"
     }
-    # Seeded when the database was first opened, not prefilled into a form. Prefilling was what
-    # made creating a group have to cope with there being no server, and every "set a sharing
-    # server first" state in the UI existed to describe that gap.
-    $seeded = Get-Member-Value $before 'CoordinatorDefault'
-    if (-not $seeded) { throw 'a new node should start with a sharing server already set' }
-    Write-Host "      seeded sharing server: $seeded"
-
-    # This group has no coordinator (the step above cleared it), and node A has no domain, so there
-    # is nothing to build a link from.
+    # Node A has no domain, so there is nothing to build a link from.
     $plain = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/invite" -Method POST
     if (-not $plain.code) { throw 'A minted no invite code.' }
     if (Get-Member-Value $plain 'Url') {
@@ -1376,83 +1273,6 @@ Invoke-Step 'B comes back: the unavailable tag clears' {
     Write-Host '      tag cleared'
 }
 
-# ============================================================================================
-if ($SkipCoordinator) {
-    Skip-Step 'A group with the Railway coordinator' '-SkipCoordinator'
-    Skip-Step 'Rendezvous join with the inviter offline' '-SkipCoordinator'
-} else {
-    Invoke-Step 'A group with the Railway coordinator' {
-        $health = Invoke-Json -Uri "$FallbackCoordinator/healthz" -TimeoutSec 30
-        Write-Host "      coordinator mode=$($health.mode)"
-
-        $group = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{
-            name = 'E2E Coordinated'; coordinator = $FallbackCoordinator
-        }
-        $kept = Get-Member-Value $group 'coordinator'
-        if (-not (Test-SameUrl $kept $FallbackCoordinator)) {
-            throw "the group did not keep its coordinator: $kept"
-        }
-
-        Write-Host "      group $($group.group) '$($group.name)', coordinator $kept"
-
-        $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
-        $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
-        Write-Host "      B joined via '$($joined.via)'"
-        if ($joined.via -eq 'none') { throw 'B reached nobody in the coordinated group.' }
-        $carried = Get-Member-Value $joined 'coordinator'
-        if (-not (Test-SameUrl $carried $FallbackCoordinator)) {
-            throw "the invite did not carry the coordinator to B: $carried"
-        }
-        Write-Host '      the coordinator travelled in the invite, as a property of the group'
-    }
-
-    Invoke-Step 'Rendezvous join with the inviter offline' {
-        <#
-            Three standalone mesh nodes, no Jellyfin: X creates a group on the coordinator and Y
-            joins it, then X is stopped and Z joins with X's invite code. The address in the code
-            is dead, so the only way Z reaches anyone is the coordinator's rendezvous list -- which
-            is exactly the case the plan calls out and the one a group cannot survive without when
-            the person who sent the invite has closed their laptop.
-        #>
-        $ports = @{}
-        $nodes = @{}
-        foreach ($name in 'x', 'y', 'z') {
-            $dir = Join-Path $WorkDir "mesh-$name"
-            New-Item -ItemType Directory -Force -Path $dir | Out-Null
-            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-            $listener.Start(); $ports[$name] = $listener.LocalEndpoint.Port; $listener.Stop()
-            $nodes[$name] = Start-Tool -Name "mesh-$name" -FilePath $MeshExe -LogDir $LogDir -Arguments @(
-                '--data-dir', $dir, '--api-port', $ports[$name], 'serve', '--node-name', "probe-$name"
-            )
-        }
-        foreach ($name in 'x', 'y', 'z') {
-            Wait-Until -What "mesh-$name to answer" -Seconds 90 -PollSeconds 1 -Condition {
-                try { (Invoke-WebRequest -Uri "http://127.0.0.1:$($ports[$name])/healthz" -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 }
-                catch { $false }
-            } | Out-Null
-        }
-
-        $group = Invoke-Json -Uri "http://127.0.0.1:$($ports['x'])/mesh/v1/groups" -Method POST `
-            -Body @{ name = 'Rendezvous Probe'; coordinator = $FallbackCoordinator }
-        $invite = Invoke-Json -Uri "http://127.0.0.1:$($ports['x'])/mesh/v1/groups/$($group.group)/invite" -Method POST -Body @{}
-
-        $yJoin = Invoke-Json -Uri "http://127.0.0.1:$($ports['y'])/mesh/v1/groups/join" -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
-        Write-Host "      Y joined via '$($yJoin.via)'"
-        if ($yJoin.via -eq 'none') { throw 'Y could not reach X at all, so the rendezvous test would prove nothing.' }
-
-        # Give both members time to register with the rendezvous (they refresh every ENTRY_TTL/3).
-        Start-Sleep -Seconds 20
-
-        Write-Host '      stopping X (the inviter)'
-        Stop-Tool -Tool $nodes['x'] -DataDir (Join-Path $WorkDir 'mesh-x')
-
-        $zJoin = Invoke-Json -Uri "http://127.0.0.1:$($ports['z'])/mesh/v1/groups/join" -Method POST -Body @{ code = $invite.code } -TimeoutSec 300
-        Write-Host "      Z joined via '$($zJoin.via)', contacted: $(@(Get-Member-Value $zJoin 'contacted') -join ', ')"
-        if ($zJoin.via -ne 'rendezvous') {
-            throw "Z was expected to reach the group through the coordinator's rendezvous; it reports '$($zJoin.via)'."
-        }
-    }
-}
 
 } finally {
     Write-Head 'Summary'

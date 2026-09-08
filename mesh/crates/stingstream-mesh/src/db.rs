@@ -188,31 +188,10 @@ impl Db {
             conn: Mutex::new(conn),
         };
         db.migrate()?;
-        db.seed_sharing_defaults()?;
         db.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         Ok(db)
     }
 
-    /// Put the shipped sharing server in place on a database that has never had one.
-    ///
-    /// It used to be *prefilled into a form*, which is not the same thing at all: until somebody
-    /// opened that form and pressed Save, the node had no sharing server, so creating a group had
-    /// to cope with there being none — and that is where the whole "Public is unavailable, set a
-    /// sharing server first" state came from. Seeding it here deletes that state rather than
-    /// explaining it.
-    ///
-    /// **Absent, not empty.** Clearing the setting stores an empty string, which is a present key,
-    /// so a deliberate clear survives every restart. A seed that could not tell "never set" from
-    /// "emptied on purpose" would quietly undo the user's choice each time the node came up, and
-    /// would look like the setting simply not saving.
-    fn seed_sharing_defaults(&self) -> Result<()> {
-        if let Some(url) = crate::sharing::DEFAULT_SHARING_SERVER {
-            if self.meta(crate::sharing::COORDINATOR_DEFAULT_KEY)?.is_none() {
-                self.set_meta(crate::sharing::COORDINATOR_DEFAULT_KEY, url)?;
-            }
-        }
-        Ok(())
-    }
 
     /// Bring an existing database forward to [`SCHEMA_VERSION`].
     ///
@@ -270,7 +249,6 @@ impl Db {
             conn: Mutex::new(conn),
         };
         db.migrate()?;
-        db.seed_sharing_defaults()?;
         Ok(db)
     }
 
@@ -1510,45 +1488,8 @@ mod tests {
         }
     }
 
-    /// A node should have a sharing server without anybody being asked for one. This used to be a
-    /// value prefilled into a form, which meant a node had none until somebody found that form and
-    /// pressed Save — and every "you must set a sharing server first" state in the UI existed to
-    /// describe that gap.
-    #[test]
-    fn a_new_database_starts_with_the_shipped_sharing_server() {
-        let db = Db::open_in_memory().unwrap();
-        assert_eq!(
-            db.meta(crate::sharing::COORDINATOR_DEFAULT_KEY).unwrap().as_deref(),
-            crate::sharing::DEFAULT_SHARING_SERVER
-        );
-    }
 
-    /// The half that is easy to get wrong and impossible to see. Clearing the setting stores an
-    /// empty string; a seed that treated that as "not set" would put the shipped address back on
-    /// every restart, and the symptom would be a setting that appears not to save at all.
-    #[test]
-    fn a_sharing_server_the_user_cleared_stays_cleared() {
-        let db = Db::open_in_memory().unwrap();
-        db.set_meta(crate::sharing::COORDINATOR_DEFAULT_KEY, "").unwrap();
-        db.seed_sharing_defaults().unwrap();
-        assert_eq!(
-            db.meta(crate::sharing::COORDINATOR_DEFAULT_KEY).unwrap().as_deref(),
-            Some(""),
-            "an empty value is a decision, not an absence"
-        );
-    }
 
-    /// And a value somebody chose is never replaced either.
-    #[test]
-    fn a_sharing_server_the_user_chose_is_left_alone() {
-        let db = Db::open_in_memory().unwrap();
-        db.set_meta(crate::sharing::COORDINATOR_DEFAULT_KEY, "https://mine.example.org").unwrap();
-        db.seed_sharing_defaults().unwrap();
-        assert_eq!(
-            db.meta(crate::sharing::COORDINATOR_DEFAULT_KEY).unwrap().as_deref(),
-            Some("https://mine.example.org")
-        );
-    }
 
     fn record(key: &str, at: &str, path: Option<&str>) -> InventoryRecord {
         InventoryRecord {

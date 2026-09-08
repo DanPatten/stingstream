@@ -1,7 +1,7 @@
 # The app's half of M3c: the mesh light node inside `apps/stingstream`.
 #
 # Deliberately separate from ci.yml, which builds the .NET subtrees and takes the best part of an
-# hour, and from coordinator.yml, which is the node half of the mesh. This one is what an app or
+# hour. This one is what an app or
 # FFI change waits on.
 #
 #   * `checks` — the app's TypeScript, unit tests and formatter. Minutes.
@@ -137,7 +137,7 @@ jobs:
     timeout-minutes: 60
     steps:
       # No `lfs: true`: mesh/jellyswarrm/dev/media/** is vendored as LFS pointer text whose objects
-      # were never pushed, so an LFS checkout fails. Same reason as ci.yml and coordinator.yml.
+      # were never pushed, so an LFS checkout fails. Same reason as ci.yml.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch HEAD as of 2026-09-03

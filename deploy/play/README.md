@@ -30,16 +30,16 @@ and nowhere else:
 
 1. **The user's own node**, which is a computer they installed our server on. Everything is there:
    their account, their library, their watch history.
-2. **Their group's coordinator**, if the group has one. Optional. It sees node ids and IP addresses
-   so that two nodes can find each other; it never sees a group id, a title, or any content.
+2. **Discovery services** — n0's DNS and the mainline DHT — which hold a node id and its IP
+   addresses so that two nodes can find each other, and nothing else.
 3. **Public relays** — n0's, by default — which carry encrypted packets between nodes that cannot
    reach each other directly, and can read none of it.
 
 Google's Data Safety form has no box for "nothing leaves the device except to a server the user
 owns", so `data-safety.md` walks through how each question is answered and why. The honest answer to
 most of them is "not collected", and the place that needs care is **Data shared**, because the
-coordinator and the relays are third parties in Google's sense even though they are infrastructure
-rather than a business relationship.
+discovery services and the relays are third parties in Google's sense even though they are
+infrastructure rather than a business relationship.
 
 ## The one thing that will get it rejected if it is not handled
 

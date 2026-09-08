@@ -60,29 +60,23 @@ all live there. We have no access to it and no way to obtain access to it.
 
 If you do not run a server, the app does nothing at all.
 
-### 2. Your group's coordinator, if your group has one
+### 2. Finding the other computers in your group
 
 StingStream lets you pool libraries with people you invite. Two computers in different houses have to
-find each other, and if neither is directly reachable, something has to introduce them. That
-something is a *coordinator*.
+find each other, and StingStream runs no server of its own to introduce them. Instead it publishes
+where a computer can be reached, in two places, both operated by other people:
 
-A group may have no coordinator at all — that is the default, and in that mode nothing is sent to
-anybody but the other members of your group. If your group does nominate one, it may be a
-coordinator you run yourself, or the shared one this project operates.
+* the **DNS discovery service** run by **number 0 (n0)**, whose `iroh` library StingStream uses for
+  its peer-to-peer networking;
+* the **mainline DHT** — the same public distributed hash table BitTorrent uses.
 
-A coordinator receives, from each member's device:
+What is published is the device's **node key** (a public key generated on the device, not derived
+from anything about you or the hardware) and the **IP addresses** at which it can be reached. This
+is public information by design: anybody who knows a node key can look up its addresses. It does
+**not** include your name, your group, the titles you hold, or any of your media.
 
-* the device's **node key** (a public key, as above);
-* the device's **IP addresses**, so the other members can connect to it;
-* an **encrypted blob** it cannot open, containing that same information for the other members of
-  the group.
-
-A coordinator does **not** receive, and cannot work out: the identity of your group, the names of
-its members, the titles of anything you hold, or any of your media. The address at which your group
-stores its information on a coordinator is derived from your group's secret key, which the
-coordinator never sees.
-
-Entries expire fifteen minutes after a device stops refreshing them. Nothing is written to disk.
+Both can be turned off in the app's settings. With both off, two computers can still connect if they
+are on the same network or if one has a public address.
 
 ### 3. Public relays
 
@@ -140,8 +134,9 @@ collect information.
 
 There is no data of yours held by us to delete. To remove what exists elsewhere:
 
-* **From a group's coordinator** — leave the group in the app. Your entry stops being refreshed and
-  is discarded within fifteen minutes. Nothing is kept.
+* **From the discovery services** — leave the group, or turn discovery off in settings. Your
+  device stops publishing, and the entries expire on their own; nothing there is stored permanently
+  and none of it identifies you.
 * **From this device** — uninstall the app. Your server address, your downloads and your node key go
   with it.
 * **From your own server** — it is your computer; delete what you like. The StingStream server has a

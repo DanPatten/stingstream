@@ -34,7 +34,6 @@ fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
             n0_dns: false,
             n0_relays: false,
             mainline_dht: false,
-            fallback_coordinator: None,
             dht_bootstrap: None,
         },
         gossip: stingstream_mesh::config::GossipConfig {

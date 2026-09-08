@@ -285,22 +285,18 @@ async fn make_invite(
     Ok(Json(InviteBody { code, url }))
 }
 
-/// This node's sharing settings, as read and written by the Sharing server settings page.
+/// This node's own public address, as read and written by the Sharing settings page.
 #[derive(Serialize, Deserialize)]
 struct SharingBody {
     /// The domain the owner has pointed at this node, origin only. Null when unset.
     #[serde(default)]
     public_address: Option<String>,
-    /// The coordinator a newly created group adopts when created as Public. Null when unset.
-    #[serde(default)]
-    coordinator_default: Option<String>,
 }
 
 impl From<crate::sharing::SharingSettings> for SharingBody {
     fn from(s: crate::sharing::SharingSettings) -> Self {
         Self {
             public_address: s.public_address,
-            coordinator_default: s.coordinator_default,
         }
     }
 }
@@ -322,7 +318,6 @@ async fn put_sharing(
     let stored = node
         .set_sharing_settings(crate::sharing::SharingSettings {
             public_address: body.public_address,
-            coordinator_default: body.coordinator_default,
         })
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     Ok(Json(stored.into()))

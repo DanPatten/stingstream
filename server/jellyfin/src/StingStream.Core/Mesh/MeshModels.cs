@@ -65,8 +65,6 @@ public sealed class MeshGroup
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The group's coordinator URL, or null for a zero-server group.</summary>
-    public string? Coordinator { get; set; }
 
     public string CreatedAt { get; set; } = string.Empty;
 }
@@ -134,7 +132,6 @@ public sealed class MeshJoinResult
 
     public string Name { get; set; } = string.Empty;
 
-    public string? Coordinator { get; set; }
 
     /// <summary><c>inviter</c>, <c>rendezvous</c> or <c>none</c>.</summary>
     public string Via { get; set; } = string.Empty;
@@ -195,8 +192,6 @@ public sealed class MeshSharingSettings
     /// <summary>The domain pointed at this node, origin only. Null when unset.</summary>
     public string? PublicAddress { get; set; }
 
-    /// <summary>The coordinator a newly created Public group adopts. Null when unset.</summary>
-    public string? CoordinatorDefault { get; set; }
 }
 
 /// <summary>One node's view of one item, as the merged index serves it.</summary>

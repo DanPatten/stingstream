@@ -29,29 +29,10 @@ pub const DATA_DIR_ENV: &str = "STINGSTREAM_DATA";
 pub const API_PORT_ENV: &str = "STINGSTREAM_MESH_API_PORT";
 /// Environment variable that overrides the node name.
 pub const NODE_NAME_ENV: &str = "STINGSTREAM_MESH_NODE_NAME";
-/// Environment variable that overrides the shared fallback coordinator.
-pub const FALLBACK_COORDINATOR_ENV: &str = "STINGSTREAM_MESH_FALLBACK_COORDINATOR";
 
 /// Default local API port. 8791 sits next to the gateway's 8790.
 pub const DEFAULT_API_PORT: u16 = 8791;
 
-/// The shared fallback coordinator baked into the build. **Deliberately `None`.**
-///
-/// It used to be Dan's Railway `stingstream-relay`, appended to *every* group's relay map whether
-/// or not the group had asked for a coordinator. That made a promise the app could not keep: a
-/// group created with no coordinator was presented as peer-to-peer while its traffic could still
-/// be relayed through infrastructure one person pays for, and there is nothing to opt out of —
-/// `seed_relay_map` builds **one** relay map per node, because iroh has one endpoint, so a
-/// per-group exemption does not exist.
-///
-/// The address did not go away; it moved somewhere honest. It is the prefilled value of the
-/// *Sharing server* field in Settings, so choosing it is a visible act, and choosing it stores it
-/// as the group's own coordinator — at which point it lands in the relay map through the ordinary
-/// path, for that group's sake, with the label in the UI matching what the node actually does.
-///
-/// An install that wants a blanket fallback back still has one: set it with
-/// `STINGSTREAM_MESH_FALLBACK_COORDINATOR` or `[discovery] fallback_coordinator` in `mesh.toml`.
-pub const DEFAULT_FALLBACK_COORDINATOR: Option<&str> = None;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -91,9 +72,6 @@ pub struct DiscoveryConfig {
     /// Use n0's public relays. Turning this off leaves a group with only its own coordinator, which
     /// is what an air-gapped or self-hosted-only deployment wants.
     pub n0_relays: bool,
-    /// The shared fallback coordinator, appended to every group's relay map.
-    /// Defaults to [`DEFAULT_FALLBACK_COORDINATOR`].
-    pub fallback_coordinator: Option<String>,
     /// Replace the mainline DHT's bootstrap nodes.
     ///
     /// `None` uses the public ones, which is what everybody wants. It exists for a closed network
@@ -173,9 +151,9 @@ pub struct GossipConfig {
 /// The mesh's half of the HTTPS side door (`docs/SIDEDOOR.md`).
 ///
 /// The side door itself is driven by the supervisor, which owns the gateway, the certificate and
-/// the coordinator client. All the *mesh* contributes is the last hop of the coordinator's SNI
-/// passthrough: a `stingstream/tcp/1` listener that pipes a tunnelled TCP connection into the
-/// node's own gateway (see [`crate::tunnel`]).
+/// Kept only for the gateway port the supervisor passes down. The passthrough listener this once
+/// configured went with the coordinator (Part 5); what remains of the side door is a certificate in
+/// `$STINGSTREAM_DATA/tls/` served by the gateway itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SideDoorConfig {
@@ -218,7 +196,6 @@ impl Default for DiscoveryConfig {
             n0_dns: true,
             mainline_dht: true,
             n0_relays: true,
-            fallback_coordinator: DEFAULT_FALLBACK_COORDINATOR.map(str::to_string),
             dht_bootstrap: None,
         }
     }
@@ -329,13 +306,6 @@ impl MeshConfig {
                 self.node_name = v.trim().to_string();
             }
         }
-        if let Ok(v) = std::env::var(FALLBACK_COORDINATOR_ENV) {
-            let v = v.trim();
-            // An explicitly empty value means "no fallback", which is how a test or an
-            // air-gapped install opts out without editing the file.
-            self.discovery.fallback_coordinator =
-                if v.is_empty() { None } else { Some(v.to_string()) };
-        }
     }
 
     pub fn db_path(&self) -> PathBuf {
@@ -346,17 +316,6 @@ impl MeshConfig {
         crate::identity::node_key_path(&self.data_dir)
     }
 
-    /// The parsed fallback coordinator, if one is configured and parses.
-    pub fn fallback_coordinator(&self) -> Option<url::Url> {
-        let raw = self.discovery.fallback_coordinator.as_deref()?;
-        match raw.parse() {
-            Ok(u) => Some(u),
-            Err(e) => {
-                tracing::warn!(url = raw, error = %e, "ignoring an unparseable fallback coordinator");
-                None
-            }
-        }
-    }
 }
 
 /// Read the mesh's assigned API port out of the supervisor's `runtime.json`, if there is one.
@@ -422,26 +381,5 @@ mod tests {
         assert_eq!(MeshConfig::load(td.path()).unwrap().api.port, DEFAULT_API_PORT);
     }
 
-    #[test]
-    fn an_unparseable_fallback_coordinator_is_ignored() {
-        let mut cfg = MeshConfig::default();
-        cfg.discovery.fallback_coordinator = Some("not a url".into());
-        assert!(cfg.fallback_coordinator().is_none());
-        cfg.discovery.fallback_coordinator = Some("https://coord.example.org".into());
-        assert!(cfg.fallback_coordinator().is_some());
-    }
 
-    /// A group the user was shown as "Private" must not be quietly relayed through a server we
-    /// chose for them. Pinned as a test rather than left to the constant, because the failure is
-    /// invisible: everything works, it just works through somebody else's machine.
-    #[test]
-    fn a_node_has_no_blanket_fallback_coordinator_unless_it_is_configured() {
-        assert!(MeshConfig::default().fallback_coordinator().is_none());
-        let mut cfg = MeshConfig::default();
-        cfg.discovery.fallback_coordinator = Some("https://coord.example.org".into());
-        assert!(
-            cfg.fallback_coordinator().is_some(),
-            "an install that asks for one still gets it"
-        );
-    }
 }

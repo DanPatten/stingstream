@@ -22,8 +22,8 @@ installed themselves**, and Google's guidance is explicit that this is not colle
 
 > *"Data is not 'collected' if your app… transfers it to a server that the user controls."*
 
-That covers the user's own node. It does **not** cover the coordinator or the relays, which is where
-this declaration has to be careful rather than confident. Those are dealt with under §3.
+That covers the user's own node. It does **not** cover the discovery services or the relays, which
+is where this declaration has to be careful rather than confident. Those are dealt with under §3.
 
 ---
 
@@ -31,9 +31,9 @@ this declaration has to be careful rather than confident. Those are dealt with u
 
 | Question | Answer | Why |
 |---|---|---|
-| Does your app collect or share any of the required user data types? | **Yes** | Answering "no" would be simpler and would be wrong: the coordinator and the relays see a device's IP address, and Google counts that. |
-| Is all of the user data collected by your app encrypted in transit? | **Yes** | Everything is. Node-to-node is QUIC with TLS 1.3 and the node's own key as the identity; node-to-coordinator is HTTPS; the relay carries ciphertext it cannot read. The only plain HTTP is a node talking to itself on `127.0.0.1`, which never crosses a network. |
-| Do you provide a way for users to request that their data be deleted? | **Yes** | Two ways, both immediate and neither involving us: leave the group in the app (every trace of the device disappears from the coordinator within 15 minutes as its entry expires), or uninstall (nothing survives, because nothing was ever anywhere else). Documented at the URL in §4. |
+| Does your app collect or share any of the required user data types? | **Yes** | Answering "no" would be simpler and would be wrong: the public relays and the discovery services see a device's IP address, and Google counts that. |
+| Is all of the user data collected by your app encrypted in transit? | **Yes** | Everything is. Node-to-node is QUIC with TLS 1.3 and the node's own key as the identity; the relay carries ciphertext it cannot read. The only plain HTTP is a node talking to itself on `127.0.0.1`, which never crosses a network. |
+| Do you provide a way for users to request that their data be deleted? | **Yes** | Two ways, neither involving us, because we hold nothing to delete: turn discovery off or leave the group (the device stops publishing and the entries expire on their own), or uninstall (nothing survives, because nothing was ever anywhere else). Documented at the URL in §4. |
 
 ---
 
@@ -103,7 +103,7 @@ All rows **No**. No permission is requested for either.
 ### Device or other IDs
 | Type | Collected | Note |
 |---|---|---|
-| Device or other IDs | **No** — see §3 | No advertising id, no ANDROID_ID, no IMEI, no installation id reported to anyone. The app generates a **node key** for the mesh, which is a cryptographic identity for the device on the user's own network of devices. It is not derived from any device identifier, it is not linked to a person, and it goes only to nodes in the user's own group and to that group's coordinator. |
+| Device or other IDs | **No** — see §3 | No advertising id, no ANDROID_ID, no IMEI, no installation id reported to anyone. The app generates a **node key** for the mesh, which is a cryptographic identity for the device on the user's own network of devices. It is not derived from any device identifier, it is not linked to a person, and it goes to nodes in the user's own group and to the discovery services that resolve it to an address. |
 
 ---
 
@@ -117,24 +117,22 @@ Not collection and not sharing, by Google's own definition: it is a server the u
 controls. What goes there is everything the app does — the library, playback position, requests,
 downloads — and it never leaves it unless the user shares a title with their group.
 
-### 3.2 The group's coordinator (optional)
+### 3.2 The discovery services
 
-A group may nominate a coordinator: either one the user runs, or the shared fallback the project
-hosts. Where a group has one, each member's device sends it:
+StingStream runs no server of its own. To let two members' computers find each other, a device
+publishes where it can be reached to two third-party services: **n0's DNS discovery** (n0 make the
+`iroh` library StingStream uses) and the **mainline DHT**, the public table BitTorrent uses.
 
-* its **node id** (a public key, generated on the device, not derived from anything about the
-  person or the hardware),
-* its **IP addresses**, so that two members can find each other,
-* a **sealed blob** the coordinator cannot open, containing the same information for members of the
-  same group.
-
-It does **not** send: the group's identity (the coordinator sees a value derived from the group's
-secret, not the secret or the id), any member's name, any title, or any content.
+What is published is the device's **node id** (a public key generated on the device, not derived
+from anything about the person or the hardware) and its **IP addresses**. It is public by design —
+anybody holding a node key can resolve it — and it does **not** include the group's identity, any
+member's name, any title, or any content.
 
 **Declared as:** *Device or other IDs → shared → for App functionality.* This is the one row where
 "not collected" would be a stretch, and the honest declaration costs nothing.
 
-A group with no coordinator sends none of this to anyone. That is the default.
+Both services can be turned off in settings, at the cost of only connecting on a local network or to
+a computer with a public address.
 
 ### 3.3 Public relays
 
@@ -178,7 +176,6 @@ updated **before** the release that contains them:
   turns crash reporting on, and both are one line;
 * adding any other analytics, however anonymous;
 * adding any first-party hosted service the app talks to by default;
-* making the fallback coordinator do anything beyond rendezvous, relay and reachability;
 * any feature that reads the user's photos, files, contacts or location.
 
 A change here that ships without the form being updated is a policy violation, and Google's

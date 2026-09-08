@@ -171,9 +171,6 @@ port = $($Ports[$Name])
 n0_dns = false
 mainline_dht = false
 n0_relays = false
-# Empty rather than absent: an absent value falls back to the build's default, which is Dan's
-# Railway coordinator, and this harness must not reach anything anybody hosts.
-fallback_coordinator = ""
 
 [gossip]
 heartbeat_secs = 1

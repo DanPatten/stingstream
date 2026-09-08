@@ -51,11 +51,6 @@ pub struct MeshConfigInput {
     #[serde(alias = "n0_relays")]
     pub n0_relays: bool,
 
-    /// Override the shared fallback coordinator baked into `stingstream-mesh`. An explicitly empty
-    /// string means "no fallback at all", matching `STINGSTREAM_MESH_FALLBACK_COORDINATOR`.
-    #[serde(alias = "fallback_coordinator")]
-    pub fallback_coordinator: Option<String>,
-
     /// Seconds between gossip heartbeats.
     #[serde(alias = "heartbeat_secs")]
     pub heartbeat_secs: Option<u64>,
@@ -81,7 +76,6 @@ impl Default for MeshConfigInput {
             n0_dns: true,
             mainline_dht: false,
             n0_relays: true,
-            fallback_coordinator: None,
             heartbeat_secs: None,
             peer_timeout_secs: None,
             join_dial_timeout_secs: None,
@@ -122,12 +116,6 @@ impl MeshConfigInput {
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .unwrap_or(defaults.node_name);
-        let fallback_coordinator = match self.fallback_coordinator.as_deref().map(str::trim) {
-            // Absent means "keep the built-in default"; present-but-empty means "none".
-            None => defaults.discovery.fallback_coordinator,
-            Some("") => None,
-            Some(u) => Some(u.to_string()),
-        };
         let join_dial_timeout_secs = self
             .join_dial_timeout_secs
             .unwrap_or(defaults.peer.join_dial_timeout_secs);
@@ -151,7 +139,6 @@ impl MeshConfigInput {
                 n0_dns: self.n0_dns,
                 mainline_dht: self.mainline_dht,
                 n0_relays: self.n0_relays,
-                fallback_coordinator,
                 // Spread the rest: DiscoveryConfig grows as discovery does, and the app has an
                 // opinion about the three switches above and nothing else. See
                 // docs/CONTRIBUTING.md rule 1.
@@ -185,33 +172,8 @@ mod tests {
         let mesh = cfg.to_mesh_config(Path::new("/tmp/x"));
         assert!(mesh.peer.light);
         assert_eq!(mesh.api.port, 0);
-        // No blanket fallback coordinator, because the node no longer has one either: a group that
-        // is shown as Private must not be quietly relayed through infrastructure somebody else
-        // pays for. A phone still reaches a Public group's coordinator — it arrives with the group,
-        // from the invite — and reaches a Private one over n0's relays and DNS, as iroh does by
-        // default. What this pins is that the app follows the node's default rather than carrying
-        // one of its own.
-        assert!(mesh.discovery.fallback_coordinator.is_none());
     }
 
-    /// The override still works, in both directions. An app embedding this can name a coordinator
-    /// for every group, and an explicitly empty string still means "none" — the distinction between
-    /// absent and empty is the whole reason `fallback_coordinator` is an `Option<String>` here.
-    #[test]
-    fn a_fallback_coordinator_can_still_be_set_or_explicitly_cleared() {
-        let named = MeshConfigInput::parse(r#"{"fallbackCoordinator":"https://c.example.org"}"#)
-            .unwrap()
-            .to_mesh_config(Path::new("/tmp/x"));
-        assert_eq!(
-            named.discovery.fallback_coordinator.as_deref(),
-            Some("https://c.example.org")
-        );
-
-        let cleared = MeshConfigInput::parse(r#"{"fallbackCoordinator":""}"#)
-            .unwrap()
-            .to_mesh_config(Path::new("/tmp/x"));
-        assert!(cleared.discovery.fallback_coordinator.is_none());
-    }
 
     #[test]
     fn unknown_keys_are_ignored_so_a_newer_bundle_can_talk_to_an_older_so() {
@@ -227,24 +189,6 @@ mod tests {
         assert_eq!(cfg.api_port, 9999);
     }
 
-    #[test]
-    fn an_explicitly_empty_fallback_coordinator_means_none() {
-        let cfg = MeshConfigInput::parse(r#"{"fallbackCoordinator":""}"#).unwrap();
-        assert!(cfg
-            .to_mesh_config(Path::new("/tmp/x"))
-            .discovery
-            .fallback_coordinator
-            .is_none());
-
-        let cfg = MeshConfigInput::parse(r#"{"fallbackCoordinator":"https://c.example"}"#).unwrap();
-        assert_eq!(
-            cfg.to_mesh_config(Path::new("/tmp/x"))
-                .discovery
-                .fallback_coordinator
-                .as_deref(),
-            Some("https://c.example")
-        );
-    }
 
     #[test]
     fn a_blank_node_name_falls_back_rather_than_becoming_blank() {

@@ -56,7 +56,7 @@ permissions:
   contents: read
 
 concurrency:
-  # One release build at a time full stop -- unlike ci.yml/coordinator.yml's per-push groups,
+  # One release build at a time full stop -- unlike ci.yml's per-push groups,
   # there is no "several people pushing to master minutes apart" scenario for a release tag, and
   # two releases racing to create GitHub Releases or retag the same image is worth serializing
   # against even if it means one waits.

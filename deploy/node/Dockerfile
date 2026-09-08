@@ -5,7 +5,7 @@
 #
 # linux/amd64 and linux/arm64 from one Dockerfile via `docker buildx build --platform
 # linux/amd64,linux/arm64`, using buildx's own per-platform ARG TARGETARCH rather than separate
-# Dockerfiles. The context is the repository root, same as deploy/coordinator/Dockerfile, and
+# Dockerfiles. The context is the repository root, and
 # Dockerfile.dockerignore next to this file keeps the vendored .NET/Expo subtrees' own build
 # litter (bin/, obj/, node_modules/) out of the build context.
 #
@@ -24,9 +24,10 @@
 # reflection-based plugin loader is not something either project's own release process does.
 
 # --- Rust: supervisor + mesh -------------------------------------------------------------------
-# Same dummy-source dependency-caching trick as deploy/coordinator/Dockerfile; see its own comments
-# for why every workspace member's Cargo.toml has to be copied even though this only builds two of
-# them (cargo loads the whole workspace manifest before building any single member).
+# Dependencies build first from dummy sources so an edit to our own code does not recompile ~400
+# crates. Every workspace member's Cargo.toml is copied even though this builds only two of them:
+# cargo loads the whole workspace manifest before building any single member, so a member whose
+# manifest is missing fails the build outright.
 FROM rust:1.98-slim-bookworm AS rust-builder
 
 RUN apt-get update \
@@ -38,18 +39,14 @@ WORKDIR /src
 COPY mesh/Cargo.toml mesh/Cargo.lock ./mesh/
 COPY mesh/crates/stingstream/Cargo.toml ./mesh/crates/stingstream/
 COPY mesh/crates/stingstream-mesh/Cargo.toml ./mesh/crates/stingstream-mesh/
-COPY mesh/crates/stingstream-relay/Cargo.toml ./mesh/crates/stingstream-relay/
 COPY mesh/crates/stingstream-mesh-ffi/Cargo.toml ./mesh/crates/stingstream-mesh-ffi/
 RUN mkdir -p mesh/crates/stingstream/src \
              mesh/crates/stingstream-mesh/src \
-             mesh/crates/stingstream-relay/src \
              mesh/crates/stingstream-mesh-ffi/src \
  && echo 'fn main() {}' > mesh/crates/stingstream/src/main.rs \
  && echo '' > mesh/crates/stingstream/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh/src/main.rs \
  && echo '' > mesh/crates/stingstream-mesh/src/lib.rs \
- && echo 'fn main() {}' > mesh/crates/stingstream-relay/src/main.rs \
- && echo '' > mesh/crates/stingstream-relay/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh-ffi/src/bindgen.rs \
  && echo '' > mesh/crates/stingstream-mesh-ffi/src/lib.rs \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream -p stingstream-mesh \
@@ -144,7 +141,7 @@ RUN set -eu; \
 # --- runtime -------------------------------------------------------------------------------------
 FROM debian:bookworm-slim
 
-# ca-certificates: outbound HTTPS (ACME, the mesh's relay/coordinator HTTP calls, arr indexers).
+# ca-certificates: outbound HTTPS (arr indexers, metadata providers, n0's relays).
 # libicu72, tzdata: .NET globalization and correct local time in logs/schedules.
 # libfontconfig1, libfreetype6: Jellyfin's SkiaSharp-based image processing (thumbnails, subtitle
 # burn-in) needs a real font/rendering stack even with no fonts installed for text to rasterize.

@@ -1,10 +1,7 @@
 # The StingStream node image (M8a): deploy/node/Dockerfile, linux/amd64 + linux/arm64.
 #
-# A separate workflow from coordinator.yml on purpose: that one owns stingstream-coordinator (the
-# stingstream-relay binary, `mesh/**` broadly) and is plausibly touched by the same milestone that
-# is changing the coordinator itself; this one only cares about deploy/node/** and the three server
-# subtrees' publishable projects. Keeping them apart means a node-image-only change does not queue
-# behind, or race, an unrelated coordinator change in the same concurrency group.
+# Its own workflow so an image change does not queue behind, or race, an unrelated one: this cares
+# only about deploy/node/** and the three server subtrees' publishable projects.
 #
 #   * `build` (matrix: amd64, arm64) — each leg fetches ffmpeg/nzbget for its own platform, builds
 #     the web bundle, and does a *single-platform* `docker buildx build`, pushed under its own
@@ -19,7 +16,7 @@
 #     users actually pull (`docker buildx imagetools create`, which only copies references and
 #     costs seconds, not a second build).
 #   * A same-job smoke test on the amd64 leg only: `docker run` and `/healthz`, the same pattern
-#     coordinator.yml's own `image` job uses -- a cross-arch image cannot be `docker run` directly
+#     a cross-arch image cannot be `docker run` directly
 #     on a runner of the other architecture, and amd64 is the runner's own arch here.
 name: Images
 
@@ -45,7 +42,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Same reasoning as coordinator.yml and app.yml: on master every run gets its own group so a
+  # Same reasoning as app.yml: on master every run gets its own group so a
   # push minutes behind another is never silently cancelled before it starts; on a branch a new
   # push supersedes the old run.
   group: images-${{ github.ref }}-${{ github.ref == 'refs/heads/master' && github.run_id || '' }}
@@ -233,7 +230,7 @@ jobs:
           docker run -d --name node-smoke -p 18790:8790 stingstream-node-smoke:latest
 
           # Five processes come up here, three of them self-contained .NET apps doing first-run
-          # database setup -- a much heavier startup than coordinator.yml's single Rust binary, so
+          # database setup -- a much heavier startup than a single Rust binary, so
           # this accepts the gateway answering AT ALL (200 while healthy, 503 while a child is
           # still starting) as the pass condition within the window, rather than requiring every
           # child fully healthy -- that is what --healthcheck's own longer-run behaviour and a real
@@ -312,21 +309,6 @@ jobs:
           STINGSTREAM_JOIN_CODE_FILE=/dev/null \
             docker compose -f deploy/node/compose.yml config -q
 
-      - name: Validate deploy/coordinator/compose.yml (storage-node profile)
-        run: |
-          COORDINATOR_HOSTNAME=coord.example.org \
-          BASE_DOMAIN=example.org \
-          PUBLIC_IPS=203.0.113.1 \
-          ACME_CONTACT=admin@example.org \
-          STORAGE_NODE_JOIN_CODE_FILE=/dev/null \
-            docker compose -f deploy/coordinator/compose.yml --profile storage-node config -q
-
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Pull the just-built amd64 image
         run: docker pull ghcr.io/danpatten/stingstream-node:${{ github.sha }}-amd64
 
@@ -335,12 +317,12 @@ jobs:
           mkdir -p /tmp/smoke-data /tmp/smoke-media
           # 777, deliberately, and only for this throwaway CI fixture: proving an *arbitrary*,
           # host-user-unrelated UID can write through a bind mount means the *host* side has to
-          # allow it, exactly the situation deploy/coordinator/compose.yml's own `user:` comment
+          # allow it, exactly the situation deploy/node/compose.yml's own `user:` comment
           # tells a real operator to solve by matching ownership instead.
           chmod 777 /tmp/smoke-data /tmp/smoke-media
           # Syntactically valid (non-empty) but not a real invite -- proves the secret-file ->
           # STINGSTREAM_JOIN_CODE_FILE -> joincode::resolve -> async join attempt -> /healthz
-          # pipeline end-to-end without standing up a second coordinator+node in this job. A
+          # pipeline end-to-end without standing up a second node in this job. A
           # malformed code decodes to JoinState::Failed immediately and is never retried
           # (mesh/crates/stingstream/src/joincode.rs), which is exactly what this test asserts on.
           echo "InvalidTestInviteCodeForCISmokeTestOnly123456789" > /tmp/smoke-join-code.txt

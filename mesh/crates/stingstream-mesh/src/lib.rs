@@ -54,8 +54,3 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const HTTP_ALPN: &[u8] = b"stingstream/http/1";
 
-/// ALPN for the coordinator's SNI passthrough: a raw TCP stream tunnelled to the node's gateway.
-///
-/// Used by `stingstream-relay` when a browser reaches `relay.<nodeid>.direct.<host>` and the node
-/// is not directly reachable. The node terminates TLS itself; the coordinator sees ciphertext.
-pub const TCP_ALPN: &[u8] = b"stingstream/tcp/1";

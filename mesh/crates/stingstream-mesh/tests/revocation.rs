@@ -31,7 +31,6 @@ fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
             n0_dns: false,
             n0_relays: false,
             mainline_dht: false,
-            fallback_coordinator: None,
             dht_bootstrap: None,
         },
         gossip: stingstream_mesh::config::GossipConfig {
@@ -657,15 +656,11 @@ async fn a_node_starts_and_serves_with_every_outbound_dependency_broken() -> Res
 
     // A coordinator URL that resolves to nothing: TEST-NET-1 is reserved for documentation and
     // routed nowhere, so every attempt to reach it hangs and then fails, which is the worst shape
-    // of "down" — worse than a refused connection, because it consumes a timeout.
-    let unreachable = "https://192.0.2.1:8443".to_string();
 
     let broken = |dir: std::path::PathBuf, name: &str| {
         let mut cfg = offline_config(&dir, name);
-        // A relay map pointing at nothing, a coordinator that is down, DNS that cannot resolve,
-        // and a DHT whose bootstrap answers nothing. All at once, which is the "no network at all"
-        // case as far as this process can tell.
-        cfg.discovery.fallback_coordinator = Some(unreachable.clone());
+        // DNS that cannot resolve and a DHT whose bootstrap answers nothing, at once — the "no
+        // network at all" case as far as this process can tell.
         cfg.discovery.mainline_dht = true;
         cfg.discovery.dht_bootstrap = Some(vec!["192.0.2.1:6881".to_string()]);
         cfg

@@ -365,7 +365,6 @@ impl MeshNode {
         };
         Ok(crate::sharing::SharingSettings {
             public_address: read(crate::sharing::PUBLIC_ADDRESS_KEY)?,
-            coordinator_default: read(crate::sharing::COORDINATOR_DEFAULT_KEY)?,
         })
     }
 
@@ -383,23 +382,10 @@ impl MeshNode {
             Some(raw) => crate::sharing::normalize_public_address(raw)?,
             None => None,
         };
-        let coordinator = match next.coordinator_default.as_deref().map(str::trim) {
-            None | Some("") => None,
-            Some(raw) => Some(
-                raw.parse::<url::Url>()
-                    .map(|u| u.to_string())
-                    .map_err(|e| anyhow::anyhow!("sharing server is not a url: {e}"))?,
-            ),
-        };
         self.db
             .set_meta(crate::sharing::PUBLIC_ADDRESS_KEY, public.as_deref().unwrap_or(""))?;
-        self.db.set_meta(
-            crate::sharing::COORDINATOR_DEFAULT_KEY,
-            coordinator.as_deref().unwrap_or(""),
-        )?;
         Ok(crate::sharing::SharingSettings {
             public_address: public,
-            coordinator_default: coordinator,
         })
     }
 

@@ -4,7 +4,6 @@
 //!
 //! - **`sharing.public_address`** — a domain the owner has pointed at this node. It exists so an
 //!   invite can be a link somebody clicks instead of a code somebody retypes.
-//! - **`sharing.coordinator_default`** — which coordinator a *newly created* group uses. Seeded with
 //!   the shipped address so a new node has one without anybody being asked, and only a default: the
 //!   value is copied onto the group at creation and the group is the authority from then on, which
 //!   is what makes it possible to change one group's coordinator without disturbing another's.
@@ -21,28 +20,13 @@ use anyhow::{Result, bail};
 /// `meta` key for the domain this node is reachable at.
 pub const PUBLIC_ADDRESS_KEY: &str = "sharing.public_address";
 
-/// `meta` key for the coordinator new groups adopt.
-pub const COORDINATOR_DEFAULT_KEY: &str = "sharing.coordinator_default";
 
-/// The sharing server a node starts life with, seeded into `meta` on first open.
-///
-/// Not to be confused with [`crate::config::DEFAULT_FALLBACK_COORDINATOR`], which is `None` and
-/// stays that way. That one was a relay appended to **every** group's map whether the group asked
-/// or not, which made "no server" untrue. This one is a **setting with a value**: it is copied onto
-/// a group when the group is created, so the group has a coordinator of its own, visible in the UI
-/// and carried in its invites — and clearing the setting means the next group genuinely has none.
-///
-/// `None` builds a node that starts with no sharing server, which is what a fork or a closed
-/// deployment wants.
-pub const DEFAULT_SHARING_SERVER: Option<&str> =
-    Some("https://stingstream-coordinator-production.up.railway.app");
 
 /// Both settings, as the API hands them out and takes them back.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SharingSettings {
     /// Origin only (`https://media.example.com`), never a path — see [`normalize_public_address`].
     pub public_address: Option<String>,
-    pub coordinator_default: Option<String>,
 }
 
 /// Turn what somebody typed into the origin an invite link can be built from.

@@ -51,16 +51,32 @@ use std::sync::Mutex;
 
 /// The protocol major version this build speaks.
 ///
-/// **1** is the first numbered version: everything before M8b is retroactively "unversioned" and
-/// cannot interoperate with this one, which is the honest description of what commit 5617978
-/// already did to it.
-pub const PROTOCOL_MAJOR: u8 = 1;
+/// * **1** — the first numbered version, M8b onward. Everything before it is retroactively
+///   "unversioned" and cannot interoperate.
+/// * **2** — Part 5: the coordinator is gone, and with it the `GroupConfig` gossip body. The
+///   minor stays where it was; see [`PROTOCOL_MINOR`] for why the two axes do not move together.
+///
+/// **Why 2 is a major and not a minor.** `docs/UPGRADING.md` draws the line at what an older node
+/// *does* with a frame, not at whether the format changed. `Body` is tagged by variant name and an
+/// unknown variant is an error at the receiver rather than a skip, so the minor rules cover a
+/// variant being **added**; a variant being **removed** means a v1 node's `GroupConfig` frames are
+/// now dropped by everybody, silently, with no way for it to notice. That is a misread, which the
+/// policy calls a major. The invite payload changed shape in the same release
+/// ([`crate::group::INVITE_VERSION`] 1 → 2), which the policy says should bump this too so there is
+/// one number to compare.
+pub const PROTOCOL_MAJOR: u8 = 2;
 
 /// The protocol minor version this build speaks.
 ///
 /// * **0** — the M3–M7 protocol as it stood: peer handshake, gossip bodies through `Watch`.
 /// * **1** — M8b: group secret rotation and member revocation (`GET`/`POST /peer/v1/group/rekey`
 ///   and the `Revocation` gossip body).
+///
+/// **Deliberately not reset by the major bump.** The two axes are independent: the major says who
+/// this build can talk to at all, the minor says which optional features to expect from somebody it
+/// can. Resetting to 0 would claim a v2 node might lack rotation, which is false, and it would make
+/// [`negotiate_minor`] and the [`MINOR_REKEY`] check degenerate — clippy notices, and it is right
+/// to. So a build is "2.1": major 2, and it has rotation.
 pub const PROTOCOL_MINOR: u8 = 1;
 
 /// The minor version at which secret rotation and revocation became available.

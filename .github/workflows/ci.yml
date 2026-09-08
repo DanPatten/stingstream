@@ -138,7 +138,7 @@ jobs:
       # mesh/ is deliberately TWO separate Cargo workspaces, not one -- re-rooting Jellyswarrm's
       # crates under mesh/Cargo.toml was tried during M0 and fails on its ~40-entry
       # workspace.dependencies table. See docs/ARCHITECTURE.md "Mesh workspace" and mesh/Cargo.toml.
-      - name: Build mesh/ (stingstream, stingstream-mesh, stingstream-relay)
+      - name: Build mesh/ (stingstream, stingstream-mesh, stingstream-mesh-ffi)
         run: cargo build --manifest-path mesh/Cargo.toml --workspace
 
       - name: Test mesh/
@@ -376,13 +376,8 @@ jobs:
   # invite, the gossiped index, the materialized Shared libraries, three playback paths and the
   # offline/online tagging. See tools/e2e-m3.ps1 and docs/RUNNING.md.
   #
-  # -SkipCoordinator drops the two steps that talk to Dan's Railway coordinator. They work -- and
-  # they are run by hand before a milestone is called done -- but they need the public internet and
-  # they cost metered egress on his personal bill, which is not something every push should spend.
-  # The zero-server steps are the ones that have to pass everywhere, and they need nothing but
-  # loopback. The coordinator's own rendezvous-with-the-inviter-offline case is covered headlessly
-  # by mesh/crates/stingstream-relay/tests/rendezvous_join.rs against a coordinator the test starts
-  # itself, which runs in coordinator.yml.
+  # Every step runs: there is no infrastructure left for this harness to reach past, so nothing
+  # in it depends on anything anybody hosts.
   e2e-m3:
     name: "e2e: two nodes — group, federated library, mesh playback"
     runs-on: ubuntu-latest
@@ -474,7 +469,7 @@ jobs:
 
       - name: Run the acceptance harness
         run: >
-          pwsh tools/e2e-m3.ps1 -SkipBuild -SkipCoordinator
+          pwsh tools/e2e-m3.ps1 -SkipBuild
           -WorkDir "${{ github.workspace }}/.e2e-m3-work"
 
       # Both nodes' logs. Which node failed is usually obvious from the step name, but which node
@@ -651,7 +646,7 @@ jobs:
   # which is why this is lighter than the M3 job despite covering the same pipeline.
   #
   # No -SkipCoordinator equivalent is needed: every step runs on loopback and the group is created
-  # with no coordinator at all. See tools/e2e-m6.ps1 and docs/REQUESTS.md.
+  # See tools/e2e-m6.ps1 and docs/REQUESTS.md.
   e2e-m6:
     name: "e2e: requests"
     runs-on: ubuntu-latest
@@ -936,59 +931,6 @@ jobs:
         with:
           name: e2e-m8-logs
           path: .e2e-m8-work/logs/
-          if-no-files-found: warn
-          # Two weeks; see the retention note in this file's header.
-          retention-days: 14
-
-  # The HTTPS side-door acceptance harness: a coordinator in Full mode, a local Pebble (Let's
-  # Encrypt's own test CA), and a node that gets a real ACME certificate and serves it through the
-  # SNI-routed tunnel. Previously exercised only by coordinator.yml's own `sidedoor` job, which is
-  # path-filtered to `mesh/**`/`deploy/coordinator/**` -- this repeats it here so every push/PR gets
-  # it regardless of which paths changed, the same way the other six acceptance harnesses already
-  # do. See tools/e2e-sidedoor.ps1 and docs/SIDEDOOR.md.
-  e2e-sidedoor:
-    name: "e2e: HTTPS side door (ACME)"
-    runs-on: ubuntu-latest
-    # No ffmpeg, no .NET, no arrs: the side door is a coordinator/node/mesh concern. Budget is
-    # mostly the ACME round trip against a local Pebble and the mesh/coordinator builds.
-    timeout-minutes: 30
-    steps:
-      # No `lfs: true`, for the reason in the rust job above.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, resolved 2026-09-05
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: mesh
-          cache-on-failure: true
-
-      - name: Build the supervisor and the coordinator/relay
-        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream -p stingstream-relay
-
-      # Pebble is fetched by the harness itself (binary + the three test certificates its HTTPS
-      # listener needs) into third_party/pebble/bin. Caching it turns a GitHub download into a
-      # cache hit; a miss just fetches again, so this is an optimisation and not a dependency. Same
-      # pattern as coordinator.yml's own `sidedoor` job.
-      - name: Cache Pebble
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/pebble/bin
-          key: pebble-v2.10.1-${{ runner.os }}
-
-      - name: Run the acceptance harness
-        run: >
-          pwsh tools/e2e-sidedoor.ps1 -SkipBuild
-          -WorkDir "${{ github.workspace }}/.e2e-sidedoor-work"
-        env:
-          RUST_LOG: stingstream=info,stingstream_mesh=info,stingstream_relay=info,warn
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: e2e-sidedoor-logs
-          path: .e2e-sidedoor-work/logs/
           if-no-files-found: warn
           # Two weeks; see the retention note in this file's header.
           retention-days: 14

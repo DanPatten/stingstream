@@ -1,6 +1,6 @@
 //! Groups: identity, secrets and invite codes.
 //!
-//! A group is `(group_id, group_secret, coordinator?)`:
+//! A group is `(group_id, group_secret)`:
 //!
 //! * **`group_id`** — 32 random bytes. Also the `iroh-gossip` topic id, so it is semi-public: it
 //!   travels in invite codes and is visible to any relay that carries the topic's traffic. It

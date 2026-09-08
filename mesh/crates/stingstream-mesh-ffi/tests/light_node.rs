@@ -38,7 +38,6 @@ fn full_config(dir: &std::path::Path) -> MeshConfig {
             n0_dns: false,
             n0_relays: false,
             mainline_dht: false,
-            fallback_coordinator: None,
             // Spread rather than enumerate; see docs/CONTRIBUTING.md rule 1.
             ..Default::default()
         },
