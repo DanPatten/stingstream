@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule } from "expo";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { toast } from "sonner-native";
@@ -10,6 +10,8 @@ import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useJoinMeshGroupOnNode } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { parseInviteInput } from "@/utils/mesh/inviteLink";
+import { takePendingInvite } from "@/utils/mesh/pendingInvite";
 import { FormCard } from "./FormCard";
 
 /**
@@ -21,6 +23,11 @@ import { FormCard } from "./FormCard";
  * Three ways in, in the order they are useful on each platform: scan a QR (phone), paste from the
  * clipboard (phone and web), type it out (everywhere, and the only option on a TV — which is why
  * base58 has no look-alike characters).
+ *
+ * All three take **a link or a bare code**, because both are in circulation: an invite is a link
+ * when the minting node has an address to build one from and a code when it does not, and every
+ * invite handed out before that existed is a code. `parseInviteInput` is the one place that tells
+ * them apart, so the field, the clipboard and the scanner cannot disagree.
  */
 
 type CameraModule = typeof import("expo-camera");
@@ -43,13 +50,29 @@ export function JoinGroupScreen() {
   const join = useJoinMeshGroupOnNode();
   const mesh = useMesh();
 
+  // Somebody arrived here by opening an invite link. `/join` caught the code before the router
+  // could navigate; this is where it lands. Filled in rather than submitted: joining puts this
+  // server into someone else's group, which is worth one deliberate tap.
+  useEffect(() => {
+    const pending = takePendingInvite();
+    if (pending) setCode(pending);
+  }, []);
+
   const submit = useCallback(
     async (value: string) => {
-      const trimmed = value.trim();
-      if (!trimmed) return;
+      if (!value.trim()) return;
       setError(null);
+      const parsed = parseInviteInput(value);
+      if (!parsed) {
+        // Almost always a link whose fragment was stripped — by a chat client, or by copying the
+        // address bar of a page that had already consumed it. Sending it on as a code would come
+        // back from the node as "not valid base58check", which names the symptom and hides the
+        // cause; this says what to do about it.
+        setError(t("sharing.join_link_incomplete"));
+        return;
+      }
       try {
-        const result = await join.mutateAsync(trimmed);
+        const result = await join.mutateAsync(parsed);
         // A join with nobody reachable still succeeds — the group exists locally and syncs when a
         // member appears — so say which happened rather than showing a bare "Joined".
         if (result.via === "none") {
@@ -115,7 +138,7 @@ export function JoinGroupScreen() {
       </Text>
 
       <Input
-        placeholder={t("sharing.join_code_placeholder")}
+        placeholder={t("sharing.join_link_placeholder")}
         autoCapitalize='none'
         autoCorrect={false}
         autoComplete='off'

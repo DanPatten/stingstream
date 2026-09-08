@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Linking, Platform, View } from "react-native";
-import { Button } from "@/components/Button";
-import { Dialog } from "@/components/common/Dialog";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { Input } from "@/components/common/Input";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { space } from "@/constants/theme";
 import {
-  COORDINATOR_GUIDE_URL,
   type CoordinatorCheck,
   checkCoordinator,
   describeCoordinator,
@@ -16,89 +13,90 @@ import {
 } from "@/utils/mesh/coordinator";
 
 /**
- * One field: **where people reach you**.
+ * One address field, checked live against whatever answers at it.
  *
- * What this replaced asked you to pick "Default" or "My own server" from two radio rows, then
- * explained iroh's relays, n0 DNS and the BitTorrent DHT in a paragraph, then offered a third row
- * about hosting your own. Dan's verdict was that the choice was "confusing as fuck", and he was
- * right: it made an implementation detail into a decision, and the labels were not even true —
- * "Default" quietly used StingStream's shared server as a fallback anyway.
+ * Used twice on the Sharing server settings page, for the two addresses that page holds — and the
+ * two are genuinely different things, which is why this takes an `accept`. A **sharing server** is
+ * a coordinator: it introduces members to each other and passes a connection along when two homes
+ * cannot reach each other directly. **Your server's address** is a domain pointed at this machine,
+ * and it exists so an invite can be a link instead of a code.
  *
- * So there is no choice to make now, only an address to leave alone or change:
+ * Nobody should have to know that difference to fill these in, so neither field asks. A coordinator
+ * answers `/healthz` with `mode`; a node answers with `children`; neither field appears on the
+ * other. One request therefore says which kind of thing was typed, and a field either takes it or
+ * says, in a sentence, that it belongs in the other box.
  *
- * - **Left as it is** — the shared StingStream server. Friends can join while you are offline.
- * - **Emptied** — peer to peer, nothing of ours involved. Joining needs you online.
- * - **Your own domain** — pointed at your own server. No coordinator at all; people reach you
- *   directly, and that address is what share links are built from.
- *
- * Which of the last two an address is gets **detected**, not asked: a coordinator and a node
- * answer `/healthz` with different fields, so one request tells them apart (`checkCoordinator`).
- * The detail that used to be in the paragraph lives behind "How this works", where somebody
- * curious can find it and nobody else has to read it.
+ * The check is also what makes a free-text address safe to offer at all. A typo in a hostname does
+ * not fail loudly — it fails weeks later, as joins that quietly fall back — so the address is asked
+ * what it is before anything stores it.
  */
 
-/** Prefilled so the common case is "leave it alone". Empty is a deliberate act, not the default. */
-export const DEFAULT_SHARING_ADDRESS =
+/** What a field will take. */
+export type SharingAddressAccept = "coordinator" | "own-server";
+
+/** Prefilled into the sharing-server field, so the common case is "leave it alone". */
+export const DEFAULT_SHARING_SERVER =
   "https://stingstream-coordinator-production.up.railway.app";
 
 export type SharingAddressValue = {
   /** Exactly what is in the field, so the parent can round-trip it. */
   input: string;
-  /** What the probe made of it; `null` until it has answered. */
+  /** What the probe made of it; idle until it has answered. */
   check: CoordinatorCheck;
 };
 
-export const emptySharingAddress = (
-  input = DEFAULT_SHARING_ADDRESS,
-): SharingAddressValue => ({ input, check: { state: "idle" } });
+export const sharingAddress = (input = ""): SharingAddressValue => ({
+  input,
+  check: { state: "idle" },
+});
 
-/** Nothing typed at all: peer to peer, and ready to create. */
 const isBlank = (value: SharingAddressValue) => value.input.trim().length === 0;
 
-/** The address we ship, untouched. Not a guess a typo could hide in. */
-const isUntouchedDefault = (value: SharingAddressValue) =>
-  value.input.trim() === DEFAULT_SHARING_ADDRESS;
+/** The address we ship, untouched. Not a guess a typo could be hiding in. */
+const isShippedDefault = (value: SharingAddressValue) =>
+  value.input.trim() === DEFAULT_SHARING_SERVER;
 
 /**
- * Whether the form can be submitted.
+ * Whether this field's value can be saved.
  *
- * Blank is ready, and so is an address that answered as a coordinator or as somebody's own server.
- * The **shipped address is also ready even when the check has not succeeded** — it is ours, not
- * something typed, so there is no typo for the check to catch, and a coordinator that is briefly
- * unreachable (or a browser that discarded the answer for want of a CORS header, which is what
- * every build before the one that added it will do) must not be able to stop somebody creating a
- * group. A wrong address that was typed still blocks, which is the case the check exists for.
- */
-export const sharingAddressReady = (value: SharingAddressValue): boolean =>
-  isBlank(value) ||
-  isUntouchedDefault(value) ||
-  value.check.state === "ok" ||
-  value.check.state === "own-server";
-
-/**
- * What to send as the group's `coordinator`.
+ * Blank is always fine — clearing an address is an ordinary thing to do, and for the sharing server
+ * it is how somebody says they want no server at all.
  *
- * A coordinator becomes the group's coordinator. **Their own server does not**: the whole point of
- * pointing at your own domain is that there is no coordinator in the middle, so the group is
- * created peer-to-peer and the address is used for links rather than for rendezvous.
+ * The **shipped address counts as ready even when its check has not succeeded.** It is ours rather
+ * than something typed, so there is no typo for the check to catch, and a coordinator having a
+ * moment — or a browser that discarded the answer for want of a CORS header, which every
+ * coordinator built before this session's fix does — must not be able to stop somebody saving a
+ * setting. An address that was *typed* and answered wrong still blocks, which is the case the check
+ * exists for.
  */
-export const sharingAddressCoordinator = (
+export const sharingAddressReady = (
   value: SharingAddressValue,
-): string | null => {
-  if (value.check.state === "ok") return value.check.url;
-  // The shipped address still counts when the check could not complete — see `sharingAddressReady`.
-  // Without this the field would show a coordinator while the group was quietly created with none.
-  if (isUntouchedDefault(value) && value.check.state !== "own-server") {
-    return DEFAULT_SHARING_ADDRESS;
+  accept: SharingAddressAccept,
+): boolean => {
+  if (isBlank(value)) return true;
+  if (accept === "coordinator") {
+    return value.check.state === "ok" || isShippedDefault(value);
   }
-  return null;
+  return value.check.state === "own-server";
 };
 
-/** The address share links should be built from, when there is one. */
-export const sharingAddressDirect = (
+/** The URL to store, or `null` when there is nothing usable in the field. */
+export const sharingAddressUrl = (
   value: SharingAddressValue,
-): string | null =>
-  value.check.state === "own-server" ? value.check.url : null;
+  accept: SharingAddressAccept,
+): string | null => {
+  if (isBlank(value)) return null;
+  if (accept === "coordinator") {
+    if (value.check.state === "ok") return value.check.url;
+    // The shipped address still counts when the check could not complete — see above. Without
+    // this the field would show an address while the setting was quietly saved empty.
+    if (isShippedDefault(value) && value.check.state !== "own-server") {
+      return DEFAULT_SHARING_SERVER;
+    }
+    return null;
+  }
+  return value.check.state === "own-server" ? value.check.url : null;
+};
 
 /** A hostname is typed a character at a time and each check is a network round trip. */
 const CHECK_DELAY_MS = 600;
@@ -106,14 +104,21 @@ const CHECK_DELAY_MS = 600;
 export function SharingAddress({
   value,
   onChange,
+  accept,
   disabled,
+  placeholder,
+  blankHint,
+  testID,
 }: {
   value: SharingAddressValue;
   onChange: (next: SharingAddressValue) => void;
+  accept: SharingAddressAccept;
   disabled?: boolean;
+  placeholder: string;
+  /** What an empty field means here — different for each of the two. */
+  blankHint: string;
+  testID?: string;
 }) {
-  const { t } = useTranslation();
-  const [explainerOpen, setExplainerOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const input = value.input;
 
@@ -151,101 +156,44 @@ export function SharingAddress({
   return (
     <View>
       <Input
-        placeholder={t("sharing.address_placeholder")}
+        placeholder={placeholder}
         autoCapitalize='none'
         autoCorrect={false}
         keyboardType={Platform.OS === "web" ? "default" : "url"}
         value={input}
         editable={!disabled}
         onChangeText={setInput}
-        testID='sharing-address'
+        testID={testID}
       />
       <View style={{ marginTop: space[2] }}>
-        <Status
-          check={value.check}
-          blank={!input.trim()}
-          isDefault={input.trim() === DEFAULT_SHARING_ADDRESS}
-        />
+        {isBlank(value) ? (
+          <Text variant='caption' tone='secondary'>
+            {blankHint}
+          </Text>
+        ) : (
+          <Status
+            check={value.check}
+            accept={accept}
+            shipped={isShippedDefault(value)}
+          />
+        )}
       </View>
-      <Button
-        variant='ghost'
-        size='sm'
-        onPress={() => setExplainerOpen(true)}
-        testID='sharing-address-explainer'
-        style={{ alignSelf: "flex-start", marginTop: space[1] }}
-      >
-        {t("sharing.address_learn_more")}
-      </Button>
-
-      <Dialog
-        visible={explainerOpen}
-        onClose={() => setExplainerOpen(false)}
-        title={t("sharing.address_explainer_title")}
-      >
-        <View style={{ gap: space[3] }}>
-          <Explains
-            title={t("sharing.address_explainer_shared_title")}
-            body={t("sharing.address_explainer_shared_body")}
-          />
-          <Explains
-            title={t("sharing.address_explainer_empty_title")}
-            body={t("sharing.address_explainer_empty_body")}
-          />
-          <Explains
-            title={t("sharing.address_explainer_own_title")}
-            body={t("sharing.address_explainer_own_body")}
-          />
-          {/*
-            The one thing words cannot cover: the actual steps. Running a shared server of your
-            own is a deployment, not a setting, so it belongs in a guide rather than in a modal —
-            and a modal that explains a choice without saying where to go next is only half of it.
-          */}
-          <Button
-            variant='secondary'
-            size='sm'
-            icon='link'
-            onPress={() => void Linking.openURL(COORDINATOR_GUIDE_URL)}
-            testID='sharing-address-guide'
-            style={{ alignSelf: "flex-start" }}
-          >
-            {t("sharing.address_explainer_guide")}
-          </Button>
-        </View>
-      </Dialog>
     </View>
   );
 }
 
-const Explains = ({ title, body }: { title: string; body: string }) => (
-  <View style={{ gap: space[1] }}>
-    <Text variant='body' weight='semibold'>
-      {title}
-    </Text>
-    <Text variant='caption' tone='secondary'>
-      {body}
-    </Text>
-  </View>
-);
-
 /** One line under the field, saying what the address turned out to be. */
 function Status({
   check,
-  blank,
-  isDefault,
+  accept,
+  shipped,
 }: {
   check: CoordinatorCheck;
-  blank: boolean;
-  isDefault: boolean;
+  accept: SharingAddressAccept;
+  shipped: boolean;
 }) {
   const { t } = useTranslation();
 
-  if (blank) {
-    return (
-      <Text variant='caption' tone='secondary'>
-        {t("sharing.address_blank_hint")}
-      </Text>
-    );
-  }
   switch (check.state) {
     case "checking":
     case "idle":
@@ -257,8 +205,11 @@ function Status({
           </Text>
         </View>
       );
+
+    // A coordinator: right for one field, and a specific and fixable mistake in the other. Saying
+    // which box it belongs in is worth more than calling it invalid.
     case "ok":
-      return (
+      return accept === "coordinator" ? (
         <Pill
           tone='success'
           icon='check'
@@ -266,9 +217,16 @@ function Status({
             health: describeCoordinator(check.health),
           })}
         />
+      ) : (
+        <Pill
+          tone='warning'
+          icon='warning'
+          label={t("sharing.address_is_a_sharing_server")}
+        />
       );
+
     case "own-server":
-      return (
+      return accept === "own-server" ? (
         <Pill
           tone='success'
           icon='check'
@@ -276,12 +234,19 @@ function Status({
             name: check.name ?? normalizeCoordinatorUrl(check.url) ?? check.url,
           })}
         />
+      ) : (
+        <Pill
+          tone='warning'
+          icon='warning'
+          label={t("sharing.address_is_your_own_server")}
+        />
       );
+
     default:
-      // The shipped address failing its check is not the user's mistake and does not stop them:
-      // it is a coordinator having a moment, or an older one with no CORS header on /healthz.
-      // Saying so in a neutral tone beats a red warning about something they did not do.
-      return isDefault ? (
+      // The shipped address failing its check is not the user's mistake and does not stop them: it
+      // is a coordinator having a moment, or an older one with no CORS header on /healthz. Saying
+      // so plainly beats a red warning about something they did not do.
+      return shipped ? (
         <Text variant='caption' tone='secondary'>
           {t("sharing.address_default_unverified")}
         </Text>

@@ -22,14 +22,16 @@ import {
   type MeshNodePeer,
   type MeshNodeStatus,
   type MeshRotation,
+  type MeshSharingSettings,
   MeshUnavailableError,
   readError,
   toGroup,
-  toInviteCode,
+  toInvite,
   toJoin,
   toMembers,
   toPeer,
   toRotation,
+  toSharingSettings,
   toStatus,
 } from "./meshApi";
 
@@ -102,6 +104,7 @@ export type {
   MeshNodePeer,
   MeshNodeStatus,
   MeshRotation,
+  MeshSharingSettings,
 };
 export { MeshUnavailableError };
 
@@ -228,13 +231,60 @@ export function useCreateMeshGroup() {
 export function useMintMeshInvite() {
   const { request } = useMeshApi();
   return useMutation({
-    mutationFn: async (group: string): Promise<MeshInvite> => ({
-      code: toInviteCode(
+    mutationFn: async (group: string): Promise<MeshInvite> =>
+      toInvite(
         await request<unknown>(`/groups/${encodeURIComponent(group)}/invite`, {
           method: "POST",
         }),
       ),
-    }),
+  });
+}
+
+/**
+ * This node's sharing settings: its own address, and which server new Public groups use.
+ *
+ * Administrator only, like everything else under `/mesh`. Not polled — these change when somebody
+ * changes them, and the Sharing server page is the only thing that does.
+ */
+export function useMeshSharingSettings() {
+  const { base, authed, request } = useMeshApi();
+  return useQuery({
+    queryKey: [...MESH_QUERY_KEY, "settings", "sharing", base],
+    queryFn: async () =>
+      toSharingSettings(await request<unknown>("/settings/sharing")),
+    enabled: authed,
+    staleTime: 60_000,
+    retry: 1,
+  });
+}
+
+/**
+ * Write both sharing settings.
+ *
+ * Both together, because an absent field is how one is cleared: sending only the field that changed
+ * would make "the user emptied this box" indistinguishable from "this screen did not send it".
+ * The node normalises what it stores and returns the result, so the answer — not the request — is
+ * what seeds the cache.
+ */
+export function useSetMeshSharingSettings() {
+  const { base, request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (next: MeshSharingSettings) =>
+      toSharingSettings(
+        await request<unknown>("/settings/sharing", {
+          method: "PUT",
+          body: JSON.stringify({
+            publicAddress: next.publicAddress,
+            coordinatorDefault: next.coordinatorDefault,
+          }),
+        }),
+      ),
+    onSuccess: (stored) =>
+      queryClient.setQueryData(
+        [...MESH_QUERY_KEY, "settings", "sharing", base],
+        stored,
+      ),
   });
 }
 

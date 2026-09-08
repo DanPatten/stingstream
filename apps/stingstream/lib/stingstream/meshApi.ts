@@ -78,6 +78,28 @@ export interface MeshNodeStatus {
 
 export interface MeshInvite {
   code: string;
+  /**
+   * The same invite as a link, or `null` when this node has no host to build one from.
+   *
+   * Null is an ordinary outcome and not a failure: a member with no address of their own, in a
+   * group with no coordinator, has nowhere to point a link, and the screen shows the code as it
+   * always did.
+   */
+  url: string | null;
+}
+
+/**
+ * Where people reach this node — `GET`/`PUT /mesh/settings/sharing`.
+ *
+ * Both values belong to the node rather than to any group, which is the point of them. Only the
+ * person minting a link can say which address it should carry, and a group has as many answers to
+ * that as it has members.
+ */
+export interface MeshSharingSettings {
+  /** A domain pointed at this node, origin only. `null` when unset. */
+  publicAddress: string | null;
+  /** The sharing server a newly created Public group adopts. `null` when unset. */
+  coordinatorDefault: string | null;
 }
 
 export interface MeshJoinResponse {
@@ -254,6 +276,25 @@ export const toRotation = (raw: unknown): MeshRotation => ({
 
 export const toInviteCode = (raw: unknown): string =>
   field<string>(raw, ...both("code")) ?? "";
+
+export const toInvite = (raw: unknown): MeshInvite => ({
+  code: toInviteCode(raw),
+  url: field<string>(raw, ...both("url")) ?? null,
+});
+
+/**
+ * An absent field means "not configured", which is the same thing an empty string means once it
+ * has been through the node's own normalisation — so both arrive here as `null` and no caller has
+ * to tell them apart.
+ */
+export const toSharingSettings = (raw: unknown): MeshSharingSettings => {
+  const read = (name: string) =>
+    field<string>(raw, ...both(name))?.trim() || null;
+  return {
+    publicAddress: read("publicAddress"),
+    coordinatorDefault: read("coordinatorDefault"),
+  };
+};
 
 // --- the Group screen's member management, decided here so it can be tested ---------------------
 //

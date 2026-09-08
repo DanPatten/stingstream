@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View } from "react-native";
@@ -8,11 +9,14 @@ import { Icon } from "@/components/common/Icon";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
+import { ListGroup } from "@/components/list/ListGroup";
+import { ListItem } from "@/components/list/ListItem";
 import { radius, tokens } from "@/constants/theme";
 import {
   canManageMembers,
   MeshUnavailableError,
   useLeaveMeshGroup,
+  useMeshSharingSettings,
   useNodeMeshGroups,
   useNodeMeshPeers,
   useSetGroupCoordinator,
@@ -25,12 +29,11 @@ import { QueryState } from "../shared/ScreenState";
 import { GroupMembers } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
 import {
-  emptySharingAddress,
-  SharingAddress,
-  type SharingAddressValue,
-  sharingAddressCoordinator,
-  sharingAddressReady,
-} from "./SharingAddress";
+  coordinatorFor,
+  type GroupVisibility,
+  PublicPrivateChoice,
+  visibilityOf,
+} from "./PublicPrivateChoice";
 
 /**
  * One group: who is in it, how they are reached, its rendezvous server, and the way out.
@@ -262,13 +265,15 @@ function Disclosure({
 }
 
 /**
- * Change the group's rendezvous server, with the same live check the create screen uses.
+ * Make an existing group Public or Private, with the same two rows the create screen uses.
  *
- * The warning is the point. Changing it is not like changing a setting on this device: it reaches
- * every member through gossip, and a member that is offline right now adopts it when it comes
- * back. So the copy says who it affects and when, and the "Default" half says what a group without
- * one loses (rendezvous when the inviter is offline, the TCP-443 relay, the HTTPS side door) rather
- * than presenting it as simply turning something off.
+ * The warning is the point. This is not like changing a setting on this device: it reaches every
+ * member through gossip, and a member that is offline right now adopts it when it comes back. So
+ * the copy says who it affects and when.
+ *
+ * Which server Public means is this node's Sharing server setting, exactly as at creation — a group
+ * is Public precisely when it carries a coordinator, so there is no third state to represent and
+ * nothing here can disagree with what the node reports back.
  */
 function ChangeCoordinator({
   group,
@@ -278,12 +283,14 @@ function ChangeCoordinator({
   current: string | null;
 }) {
   const { t } = useTranslation();
-  const [choice, setChoice] = useState<SharingAddressValue>(
-    emptySharingAddress(current ?? ""),
-  );
+  const router = useRouter();
+  const settings = useMeshSharingSettings();
+  const [choice, setChoice] = useState<GroupVisibility>(visibilityOf(current));
   const setCoordinator = useSetGroupCoordinator();
 
-  const next = sharingAddressCoordinator(choice);
+  const sharingServer = settings.data?.coordinatorDefault ?? null;
+  const publicAvailable = !settings.isSuccess || !!sharingServer;
+  const next = coordinatorFor(choice, sharingServer);
   const unchanged = (next ?? null) === (current ?? null);
 
   const save = async () => {
@@ -301,20 +308,30 @@ function ChangeCoordinator({
 
   return (
     <View>
-      <SharingAddress
+      <PublicPrivateChoice
         value={choice}
         onChange={setChoice}
+        publicAvailable={publicAvailable}
         disabled={setCoordinator.isPending}
       />
+      <View style={{ marginTop: 12 }}>
+        <ListGroup>
+          <ListItem
+            title={t("home.settings.sections.sharing_server")}
+            subtitle={sharingServer ?? t("sharing.server_row_none")}
+            showArrow
+            disabled={setCoordinator.isPending}
+            onPress={() => router.push("/settings/groups/server")}
+          />
+        </ListGroup>
+      </View>
       <Text variant='caption' tone='secondary' style={{ marginTop: 12 }}>
         {t("sharing.rendezvous_change_note")}
       </Text>
       <View style={{ height: 12 }} />
       <Button
         variant='primary'
-        disabled={
-          unchanged || !sharingAddressReady(choice) || setCoordinator.isPending
-        }
+        disabled={unchanged || setCoordinator.isPending}
         loading={setCoordinator.isPending}
         onPress={() => void save()}
       >
@@ -328,13 +345,16 @@ function ChangeCoordinator({
 
 function ReadOnlyCoordinator({ coordinator }: { coordinator: string | null }) {
   const { t } = useTranslation();
+  const visibility = visibilityOf(coordinator);
   return (
     <View>
       <Text variant='body' weight='semibold'>
-        {t("sharing.address_label")}
+        {t("sharing.connect_label")}
       </Text>
       <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
-        {coordinator ? hostOf(coordinator) : t("sharing.address_none")}
+        {visibility === "public"
+          ? t("sharing.read_only_public", { host: hostOf(coordinator ?? "") })
+          : t("sharing.read_only_private")}
       </Text>
     </View>
   );

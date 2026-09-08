@@ -43,6 +43,15 @@ const ICONS = {
   menu: "menu",
   more: "ellipsis-horizontal",
   check: "checkmark",
+  /**
+   * A radio, for a row that is one of a set.
+   *
+   * The old coordinator picker drew its own with the bare characters `●` and `○`, which sit on the
+   * text baseline, take the font's own metrics and line up with nothing beside them. These are the
+   * same glyphs every other control in the app is drawn from.
+   */
+  radioOn: "radio-button-on",
+  radioOff: "radio-button-off",
   close: "close",
   link: "link",
   share: "share-social",

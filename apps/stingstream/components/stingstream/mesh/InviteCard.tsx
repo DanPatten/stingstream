@@ -21,8 +21,18 @@ import { LoadingState } from "../shared/ScreenState";
  * when read aloud: no look-alike characters, and a checksum that catches a transposition before it
  * becomes a confusing join failure.
  *
- * The QR is the same string, not a URL. Anything that scans it and does not know what it is gets
- * an opaque blob, which is the right outcome.
+ * **The link.** When this node has an address to build one from, the invite is handed out as
+ * `https://<host>/join#<code>` — the same code, wrapped in something a person can open, which is
+ * what people already know how to send each other. The code sits in the fragment, which a browser
+ * never puts on the wire, so it stays out of the access log of every server and proxy the link
+ * passes through. Where the host comes from is `sharing::invite_link` on the node.
+ *
+ * With no host the screen falls back to the bare code, unchanged. That is not a degraded state to
+ * apologise for: a member who has configured no domain, in a group with no server, has nowhere to
+ * point a link, and the code has always worked.
+ *
+ * The QR carries whichever of the two is on offer. A scanned link opens; a scanned code is an
+ * opaque blob to anything that does not know what it is, which is the right outcome.
  *
  * Content only — no title, no outer card. `GroupDetailScreen` hosts this inside a `Dialog`, which
  * already supplies both; `CreateGroupScreen` hosts it inside its own `FormCard`, under a heading it
@@ -38,6 +48,10 @@ export function InviteCard({
   const { t } = useTranslation();
   const mint = useMintMeshInvite();
   const code = mint.data?.code;
+  const link = mint.data?.url ?? null;
+  // One value for the QR, the copy button and the box below them, so the three can never disagree
+  // about what was handed over.
+  const shared = link ?? code;
 
   useEffect(() => {
     mint.mutate(group);
@@ -47,10 +61,10 @@ export function InviteCard({
   }, [group]);
 
   const copy = useCallback(async () => {
-    if (!code) return;
+    if (!shared) return;
     if (Platform.OS === "web") {
       try {
-        await navigator.clipboard.writeText(code);
+        await navigator.clipboard.writeText(shared);
         toast.success(t("sharing.invite_copied"));
       } catch {
         toast.error(t("sharing.invite_copy_failed"));
@@ -64,13 +78,13 @@ export function InviteCard({
       return;
     }
     const Clipboard = await import("expo-clipboard");
-    await Clipboard.setStringAsync(code);
+    await Clipboard.setStringAsync(shared);
     toast.success(t("sharing.invite_copied"));
-  }, [code, t]);
+  }, [shared, t]);
 
   if (mint.isPending) return <LoadingState />;
 
-  if (mint.error || !code) {
+  if (mint.error || !code || !shared) {
     return (
       <View>
         <Text variant='body' weight='semibold' tone='danger'>
@@ -92,7 +106,12 @@ export function InviteCard({
   return (
     <View>
       <Text variant='caption' tone='secondary'>
-        {t("sharing.invite_description", { group: groupName || group })}
+        {t(
+          link
+            ? "sharing.invite_link_description"
+            : "sharing.invite_description",
+          { group: groupName || group },
+        )}
       </Text>
 
       <View style={{ alignItems: "center", marginVertical: 16 }}>
@@ -104,7 +123,7 @@ export function InviteCard({
           }}
         >
           <QRCode
-            value={code}
+            value={shared}
             size={Platform.isTV ? 260 : 200}
             color='#000000'
             backgroundColor='#FFFFFF'
@@ -120,7 +139,7 @@ export function InviteCard({
         }}
       >
         <Text variant='caption' selectable>
-          {code}
+          {shared}
         </Text>
       </View>
 
@@ -128,7 +147,7 @@ export function InviteCard({
         <>
           <View style={{ height: 12 }} />
           <Button variant='secondary' icon='link' onPress={copy}>
-            {t("sharing.invite_copy_code")}
+            {t(link ? "sharing.invite_copy_link" : "sharing.invite_copy_code")}
           </Button>
         </>
       )}
@@ -163,6 +182,25 @@ export function InviteCard({
           {t("sharing.invite_note_revocation")}
         </Text>
       </View>
+      {/* Otherwise the only honest reading of a code where a link was expected is that something
+          is broken. It is a setting nobody has filled in, and saying so is one line. */}
+      {!link && (
+        <View style={{ flexDirection: "row", marginTop: 6 }}>
+          <Icon
+            name='info'
+            tone='tertiary'
+            size={14}
+            style={{ marginTop: 2 }}
+          />
+          <Text
+            variant='caption'
+            tone='tertiary'
+            style={{ marginLeft: 6, flex: 1 }}
+          >
+            {t("sharing.invite_note_no_link")}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

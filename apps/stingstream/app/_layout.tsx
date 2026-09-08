@@ -636,6 +636,18 @@ function Layout() {
                                               Platform.OS === "ios",
                                           }}
                                         />
+                                        {/* Where an invite link lands. It reads the code out of
+                                            the address and redirects, so it is on screen for a
+                                            frame or two — long enough for a default header
+                                            captioned "join" to flash, which is the only reason it
+                                            is declared here. */}
+                                        <Stack.Screen
+                                          name='(auth)/join'
+                                          options={{
+                                            headerShown: false,
+                                            title: "",
+                                          }}
+                                        />
                                         <Stack.Screen name='+not-found' />
                                         <Stack.Screen
                                           name='(auth)/tv-option-modal'

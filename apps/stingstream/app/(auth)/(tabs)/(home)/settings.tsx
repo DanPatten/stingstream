@@ -107,6 +107,18 @@ function SettingsMobile() {
                 showArrow
                 title={t("home.settings.sections.sharing")}
               />
+              {/* Administrator only, like every other write to the mesh: these two addresses are
+                  the node's, not the signed-in user's. The row is hidden rather than shown and
+                  refused, so nobody is offered a door that answers 403. */}
+              {isAdmin && (
+                <ListItem
+                  testID='settings-sharing-server'
+                  onPress={() => router.push("/settings/groups/server")}
+                  showArrow
+                  title={t("home.settings.sections.sharing_server")}
+                  subtitle={t("home.settings.sections.sharing_server_hint")}
+                />
+              )}
               {isWeb ? (
                 // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's
                 // own title to fit it (confirmed live at 390px) where `subtitle` just wraps under
