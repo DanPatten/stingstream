@@ -181,9 +181,21 @@ In the service process, for sixty seconds, keyed by a ceremony id the browser ca
 two halves. Handing the state to the browser and taking it back would mean trusting the client with
 the challenge it is meant to be answering. A ceremony that outlives a redeploy fails and is retried.
 
-The signature counter is stored on every sign-in. It only ever goes up, which is how a **cloned
-authenticator** is noticed — a second device holding a copy reports a number the real one has
-already passed. Skipping the write would make that check meaningless.
+### The counter, and where it has to live
+
+A signature counter only ever goes up, which is how a **cloned authenticator** is noticed: a second
+device holding a copy reports a number the real one has already passed.
+
+The subtlety is *where* the number is kept. `webauthn-rs` checks an assertion against the counter
+**inside the stored credential** it was handed — so writing the number into a column beside the
+credential protects nothing, because the credential reloaded on the next sign-in still carries its
+registration-time value and a clone sails past. After a successful sign-in the passkey is therefore
+updated (`Passkey::update_credential`) and **stored again**; `sign_count` is a readable mirror of
+what is inside it, not the check.
+
+Most passkeys are synchronised and have no counter at all, so the library usually reports that
+nothing changed and nothing is written. A failed write logs and lets the sign-in through: locking
+somebody out of an account over a database write is a worse failure than a missed counter.
 
 ## 8. Running one
 

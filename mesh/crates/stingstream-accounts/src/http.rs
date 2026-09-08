@@ -687,13 +687,42 @@ mod enabled {
             .map_err(internal)?
             .ok_or_else(|| ApiError::unauthorized(SIGN_IN_FAILED))?;
 
-        // The counter is how a cloned authenticator is noticed: it only ever goes up. Storing it is
-        // the whole of that protection, and skipping it would make the check meaningless.
-        let credential_id = data_encoding::BASE64URL_NOPAD.encode(result.cred_id().as_ref());
-        state
-            .db
-            .touch_passkey(&credential_id, result.counter() as i64)
-            .map_err(internal)?;
+        // Put the credential back the way this sign-in left it.
+        //
+        // `update_credential` is the whole of the counter protection, and it has to be written back
+        // into the **stored passkey**: the library checks an assertion against the counter inside
+        // the `Passkey` it was handed, so a credential reloaded from a row that was never updated
+        // carries its registration-time value forever and a cloned authenticator sails past. It
+        // also carries the backup-state and backup-eligibility flags, which change on real devices.
+        //
+        // Failing to store it is not a reason to refuse a sign-in that has already been proved, so
+        // this logs and carries on: the alternative is locking somebody out of their account over a
+        // database write, which is a worse failure than a missed counter.
+        for encoded in state.db.passkeys_for(&account_id).map_err(internal)? {
+            let Ok(mut key) = serde_json::from_str::<Passkey>(&encoded) else {
+                continue;
+            };
+            // `None` means this is not the credential that just signed in; `Some(false)` means it is
+            // and nothing changed, which is the ordinary case for a synchronised passkey with no
+            // counter at all.
+            if key.update_credential(&result) != Some(true) {
+                continue;
+            }
+            let credential_id = data_encoding::BASE64URL_NOPAD.encode(key.cred_id().as_ref());
+            match serde_json::to_string(&key) {
+                Ok(updated) => {
+                    if let Err(e) =
+                        state
+                            .db
+                            .update_passkey(&credential_id, &updated, result.counter() as i64)
+                    {
+                        tracing::warn!(error = %e, "could not store a passkey's updated counter");
+                    }
+                }
+                Err(e) => tracing::warn!(error = %e, "could not re-encode a passkey"),
+            }
+            break;
+        }
 
         Ok(Json(issue_for(&state, &account.id, &account.username)?))
     }
@@ -795,6 +824,11 @@ mod tests {
             db: Db::open_in_memory().unwrap(),
             signing_key: iroh_base::SecretKey::generate(),
             origin: "https://accounts.example".into(),
+            // Off, so every test below runs against the shape most people's service has. The
+            // passkey routes have their own tests in `crate::passkeys`, and a ceremony needs a real
+            // authenticator, which no unit test has.
+            #[cfg(feature = "passkeys")]
+            passkeys: None,
         })
     }
 

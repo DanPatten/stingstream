@@ -339,15 +339,22 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Record a passkey's signature counter after a sign-in.
+    /// Store a passkey again after a sign-in changed it.
     ///
-    /// The counter only ever goes up, which is how a **cloned authenticator** is noticed: a second
-    /// device holding a copy of the key reports a number the real one has already passed. Storing it
-    /// is the whole of that protection, so it is written on every sign-in rather than opportunistically.
-    pub fn touch_passkey(&self, credential_id: &str, counter: i64) -> Result<()> {
+    /// **The stored credential is what the counter check runs against**, so writing the number
+    /// somewhere else would not protect anything: `webauthn-rs` compares an assertion against the
+    /// counter inside the `Passkey` handed to it, and a `Passkey` reloaded from a row that was never
+    /// updated carries its registration-time value forever. That is why this replaces `public_key`
+    /// and not only `sign_count` — the column is a readable mirror, the credential is the check.
+    ///
+    /// What the counter buys: it only ever goes up, so a **cloned authenticator** shows up as a
+    /// device reporting a number the real one has already passed. Many passkeys are synchronised and
+    /// have no counter at all, which is why this is called only when the library says something
+    /// actually changed rather than on every sign-in.
+    pub fn update_passkey(&self, credential_id: &str, encoded: &str, counter: i64) -> Result<()> {
         self.lock().execute(
-            "UPDATE passkeys SET sign_count = ?2 WHERE credential_id = ?1",
-            params![credential_id, counter],
+            "UPDATE passkeys SET public_key = ?2, sign_count = ?3 WHERE credential_id = ?1",
+            params![credential_id, encoded, counter],
         )?;
         Ok(())
     }
