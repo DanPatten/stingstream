@@ -358,11 +358,17 @@ feature is that somebody who cannot administer the node can still ask it for som
 
 | Section | Who sees it |
 |---|---|
-| Discover — search, with "already in your library" on every result | everyone |
 | My requests — with Withdraw | everyone |
 | Alerts — the polled notification list | everyone |
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
+
+Searching for something to ask for lives in the **Search** tab on phone and web, not here: one box
+runs the library search and this catalogue search at once and groups the answers as "In your
+library" and "Not in your library", with a Request button on every result of the second kind
+(F-73). Two search fields on two screens meant two places to type the same title and two sets of
+results to reconcile. TV still has its own Discover section, because the TV search screen is a
+separate screen with a separate input.
 
 On TV the tab is present but Approvals and Policy are dropped: approving on a remote control is
 worse than doing it on the phone that is already in the room. Item details on TV gain one button —

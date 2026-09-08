@@ -776,8 +776,15 @@
     "example_search_6": "The Mandalorian",
     "recent_searches": "Recent searches",
     "clear_recent_searches": "Clear",
-    "ask_for_it": "Ask for it",
-    "error_detail": "Try again in a moment."
+    "error_detail": "Try again in a moment.",
+    "in_your_library": "In your library",
+    "not_in_your_library": "Not in your library",
+    "not_in_your_library_detail": "Ask for one of these and you will be told when it lands.",
+    "available_from_member": "Available from a member",
+    "request": "Request",
+    "request_title": "Request {{title}}",
+    "no_results_detail": "Nothing in your library, and nothing found to ask for.",
+    "no_results_not_in_library": "Not in your library."
   },
   "library": {
     "no_results": "No results",
@@ -1443,7 +1450,6 @@
     "summary_online_relayed": "{{count}} online, relayed"
   },
   "requests": {
-    "tab_discover": "Discover",
     "tab_mine": "My requests",
     "tab_alerts": "Alerts",
     "tab_approvals": "Approvals",
@@ -1463,7 +1469,8 @@
     "season_n": "Season {{n}}",
     "seasons_reset": "All seasons",
     "my_empty_title": "Nothing requested yet.",
-    "my_empty_detail": "Search for a film or show and ask for it.",
+    "my_empty_detail": "Search for a film or show and request it from there.",
+    "my_empty_action": "Search",
     "my_filter_empty_title": "Nothing in this filter",
     "filter_all": "All",
     "filter_pending": "Waiting",

@@ -17,7 +17,13 @@ involve.
 | Server settings | Settings → Server settings | phone, web | yes |
 | Admin | Settings → Admin | phone, web | yes |
 | Node status | Settings → Node status | phone, web | yes |
-| Requests (Discover / My requests / Alerts / Approvals / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
+| Requests (My requests / Alerts / Approvals / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
+
+Finding something to request is not one of those sections: on phone and web it is the Search tab
+itself, which answers one box with two sections — "In your library" (Jellyfin) and "Not in your
+library" (the node's catalogue lookup), each catalogue result carrying a Request action that opens
+the same sheet (F-73). The Requests tab is what happened next. TV keeps its own Discover section,
+since the TV search screen is a different screen with a different input.
 
 All five of the first block are hidden on TV (`tabBarItemHidden: Platform.isTV` on the two tabs; the `settings.tsx`
 entries only render inside the phone/web `SettingsMobile` branch, never `settings.tv.tsx`) — TV

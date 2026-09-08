@@ -5,6 +5,7 @@ import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { FilterChip } from "@/components/filters/FilterChip";
+import useRouter from "@/hooks/useAppRouter";
 import {
   type RequestState,
   requestTitle,
@@ -38,6 +39,7 @@ const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
  */
 export function MyRequestsSection() {
   const { t } = useTranslation();
+  const router = useRouter();
   const [filter, setFilter] = useState<RequestState | "all">("all");
   const requests = useRequests({ mine: true });
   const userId = useCurrentUserId();
@@ -80,6 +82,16 @@ export function MyRequestsSection() {
         icon='requests'
         title={t("requests.my_empty_title")}
         detail={t("requests.my_empty_detail")}
+        action={{
+          label: t("requests.my_empty_action"),
+          icon: "search",
+          // The section's own URL, the same one the sidebar and the tab bar
+          // navigate to (`tabIcons.ts` TAB_PATHS): the group path renders
+          // Search but leaves the address bar on `/`, which is pass-02's F-20
+          // all over again. `replace`, not `push`, because Search is a tab
+          // root like this one and the shell is one stack of tab groups.
+          onPress: () => router.replace("/search"),
+        }}
       />
     );
   }

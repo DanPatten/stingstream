@@ -284,7 +284,7 @@ export function RequestsScreen() {
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
-  const [section, setSection] = useState("discover");
+  const [section, setSection] = useState("mine");
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape.
@@ -295,8 +295,12 @@ export function RequestsScreen() {
   const pending = counts.data?.pendingApproval ?? 0;
   const unread = counts.data?.unreadNotifications ?? 0;
 
+  // No Discover tab: finding something to ask for is what the search box is
+  // for now (F-73), and a second search field on a second screen was two
+  // places to type the same title into and two sets of results to reconcile.
+  // What is left is the part Search cannot do — what you asked for, what
+  // happened to it, and who decides.
   const segments: Segment[] = [
-    { key: "discover", label: t("requests.tab_discover") },
     { key: "mine", label: t("requests.tab_mine") },
     {
       key: "alerts",
@@ -327,7 +331,6 @@ export function RequestsScreen() {
         />
       </View>
 
-      {section === "discover" && <DiscoverSection />}
       {section === "mine" && <MyRequestsSection />}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}

@@ -496,6 +496,180 @@ export const selectMine = (
   return requests.filter((r) => sameUser(r.requestedBy, userId));
 };
 
+// --- one search box, two catalogues ---------------------------------------------------------------
+
+/**
+ * Search asks two systems at once — Jellyfin for what this server holds, and the node's own
+ * `/requests/search` for what TMDB and TheTVDB know about — and the answers have to be reconciled
+ * before either is drawn. Everything in this block is that reconciliation, and it lives here rather
+ * than in the screen because it is pure and `requestsApi.test.ts` can pin it.
+ *
+ * The identity of a title is a *set* of keys rather than one id, because the two halves do not
+ * always agree on which id they carry: Jellyfin knows a film by whatever the metadata provider
+ * wrote into `ProviderIds` (often TMDB and IMDb, sometimes neither), while a series lookup comes
+ * back keyed on TheTVDB. Matching on any one of them and calling it a day would list a film in
+ * "Not in your library" that is sitting on the shelf a section above it — the single worst thing
+ * this screen can do, since the whole promise is "find it, and ask only if it really isn't here".
+ */
+
+/** Case, punctuation and spacing removed, so "WALL·E" and "Wall-E" are the same title. */
+const normalisedTitle = (title: string | null | undefined): string =>
+  (title ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/**
+ * `tmdb:603`. `null` when either half is missing — the arrs send `0` for an id they do not have,
+ * and a key of `tmdb:0` would match every other title that also has no TMDB id.
+ */
+export const providerKey = (
+  provider: string | null | undefined,
+  id: number | string | null | undefined,
+): string | null => {
+  const name = (provider ?? "").trim().toLowerCase();
+  const value = String(id ?? "").trim();
+  if (!name || !value || value === "0") return null;
+  return `${name}:${value}`;
+};
+
+/**
+ * `movie:alien:1979` — the fallback for a library item whose `ProviderIds` are empty, which is the
+ * normal state of anything added before its metadata was fetched.
+ *
+ * The year is required and the kind is part of the key: "Alien" with no year would match the
+ * series, the 1979 film and the 2026 one all at once, and hiding a title the user *can* ask for is
+ * a worse failure than showing one they cannot.
+ */
+export const titleKey = (
+  kind: "movie" | "series",
+  title: string | null | undefined,
+  year: number | null | undefined,
+): string | null => {
+  const name = normalisedTitle(title);
+  if (!name || !year) return null;
+  return `${kind}:${name}:${year}`;
+};
+
+/** Every key one catalogue result can be recognised by. */
+export const searchResultKeys = (result: RequestSearchResult): string[] =>
+  [
+    providerKey("tmdb", result.tmdbId),
+    providerKey("tvdb", result.tvdbId),
+    titleKey(result.kind, result.title, result.year),
+  ].filter((key): key is string => key !== null);
+
+/** Every key one member request can be recognised by. */
+export const memberRequestKeys = (request: MemberRequest): string[] =>
+  [
+    providerKey(request.provider, request.providerId),
+    titleKey(request.kind, request.title, request.year),
+  ].filter((key): key is string => key !== null);
+
+/**
+ * The subset of `BaseItemDto` this comparison reads. Stated structurally so nothing in this file
+ * has to import the Jellyfin SDK: `requestsApi.ts` is the half of the feature `bun:test` can load,
+ * and that only stays true while its imports are types the compiler erases.
+ */
+export interface LibraryIdentity {
+  Type?: string | null;
+  Name?: string | null;
+  ProductionYear?: number | null;
+  ProviderIds?: { [key: string]: string | null } | null;
+}
+
+/**
+ * What the Jellyfin half of the search found, as keys the catalogue half can be tested against.
+ *
+ * Feed it the movie and series results only. An episode's `Name` is the episode's own title and its
+ * `ProviderIds` are the episode's, so it can neither match nor usefully exclude a catalogue result,
+ * and a collection named after its first film would exclude the film itself.
+ */
+export const libraryMatchKeys = (
+  items: readonly LibraryIdentity[],
+): Set<string> => {
+  const keys = new Set<string>();
+  for (const item of items) {
+    for (const [provider, id] of Object.entries(item.ProviderIds ?? {})) {
+      const key = providerKey(provider, id);
+      if (key) keys.add(key);
+    }
+    const kind = item.Type === "Series" ? "series" : "movie";
+    const key = titleKey(kind, item.Name, item.ProductionYear);
+    if (key) keys.add(key);
+  }
+  return keys;
+};
+
+/** The catalogue results, split by what the group can already do about them. */
+export interface CatalogueSections {
+  /**
+   * Somebody in the group holds it. These belong with the library results under an "available from
+   * a member" heading, not among the asks: pressing Request on one starts no download, and finding
+   * that out only afterwards is exactly the confusion `availableInGroup` exists to prevent.
+   */
+  heldByMember: RequestSearchResult[];
+  /** Nobody has it. These are the ones that get a Request button. */
+  requestable: RequestSearchResult[];
+}
+
+/**
+ * Catalogue results, minus everything the library search already answered, split into the two
+ * sections the screen draws.
+ *
+ * `myRequests` fills in a `requestState` the node did not send. It normally does send one — the
+ * search endpoint annotates every result from its own store — but the annotation is a round trip
+ * behind the mutation that created the request, and a poster that still says "Request" for a second
+ * after you asked for it reads as a button that did nothing.
+ */
+export const splitCatalogueResults = (
+  results: readonly RequestSearchResult[],
+  libraryKeys: ReadonlySet<string>,
+  myRequests: readonly MemberRequest[] = [],
+): CatalogueSections => {
+  const mine = new Map<string, MemberRequest>();
+  for (const request of myRequests) {
+    for (const key of memberRequestKeys(request)) {
+      if (!mine.has(key)) mine.set(key, request);
+    }
+  }
+
+  const heldByMember: RequestSearchResult[] = [];
+  const requestable: RequestSearchResult[] = [];
+  // A movie lookup and a series lookup are two calls against two providers, and a title that
+  // exists as both comes back twice; so does one film listed under two ids by the same provider.
+  const seen = new Set<string>();
+
+  for (const result of results) {
+    const keys = searchResultKeys(result);
+    if (keys.some((key) => libraryKeys.has(key))) continue;
+    if (keys.some((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
+
+    let known = result;
+    if (!known.requestState) {
+      const request = keys
+        .map((key) => mine.get(key))
+        .find((found) => found !== undefined);
+      if (request) {
+        known = {
+          ...known,
+          requestState: request.state,
+          requestId: request.id,
+        };
+      }
+    }
+
+    if (known.availableInGroup || known.requestState === "available") {
+      heldByMember.push(known);
+    } else {
+      requestable.push(known);
+    }
+  }
+
+  return { heldByMember, requestable };
+};
+
 // --- calls --------------------------------------------------------------------------------------
 
 /**

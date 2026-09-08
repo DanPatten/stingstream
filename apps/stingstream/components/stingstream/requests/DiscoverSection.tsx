@@ -36,7 +36,14 @@ const EXAMPLE_SEARCHES = [
 ];
 
 /**
- * Find something to ask for.
+ * Find something to ask for — **on a television only**, since F-73.
+ *
+ * Phone and web ask from Search now: one box runs the library search and this same catalogue
+ * search at once and groups the answers ("In your library" / "Not in your library"), which is the
+ * whole of what a person means by "find it and request it if it isn't there". The TV search screen
+ * is a different screen with a different input and a remote control to type on, so it keeps this
+ * section behind its own Discover tab (`TVRequestsScreen`) rather than growing the same two-section
+ * result list.
  *
  * The search goes through the node's own Radarr and Sonarr metadata lookups rather than a metadata
  * provider of the app's own, and every result comes back annotated with whether the *group* already
