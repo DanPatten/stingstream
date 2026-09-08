@@ -22,13 +22,29 @@ import { TrickplayBubble } from "./TrickplayBubble";
 // flush look (no top/bottom overflow).
 const TICK_HEIGHT = 10;
 
+/**
+ * The bottom bar's gutter, in dp, and why it is 12 rather than the 8 it was.
+ *
+ * `react-native-awesome-slider` wraps its track in a `HitSlop` that exists **only on the web**: a
+ * `<div>` inset by -10 on all four sides, so a mouse can grab the bar without hitting a 10 px
+ * target exactly. With an 8 px gutter that div started at x = -2 and ended 2 px past the window,
+ * which is the whole of the player page's 2 px horizontal scroll (F-51) — a page that scrolls
+ * sideways by two pixels, from an element nobody can see.
+ *
+ * So the gutter is the slider's own slop plus a little: at 12 the pointer target lands 2 px inside
+ * each edge at every width. Clipping was the other option and is worse — the chapter ticks are
+ * taller than the track and are *meant* to bleed out of it, and the trickplay bubble floats above
+ * the bar entirely.
+ */
+const BAR_HORIZONTAL_PADDING = 12;
+
 // Inline rather than `className` for the same reason HeaderControls is: NativeWind v2's classes
 // are inert in the exported web bundle, and a seek bar that stacks into a column is not a seek bar.
 const styles = StyleSheet.create({
   bar: {
     position: "absolute",
     flexDirection: "column",
-    paddingHorizontal: 8,
+    paddingHorizontal: BAR_HORIZONTAL_PADDING,
   },
   topRow: {
     flexDirection: "row",

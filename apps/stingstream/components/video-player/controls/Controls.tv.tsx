@@ -62,7 +62,7 @@ import {
   buildSubtitleMenu,
   type TrackMenuRow,
 } from "@/utils/subtitles/trackMenu";
-import { formatTimeString, msToTicks, ticksToMs } from "@/utils/time";
+import { msToTicks, ticksToMs } from "@/utils/time";
 import { CONTROLS_CONSTANTS, CONTROLS_TIMEOUT_MS } from "./constants";
 import { useVideoContext } from "./contexts/VideoContext";
 import { useChapterNavigation } from "./hooks/useChapterNavigation";
@@ -74,6 +74,7 @@ import { TechnicalInfoOverlay } from "./TechnicalInfoOverlay";
 import { TrickplayBubble } from "./TrickplayBubble";
 import type { Track } from "./types";
 import { useControlsTimeout } from "./useControlsTimeout";
+import { formatClock } from "./utils/formatClock";
 
 interface Props {
   item: BaseItemDto;
@@ -1453,12 +1454,12 @@ export const Controls: FC<Props> = ({
 
           <View style={styles.timeContainer}>
             <Text style={[styles.timeText, { fontSize: typography.body }]}>
-              {formatTimeString(currentTime, "ms")}
+              {formatClock(currentTime)}
             </Text>
             {!isLiveTV && (
               <View style={styles.timeRight}>
                 <Text style={[styles.timeText, { fontSize: typography.body }]}>
-                  -{formatTimeString(remainingTime, "ms")}
+                  -{formatClock(remainingTime)}
                 </Text>
                 <Text
                   style={[styles.endsAtText, { fontSize: typography.callout }]}
@@ -1703,12 +1704,12 @@ export const Controls: FC<Props> = ({
 
           <View style={styles.timeContainer}>
             <Text style={[styles.timeText, { fontSize: typography.body }]}>
-              {formatTimeString(currentTime, "ms")}
+              {formatClock(currentTime)}
             </Text>
             {!isLiveTV && (
               <View style={styles.timeRight}>
                 <Text style={[styles.timeText, { fontSize: typography.body }]}>
-                  -{formatTimeString(remainingTime, "ms")}
+                  -{formatClock(remainingTime)}
                 </Text>
                 <Text
                   style={[styles.endsAtText, { fontSize: typography.callout }]}

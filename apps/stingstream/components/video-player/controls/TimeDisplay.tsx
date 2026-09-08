@@ -2,7 +2,7 @@ import type { FC } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { Text } from "@/components/common/Text";
-import { formatTimeString } from "@/utils/time";
+import { formatClock } from "./utils/formatClock";
 
 interface TimeDisplayProps {
   currentTime: number;
@@ -11,6 +11,10 @@ interface TimeDisplayProps {
 
 /**
  * Elapsed on the left, remaining and "Ends at" on the right. The player's clock is milliseconds.
+ *
+ * `formatClock`, not `formatTimeString`: beside a seek bar "0m 0s / -0m 20s" reads as a
+ * measurement rather than a position, and its width jumps as the words change length. See
+ * `utils/formatClock.ts`.
  *
  * Inline styles, like the rest of the OSD: NativeWind v2's classes do not apply in the exported
  * web bundle, and these three readings stacked into a column instead of sitting at the two ends of
@@ -36,11 +40,11 @@ export const TimeDisplay: FC<TimeDisplayProps> = ({
   return (
     <View style={styles.row}>
       <Text variant='caption' tone='secondary'>
-        {formatTimeString(currentTime, "ms")}
+        {formatClock(currentTime)}
       </Text>
       <View style={styles.right}>
         <Text variant='caption' tone='secondary'>
-          -{formatTimeString(remainingTime, "ms")}
+          -{formatClock(remainingTime)}
         </Text>
         <Text variant='micro' tone='tertiary'>
           {t("player.ends_at", { time: getFinishTime() })}

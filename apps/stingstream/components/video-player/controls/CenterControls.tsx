@@ -10,6 +10,18 @@ import AudioSlider from "./AudioSlider";
 import BrightnessSlider from "./BrightnessSlider";
 import { ICON_SIZES } from "./constants";
 
+/**
+ * Whether this surface has a screen and a speaker of its own to turn up.
+ *
+ * The brightness slider is `expo-brightness` and the volume slider is
+ * `react-native-volume-manager`: both drive the *device*, and a browser has no such thing. On the
+ * web the first threw on its first call and logged a warning for it, and the second rendered a
+ * 130 px slider rotated ninety degrees against the right edge — which, being a volume glyph on its
+ * side, read as a stray wifi icon floating in the middle of the picture with nothing to press
+ * (F-51). The page's own volume is what the header's mute button and the `m` key are for.
+ */
+const hasDeviceHardwareControls = Platform.OS !== "web";
+
 interface CenterControlsProps {
   showControls: boolean;
   isPlaying: boolean;
@@ -61,7 +73,7 @@ export const CenterControls: FC<CenterControlsProps> = ({
       }}
       pointerEvents={showControls ? "box-none" : "none"}
     >
-      {!settings?.hideBrightnessSlider && (
+      {hasDeviceHardwareControls && !settings?.hideBrightnessSlider && (
         <View
           style={{
             position: "absolute",
@@ -198,7 +210,7 @@ export const CenterControls: FC<CenterControlsProps> = ({
         </TouchableOpacity>
       )}
 
-      {!settings?.hideVolumeSlider && (
+      {hasDeviceHardwareControls && !settings?.hideVolumeSlider && (
         <View
           style={{
             position: "absolute",
