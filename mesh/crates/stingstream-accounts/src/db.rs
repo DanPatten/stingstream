@@ -452,6 +452,58 @@ mod tests {
         db.create_account(id, username, "hash", NOW).unwrap()
     }
 
+    /// The bug this guards against shipped once: the counter was written to `sign_count` while
+    /// `public_key` — the column the credential is actually reloaded from — kept its
+    /// registration-time value, so the clone check compared against a number that never moved.
+    /// What matters is that a *read back* sees the update, which is what a sign-in does.
+    #[test]
+    fn updating_a_passkey_changes_what_the_next_sign_in_reads() {
+        let db = db();
+        account(&db, "a1", "dan");
+        db.add_passkey("cred-1", "a1", r#"{"counter":0}"#, "laptop", NOW)
+            .unwrap();
+
+        db.update_passkey("cred-1", r#"{"counter":7}"#, 7).unwrap();
+
+        let stored = db.passkeys_for("a1").unwrap();
+        assert_eq!(
+            stored,
+            vec![r#"{"counter":7}"#.to_string()],
+            "the credential itself has to change, not only the mirror column"
+        );
+    }
+
+    /// A credential id that is not there must not touch anybody else's row.
+    #[test]
+    fn updating_an_unknown_passkey_changes_nothing() {
+        let db = db();
+        account(&db, "a1", "dan");
+        db.add_passkey("cred-1", "a1", r#"{"counter":0}"#, "laptop", NOW)
+            .unwrap();
+
+        db.update_passkey("cred-missing", r#"{"counter":99}"#, 99)
+            .unwrap();
+
+        assert_eq!(db.passkeys_for("a1").unwrap(), vec![r#"{"counter":0}"#.to_string()]);
+    }
+
+    /// A deleted account takes its passkeys with it. Otherwise a credential outlives the thing it
+    /// authenticates, and the next account to be handed that id inherits somebody else's key.
+    #[test]
+    fn passkeys_go_when_the_account_does() {
+        let db = db();
+        account(&db, "a1", "dan");
+        db.add_passkey("cred-1", "a1", r#"{"counter":0}"#, "laptop", NOW)
+            .unwrap();
+        assert_eq!(db.passkeys_for("a1").unwrap().len(), 1);
+
+        db.lock()
+            .execute("DELETE FROM accounts WHERE id = ?1", params!["a1"])
+            .unwrap();
+
+        assert!(db.passkeys_for("a1").unwrap().is_empty());
+    }
+
     #[test]
     fn an_account_is_found_by_the_name_it_was_created_with() {
         let db = db();
