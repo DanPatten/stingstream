@@ -13,11 +13,16 @@ a bug — it is how the fork ended up with nine colours in `Colors.ts` and inlin
 hexes in a hundred files.
 
 **NativeWind v2 compiles Tailwind once, at build time, and has no CSS
-variables.** So a class can only ever carry the *default* accent (teal, the
-brand colour). Anything that must follow the accent a user picked in Appearance
-reads `useTheme().accent` and sets it inline. Both are correct in their place:
-brand furniture stays teal, user-accented furniture reads the hook. Token edits
-do not survive Metro's cache — restart with `-c`.
+variables.** So a class can only ever carry the *default* accent (teal).
+Anything that must follow the accent a user picked in Appearance reads
+`useTheme().accent` and sets it inline. Both are correct in their place: default
+furniture stays teal, user-accented furniture reads the hook. Token edits do not
+survive Metro's cache — restart with `-c`.
+
+Teal is the default *interface* accent, not the logo's colour. The mark runs
+cyan (`#3CDDFC`) to violet (`#6D5BF7`) — see `constants/brandAssets.ts` — and
+that gradient is deliberately confined to the artwork and the web manifest. No
+control, focus ring or tab bar follows it.
 
 ### Two things that make `className` do nothing
 
@@ -162,7 +167,7 @@ white.
 |---|---|
 | Surfaces | `bg0` app · `bg1` sidebar, cards, list groups · `bg2` inputs, sheets · `bg3` hover, pressed, chips |
 | Text | `primary` · `secondary` · `tertiary` · `disabled` · `onAccent` |
-| Accent | teal (default and brand), violet, amber — 400 hover / 500 rest / 600 pressed |
+| Accent | teal (default), violet, amber — 400 hover / 500 rest / 600 pressed |
 | States | `success` · `warning` · `danger` · `info` |
 | Borders | `subtle` · `strong` · focus = accent-400 |
 | Radii | xs 4 · sm 8 · md 12 · lg 16 · xl 24 · pill 999 |

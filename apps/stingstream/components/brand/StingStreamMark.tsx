@@ -1,52 +1,43 @@
-import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
-import {
-  BRAND_ACCENT_FROM,
-  BRAND_ACCENT_TO,
-  MARK_PATH_D,
-  MARK_VIEWBOX,
-} from "@/constants/brandPaths";
+import { Image } from "expo-image";
+import { MARK_IMAGE, MARK_MONO_IMAGE } from "@/constants/brandAssets";
 
 export type StingStreamMarkProps = {
   /** Rendered width and height, in dp. The mark is square. */
   size: number;
-  /** Fill for `variant="mono"`. Ignored for `variant="gradient"`. Defaults to white. */
+  /** Tint for `variant="mono"`. Ignored for `variant="gradient"`. Defaults to white. */
   color?: string;
-  /** "gradient" (the brand teal gradient, the default) or "mono" (a flat `color` fill). */
+  /** "gradient" (the full-colour art, the default) or "mono" (a flat `color` silhouette). */
   variant?: "gradient" | "mono";
 };
 
 /**
  * The StingStream mark on its own -- app icon, sidebar/header logo, loading states.
- * See `scripts/brand/mark.ts` for how the path was authored.
+ * See `scripts/brand/source.ts` for where the art comes from.
+ *
+ * `mono` is a separate image, not a tint of the colour one: the mark is a render of
+ * overlapping translucent ribbons, and tinting that directly gives a soft grey smear
+ * rather than a shape. `mark-mono.png` is the same art with levels applied to its alpha
+ * so the ribbons read solid at small sizes; `tintColor` then recolours it.
+ *
+ * The art is taller than it is wide, so `contentFit="contain"` letterboxes it inside the
+ * square `size` box -- the same placement the square viewBox gave before.
  */
 export function StingStreamMark({
   size,
   color = "#FFFFFF",
   variant = "gradient",
 }: StingStreamMarkProps) {
+  const mono = variant === "mono";
   return (
-    <Svg width={size} height={size} viewBox={MARK_VIEWBOX}>
-      {variant === "gradient" ? (
-        <Defs>
-          <LinearGradient
-            id='stingstream-mark-gradient'
-            x1='0'
-            y1='0'
-            x2='1'
-            y2='1'
-          >
-            <Stop offset='0' stopColor={BRAND_ACCENT_FROM} />
-            <Stop offset='1' stopColor={BRAND_ACCENT_TO} />
-          </LinearGradient>
-        </Defs>
-      ) : null}
-      <Path
-        d={MARK_PATH_D}
-        fill={
-          variant === "gradient" ? "url(#stingstream-mark-gradient)" : color
-        }
-      />
-    </Svg>
+    <Image
+      source={mono ? MARK_MONO_IMAGE : MARK_IMAGE}
+      style={{ width: size, height: size }}
+      contentFit='contain'
+      tintColor={mono ? color : undefined}
+      // A bundled asset is already decoded; a cross-fade on a logo just makes the shell
+      // look like it is still loading.
+      transition={0}
+    />
   );
 }
 

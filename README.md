@@ -1,3 +1,19 @@
+<!--
+  Two lockups, because "Sting" is rendered near-white and would vanish on GitHub's light
+  theme. Both are written by `bun scripts/brand/generate.ts`.
+-->
+<p align="center">
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="apps/stingstream/assets/brand/lockup-stacked.png">
+    <img
+      src="apps/stingstream/assets/brand/lockup-stacked-light.png"
+      alt="StingStream"
+      width="300">
+  </picture>
+</p>
+
 # StingStream
 
 **Your movies and shows, on every screen you own, shared with the people you choose.**

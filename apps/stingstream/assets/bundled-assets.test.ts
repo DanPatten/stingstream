@@ -128,15 +128,25 @@ function readPngIHDR(path: string): {
 // PNG colour types with an alpha channel: 4 (greyscale+alpha), 6 (truecolour+alpha).
 const ALPHA_COLOR_TYPES = new Set([4, 6]);
 
-const BRAND_SVGS = [
-  "assets/brand/stingstream-mark.svg",
-  "assets/brand/stingstream-mark-mono.svg",
-  "assets/brand/stingstream-wordmark.svg",
-  "assets/brand/stingstream-wordmark-stacked.svg",
-  "public/favicon.svg",
-];
+// The art is a render, so favicon.svg is the only SVG left: it wraps the 192px mark for
+// browsers that ask for image/svg+xml. The four vector lockups it replaced are gone.
+const BRAND_SVGS = ["public/favicon.svg"];
 
 const BRAND_PNGS: Record<string, PngSpec> = {
+  // The authored source art, cut once from the delivered master (scripts/brand/source.ts).
+  // Pinned because every other entry below is derived from it: a truncated or replaced
+  // source is the one failure that would otherwise regenerate cleanly into 30 wrong files.
+  "assets/brand/source/lockup-master.png": { width: 1254, height: 1254 },
+  "assets/brand/source/mark.png": { width: 400, height: 674 },
+  "assets/brand/source/wordmark.png": { width: 856, height: 151 },
+  // The kit the app renders and the docs embed.
+  "assets/brand/mark.png": { width: 400, height: 674 },
+  "assets/brand/mark-mono.png": { width: 400, height: 674 },
+  "assets/brand/wordmark.png": { width: 856, height: 151 },
+  "assets/brand/wordmark-light.png": { width: 856, height: 151 },
+  "assets/brand/lockup-stacked.png": { width: 600, height: 590 },
+  "assets/brand/lockup-stacked-light.png": { width: 600, height: 590 },
+  // Native app icons.
   "assets/images/icon.png": { width: 1024, height: 1024, opaque: true },
   "assets/images/icon-android-plain.png": { width: 1024, height: 1024 },
   "assets/images/icon-android-themed.png": { width: 1024, height: 1024 },
@@ -152,6 +162,40 @@ const BRAND_PNGS: Record<string, PngSpec> = {
     height: 320,
     opaque: true,
   },
+  // tvOS app icon + Top Shelf, referenced from app.json's @react-native-tvos/config-tv
+  // block. Apple wants them flat and opaque.
+  "assets/images/icon-tvos.png": { width: 1280, height: 768, opaque: true },
+  "assets/images/icon-tvos-small.png": {
+    width: 400,
+    height: 240,
+    opaque: true,
+  },
+  "assets/images/icon-tvos-small-2x.png": {
+    width: 800,
+    height: 480,
+    opaque: true,
+  },
+  "assets/images/icon-tvos-topshelf.png": {
+    width: 1920,
+    height: 720,
+    opaque: true,
+  },
+  "assets/images/icon-tvos-topshelf-2x.png": {
+    width: 3840,
+    height: 1440,
+    opaque: true,
+  },
+  "assets/images/icon-tvos-topshelf-wide.png": {
+    width: 2320,
+    height: 720,
+    opaque: true,
+  },
+  "assets/images/icon-tvos-topshelf-wide-2x.png": {
+    width: 4640,
+    height: 1440,
+    opaque: true,
+  },
+  // Web favicons: same bytes under assets/ (Expo's pipeline) and public/ (served direct).
   "assets/images/favicon-32.png": { width: 32, height: 32 },
   "assets/images/favicon-192.png": { width: 192, height: 192 },
   "assets/images/apple-touch-icon.png": {
@@ -162,6 +206,7 @@ const BRAND_PNGS: Record<string, PngSpec> = {
   "public/favicon-32.png": { width: 32, height: 32 },
   "public/favicon-192.png": { width: 192, height: 192 },
   "public/apple-touch-icon.png": { width: 180, height: 180, opaque: true },
+  // Play listing.
   "docs/screenshots/tv-banner.png": { width: 1280, height: 720, opaque: true },
   "docs/screenshots/icon-512.png": { width: 512, height: 512, opaque: true },
   "docs/screenshots/feature-graphic.png": {
@@ -171,7 +216,13 @@ const BRAND_PNGS: Record<string, PngSpec> = {
   },
 };
 
-const BRAND_OTHER = ["public/site.webmanifest", "constants/brandPaths.ts"];
+const BRAND_OTHER = [
+  "public/site.webmanifest",
+  "constants/brandAssets.ts",
+  // The gateway's first-paint splash mark, include_str!'d by
+  // mesh/crates/stingstream/src/gateway/brand.rs.
+  "../../mesh/crates/stingstream/src/gateway/mark.png.base64",
+];
 
 // docs/screenshots/ is a top-level, monorepo-wide directory, two levels above `root`
 // (apps/stingstream) -- not apps/stingstream/docs/, which exists separately for
@@ -209,6 +260,22 @@ describe("brand assets `scripts/brand/generate.ts` writes", () => {
       .flatMap(([asset]) => {
         const { colorType } = readPngIHDR(brandAssetPath(asset));
         return ALPHA_COLOR_TYPES.has(colorType) ? [asset] : [];
+      });
+    expect(problems).toEqual([]);
+  });
+
+  // The inverse, and not a symmetry for its own sake: an asset that is supposed to be
+  // cut out and arrives fully opaque is a rectangle, and a rectangle is what a silently
+  // dropped compositing step produces. `mark-mono.png` shipped exactly once as an opaque
+  // white block, because sharp discards joinChannel() on a `create` canvas without
+  // erroring -- the generator builds the silhouette's RGBA by hand now, and this is what
+  // notices if that ever regresses.
+  test("PNGs that must be cut out (icons, silhouettes, lockups) have an alpha channel", () => {
+    const problems = Object.entries(BRAND_PNGS)
+      .filter(([, spec]) => !spec.opaque)
+      .flatMap(([asset]) => {
+        const { colorType } = readPngIHDR(brandAssetPath(asset));
+        return ALPHA_COLOR_TYPES.has(colorType) ? [] : [asset];
       });
     expect(problems).toEqual([]);
   });

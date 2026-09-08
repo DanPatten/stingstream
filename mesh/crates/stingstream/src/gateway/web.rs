@@ -229,13 +229,16 @@ const SPLASH_STYLE: &str = "<style id=\"ss-splash-style\">\
 #ss-splash{position:fixed;inset:0;z-index:2147483647;margin:0;display:flex;flex-direction:column;\
 align-items:center;justify-content:center;gap:20px;background:#0B0C0F;color:#F2F3F5;\
 font:600 20px/1.25 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;letter-spacing:.02em}\
-#ss-splash svg{display:block;width:72px;height:72px;fill:#fff}\
+#ss-splash img{display:block;width:72px;height:72px}\
 #root:not(:empty)+#ss-splash{opacity:0;pointer-events:none;transition:opacity 200ms}\
 @media (prefers-reduced-motion:reduce){#root:not(:empty)+#ss-splash{transition:none}}\
 </style>";
 
-/// The splash element itself, built once: the mark is 15 KB of path data and there is no reason to
+/// The splash element itself, built once: the mark is 30 KB of base64 and there is no reason to
 /// format it per request.
+///
+/// The mark goes in full colour rather than the flat white it used to be: the splash ground is
+/// #0B0C0F, and the art is a colour render now, so there is nothing to gain by throwing it away.
 fn splash_body() -> &'static str {
     static HTML: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HTML.get_or_init(|| {
@@ -243,13 +246,11 @@ fn splash_body() -> &'static str {
             // `aria-hidden` because it says nothing a screen reader needs -- the app announces
             // itself when it mounts -- and it must not be read out over whatever replaces it.
             "<div id=\"ss-splash\" aria-hidden=\"true\">\
-             <svg viewBox=\"{viewbox}\" width=\"72\" height=\"72\" focusable=\"false\">\
-             <path d=\"{mark}\" fill=\"#ffffff\"/></svg>\
+             <img src=\"data:image/png;base64,{mark}\" width=\"72\" height=\"72\" alt=\"\"/>\
              <span>StingStream</span></div>\
              <script>setTimeout(function(){{var e=document.getElementById(\"ss-splash\");\
              if(e&&e.parentNode){{e.parentNode.removeChild(e)}}}},10000)</script>",
-            viewbox = super::brand::MARK_VIEWBOX,
-            mark = super::brand::MARK_PATH_D,
+            mark = super::brand::MARK_PNG_BASE64,
         )
     })
 }
@@ -815,12 +816,11 @@ mod tests {
         // ...and the belt for an app that never mounts at all.
         assert!(out.contains("getElementById(\"ss-splash\")"));
         assert!(out.contains("},10000)"));
-        // The mark, mono white at 72px, and the word.
-        assert!(out.contains("viewBox=\"0 0 1024 1024\""));
-        assert!(out.contains("fill=\"#ffffff\""));
+        // The mark, in colour at 72px, and the word.
+        assert!(out.contains("<img src=\"data:image/png;base64,"));
         assert!(out.contains("<span>StingStream</span>"));
         assert!(out.contains("background:#0B0C0F"));
-        assert!(out.contains(super::super::brand::MARK_PATH_D));
+        assert!(out.contains(super::super::brand::MARK_PNG_BASE64));
         // The style goes in the head, the element in the body.
         assert!(out.find("ss-splash-style").unwrap() < out.find("</head>").unwrap());
         assert!(out.find("id=\"ss-splash\"").unwrap() > out.find("<body>").unwrap());

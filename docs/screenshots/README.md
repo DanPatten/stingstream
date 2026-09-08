@@ -6,9 +6,9 @@ README and a `checklist.md` step that says "find somewhere to put them".
 
 Three files here are no longer placeholders: `icon-512.png`, `feature-graphic.png` and
 `tv-banner.png` are written by `apps/stingstream/scripts/brand/generate.ts` (run it and they
-regenerate from the mark and wordmark in `apps/stingstream/scripts/brand/{mark,wordmark}.ts`; see
-`apps/stingstream/docs/APP-RELEASE.md` §3). Everything else below is still a real capture of the
-running app that needs taking, per `deploy/play/checklist.md` §7-8.
+regenerate from the source art in `apps/stingstream/assets/brand/source/`; see `docs/APP-RELEASE.md`
+§3 "Branding"). Everything else below is still a real capture of the running app that needs taking,
+per `deploy/play/checklist.md` §7-8.
 
 ## What is needed, and at what size
 

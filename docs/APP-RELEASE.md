@@ -162,16 +162,23 @@ mode than a build error.
 
 ## 3. Branding
 
-**v0.2.0 replaced the placeholder "SS" monogram with a real mark**: a vector "stingray S" — two
-point-symmetric arcs forming a bold S, the top terminal swept into a wing, the bottom tapered to a
-point with a small barb — teal gradient (`#1FC7B5` → `#17A99A`) on a near-black ground
-(`#0B0C0F`). Full story, including the three candidates reviewed before this one was picked and how
-to re-render them, is in `scripts/brand/mark.ts`'s file comment. The wordmark ("StingStream") is
-outlined glyph paths baked once from Inter SemiBold (`scripts/brand/wordmark.ts`) — nothing at
-render time depends on a font being installed or loaded.
+**v0.2.0 replaced the placeholder "SS" monogram with a real mark, and a later pass replaced that
+with the delivered artwork**: a rendered "stingray S" — overlapping translucent ribbons running
+cyan (`#3CE4FC`) through blue (`#0C48FC`) into violet, on a near-black ground (`#0B0C0F`). It is a
+raster render, not a vector: the earlier hand-authored compound path and the outlined Inter SemiBold
+wordmark are gone, because no fill path expresses soft gradients and overlapping translucency.
 
-`scripts/brand/generate.ts` (bun + the `sharp` devDependency) reads both and writes every rasterised
-and vector brand asset the app, its web build and its store listing use, then re-run:
+The art is two PNGs cut once from the one delivered master render and committed under
+`assets/brand/source/` — see `scripts/brand/source.ts` for the measured crop boxes, the resolution
+ceiling, and why both pieces come from a single master (it is what keeps the mark and the wordmark
+at their intended relative scale).
+
+Note the split between the logo's colours and the interface's: `BRAND_ACCENT` follows the artwork,
+while `constants/theme.tokens.json` keeps teal (`#1FC7B5`) as the default UI accent for buttons,
+focus rings, tabs and sliders. Those are deliberately allowed to differ.
+
+`scripts/brand/generate.ts` (bun + the `sharp` devDependency) reads the source art and writes every
+brand asset the app, its web build and its store listing use:
 
 ```
 bun scripts/brand/generate.ts
@@ -180,17 +187,22 @@ bun scripts/brand/generate.ts
 writing, all under `apps/stingstream/` unless noted:
 
 ```
-assets/brand/stingstream-mark.svg          gradient mark, standalone
-assets/brand/stingstream-mark-mono.svg     white mark, standalone
-assets/brand/stingstream-wordmark.svg      horizontal lockup (mark beside "StingStream")
-assets/brand/stingstream-wordmark-stacked.svg  stacked lockup (mark above "StingStream")
+assets/brand/mark.png                  400x674    the mark, native size; what the app renders
+assets/brand/mark-mono.png             400x674    white silhouette from the mark's levelled alpha
+assets/brand/wordmark.png              856x151    "StingStream", for dark grounds
+assets/brand/wordmark-light.png        856x151    same, "Sting" recoloured dark for light grounds
+assets/brand/lockup-stacked{,-light}.png  600x590 mark above wordmark; used by the root README
 assets/images/icon.png                 1024x1024, opaque  combined icon (web favicon, non-adaptive fallback)
 assets/images/icon-android-plain.png   1024x1024  Android adaptive icon FOREGROUND (66% safe zone)
-assets/images/icon-android-themed.png  1024x1024  Android 13+ monochrome themed icon (pure white, 66% safe zone)
+assets/images/icon-android-themed.png  1024x1024  Android 13+ monochrome themed icon (silhouette, 66% safe zone)
 assets/images/icon-ios-plain.png       1024x1024  splash-screen logo (shared cross-platform; also today's login logo)
-assets/images/notification.png         96x96      Android status-bar notification icon (pure white)
+assets/images/notification.png         96x96      Android status-bar notification icon (silhouette)
 assets/images/tv-banner-xhdpi.png      320x180, opaque  Android TV / Google TV launcher-row banner (in-app resource)
 assets/images/tv-channel-logo.png      320x320, opaque  Android TV home-row "Continue watching" channel logo
+assets/images/icon-tvos.png            1280x768, opaque   Apple tvOS app icon (stacked lockup)
+assets/images/icon-tvos-small{,-2x}.png  400x240 / 800x480, opaque
+assets/images/icon-tvos-topshelf{,-2x}.png  1920x720 / 3840x1440, opaque  Top Shelf (horizontal lockup)
+assets/images/icon-tvos-topshelf-wide{,-2x}.png  2320x720 / 4640x1440, opaque
 assets/images/{favicon-32,favicon-192,apple-touch-icon}.png  same bytes as the public/ copies below,
                                                                kept here too so app.json's web.favicon
                                                                (which needs an assets/ path) can use one
@@ -198,27 +210,52 @@ docs/screenshots/tv-banner.png         1280x720, opaque  Play TV listing banner
 docs/screenshots/icon-512.png          512x512, no alpha  Play listing icon
 docs/screenshots/feature-graphic.png   1024x500, opaque  Play listing feature graphic
 public/favicon.svg, favicon-32.png, favicon-192.png, apple-touch-icon.png, site.webmanifest
-                                        web favicons/manifest; public/ is copied verbatim into dist/
-constants/brand/paths.ts               generated, committed: the same path data as an app-importable
-                                        module, consumed by components/brand/{StingStreamMark,
-                                        StingStreamWordmark}.tsx (react-native-svg, no rasterisation
-                                        at render time)
+                                        web favicons/manifest; public/ is copied verbatim into dist/,
+                                        and public/index.html is what links them (see below)
+constants/brandAssets.ts               generated, committed: module-scope require()s of the four
+                                        brand PNGs plus the aspect ratios, consumed by
+                                        components/brand/{StingStreamMark,StingStreamWordmark}.tsx
+mesh/crates/stingstream/src/gateway/mark.png.base64  (repo root) the 144px mark the Rust gateway
+                                        include_str!s into its first-paint splash
 ```
 
-Dan can swap in real artwork any time by editing `scripts/brand/{mark,wordmark}.ts`'s path data (or
-replacing the generated files directly, though a re-run of the generator will overwrite them) and
-re-running `expo prebuild` — nothing else references these images by content, only by path, and the
-paths are unchanged from upstream Streamyfin's own asset pipeline.
+**The web shell is `apps/stingstream/public/index.html`, not `app/+html.tsx`.** `+html.tsx` is only
+used by Expo's *static* rendering, and `app.json` pins `web.output: "single"` because NativeWind v2
+depends on it (`docs/UI-DESIGN.md`). Head elements added to `+html.tsx` silently never ship — the
+export was checked, and they do not appear in `dist/index.html`. In single-page mode Expo reads
+`public/index.html` as its template if the file exists (`getTemplateIndexHtmlAsync` in `@expo/cli`),
+substitutes the placeholders, and appends the script tags, `web.themeColor` and its generated
+`/favicon.ico` before `</head>`; the public folder is copied into `dist/` *before* that generated
+result is written, so the served page is the processed template rather than the raw file. That is
+where the `favicon.svg`, `favicon-192`, `apple-touch-icon` and `site.webmanifest` links live —
+without them Expo emits only `/favicon.ico` and the rest of the icon set ships unreferenced.
+
+Verified after a real `bun run build:web`: `dist/` holds all five `public/` files at its root, and
+`dist/index.html` carries the four links plus Expo's own — which also settles a claim this document
+used to make with nothing checking it, that `public/` is copied verbatim into `dist/`.
+
+Lockup geometry lives in `components/brand/wordmarkLayout.ts` and the generator imports it, so the
+lockup the app draws and the one baked into the TV banner and store graphics come from one set of
+numbers rather than two copies kept in step by hand. `assets/bundled-assets.test.ts` pins every file
+above at its exact dimensions, and pins which of them must and must not carry an alpha channel.
+
+To swap in different artwork: replace the PNGs under `assets/brand/source/` (keeping their crop
+ratios), re-run the generator, then `expo prebuild --clean`. Nothing references these images by
+content, only by path, and the paths are unchanged from upstream Streamyfin's own asset pipeline.
 
 The Android TV banner and channel logo are wired into the manifest and `res/drawable-xhdpi/` by
 `plugins/withAndroidTVBanner.ts` (registered in `app.json` after `withAndroidManifest.ts`) — see §9
 "TV ten-foot polish" and `deploy/play/checklist.md` §8, which this plugin closes.
 
-**iOS-specific assets** (`icon-ios-liquid-glass.icon`, `icon-tvos-*`) are untouched. iOS and Apple
-tvOS are out of scope entirely for this milestone (and until Dan says otherwise per
-`docs/ARCHITECTURE.md`) — StingStream's Android TV target is Google's Android TV, a completely
-different codebase path in this fork from Apple's tvOS, and none of the tvOS icon plumbing is
-exercised by anything M5 or this rebrand pass built or tested.
+**`icon-ios-liquid-glass.icon` is the one brand asset still carrying upstream artwork.** It is an
+Apple Icon Composer bundle of four layered vector SVGs (still named `streamyfin_logo_layer1..4.svg`),
+and layered vector cannot be authored from a flat raster render. `app.json`'s `ios.icon` still points
+at it, so an iOS build would ship Streamyfin's icon. iOS is out of scope (there is no committed
+`ios/` directory — `.gitignore` ignores it) and Android TV, which StingStream does target, is
+Google's Android TV and a completely different code path in this fork from Apple's tvOS. The
+`icon-tvos-*` set, by contrast, *is* regenerated: it is seven flat PNGs, so it cost nothing to stop
+shipping the old brand there. Its Top Shelf 2x sizes upscale the wordmark ~3.9x and read soft — see
+the resolution note in `scripts/brand/source.ts`.
 
 **Web manifest** (`app.json`'s `expo.web.name`/`shortName`/theme colors) already said "StingStream"
 before M5 — only the native app name and the actual icon pixels needed catching up, and now (v0.2.0)

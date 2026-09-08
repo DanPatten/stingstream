@@ -180,7 +180,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification.png",
-          "color": "#1FC7B5"
+          "color": "#3CDDFC"
         }
       ],
       "expo-web-browser",

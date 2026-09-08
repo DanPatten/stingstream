@@ -2,19 +2,20 @@
 /**
  * StingStream brand asset generator.
  *
- * Reads the mark (`mark.ts`) and wordmark (`wordmark.ts`) path data -- both static,
- * authored once, never regenerated from a live font or a design tool at build time --
- * and rasterises every icon, favicon, TV asset and store-listing image the app and its
- * docs reference, plus the standalone SVG lockups. Also (re)writes
- * `constants/brandPaths.ts`, the committed, app-importable copy of the same data that
- * `components/brand/*` renders from.
+ * Reads the authored source art (`source.ts` -- two PNGs cut once from the delivered
+ * master render, never regenerated from a design tool at build time) and rasterises every
+ * icon, favicon, TV asset and store-listing image the app and its docs reference, plus the
+ * lockups. Also (re)writes `constants/brandAssets.ts`, the committed app-importable handle
+ * on the same art that `components/brand/*` renders, and `mark.png.base64` for the Rust
+ * gateway's first-paint splash.
  *
  * Run once and commit the outputs:
  *   bun scripts/brand/generate.ts
  *
- * To re-render the three mark candidates and a contact sheet (used once, during the
- * mark's own review pass -- see `mark.ts`'s file comment) instead of the normal run:
- *   bun scripts/brand/generate.ts --candidates [--out <dir>]
+ * The lockup geometry is imported from `components/brand/wordmarkLayout.ts` rather than
+ * duplicated here: the app renders live from those same functions, and the previous
+ * arrangement -- two copies of the maths "kept in sync by hand" -- is exactly the drift
+ * this avoids.
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,20 +23,21 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import sharp from "sharp";
 import {
+  type BrandAspects,
+  horizontalLayout,
+  stackedLayout,
+  type WordmarkLockup,
+} from "../../components/brand/wordmarkLayout";
+import {
   BRAND_ACCENT,
   BRAND_BG,
-  MARK_CANDIDATES,
-  MARK_INK_BOUNDS,
-  MARK_PATH_D,
-  MARK_VIEWBOX_SIZE,
-} from "./mark";
-import {
-  WORDMARK_TEXT_D,
-  WORDMARK_TEXT_HEIGHT,
-  WORDMARK_TEXT_TOP,
-  WORDMARK_TEXT_WIDTH,
-  WORDMARK_UNITS_PER_EM,
-} from "./wordmark";
+  MARK_SIZE,
+  MONO_ALPHA_LEVELS,
+  SOURCE_FILES,
+  WORDMARK_LIGHT_INK,
+  WORDMARK_SATURATION,
+  WORDMARK_SIZE,
+} from "./source";
 
 const APP_ROOT = join(__dirname, "..", "..");
 // docs/screenshots/ is a top-level, monorepo-wide directory (docs/APP-RELEASE.md,
@@ -43,6 +45,17 @@ const APP_ROOT = join(__dirname, "..", "..");
 // apps/stingstream/docs/ -- which exists separately for app-specific docs
 // (docs/conventions/, tv-*.md). Two roots, used deliberately by outPath's callers below.
 const REPO_ROOT = join(APP_ROOT, "..", "..");
+const SOURCE_DIR = join(APP_ROOT, "assets", "brand", "source");
+
+const MARK_SRC = join(SOURCE_DIR, SOURCE_FILES.mark);
+const WORDMARK_SRC = join(SOURCE_DIR, SOURCE_FILES.wordmark);
+
+const ASPECTS: BrandAspects = {
+  mark: MARK_SIZE.width / MARK_SIZE.height,
+  wordmark: WORDMARK_SIZE.width / WORDMARK_SIZE.height,
+};
+
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 } as const;
 
 function outPath(...segments: string[]): string {
   const p = join(APP_ROOT, ...segments);
@@ -56,157 +69,6 @@ function repoOutPath(...segments: string[]): string {
   return p;
 }
 
-// ---------------------------------------------------------------------------
-// Small SVG-building helpers. Everything is composed with plain <g transform="
-// translate(..) scale(..)"> wrappers around the two path constants -- no matrix
-// math baked into the path data itself, so mark.ts/wordmark.ts stay the single
-// source of truth and every rendered size/crop is just a different transform.
-// ---------------------------------------------------------------------------
-
-function gradientDefs(id = "g"): string {
-  return `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${BRAND_ACCENT.from}"/><stop offset="1" stop-color="${BRAND_ACCENT.to}"/></linearGradient>`;
-}
-
-type Box = { minX: number; minY: number; maxX: number; maxY: number };
-
-/** Scale+translate to fit `box` into a `size`x`size` square whose top-left is (x,y), centered, aspect preserved. */
-function fitBoxIntoSquare(box: Box, x: number, y: number, size: number) {
-  const w = box.maxX - box.minX;
-  const h = box.maxY - box.minY;
-  const scale = size / Math.max(w, h);
-  const cx = (box.minX + box.maxX) / 2;
-  const cy = (box.minY + box.maxY) / 2;
-  return {
-    scale,
-    tx: x + size / 2 - cx * scale,
-    ty: y + size / 2 - cy * scale,
-  };
-}
-
-/** A single self-contained icon-shaped SVG: the mark centred in a `boxFrac` fraction of the canvas. */
-function markSvg(opts: {
-  canvas: number;
-  fill: string;
-  bg?: string;
-  boxFrac?: number;
-}): string {
-  const { canvas, fill, bg, boxFrac = 0.82 } = opts;
-  const inner = canvas * boxFrac;
-  const off = (canvas - inner) / 2;
-  const { scale, tx, ty } = fitBoxIntoSquare(MARK_INK_BOUNDS, off, off, inner);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">
-  <defs>${gradientDefs()}</defs>
-  ${bg ? `<rect width="${canvas}" height="${canvas}" fill="${bg}"/>` : ""}
-  <g transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${scale.toFixed(4)})"><path d="${MARK_PATH_D}" fill="${fill}"/></g>
-</svg>`;
-}
-
-/** The mark alone, tightly cropped to its own ink bounds (for favicon.svg). */
-function markTightSvg(fill: string, paddingFrac = 0.08): string {
-  const w = MARK_INK_BOUNDS.maxX - MARK_INK_BOUNDS.minX;
-  const h = MARK_INK_BOUNDS.maxY - MARK_INK_BOUNDS.minY;
-  const pad = Math.max(w, h) * paddingFrac;
-  const minX = MARK_INK_BOUNDS.minX - pad;
-  const minY = MARK_INK_BOUNDS.minY - pad;
-  const vw = w + pad * 2;
-  const vh = h + pad * 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX.toFixed(2)} ${minY.toFixed(2)} ${vw.toFixed(2)} ${vh.toFixed(2)}">
-  <defs>${gradientDefs()}</defs>
-  <path d="${MARK_PATH_D}" fill="${fill}"/>
-</svg>`;
-}
-
-/** Mark + wordmark side by side, fit to a given icon-glyph height. Returns the group markup and its bounding box. */
-function horizontalLockup(opts: {
-  height: number;
-  markFill: string;
-  textFill: string;
-  margin?: number;
-}) {
-  const { height: H, markFill, textFill, margin = H * 0.14 } = opts;
-  const inkW = MARK_INK_BOUNDS.maxX - MARK_INK_BOUNDS.minX;
-  const inkH = MARK_INK_BOUNDS.maxY - MARK_INK_BOUNDS.minY;
-  const markScale = H / inkH;
-  const markW = inkW * markScale;
-  const { tx: markTx, ty: markTy } = fitBoxIntoSquare(
-    MARK_INK_BOUNDS,
-    margin,
-    margin,
-    H,
-  );
-  const gap = H * 0.3;
-  const textScale = (H * 0.62) / WORDMARK_TEXT_HEIGHT;
-  const textX = margin + markW + gap;
-  const markCenterY = margin + H / 2;
-  const textLocalCenterY = WORDMARK_TEXT_TOP + WORDMARK_TEXT_HEIGHT / 2;
-  const baselineY = markCenterY - textScale * textLocalCenterY;
-  const width = margin + markW + gap + textScale * WORDMARK_TEXT_WIDTH + margin;
-  const heightTotal = H + margin * 2;
-  const group = `<g transform="translate(${markTx.toFixed(2)} ${markTy.toFixed(2)}) scale(${markScale.toFixed(4)})"><path d="${MARK_PATH_D}" fill="${markFill}"/></g>
-  <g transform="translate(${textX.toFixed(2)} ${baselineY.toFixed(2)}) scale(${textScale.toFixed(4)})"><path d="${WORDMARK_TEXT_D}" fill="${textFill}"/></g>`;
-  return { group, width, height: heightTotal };
-}
-
-/** Mark above wordmark, both centred, fit to a given total width. */
-function stackedLockup(opts: {
-  width: number;
-  markFill: string;
-  textFill: string;
-  margin?: number;
-}) {
-  const { width: W, markFill, textFill, margin = W * 0.08 } = opts;
-  const contentW = W - margin * 2;
-  const inkW = MARK_INK_BOUNDS.maxX - MARK_INK_BOUNDS.minX;
-  const inkH = MARK_INK_BOUNDS.maxY - MARK_INK_BOUNDS.minY;
-  const markW = contentW * 0.34;
-  const markScale = markW / inkW;
-  const markH = inkH * markScale;
-  const { tx: markTx, ty: markTy } = fitBoxIntoSquare(
-    MARK_INK_BOUNDS,
-    margin + (contentW - markW) / 2,
-    margin,
-    markH,
-  );
-  const gap = markH * 0.32;
-  const textScale = contentW / WORDMARK_TEXT_WIDTH;
-  // The text's local baseline is y=0; its top sits at WORDMARK_TEXT_TOP (negative). To
-  // place the top of the text block at (margin + markH + gap), the baseline must sit
-  // `-textScale * WORDMARK_TEXT_TOP` further down.
-  const baselineY = margin + markH + gap - textScale * WORDMARK_TEXT_TOP;
-  const heightTotal =
-    margin + markH + gap + textScale * WORDMARK_TEXT_HEIGHT + margin;
-  const group = `<g transform="translate(${markTx.toFixed(2)} ${markTy.toFixed(2)}) scale(${markScale.toFixed(4)})"><path d="${MARK_PATH_D}" fill="${markFill}"/></g>
-  <g transform="translate(${margin.toFixed(2)} ${baselineY.toFixed(2)}) scale(${textScale.toFixed(4)})"><path d="${WORDMARK_TEXT_D}" fill="${textFill}"/></g>`;
-  return { group, width: W, height: heightTotal };
-}
-
-/** Wrap a lockup group in an outer canvas of a fixed size, centred with the given fill background. */
-function composeOnCanvas(opts: {
-  canvasW: number;
-  canvasH: number;
-  bg: string;
-  content: { group: string; width: number; height: number };
-  paddingFrac?: number;
-}): string {
-  const { canvasW, canvasH, bg, content, paddingFrac = 0.12 } = opts;
-  const availW = canvasW * (1 - paddingFrac * 2);
-  const availH = canvasH * (1 - paddingFrac * 2);
-  const scale = Math.min(availW / content.width, availH / content.height);
-  const w = content.width * scale;
-  const h = content.height * scale;
-  const x = (canvasW - w) / 2;
-  const y = (canvasH - h) / 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}">
-  <defs>${gradientDefs()}</defs>
-  <rect width="${canvasW}" height="${canvasH}" fill="${bg}"/>
-  <g transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${scale.toFixed(4)})">${content.group}</g>
-</svg>`;
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
 function relLabel(path: string): string {
   return path
     .replace(`${APP_ROOT}\\`, "")
@@ -215,13 +77,234 @@ function relLabel(path: string): string {
     .replace(`${REPO_ROOT}/`, "");
 }
 
-async function renderPng(
-  svg: string,
-  size: { w: number; h: number },
-  path: string,
-  opaque: boolean,
-) {
-  let pipeline = sharp(Buffer.from(svg)).resize(size.w, size.h);
+// ---------------------------------------------------------------------------
+// Raster composition. Every output is the same two source images placed on a
+// canvas -- no transform baked into the art itself, so source.ts stays the
+// single source of truth and each asset is just a different placement.
+// ---------------------------------------------------------------------------
+
+/** Resize art to exactly w x h. Callers always pass a box of the art's own aspect. */
+function resized(art: string | Buffer, w: number, h: number) {
+  return sharp(art).resize({
+    width: Math.max(1, Math.round(w)),
+    height: Math.max(1, Math.round(h)),
+    fit: "fill",
+    kernel: sharp.kernel.lanczos3,
+  });
+}
+
+function blankCanvas(width: number, height: number, bg?: string) {
+  return sharp({
+    create: {
+      width: Math.round(width),
+      height: Math.round(height),
+      channels: 4,
+      background: bg ?? TRANSPARENT,
+    },
+  });
+}
+
+/**
+ * The mark centred in a square canvas, occupying `boxFrac` of it. `boxFrac` is the
+ * safe-zone contract for each platform (Android masks an adaptive icon down to ~66%,
+ * iOS rounds its corners, a favicon has no mask at all), so the values are carried over
+ * from the vector generator unchanged.
+ */
+async function markSquare(opts: {
+  size: number;
+  boxFrac: number;
+  bg?: string;
+  art?: string | Buffer;
+}): Promise<Buffer> {
+  const { size, boxFrac, bg, art = MARK_SRC } = opts;
+  const box = size * boxFrac;
+  // Fit the long edge to the box. The mark is taller than it is wide, so today that is
+  // always the height -- but reading it off the aspect means a re-rendered, wider mark
+  // would still be contained rather than silently cropped by the canvas.
+  const height = ASPECTS.mark <= 1 ? box : box / ASPECTS.mark;
+  const inner = await resized(art, height * ASPECTS.mark, height)
+    .png()
+    .toBuffer();
+  return blankCanvas(size, size, bg)
+    .composite([{ input: inner, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
+/** A lockup rasterised at `scale` layout-units-to-pixels, on a transparent canvas. */
+async function renderLockup(
+  layout: WordmarkLockup,
+  scale: number,
+  wordmarkArt: string | Buffer,
+): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const width = Math.round(layout.width * scale);
+  const height = Math.round(layout.height * scale);
+  const mark = await resized(
+    MARK_SRC,
+    layout.mark.width * scale,
+    layout.mark.height * scale,
+  )
+    .png()
+    .toBuffer();
+  const word = await resized(
+    wordmarkArt,
+    layout.wordmark.width * scale,
+    layout.wordmark.height * scale,
+  )
+    .png()
+    .toBuffer();
+  const buffer = await blankCanvas(width, height)
+    .composite([
+      {
+        input: mark,
+        left: Math.round(layout.mark.x * scale),
+        top: Math.round(layout.mark.y * scale),
+      },
+      {
+        input: word,
+        left: Math.round(layout.wordmark.x * scale),
+        top: Math.round(layout.wordmark.y * scale),
+      },
+    ])
+    .png()
+    .toBuffer();
+  return { buffer, width, height };
+}
+
+/** A lockup scaled to fit a fixed canvas, centred, with the given padding and background. */
+async function lockupOnCanvas(opts: {
+  canvasW: number;
+  canvasH: number;
+  bg: string;
+  layout: WordmarkLockup;
+  wordmarkArt?: string | Buffer;
+  paddingFrac?: number;
+}): Promise<Buffer> {
+  const {
+    canvasW,
+    canvasH,
+    bg,
+    layout,
+    wordmarkArt = WORDMARK_SRC,
+    paddingFrac = 0.12,
+  } = opts;
+  const scale = Math.min(
+    (canvasW * (1 - paddingFrac * 2)) / layout.width,
+    (canvasH * (1 - paddingFrac * 2)) / layout.height,
+  );
+  const { buffer } = await renderLockup(layout, scale, wordmarkArt);
+  return blankCanvas(canvasW, canvasH, bg)
+    .composite([{ input: buffer, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
+/**
+ * The monochrome silhouette: white ink shaped by the mark's own alpha, with the levels
+ * from `source.ts` applied so the ribbons go solid and the outer glow halo is dropped.
+ *
+ * Android keeps only this shape -- it discards the colour of a notification icon and
+ * tints the alpha -- so a straight copy of the render's soft falloff would arrive as a
+ * grey smear at 96px. The linear() maps `lo` to fully transparent and `hi` to fully
+ * opaque; sharp clamps everything outside that.
+ */
+async function markMonoArt(): Promise<Buffer> {
+  const { data, info } = await sharp(MARK_SRC)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const lo = MONO_ALPHA_LEVELS.lo * 255;
+  const hi = MONO_ALPHA_LEVELS.hi * 255;
+  // Built as a raw RGBA buffer rather than sharp's joinChannel: on a `create` canvas
+  // that call is silently dropped (the pipeline comes back 3-channel and the silhouette
+  // ships as an opaque white rectangle), which is exactly the kind of failure the
+  // alpha assertions in assets/bundled-assets.test.ts now catch.
+  const out = Buffer.alloc(width * height * 4);
+  for (let p = 0; p < width * height; p++) {
+    const alpha = data[p * channels + 3];
+    const levelled = ((alpha - lo) / (hi - lo)) * 255;
+    out[p * 4] = 255;
+    out[p * 4 + 1] = 255;
+    out[p * 4 + 2] = 255;
+    out[p * 4 + 3] = Math.round(Math.min(255, Math.max(0, levelled)));
+  }
+  return sharp(out, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+/**
+ * The wordmark recoloured for a light background: "Sting" is rendered near-white and
+ * disappears on white, while "Stream" carries the cyan-to-violet gradient and must
+ * survive untouched. Selecting by saturation rather than by a hardcoded x split keeps
+ * this correct if the art is ever re-rendered -- and the boundary is checked, not
+ * assumed, because a wordmark whose halves overlapped would need a different approach
+ * entirely.
+ */
+async function wordmarkLightArt(): Promise<Buffer> {
+  const { data, info } = await sharp(WORDMARK_SRC)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+
+  const saturation = (r: number, g: number, b: number) => {
+    const max = Math.max(r, g, b);
+    return max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
+  };
+
+  // Column census: where does the coloured half start, and where does the pale half end?
+  let firstChromatic = width;
+  let lastAchromatic = -1;
+  for (let x = 0; x < width; x++) {
+    let chromatic = 0;
+    let achromatic = 0;
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * channels;
+      if (data[i + 3] < 40) continue;
+      const s = saturation(data[i], data[i + 1], data[i + 2]);
+      if (s > WORDMARK_SATURATION.chromatic) chromatic++;
+      else if (s < WORDMARK_SATURATION.achromatic) achromatic++;
+    }
+    if (chromatic >= 3 && x < firstChromatic) firstChromatic = x;
+    if (achromatic >= 3) lastAchromatic = x;
+  }
+  if (lastAchromatic >= firstChromatic) {
+    throw new Error(
+      `wordmark halves overlap (pale ink to x=${lastAchromatic}, colour from x=${firstChromatic}); ` +
+        "the light variant cannot be separated by saturation alone",
+    );
+  }
+
+  // Everything left of the boundary is "Sting", so every visible pixel there is
+  // recoloured -- including the faintly tinted anti-aliased edges, which an
+  // achromatic-only test leaves behind as a pale ghost of the original word. The
+  // saturation check that remains is a guard against a stray coloured pixel, not the
+  // filter that decides what "Sting" is; the census above already decided that.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < firstChromatic; x++) {
+      const i = (y * width + x) * channels;
+      if (data[i + 3] === 0) continue;
+      if (
+        saturation(data[i], data[i + 1], data[i + 2]) >
+        WORDMARK_SATURATION.chromatic
+      )
+        continue;
+      data[i] = WORDMARK_LIGHT_INK.r;
+      data[i + 1] = WORDMARK_LIGHT_INK.g;
+      data[i + 2] = WORDMARK_LIGHT_INK.b;
+    }
+  }
+  return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
+}
+
+// ---------------------------------------------------------------------------
+// Writing
+// ---------------------------------------------------------------------------
+
+async function writePng(buffer: Buffer, path: string, opaque = false) {
+  let pipeline = sharp(buffer);
   if (opaque) {
     pipeline = pipeline.flatten({ background: BRAND_BG }).removeAlpha();
   }
@@ -229,42 +312,36 @@ async function renderPng(
   console.log("wrote", relLabel(path));
 }
 
-/** Render once and write the identical bytes to every path in `paths` (e.g. an icon Expo's
- * own web.favicon config needs under assets/, duplicated under public/ for direct serving). */
-async function renderPngToPaths(
-  svg: string,
-  size: { w: number; h: number },
+/** Write the identical bytes to every path (e.g. an icon Expo's own web.favicon config
+ * needs under assets/, duplicated under public/ for direct serving). */
+async function writePngToPaths(
+  buffer: Buffer,
   paths: string[],
-  opaque: boolean,
+  opaque = false,
 ) {
-  let pipeline = sharp(Buffer.from(svg)).resize(size.w, size.h);
+  let pipeline = sharp(buffer);
   if (opaque) {
     pipeline = pipeline.flatten({ background: BRAND_BG }).removeAlpha();
   }
-  const buffer = await pipeline.png().toBuffer();
+  const out = await pipeline.png().toBuffer();
   for (const path of paths) {
-    writeFileSync(path, buffer);
+    writeFileSync(path, out);
     console.log("wrote", relLabel(path));
   }
 }
 
-function writeSvg(svg: string, path: string) {
-  writeFileSync(path, svg, "utf8");
-  console.log(
-    "wrote",
-    path.replace(`${APP_ROOT}\\`, "").replace(`${APP_ROOT}/`, ""),
-  );
+function writeText(content: string, path: string) {
+  writeFileSync(path, content, "utf8");
+  console.log("wrote", relLabel(path));
 }
 
 /**
  * Write a generated .ts file and immediately run `biome format --write` on it. The
- * generated constants file is machine-built (long single-line string literals via
- * JSON.stringify, an inline object literal) and does not match biome's own formatting
+ * generated constants file is machine-built and does not match biome's own formatting
  * rules -- `bun run check` (CI's "Formatter and lint" step, which runs biome over the
- * whole app, not just touched files) caught this once already
- * (constants/brandPaths.ts). Formatting it here, every time this script writes it,
- * makes that a one-time bug rather than a standing risk every future regeneration could
- * reintroduce.
+ * whole app, not just touched files) caught this once already (constants/brandPaths.ts).
+ * Formatting it here, every time this script writes it, makes that a one-time bug rather
+ * than a standing risk every future regeneration could reintroduce.
  */
 function writeGeneratedTs(content: string, path: string) {
   writeFileSync(path, content, "utf8");
@@ -273,305 +350,179 @@ function writeGeneratedTs(content: string, path: string) {
     stdio: "inherit",
     shell: process.platform === "win32",
   });
-  console.log(
-    "wrote",
-    path.replace(`${APP_ROOT}\\`, "").replace(`${APP_ROOT}/`, ""),
-  );
+  console.log("wrote", relLabel(path));
 }
 
-/** Same fit-into-square logic as markSvg, but parametrised over an arbitrary path `d`
- * and its own ink bounds -- markSvg itself is pinned to MARK_PATH_D/MARK_INK_BOUNDS, and
- * the candidates preview needs to render the wave_s alternate and a disc treatment too. */
-function previewIconSvg(opts: {
-  d: string;
-  box: Box;
-  canvas: number;
-  bg: string;
-  fill: string;
-  disc?: boolean;
-  boxFrac?: number;
-}): string {
-  const { d, box, canvas, bg, fill, disc, boxFrac = 0.82 } = opts;
-  const inner = canvas * boxFrac;
-  const off = (canvas - inner) / 2;
-  const { scale, tx, ty } = fitBoxIntoSquare(box, off, off, inner);
-  const discRect = disc
-    ? `<rect x="${canvas * 0.06}" y="${canvas * 0.06}" width="${canvas * 0.88}" height="${canvas * 0.88}" rx="${canvas * 0.2}" fill="url(#g)"/>`
-    : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">
-  <defs>${gradientDefs()}</defs>
-  <rect width="${canvas}" height="${canvas}" fill="${bg}"/>
-  ${discRect}
-  <g transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${scale.toFixed(4)})"><path d="${d}" fill="${fill}"/></g>
-</svg>`;
-}
-
-/** 192px app-icon mock: the same art, clipped to a rounded-square (squircle-ish) frame. */
-function roundedIconMockSvg(opts: {
-  d: string;
-  box: Box;
-  bg: string;
-  fill: string;
-  disc?: boolean;
-}): string {
-  const canvas = 1024;
-  const inner = previewIconSvg({
-    ...opts,
-    canvas,
-    boxFrac: opts.disc ? 0.62 : 0.82,
-  }).replace(/<\/?svg[^>]*>/g, "");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">
-  <defs><clipPath id="squircle"><rect x="0" y="0" width="${canvas}" height="${canvas}" rx="${canvas * 0.215}"/></clipPath></defs>
-  <g clip-path="url(#squircle)">${inner}</g>
-</svg>`;
-}
-
-async function runCandidatesPreview(outDir: string) {
-  mkdirSync(outDir, { recursive: true });
-  // 1 = Ribbon Ray (the chosen mark, gradient on dark/mono-on-light), 2 = Negative-Space
-  // Ray (same path, white cutout on an accent-gradient disc -- works as an app icon
-  // directly), 3 = Wave S (the calmer alternate). See mark.ts's file comment.
-  const candidates: Record<
-    string,
-    { d: string; box: Box; disc: boolean; fillDark: string; fillLight: string }
-  > = {
-    1: {
-      d: MARK_PATH_D,
-      box: MARK_INK_BOUNDS,
-      disc: false,
-      fillDark: "url(#g)",
-      fillLight: BRAND_BG,
-    },
-    2: {
-      d: MARK_PATH_D,
-      box: MARK_INK_BOUNDS,
-      disc: true,
-      fillDark: "#FFFFFF",
-      fillLight: "#FFFFFF",
-    },
-    3: {
-      d: MARK_CANDIDATES.wave_s,
-      box: MARK_INK_BOUNDS,
-      disc: false,
-      fillDark: "url(#g)",
-      fillLight: BRAND_BG,
-    },
-  };
-
-  for (const [id, c] of Object.entries(candidates)) {
-    for (const size of [48, 512] as const) {
-      const dark = previewIconSvg({
-        d: c.d,
-        box: c.box,
-        canvas: 1024,
-        bg: BRAND_BG,
-        fill: c.fillDark,
-        disc: c.disc,
-        boxFrac: c.disc ? 0.88 : 0.82,
-      });
-      const light = previewIconSvg({
-        d: c.d,
-        box: c.box,
-        canvas: 1024,
-        bg: "#FFFFFF",
-        fill: c.fillLight,
-        disc: c.disc,
-        boxFrac: c.disc ? 0.88 : 0.82,
-      });
-      await sharp(Buffer.from(dark))
-        .resize(size, size)
-        .png()
-        .toFile(join(outDir, `candidate-${id}-${size}-dark.png`));
-      await sharp(Buffer.from(light))
-        .resize(size, size)
-        .png()
-        .toFile(join(outDir, `candidate-${id}-${size}-light.png`));
-    }
-    const mock = roundedIconMockSvg({
-      d: c.d,
-      box: c.box,
-      bg: BRAND_BG,
-      fill: c.disc ? "#FFFFFF" : "url(#g)",
-      disc: c.disc,
-    });
-    await sharp(Buffer.from(mock))
-      .resize(192, 192)
-      .png()
-      .toFile(join(outDir, `candidate-${id}-icon192.png`));
-  }
-
-  const cell = 260;
-  const ids = ["1", "2", "3"];
-  const composites = [];
-  for (let i = 0; i < ids.length; i++) {
-    const files = [
-      `candidate-${ids[i]}-512-dark.png`,
-      `candidate-${ids[i]}-512-light.png`,
-      `candidate-${ids[i]}-icon192.png`,
-    ];
-    for (let col = 0; col < files.length; col++) {
-      const buf = await sharp(join(outDir, files[col]))
-        .resize(cell, cell)
-        .toBuffer();
-      composites.push({ input: buf, left: col * cell, top: i * cell });
-    }
-  }
-  await sharp({
-    create: {
-      width: cell * 3,
-      height: cell * ids.length,
-      channels: 4,
-      background: "#333333",
-    },
-  })
-    .composite(composites)
-    .png()
-    .toFile(join(outDir, "contact-sheet.png"));
-  console.log("wrote", join(outDir, "contact-sheet.png"));
+function brandAssetsModule(): string {
+  return [
+    "/**",
+    " * Generated by `bun scripts/brand/generate.ts` from `scripts/brand/source.ts`.",
+    " * Do not hand-edit -- change the source art and re-run the generator instead.",
+    " *",
+    " * The require()s are at module scope on purpose: eas-cli drops anything matching a",
+    " * .gitignore rule from its upload, and a require inside a try/catch compiles to a",
+    " * silent runtime throw rather than a failed build (see",
+    " * `.claude/learned-facts/eas-archive-drops-gitignored-tracked-files`).",
+    " * `assets/bundled-assets.test.ts` scans constants/ for these and pins them.",
+    " */",
+    "",
+    'import type { BrandAspects } from "@/components/brand/wordmarkLayout";',
+    "",
+    'export const MARK_IMAGE = require("@/assets/brand/mark.png");',
+    'export const MARK_MONO_IMAGE = require("@/assets/brand/mark-mono.png");',
+    'export const WORDMARK_IMAGE = require("@/assets/brand/wordmark.png");',
+    'export const WORDMARK_LIGHT_IMAGE = require("@/assets/brand/wordmark-light.png");',
+    "",
+    "/** Intrinsic width/height of each source image, for aspect-correct layout. */",
+    "export const BRAND_ASPECTS: BrandAspects = {",
+    `  mark: ${MARK_SIZE.width} / ${MARK_SIZE.height},`,
+    `  wordmark: ${WORDMARK_SIZE.width} / ${WORDMARK_SIZE.height},`,
+    "};",
+    "",
+    "/** The mark's own gradient. NOT the UI accent -- that stays teal in theme.tokens.json. */",
+    `export const BRAND_ACCENT_FROM = ${JSON.stringify(BRAND_ACCENT.from)};`,
+    `export const BRAND_ACCENT_TO = ${JSON.stringify(BRAND_ACCENT.to)};`,
+    `export const BRAND_BG = ${JSON.stringify(BRAND_BG)};`,
+    "",
+  ].join("\n");
 }
 
 async function main() {
-  if (process.argv.includes("--candidates")) {
-    const outFlagIdx = process.argv.indexOf("--out");
-    const outDir =
-      outFlagIdx >= 0 && process.argv[outFlagIdx + 1]
-        ? process.argv[outFlagIdx + 1]
-        : "E:\\Dan\\Documents\\Repos\\StingStream\\.local\\ui-loop\\handoff\\brand";
-    await runCandidatesPreview(outDir);
-    return;
+  const monoArt = await markMonoArt();
+  const lightWordmark = await wordmarkLightArt();
+
+  // ---- assets/brand/: the kit the app and the docs render ------------------
+  await writePng(
+    await sharp(MARK_SRC).png().toBuffer(),
+    outPath("assets", "brand", "mark.png"),
+  );
+  await writePng(monoArt, outPath("assets", "brand", "mark-mono.png"));
+  await writePng(
+    await sharp(WORDMARK_SRC).png().toBuffer(),
+    outPath("assets", "brand", "wordmark.png"),
+  );
+  await writePng(
+    lightWordmark,
+    outPath("assets", "brand", "wordmark-light.png"),
+  );
+
+  const stacked = stackedLayout(ASPECTS);
+  const horizontal = horizontalLayout(ASPECTS);
+  const stackedScale = 600 / stacked.width;
+  for (const [file, art] of [
+    ["lockup-stacked.png", WORDMARK_SRC],
+    ["lockup-stacked-light.png", lightWordmark],
+  ] as const) {
+    const { buffer } = await renderLockup(stacked, stackedScale, art);
+    await writePng(buffer, outPath("assets", "brand", file));
   }
 
-  // ---- assets/brand/*.svg -------------------------------------------------
-  writeSvg(
-    markSvg({ canvas: MARK_VIEWBOX_SIZE, fill: "url(#g)", boxFrac: 0.86 }),
-    outPath("assets", "brand", "stingstream-mark.svg"),
-  );
-  writeSvg(
-    markSvg({ canvas: MARK_VIEWBOX_SIZE, fill: "#FFFFFF", boxFrac: 0.86 }),
-    outPath("assets", "brand", "stingstream-mark-mono.svg"),
-  );
-
-  const horiz = horizontalLockup({
-    height: 200,
-    markFill: "url(#g)",
-    textFill: "#F2F3F5",
-  });
-  writeSvg(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${horiz.width.toFixed(0)}" height="${horiz.height.toFixed(0)}" viewBox="0 0 ${horiz.width.toFixed(2)} ${horiz.height.toFixed(2)}">
-  <defs>${gradientDefs()}</defs>
-  ${horiz.group}
-</svg>`,
-    outPath("assets", "brand", "stingstream-wordmark.svg"),
-  );
-
-  const stacked = stackedLockup({
-    width: 600,
-    markFill: "url(#g)",
-    textFill: "#F2F3F5",
-  });
-  writeSvg(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${stacked.width.toFixed(0)}" height="${stacked.height.toFixed(0)}" viewBox="0 0 ${stacked.width.toFixed(2)} ${stacked.height.toFixed(2)}">
-  <defs>${gradientDefs()}</defs>
-  ${stacked.group}
-</svg>`,
-    outPath("assets", "brand", "stingstream-wordmark-stacked.svg"),
-  );
-
   // ---- assets/images/*.png (native app icons) ------------------------------
-  await renderPng(
-    markSvg({ canvas: 1024, fill: "url(#g)", bg: BRAND_BG, boxFrac: 0.82 }),
-    { w: 1024, h: 1024 },
+  await writePng(
+    await markSquare({ size: 1024, boxFrac: 0.82, bg: BRAND_BG }),
     outPath("assets", "images", "icon.png"),
     true,
   );
-  await renderPng(
-    markSvg({ canvas: 1024, fill: "url(#g)", boxFrac: 0.66 }),
-    { w: 1024, h: 1024 },
+  await writePng(
+    await markSquare({ size: 1024, boxFrac: 0.66 }),
     outPath("assets", "images", "icon-android-plain.png"),
-    false,
   );
-  await renderPng(
-    markSvg({ canvas: 1024, fill: "#FFFFFF", boxFrac: 0.66 }),
-    { w: 1024, h: 1024 },
+  await writePng(
+    await markSquare({ size: 1024, boxFrac: 0.66, art: monoArt }),
     outPath("assets", "images", "icon-android-themed.png"),
-    false,
   );
-  await renderPng(
-    markSvg({ canvas: 1024, fill: "url(#g)", boxFrac: 0.6 }),
-    { w: 1024, h: 1024 },
+  await writePng(
+    await markSquare({ size: 1024, boxFrac: 0.6 }),
     outPath("assets", "images", "icon-ios-plain.png"),
-    false,
   );
-  await renderPng(
-    markSvg({ canvas: 96, fill: "#FFFFFF", boxFrac: 0.86 }),
-    { w: 96, h: 96 },
+  await writePng(
+    await markSquare({ size: 96, boxFrac: 0.86, art: monoArt }),
     outPath("assets", "images", "notification.png"),
-    false,
   );
 
   // ---- TV: in-app banner resource + home-row channel logo -----------------
-  const tvBannerContent = horizontalLockup({
-    height: 100,
-    markFill: "#FFFFFF",
-    textFill: "#FFFFFF",
-  });
-  await renderPng(
-    composeOnCanvas({
+  await writePng(
+    await lockupOnCanvas({
       canvasW: 320,
       canvasH: 180,
       bg: BRAND_BG,
-      content: tvBannerContent,
+      layout: horizontal,
       paddingFrac: 0.16,
     }),
-    { w: 320, h: 180 },
     outPath("assets", "images", "tv-banner-xhdpi.png"),
     true,
   );
-  await renderPng(
-    markSvg({ canvas: 320, fill: "url(#g)", bg: BRAND_BG, boxFrac: 0.78 }),
-    { w: 320, h: 320 },
+  await writePng(
+    await markSquare({ size: 320, boxFrac: 0.78, bg: BRAND_BG }),
     outPath("assets", "images", "tv-channel-logo.png"),
     true,
   );
 
+  // ---- tvOS: app icon + Top Shelf ------------------------------------------
+  // Apple wants these flat and opaque (the seven they replace were too). The app icons
+  // are near-square, so they take the stacked lockup; Top Shelf is a wide banner, which
+  // is what the horizontal lockup is for.
+  for (const [file, w, h] of [
+    ["icon-tvos.png", 1280, 768],
+    ["icon-tvos-small.png", 400, 240],
+    ["icon-tvos-small-2x.png", 800, 480],
+  ] as const) {
+    await writePng(
+      await lockupOnCanvas({
+        canvasW: w,
+        canvasH: h,
+        bg: BRAND_BG,
+        layout: stacked,
+        paddingFrac: 0.1,
+      }),
+      outPath("assets", "images", file),
+      true,
+    );
+  }
+  for (const [file, w, h] of [
+    ["icon-tvos-topshelf.png", 1920, 720],
+    ["icon-tvos-topshelf-2x.png", 3840, 1440],
+    ["icon-tvos-topshelf-wide.png", 2320, 720],
+    ["icon-tvos-topshelf-wide-2x.png", 4640, 1440],
+  ] as const) {
+    await writePng(
+      await lockupOnCanvas({
+        canvasW: w,
+        canvasH: h,
+        bg: BRAND_BG,
+        layout: horizontal,
+        paddingFrac: 0.16,
+      }),
+      outPath("assets", "images", file),
+      true,
+    );
+  }
+
   // ---- docs/screenshots: Play listing assets -------------------------------
-  const tvBannerLarge = horizontalLockup({
-    height: 380,
-    markFill: "#FFFFFF",
-    textFill: "#FFFFFF",
-  });
-  await renderPng(
-    composeOnCanvas({
+  await writePng(
+    await lockupOnCanvas({
       canvasW: 1280,
       canvasH: 720,
       bg: BRAND_BG,
-      content: tvBannerLarge,
+      layout: horizontal,
       paddingFrac: 0.16,
     }),
-    { w: 1280, h: 720 },
     repoOutPath("docs", "screenshots", "tv-banner.png"),
     true,
   );
-  await renderPng(
-    markSvg({ canvas: 512, fill: "url(#g)", bg: BRAND_BG, boxFrac: 0.82 }),
-    { w: 512, h: 512 },
+  await writePng(
+    await markSquare({ size: 512, boxFrac: 0.82, bg: BRAND_BG }),
     repoOutPath("docs", "screenshots", "icon-512.png"),
     true,
   );
-  const featureContent = horizontalLockup({
-    height: 220,
-    markFill: "url(#g)",
-    textFill: "#F2F3F5",
-  });
-  await renderPng(
-    composeOnCanvas({
+  await writePng(
+    await lockupOnCanvas({
       canvasW: 1024,
       canvasH: 500,
       bg: BRAND_BG,
-      content: featureContent,
+      layout: horizontal,
       paddingFrac: 0.18,
     }),
-    { w: 1024, h: 500 },
     repoOutPath("docs", "screenshots", "feature-graphic.png"),
     true,
   );
@@ -579,38 +530,40 @@ async function main() {
   // ---- public/: web favicons + manifest ------------------------------------
   // Expo's own `web.favicon` config (app.json) needs its source under assets/ to run
   // through the normal asset pipeline; `public/` is copied byte for byte into `dist/`
-  // (verified separately) and is what site.webmanifest and any extra <link> tags point
-  // at for sizes Expo's single-favicon config doesn't cover. Same bytes, both places.
-  writeSvg(markTightSvg("url(#g)"), outPath("public", "favicon.svg"));
-  await renderPngToPaths(
-    markSvg({ canvas: 32, fill: "url(#g)", boxFrac: 0.92 }),
-    { w: 32, h: 32 },
-    [
-      outPath("assets", "images", "favicon-32.png"),
-      outPath("public", "favicon-32.png"),
-    ],
-    false,
-  );
-  await renderPngToPaths(
-    markSvg({ canvas: 192, fill: "url(#g)", boxFrac: 0.86 }),
-    { w: 192, h: 192 },
-    [
-      outPath("assets", "images", "favicon-192.png"),
-      outPath("public", "favicon-192.png"),
-    ],
-    false,
-  );
-  await renderPngToPaths(
-    markSvg({ canvas: 180, fill: "url(#g)", bg: BRAND_BG, boxFrac: 0.72 }),
-    { w: 180, h: 180 },
+  // and is what site.webmanifest and the <link> tags in app/+html.tsx point at for the
+  // sizes Expo's single-favicon config doesn't cover. Same bytes, both places.
+  const favicon192 = await markSquare({ size: 192, boxFrac: 0.86 });
+  await writePngToPaths(favicon192, [
+    outPath("assets", "images", "favicon-192.png"),
+    outPath("public", "favicon-192.png"),
+  ]);
+  await writePngToPaths(await markSquare({ size: 32, boxFrac: 0.92 }), [
+    outPath("assets", "images", "favicon-32.png"),
+    outPath("public", "favicon-32.png"),
+  ]);
+  await writePngToPaths(
+    await markSquare({ size: 180, boxFrac: 0.72, bg: BRAND_BG }),
     [
       outPath("assets", "images", "apple-touch-icon.png"),
       outPath("public", "apple-touch-icon.png"),
     ],
     true,
   );
-  writeFileSync(
-    outPath("public", "site.webmanifest"),
+
+  // The art is a render, so favicon.svg can only ever wrap the same pixels -- but it
+  // stays, because a browser that asks for image/svg+xml then gets 192px instead of the
+  // 32px .ico Expo generates from web.favicon, and it costs one <link>.
+  writeText(
+    [
+      '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">',
+      `  <image href="data:image/png;base64,${favicon192.toString("base64")}" width="192" height="192"/>`,
+      "</svg>",
+      "",
+    ].join("\n"),
+    outPath("public", "favicon.svg"),
+  );
+
+  writeText(
     `${JSON.stringify(
       {
         name: "StingStream",
@@ -626,36 +579,34 @@ async function main() {
       null,
       2,
     )}\n`,
-    "utf8",
+    outPath("public", "site.webmanifest"),
   );
-  console.log("wrote public/site.webmanifest");
 
-  // ---- constants/brandPaths.ts: the app-importable copy of the data above -
-  const genLine = "Generated by `bun scripts/brand/generate.ts`";
-  const constantsContent = [
-    "/**",
-    ` * ${genLine} from \`scripts/brand/mark.ts\` and \`scripts/brand/wordmark.ts\`.`,
-    " * Do not hand-edit -- change those files and re-run the generator instead.",
-    " */",
-    "",
-    `export const MARK_VIEWBOX = "0 0 ${MARK_VIEWBOX_SIZE} ${MARK_VIEWBOX_SIZE}";`,
-    `export const MARK_PATH_D = ${JSON.stringify(MARK_PATH_D)};`,
-    "",
-    `export const BRAND_ACCENT_FROM = ${JSON.stringify(BRAND_ACCENT.from)};`,
-    `export const BRAND_ACCENT_TO = ${JSON.stringify(BRAND_ACCENT.to)};`,
-    `export const BRAND_BG = ${JSON.stringify(BRAND_BG)};`,
-    "",
-    `export const WORDMARK_UNITS_PER_EM = ${WORDMARK_UNITS_PER_EM};`,
-    `export const WORDMARK_TEXT_D = ${JSON.stringify(WORDMARK_TEXT_D)};`,
-    `export const WORDMARK_TEXT_WIDTH = ${WORDMARK_TEXT_WIDTH};`,
-    `export const WORDMARK_TEXT_HEIGHT = ${WORDMARK_TEXT_HEIGHT};`,
-    `export const WORDMARK_TEXT_TOP = ${WORDMARK_TEXT_TOP};`,
-    "",
-    "/** Tight ink bounding box of MARK_PATH_D within its viewBox, for lockup layout. */",
-    `export const MARK_INK_BOUNDS = ${JSON.stringify(MARK_INK_BOUNDS)};`,
-    "",
-  ].join("\n");
-  writeGeneratedTs(constantsContent, outPath("constants", "brandPaths.ts"));
+  // ---- the gateway's first-paint splash ------------------------------------
+  // Inlined rather than fetched: a splash that arrives in a second round trip has already
+  // lost the race it exists to win. 144px for a 72px render on a 2x display.
+  // `gateway/brand.rs` include_str!s this, so it is still compiled into the binary. No
+  // trailing newline -- the constant goes straight into a data: URI.
+  const splashBase64 = (await markSquare({ size: 144, boxFrac: 1 })).toString(
+    "base64",
+  );
+  writeText(
+    splashBase64,
+    repoOutPath(
+      "mesh",
+      "crates",
+      "stingstream",
+      "src",
+      "gateway",
+      "mark.png.base64",
+    ),
+  );
+  console.log(
+    `  (splash mark: ${(splashBase64.length / 1024).toFixed(1)} KB base64)`,
+  );
+
+  // ---- constants/brandAssets.ts: the app-importable handle on the art -----
+  writeGeneratedTs(brandAssetsModule(), outPath("constants", "brandAssets.ts"));
 
   console.log(
     "\nDone. Re-run `expo prebuild --clean` (or the release build script) to pick up the native icons.",
