@@ -301,6 +301,15 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
+        name='settings/invites'
+        options={{
+          title: "Invite someone",
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
         name='settings/groups/create'
         options={{
           title: "Create group",

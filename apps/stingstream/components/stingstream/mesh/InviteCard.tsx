@@ -32,10 +32,12 @@ import { LoadingState } from "../shared/ScreenState";
  * `JoinGroupScreen` still accepts a bare one because every invite handed out before this is one;
  * nothing hands one out any more.
  *
- * There is always a host to build a link from, because a node is seeded with a sharing server when
- * its database is first opened (`sharing::DEFAULT_SHARING_SERVER`). The one way to have none is to
- * clear that setting *and* have no domain of your own, which is a deliberate act by somebody who
- * knows what they are doing — so it gets an explanation rather than a silent fallback.
+ * **There is not always a host to build a link from, and that changed.** A node used to be seeded
+ * with a shared sharing server, so a link could always be minted; Part 5 deleted that server, and
+ * the only address a node has now is a domain its owner pointed at it. So the no-host branch below
+ * went from a deliberate act by somebody who knew what they were doing to simply what a server
+ * without a domain looks like — which is most of them, and why it explains itself rather than
+ * silently falling back to the bare code this screen stopped showing.
  */
 export function InviteCard({
   group,

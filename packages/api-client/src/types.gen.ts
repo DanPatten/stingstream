@@ -132,6 +132,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every invite this server has minted, newest first. */
+        get: operations["Invites_StingStreamInvites"];
+        put?: never;
+        /** Mint an invite. */
+        post: operations["Invites_StingStreamMintInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/invites/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw an invite.
+         * @description The row stays in the list, marked revoked. An account the invite already created is not
+         *     touched — that account is a person, and removing their access is a separate decision made on
+         *     the Users screen.
+         */
+        delete: operations["Invites_StingStreamRevokeInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/invites/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the account this invite is for.
+         * @description The answer is a sign-in, so the app moves straight to the library rather than showing a login
+         *     form to somebody who has just chosen a password. `AuthenticateNewSession` rather than
+         *     `AuthenticateDirect`: the password was typed here a moment ago and verifying it is
+         *     nearly free, so the session is issued by the same path every other sign-in takes.
+         */
+        post: operations["Invites_StingStreamAcceptInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/invites/libraries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The libraries an invite can be scoped to. */
+        get: operations["Invites_StingStreamInviteLibraries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/invites/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What this invite is, for the page somebody lands on after opening a link.
+         * @description Anonymous, and it has to be: the person reading it has no account, which is the reason they
+         *                 were sent a link.
+         *
+         *     A spent, expired or withdrawn invite gets `410` and a sentence rather than the
+         *                 `404` a token that never existed gets. Distinguishing the two tells a prober nothing
+         *                 they could use — learning that a particular 256-bit string was once an invite requires
+         *                 already holding that string, and whoever holds it is the person the link was sent to. What
+         *                 it buys is the difference between "ask them for a new one" and a dead end.
+         */
+        post: operations["Invites_StingStreamLookupInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Items/{id}/availability": {
         parameters: {
             query?: never;
@@ -508,41 +615,6 @@ export interface paths {
         post?: never;
         /** Leave a group. */
         delete: operations["Mesh_Leave"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/Mesh/groups/{group}/coordinator": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Point a group at a different coordinator.
-         * @description A group's coordinator used to be fixed at creation, which meant a group whose owner's server
-         *                 moved — or one that outgrew the shared fallback — had to be rebuilt and re-joined by every
-         *                 member. This changes it in place.
-         *
-         *     Core does not arbitrate: it hands the change to the mesh, which stamps it, re-seeds its own
-         *                 relay map, announces at the new coordinator's rendezvous and gossips a signed record that
-         *                 every other member applies under a last-writer-wins rule (see `docs/MESH.md`). Invite
-         *                 codes minted afterwards carry the new value automatically, because the mesh reads the group
-         *                 fresh when it mints one.
-         *
-         *     Elevation, like every other operation that changes what a group is: a coordinator is the
-         *                 node's route to its peers, not a per-user preference. The app is expected to have validated
-         *                 the hostname against the candidate's own `/healthz` first (M3c's coordinator picker
-         *                 does), but this endpoint deliberately does not require that — a coordinator that is briefly
-         *                 down is still the right answer, and refusing the change would leave the group pointing at
-         *                 one that is down for good.
-         */
-        put: operations["Mesh_SetCoordinator"];
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1508,6 +1580,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The account somebody chose on an invite landing page. */
+        AcceptInviteRequest: {
+            /** @description The token out of the link's fragment. */
+            Token?: string | null;
+            /** @description The name they want. Same rules as the first-run screen. */
+            Username?: string | null;
+            /** @description The password they chose. At least eight characters. */
+            Password?: string | null;
+        };
         /** @description An entity representing a user's access schedule. */
         AccessSchedule: {
             /**
@@ -2437,8 +2518,6 @@ export interface components {
         CreateGroupRequest: {
             /** @description Human-readable group name. */
             Name?: string;
-            /** @description Optional coordinator URL, carried in every invite so members auto-configure it. */
-            Coordinator?: string | null;
         };
         /** @description Request to make a request. */
         CreateRequestBody: {
@@ -3282,6 +3361,57 @@ export interface components {
             LocalSubtitles?: components["schemas"]["SubtitleSidecar"][];
             UpdatedAt?: string;
         };
+        /** @description What the person who opened a link is told, before they have an account. */
+        InviteDescription: {
+            /** @description The server's name, so the page can say where they are being invited. */
+            ServerName?: string;
+            /** @description Who invited them. */
+            InvitedBy?: string;
+            /** @description What they will be able to watch. */
+            Libraries?: components["schemas"]["InviteLibrary"][];
+            /** @description When the invite stops working, ISO 8601. */
+            ExpiresAt?: string;
+        };
+        /** @description One sentence saying why an invite request was refused. */
+        InviteError: {
+            /** @description The sentence, written for the person who is reading it. */
+            Error?: string;
+        };
+        /** @description A library, named so a person can recognise it. */
+        InviteLibrary: {
+            /** @description Jellyfin's collection-folder item id. */
+            Id?: string;
+            /** @description What it is called. */
+            Name?: string;
+            /** @description `movies`, `tvshows` and so on, or null when it has no type. */
+            CollectionType?: string | null;
+        };
+        /** @description One invite in the administrator's list. */
+        InviteSummary: {
+            /** @description The id to revoke by. */
+            Id?: string;
+            /** @description The administrator's own note. */
+            Label?: string;
+            /** @description The libraries it grants. */
+            Libraries?: components["schemas"]["InviteLibrary"][];
+            /** @description Who minted it. */
+            CreatedByName?: string;
+            /** @description When it was minted, ISO 8601. */
+            CreatedAt?: string;
+            /** @description When it stops working, ISO 8601. */
+            ExpiresAt?: string;
+            /** @description `valid`, `expired`, `used` or `revoked`. */
+            Status?: string;
+            /** @description The name of the account it created, or null. */
+            RedeemedUserName?: string | null;
+            /** @description When that happened, ISO 8601, or null. */
+            RedeemedAt?: string | null;
+        };
+        /** @description A token, on its own, for the route that only looks one up. */
+        InviteTokenRequest: {
+            /** @description The token out of the link's fragment. */
+            Token?: string | null;
+        };
         /**
          * @description Enum IsoType.
          * @enum {string}
@@ -3825,8 +3955,6 @@ export interface components {
             /** @description The 32-byte group id, hex. */
             Group?: string;
             Name?: string;
-            /** @description The group's coordinator URL, or null for a zero-server group. */
-            Coordinator?: string | null;
             CreatedAt?: string;
         };
         /** @description `GET /mesh/v1/index?group=`. */
@@ -3867,7 +3995,6 @@ export interface components {
         MeshJoinResult: {
             Group?: string;
             Name?: string;
-            Coordinator?: string | null;
             /** @description `inviter`, `rendezvous` or `none`. */
             Via?: string;
             Contacted?: string[];
@@ -4061,8 +4188,6 @@ export interface components {
         MeshSharingSettings: {
             /** @description The domain pointed at this node, origin only. Null when unset. */
             PublicAddress?: string | null;
-            /** @description The coordinator a newly created Public group adopts. Null when unset. */
-            CoordinatorDefault?: string | null;
         };
         /** @description The body of `GET /mesh/v1/sources/{group}/{item_key}`. */
         MeshSources: {
@@ -4164,6 +4289,27 @@ export interface components {
          * @enum {string}
          */
         MetadataField: "Cast" | "Genres" | "ProductionLocations" | "Studios" | "Tags" | "Name" | "Overview" | "Runtime" | "OfficialRating";
+        /** @description What an administrator asked for. */
+        MintInviteRequest: {
+            /** @description A note to themselves. Optional. */
+            Label?: string | null;
+            /** @description The libraries the invited person will see. At least one. */
+            Libraries?: string[] | null;
+            /**
+             * Format: int32
+             * @description How long it should last. Clamped; zero means the default.
+             */
+            ExpiresInDays?: number;
+        };
+        /** @description A freshly minted invite. The only time the token is ever returned. */
+        MintedInvite: {
+            /** @description The token. Send the link, not this, unless there is no link to send. */
+            Token?: string;
+            /** @description The link to send, or null when this server has no address anybody could open. */
+            Url?: string | null;
+            /** @description The invite as it now appears in the list. */
+            Invite?: components["schemas"]["InviteSummary"];
+        };
         NameGuidPair: {
             Name?: string | null;
             /** Format: uuid */
@@ -5379,11 +5525,6 @@ export interface components {
              * @enum {string}
              */
             MessageType: "SessionsStop";
-        };
-        /** @description Body of `PUT /mesh/groups/{group}/coordinator`. */
-        SetCoordinatorRequest: {
-            /** @description The new coordinator URL. */
-            Coordinator?: string | null;
         };
         /** @description The account somebody chose on the first-run screen. */
         SetupAdminRequest: {
@@ -6892,6 +7033,373 @@ export interface operations {
             };
         };
     };
+    Invites_StingStreamInvites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invites. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteSummary"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamMintInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The label, the libraries and how long it should last. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MintInviteRequest"];
+                "text/json": components["schemas"]["MintInviteRequest"];
+                "application/*+json": components["schemas"]["MintInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description The token and the link. This is the only time the token is returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedInvite"];
+                };
+            };
+            /** @description The request names no library, or one this server does not have. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamRevokeInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The invite id, from the list. Never the token. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Withdrawn. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such invite, or it was already withdrawn. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamAcceptInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The token, and the name and password they chose. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteRequest"];
+                "text/json": components["schemas"]["AcceptInviteRequest"];
+                "application/*+json": components["schemas"]["AcceptInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description The account exists, and here is a session for it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticationResult"];
+                };
+            };
+            /** @description The name or the password is not usable; the sentence says which. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No invite has ever had this token. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description There was one, and it cannot be used. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamInviteLibraries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every library on this server. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteLibrary"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamLookupInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The token out of the link's fragment. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InviteTokenRequest"];
+                "text/json": components["schemas"]["InviteTokenRequest"];
+                "application/*+json": components["schemas"]["InviteTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The server, who invited them, and what they will be able to watch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteDescription"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No invite has ever had this token. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description There was one, and it cannot be used: the sentence says why. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Items_Availability: {
         parameters: {
             query?: never;
@@ -8179,75 +8687,6 @@ export interface operations {
                 content: {
                     "text/html": unknown;
                 };
-            };
-        };
-    };
-    Mesh_SetCoordinator: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The group id. */
-                group: string;
-            };
-            cookie?: never;
-        };
-        /** @description The new coordinator URL, or null/empty to go back to public infrastructure. */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["SetCoordinatorRequest"];
-                "text/json": components["schemas"]["SetCoordinatorRequest"];
-                "application/*+json": components["schemas"]["SetCoordinatorRequest"];
-            };
-        };
-        responses: {
-            /** @description The group as it now stands. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeshGroup"];
-                };
-            };
-            /** @description The URL will not parse, or a newer change is already stored. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description This node is not a member of that group. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The mesh is not answering. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

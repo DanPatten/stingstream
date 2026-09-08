@@ -569,6 +569,540 @@
         ]
       }
     },
+    "/stingstream/api/v1/invites": {
+      "get": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Every invite this server has minted, newest first.",
+        "operationId": "StingStreamInvites",
+        "responses": {
+          "200": {
+            "description": "The invites.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InviteSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Mint an invite.",
+        "operationId": "StingStreamMintInvite",
+        "requestBody": {
+          "description": "The label, the libraries and how long it should last.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MintInviteRequest"
+                  }
+                ],
+                "description": "What an administrator asked for."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MintInviteRequest"
+                  }
+                ],
+                "description": "What an administrator asked for."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MintInviteRequest"
+                  }
+                ],
+                "description": "What an administrator asked for."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The token and the link. This is the only time the token is returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedInvite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request names no library, or one this server does not have.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/invites/{id}": {
+      "delete": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Withdraw an invite.",
+        "description": "The row stays in the list, marked revoked. An account the invite already created is not\r\ntouched — that account is a person, and removing their access is a separate decision made on\r\nthe Users screen.",
+        "operationId": "StingStreamRevokeInvite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invite id, from the list. Never the token.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Withdrawn."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such invite, or it was already withdrawn.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/invites/accept": {
+      "post": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Create the account this invite is for.",
+        "description": "The answer is a sign-in, so the app moves straight to the library rather than showing a login\r\nform to somebody who has just chosen a password. `AuthenticateNewSession` rather than\r\n`AuthenticateDirect`: the password was typed here a moment ago and verifying it is\r\nnearly free, so the session is issued by the same path every other sign-in takes.",
+        "operationId": "StingStreamAcceptInvite",
+        "requestBody": {
+          "description": "The token, and the name and password they chose.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInviteRequest"
+                  }
+                ],
+                "description": "The account somebody chose on an invite landing page."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInviteRequest"
+                  }
+                ],
+                "description": "The account somebody chose on an invite landing page."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInviteRequest"
+                  }
+                ],
+                "description": "The account somebody chose on an invite landing page."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The account exists, and here is a session for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name or the password is not usable; the sentence says which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No invite has ever had this token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "There was one, and it cannot be used.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/invites/libraries": {
+      "get": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "The libraries an invite can be scoped to.",
+        "operationId": "StingStreamInviteLibraries",
+        "responses": {
+          "200": {
+            "description": "Every library on this server.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InviteLibrary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/invites/lookup": {
+      "post": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "What this invite is, for the page somebody lands on after opening a link.",
+        "description": "\r\nAnonymous, and it has to be: the person reading it has no account, which is the reason they\r\n            were sent a link.\r\n\r\nA spent, expired or withdrawn invite gets `410` and a sentence rather than the\r\n            `404` a token that never existed gets. Distinguishing the two tells a prober nothing\r\n            they could use — learning that a particular 256-bit string was once an invite requires\r\n            already holding that string, and whoever holds it is the person the link was sent to. What\r\n            it buys is the difference between \"ask them for a new one\" and a dead end.",
+        "operationId": "StingStreamLookupInvite",
+        "requestBody": {
+          "description": "The token out of the link's fragment.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/InviteTokenRequest"
+                  }
+                ],
+                "description": "A token, on its own, for the route that only looks one up."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/InviteTokenRequest"
+                  }
+                ],
+                "description": "A token, on its own, for the route that only looks one up."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/InviteTokenRequest"
+                  }
+                ],
+                "description": "A token, on its own, for the route that only looks one up."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server, who invited them, and what they will be able to watch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDescription"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No invite has ever had this token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "There was one, and it cannot be used: the sentence says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/Items/{id}/availability": {
       "get": {
         "tags": [
@@ -2230,111 +2764,6 @@
             "content": {
               "text/html": {}
             }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/Mesh/groups/{group}/coordinator": {
-      "put": {
-        "tags": [
-          "Mesh"
-        ],
-        "summary": "Point a group at a different coordinator.",
-        "description": "\r\nA group's coordinator used to be fixed at creation, which meant a group whose owner's server\r\n            moved — or one that outgrew the shared fallback — had to be rebuilt and re-joined by every\r\n            member. This changes it in place.\r\n\r\nCore does not arbitrate: it hands the change to the mesh, which stamps it, re-seeds its own\r\n            relay map, announces at the new coordinator's rendezvous and gossips a signed record that\r\n            every other member applies under a last-writer-wins rule (see `docs/MESH.md`). Invite\r\n            codes minted afterwards carry the new value automatically, because the mesh reads the group\r\n            fresh when it mints one.\r\n\r\nElevation, like every other operation that changes what a group is: a coordinator is the\r\n            node's route to its peers, not a per-user preference. The app is expected to have validated\r\n            the hostname against the candidate's own `/healthz` first (M3c's coordinator picker\r\n            does), but this endpoint deliberately does not require that — a coordinator that is briefly\r\n            down is still the right answer, and refusing the change would leave the group pointing at\r\n            one that is down for good.",
-        "operationId": "SetCoordinator",
-        "parameters": [
-          {
-            "name": "group",
-            "in": "path",
-            "description": "The group id.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "description": "The new coordinator URL, or null/empty to go back to public infrastructure.",
-          "content": {
-            "application/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/SetCoordinatorRequest"
-                  }
-                ],
-                "description": "Body of `PUT /mesh/groups/{group}/coordinator`."
-              }
-            },
-            "text/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/SetCoordinatorRequest"
-                  }
-                ],
-                "description": "Body of `PUT /mesh/groups/{group}/coordinator`."
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/SetCoordinatorRequest"
-                  }
-                ],
-                "description": "Body of `PUT /mesh/groups/{group}/coordinator`."
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The group as it now stands.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshGroup"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The URL will not parse, or a newer change is already stored.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "This node is not a member of that group.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The mesh is not answering."
           }
         },
         "security": [
@@ -7114,6 +7543,28 @@
   },
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "type": "object",
+        "properties": {
+          "Token": {
+            "type": "string",
+            "description": "The token out of the link's fragment.",
+            "nullable": true
+          },
+          "Username": {
+            "type": "string",
+            "description": "The name they want. Same rules as the first-run screen.",
+            "nullable": true
+          },
+          "Password": {
+            "type": "string",
+            "description": "The password they chose. At least eight characters.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "The account somebody chose on an invite landing page."
+      },
       "AccessSchedule": {
         "type": "object",
         "properties": {
@@ -9381,11 +9832,6 @@
           "Name": {
             "type": "string",
             "description": "Human-readable group name."
-          },
-          "Coordinator": {
-            "type": "string",
-            "description": "Optional coordinator URL, carried in every invite so members auto-configure it.",
-            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -11440,6 +11886,123 @@
         "additionalProperties": false,
         "description": "What this node holds, per local movie or episode, in the shape M3 will publish over the mesh."
       },
+      "InviteDescription": {
+        "type": "object",
+        "properties": {
+          "ServerName": {
+            "type": "string",
+            "description": "The server's name, so the page can say where they are being invited."
+          },
+          "InvitedBy": {
+            "type": "string",
+            "description": "Who invited them."
+          },
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InviteLibrary"
+            },
+            "description": "What they will be able to watch."
+          },
+          "ExpiresAt": {
+            "type": "string",
+            "description": "When the invite stops working, ISO 8601."
+          }
+        },
+        "additionalProperties": false,
+        "description": "What the person who opened a link is told, before they have an account."
+      },
+      "InviteError": {
+        "type": "object",
+        "properties": {
+          "Error": {
+            "type": "string",
+            "description": "The sentence, written for the person who is reading it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One sentence saying why an invite request was refused."
+      },
+      "InviteLibrary": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "Jellyfin's collection-folder item id."
+          },
+          "Name": {
+            "type": "string",
+            "description": "What it is called."
+          },
+          "CollectionType": {
+            "type": "string",
+            "description": "`movies`, `tvshows` and so on, or null when it has no type.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A library, named so a person can recognise it."
+      },
+      "InviteSummary": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "The id to revoke by."
+          },
+          "Label": {
+            "type": "string",
+            "description": "The administrator's own note."
+          },
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InviteLibrary"
+            },
+            "description": "The libraries it grants."
+          },
+          "CreatedByName": {
+            "type": "string",
+            "description": "Who minted it."
+          },
+          "CreatedAt": {
+            "type": "string",
+            "description": "When it was minted, ISO 8601."
+          },
+          "ExpiresAt": {
+            "type": "string",
+            "description": "When it stops working, ISO 8601."
+          },
+          "Status": {
+            "type": "string",
+            "description": "`valid`, `expired`, `used` or `revoked`."
+          },
+          "RedeemedUserName": {
+            "type": "string",
+            "description": "The name of the account it created, or null.",
+            "nullable": true
+          },
+          "RedeemedAt": {
+            "type": "string",
+            "description": "When that happened, ISO 8601, or null.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "One invite in the administrator's list."
+      },
+      "InviteTokenRequest": {
+        "type": "object",
+        "properties": {
+          "Token": {
+            "type": "string",
+            "description": "The token out of the link's fragment.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A token, on its own, for the route that only looks one up."
+      },
       "IsoType": {
         "enum": [
           "Dvd",
@@ -12837,11 +13400,6 @@
           "Name": {
             "type": "string"
           },
-          "Coordinator": {
-            "type": "string",
-            "description": "The group's coordinator URL, or null for a zero-server group.",
-            "nullable": true
-          },
           "CreatedAt": {
             "type": "string"
           }
@@ -12947,10 +13505,6 @@
           },
           "Name": {
             "type": "string"
-          },
-          "Coordinator": {
-            "type": "string",
-            "nullable": true
           },
           "Via": {
             "type": "string",
@@ -13381,11 +13935,6 @@
             "type": "string",
             "description": "The domain pointed at this node, origin only. Null when unset.",
             "nullable": true
-          },
-          "CoordinatorDefault": {
-            "type": "string",
-            "description": "The coordinator a newly created Public group adopts. Null when unset.",
-            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -13642,6 +14191,56 @@
         ],
         "type": "string",
         "description": "Enum MetadataFields."
+      },
+      "MintInviteRequest": {
+        "type": "object",
+        "properties": {
+          "Label": {
+            "type": "string",
+            "description": "A note to themselves. Optional.",
+            "nullable": true
+          },
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The libraries the invited person will see. At least one.",
+            "nullable": true
+          },
+          "ExpiresInDays": {
+            "type": "integer",
+            "description": "How long it should last. Clamped; zero means the default.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "What an administrator asked for."
+      },
+      "MintedInvite": {
+        "type": "object",
+        "properties": {
+          "Token": {
+            "type": "string",
+            "description": "The token. Send the link, not this, unless there is no link to send."
+          },
+          "Url": {
+            "type": "string",
+            "description": "The link to send, or null when this server has no address anybody could open.",
+            "nullable": true
+          },
+          "Invite": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InviteSummary"
+              }
+            ],
+            "description": "The invite as it now appears in the list."
+          }
+        },
+        "additionalProperties": false,
+        "description": "A freshly minted invite. The only time the token is ever returned."
       },
       "NameGuidPair": {
         "type": "object",
@@ -17176,18 +17775,6 @@
         "additionalProperties": false,
         "description": "Sessions stop message."
       },
-      "SetCoordinatorRequest": {
-        "type": "object",
-        "properties": {
-          "Coordinator": {
-            "type": "string",
-            "description": "The new coordinator URL.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "Body of `PUT /mesh/groups/{group}/coordinator`."
-      },
       "SetupAdminRequest": {
         "type": "object",
         "properties": {
@@ -19853,6 +20440,9 @@
     },
     {
       "name": "Inventory"
+    },
+    {
+      "name": "Invites"
     },
     {
       "name": "Items"

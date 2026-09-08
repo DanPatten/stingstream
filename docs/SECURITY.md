@@ -183,6 +183,9 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/qualityprofiles/*` | all | Admin |
 | `/stingstream/api/v1/setup/state` | GET | Anonymous, answers anywhere; one boolean (`Pending`) plus where the caller is (`Loopback`, `TrustedPeer`) |
 | `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback or private network (RFC 1918, link-local, IPv6 ULA); the gateway 404s a public peer always, and 404s a private one once its poller sees the node claimed (Core answers 409 in the gap, and to loopback, which is never gated) |
+| `/stingstream/api/v1/invites`, `/invites/libraries`, `/invites/{id}` | GET, POST, DELETE | Admin. Minting hands out an account on this server, so it is the owner's decision and not a member's |
+| `/stingstream/api/v1/invites/lookup` | POST | Anonymous + a 256-bit token in the **body**. Answers 404 for a token nobody minted and 410 with a reason for one that is spent, expired or withdrawn — distinguishable only to somebody already holding the token, which is the person the link was sent to |
+| `/stingstream/api/v1/invites/accept` | POST | Anonymous + the same token, single use, enforced by `UPDATE ... WHERE redeemed_at IS NULL` rather than by a read-then-write. Creates a user with `EnableAllFolders = false` and exactly the invite's `EnabledFolders` |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
@@ -340,22 +343,27 @@ a phone's own mesh member is a removable row. Removing it is arguably right (a l
 app does not notice: it keeps trying to dial and playback silently falls back to home-node proxying.
 A one-line follow-up on the app side.
 
-**R11 — An invite link through the shared coordinator is read by the coordinator's own page.**
-An invite is `https://<host>/join#<code>`, and the code carries the group secret. The fragment
-means it never reaches any *server*: not the request, not an access log, not a proxy's log. But
-when the host is a coordinator rather than the inviter's own domain, the coordinator's `/join` page
-is what runs in the visitor's browser, and it reads the fragment in order to redirect. That page is
-a few hundred bytes, static, served from this repo and sends the code nowhere — and a coordinator
-operator who changed it could have every invite opened through them.
+**R11 — Closed by Part 5, not fixed.** This risk was that an invite link built from the *shared
+coordinator's* address would have that coordinator's `/join` page read the fragment — and the
+fragment carries a group's secret — so a coordinator operator who changed that page could have
+every invite opened through them. There is no coordinator any more, and `sharing::invite_link`
+lost the fallback that produced such a link: a node builds a link from **its own** address or from
+nothing at all. Nothing third-party is now in the path of any invite. Recorded rather than deleted
+because the reasoning is the reason person invites carry their token in a fragment too.
 
-Mitigated rather than solved, three ways. A node **prefers its own address** when one is set, so a
-self-hoster's links never touch a coordinator (`sharing::invite_link`). The window is one redirect
-rather than a stored value. And a code is only a credential until the group's secret is rotated,
-which `POST /mesh/groups/{g}/rotate` does on demand. The real fix is Phase 2's single-use, expiring
-invites, which make a leaked code worth nothing after one use or seven days.
+**R12 — A person invite is a bearer token in a chat message.** `POST /invites/accept` creates an
+account on this server for whoever presents the token, so anybody who can read the message can take
+the invite — a forwarded chat, a shared tablet, a synced message history. This is inherent: the
+whole feature is a link you send to somebody who has no account yet, and there is nothing to
+authenticate them against beforehand.
 
-Somebody who does not want that exposure at all has the option today: set your own domain under
-Settings → Sharing → Sharing server, or hand out the code rather than the link.
+Bounded rather than solved, four ways, and unlike a group invite every one of them is real here
+because the server is the admitting party. It is **single use**, so whoever gets there second is
+refused and the inviter finds out from an account they do not recognise. It **expires**, at most a
+year and seven days by default. It can be **withdrawn** from the Invites screen at any time. And it
+grants exactly the libraries the inviter picked, so the blast radius of a stolen invite is one
+account with one library's worth of access, not the server. What it is not is a substitute for
+sending the link to the right person.
 
 
 ---

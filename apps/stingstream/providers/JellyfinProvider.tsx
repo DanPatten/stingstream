@@ -1097,12 +1097,28 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
   useEffect(() => {
     if (loaded === false) return;
 
-    const inAuthGroup = segments.length > 1 && segments[0] === "(auth)";
-    const isTopShelfLaunchRoute = segments[0] === "topshelf";
+    // Read as the string it actually is. `segments` is typed as a union of whatever routes
+    // expo-router last generated types for, and `.expo/types/router.d.ts` is a build artifact --
+    // absent on a clean checkout, stale until something regenerates it -- so comparing against
+    // that union makes this guard's correctness depend on a generated file nobody committed.
+    const root: string = segments[0] ?? "";
+    const inAuthGroup = segments.length > 1 && root === "(auth)";
+    const isTopShelfLaunchRoute = root === "topshelf";
+    // An invite link is opened by somebody with no account -- that is what an invite is for -- so
+    // `/join` cannot live inside `(auth)`, where the first branch would send them to a sign-in
+    // form for an account that does not exist. It also cannot be bounced by the second branch: a
+    // person already signed in who opens one needs to be told what the link was, not silently
+    // dropped on Home. The route decides for itself which of the two it is looking at.
+    const isJoinRoute = root === "join";
 
     if (!user?.Id && inAuthGroup) {
       router.replace("/login");
-    } else if (user?.Id && !inAuthGroup && !isTopShelfLaunchRoute) {
+    } else if (
+      user?.Id &&
+      !inAuthGroup &&
+      !isTopShelfLaunchRoute &&
+      !isJoinRoute
+    ) {
       router.replace("/(auth)/(tabs)/(home)/");
     }
   }, [user, segments, loaded]);

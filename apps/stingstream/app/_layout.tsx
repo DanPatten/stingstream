@@ -636,13 +636,14 @@ function Layout() {
                                               Platform.OS === "ios",
                                           }}
                                         />
-                                        {/* Where an invite link lands. It reads the code out of
-                                            the address and redirects, so it is on screen for a
-                                            frame or two — long enough for a default header
-                                            captioned "join" to flash, which is the only reason it
-                                            is declared here. */}
+                                        {/* Where an invite link lands. Outside `(auth)`, because
+                                            a person invite is opened by somebody who cannot sign
+                                            in yet; `useProtectedRoute` exempts it by name so a
+                                            signed-in visitor is not bounced off it either. Its own
+                                            header would flash a title captioned "join" while it
+                                            works out which kind of invite this is. */}
                                         <Stack.Screen
-                                          name='(auth)/join'
+                                          name='join'
                                           options={{
                                             headerShown: false,
                                             title: "",

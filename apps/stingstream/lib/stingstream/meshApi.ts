@@ -26,10 +26,6 @@ import type { SideDoorRecord } from "./sidedoor";
 export interface MeshNodeGroup {
   group: string;
   name: string;
-  /**
-   * Absent for the zero-server default. The mesh normalises what it stores — `https://host`
-   * comes back as `https://host/` — so never compare this to what a user typed.
-   */
   createdAt: string;
 }
 

@@ -13,6 +13,7 @@ using StingStream.Core.Data;
 using StingStream.Core.Federated;
 using StingStream.Core.FirstRun;
 using StingStream.Core.Inventory;
+using StingStream.Core.Invites;
 using StingStream.Core.Library;
 using StingStream.Core.Mesh;
 using StingStream.Core.Playback;
@@ -154,6 +155,11 @@ public static class StingStreamCoreExtensions
 
         // Member requests (M6). One call, defined in Requests/RequestsRegistration.cs.
         services.AddStingStreamRequests();
+
+        // Inviting a person to this server (Part 5). An invite creates an account here, scoped to
+        // the libraries the administrator picked -- which is what makes "you get invited to a
+        // server and you create an account" true without anything central. See Invites/.
+        services.AddStingStreamInvites();
 
         // Subtitles the group wants, fetched once by the node that holds the file and published
         // with its inventory record (M7). Jellyfin's own scheduled task would fetch on every node

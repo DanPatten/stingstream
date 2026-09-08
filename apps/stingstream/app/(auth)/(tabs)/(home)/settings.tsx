@@ -107,6 +107,19 @@ function SettingsMobile() {
                 showArrow
                 title={t("home.settings.sections.sharing")}
               />
+              {/* Inviting a *person* rather than linking a server, so it belongs beside sharing
+                  rather than under Server: it is the same act as far as anyone using it is
+                  concerned. Administrator-only, because handing out accounts on somebody's server
+                  is a decision about their disk, their bandwidth and their library. */}
+              {isAdmin ? (
+                <ListItem
+                  testID='settings-invites'
+                  onPress={() => router.push("/settings/invites")}
+                  showArrow
+                  title={t("home.settings.sections.invite_people")}
+                  subtitle={t("home.settings.sections.invite_people_hint")}
+                />
+              ) : null}
               {isWeb ? (
                 // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's
                 // own title to fit it (confirmed live at 390px) where `subtitle` just wraps under
