@@ -34,6 +34,10 @@ pub struct AppState {
     pub db: Db,
     pub signing_key: iroh_base::SecretKey,
     pub origin: String,
+    /// Present only when the `passkeys` feature is compiled in **and** an origin is configured.
+    /// `None` is an ordinary state, and the routes below say so rather than pretending.
+    #[cfg(feature = "passkeys")]
+    pub passkeys: Option<crate::passkeys::Passkeys>,
 }
 
 pub type Shared = Arc<AppState>;
@@ -48,6 +52,13 @@ pub fn router(state: Shared) -> Router {
         .route("/accounts/v1/login", post(login))
         .route("/accounts/v1/me", get(me))
         .route("/accounts/v1/shares", put(put_share).delete(delete_share))
+        // Always routed, feature or not. A client asking "can I use a passkey here?" deserves an
+        // answer rather than a 404, which is indistinguishable from a service that is simply older.
+        .route("/accounts/v1/passkeys", get(passkey_support))
+        .route("/accounts/v1/passkeys/register/begin", post(passkey_register_begin))
+        .route("/accounts/v1/passkeys/register/finish", post(passkey_register_finish))
+        .route("/accounts/v1/passkeys/login/begin", post(passkey_login_begin))
+        .route("/accounts/v1/passkeys/login/finish", post(passkey_login_finish))
         .with_state(state)
 }
 
@@ -490,6 +501,237 @@ fn require_owned(state: &Shared, account_id: &str, node: &str) -> ApiResult<()> 
     }
 }
 
+// --- passkeys ----------------------------------------------------------------------------------
+//
+// Optional, in two independent ways, and both are ordinary rather than exceptional:
+//
+// * the `passkeys` **feature** may not be compiled in — `webauthn-rs` needs OpenSSL, which this
+//   otherwise-rustls workspace does not want on every platform CI builds for; and
+// * an **origin** may not be configured, and a passkey is bound to one for its whole life, so
+//   guessing would produce keys that work until somebody notices and then never again.
+//
+// Either way the answer is the same: say passkeys are unavailable, and let the caller fall back to
+// a password. That is the only credential every account is guaranteed to have.
+
+#[derive(Debug, Serialize)]
+struct PasskeySupport {
+    supported: bool,
+    /// Why not, when not. For a person reading a settings screen, not for a machine to branch on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+/// `GET /accounts/v1/passkeys` — can this service do passkeys?
+async fn passkey_support(State(state): State<Shared>) -> Json<PasskeySupport> {
+    let _ = &state;
+    #[cfg(feature = "passkeys")]
+    {
+        return Json(match state.passkeys {
+            Some(_) => PasskeySupport { supported: true, reason: None },
+            None => PasskeySupport {
+                supported: false,
+                reason: Some(
+                    "this service has no public address configured, and a passkey is bound to one"
+                        .into(),
+                ),
+            },
+        });
+    }
+    #[cfg(not(feature = "passkeys"))]
+    Json(PasskeySupport {
+        supported: false,
+        reason: Some("this service was built without passkey support".into()),
+    })
+}
+
+#[cfg(not(feature = "passkeys"))]
+mod disabled {
+    use super::*;
+
+    pub(super) fn unavailable() -> ApiError {
+        ApiError::new(
+            StatusCode::NOT_IMPLEMENTED,
+            "this service was built without passkey support; use your password",
+        )
+    }
+}
+
+#[cfg(not(feature = "passkeys"))]
+async fn passkey_register_begin(State(_): State<Shared>) -> ApiResult<()> {
+    Err(disabled::unavailable())
+}
+
+#[cfg(not(feature = "passkeys"))]
+async fn passkey_register_finish(State(_): State<Shared>) -> ApiResult<()> {
+    Err(disabled::unavailable())
+}
+
+#[cfg(not(feature = "passkeys"))]
+async fn passkey_login_begin(State(_): State<Shared>) -> ApiResult<()> {
+    Err(disabled::unavailable())
+}
+
+#[cfg(not(feature = "passkeys"))]
+async fn passkey_login_finish(State(_): State<Shared>) -> ApiResult<()> {
+    Err(disabled::unavailable())
+}
+
+#[cfg(feature = "passkeys")]
+mod enabled {
+    use super::*;
+    use webauthn_rs::prelude::{
+        Passkey, PublicKeyCredential, RegisterPublicKeyCredential,
+    };
+
+    fn engine(state: &Shared) -> ApiResult<&crate::passkeys::Passkeys> {
+        state.passkeys.as_ref().ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_IMPLEMENTED,
+                "this service has no public address configured, so passkeys are off",
+            )
+        })
+    }
+
+    fn keys_for(state: &Shared, account_id: &str) -> ApiResult<Vec<Passkey>> {
+        Ok(state
+            .db
+            .passkeys_for(account_id)
+            .map_err(internal)?
+            .into_iter()
+            .filter_map(|raw| serde_json::from_str::<Passkey>(&raw).ok())
+            .collect())
+    }
+
+    #[derive(Serialize)]
+    pub(super) struct Begin<T> {
+        pub ceremony: String,
+        pub options: T,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct Finish<T> {
+        pub ceremony: String,
+        pub reply: T,
+        #[serde(default)]
+        pub label: String,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct LoginBegin {
+        pub username: String,
+    }
+
+    /// `POST /accounts/v1/passkeys/register/begin` — for somebody already signed in.
+    pub(super) async fn register_begin(
+        state: Shared,
+        headers: HeaderMap,
+    ) -> ApiResult<Json<Begin<webauthn_rs::prelude::CreationChallengeResponse>>> {
+        let claims = require_token(&state, &headers)?;
+        let existing = keys_for(&state, &claims.sub)?;
+        let (ceremony, options) = engine(&state)?
+            .begin_register(&claims.sub, &claims.username, &existing)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        Ok(Json(Begin { ceremony, options }))
+    }
+
+    pub(super) async fn register_finish(
+        state: Shared,
+        headers: HeaderMap,
+        body: Finish<RegisterPublicKeyCredential>,
+    ) -> ApiResult<StatusCode> {
+        // A token is still required: registering a passkey adds a credential to an account, so it
+        // has to be somebody who already proved they hold that account.
+        let claims = require_token(&state, &headers)?;
+        let (account_id, key) = engine(&state)?
+            .finish_register(&body.ceremony, &body.reply)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        if account_id != claims.sub {
+            return Err(ApiError::unauthorized("that registration is not yours"));
+        }
+        let credential_id = data_encoding::BASE64URL_NOPAD.encode(key.cred_id().as_ref());
+        let encoded = serde_json::to_string(&key).map_err(|e| internal(e.into()))?;
+        state
+            .db
+            .add_passkey(&credential_id, &account_id, &encoded, &body.label, &now_rfc3339())
+            .map_err(internal)?;
+        Ok(StatusCode::NO_CONTENT)
+    }
+
+    /// `POST /accounts/v1/passkeys/login/begin` — no token yet; the passkey is the credential.
+    pub(super) async fn login_begin(
+        state: Shared,
+        body: LoginBegin,
+    ) -> ApiResult<Json<Begin<webauthn_rs::prelude::RequestChallengeResponse>>> {
+        let account = state
+            .db
+            .account_by_username(&body.username)
+            .map_err(internal)?
+            .ok_or_else(|| ApiError::unauthorized(SIGN_IN_FAILED))?;
+        let keys = keys_for(&state, &account.id)?;
+        let (ceremony, options) = engine(&state)?
+            .begin_login(&account.id, &keys)
+            .map_err(|_| ApiError::unauthorized(SIGN_IN_FAILED))?;
+        Ok(Json(Begin { ceremony, options }))
+    }
+
+    pub(super) async fn login_finish(
+        state: Shared,
+        body: Finish<PublicKeyCredential>,
+    ) -> ApiResult<Json<TokenBody>> {
+        let (account_id, result) = engine(&state)?
+            .finish_login(&body.ceremony, &body.reply)
+            .map_err(|_| ApiError::unauthorized(SIGN_IN_FAILED))?;
+        let account = state
+            .db
+            .account_by_id(&account_id)
+            .map_err(internal)?
+            .ok_or_else(|| ApiError::unauthorized(SIGN_IN_FAILED))?;
+
+        // The counter is how a cloned authenticator is noticed: it only ever goes up. Storing it is
+        // the whole of that protection, and skipping it would make the check meaningless.
+        let credential_id = data_encoding::BASE64URL_NOPAD.encode(result.cred_id().as_ref());
+        state
+            .db
+            .touch_passkey(&credential_id, result.counter() as i64)
+            .map_err(internal)?;
+
+        Ok(Json(issue_for(&state, &account.id, &account.username)?))
+    }
+}
+
+#[cfg(feature = "passkeys")]
+async fn passkey_register_begin(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Json<enabled::Begin<webauthn_rs::prelude::CreationChallengeResponse>>> {
+    enabled::register_begin(state, headers).await
+}
+
+#[cfg(feature = "passkeys")]
+async fn passkey_register_finish(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<enabled::Finish<webauthn_rs::prelude::RegisterPublicKeyCredential>>,
+) -> ApiResult<StatusCode> {
+    enabled::register_finish(state, headers, body).await
+}
+
+#[cfg(feature = "passkeys")]
+async fn passkey_login_begin(
+    State(state): State<Shared>,
+    Json(body): Json<enabled::LoginBegin>,
+) -> ApiResult<Json<enabled::Begin<webauthn_rs::prelude::RequestChallengeResponse>>> {
+    enabled::login_begin(state, body).await
+}
+
+#[cfg(feature = "passkeys")]
+async fn passkey_login_finish(
+    State(state): State<Shared>,
+    Json(body): Json<enabled::Finish<webauthn_rs::prelude::PublicKeyCredential>>,
+) -> ApiResult<Json<TokenBody>> {
+    enabled::login_finish(state, body).await
+}
+
 // --- plumbing ----------------------------------------------------------------------------------
 
 /// Verify a node signature and return the node id.
@@ -529,7 +771,7 @@ fn require_token(state: &Shared, headers: &HeaderMap) -> ApiResult<Claims> {
         .map_err(|e| ApiError::unauthorized(e.to_string()))
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 16];
     rand::rngs::OsRng.fill_bytes(&mut bytes);

@@ -74,6 +74,38 @@ public sealed class AccountsController : StingStreamControllerBase
     public async Task<ActionResult<MeshAccountStatus>> Status(CancellationToken cancellationToken)
         => await _mesh.AccountStatusAsync(cancellationToken).ConfigureAwait(false);
 
+    /// <summary>Whether this server has an account, and which service it is on.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">Whether there is an account, and where.</response>
+    /// <returns>The public half of the account status.</returns>
+    /// <remarks>
+    /// <para>
+    /// Anonymous, and the only account route that is. It is asked by the login screen <b>before
+    /// anybody has signed in</b> — that is the whole point of it — to decide whether a sign-in
+    /// should try the account service first or go straight to this server.
+    /// </para>
+    /// <para>
+    /// It says two things a stranger could learn by looking at the login screen anyway: whether
+    /// this server has an account at all, and which public service that account is on. The
+    /// <b>username is deliberately not here</b>: whose server this is, is not a fact a passer-by
+    /// gets for free, and it is the sharing address.
+    /// </para>
+    /// </remarks>
+    [HttpGet("public")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PublicAccountStatus>> Public(CancellationToken cancellationToken)
+    {
+        var status = await _mesh.AccountStatusAsync(cancellationToken).ConfigureAwait(false);
+        return new PublicAccountStatus
+        {
+            Claimed = !string.IsNullOrWhiteSpace(status.Account),
+            // Only when there is an account. An unclaimed server naming a service it has never
+            // spoken to would send the login screen on a round trip that can only fail.
+            Service = string.IsNullOrWhiteSpace(status.Account) ? null : status.Service,
+        };
+    }
+
     /// <summary>Create a StingStream account, or attach this server to one that exists.</summary>
     /// <param name="body">The username and password.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -180,6 +212,16 @@ public sealed class AccountsController : StingStreamControllerBase
 
     private static string Fallback(string? value, string fallback)
         => string.IsNullOrWhiteSpace(value) ? fallback : value;
+}
+
+/// <summary>What <c>GET /accounts/public</c> answers. Deliberately two fields.</summary>
+public sealed class PublicAccountStatus
+{
+    /// <summary>Whether this server belongs to a StingStream account.</summary>
+    public bool Claimed { get; set; }
+
+    /// <summary>Which account service, when there is one. Null otherwise.</summary>
+    public string? Service { get; set; }
 }
 
 /// <summary>Body of <c>POST /accounts/register</c>.</summary>

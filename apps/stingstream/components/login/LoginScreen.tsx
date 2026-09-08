@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal";
+import { useLoginNodeAccount } from "@/hooks/useLoginNodeAccount";
 import {
   jellyfinUrlFor,
   type NodeContext,
@@ -16,6 +17,7 @@ import {
   type AccountServer,
   DEFAULT_ACCOUNT_SERVICE,
   fetchMe,
+  isServiceUnreachable,
   serverOrigin,
   signIn as signInToAccountService,
 } from "@/lib/stingstream/accountsApi";
@@ -108,6 +110,10 @@ export const LoginScreen: React.FC = () => {
   // reachable from the account card, for somebody self-hosting an account service or opening a
   // machine no service has heard of — but it is no longer the first question anybody meets, which
   // is the whole of Dan's complaint about the join page.
+  // Whether this server has an account at all, and where. Read once, before anybody types: it is
+  // what decides whether a sign-in goes anywhere but here.
+  const nodeAccount = useLoginNodeAccount(nodeContext?.origin ?? null);
+
   const [phase, setPhase] = useState<Phase>(
     nodeContext ? "connecting" : "account",
   );
@@ -314,16 +320,83 @@ export const LoginScreen: React.FC = () => {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /**
+   * One username and one password, tried in two places.
+   *
+   * This is the shape Dan asked for and the shape Plex has: **the account service first, this
+   * server second.** Nobody is asked which kind of sign-in they want, because nobody knows — and
+   * the answer changes depending on whether a service they have never heard of happens to be up.
+   *
+   * The order and the fallbacks, in the order they matter:
+   *
+   * 1. **A server with no account never calls anywhere.** Accounts are optional; a node that has
+   *    not been claimed signs people in exactly as it always did, with no dependency added and no
+   *    round trip spent finding that out.
+   * 2. **The service is unreachable → sign in here instead**, and say so. This is the case the
+   *    fallback exists for: a central account service whose downtime stopped people watching their
+   *    own films would be indefensible in a self-hosted product.
+   * 3. **The service says no → still try here.** Not everybody with a login on this server has an
+   *    account: local users exist, and always will. Their password failing centrally is expected,
+   *    not an error worth showing.
+   *
+   * A failure at the end reports the **local** refusal, because that is the one the person can act
+   * on: they are typing a password at a server, and "that username and password do not match" is
+   * true of the thing in front of them.
+   */
   const handleSignIn = useCallback(
     async (username: string, password: string) => {
-      await login(username, password, serverName ?? undefined);
-      // The protection picker shows AFTER a successful login, from the root — this screen
-      // unmounts the moment the session exists, so it cannot host the modal itself.
-      if (keepSignedIn) {
-        setPendingAccountSave({ serverName: serverName ?? undefined });
+      const finish = () => {
+        // The protection picker shows AFTER a successful login, from the root — this screen
+        // unmounts the moment the session exists, so it cannot host the modal itself.
+        if (keepSignedIn) {
+          setPendingAccountSave({ serverName: serverName ?? undefined });
+        }
+      };
+
+      const service = nodeAccount?.claimed ? nodeAccount.service : null;
+      if (!service || !nodeContext) {
+        await login(username, password, serverName ?? undefined);
+        finish();
+        return;
       }
+
+      try {
+        const session = await signInToAccountService(
+          service,
+          username,
+          password,
+        );
+        rememberAccountSession(session.token);
+        await loginWithAccountToken(nodeContext.origin, session.token);
+        finish();
+        return;
+      } catch (e) {
+        // Unreachable is worth telling somebody about — they are signed in, but new devices and new
+        // shares will not work until the service is back, and a silent local sign-in would leave
+        // them wondering later why their other machines cannot see this one.
+        if (isServiceUnreachable(e)) {
+          await login(username, password, serverName ?? undefined);
+          toast.warning(t("account.signed_in_locally"));
+          finish();
+          return;
+        }
+      }
+
+      // Rejected centrally: a local-only user, or simply the wrong password. Either way the local
+      // attempt is the one whose answer is worth showing.
+      await login(username, password, serverName ?? undefined);
+      finish();
     },
-    [login, serverName, keepSignedIn, setPendingAccountSave],
+    [
+      keepSignedIn,
+      login,
+      loginWithAccountToken,
+      nodeAccount,
+      nodeContext,
+      serverName,
+      setPendingAccountSave,
+      t,
+    ],
   );
 
   const handleCreateAccount = useCallback(

@@ -76,10 +76,26 @@ async fn main() -> Result<()> {
         );
     }
 
+    #[cfg(feature = "passkeys")]
+    let passkeys = match stingstream_accounts::passkeys::Passkeys::new(&cfg.origin) {
+        Ok(p) => {
+            tracing::info!("passkeys enabled");
+            Some(p)
+        }
+        Err(e) => {
+            // Not fatal. A passkey is bound to an origin for its whole life, so without one the
+            // honest thing is to run without them and let people use a password.
+            tracing::warn!(error = %e, "passkeys are off");
+            None
+        }
+    };
+
     let state = Arc::new(http::AppState {
         db,
         signing_key,
         origin: cfg.origin.clone(),
+        #[cfg(feature = "passkeys")]
+        passkeys,
     });
     let app = http::router(state);
 

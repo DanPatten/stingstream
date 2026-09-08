@@ -1,7 +1,7 @@
-# The StingStream coordinator (`stingstream-relay`).
+# The StingStream account service (`stingstream-accounts`).
 #
-#   docker build -f deploy/coordinator/Dockerfile -t stingstream-coordinator .
-#   docker run --rm -p 8080:8080 stingstream-coordinator            # Lite, plain HTTP
+#   docker build -f deploy/accounts/Dockerfile -t stingstream-accounts .
+#   docker run --rm -p 8080:8080 -v accounts:/data stingstream-accounts
 #
 # Two stages: a Rust builder, and a runtime image that carries the binary, a CA bundle and nothing
 # else. The context is the repository root so the Cargo workspace resolves, and
@@ -23,10 +23,11 @@ FROM rust:1.98-slim-bookworm AS builder
 ARG GIT_SHA=unknown
 ENV GIT_SHA=$GIT_SHA
 
-# `ring` (rustls' crypto backend) and `redb` need a C toolchain; nothing here needs OpenSSL,
-# because every TLS path in this binary is rustls.
+# `ring` (rustls' crypto backend) needs a C toolchain. `libssl-dev` is here for one reason:
+# the `passkeys` feature pulls in `webauthn-rs`, which reaches OpenSSL through
+# `webauthn-rs-core`. Every TLS path in this binary is still rustls.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential pkg-config \
+ && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -63,26 +64,28 @@ RUN mkdir -p mesh/crates/stingstream/src \
  && echo 'fn main() {}' > mesh/crates/stingstream-accounts/src/main.rs \
  && echo '' > mesh/crates/stingstream-accounts/src/lib.rs \
  && echo '' > mesh/crates/stingstream-token/src/lib.rs \
- && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-relay \
+ && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-accounts --features passkeys \
  && rm -rf mesh/crates/*/src
 
 COPY mesh/crates ./mesh/crates
 # cargo caches by mtime; the dummy build left stale fingerprints for our own crates.
-RUN touch mesh/crates/stingstream-relay/src/main.rs mesh/crates/stingstream-relay/src/lib.rs \
- && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-relay \
- && strip mesh/target/release/stingstream-relay
+RUN touch mesh/crates/stingstream-accounts/src/main.rs mesh/crates/stingstream-accounts/src/lib.rs \
+ && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream-accounts --features passkeys \
+ && strip mesh/target/release/stingstream-accounts
 
 # --- runtime -------------------------------------------------------------------------------------
 FROM debian:bookworm-slim
 
-# ca-certificates: the coordinator talks to Let's Encrypt, to a DNS provider's API and, for the
-# reachability probe, to nodes' own HTTPS listeners.
+# ca-certificates: nothing here makes an outbound TLS call today, but the health check shells out
+# to curl and a future one might. Cheap, and the alternative is a confusing failure later.
+#
+# `curl` for `--healthcheck`, which is what Railway's health probe runs.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --create-home --home-dir /data --shell /usr/sbin/nologin stingstream
 
-COPY --from=builder /src/mesh/target/release/stingstream-relay /usr/local/bin/stingstream-relay
+COPY --from=builder /src/mesh/target/release/stingstream-accounts /usr/local/bin/stingstream-accounts
 
 USER stingstream
 WORKDIR /data

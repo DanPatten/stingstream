@@ -34,6 +34,11 @@ pub mod accounts;
 pub mod config;
 pub mod db;
 pub mod http;
+
+/// Passkeys. Optional: see the `passkeys` feature and `docs/ACCOUNTS.md` §6.
+#[cfg(feature = "passkeys")]
+pub mod passkeys;
+
 pub mod signed;
 
 /// The token this service issues. Its own crate, because **every StingStream server verifies one

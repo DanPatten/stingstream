@@ -2022,7 +2022,8 @@
     "reset_title": "Change your password",
     "reset_detail": "There is no email on your account, so this is the only way to change it: from a server you own. Keep one reachable.",
     "reset_submit": "Set a new password",
-    "reset_done": "Password changed"
+    "reset_done": "Password changed",
+    "signed_in_locally": "Signed in on this server. The account service could not be reached, so new devices and new shares will not work until it is back."
   },
   "share": {
     "give_title": "People you share with",

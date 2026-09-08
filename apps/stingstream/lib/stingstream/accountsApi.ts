@@ -53,7 +53,25 @@ export interface NodeAccountStatus {
   node: string;
 }
 
-export class AccountError extends Error {}
+export class AccountError extends Error {
+  /**
+   * True when the service could not be **reached** — as opposed to reached and refused.
+   *
+   * The distinction is the whole fallback. Unreachable means "sign in here instead, and say why";
+   * refused means "that password is wrong centrally, which a local-only user's would be". Treating
+   * them the same would either hide an outage or turn every wrong password into one.
+   */
+  readonly unreachable: boolean;
+
+  constructor(message: string, unreachable = false) {
+    super(message);
+    this.unreachable = unreachable;
+  }
+}
+
+/** Whether a failure means "the service is down" rather than "the service said no". */
+export const isServiceUnreachable = (error: unknown): boolean =>
+  error instanceof AccountError && error.unreachable;
 
 /**
  * Read an error the way both halves report one.
@@ -78,10 +96,29 @@ const readError = async (
     text.trim().length > 0 && text.length < 200
       ? text.trim()
       : `${what} failed (${res.status})`,
+    // A 5xx is the service having a problem, not an answer about these credentials, so it falls
+    // back the same way a dead socket does.
+    res.status >= 500,
   );
 };
 
 const origin = (service: string) => service.trim().replace(/\/+$/, "");
+
+/**
+ * A `fetch` that fails is the service being unreachable, which is the case the whole fallback
+ * exists for. Without this the rejection would be a bare `TypeError` and indistinguishable from a
+ * refused password.
+ */
+const reach = async (input: string, init?: RequestInit): Promise<Response> => {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    throw new AccountError(
+      `could not reach the account service (${(e as Error).message})`,
+      true,
+    );
+  }
+};
 
 /** Sign in to the account service. */
 export async function signIn(
@@ -89,7 +126,7 @@ export async function signIn(
   username: string,
   password: string,
 ): Promise<AccountSession> {
-  const res = await fetch(`${origin(service)}/accounts/v1/login`, {
+  const res = await reach(`${origin(service)}/accounts/v1/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -114,7 +151,7 @@ export async function fetchMe(
   service: string,
   token: string,
 ): Promise<AccountMe> {
-  const res = await fetch(`${origin(service)}/accounts/v1/me`, {
+  const res = await reach(`${origin(service)}/accounts/v1/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw await readError(res, "reading your account");
@@ -128,7 +165,7 @@ export async function setShare(
   input: { node: string; username: string; libraries?: string[] },
   action: "share" | "revoke",
 ): Promise<void> {
-  const res = await fetch(`${origin(service)}/accounts/v1/shares`, {
+  const res = await reach(`${origin(service)}/accounts/v1/shares`, {
     method: action === "share" ? "PUT" : "DELETE",
     headers: {
       "Content-Type": "application/json",
@@ -153,7 +190,7 @@ export async function sessionOn(
   serverOrigin: string,
   token: string,
 ): Promise<unknown> {
-  const res = await fetch(
+  const res = await reach(
     `${origin(serverOrigin)}/stingstream/api/v1/accounts/session`,
     {
       method: "POST",
@@ -178,3 +215,45 @@ export const serverOrigin = (server: AccountServer): string | null => {
   if (!address) return null;
   return address.replace(/\/+$/, "");
 };
+
+/**
+ * Whether a server has an account, and where that account lives.
+ *
+ * Read on the login screen **before anybody types**, because it decides whether a sign-in goes
+ * anywhere but here. Accounts are optional: a node that has never been claimed answers with no
+ * service, and its sign-in never leaves the machine.
+ *
+ * Anonymous on purpose. This is asked by somebody who is not signed in yet — that is the whole
+ * point — so it is the one account route the node answers without a session, and it says nothing a
+ * stranger could not learn by looking at the login screen: whether there is an account, and which
+ * public service it is on. The username is deliberately **not** here.
+ */
+export interface LoginNodeAccount {
+  claimed: boolean;
+  service: string | null;
+}
+
+export async function fetchLoginNodeAccount(
+  serverOrigin: string,
+): Promise<LoginNodeAccount> {
+  try {
+    const res = await fetch(
+      `${origin(serverOrigin)}/stingstream/api/v1/accounts/public`,
+    );
+    if (!res.ok) return { claimed: false, service: null };
+    const body = (await res.json()) as {
+      Claimed?: boolean;
+      claimed?: boolean;
+      Service?: string | null;
+      service?: string | null;
+    };
+    return {
+      claimed: body.Claimed ?? body.claimed ?? false,
+      service: body.Service ?? body.service ?? null,
+    };
+  } catch {
+    // A node too old to know the route, or one that did not answer. Either way there is no account
+    // to sign in through, and the local form is the right thing to show.
+    return { claimed: false, service: null };
+  }
+}

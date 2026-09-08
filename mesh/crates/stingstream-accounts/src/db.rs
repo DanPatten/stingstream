@@ -305,6 +305,53 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    // --- passkeys --------------------------------------------------------------------------
+
+    /// Store a passkey. The credential is kept as the library's own JSON.
+    ///
+    /// Opaque on purpose: a passkey's contents are `webauthn-rs`'s business, and picking it apart
+    /// into columns would be this file taking a position on a format it does not own — one that
+    /// would need a migration every time the library learned a new field.
+    pub fn add_passkey(
+        &self,
+        credential_id: &str,
+        account_id: &str,
+        encoded: &str,
+        label: &str,
+        now: &str,
+    ) -> Result<()> {
+        self.lock().execute(
+            "INSERT INTO passkeys (credential_id, account_id, public_key, label, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(credential_id) DO UPDATE SET public_key = excluded.public_key",
+            params![credential_id, account_id, encoded, label, now],
+        )?;
+        Ok(())
+    }
+
+    /// Every passkey on an account, as stored.
+    pub fn passkeys_for(&self, account_id: &str) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT public_key FROM passkeys WHERE account_id = ?1 ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map(params![account_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Record a passkey's signature counter after a sign-in.
+    ///
+    /// The counter only ever goes up, which is how a **cloned authenticator** is noticed: a second
+    /// device holding a copy of the key reports a number the real one has already passed. Storing it
+    /// is the whole of that protection, so it is written on every sign-in rather than opportunistically.
+    pub fn touch_passkey(&self, credential_id: &str, counter: i64) -> Result<()> {
+        self.lock().execute(
+            "UPDATE passkeys SET sign_count = ?2 WHERE credential_id = ?1",
+            params![credential_id, counter],
+        )?;
+        Ok(())
+    }
+
     // --- shares ----------------------------------------------------------------------------
 
     /// Share libraries on a server with an account, replacing whatever was shared before.

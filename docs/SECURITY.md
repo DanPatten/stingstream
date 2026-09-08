@@ -183,6 +183,10 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/qualityprofiles/*` | all | Admin |
 | `/stingstream/api/v1/setup/state` | GET | Anonymous, answers anywhere; one boolean (`Pending`) plus where the caller is (`Loopback`, `TrustedPeer`) |
 | `/stingstream/api/v1/setup/admin` | POST | Anonymous + pending-only + loopback or private network (RFC 1918, link-local, IPv6 ULA); the gateway 404s a public peer always, and 404s a private one once its poller sees the node claimed (Core answers 409 in the gap, and to loopback, which is never gated) |
+| `/stingstream/api/v1/accounts` | GET | Admin — the account this server belongs to, including the username |
+| `/stingstream/api/v1/accounts/public` | GET | Anonymous. Two facts a stranger could read off the login screen anyway: whether this server has an account, and which service it is on. **Not the username**, which is the sharing address |
+| `/stingstream/api/v1/accounts/register`, `/reset` | POST | Admin. Claiming a server, and resetting its account's password, are the same authority — with no email, controlling a machine the account owns *is* the recovery path, so an ordinary member of somebody's household must not have it |
+| `/stingstream/api/v1/accounts/session` | POST | Anonymous, because it **is** the sign-in: the token is the credential and is verified before anything else. The mesh refuses a token that does not name this node, so one person's token cannot be presented to everybody's server. The refusal never says *why* — signature, expiry or wrong server is a description of our checks, useless to somebody holding a token they are entitled to |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
 | `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
@@ -198,6 +202,30 @@ Gateway routes, which are not Jellyfin's:
 | `/stream/*` | Loopback, or a signed URL that has not expired |
 | `/jellyfin/*`, `/stingstream/*` | Proxied; Jellyfin's own auth applies |
 | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | `--dev` only, never on an installed node |
+
+Account service routes (`stingstream-accounts`, a separate binary and a separate Railway service
+— deliberately not the coordinator, so its "no accounts, no secrets" claim stays true). Full
+reasoning in `docs/ACCOUNTS.md`; the table here is the authorization summary:
+
+| Route | Who |
+|---|---|
+| `GET /healthz` | Anyone |
+| `GET /accounts/v1/jwks` | Anyone, CORS `*`. The public half of the token key, which every node caches and then verifies against **without calling anybody** — that offline check is what keeps a service outage from stopping playback |
+| `POST /accounts/v1/register` | A server, over a request signed by its node key. There is no registration form: the population who can hold an account is exactly the population who installed StingStream. One server may vouch for **one** account, or an install is an unlimited supply of them |
+| `POST /accounts/v1/reset` | A server that already owns the account, signed the same way. The only recovery path there is |
+| `POST /accounts/v1/claim` | A server, signed, **and** the account's password. Both halves: a signature alone would let somebody attach a machine they control to another person's account, and an attached machine can reset that account's password |
+| `POST /accounts/v1/login` | Anyone with a username and password. Failure is one byte-identical answer whether the username is unknown or the password is wrong — telling them apart enumerates usernames, and a username here is the sharing address |
+| `GET /accounts/v1/me` | A token holder |
+| `PUT`/`DELETE /accounts/v1/shares` | A token holder, for a server they own |
+| `GET /accounts/v1/passkeys` | Anyone. Always routed, feature or not: a client asking "can I use a passkey here?" needs an answer it can tell apart from an older service's 404 |
+| `POST /accounts/v1/passkeys/register/{begin,finish}` | A token holder — registering a passkey adds a credential, so it takes somebody who already proved they hold the account. `501` when the `passkeys` feature is off or no origin is configured |
+| `POST /accounts/v1/passkeys/login/{begin,finish}` | Anyone; the passkey is the credential. Same `501` when unavailable, and the same single failure answer as password login |
+
+The signed-request transcript is **domain-separated** from the relay's ACME one
+(`stingstream-accounts/v1
+…`), deliberately not shared code: a common transcript would let a
+signature made for an ACME challenge be replayed to create an account. Bodies are capped at 1 KiB
+and timestamps must be within five minutes.
 
 Peer routes, over authenticated iroh connections. Every one of these requires a completed group
 handshake first; a light node refuses the content routes outright.
@@ -356,6 +384,28 @@ invites, which make a leaked code worth nothing after one use or seven days.
 
 Somebody who does not want that exposure at all has the option today: set your own domain under
 Settings → Sharing → Sharing server, or hand out the code rather than the link.
+
+**R12 — An account with no email cannot be recovered.** Lose the password and lose every server the
+account owns, and the account is gone: there is no address to send a link to and no support desk to
+prove yourself to. This is the price of holding nothing about a person, and Dan chose it knowingly.
+Two things blunt it — a node signature resets the password, and every account holder owns a server
+by construction, so the reset path exists for nearly everybody; and a passkey is a second way in
+where the service was built with the feature and has an origin. Somebody who registers, never
+attaches a second server, and forgets their password has no route back.
+
+**R13 — Passkeys are bound to the Railway hostname.** A passkey lives and dies by its
+relying-party id, so every passkey registered before a real domain exists stops working the moment
+one appears — silently, with "this passkey isn't for this site" as the only symptom. Accepted
+deliberately (`docs/ACCOUNTS.md` §7): the password still works, so nobody is locked out, and
+everybody re-registers once. The mitigation is to land the domain before many people register one.
+
+**R14 — The account service is a single point of failure for *new* things.** It is not one for
+playback: nodes verify tokens offline against a cached key, so a live session and a cached server
+list keep working with the service down, and the local-password fallback signs somebody in at a
+server in front of them. What an outage does cost is signing in on a **new** device and creating or
+revoking a **share** — and a revocation that has not reached a node stays honoured until the current
+token expires (twelve hours). Losing the database costs the same things plus the account records
+themselves; it is not the only copy of anything that matters, and `docs/ACCOUNTS.md` §8 says why.
 
 ---
 

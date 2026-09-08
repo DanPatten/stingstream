@@ -40,10 +40,18 @@ COPY mesh/crates/stingstream/Cargo.toml ./mesh/crates/stingstream/
 COPY mesh/crates/stingstream-mesh/Cargo.toml ./mesh/crates/stingstream-mesh/
 COPY mesh/crates/stingstream-relay/Cargo.toml ./mesh/crates/stingstream-relay/
 COPY mesh/crates/stingstream-mesh-ffi/Cargo.toml ./mesh/crates/stingstream-mesh-ffi/
+# The account service and the token crate joined the workspace in Part 4. This image does not
+# build them -- but cargo loads the whole workspace manifest before building any of it, so a
+# member whose Cargo.toml is absent fails outright. stingstream-mesh also depends on both by
+# path, so they are not optional here even for `-p stingstream-mesh`.
+COPY mesh/crates/stingstream-accounts/Cargo.toml ./mesh/crates/stingstream-accounts/
+COPY mesh/crates/stingstream-token/Cargo.toml ./mesh/crates/stingstream-token/
 RUN mkdir -p mesh/crates/stingstream/src \
              mesh/crates/stingstream-mesh/src \
              mesh/crates/stingstream-relay/src \
              mesh/crates/stingstream-mesh-ffi/src \
+             mesh/crates/stingstream-accounts/src \
+             mesh/crates/stingstream-token/src \
  && echo 'fn main() {}' > mesh/crates/stingstream/src/main.rs \
  && echo '' > mesh/crates/stingstream/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh/src/main.rs \
@@ -52,6 +60,9 @@ RUN mkdir -p mesh/crates/stingstream/src \
  && echo '' > mesh/crates/stingstream-relay/src/lib.rs \
  && echo 'fn main() {}' > mesh/crates/stingstream-mesh-ffi/src/bindgen.rs \
  && echo '' > mesh/crates/stingstream-mesh-ffi/src/lib.rs \
+ && echo 'fn main() {}' > mesh/crates/stingstream-accounts/src/main.rs \
+ && echo '' > mesh/crates/stingstream-accounts/src/lib.rs \
+ && echo '' > mesh/crates/stingstream-token/src/lib.rs \
  && cargo build --release --manifest-path mesh/Cargo.toml -p stingstream -p stingstream-mesh \
  && rm -rf mesh/crates/*/src
 

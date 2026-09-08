@@ -912,6 +912,46 @@ jobs:
           path: .e2e-m8-work/logs/
           if-no-files-found: warn
 
+  e2e-accounts:
+    name: "e2e: accounts — registration, sharing, offline tokens"
+    runs-on: ubuntu-latest
+    # One account service and three mesh nodes, no Jellyfin and no media. Cheaper than e2e-m8: the
+    # only wait in it is three nodes coming up.
+    timeout-minutes: 30
+    steps:
+      # No `lfs: true`, for the reason in the rust job above.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, resolved 2026-09-05
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: mesh
+          cache-on-failure: true
+
+      # The **default** feature set, deliberately: that is the OpenSSL-free build every developer
+      # and both other CI platforms get, and the one whose passkey routes have to answer honestly
+      # rather than 404. The deployed image's `--features passkeys` build is covered by the Docker
+      # build in images.yml; the harness accepts either answer.
+      - name: Build the account service and the mesh
+        run: cargo build --manifest-path mesh/Cargo.toml -p stingstream-accounts -p stingstream-mesh
+
+      - name: Run the acceptance harness
+        run: >
+          pwsh tools/e2e-accounts.ps1 -SkipBuild
+          -WorkDir "${{ github.workspace }}/.e2e-accounts-work"
+
+      # Most assertions here are about a refusal, and a refusal's reason is only in the service's
+      # own log -- which signature check failed, which username was already taken, which token named
+      # a server it was not presented to.
+      - name: Upload service and node logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-accounts-logs
+          path: .e2e-accounts-work/logs/
+          if-no-files-found: warn
+
   # The HTTPS side-door acceptance harness: a coordinator in Full mode, a local Pebble (Let's
   # Encrypt's own test CA), and a node that gets a real ACME certificate and serves it through the
   # SNI-routed tunnel. Previously exercised only by coordinator.yml's own `sidedoor` job, which is
