@@ -76,7 +76,7 @@ Switch any of it off in `mesh.toml`:
 n0_dns = true
 mainline_dht = true
 n0_relays = true
-fallback_coordinator = ""   # a shared coordinator baked into the build; empty means none
+fallback_coordinator = ""   # a shared coordinator for every group; empty is the default
 dht_bootstrap = []          # override the DHT's bootstrap nodes; empty means the public ones
 ```
 
@@ -154,6 +154,47 @@ InvitePayload {
 base58 has no look-alike characters, so a code survives being read aloud; base58check's checksum
 catches a transposition before it becomes a confusing join failure. An unknown version byte is
 reported as "unsupported invite version N" rather than failing somewhere inside postcard.
+
+### Invite links
+
+`POST /mesh/v1/groups/{g}/invite` returns the code and, when this node has a host, a link:
+
+```
+https://<host>/join#<code>
+```
+
+The code is the same base58 string in both, so a link and a code are interchangeable everywhere and
+nothing about the payload above changed. `<host>` is **this node's** `sharing.public_address` if one
+is set, otherwise the group's coordinator, otherwise there is no link and the caller shows the code
+(`sharing::invite_link`). Preferring the node's own address is what keeps the code away from anybody
+else: a coordinator's `/join` page has to read the fragment in the visitor's browser in order to
+redirect, which `SECURITY.md` R11 records.
+
+The code rides in the **fragment**. A browser never puts a fragment on the wire, so the group secret
+appears in no access log — not the node's, not a coordinator's, not any proxy's in between — while a
+query string would have been written into all three.
+
+### Where people reach this node
+
+Two per-node settings, in the `meta` table, read and written through
+`GET`/`PUT /mesh/v1/settings/sharing`:
+
+| Key | Meaning |
+|---|---|
+| `sharing.public_address` | A domain pointed at this node. Only used to build invite links. |
+| `sharing.coordinator_default` | The coordinator a newly created group adopts when created Public. A default the group copies at creation; the group is the authority afterwards. |
+
+**Per node, not per group** — the difference matters. In a group where one member has a domain and
+another has none, a link the first mints must point at the first's server and a link the second
+mints cannot. One value per group would route the second member's invitees through the first's
+machine, which then has to be up for an invite that has nothing to do with it. Being per node also
+means no new column, no gossip record, no last-writer-wins stamp and no change to the invite wire
+format above.
+
+`sharing.public_address` is validated on the way in: `https` unless the host is loopback, a real
+domain rather than an IP address, and never a single label. Each refusal is a link that would look
+right and fail later — an address that rotates, a certificate nobody will issue, a name nothing
+outside the LAN resolves.
 
 ### Joining
 
@@ -439,9 +480,9 @@ is itself stale will briefly follow the stale value; it converges on the first s
 neighbour sends, which is one gossip round.
 
 `StingStream.Core` exposes this as `PUT /stingstream/api/v1/mesh/groups/{group}/coordinator` behind
-Jellyfin's elevation, and the app's Group screen calls it through M3c's coordinator picker, with the
-same live `/healthz` validation the create screen uses. Core does not arbitrate — it hands the change
-to the mesh.
+Jellyfin's elevation. The app's Group screen calls it through the same Public/Private rows the create
+screen uses: Public sends this node's `sharing.coordinator_default`, Private sends null. Core does not
+arbitrate — it hands the change to the mesh.
 
 Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs` and by a step in
 `tools/e2e-m3.ps1`.

@@ -67,7 +67,9 @@ apps/stingstream/
 │  └─ android/                         Kotlin wrapper + the committed uniffi bindings
 ├─ providers/MeshProvider.tsx          starts the node, keeps membership in step, publishes state
 ├─ utils/mesh/streamUrl.ts             the rewrite rule (pure, unit-tested)
-├─ utils/mesh/coordinator.ts           the coordinator picker's live validation
+├─ utils/mesh/coordinator.ts           classifies an address: coordinator, node, or neither
+├─ utils/mesh/inviteLink.ts            building an invite link and reading one back (pure, tested)
+├─ utils/mesh/pendingInvite.ts         an opened link, held in memory between /join and Join
 ├─ lib/stingstream/mesh.ts             the HOME NODE's mesh API, through the gateway
 ├─ components/stingstream/mesh/        the Group screens
 └─ scripts/build-mesh-android.ps1      builds the Rust library + regenerates the bindings
@@ -316,16 +318,31 @@ the same screens; the ten-foot differences are handled inside them.
 | Screen | |
 |---|---|
 | `groups/page` | this device's own node (id, port, relay in use, peer counts), then the home node's groups with member/online counts and whether this device has caught up |
-| `groups/create/page` | name + coordinator picker → the invite, shown immediately |
+| `groups/create` | name + Public/Private → the invite, shown immediately |
+| `groups/server` | the two addresses this node uses: which sharing server, and its own domain |
 | `groups/join/page` | paste, scan a QR (phone only), or type it. A TV gets paste and typing — no camera, and 250 base58 characters on a D-pad is why base58 has no look-alike characters |
-| `groups/[group]/page` | members with online state and direct/relayed, the coordinator, "show invite code", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
+| `groups/[group]` | members with online state and direct/relayed, Public/Private, "show invite", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
+| `/join` | where an invite link lands: reads the code out of the fragment and hands it to Join |
 
-The **coordinator picker** offers "Default (public infrastructure + StingStream fallback)" or "My
-own server" with a hostname validated live against `https://<host>/healthz` — the coordinator's own
-health endpoint, whose `mode` field is what distinguishes a real coordinator from any other server
-that happens to answer `/healthz`. A bare hostname is normalised to `https://`, because a silently
-plain-HTTP coordinator would hand every member's rendezvous traffic to the network. "Host your own"
-opens `deploy/coordinator/README.md` on GitHub.
+**Public or Private** is the only question the create screen asks about connectivity. Public means
+the group carries a coordinator — members are introduced through it, and it passes a connection
+along when a direct one is impossible. Private means it carries none. A group is Public exactly when
+it has a coordinator, so there is no separate flag and nothing that can disagree with the node.
+
+**Which** server Public uses is a setting rather than a field on that screen, and it lives beside a
+second one on `groups/server`:
+
+| Field | Stored as | For |
+|---|---|---|
+| Sharing server | `sharing.coordinator_default` | copied onto a group created as Public |
+| Your server's address | `sharing.public_address` | building invite links |
+
+Both are checked live against `https://<host>/healthz`, and the answer says which kind of thing it
+is: a coordinator has `mode`, a node has `children`, neither field appears on the other. Each box
+takes one kind and, given the other, says which box it belongs in. A bare hostname is normalised to
+`https://` — a silently plain-HTTP coordinator would hand every member's rendezvous traffic to the
+network, and a plain-HTTP link opens the app outside a secure context, where `crypto.randomUUID`
+and secure storage do not exist. "Read the hosting guide" opens `deploy/coordinator/README.md`.
 
 **The coordinator can be changed after the group is created** (M4.5). It is still a property of the
 group that travels in every invite code, but it is no longer permanent: the detail screen's

@@ -17,9 +17,9 @@ and nothing you have to rent or host. Two homes with an internet connection are 
 
 - **Watch anywhere.** Your collection on the sofa, on the train, or in the garden. Pick up where you
   left off on any device.
-- **Share with a small circle.** Create a group, send a friend an invite code, and their titles
-  appear in your library within seconds, with posters and descriptions, as if they were your own.
-  You can remove someone at any time and they lose access immediately.
+- **Share with a small circle.** Create a group, send a friend the link, and their titles appear
+  in your library within seconds, with posters and descriptions, as if they were your own. You can
+  remove someone at any time and they lose access immediately.
 - **Ask for something new.** Search for a film or a show and add it. StingStream fetches it for you
   and tells you when it's ready. Anyone in your group can make a request; you decide whether
   requests need your approval.
@@ -66,9 +66,10 @@ with nothing installed.
    to see it arrive.
 5. **Install the app** on your phone or TV and enter your server's address. On the TV, approve the
    code it shows from your phone instead of typing.
-6. **Invite someone.** Open Groups, create a group, and send the invite code to a friend who has
-   done steps one and two. Their library and yours merge; each of you keeps your own account,
-   your own history and your own settings.
+6. **Invite someone.** Open Sharing, create a group, and send the invite link to a friend who has
+   done steps one and two. They open it, sign in to their own server, and that is the join. Their
+   library and yours merge; each of you keeps your own account, your own history and your own
+   settings.
 
 ---
 
@@ -80,8 +81,14 @@ when you press play the film streams straight from their computer to your screen
 whole way. Nobody's files are copied unless you choose to keep a personal copy.
 
 Groups are private by design. There is no public list, no search for strangers, and no way for
-someone outside a group to see what's in it. An invite code is the only way in, and removing a
-member also makes every old invite code stop working.
+someone outside a group to see what's in it. An invite is the only way in, and removing a member
+makes every invite handed out before then stop working.
+
+When you make a group you choose one thing: **Public** or **Private**. Public means members are
+introduced by a server, which also passes the connection along when two homes cannot reach each
+other directly — so it works on almost any network. Private means the two computers talk directly
+with no StingStream server involved at all, which some networks will not allow. Neither choice
+changes who can see your library: only people you invite, either way.
 
 Your watch history, favourites and resume points never leave your own computer.
 
@@ -89,12 +96,21 @@ Your watch history, favourites and resume points never leave your own computer.
 
 ## Do I need to run a server somewhere?
 
-No. Two homes with ordinary internet can form a group with nothing else involved: StingStream
-finds the other computer and connects directly, and it uses well-known public relays only when a
-direct connection is impossible. If you want, a group can nominate its own helper server for two
-extras: joining a group while the person who invited you is offline, and reaching your library from
-a plain web browser away from home. Setting one up is documented in
-[`deploy/coordinator/README.md`](deploy/coordinator/README.md), but it is optional.
+No. Two homes with ordinary internet can form a **Private** group with nothing else involved:
+StingStream finds the other computer and connects directly, and falls back to well-known public
+relays when a direct connection is impossible.
+
+A **Public** group uses a sharing server to introduce members and to carry a connection on the
+networks where a direct one cannot be made — carrier-grade NAT, or a firewall that blocks the
+traffic outright. One is filled in for you, and you can point that setting at your own instead:
+Settings → Sharing → Sharing server. Running your own is documented in
+[`deploy/coordinator/README.md`](deploy/coordinator/README.md).
+
+The same page has a second, separate box: **your server's address**, if you have pointed a domain
+at your computer. That one is only about invites. With it set, an invite is a link a friend can
+open; without it, an invite is a code they paste in. Both work, and neither needs a fixed IP
+address — a bare IP cannot be used, because home addresses change and browsers will not trust a
+certificate for one.
 
 ---
 

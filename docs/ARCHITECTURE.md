@@ -925,7 +925,9 @@ Group screen.
   rewrite so MPV streams from the app's own mesh; Group screen (create/join/invite/members) with a
   **coordinator picker** — "Default" (public infrastructure plus Dan's fallback) or "My own server"
   taking a hostname, validated live against `/healthz`, stored on the group and carried in invite
-  codes so every member follows it. A "Host your own" link opens the guide.
+  codes so every member follows it. A "Host your own" link opens the guide. **Superseded in v0.2.0:**
+  the picker is now two rows, Public and Private, with the addresses on their own settings page —
+  see `docs/APP-MESH.md` and Part 3 of the plan for why.
 - `stingstream-relay` **coordinator**: one binary, Lite and Full feature flags, Docker image
   published to GHCR by CI, Dan's Lite instance deployed to Railway, a Railway template so anyone
   can deploy their own in one click, and the `storage-node` compose profile plus the VPS hosting

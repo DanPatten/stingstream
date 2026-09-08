@@ -161,6 +161,7 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/mesh/groups/join` | POST | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/invite` | POST | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/coordinator` | PUT | Admin |
+| `/stingstream/api/v1/mesh/settings/sharing` | GET, PUT | Admin — the two addresses are the node's, not the signed-in user's |
 | `/stingstream/api/v1/mesh/groups/{g}` | DELETE | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/members` | GET | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/members/{n}` | DELETE | Admin |
@@ -190,6 +191,7 @@ Gateway routes, which are not Jellyfin's:
 | Route | Who |
 |---|---|
 | `/healthz` | Anyone; full detail on loopback only |
+| `/join` | Anyone. Serves the app through the SPA fallback; the invite is in the fragment and never reaches the server |
 | `/sidedoor/v1/hello` | Anyone, CORS `*`, five fields |
 | `/stingstream/mesh/*` | Loopback only |
 | `/stream/*` | Loopback, or a signed URL that has not expired |
@@ -336,6 +338,23 @@ somebody else's file.
 a phone's own mesh member is a removable row. Removing it is arguably right (a lost phone), but the
 app does not notice: it keeps trying to dial and playback silently falls back to home-node proxying.
 A one-line follow-up on the app side.
+
+**R11 — An invite link through the shared coordinator is read by the coordinator's own page.**
+An invite is `https://<host>/join#<code>`, and the code carries the group secret. The fragment
+means it never reaches any *server*: not the request, not an access log, not a proxy's log. But
+when the host is a coordinator rather than the inviter's own domain, the coordinator's `/join` page
+is what runs in the visitor's browser, and it reads the fragment in order to redirect. That page is
+a few hundred bytes, static, served from this repo and sends the code nowhere — and a coordinator
+operator who changed it could have every invite opened through them.
+
+Mitigated rather than solved, three ways. A node **prefers its own address** when one is set, so a
+self-hoster's links never touch a coordinator (`sharing::invite_link`). The window is one redirect
+rather than a stored value. And a code is only a credential until the group's secret is rotated,
+which `POST /mesh/groups/{g}/rotate` does on demand. The real fix is Phase 2's single-use, expiring
+invites, which make a leaked code worth nothing after one use or seven days.
+
+Somebody who does not want that exposure at all has the option today: set your own domain under
+Settings → Sharing → Sharing server, or hand out the code rather than the link.
 
 ---
 

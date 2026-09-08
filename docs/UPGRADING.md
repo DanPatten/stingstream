@@ -326,3 +326,46 @@ happens after the upgrade.
 
 Nothing here needed a `mesh.db` migration or a protocol bump — it is entirely inside the app and
 the account list already stored on the TV.
+
+### v0.2.0: no shared fallback relay unless a group asks for one
+
+`DEFAULT_FALLBACK_COORDINATOR` (`mesh/crates/stingstream-mesh/src/config.rs`) was the StingStream
+Railway coordinator, appended to **every** group's relay map whether or not the group had chosen a
+coordinator. It is now `None`.
+
+**Why.** A group created without a coordinator was described everywhere as peer-to-peer while its
+traffic could still be relayed through infrastructure one person pays for. There was no way to opt
+out either: `seed_relay_map` builds one relay map per *node*, because iroh has one endpoint, so a
+per-group exemption does not exist. The new Sharing screen makes the choice explicit — a group is
+**Public** when it carries a coordinator and **Private** when it does not — and that promise is only
+true with this default gone.
+
+**What changes for an existing group.** A group that already has a coordinator is unaffected: its
+own coordinator is in the relay map as it always was. A group with **no** coordinator loses the
+shared relay from its map. It keeps n0's public relays, n0 DNS discovery and the mainline DHT, which
+is what iroh uses by default and what carried such a group before the fallback existed. In practice
+the difference shows on the hardest networks only — carrier-grade NAT, or UDP blocked outright —
+where two members may now fail to connect where they previously fell back to the shared relay.
+
+**If that happens, it is one setting.** Settings → Sharing → **Sharing server** is prefilled with
+the same address; saving it and setting the group to Public puts it back, this time as the group's
+own coordinator, which is both visible in the UI and carried in invites to every member.
+
+**Or keep the old behaviour for the whole node:** set `STINGSTREAM_MESH_FALLBACK_COORDINATOR`, or
+`[discovery] fallback_coordinator` in `mesh.toml`. Neither the environment variable nor the config
+key changed.
+
+No protocol bump and no `mesh.db` migration: a relay map is built at startup from config and from
+the groups already stored, and nothing about a group's stored record changed.
+
+### v0.2.0: invites are links
+
+An invite is now handed out as `https://<host>/join#<code>` when the minting node has a host to
+build one from — its own address if one is set under Settings → Sharing → Sharing server, otherwise
+the group's coordinator. The **code has not changed**: the link is the same base58 code with an
+address wrapped around it, so an invite minted by a new node still joins an old one and every code
+already handed out still works. A node with neither address hands out the bare code exactly as
+before.
+
+The Join screen accepts a link or a code in the field, from the clipboard and from the QR scanner,
+so nobody has to know which they were sent.
