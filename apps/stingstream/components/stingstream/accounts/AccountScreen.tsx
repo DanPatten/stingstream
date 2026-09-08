@@ -8,11 +8,16 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import {
   useNodeAccount,
   useRegisterNodeAccount,
   useResetNodeAccount,
 } from "@/lib/stingstream/accounts";
+import {
+  registerPasskey,
+  signIn as signInToAccountService,
+} from "@/lib/stingstream/accountsApi";
 import { FormCard } from "../mesh/FormCard";
 import { Disclosure } from "../shared/Disclosure";
 import { QueryState } from "../shared/ScreenState";
@@ -40,8 +45,50 @@ export function AccountScreen() {
   const [claim, setClaim] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [passkeyPassword, setPasskeyPassword] = useState("");
+  const [addingPasskey, setAddingPasskey] = useState(false);
 
   const claimed = !!account.data?.account;
+  const passkeys = usePasskeySupport(account.data?.service ?? null);
+
+  /**
+   * Add a passkey to this account, asking for the password first.
+   *
+   * The password is not a formality. Registering a passkey **adds a credential** to an account, so
+   * it takes a token, and the account token from signing in lives in memory for the length of the
+   * login flow only (`utils/accounts/session.ts` explains why it is never written to disk). Asking
+   * here is both the way to get one and the right thing anyway: re-authenticating before adding a
+   * second way in is what stops an unattended browser becoming a permanent one.
+   */
+  const addPasskey = async () => {
+    const service = account.data?.service;
+    const username = account.data?.username;
+    if (!service || !username) return;
+    setError(null);
+    setAddingPasskey(true);
+    try {
+      const session = await signInToAccountService(
+        service,
+        username,
+        passkeyPassword,
+      );
+      // A label, so a list of credentials later is readable rather than a column of hashes. The
+      // browser's own name is the most honest thing available: a passkey is per-device.
+      const label =
+        typeof navigator !== "undefined" && navigator.userAgent
+          ? navigator.userAgent.slice(0, 80)
+          : "this device";
+      const added = await registerPasskey(service, session.token, label);
+      setPasskeyPassword("");
+      // `added` is false when the browser prompt was dismissed, which is somebody changing their
+      // mind rather than a failure — so it gets neither a toast nor an error.
+      if (added) toast.success(t("account.passkey_added"));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAddingPasskey(false);
+    }
+  };
 
   const submit = async () => {
     setError(null);
@@ -91,6 +138,36 @@ export function AccountScreen() {
             >
               {t("account.mine_detail")}
             </Text>
+
+            {passkeys.usable ? (
+              <Disclosure title={t("account.passkey_title")}>
+                <Text
+                  variant='caption'
+                  tone='secondary'
+                  style={{ marginBottom: 12 }}
+                >
+                  {t("account.passkey_detail")}
+                </Text>
+                <Input
+                  testID='account-passkey-password'
+                  placeholder={t("account.password_placeholder")}
+                  secureTextEntry
+                  autoCapitalize='none'
+                  value={passkeyPassword}
+                  editable={!addingPasskey}
+                  onChangeText={setPasskeyPassword}
+                />
+                <View style={{ height: 12 }} />
+                <Button
+                  testID='account-passkey-add'
+                  onPress={() => void addPasskey()}
+                  disabled={passkeyPassword.length === 0}
+                  loading={addingPasskey}
+                >
+                  {t("account.passkey_submit")}
+                </Button>
+              </Disclosure>
+            ) : null}
 
             <Disclosure title={t("account.reset_title")}>
               <Text

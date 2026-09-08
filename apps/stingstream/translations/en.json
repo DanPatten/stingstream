@@ -16,6 +16,7 @@
     "password_placeholder": "Password",
     "login_button": "Log in",
     "quick_connect": "Sign in with a code",
+    "sign_in_with_passkey": "Use a passkey",
     "sign_in_with_code": "Sign in with a code",
     "sign_in_with_password": "Sign in with password",
     "link_code_instructions": "On your phone or computer, open StingStream, go to Settings, choose Link a device, and enter this code.",
@@ -2023,7 +2024,11 @@
     "reset_detail": "There is no email on your account, so this is the only way to change it: from a server you own. Keep one reachable.",
     "reset_submit": "Set a new password",
     "reset_done": "Password changed",
-    "signed_in_locally": "Signed in on this server. The account service could not be reached, so new devices and new shares will not work until it is back."
+    "signed_in_locally": "Signed in on this server. The account service could not be reached, so new devices and new shares will not work until it is back.",
+    "passkey_title": "Add a passkey",
+    "passkey_detail": "A second way in, on this device, without typing anything. Your password still works — and with no email on your account, it is worth having both.",
+    "passkey_submit": "Add a passkey",
+    "passkey_added": "Passkey added"
   },
   "share": {
     "give_title": "People you share with",

@@ -14,6 +14,14 @@
  * where anything reaching `providers/JellyfinProvider` cannot.
  */
 
+import {
+  type CeremonyChallenge,
+  createCredential,
+  encodeAssertion,
+  encodeRegistration,
+  getCredential,
+} from "./webauthn";
+
 /** The account service every install points at unless told otherwise. */
 export const DEFAULT_ACCOUNT_SERVICE =
   "https://stingstream-accounts-production.up.railway.app";
@@ -200,6 +208,132 @@ export async function sessionOn(
   );
   if (!res.ok) throw await readError(res, "signing in to that server");
   return await res.json();
+}
+
+// --- passkeys ------------------------------------------------------------------------------------
+//
+// Optional twice over, and both are ordinary rather than exceptional: the service may have been
+// built without the feature (`webauthn-rs` needs OpenSSL, which this otherwise-rustls workspace
+// does not want on every platform it builds for), and it may have no origin configured, without
+// which a passkey would be bound to an address nobody can predict. Either way a password works.
+
+export interface PasskeySupport {
+  supported: boolean;
+  /** Why not, when not. Written for a person reading a settings screen. */
+  reason?: string;
+}
+
+/**
+ * Can this service do passkeys?
+ *
+ * The route is answered whether or not the feature was compiled in, which is deliberate on the
+ * service's side and relied on here: a **404 would be ambiguous** between "cannot do passkeys" and
+ * "older than passkeys", and this client would have to guess. An unreachable service is reported as
+ * unsupported rather than thrown, because this is asked to decide whether to draw a button.
+ */
+export async function fetchPasskeySupport(
+  service: string,
+): Promise<PasskeySupport> {
+  try {
+    const res = await fetch(`${origin(service)}/accounts/v1/passkeys`);
+    if (!res.ok) return { supported: false };
+    return (await res.json()) as PasskeySupport;
+  } catch {
+    return { supported: false };
+  }
+}
+
+/**
+ * Add a passkey to the account this token belongs to.
+ *
+ * A token is required because registering a passkey **adds a credential**: it has to be somebody
+ * who already proved they hold the account, or a passkey would be a way in rather than a second way
+ * in. Returns false when the person dismissed the browser prompt, which is not an error.
+ */
+export async function registerPasskey(
+  service: string,
+  token: string,
+  label: string,
+): Promise<boolean> {
+  const begin = await reach(
+    `${origin(service)}/accounts/v1/passkeys/register/begin`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!begin.ok) throw await readError(begin, "starting passkey registration");
+  const challenge = (await begin.json()) as CeremonyChallenge;
+
+  const credential = await createCredential(challenge.options);
+  if (!credential) return false;
+
+  const finish = await reach(
+    `${origin(service)}/accounts/v1/passkeys/register/finish`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ceremony: challenge.ceremony,
+        reply: encodeRegistration(credential),
+        label,
+      }),
+    },
+  );
+  if (!finish.ok)
+    throw await readError(finish, "finishing passkey registration");
+  return true;
+}
+
+/**
+ * Sign in with a passkey. No token yet — the passkey **is** the credential.
+ *
+ * A username is still needed to begin, because the service has to know which credentials to offer;
+ * a failure at that point answers exactly as a wrong password does, so this cannot be used to find
+ * out who has an account. `null` means the prompt was dismissed.
+ */
+export async function signInWithPasskey(
+  service: string,
+  username: string,
+): Promise<AccountSession | null> {
+  const begin = await reach(
+    `${origin(service)}/accounts/v1/passkeys/login/begin`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    },
+  );
+  if (!begin.ok) throw await readError(begin, "signing in");
+  const challenge = (await begin.json()) as CeremonyChallenge;
+
+  const credential = await getCredential(challenge.options);
+  if (!credential) return null;
+
+  const finish = await reach(
+    `${origin(service)}/accounts/v1/passkeys/login/finish`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ceremony: challenge.ceremony,
+        reply: encodeAssertion(credential),
+      }),
+    },
+  );
+  if (!finish.ok) throw await readError(finish, "signing in");
+  const body = (await finish.json()) as {
+    token: string;
+    expires_in: number;
+    account: string;
+    username: string;
+  };
+  return {
+    token: body.token,
+    expiresIn: body.expires_in,
+    account: body.account,
+    username: body.username,
+  };
 }
 
 /**

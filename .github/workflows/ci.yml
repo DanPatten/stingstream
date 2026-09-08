@@ -936,6 +936,18 @@ jobs:
       - name: Build the account service and the mesh
         run: cargo build --manifest-path mesh/Cargo.toml -p stingstream-accounts -p stingstream-mesh
 
+      # The other half of the feature, and the **only** place anything compiles it. `webauthn-rs`
+      # reaches OpenSSL through `webauthn-rs-core`, which does not build on a stock Windows
+      # toolchain from the system or vendored -- so the developer machine cannot check this, and
+      # without this step a compile error in `passkeys.rs` would first appear as a failed Railway
+      # deploy of the service everybody signs in through. Ubuntu has the headers; `cargo check` is
+      # enough, since what is at risk is whether the code compiles at all.
+      - name: Check the passkeys feature compiles
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
+          cargo check --manifest-path mesh/Cargo.toml -p stingstream-accounts --features passkeys --all-targets
+
       - name: Run the acceptance harness
         run: >
           pwsh tools/e2e-accounts.ps1 -SkipBuild

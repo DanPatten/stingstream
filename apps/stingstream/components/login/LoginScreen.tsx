@@ -12,6 +12,7 @@ import {
   type NodeContext,
   useNodeContext,
 } from "@/hooks/useNodeContext";
+import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
 import {
   type AccountServer,
@@ -20,6 +21,7 @@ import {
   isServiceUnreachable,
   serverOrigin,
   signIn as signInToAccountService,
+  signInWithPasskey,
 } from "@/lib/stingstream/accountsApi";
 import {
   createAdmin,
@@ -113,6 +115,12 @@ export const LoginScreen: React.FC = () => {
   // Whether this server has an account at all, and where. Read once, before anybody types: it is
   // what decides whether a sign-in goes anywhere but here.
   const nodeAccount = useLoginNodeAccount(nodeContext?.origin ?? null);
+
+  // Whether a passkey button should exist at all — this device and the service both have to be able
+  // to. Asked here, once, rather than inside the form, so the form only ever renders a link it
+  // knows works.
+  const accountService = nodeAccount?.claimed ? nodeAccount.service : null;
+  const passkeys = usePasskeySupport(accountService);
 
   const [phase, setPhase] = useState<Phase>(
     nodeContext ? "connecting" : "account",
@@ -353,7 +361,7 @@ export const LoginScreen: React.FC = () => {
         }
       };
 
-      const service = nodeAccount?.claimed ? nodeAccount.service : null;
+      const service = accountService;
       if (!service || !nodeContext) {
         await login(username, password, serverName ?? undefined);
         finish();
@@ -388,14 +396,46 @@ export const LoginScreen: React.FC = () => {
       finish();
     },
     [
+      accountService,
       keepSignedIn,
       login,
       loginWithAccountToken,
-      nodeAccount,
       nodeContext,
       serverName,
       setPendingAccountSave,
       t,
+    ],
+  );
+
+  /**
+   * The same sign-in, with the passkey standing in for the password.
+   *
+   * Only ever reachable when the service said it can do this, so there is no local fallback here
+   * and there should not be: a passkey is a credential the account service holds, and there is
+   * nothing on this server it could be checked against. Somebody whose passkey fails still has the
+   * password field above it, which is the fallback.
+   *
+   * A dismissed browser prompt returns null and is not an error — that is somebody changing their
+   * mind, and an alarming message under the form would be wrong.
+   */
+  const handleSignInWithPasskey = useCallback(
+    async (username: string) => {
+      if (!accountService || !nodeContext) return;
+      const session = await signInWithPasskey(accountService, username);
+      if (!session) return;
+      rememberAccountSession(session.token);
+      await loginWithAccountToken(nodeContext.origin, session.token);
+      if (keepSignedIn) {
+        setPendingAccountSave({ serverName: serverName ?? undefined });
+      }
+    },
+    [
+      accountService,
+      keepSignedIn,
+      loginWithAccountToken,
+      nodeContext,
+      serverName,
+      setPendingAccountSave,
     ],
   );
 
@@ -598,6 +638,9 @@ export const LoginScreen: React.FC = () => {
             onSubmit={handleSignIn}
             onSignInWithCode={
               Platform.OS === "web" ? undefined : handleSignInWithCode
+            }
+            onSignInWithPasskey={
+              passkeys.usable ? handleSignInWithPasskey : undefined
             }
             onUseDifferentServer={handleUseDifferentServer}
           />

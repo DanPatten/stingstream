@@ -29,6 +29,15 @@ export interface SignInFormProps {
   onKeepSignedInChange: (value: boolean) => void;
   /** Shown as a "Sign in with a code" link. Phone only — never on desktop web. */
   onSignInWithCode?: () => void;
+  /**
+   * Shown as a "Use a passkey" link, and **only when there is one to use**: the screen passes this
+   * in when both this device and the account service can do passkeys. A password always works, so
+   * the absence of this link is an ordinary state rather than a degraded one.
+   *
+   * Takes the username because that is what the service needs to know which credentials to offer,
+   * and it is already typed into the field above.
+   */
+  onSignInWithPasskey?: (username: string) => Promise<void>;
   /** Clears the connected server and goes back to the address form. */
   onUseDifferentServer?: () => void;
   /**
@@ -51,6 +60,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   keepSignedIn,
   onKeepSignedInChange,
   onSignInWithCode,
+  onSignInWithPasskey,
   onUseDifferentServer,
   servedByNode,
 }) => {
@@ -83,6 +93,24 @@ export const SignInForm: React.FC<SignInFormProps> = ({
       setBusy(false);
     }
   }, [busy, username, password, onSubmit, t]);
+
+  const submitPasskey = useCallback(async () => {
+    if (busy || !onSignInWithPasskey || username.trim().length === 0) return;
+    Keyboard.dismiss();
+    setError(null);
+    setBusy(true);
+    try {
+      await onSignInWithPasskey(username.trim());
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : t("login.an_unexpected_error_occurred"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, username, onSignInWithPasskey, t]);
 
   // The address form stays reachable on a node — a phone pointed at the wrong server has to be
   // able to leave — but it is not offered as a step. On a node it hides behind Advanced.
@@ -218,6 +246,27 @@ export const SignInForm: React.FC<SignInFormProps> = ({
       >
         {t("login.sign_in")}
       </Button>
+
+      {/* Under the password button rather than beside it: a passkey is the shortcut, not the
+          method, and with no email on an account the password is the credential that always works.
+          Disabled until a username is typed, because that is what the service needs to know which
+          credentials to offer — the field above is the only place it can come from. */}
+      {onSignInWithPasskey ? (
+        <FocusPressable
+          testID='login-sign-in-with-passkey'
+          onPress={() => void submitPasskey()}
+          accessibilityRole='button'
+          disabled={busy || username.trim().length === 0}
+          style={{ paddingVertical: 14, alignSelf: "center" }}
+        >
+          <Text
+            variant='body'
+            tone={username.trim().length === 0 ? "tertiary" : "accent"}
+          >
+            {t("login.sign_in_with_passkey")}
+          </Text>
+        </FocusPressable>
+      ) : null}
 
       {/* Quick Connect never appears on the desktop web login: a code is something you type on a
           television, from the phone in your hand, and offering it beside a password field on a
