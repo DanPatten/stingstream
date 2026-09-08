@@ -233,7 +233,14 @@ public class InventoryPublisherTests
 
         public Task<MeshJoinResult> JoinGroupAsync(string code, CancellationToken cancellationToken) => throw Unused();
 
-        public Task<string> InviteAsync(string group, CancellationToken cancellationToken) => throw Unused();
+        public Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken) => throw Unused();
+
+        public Task<MeshSharingSettings> SharingSettingsAsync(CancellationToken cancellationToken) => throw Unused();
+
+        public Task<MeshSharingSettings> SetSharingSettingsAsync(
+            MeshSharingSettings settings,
+            CancellationToken cancellationToken)
+            => throw Unused();
 
         public Task<MeshGroup> SetCoordinatorAsync(string group, string? coordinator, CancellationToken cancellationToken)
             => throw Unused();

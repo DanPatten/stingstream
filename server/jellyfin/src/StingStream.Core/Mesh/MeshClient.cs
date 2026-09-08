@@ -58,11 +58,24 @@ public interface IMeshClient
     /// <returns>What the join reached.</returns>
     Task<MeshJoinResult> JoinGroupAsync(string code, CancellationToken cancellationToken);
 
-    /// <summary>Mint an invite code for a group.</summary>
+    /// <summary>Mint an invite for a group.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The invite code.</returns>
-    Task<string> InviteAsync(string group, CancellationToken cancellationToken);
+    /// <returns>The invite code, and the link to hand out instead when this node has a host.</returns>
+    Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken);
+
+    /// <summary>Read this node's sharing settings.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The settings, with nulls where nothing is configured.</returns>
+    Task<MeshSharingSettings> SharingSettingsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Write this node's sharing settings, both fields together.</summary>
+    /// <param name="settings">The values to store; null clears a field.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The settings as stored, normalised.</returns>
+    Task<MeshSharingSettings> SetSharingSettingsAsync(
+        MeshSharingSettings settings,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Point a group at a different coordinator (M4.5).
@@ -399,7 +412,7 @@ public sealed class MeshClient : IMeshClient
     }
 
     /// <inheritdoc />
-    public async Task<string> InviteAsync(string group, CancellationToken cancellationToken)
+    public async Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken)
     {
         using var http = Client();
         using var response = await http.PostAsync(
@@ -408,8 +421,32 @@ public sealed class MeshClient : IMeshClient
                 cancellationToken)
             .ConfigureAwait(false);
         await ThrowIfFailedAsync(response, "minting an invite", cancellationToken).ConfigureAwait(false);
-        var invite = await ReadAsync<MeshInvite>(response, cancellationToken).ConfigureAwait(false);
-        return invite.Code;
+        return await ReadAsync<MeshInvite>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshSharingSettings> SharingSettingsAsync(CancellationToken cancellationToken)
+        => await TryGetAsync<MeshSharingSettings>("/mesh/v1/settings/sharing", cancellationToken)
+                .ConfigureAwait(false)
+            // A node too old to know the route is not an error to show anybody: nothing is
+            // configured, which is exactly what an empty settings object says.
+            ?? new MeshSharingSettings();
+
+    /// <inheritdoc />
+    public async Task<MeshSharingSettings> SetSharingSettingsAsync(
+        MeshSharingSettings settings,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PutAsJsonAsync(
+                "/mesh/v1/settings/sharing",
+                settings,
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "saving the sharing settings", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshSharingSettings>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

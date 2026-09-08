@@ -2400,7 +2400,7 @@
         "tags": [
           "Mesh"
         ],
-        "summary": "Mint an invite code.",
+        "summary": "Mint an invite.",
         "operationId": "Invite",
         "parameters": [
           {
@@ -2415,7 +2415,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The invite code.",
+            "description": "The invite code, and a link when this node has a host for one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2915,6 +2915,158 @@
         "security": [
           {
             "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Mesh/settings/sharing": {
+      "get": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Read this node's sharing settings.",
+        "operationId": "SharingSettings",
+        "responses": {
+          "200": {
+            "description": "The settings, with nulls where nothing is configured.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshSharingSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Write this node's sharing settings.",
+        "description": "Both fields go together rather than one endpoint each. The page shows both, an absent field\r\nmeans \"cleared\", and a partial update would make \"the user emptied this box\" impossible to\r\ntell from \"this client is older than this node and does not know the field exists\".",
+        "operationId": "SetSharingSettings",
+        "requestBody": {
+          "description": "Both fields; null clears one.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshSharingSettings"
+                  }
+                ],
+                "description": "`GET`/`PUT /mesh/v1/settings/sharing` — where people reach this node."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshSharingSettings"
+                  }
+                ],
+                "description": "`GET`/`PUT /mesh/v1/settings/sharing` — where people reach this node."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshSharingSettings"
+                  }
+                ],
+                "description": "`GET`/`PUT /mesh/v1/settings/sharing` — where people reach this node."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The settings as stored, normalised.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshSharingSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
               "DefaultAuthorization"
             ]
           }
@@ -12777,6 +12929,11 @@
         "properties": {
           "Code": {
             "type": "string"
+          },
+          "Url": {
+            "type": "string",
+            "description": "The same invite as a link somebody can open, or null when this node has no host to build\r\none from.",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -13216,6 +13373,23 @@
         },
         "additionalProperties": false,
         "description": "One scored candidate from `GET /mesh/v1/sources/{group}/{item_key}`."
+      },
+      "MeshSharingSettings": {
+        "type": "object",
+        "properties": {
+          "PublicAddress": {
+            "type": "string",
+            "description": "The domain pointed at this node, origin only. Null when unset.",
+            "nullable": true
+          },
+          "CoordinatorDefault": {
+            "type": "string",
+            "description": "The coordinator a newly created Public group adopts. Null when unset.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "`GET`/`PUT /mesh/v1/settings/sharing` — where people reach this node."
       },
       "MeshSources": {
         "type": "object",

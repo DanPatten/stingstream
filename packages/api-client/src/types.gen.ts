@@ -574,7 +574,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mint an invite code. */
+        /** Mint an invite. */
         post: operations["Mesh_Invite"];
         delete?: never;
         options?: never;
@@ -730,6 +730,29 @@ export interface paths {
          */
         get: operations["Mesh_PeerStats"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/settings/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read this node's sharing settings. */
+        get: operations["Mesh_SharingSettings"];
+        /**
+         * Write this node's sharing settings.
+         * @description Both fields go together rather than one endpoint each. The page shows both, an absent field
+         *     means "cleared", and a partial update would make "the user emptied this box" impossible to
+         *     tell from "this client is older than this node and does not know the field exists".
+         */
+        put: operations["Mesh_SetSharingSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3834,6 +3857,11 @@ export interface components {
         /** @description The answer to `POST /mesh/v1/groups/{group}/invite`. */
         MeshInvite: {
             Code?: string;
+            /**
+             * @description The same invite as a link somebody can open, or null when this node has no host to build
+             *     one from.
+             */
+            Url?: string | null;
         };
         /** @description The answer to `POST /mesh/v1/groups/join`. */
         MeshJoinResult: {
@@ -4028,6 +4056,13 @@ export interface components {
             Fits?: boolean;
             Measured?: boolean;
             Reasons?: string[];
+        };
+        /** @description `GET`/`PUT /mesh/v1/settings/sharing` — where people reach this node. */
+        MeshSharingSettings: {
+            /** @description The domain pointed at this node, origin only. Null when unset. */
+            PublicAddress?: string | null;
+            /** @description The coordinator a newly created Public group adopts. Null when unset. */
+            CoordinatorDefault?: string | null;
         };
         /** @description The body of `GET /mesh/v1/sources/{group}/{item_key}`. */
         MeshSources: {
@@ -8272,7 +8307,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The invite code. */
+            /** @description The invite code, and a link when this node has a host for one. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8662,6 +8697,107 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    Mesh_SharingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings, with nulls where nothing is configured. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshSharingSettings"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_SetSharingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Both fields; null clears one. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MeshSharingSettings"];
+                "text/json": components["schemas"]["MeshSharingSettings"];
+                "application/*+json": components["schemas"]["MeshSharingSettings"];
+            };
+        };
+        responses: {
+            /** @description The settings as stored, normalised. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshSharingSettings"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };

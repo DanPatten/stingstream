@@ -180,16 +180,44 @@ public sealed class MeshController : StingStreamControllerBase
         return await _mesh.JoinGroupAsync(body.Code, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Mint an invite code.</summary>
+    /// <summary>Mint an invite.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="200">The invite code.</response>
-    /// <returns>The invite code.</returns>
+    /// <response code="200">The invite code, and a link when this node has a host for one.</response>
+    /// <returns>The invite.</returns>
     [HttpPost("groups/{group}/invite")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<MeshInvite>> Invite(string group, CancellationToken cancellationToken)
-        => new MeshInvite { Code = await _mesh.InviteAsync(group, cancellationToken).ConfigureAwait(false) };
+        => await _mesh.InviteAsync(group, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Read this node's sharing settings.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The settings, with nulls where nothing is configured.</response>
+    /// <returns>The settings.</returns>
+    [HttpGet("settings/sharing")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeshSharingSettings>> SharingSettings(CancellationToken cancellationToken)
+        => await _mesh.SharingSettingsAsync(cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Write this node's sharing settings.</summary>
+    /// <param name="body">Both fields; null clears one.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The settings as stored, normalised.</response>
+    /// <returns>The settings as stored.</returns>
+    /// <remarks>
+    /// Both fields go together rather than one endpoint each. The page shows both, an absent field
+    /// means "cleared", and a partial update would make "the user emptied this box" impossible to
+    /// tell from "this client is older than this node and does not know the field exists".
+    /// </remarks>
+    [HttpPut("settings/sharing")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeshSharingSettings>> SetSharingSettings(
+        [FromBody] MeshSharingSettings body,
+        CancellationToken cancellationToken)
+        => await _mesh.SetSharingSettingsAsync(body, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Point a group at a different coordinator.

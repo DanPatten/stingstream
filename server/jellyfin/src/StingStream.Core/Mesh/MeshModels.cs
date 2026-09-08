@@ -146,6 +146,31 @@ public sealed class MeshJoinResult
 public sealed class MeshInvite
 {
     public string Code { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The same invite as a link somebody can open, or null when this node has no host to build
+    /// one from.
+    /// </summary>
+    /// <remarks>
+    /// Null is an ordinary answer rather than an error: a member with no domain of their own, in a
+    /// group with no coordinator, has no address to put in a link. Callers show the code.
+    /// </remarks>
+    public string? Url { get; set; }
+}
+
+/// <summary><c>GET</c>/<c>PUT /mesh/v1/settings/sharing</c> — where people reach this node.</summary>
+/// <remarks>
+/// Both values belong to the node, not to any group. The public address is whose server a link
+/// points at, and only the person minting a link can answer that for themselves; the coordinator is
+/// a default copied onto a group when it is created, after which the group is the authority.
+/// </remarks>
+public sealed class MeshSharingSettings
+{
+    /// <summary>The domain pointed at this node, origin only. Null when unset.</summary>
+    public string? PublicAddress { get; set; }
+
+    /// <summary>The coordinator a newly created Public group adopts. Null when unset.</summary>
+    public string? CoordinatorDefault { get; set; }
 }
 
 /// <summary>One node's view of one item, as the merged index serves it.</summary>
