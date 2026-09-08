@@ -14,39 +14,11 @@ import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
+import { dedupePeople, initialsOf, roleCaption } from "./cast";
 
 const AVATAR = 96;
 const TILE_WIDTH = 112;
 const SKELETON_COUNT = 6;
-
-/** Two letters from a name, for a cast member the server has no photo of. */
-export const initialsOf = (name: string | null | undefined): string => {
-  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
-};
-
-/** Same person credited twice (actor and writer) is one tile with both roles. */
-export const dedupePeople = (
-  people: BaseItemPerson[] | null | undefined,
-): BaseItemPerson[] => {
-  const byId = new Map<string, BaseItemPerson>();
-  for (const person of people ?? []) {
-    if (!person.Id) continue;
-    const existing = byId.get(person.Id);
-    if (!existing) {
-      byId.set(person.Id, { ...person });
-      continue;
-    }
-    if (person.Role && existing.Role && !existing.Role.includes(person.Role)) {
-      existing.Role = `${existing.Role}, ${person.Role}`;
-    } else if (person.Role && !existing.Role) {
-      existing.Role = person.Role;
-    }
-  }
-  return [...byId.values()];
-};
 
 interface Props {
   people?: BaseItemPerson[] | null;
@@ -133,12 +105,14 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
     [api, person],
   );
   const showImage = Boolean(imageUrl) && !imageFailed;
+  const role = useMemo(() => roleCaption(person.Role), [person.Role]);
 
   return (
     <Pressable
+      testID='cast-tile'
       accessibilityRole='button'
       accessibilityLabel={
-        person.Role ? `${person.Name} — ${person.Role}` : (person.Name ?? "")
+        role ? `${person.Name} — ${role}` : (person.Name ?? "")
       }
       onPress={() =>
         person.Id &&
@@ -187,24 +161,29 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
           <Icon name='user' size={32} tone='tertiary' />
         )}
       </View>
+      {/* `alignSelf: "stretch"` is what keeps a caption inside its tile. The
+          column centres its children, which sizes a text box to its own content
+          — so "Dr. Emmett Brown / Professor" measured wider than the 112 px tile
+          and hung out of the row (F-57). Stretched, the box is the tile's width
+          and the clamp has something to clamp to. */}
       <Text
         variant='caption'
         weight='medium'
         align='center'
         numberOfLines={2}
-        style={{ marginTop: 10 }}
+        style={{ marginTop: 10, alignSelf: "stretch" }}
       >
         {person.Name}
       </Text>
-      {person.Role ? (
+      {role ? (
         <Text
           variant='micro'
           tone='tertiary'
           align='center'
-          numberOfLines={1}
-          style={{ marginTop: 2 }}
+          numberOfLines={2}
+          style={{ marginTop: 2, alignSelf: "stretch" }}
         >
-          {person.Role}
+          {role}
         </Text>
       ) : null}
     </Pressable>

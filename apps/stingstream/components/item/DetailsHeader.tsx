@@ -5,12 +5,13 @@ import type {
 import { LinearGradient } from "expo-linear-gradient";
 import { useAtomValue } from "jotai";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { cardPlaceholder } from "@/components/cards/CardData";
+import { CardPlaceholderTile } from "@/components/cards/CardPlaceholderTile";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
-import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { radius, rgba, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -34,6 +35,20 @@ const POSTER_ASPECT = 2 / 3;
  * press Play.
  */
 const BACKDROP_HEIGHT = { medium: 380, expanded: 460 } as const;
+
+/**
+ * The box the studio's lettering is drawn into, clamped to the space it has.
+ *
+ * A definite width and height, never a percentage: pass-03 sized the logo
+ * `width: "100%"` with `alignSelf: "flex-start"`, which resolved to **zero** on
+ * web — a 714 px wordmark laid out at 0×0, so the header showed no title at all
+ * (F-50). `contain` with a left content position means any wordmark shape draws
+ * inside this box at its own aspect ratio without being stretched to fill it.
+ */
+const LOGO_BOX = {
+  compact: { width: 280, height: 76 },
+  wide: { width: 480, height: 120 },
+} as const;
 
 /** `position: absolute` over the whole parent, spelled the way RN accepts. */
 const FILL = {
@@ -181,7 +196,7 @@ export const DetailsHeader: React.FC<Props> = ({
 
       <PageContainer style={{ paddingTop: Math.round(height * 0.42) }}>
         <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-          <Poster url={posterUrl} name={item.Name} />
+          <Poster item={item} url={posterUrl} />
           <View style={{ flex: 1, marginLeft: 28, paddingBottom: 4 }}>
             {body}
           </View>
@@ -191,15 +206,38 @@ export const DetailsHeader: React.FC<Props> = ({
   );
 };
 
-const Poster: React.FC<{ url?: string | null; name?: string | null }> = ({
+/**
+ * The poster, or the tile that stands in for one — never an empty box.
+ *
+ * `getPrimaryImageUrl` hands back a `/Images/Primary` URL for every item,
+ * including the ones the server holds no primary image for, so "there is a URL"
+ * is not "there is a poster": the request 404s and the box stays the flat grey
+ * of its own background (F-50). A failed load falls back to the same placeholder
+ * tile the cards use — the type's glyph and the title's first letter — which
+ * reads as "no artwork for this" rather than as artwork still on its way.
+ *
+ * The skeleton this replaced was the pass-02 defect in miniature: a skeleton is
+ * a promise that something is coming, and for an item whose details have already
+ * loaded, nothing is.
+ */
+const Poster: React.FC<{ item: BaseItemDto; url?: string | null }> = ({
+  item,
   url,
-  name,
 }) => {
   const { t } = useTranslation();
   const height = Math.round(POSTER_WIDTH / POSTER_ASPECT);
+  const [failed, setFailed] = useState(false);
+
+  // A new item reuses this component; last item's failure is not this one's.
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
+  const label = t("item.poster_for", { name: item.Name });
 
   return (
     <View
+      testID='details-poster'
       style={{
         width: POSTER_WIDTH,
         height,
@@ -210,28 +248,43 @@ const Poster: React.FC<{ url?: string | null; name?: string | null }> = ({
         borderColor: tokens.color.border.subtle,
       }}
     >
-      {url ? (
+      {url && !failed ? (
         <Image
           source={url}
           style={{ width: "100%", height: "100%" }}
           contentFit='cover'
           cachePolicy='memory-disk'
           transition={300}
-          accessibilityLabel={t("item.poster_for", { name })}
+          onError={() => setFailed(true)}
+          accessibilityLabel={label}
         />
       ) : (
-        <Skeleton width={POSTER_WIDTH} height={height} radius={radius.lg} />
+        <CardPlaceholderTile
+          title={item.Name ?? ""}
+          placeholder={cardPlaceholder(item)}
+          width={POSTER_WIDTH}
+          accessibilityLabel={label}
+        />
       )}
     </View>
   );
 };
 
 /**
- * The title, as the studio's own lettering where the server has it.
+ * The title, as the studio's own lettering where the server has it — and as
+ * words every other second of the page's life.
  *
- * A logo replaces the words rather than sitting above them — pass-02 drew both,
- * plus a clapperboard glyph, which is three titles for one film. `maxWidth`
- * keeps a wide wordmark from running the whole measure of a 1440 px page.
+ * A logo replaces the words rather than sitting above them: pass-02 drew both,
+ * plus a clapperboard glyph, which is three titles for one film. But pass-03
+ * showed what "replaces" costs when the replacement never arrives — the logo
+ * laid out at 0×0 and the header had **no title at all** (F-50). So the words
+ * are what renders until the image says it loaded, and they come back if it
+ * fails. There is no state in which this component draws nothing.
+ *
+ * The image is in the tree the whole time, sized and merely transparent while it
+ * loads, because an image that is not laid out is an image the browser has no
+ * reason to fetch — and taken out of the flow, so the words below it sit where
+ * they would anyway and the swap moves nothing else on the page.
  */
 const TitleBlock: React.FC<{
   item: BaseItemDto;
@@ -239,43 +292,80 @@ const TitleBlock: React.FC<{
   compact: boolean;
 }> = ({ item, logoUrl, compact }) => {
   const { t } = useTranslation();
+  const [state, setState] = useState<"loading" | "ok" | "failed">("loading");
+  const [available, setAvailable] = useState(0);
+
+  useEffect(() => {
+    setState("loading");
+  }, [logoUrl]);
 
   // An episode's logo is its *series'* logo, so drawing it here would give the
   // page the show's name and never the episode's. The words win.
-  if (logoUrl && item.Type !== "Episode") {
-    return (
-      <Image
-        source={logoUrl}
-        style={{
-          height: compact ? 76 : 104,
-          width: "100%",
-          maxWidth: compact ? undefined : 420,
-          alignSelf: "flex-start",
-        }}
-        contentFit='contain'
-        contentPosition='left center'
-        cachePolicy='memory-disk'
-        transition={300}
-        accessibilityLabel={item.Name ?? undefined}
-      />
-    );
-  }
+  const wantsLogo =
+    Boolean(logoUrl) && item.Type !== "Episode" && state !== "failed";
+  const box = compact ? LOGO_BOX.compact : LOGO_BOX.wide;
+  // Clamped to the column it sits in, so the wide box cannot push the page
+  // sideways in the narrow gap left beside the poster at the 768 breakpoint.
+  const width =
+    available > 0 ? Math.min(box.width, Math.round(available)) : box.width;
+  const showLogo = wantsLogo && state === "ok";
 
   return (
-    <View>
-      <Text variant='display' weight='bold' selectable numberOfLines={2}>
-        {item.Name}
-      </Text>
-      {item.Type === "Episode" && item.SeriesName ? (
-        <Text
-          variant='heading'
-          tone='secondary'
-          numberOfLines={1}
-          style={{ marginTop: 4 }}
-        >
-          {t("item.from_series", { name: item.SeriesName })}
-        </Text>
+    <View
+      testID='details-title'
+      onLayout={(event) => setAvailable(event.nativeEvent.layout.width)}
+      style={{ overflow: "hidden" }}
+    >
+      {wantsLogo && logoUrl ? (
+        <Image
+          source={logoUrl}
+          style={
+            showLogo
+              ? { width, height: box.height, alignSelf: "flex-start" }
+              : {
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width,
+                  height: box.height,
+                  opacity: 0,
+                }
+          }
+          contentFit='contain'
+          contentPosition='left center'
+          cachePolicy='memory-disk'
+          transition={300}
+          onLoad={(event) => {
+            // A reported width of exactly zero is a logo that decoded to
+            // nothing; anything else (including a platform that reports no
+            // dimensions at all) counts as loaded.
+            const reported = event?.source?.width;
+            setState(
+              typeof reported === "number" && reported <= 0 ? "failed" : "ok",
+            );
+          }}
+          onError={() => setState("failed")}
+          accessibilityLabel={item.Name ?? undefined}
+        />
       ) : null}
+
+      {showLogo ? null : (
+        <View>
+          <Text variant='display' weight='bold' selectable numberOfLines={2}>
+            {item.Name}
+          </Text>
+          {item.Type === "Episode" && item.SeriesName ? (
+            <Text
+              variant='heading'
+              tone='secondary'
+              numberOfLines={1}
+              style={{ marginTop: 4 }}
+            >
+              {t("item.from_series", { name: item.SeriesName })}
+            </Text>
+          ) : null}
+        </View>
+      )}
     </View>
   );
 };
