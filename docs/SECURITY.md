@@ -192,6 +192,7 @@ Gateway routes, which are not Jellyfin's:
 |---|---|
 | `/healthz` | Anyone; full detail on loopback only |
 | `/join` | Anyone. Serves the app through the SPA fallback; the invite is in the fragment and never reaches the server |
+| coordinator `/healthz`, `/node/v1/{node}` | Anyone, `Access-Control-Allow-Origin: *`. Both are read by the app from a browser served by somebody's node, so both are cross-origin by construction; both were already public and unauthenticated, and neither carries a cookie or anything per-caller. Scoped to these two routes, so rendezvous, register, probe and ACME keep refusing browsers |
 | `/sidedoor/v1/hello` | Anyone, CORS `*`, five fields |
 | `/stingstream/mesh/*` | Loopback only |
 | `/stream/*` | Loopback, or a signed URL that has not expired |

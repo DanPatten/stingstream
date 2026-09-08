@@ -1043,7 +1043,7 @@ async fn acme_challenge(
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct NodeRecord {
     node: String,
     names: Option<crate::dns::NodeNames>,
@@ -1057,10 +1057,18 @@ struct NodeRecord {
 /// Public on purpose: it is exactly the set of names that already appear in DNS, plus whether the
 /// direct one is worth trying. Addresses are not included — those are in DNS, where a client will
 /// look anyway.
+///
+/// **Readable from a browser**, for the same reason `/healthz` is and with the same one-route
+/// scoping. "A web client reads this" is the entire purpose of the endpoint, and a web client is
+/// served by somebody's *node*, so the request is cross-origin every single time. Without the
+/// header the browser discards the answer before the app sees it — and, because the fetch fails
+/// rather than returning nothing, logs an error on any screen that asks. The app already treats a
+/// failure as "no record" and carries on, so this was pure noise; it only became visible once a
+/// node started life with a coordinator to ask.
 async fn node_record(
     State(state): State<AppState>,
     Path(node): Path<String>,
-) -> ApiResult<Json<NodeRecord>> {
+) -> ApiResult<([(header::HeaderName, &'static str); 1], Json<NodeRecord>)> {
     if !crate::dns::is_node_label(&node) {
         return Err(ApiError::bad_request("that is not a node id"));
     }
@@ -1068,13 +1076,16 @@ async fn node_record(
         .registry
         .get(&node)
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "no such node"))?;
-    Ok(Json(NodeRecord {
-        names: state.zone.as_ref().map(|z| z.node_names(&node)),
-        node,
-        direct_https: info.direct_https,
-        last_probe: info.last_probe,
-        updated_at: info.updated_at,
-    }))
+    Ok((
+        [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
+        Json(NodeRecord {
+            names: state.zone.as_ref().map(|z| z.node_names(&node)),
+            node,
+            direct_https: info.direct_https,
+            last_probe: info.last_probe,
+            updated_at: info.updated_at,
+        }),
+    ))
 }
 
 #[cfg(test)]
@@ -1282,6 +1293,22 @@ mod tests {
             ..Default::default()
         };
         AppState::new(cfg, None).expect("a default config builds a state")
+    }
+
+    /// The other route a browser reads, and the one that gave itself away: a node now starts life
+    /// with a coordinator, so the app asks it for this record on any screen that cares about the
+    /// side door — and without the header the fetch *fails* rather than returning nothing, logging
+    /// an error on a screen where nothing is wrong. The app already treats a failure as "no
+    /// record", so the only symptom was noise, which is exactly the kind that gets ignored.
+    #[tokio::test]
+    async fn the_node_record_is_readable_by_a_browser_too() {
+        let state = state_with(false);
+        // A node the registry has never heard of still proves the point: what is under test is the
+        // route's headers, and 404 is the honest answer to "no such node".
+        let err = node_record(State(state), Path(NODE.to_string()))
+            .await
+            .expect_err("this registry is empty");
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
     }
 
     /// The sharing field reads this from a page served by somebody else's node, so the answer is
