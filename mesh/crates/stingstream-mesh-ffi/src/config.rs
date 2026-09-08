@@ -185,7 +185,32 @@ mod tests {
         let mesh = cfg.to_mesh_config(Path::new("/tmp/x"));
         assert!(mesh.peer.light);
         assert_eq!(mesh.api.port, 0);
-        assert!(mesh.discovery.fallback_coordinator.is_some());
+        // No blanket fallback coordinator, because the node no longer has one either: a group that
+        // is shown as Private must not be quietly relayed through infrastructure somebody else
+        // pays for. A phone still reaches a Public group's coordinator — it arrives with the group,
+        // from the invite — and reaches a Private one over n0's relays and DNS, as iroh does by
+        // default. What this pins is that the app follows the node's default rather than carrying
+        // one of its own.
+        assert!(mesh.discovery.fallback_coordinator.is_none());
+    }
+
+    /// The override still works, in both directions. An app embedding this can name a coordinator
+    /// for every group, and an explicitly empty string still means "none" — the distinction between
+    /// absent and empty is the whole reason `fallback_coordinator` is an `Option<String>` here.
+    #[test]
+    fn a_fallback_coordinator_can_still_be_set_or_explicitly_cleared() {
+        let named = MeshConfigInput::parse(r#"{"fallbackCoordinator":"https://c.example.org"}"#)
+            .unwrap()
+            .to_mesh_config(Path::new("/tmp/x"));
+        assert_eq!(
+            named.discovery.fallback_coordinator.as_deref(),
+            Some("https://c.example.org")
+        );
+
+        let cleared = MeshConfigInput::parse(r#"{"fallbackCoordinator":""}"#)
+            .unwrap()
+            .to_mesh_config(Path::new("/tmp/x"));
+        assert!(cleared.discovery.fallback_coordinator.is_none());
     }
 
     #[test]
