@@ -22,6 +22,7 @@
 //!
 //! See `docs/MESH.md` for the wire protocol, the invite format and the local/peer API reference.
 
+pub mod accounts;
 pub mod api;
 pub mod auth;
 pub mod config;

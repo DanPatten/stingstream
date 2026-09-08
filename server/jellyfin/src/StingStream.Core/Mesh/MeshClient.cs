@@ -64,6 +64,35 @@ public interface IMeshClient
     /// <returns>The invite code, and the link to hand out instead when this node has a host.</returns>
     Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken);
 
+    /// <summary>Which account service this server uses, and whose account it belongs to.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The account status.</returns>
+    Task<MeshAccountStatus> AccountStatusAsync(CancellationToken cancellationToken);
+
+    /// <summary>Create a StingStream account, or attach this server to one.</summary>
+    /// <param name="username">The username.</param>
+    /// <param name="password">The password.</param>
+    /// <param name="claim">True to attach to an account that already exists.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The account status.</returns>
+    Task<MeshAccountStatus> AccountRegisterAsync(
+        string username,
+        string password,
+        bool claim,
+        CancellationToken cancellationToken);
+
+    /// <summary>Set a new password on the account this server belongs to.</summary>
+    /// <param name="password">The new password.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The account status.</returns>
+    Task<MeshAccountStatus> AccountResetAsync(string password, CancellationToken cancellationToken);
+
+    /// <summary>Check an account token. Local to the node; no network.</summary>
+    /// <param name="token">The token from the account service.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Who the token says its holder is.</returns>
+    Task<MeshAccountSession> AccountVerifyAsync(string token, CancellationToken cancellationToken);
+
     /// <summary>Read this node's sharing settings.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The settings, with nulls where nothing is configured.</returns>
@@ -422,6 +451,70 @@ public sealed class MeshClient : IMeshClient
             .ConfigureAwait(false);
         await ThrowIfFailedAsync(response, "minting an invite", cancellationToken).ConfigureAwait(false);
         return await ReadAsync<MeshInvite>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshAccountStatus> AccountStatusAsync(CancellationToken cancellationToken)
+        => await TryGetAsync<MeshAccountStatus>("/mesh/v1/accounts", cancellationToken)
+                .ConfigureAwait(false)
+            // A node too old to know the route has no account, which is what an empty status says.
+            ?? new MeshAccountStatus();
+
+    /// <inheritdoc />
+    public async Task<MeshAccountStatus> AccountRegisterAsync(
+        string username,
+        string password,
+        bool claim,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        // Registering reaches the account service and waits for it, and argon2 is deliberately slow
+        // on the far end. The default timeout is for loopback calls, which this is not really.
+        http.Timeout = TimeSpan.FromSeconds(60);
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/accounts/register",
+                new { username, password, claim },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "creating a StingStream account", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshAccountStatus>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshAccountStatus> AccountResetAsync(
+        string password,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        http.Timeout = TimeSpan.FromSeconds(60);
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/accounts/reset",
+                new { password },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "resetting the account password", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshAccountStatus>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshAccountSession> AccountVerifyAsync(
+        string token,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/accounts/session",
+                new { token },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "checking an account token", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshAccountSession>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

@@ -6,6 +6,7 @@ members = [
     "crates/stingstream-mesh",
     "crates/stingstream-mesh-ffi",
     "crates/stingstream-relay",
+    "crates/stingstream-token",
 ]
 # mesh/jellyswarrm (subtree: LLukas22/Jellyswarrm) is deliberately NOT a member of this workspace.
 # It keeps its own Cargo.toml workspace (mesh/jellyswarrm/Cargo.toml) and builds independently

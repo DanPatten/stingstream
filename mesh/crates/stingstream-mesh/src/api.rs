@@ -34,6 +34,13 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             "/mesh/v1/settings/sharing",
             get(get_sharing).put(put_sharing),
         )
+        .route(
+            "/mesh/v1/accounts",
+            get(get_account).put(put_account_service),
+        )
+        .route("/mesh/v1/accounts/register", post(post_account_register))
+        .route("/mesh/v1/accounts/reset", post(post_account_reset))
+        .route("/mesh/v1/accounts/session", post(post_account_session))
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
@@ -327,6 +334,137 @@ impl From<crate::sharing::SharingSettings> for SharingBody {
             coordinator_default: s.coordinator_default,
         }
     }
+}
+
+/// This node's account: which service, and whose account it belongs to.
+///
+/// `Serialize` only — the app reads it. Safe to derive `Debug`: a node id and a username are both
+/// public, and there is no credential here. The password never appears in this type at all, in
+/// either direction, which is deliberate.
+#[derive(Debug, Clone, Serialize)]
+pub struct AccountStatus {
+    /// The account service in use, or `None` on a build with no default and nothing configured.
+    pub service: Option<String>,
+    /// The account this server belongs to, once claimed.
+    pub account: Option<String>,
+    /// That account's username, so a screen can say whose it is without a round trip.
+    pub username: Option<String>,
+    /// This node's id, which is what the service knows it by.
+    pub node: String,
+}
+
+/// `GET /mesh/v1/accounts`
+async fn get_account(State(node): State<Arc<MeshNode>>) -> ApiResult<Json<AccountStatus>> {
+    Ok(Json(node.account_status()?))
+}
+
+#[derive(Deserialize)]
+struct SetService {
+    #[serde(default)]
+    service: Option<String>,
+}
+
+/// `PUT /mesh/v1/accounts` — point this node at a different account service.
+async fn put_account_service(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<SetService>,
+) -> ApiResult<Json<AccountStatus>> {
+    node.set_account_service(body.service.as_deref())
+        .map(Json)
+        .map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+#[derive(Deserialize)]
+struct RegisterAccount {
+    username: String,
+    password: String,
+    /// True to attach this server to an account that already exists, rather than creating one.
+    #[serde(default)]
+    claim: bool,
+}
+
+/// Passwords in, nothing out. Written rather than derived so a `{:?}` in a handler cannot put one
+/// in a log — this is the only place in the mesh where a person's password passes through.
+impl std::fmt::Debug for RegisterAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterAccount")
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("claim", &self.claim)
+            .finish()
+    }
+}
+
+/// `POST /mesh/v1/accounts/register` — create an account, or attach this server to one.
+async fn post_account_register(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<RegisterAccount>,
+) -> ApiResult<Json<AccountStatus>> {
+    node.account_register(&body.username, &body.password, body.claim)
+        .await
+        .map(Json)
+        .map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+#[derive(Deserialize)]
+struct ResetAccount {
+    password: String,
+}
+
+impl std::fmt::Debug for ResetAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResetAccount")
+            .field("password", &"<redacted>")
+            .finish()
+    }
+}
+
+/// `POST /mesh/v1/accounts/reset` — the only way back into a forgotten account.
+async fn post_account_reset(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<ResetAccount>,
+) -> ApiResult<Json<AccountStatus>> {
+    node.account_reset(&body.password)
+        .await
+        .map(Json)
+        .map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+#[derive(Deserialize)]
+struct SessionRequest {
+    token: String,
+}
+
+impl std::fmt::Debug for SessionRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // A token is a live session for twelve hours to anybody who reads it.
+        f.debug_struct("SessionRequest").field("token", &"<redacted>").finish()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct SessionResponse {
+    account: String,
+    username: String,
+}
+
+/// `POST /mesh/v1/accounts/session` — "is this token real, and is it for me?"
+///
+/// **Answered without touching the network**, against a public key cached when this node was
+/// claimed. That is what lets somebody sign in while the account service is down, and it is why
+/// `StingStream.Core` asks the mesh rather than verifying tokens itself: the key and the crypto are
+/// both already here.
+async fn post_account_session(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<SessionRequest>,
+) -> ApiResult<Json<SessionResponse>> {
+    let claims = node
+        .account_verify(&body.token)
+        .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, e.to_string()))?;
+    Ok(Json(SessionResponse {
+        account: claims.sub,
+        username: claims.username,
+    }))
 }
 
 /// `GET /mesh/v1/settings/sharing`

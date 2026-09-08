@@ -25,6 +25,14 @@ pub fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
+/// Seconds since the Unix epoch. What signed requests and token expiry are measured in.
+pub fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Restrict a file to owner-only access where the OS supports it (0600 on Unix).
 ///
 /// On Windows the file inherits the ACL of its parent, which is already user-scoped under

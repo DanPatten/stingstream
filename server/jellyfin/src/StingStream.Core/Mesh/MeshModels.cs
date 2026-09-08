@@ -158,6 +158,32 @@ public sealed class MeshInvite
     public string? Url { get; set; }
 }
 
+/// <summary><c>GET /mesh/v1/accounts</c> — which account service, and whose account this is.</summary>
+public sealed class MeshAccountStatus
+{
+    /// <summary>The account service in use, or null when none is configured.</summary>
+    public string? Service { get; set; }
+
+    /// <summary>The account this server belongs to, once claimed.</summary>
+    public string? Account { get; set; }
+
+    /// <summary>That account's username.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>This node's id, which is what the account service knows it by.</summary>
+    public string Node { get; set; } = string.Empty;
+}
+
+/// <summary><c>POST /mesh/v1/accounts/session</c> — who a token says its holder is.</summary>
+public sealed class MeshAccountSession
+{
+    /// <summary>The account id.</summary>
+    public string Account { get; set; } = string.Empty;
+
+    /// <summary>The username, which is also the name the local Jellyfin user takes.</summary>
+    public string Username { get; set; } = string.Empty;
+}
+
 /// <summary><c>GET</c>/<c>PUT /mesh/v1/settings/sharing</c> — where people reach this node.</summary>
 /// <remarks>
 /// Both values belong to the node, not to any group. The public address is whose server a link

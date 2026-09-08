@@ -1,6 +1,6 @@
-//! The token a person carries from this service to their servers.
+//! The token a person carries from the account service to their servers.
 //!
-//! **This service signs; servers verify.** A token is Ed25519-signed here and checked by a node
+//! **The account service signs; servers verify.** A token is Ed25519-signed here and checked by a node
 //! against a public key it fetched once and cached — so a node validating a sign-in calls nobody,
 //! and an outage of this service costs new devices and new shares, never playback. That property is
 //! the reason the whole design is signature-based rather than "ask the service if this session is
@@ -21,6 +21,13 @@
 //! node must remain the authority on its own library even if this service is lying.
 
 use anyhow::{Context, Result, bail};
+
+/// How far ahead of the verifier a token's `iat` may be before it is refused.
+///
+/// A token from the future is a clock that disagrees, and honouring one would extend its life at
+/// the far end. Same five minutes `stingstream-accounts::signed` allows a signed request, for the
+/// same reason: it is well inside what NTP keeps a server to.
+pub const MAX_SKEW_SECS: u64 = 300;
 use data_encoding::BASE64URL_NOPAD;
 use iroh_base::{PublicKey, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -93,7 +100,7 @@ pub fn verify(key: &PublicKey, token: &str, now: u64) -> Result<Claims> {
     }
     // A token from the future is a clock that disagrees, and honouring it would extend its life at
     // the far end. One skew allowance, matching signed requests.
-    if claims.iat > now + crate::signed::MAX_SKEW_SECS {
+    if claims.iat > now + MAX_SKEW_SECS {
         bail!("token was issued in the future");
     }
     Ok(claims)
@@ -185,7 +192,7 @@ mod tests {
     fn a_token_from_the_far_future_is_refused() {
         let k = key();
         let mut c = claims();
-        c.iat = NOW + crate::signed::MAX_SKEW_SECS + 1;
+        c.iat = NOW + MAX_SKEW_SECS + 1;
         c.exp = c.iat + TOKEN_TTL_SECS;
         let token = issue(&k, &c).unwrap();
         assert!(verify(&k.public(), &token, NOW).is_err());

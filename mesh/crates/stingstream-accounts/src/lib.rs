@@ -25,7 +25,7 @@
 //! |---|---|
 //! | [`signed`] | proving a request came from a particular server — the whole door policy |
 //! | [`accounts`] | username rules and password hashing |
-//! | [`tokens`] | the signed token a server verifies offline |
+//! | [`stingstream_token`] | the signed token a server verifies offline, re-exported as `tokens` |
 //! | [`db`] | accounts, servers, shares |
 //! | [`http`] | the routes |
 //! | [`config`] | how it is configured and where its keys live |
@@ -35,7 +35,10 @@ pub mod config;
 pub mod db;
 pub mod http;
 pub mod signed;
-pub mod tokens;
+
+/// The token this service issues. Its own crate, because **every StingStream server verifies one
+/// offline** and a node cannot take a dependency on the account service to do it.
+pub use stingstream_token as tokens;
 
 /// Seconds since the Unix epoch, as this service sees them.
 pub fn now_unix() -> u64 {

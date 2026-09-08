@@ -235,6 +235,21 @@ public class InventoryPublisherTests
 
         public Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken) => throw Unused();
 
+        public Task<MeshAccountStatus> AccountStatusAsync(CancellationToken cancellationToken) => throw Unused();
+
+        public Task<MeshAccountStatus> AccountRegisterAsync(
+            string username,
+            string password,
+            bool claim,
+            CancellationToken cancellationToken)
+            => throw Unused();
+
+        public Task<MeshAccountStatus> AccountResetAsync(string password, CancellationToken cancellationToken)
+            => throw Unused();
+
+        public Task<MeshAccountSession> AccountVerifyAsync(string token, CancellationToken cancellationToken)
+            => throw Unused();
+
         public Task<MeshSharingSettings> SharingSettingsAsync(CancellationToken cancellationToken) => throw Unused();
 
         public Task<MeshSharingSettings> SetSharingSettingsAsync(
