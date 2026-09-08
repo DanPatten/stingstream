@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/stingstream",
+    "crates/stingstream-accounts",
     "crates/stingstream-mesh",
     "crates/stingstream-mesh-ffi",
     "crates/stingstream-relay",
