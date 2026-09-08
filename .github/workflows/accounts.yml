@@ -114,6 +114,9 @@ jobs:
           curl -fsS http://127.0.0.1:18081/accounts/v1/passkeys > /tmp/passkeys.json
           cat /tmp/passkeys.json
           grep -q '"supported":true' /tmp/passkeys.json
+          # The root page. A bare 404 here reads as "nothing is deployed at this address", which is
+          # the conclusion somebody actually drew from pasting the URL into a browser.
+          curl -fsS http://127.0.0.1:18081/ | grep -q 'StingStream accounts'
           # The container starts as root only long enough to take ownership of the volume, then
           # drops. Asserted because the tempting fix for the crash that led to the entrypoint --
           # a volume arrives owned by root, so an unprivileged container cannot create its own

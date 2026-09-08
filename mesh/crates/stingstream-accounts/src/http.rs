@@ -17,7 +17,7 @@
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,11 @@ pub type Shared = Arc<AppState>;
 
 pub fn router(state: Shared) -> Router {
     Router::new()
+        // A bare 404 at the root is indistinguishable from "this service is not deployed" -- which
+        // is exactly the conclusion somebody drew after pasting this address into a browser. There
+        // is deliberately nothing to *do* here (accounts are created from a server you own, never
+        // from a form on the internet), so the page's whole job is to say so.
+        .route("/", get(index))
         .route("/healthz", get(healthz))
         .route("/accounts/v1/jwks", get(jwks))
         .route("/accounts/v1/register", post(register))
@@ -104,6 +109,23 @@ type ApiResult<T> = Result<T, ApiError>;
 const SIGN_IN_FAILED: &str = "that username and password do not match";
 
 // --- public ------------------------------------------------------------------------------------
+
+const PAGE_STYLE: &str = "<style>    :root{color-scheme:dark}    body{font:16px/1.6 system-ui,sans-serif;margin:3rem auto;max-width:38rem;padding:0 1rem;         background:#0B0C0F;color:#F2F3F5}    h1{font-size:1.4rem;margin:0 0 1rem}    a{color:#4FD9CA}    code{background:#1C1E23;padding:.1rem .35rem;border-radius:4px}    .muted{color:#B4B7BD;font-size:.9rem}    </style>";
+
+/// `GET /` — a page for a person who pasted this address into a browser.
+///
+/// It offers no way in, and that is the point rather than an omission: an account is created by a
+/// server you already run, signing the request with its own key, so a sign-up form here would be the
+/// one thing this service is designed not to have. Saying that plainly is more useful than a 404,
+/// which reads as "nothing is deployed here".
+async fn index() -> Html<String> {
+    Html(format!(
+        "<!doctype html><meta charset=utf-8><title>StingStream accounts</title>{style}         <h1>StingStream accounts</h1>         <p>This is the account service. It holds usernames, which server belongs to whom, and who          a library is shared with — and nothing else. No media, no metadata, no watch history.</p>         <p><strong>There is no sign-up page here, on purpose.</strong> You create an account from a          server you already run: open StingStream, then Settings → Account. That is also the only          way to reset a password, because there is no email address on an account to send a link          to.</p>         <p class=muted>Service {version} · build {commit} ·          <a href=\"/healthz\">status</a></p>",
+        style = PAGE_STYLE,
+        version = env!("CARGO_PKG_VERSION"),
+        commit = short_commit(),
+    ))
+}
 
 async fn healthz(State(state): State<Shared>) -> impl IntoResponse {
     Json(json!({
