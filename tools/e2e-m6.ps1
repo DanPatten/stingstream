@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     M6 acceptance harness: a member with no indexers asks for a series, and somebody else's node
     goes and gets it.
@@ -341,10 +341,14 @@ function Get-StatusCode {
         return 200
     } catch {
         $response = $_.Exception.Response
-        if ($response -and $response.PSObject.Properties.Name -contains 'StatusCode') {
+        # Indexed rather than `.Properties.Name -contains`: that form enumerates the collection,
+        # and enumerating one with no members is a terminating error under Set-StrictMode. An
+        # exception this is reaching into is exactly the object least likely to have the shape
+        # expected of it.
+        if ($response -and $null -ne $response.PSObject.Properties['StatusCode']) {
             return [int]$response.StatusCode
         }
-        if ($_.PSObject.Properties.Name -contains 'Exception' -and $_.Exception.PSObject.Properties.Name -contains 'StatusCode') {
+        if ($null -ne $_.PSObject.Properties['Exception'] -and $null -ne $_.Exception.PSObject.Properties['StatusCode']) {
             return [int]$_.Exception.StatusCode
         }
         return 0

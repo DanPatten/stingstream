@@ -845,7 +845,8 @@ Invoke-Step 'StingStream API is reachable' {
     $spec = Invoke-WebRequest -Uri "$script:GatewayUrl/stingstream/api/v1/openapi.json" -UseBasicParsing -Headers (Get-AuthHeaders) -TimeoutSec 30
     $doc = $spec.Content | ConvertFrom-Json
     if ($doc.info.title -ne 'StingStream API') { throw "openapi.json is not the StingStream document: $($doc.info.title)" }
-    $paths = @($doc.paths.PSObject.Properties.Name)
+    # Per-property: a spec with no paths would be a failure worth reporting, not a crash.
+    $paths = @($doc.paths.PSObject.Properties | ForEach-Object { $_.Name })
     Write-Host "      openapi.json: $($paths.Count) paths"
     if ($paths -notcontains '/stingstream/api/v1/Inventory') { Write-Host '      (note: inventory path name differs)' -ForegroundColor DarkGray }
 }

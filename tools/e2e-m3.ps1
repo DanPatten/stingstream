@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     M3 acceptance harness: two real nodes on one machine, a group with no server behind it, and a
     peer's film playing out of your own Jellyfin.
@@ -218,8 +218,16 @@ function Get-Member-Value {
     #>
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
-    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
-    return $Object.$Name
+    # Indexed, not `.PSObject.Properties.Name -contains`. That test reads a property off a
+    # *collection*, which PowerShell answers by enumerating its members -- and under
+    # Set-StrictMode -Version Latest, enumerating an empty collection for a member it does not
+    # have is a terminating error. So the old form threw "The property 'Name' cannot be found on
+    # this object" for exactly the input this function exists to survive: an object with no
+    # properties at all, `{}`, which is what Jellyfin sends for an item with no artwork yet. The
+    # indexer answers $null instead of throwing, for every shape.
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
 }
 
 function Find-Group {
@@ -1010,7 +1018,7 @@ Invoke-Step 'The federated movie has a poster, an overview and a resolution badg
         $item = try { Invoke-Jellyfin $NodeA "/Users/$($NodeA.UserId)/Items/$($Federated.Movie.Id)?Fields=MediaStreams,MediaSources,Overview,Tags" -TimeoutSec 30 } catch { $null }
         if (-not $item) { return $null }
         $tags = Get-Member-Value $item 'ImageTags'
-        $hasPrimary = $tags -and ($tags.PSObject.Properties.Name -contains 'Primary')
+        $hasPrimary = $null -ne (Get-Member-Value $tags 'Primary')
         $streams = @(Get-Member-Value $item 'MediaStreams')
         $video = @($streams | Where-Object { $_.Type -eq 'Video' })
         if ($hasPrimary -and $video.Count -ge 1) { return $item }
@@ -1019,7 +1027,7 @@ Invoke-Step 'The federated movie has a poster, an overview and a resolution badg
         $item = try { Invoke-Jellyfin $NodeA "/Users/$($NodeA.UserId)/Items/$($Federated.Movie.Id)?Fields=MediaStreams" -TimeoutSec 20 } catch { $null }
         if ($item) {
             $tags = Get-Member-Value $item 'ImageTags'
-            "image=$([bool]($tags -and $tags.PSObject.Properties.Name -contains 'Primary')) streams=$(@(Get-Member-Value $item 'MediaStreams').Count)"
+            "image=$($null -ne (Get-Member-Value $tags 'Primary')) streams=$(@(Get-Member-Value $item 'MediaStreams').Count)"
         } else { 'no answer' }
     }
 

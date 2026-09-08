@@ -276,7 +276,9 @@ function Get-FailureText {
 
     $message = $ErrorRecord.Exception.Message
     $detail = $null
-    if ($ErrorRecord.PSObject.Properties.Name -contains 'ErrorDetails' -and $ErrorRecord.ErrorDetails) {
+    # Indexed for the same reason Get-Member-Value is: `.Properties.Name` enumerates, and an
+    # object with no properties makes that a terminating error under Set-StrictMode.
+    if ($null -ne $ErrorRecord.PSObject.Properties['ErrorDetails'] -and $ErrorRecord.ErrorDetails) {
         $detail = [string]$ErrorRecord.ErrorDetails.Message
     }
     if (-not $detail) {
