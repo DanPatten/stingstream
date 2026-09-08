@@ -46,13 +46,16 @@ export function CreateGroupScreen() {
   const mesh = useMesh();
 
   const sharingServer = settings.data?.coordinatorDefault ?? null;
-  // Until the settings have loaded there is nothing to say about them, so Public stays available
-  // and the button waits — better than flashing "set a sharing server first" at somebody who has.
-  const publicAvailable = !settings.isSuccess || !!sharingServer;
+  // Until the query has settled there is nothing to say, so Public stays available and Create waits
+  // — better than flashing "set a sharing server first" at somebody who has one. A *failed* query
+  // counts as settled with nothing: Public then goes unavailable rather than staying selected and
+  // quietly creating a Private group, which is the one outcome that must not happen silently.
+  const settled = settings.isSuccess || settings.isError;
+  const publicAvailable = !settled || !!sharingServer;
   const effective: GroupVisibility =
     visibility === "public" && !publicAvailable ? "private" : visibility;
 
-  const ready = name.trim().length > 0 && !settings.isLoading;
+  const ready = name.trim().length > 0 && settled;
 
   const onCreate = async () => {
     setError(null);

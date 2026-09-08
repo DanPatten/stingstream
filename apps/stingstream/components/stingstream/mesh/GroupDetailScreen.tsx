@@ -289,9 +289,16 @@ function ChangeCoordinator({
   const setCoordinator = useSetGroupCoordinator();
 
   const sharingServer = settings.data?.coordinatorDefault ?? null;
-  const publicAvailable = !settings.isSuccess || !!sharingServer;
+  // A failed query counts as settled with nothing, so Public goes unavailable rather than staying
+  // selected and quietly making the group Private. Same reasoning as the create screen.
+  const settled = settings.isSuccess || settings.isError;
+  const publicAvailable = !settled || !!sharingServer;
   const next = coordinatorFor(choice, sharingServer);
   const unchanged = (next ?? null) === (current ?? null);
+  // The group is already Public, through a *different* server than this node would use now. The
+  // radio cannot show that on its own — it would read as "no change" while the button was live and
+  // pressing it would move the group — so the difference is written out.
+  const movesServer = choice === "public" && !!current && !unchanged;
 
   const save = async () => {
     try {
@@ -325,6 +332,14 @@ function ChangeCoordinator({
           />
         </ListGroup>
       </View>
+      {movesServer && (
+        <Text variant='caption' tone='accent' style={{ marginTop: 12 }}>
+          {t("sharing.server_moves_note", {
+            from: hostOf(current ?? ""),
+            to: hostOf(next ?? ""),
+          })}
+        </Text>
+      )}
       <Text variant='caption' tone='secondary' style={{ marginTop: 12 }}>
         {t("sharing.rendezvous_change_note")}
       </Text>

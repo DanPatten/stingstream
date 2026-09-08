@@ -59,15 +59,38 @@ export function SharingServerScreen() {
     setLoaded(true);
   }, [loaded, settings.data]);
 
+  /**
+   * A value already stored is left alone, whatever the check says about it now.
+   *
+   * The check runs from *this browser*, and this browser is not necessarily where the address is
+   * reachable from — an admin on mobile data editing a domain that only resolves at home would
+   * otherwise find the field marked wrong, `Save` disabled by a value they had not touched, and the
+   * other field unsaveable because of it. Worse, saving would then write `null` over an address
+   * that was fine. So an untouched value is passed straight back through, and only something
+   * actually typed has to satisfy the check.
+   */
+  const untouched = (
+    value: SharingAddressValue,
+    stored: string | null | undefined,
+  ) => value.input.trim() === (stored ?? "").trim();
+
+  const serverStored = settings.data?.coordinatorDefault;
+  const ownStored = settings.data?.publicAddress;
+
   const ready =
-    sharingAddressReady(server, "coordinator") &&
-    sharingAddressReady(own, "own-server");
+    (untouched(server, serverStored) ||
+      sharingAddressReady(server, "coordinator")) &&
+    (untouched(own, ownStored) || sharingAddressReady(own, "own-server"));
 
   const onSave = async () => {
     setError(null);
     const next: MeshSharingSettings = {
-      coordinatorDefault: sharingAddressUrl(server, "coordinator"),
-      publicAddress: sharingAddressUrl(own, "own-server"),
+      coordinatorDefault: untouched(server, serverStored)
+        ? (serverStored ?? null)
+        : sharingAddressUrl(server, "coordinator"),
+      publicAddress: untouched(own, ownStored)
+        ? (ownStored ?? null)
+        : sharingAddressUrl(own, "own-server"),
     };
     try {
       const stored = await save.mutateAsync(next);

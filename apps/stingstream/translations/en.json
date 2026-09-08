@@ -1492,7 +1492,8 @@
     "invite_note_no_link": "This is a code rather than a link because no address is set for this server. Settings → Sharing server.",
     "join_link_placeholder": "Paste a link or an invite code",
     "join_link_incomplete": "That link has no invite in it. Copy the whole link, including the part after the #.",
-    "join_opening_link": "Opening your invite…"
+    "join_opening_link": "Opening your invite…",
+    "server_moves_note": "This group currently uses {{from}}. Changing it now moves the whole group to {{to}}, which is this server's sharing server."
   },
   "requests": {
     "tab_mine": "My requests",
