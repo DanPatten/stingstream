@@ -114,6 +114,16 @@ jobs:
           curl -fsS http://127.0.0.1:18081/accounts/v1/passkeys > /tmp/passkeys.json
           cat /tmp/passkeys.json
           grep -q '"supported":true' /tmp/passkeys.json
+          # The container starts as root only long enough to take ownership of the volume, then
+          # drops. Asserted because the tempting fix for the crash that led to the entrypoint --
+          # a volume arrives owned by root, so an unprivileged container cannot create its own
+          # database -- is to run the whole service as root, and that would pass every check above.
+          # This is the front door to everybody's accounts and is reachable from the internet.
+          docker exec accounts-smoke stat -c '%U' /data
+          test "$(docker exec accounts-smoke stat -c '%U' /data)" = "stingstream"
+          docker exec accounts-smoke sh -c 'grep ^Uid: /proc/1/status'
+          docker exec accounts-smoke sh -c 'grep -q "^Uid:[[:space:]]*0" /proc/1/status' \
+            && { echo "the service is running as root"; exit 1; } || true
           docker logs accounts-smoke
           docker rm -f accounts-smoke
         env:

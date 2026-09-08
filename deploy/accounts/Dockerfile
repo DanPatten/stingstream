@@ -89,14 +89,24 @@ FROM debian:bookworm-slim
 # to curl and a future one might. Cheap, and the alternative is a confusing failure later.
 #
 # `curl` for `--healthcheck`, which is what Railway's health probe runs.
+#
+# `util-linux` for `setpriv`, which the entrypoint uses to drop root after taking ownership of the
+# volume. Named explicitly rather than relied on: it happens to be in the base image today, and a
+# dependency satisfied only by accident is one that disappears in a base image update.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl util-linux \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --create-home --home-dir /data --shell /usr/sbin/nologin stingstream
 
 COPY --from=builder /src/mesh/target/release/stingstream-accounts /usr/local/bin/stingstream-accounts
+COPY deploy/accounts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER stingstream
+# **No `USER` here, deliberately**, and the entrypoint is why. A mounted volume arrives owned by
+# root — on Railway and on a plain `docker run -v` alike — so a container that starts unprivileged
+# cannot create its own database in it and crash-loops on the first line of work it does. The
+# entrypoint starts as root purely to hand `/data` over, then drops to `stingstream` with `setpriv`
+# and execs; the service itself never runs as root. See `deploy/accounts/entrypoint.sh`.
 WORKDIR /data
 
 # `[::]` rather than `0.0.0.0`: a dual-stack socket on Linux accepts IPv4 too, and Railway reaches a
@@ -122,4 +132,4 @@ LABEL org.opencontainers.image.title="StingStream accounts" \
 
 # No CMD. The coordinator has one because it has modes; this has a single job, and a stray default
 # argument here would be one more thing to keep in step with `deploy/accounts/railway.json`.
-ENTRYPOINT ["/usr/local/bin/stingstream-accounts"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

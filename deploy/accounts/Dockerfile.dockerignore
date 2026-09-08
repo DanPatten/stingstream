@@ -11,6 +11,10 @@
 !mesh/Cargo.toml
 !mesh/Cargo.lock
 !mesh/crates/**
+# The entrypoint, which is COPYed into the runtime stage. Without this line the `*` above excludes
+# it and the build fails at the COPY -- the whole point of an ignore file that starts by excluding
+# everything is that a new file is invisible until it is named here.
+!deploy/accounts/entrypoint.sh
 
 # ...but not the build output, which is the largest thing in the tree and is rebuilt anyway.
 mesh/target/

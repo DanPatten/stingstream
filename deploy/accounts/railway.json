@@ -11,14 +11,18 @@
     "A VOLUME IS REQUIRED at /data. Without one, a redeploy loses every account and signs everybody",
     "out — the container filesystem does not survive one.",
     "",
-    "TLS is Railway's: the proxy terminates it and this serves plain HTTP on $PORT."
+    "TLS is Railway's: the proxy terminates it and this serves plain HTTP on $PORT.",
+    "",
+    "NO startCommand. The image's ENTRYPOINT is deploy/accounts/entrypoint.sh, which takes ownership",
+    "of the volume and then drops root. A start command here is appended to the entrypoint as an",
+    "argument the service would reject, and naming the binary directly would skip the chown and put",
+    "us back to a container that cannot create its own database."
   ],
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "deploy/accounts/Dockerfile"
   },
   "deploy": {
-    "startCommand": "/usr/local/bin/stingstream-accounts",
     "healthcheckPath": "/healthz",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
