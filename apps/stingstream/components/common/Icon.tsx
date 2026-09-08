@@ -39,6 +39,8 @@ const ICONS = {
 
   // Actions
   info: "information-circle",
+  /** The sidebar's collapse control. Three lines, because that is what people reach for. */
+  menu: "menu",
   more: "ellipsis-horizontal",
   check: "checkmark",
   close: "close",

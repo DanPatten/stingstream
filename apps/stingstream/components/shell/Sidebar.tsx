@@ -261,16 +261,11 @@ const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
         }
       >
         {/*
-          A chevron rather than a hamburger: the semantic icon registry
-          (`components/common/Icon.tsx`, WP0's) has no hamburger, and a chevron
-          that points the way the sidebar is about to move says more than three
-          lines do anyway.
+          A hamburger in both states, not a direction-aware chevron: it is what
+          the control is, and what people reach for. The chevron was only ever a
+          stand-in for a glyph the icon registry did not have.
         */}
-        <Icon
-          name={collapsed ? "chevronRight" : "chevronLeft"}
-          size={20}
-          color={tokens.color.text.secondary}
-        />
+        <Icon name='menu' size={20} color={tokens.color.text.secondary} />
       </Pressable>
       {/* The rail has no labels at all, so the toggle needs the same hover
           explanation every row there gets. */}
