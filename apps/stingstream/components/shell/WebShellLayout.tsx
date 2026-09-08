@@ -7,7 +7,6 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
-import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
@@ -20,6 +19,7 @@ import {
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { isTabKey, tabLabelKey } from "./tabIcons";
+import { useSidebarCollapsed } from "./useSidebarCollapsed";
 
 /**
  * The desktop chrome: a sidebar and a top bar around the tab navigator.
@@ -43,7 +43,7 @@ export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
   const router = useRouter();
   const segments = useSegments() as string[];
   const pathname = usePathname();
-  const { isExpanded } = useBreakpoint();
+  const { collapsed, toggle } = useSidebarCollapsed();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
   const { settings } = useSettings();
@@ -137,9 +137,10 @@ export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
       <Sidebar
         sections={sections}
         activeKey={activeKey}
-        collapsed={!isExpanded}
+        collapsed={collapsed}
         onSelect={onSelect}
         onPressBrand={goHome}
+        onToggleCollapsed={toggle}
       />
       {/* `minWidth: 0` or a wide child (a poster row, a table) pushes the
           column out instead of scrolling inside it, and the page grows a

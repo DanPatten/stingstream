@@ -1160,7 +1160,22 @@
     "more_browse": "Browse",
     "more_admin": "Administration",
     "more_app": "App",
-    "cast_to_device": "Cast to a device"
+    "cast_to_device": "Cast to a device",
+    "collapse_sidebar": "Collapse the sidebar",
+    "expand_sidebar": "Expand the sidebar",
+    "back": "Back",
+    "watch_together": "Watch together",
+    "watch_together_detail": "Play the same thing at the same time, in step.",
+    "watch_together_here": "On this server",
+    "watch_together_elsewhere": "With another server",
+    "watch_together_room": "Watch party",
+    "watch_together_join": "Join",
+    "watch_together_leave": "Leave",
+    "watch_together_start": "Start one",
+    "watch_together_people": "{{count}} in the room",
+    "watch_together_servers": "{{count}} joined",
+    "watch_together_empty": "Nobody is watching together yet",
+    "watch_together_empty_detail": "Start one and anybody signed in to this server can join."
   },
   "tabs": {
     "home": "Home",

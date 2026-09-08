@@ -56,7 +56,7 @@ describe("buildSidebarItems", () => {
     ]);
   });
 
-  test("an administrator also gets Manage and Transfers, last", () => {
+  test("an administrator also gets Manage, Transfers and Sessions, last", () => {
     expect(keys(admin, settings(), [], t)).toEqual([
       "(home)",
       "(favorites)",
@@ -64,8 +64,27 @@ describe("buildSidebarItems", () => {
       "sharing",
       "(manage)",
       "(downloads)",
+      "sessions",
       "settings",
     ]);
+  });
+
+  test("Sessions is the same row in the sidebar and in More", () => {
+    // pass-03 F-72 moved it out of the top bar; the two lists have to agree
+    // about where it goes and what it is called.
+    const inSidebar = flattenSidebar(
+      buildSidebarItems(admin, settings(), [], t),
+    ).find((item) => item.key === "sessions");
+    const inMore = buildMoreItems(admin, settings(), t)
+      .flatMap((group) => group.items)
+      .find((item) => item.key === "sessions");
+
+    expect(inSidebar).toEqual(inMore);
+    expect(inSidebar?.route.pathname).toBe("/sessions");
+  });
+
+  test("a member is offered Sessions nowhere", () => {
+    expect(keys(member, settings(), [], t)).not.toContain("sessions");
   });
 
   test("Transfers is the Downloads tab under its new name", () => {

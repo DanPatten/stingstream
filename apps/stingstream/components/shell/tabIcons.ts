@@ -136,6 +136,26 @@ export const tabPath = (routeName: string): string =>
   isTabKey(routeName) ? TAB_PATHS[routeName] : "/";
 
 /**
+ * The groups that lost their tab button to the five-icon bar.
+ *
+ * They are reached from More and nowhere else on a phone, so More is what the
+ * bar should light while you are inside one (pass-03 F-58). `(custom-links)` is
+ * here for the same reason the others are, even though the user has to switch
+ * it on before it exists.
+ */
+const BEHIND_MORE: readonly TabKey[] = [
+  "(favorites)",
+  "(watchlists)",
+  "(manage)",
+  "(downloads)",
+  "(custom-links)",
+];
+
+export const isBehindMore = (routeName: string | undefined): boolean =>
+  routeName !== undefined &&
+  (BEHIND_MORE as readonly string[]).includes(routeName);
+
+/**
  * The compact tab bar's label size, in px, for both navigators.
  *
  * Read from the type scale rather than written down, so the native bar and the

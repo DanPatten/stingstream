@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
 import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
+import { headerTarget } from "@/components/shell/headerTarget";
 import {
   nestedTabPageScreenOptions,
   useMoreChildScreenOptions,
@@ -40,6 +41,7 @@ export default function WatchlistsLayout() {
           <HeaderButton
             accessibilityLabel={t("watchlists.create_title")}
             onPress={() => router.push("/(auth)/(tabs)/(watchlists)/create")}
+            style={headerTarget}
           >
             <HeaderIcon name='add' />
           </HeaderButton>
@@ -56,7 +58,6 @@ export default function WatchlistsLayout() {
         name='[watchlistId]'
         options={{
           title: "",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,

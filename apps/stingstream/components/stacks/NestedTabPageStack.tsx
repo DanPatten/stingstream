@@ -45,20 +45,23 @@ export const stackScreenOptions: ICommonScreenOptions = {
  * the TV convention that there is no header at all) and this package has no
  * business restyling either.
  *
- * `headerShown` belongs here rather than on each screen because a screen that
- * sets it wins, and a tab root that does so would keep its header on the
- * desktop. So the nine tab layouts leave `headerShown` off their `index`
- * screen and set it on their sub-pages, which is exactly the split we want:
- * roots lose the header on web wide, sub-pages keep one to go back with.
+ * **`headerShown` belongs here and nowhere else.** A screen that sets it wins,
+ * so a sub-page that spelled out `headerShown: !Platform.isTV` kept its header
+ * at every width — and at 1440 that meant Settings said "Settings" twice, once
+ * in the top bar and again in a stack header four pixels under it (pass-03
+ * F-55). Every tab layout leaves the option alone now; the way back on a
+ * desktop is the top bar's own chevron, which appears whenever the stack can
+ * pop (`TopBar`). The two watchlist modals are the exception: a modal is drawn
+ * over the shell, so its own header is the only chrome it has.
  */
 export function useStackScreenOptions(): ICommonScreenOptions {
   const { isWebWide, name } = useBreakpoint();
   const { accent } = useTheme();
 
   return useMemo(() => {
-    // `!Platform.isTV` is what all nine `index` screens used to declare for
-    // themselves; moving it here is what lets them drop the line, and keeps a
-    // television header-free exactly as before.
+    // `!Platform.isTV` is what every screen used to declare for itself; moving
+    // it here is what lets them all drop the line, and keeps a television
+    // header-free exactly as before.
     if (!isWebWide) {
       return { ...stackScreenOptions, headerShown: !Platform.isTV };
     }
@@ -125,7 +128,6 @@ export function useMoreChildScreenOptions(): ICommonScreenOptions {
 
 export const commonScreenOptions: ICommonScreenOptions = {
   title: "",
-  headerShown: !Platform.isTV,
   headerTransparent: Platform.OS === "ios",
   headerShadowVisible: false,
   headerBlurEffect: "none",

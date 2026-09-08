@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import useRouter from "@/hooks/useAppRouter";
+import { headerTarget } from "./headerTarget";
 
 /**
  * The way back out of a group the More list opened.
@@ -33,7 +34,7 @@ export const MoreBackButton: React.FC = () => {
       // The same leading inset `HeaderMark` explains: a custom left view costs
       // the header its own, and a chevron flush against the edge of the screen
       // does not look like the native back button it stands in for.
-      style={{ marginLeft: Platform.OS === "ios" ? 0 : 12 }}
+      style={{ ...headerTarget, marginLeft: Platform.OS === "ios" ? 0 : 4 }}
     >
       <HeaderIcon name='back' />
     </HeaderButton>

@@ -11,8 +11,13 @@ import {
 } from "react-native";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { elevation, radius, tokens, webFocusRing } from "@/constants/theme";
-import useRouter from "@/hooks/useAppRouter";
+import {
+  elevation,
+  radius,
+  rgba,
+  tokens,
+  webFocusRing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import { useFocusVisible } from "./useFocusVisible";
@@ -32,11 +37,11 @@ interface Props {
 }
 
 /**
- * Who you are signed in as, and the two things you do about it.
+ * Who you are signed in as, and the way out.
  *
- * A popover rather than `Dialog`: signing out and opening settings are pointer
- * gestures anchored to an avatar, and a centred modal card over a dimmed page
- * for two rows reads as an interruption. It keeps `Dialog`'s manners though —
+ * A popover rather than `Dialog`: signing out is a pointer gesture anchored to
+ * an avatar, and a centred modal card over a dimmed page for one row reads as
+ * an interruption. It keeps `Dialog`'s manners though —
  * Escape closes, a click anywhere outside closes, the card is a bg1 panel with
  * e2 — and it is a `Modal` for the same reason `Dialog` is: nothing else in
  * React Native paints above a navigator.
@@ -48,7 +53,6 @@ export const UserMenu: React.FC<Props> = ({
   const { t } = useTranslation();
   const user = useAtomValue(userAtom);
   const { logout } = useJellyfin();
-  const router = useRouter();
   const { accent, accentName } = useTheme();
 
   const triggerRef = useRef<View>(null);
@@ -59,25 +63,49 @@ export const UserMenu: React.FC<Props> = ({
 
   const close = useCallback(() => setAnchor(null), []);
 
+  /**
+   * Where the card goes when nothing has been measured yet.
+   *
+   * The trigger is the row at the foot of the sidebar, so "just above the
+   * bottom left corner" is right within a few pixels — and, unlike a measured
+   * position, it always exists. `measureInWindow` can call back with four
+   * zeros before the node is laid out, and when it did the card opened at
+   * `top: 8, left: 12` and painted the account over the wordmark and the first
+   * nav rows: exactly the overlap Dan photographed. Opening somewhere sensible
+   * and *then* refining is the shape that cannot produce that frame.
+   */
+  const fallbackAnchor = useCallback(
+    (): ViewStyle => ({
+      position: "absolute",
+      width: MENU_WIDTH,
+      bottom: 12,
+      left: 12,
+    }),
+    [],
+  );
+
   const open = useCallback(() => {
+    setAnchor(fallbackAnchor());
     triggerRef.current?.measureInWindow((x, y, width, height) => {
+      // Four zeros means "not laid out yet", not "the top left corner".
+      if (width <= 0 || height <= 0) return;
       const window = Dimensions.get("window");
       const below = y + height + 8;
       // The sidebar's copy sits at the bottom of the page, so the card has to
-      // be able to open upwards; the top bar's has room underneath.
+      // be able to open upwards; a trigger with room underneath drops down.
       const flip = below + MENU_HEIGHT_ESTIMATE > window.height;
       setAnchor({
         position: "absolute",
         width: MENU_WIDTH,
         top: flip ? undefined : below,
-        bottom: flip ? window.height - y + 8 : undefined,
+        bottom: flip ? Math.max(12, window.height - y + 8) : undefined,
         left: Math.min(
           Math.max(12, x + width - MENU_WIDTH),
           Math.max(12, window.width - MENU_WIDTH - 12),
         ),
       });
     });
-  }, []);
+  }, [fallbackAnchor]);
 
   // Escape closes, the way every other menu on the web does.
   useEffect(() => {
@@ -96,18 +124,6 @@ export const UserMenu: React.FC<Props> = ({
 
   const name = user?.Name ?? "";
   const serverName = nodeName();
-
-  // `navigate`, not `push`: the menu lives in the top bar, outside the
-  // navigator, and `useAppRouter`'s push guard only releases when the screen
-  // that pushed regains focus — which a persistent chrome never does, so the
-  // second push from here would be dropped. See `WebShellLayout`.
-  const go = useCallback(
-    (pathname: string) => {
-      close();
-      router.navigate(pathname as never);
-    },
-    [close, router],
-  );
 
   const signOut = useCallback(() => {
     close();
@@ -170,7 +186,9 @@ export const UserMenu: React.FC<Props> = ({
           accessibilityRole='button'
           accessibilityLabel={t("common.close")}
           onPress={close}
-          style={{ flex: 1 }}
+          // A scrim, not clear glass: without it the card reads as text
+          // floating over the navigation rather than as a menu in front of it.
+          style={{ flex: 1, backgroundColor: rgba("#000000", 0.4) }}
         >
           {/* A press on the card is not a press outside it. */}
           <Pressable
@@ -181,8 +199,11 @@ export const UserMenu: React.FC<Props> = ({
               {
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: tokens.color.border.subtle,
-                backgroundColor: tokens.color.bg["1"],
+                // bg2 and the stronger border, not bg1: the sidebar this opens
+                // over is bg1, and a card the same colour as the thing behind
+                // it is not a card.
+                borderColor: tokens.color.border.strong,
+                backgroundColor: tokens.color.bg["2"],
                 paddingVertical: 8,
               },
               elevation(2),
@@ -217,12 +238,12 @@ export const UserMenu: React.FC<Props> = ({
               }}
             />
 
-            <MenuRow
-              icon='settings'
-              label={t("tabs.settings")}
-              testID='shell-user-menu-settings'
-              onPress={() => go("/(auth)/(tabs)/(home)/settings")}
-            />
+            {/*
+              No Settings row (pass-03 F-74). Settings is a permanent row at the
+              foot of the sidebar, two centimetres from this menu, and a second
+              way in from a popover that exists to say who you are signed in as
+              only made the menu look fuller than it is.
+            */}
             <MenuRow
               icon='signOut'
               label={t("shell.sign_out")}

@@ -6,6 +6,7 @@ import {
   HeaderButtonGroup,
 } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
+import { headerTarget } from "@/components/shell/headerTarget";
 import {
   nestedTabPageScreenOptions,
   useStackScreenOptions,
@@ -65,10 +66,21 @@ export default function IndexLayout() {
           headerRight: () =>
             Platform.isTV ? null : (
               <HeaderButtonGroup>
-                <DownloadsButton />
-                <Chromecast.Chromecast
-                  accessibilityLabel={t("shell.cast_to_device")}
-                />
+                {/*
+                  Neither of these exists in a browser (pass-03 F-52): there is
+                  no offline download on web — `expo-file-system` is a stub
+                  there — and `react-native-google-cast` has no web build at
+                  all, so the cast button opened nothing. Rendering them was
+                  offering two controls that could not work, and it pushed the
+                  header past the three-action ceiling on compact.
+                */}
+                {Platform.OS === "web" ? null : <DownloadsButton />}
+                {Platform.OS === "web" ? null : (
+                  <Chromecast.Chromecast
+                    accessibilityLabel={t("shell.cast_to_device")}
+                    style={headerTarget}
+                  />
+                )}
                 {/*
                   Three actions is the ceiling on compact (pass-02, cross-cutting
                   rule 3), and with the app mark now holding the leading edge
@@ -95,7 +107,6 @@ export default function IndexLayout() {
         name='sharing'
         options={{
           title: "Sharing",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -104,7 +115,6 @@ export default function IndexLayout() {
       <Stack.Screen
         name='downloads/index'
         options={{
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           title: t("home.downloads.downloads_title"),
@@ -114,7 +124,6 @@ export default function IndexLayout() {
         name='sessions/index'
         options={{
           title: t("home.sessions.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -124,7 +133,6 @@ export default function IndexLayout() {
         name='settings'
         options={{
           title: t("home.settings.settings_title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -134,7 +142,6 @@ export default function IndexLayout() {
         name='settings/playback-controls/page'
         options={{
           title: t("home.settings.playback_controls.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -144,7 +151,6 @@ export default function IndexLayout() {
         name='settings/audio-subtitles/page'
         options={{
           title: t("home.settings.audio_subtitles.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -154,7 +160,6 @@ export default function IndexLayout() {
         name='settings/segment-skip/page'
         options={{
           title: t("home.settings.other.segment_skip_settings"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -164,7 +169,6 @@ export default function IndexLayout() {
         name='settings/appearance/page'
         options={{
           title: t("home.settings.appearance.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -174,7 +178,6 @@ export default function IndexLayout() {
         name='settings/music/page'
         options={{
           title: t("home.settings.music.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -184,7 +187,6 @@ export default function IndexLayout() {
         name='settings/appearance/hide-libraries/page'
         options={{
           title: t("home.settings.other.hide_libraries"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -194,7 +196,6 @@ export default function IndexLayout() {
         name='settings/plugins/page'
         options={{
           title: t("home.settings.plugins.plugins_title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -204,7 +205,6 @@ export default function IndexLayout() {
         name='settings/plugins/marlin-search/page'
         options={{
           title: "Marlin Search",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -214,7 +214,6 @@ export default function IndexLayout() {
         name='settings/plugins/jellyseerr/page'
         options={{
           title: "Jellyseerr",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -224,7 +223,6 @@ export default function IndexLayout() {
         name='settings/plugins/streamystats/page'
         options={{
           title: "Streamystats",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -234,7 +232,6 @@ export default function IndexLayout() {
         name='settings/plugins/kefinTweaks/page'
         options={{
           title: "KefinTweaks",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -244,7 +241,6 @@ export default function IndexLayout() {
         name='settings/intro/page'
         options={{
           title: t("home.settings.intro.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -254,7 +250,6 @@ export default function IndexLayout() {
         name='settings/logs/page'
         options={{
           title: t("home.settings.logs.logs_title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -264,7 +259,6 @@ export default function IndexLayout() {
         name='settings/network/page'
         options={{
           title: t("home.settings.network.title"),
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -274,7 +268,6 @@ export default function IndexLayout() {
         name='settings/server/page'
         options={{
           title: "Server settings",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -284,7 +277,6 @@ export default function IndexLayout() {
         name='settings/admin/page'
         options={{
           title: "Users & libraries",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -294,7 +286,6 @@ export default function IndexLayout() {
         name='settings/node/page'
         options={{
           title: "Server status",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -304,7 +295,6 @@ export default function IndexLayout() {
         name='settings/groups/page'
         options={{
           title: "Sharing",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -314,7 +304,6 @@ export default function IndexLayout() {
         name='settings/groups/create/page'
         options={{
           title: "Create group",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -324,7 +313,6 @@ export default function IndexLayout() {
         name='settings/groups/join/page'
         options={{
           title: "Join group",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -334,7 +322,6 @@ export default function IndexLayout() {
         name='settings/groups/[group]/page'
         options={{
           title: "Group",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -347,7 +334,6 @@ export default function IndexLayout() {
         name='collections/[collectionId]'
         options={{
           title: "",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "prominent",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -375,6 +361,7 @@ const DownloadsButton = () => {
     <HeaderButton
       accessibilityLabel={t("home.downloads.downloads_title")}
       onPress={() => router.push("/(auth)/downloads")}
+      style={headerTarget}
     >
       <HeaderIcon
         name='downloads'
@@ -392,6 +379,7 @@ const SettingsButton = () => {
     <HeaderButton
       accessibilityLabel={t("tabs.settings")}
       onPress={() => router.push("/(auth)/settings")}
+      style={headerTarget}
     >
       <HeaderIcon name='settings' />
     </HeaderButton>
@@ -407,6 +395,7 @@ const SessionsButton = () => {
     <HeaderButton
       accessibilityLabel={t("home.sessions.title")}
       onPress={() => router.push("/(auth)/sessions")}
+      style={headerTarget}
     >
       <HeaderIcon
         name='sessions'

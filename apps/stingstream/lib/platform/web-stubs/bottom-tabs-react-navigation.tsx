@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import {
+  isBehindMore,
   TAB_LABEL_FONT_SIZE,
   tabIcon,
   tabPath,
@@ -115,7 +116,14 @@ function WebTabBar({ state, descriptors, navigation }: any) {
         // The native navigator's way of hiding a tab; no JS equivalent.
         if (options?.tabBarItemHidden) return null;
 
-        const focused = state.index === index;
+        // More stays lit while one of its destinations is open (pass-03
+        // F-58). Favorites, Manage and Transfers have no button of their own,
+        // so without this the bar highlighted nothing at all and the reader had
+        // no idea which of the five they were inside.
+        const current = state.routes[state.index]?.name;
+        const focused =
+          state.index === index ||
+          (route.name === "(settings)" && isBehindMore(current));
         const label = options?.title ?? route.name;
 
         const onPress = () => {

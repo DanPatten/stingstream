@@ -134,6 +134,17 @@ const libraryRoute = (library: BaseItemDto): SidebarRoute => {
   };
 };
 
+/** "Who is streaming right now", for the administration rows on both surfaces. */
+const sessionsItem = (t: Translate): SidebarItem => ({
+  key: "sessions",
+  label: t("home.sessions.title"),
+  icon: { set: "semantic", name: "cast" },
+  testID: "more-sessions",
+  route: { pathname: "/sessions" },
+  navigate: "push",
+  match: ["sessions"],
+});
+
 /**
  * The sidebar, in order, for one user on one node.
  *
@@ -185,11 +196,18 @@ export function buildSidebarItems(
       navigate: "push",
       match: ["sharing"],
     },
-    // Manage and Transfers talk to StingStream.Core, every endpoint of which
-    // requires Jellyfin's RequiresElevation policy — a non-administrator who
-    // opened them would get a permanently blocked screen, so they are not
-    // offered at all. Same gate as the tab bar's `tabBarItemHidden`.
-    ...(isAdmin ? [tabItem("(manage)", t), tabItem("(downloads)", t)] : []),
+    // Manage, Transfers and Sessions talk to endpoints that require Jellyfin's
+    // RequiresElevation policy — a non-administrator who opened them would get
+    // a permanently blocked screen, so they are not offered at all. Same gate
+    // as the tab bar's `tabBarItemHidden`.
+    //
+    // Sessions is a *row* rather than a top-bar button as of pass-03 F-72: the
+    // top bar's last slot went to Watch together, which is a thing every viewer
+    // does, and "who is streaming right now" belongs with the rest of the
+    // server's monitoring.
+    ...(isAdmin
+      ? [tabItem("(manage)", t), tabItem("(downloads)", t), sessionsItem(t)]
+      : []),
   ];
 
   return [
@@ -288,20 +306,12 @@ export function buildMoreItems(
   // Sessions is here on a phone because it is not in the header there: with the
   // app mark holding the leading edge, three actions is the ceiling on compact
   // (pass-02, cross-cutting rule 3), and Sessions is the one that reads as
-  // "about the server" rather than "about this screen". On web wide it is a
-  // button in the top bar instead.
+  // "about the server" rather than "about this screen". Since pass-03 F-72 it
+  // is a sidebar row at every width, so the two lists agree.
   const admin: SidebarItem[] = [
     tabItem("(manage)", t),
     tabItem("(downloads)", t),
-    {
-      key: "sessions",
-      label: t("home.sessions.title"),
-      icon: { set: "semantic", name: "devices" },
-      testID: "more-sessions",
-      route: { pathname: "/sessions" },
-      navigate: "push",
-      match: ["sessions"],
-    },
+    sessionsItem(t),
   ];
 
   return [

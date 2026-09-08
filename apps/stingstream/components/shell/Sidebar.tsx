@@ -7,7 +7,8 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { StingStreamMark, StingStreamWordmark } from "@/components/brand";
+import { StingStreamWordmark } from "@/components/brand";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens, webFocusRing } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
@@ -19,9 +20,15 @@ import { RailTooltip, SidebarItem } from "./SidebarItem";
 import { UserMenu } from "./UserMenu";
 import { useFocusVisible } from "./useFocusVisible";
 
-/** 240 at `expanded`, a 72 px icon rail at `medium`. */
+/** 240 when the labels are showing, a 72 px icon rail when they are not. */
 export const SIDEBAR_WIDTH = 240;
 export const SIDEBAR_RAIL_WIDTH = 72;
+
+/** The toggle-and-brand row above the navigation. */
+const SIDEBAR_HEADER_HEIGHT = 64;
+
+/** Matches the auth card's lockup at >= 1024 (`components/login/AuthCard.tsx`). */
+const SIDEBAR_WORDMARK_HEIGHT = 40;
 
 interface Props {
   sections: SidebarSection[];
@@ -30,6 +37,8 @@ interface Props {
   collapsed: boolean;
   onSelect: (item: SidebarItemModel) => void;
   onPressBrand: () => void;
+  /** Collapse/expand. See `useSidebarCollapsed`. */
+  onToggleCollapsed: () => void;
 }
 
 /**
@@ -48,6 +57,7 @@ export const Sidebar: React.FC<Props> = ({
   collapsed,
   onSelect,
   onPressBrand,
+  onToggleCollapsed,
 }) => {
   const body = sections.filter((section) => section.key !== "footer");
   const footer = sections.filter((section) => section.key === "footer");
@@ -71,7 +81,11 @@ export const Sidebar: React.FC<Props> = ({
         borderRightColor: tokens.color.border.subtle,
       }}
     >
-      <BrandButton collapsed={collapsed} onPress={onPressBrand} />
+      <SidebarHeader
+        collapsed={collapsed}
+        onPressBrand={onPressBrand}
+        onToggleCollapsed={onToggleCollapsed}
+      />
 
       <ScrollView
         contentContainerStyle={{
@@ -172,10 +186,108 @@ const SectionLabel: React.FC<{ title?: string; collapsed: boolean }> = ({
 };
 
 /** The wordmark, which is also the way home. */
-const BrandButton: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
+/**
+ * The row above the navigation: collapse, then the brand.
+ *
+ * The toggle comes first because that is where every application that has one
+ * puts it, and because a control that changes the width of the thing it sits in
+ * belongs at its edge rather than after the logo. Pass-03 F-70; Dan asked for
+ * the Plex shape specifically.
+ *
+ * On the rail there is room for one 44 px control and nothing else, so the
+ * brand steps aside — expanding brings the wordmark straight back, and the mark
+ * is still on every compact header and in the tab bar. Trying to fit a 28 px
+ * mark and a 44 px button into 72 px of width produced two cramped glyphs and
+ * no room for either to breathe.
+ */
+const SidebarHeader: React.FC<{
+  collapsed: boolean;
+  onPressBrand: () => void;
+  onToggleCollapsed: () => void;
+}> = ({ collapsed, onPressBrand, onToggleCollapsed }) => (
+  <View
+    style={{
+      height: SIDEBAR_HEADER_HEIGHT,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: collapsed ? "center" : "flex-start",
+      paddingHorizontal: collapsed ? 0 : 8,
+      gap: 6,
+    }}
+  >
+    <CollapseToggle collapsed={collapsed} onPress={onToggleCollapsed} />
+    {collapsed ? null : <BrandButton onPress={onPressBrand} />}
+  </View>
+);
+
+/** Plex's hamburger: it opens the labels, and the chevron closes them again. */
+const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
   collapsed,
   onPress,
 }) => {
+  const { t } = useTranslation();
+  const { accentName } = useTheme();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
+  const label = collapsed
+    ? t("shell.expand_sidebar")
+    : t("shell.collapse_sidebar");
+
+  return (
+    <View>
+      <Pressable
+        testID='shell-sidebar-toggle'
+        accessibilityRole='button'
+        accessibilityLabel={label}
+        accessibilityState={{ expanded: !collapsed }}
+        onPress={onPress}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={
+          {
+            width: 44,
+            height: 44,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: radius.sm,
+            backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+            ...(Platform.OS === "web"
+              ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+              : null),
+          } as ViewStyle
+        }
+      >
+        {/*
+          A chevron rather than a hamburger: the semantic icon registry
+          (`components/common/Icon.tsx`, WP0's) has no hamburger, and a chevron
+          that points the way the sidebar is about to move says more than three
+          lines do anyway.
+        */}
+        <Icon
+          name={collapsed ? "chevronRight" : "chevronLeft"}
+          size={20}
+          color={tokens.color.text.secondary}
+        />
+      </Pressable>
+      {/* The rail has no labels at all, so the toggle needs the same hover
+          explanation every row there gets. */}
+      {collapsed && hovered ? <RailTooltip label={label} top={8} /> : null}
+    </View>
+  );
+};
+
+/**
+ * The wordmark, and a way home.
+ *
+ * 40 px tall to match the sign-in card's lockup: at 24 the mark was 19 px of
+ * ink on a 1440 px screen and read as a favicon somebody had left in the
+ * corner (pass-03 F-54). The lockup carries its own 14 % margin, so the padding
+ * here is what puts its ink on the same left edge as the row glyphs below it.
+ */
+const BrandButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   const { t } = useTranslation();
   const { accentName } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -191,11 +303,9 @@ const BrandButton: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
       onBlur={() => setFocused(false)}
       style={
         {
-          height: 56,
-          alignItems: collapsed ? "center" : "flex-start",
+          height: SIDEBAR_HEADER_HEIGHT - 8,
           justifyContent: "center",
-          paddingHorizontal: collapsed ? 0 : 18,
-          marginBottom: 8,
+          paddingHorizontal: 4,
           borderRadius: radius.sm,
           ...(Platform.OS === "web"
             ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
@@ -203,11 +313,7 @@ const BrandButton: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
         } as ViewStyle
       }
     >
-      {collapsed ? (
-        <StingStreamMark size={28} />
-      ) : (
-        <StingStreamWordmark height={24} />
-      )}
+      <StingStreamWordmark height={SIDEBAR_WORDMARK_HEIGHT} />
     </Pressable>
   );
 };

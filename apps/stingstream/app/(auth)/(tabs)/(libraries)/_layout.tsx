@@ -8,9 +8,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
-import { HEADER_ICON_SIZE } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { PlatformDropdown } from "@/components/PlatformDropdown";
+import { headerTarget } from "@/components/shell/headerTarget";
 import {
   nestedTabPageScreenOptions,
   useStackScreenOptions,
@@ -194,9 +194,14 @@ export default function IndexLayout() {
           onOpenChange={setDropdownOpen}
           trigger={
             <View
+              accessible
+              accessibilityRole='button'
+              accessibilityLabel={t("library.options.display")}
+              // A 44 px box, not a 24 px glyph: pass-03 F-52.
               style={{
-                height: HEADER_ICON_SIZE,
-                width: HEADER_ICON_SIZE,
+                ...headerTarget,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <HeaderIcon name='more' />
@@ -217,7 +222,6 @@ export default function IndexLayout() {
         name='[libraryId]'
         options={{
           title: "",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -230,7 +234,6 @@ export default function IndexLayout() {
         name='collections/[collectionId]'
         options={{
           title: "",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,

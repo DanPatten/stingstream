@@ -4,11 +4,8 @@ import { getItemsApi } from "@jellyfin/sdk/lib/utils/api";
 import { t } from "i18next";
 import { useAtom } from "jotai";
 import { useCallback, useEffect, useState } from "react";
-import { Text, View } from "react-native";
-// PNG ASSET
-import heart from "@/assets/icons/heart.fill.png";
-import { Image } from "@/components/common/ServerImage";
-import { Colors } from "@/constants/Colors";
+import { View } from "react-native";
+import { EmptyState } from "@/components/common/EmptyState";
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { InfiniteScrollingCollectionList } from "./InfiniteScrollingCollectionList";
@@ -20,14 +17,15 @@ type FavoriteTypes =
   | "Video"
   | "BoxSet"
   | "Playlist";
-type EmptyState = Record<FavoriteTypes, boolean>;
+/** Which of the six favourite kinds came back with nothing in it. */
+type EmptinessByKind = Record<FavoriteTypes, boolean>;
 
 export const Favorites = () => {
   const router = useRouter();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const pageSize = 20;
-  const [emptyState, setEmptyState] = useState<EmptyState>({
+  const [emptyState, setEmptyState] = useState<EmptinessByKind>({
     Series: false,
     Movie: false,
     Episode: false,
@@ -167,21 +165,19 @@ export const Favorites = () => {
 
   return (
     <View className='flex flex-co gap-y-4'>
+      {/*
+        `EmptyState`, not a hand-rolled column: this one drew its two lines with
+        react-native's own `Text`, so on web it came out in the browser's system
+        font while every other word on the screen was Inter (pass-03 F-58). The
+        shared component is the design system's answer to "there is nothing
+        here", tinted glyph included.
+      */}
       {areAllEmpty() && (
-        <View className='flex-1 items-center justify-center py-12'>
-          <Image
-            className={"w-10 h-10 mb-4"}
-            style={{ tintColor: Colors.primary }}
-            contentFit='contain'
-            source={heart}
-          />
-          <Text className='text-xl font-semibold text-white mb-2'>
-            {t("favorites.noDataTitle")}
-          </Text>
-          <Text className='text-base text-white/70 text-center max-w-xs px-4'>
-            {t("favorites.noData")}
-          </Text>
-        </View>
+        <EmptyState
+          icon='favorite'
+          title={t("favorites.noDataTitle")}
+          detail={t("favorites.noData")}
+        />
       )}
       <InfiniteScrollingCollectionList
         queryFn={fetchFavoriteSeries}

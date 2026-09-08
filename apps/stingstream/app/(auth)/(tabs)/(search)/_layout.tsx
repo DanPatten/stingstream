@@ -36,7 +36,6 @@ export default function SearchLayout() {
         name='collections/[collectionId]'
         options={{
           title: "",
-          headerShown: !Platform.isTV,
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
