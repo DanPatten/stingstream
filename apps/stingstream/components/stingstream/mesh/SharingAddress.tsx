@@ -60,6 +60,7 @@ export function SharingAddress({
   disabled,
   placeholder,
   blankHint,
+  stored,
   testID,
 }: {
   value: SharingAddressValue;
@@ -69,12 +70,29 @@ export function SharingAddress({
   placeholder: string;
   /** What an empty field means here — different for each of the two. */
   blankHint: string;
+  /**
+   * What the node already has. A field still showing it is not checked.
+   *
+   * The check exists to catch a **typo**, and a value that came back from the node is not something
+   * anybody just typed. Probing it on mount bought nothing and cost plenty: a cross-origin request
+   * to the sharing server every time the section opened, which fails outright against a coordinator
+   * that has not been redeployed with a CORS header — logging a red error on the Sharing screen for
+   * a setting that is working perfectly well. Same reasoning as `isUntouched` for saving.
+   */
+  stored?: string | null;
   testID?: string;
 }) {
+  const { t } = useTranslation();
   const abort = useRef<AbortController | null>(null);
   const input = value.input;
+  const isStored = input.trim() === (stored ?? "").trim();
 
   useEffect(() => {
+    if (isStored) {
+      abort.current?.abort();
+      onChange({ input, check: { state: "idle" } });
+      return;
+    }
     if (!input.trim()) {
       abort.current?.abort();
       onChange({ input, check: { state: "idle" } });
@@ -98,7 +116,7 @@ export function SharingAddress({
     // `onChange` is intentionally not a dependency: callers pass an inline closure, and re-running
     // the check on every render of the parent would make the field unusable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input]);
+  }, [input, isStored]);
 
   const setInput = useCallback(
     (next: string) => onChange({ input: next, check: { state: "checking" } }),
@@ -118,7 +136,15 @@ export function SharingAddress({
         testID={testID}
       />
       <View style={{ marginTop: space[2] }}>
-        {isBlank(value) ? (
+        {isBlank(value) && isStored ? (
+          <Text variant='caption' tone='secondary'>
+            {blankHint}
+          </Text>
+        ) : isStored ? (
+          <Text variant='caption' tone='secondary'>
+            {t("sharing.address_in_use")}
+          </Text>
+        ) : isBlank(value) ? (
           <Text variant='caption' tone='secondary'>
             {blankHint}
           </Text>
@@ -162,13 +188,16 @@ function Status({
     // which box it belongs in is worth more than calling it invalid.
     case "ok":
       return accept === "coordinator" ? (
-        <Pill
-          tone='success'
-          icon='check'
-          label={t("sharing.address_shared_ok", {
-            health: describeCoordinator(check.health),
-          })}
-        />
+        // The pill says *what it is* and nothing else. What it offers — mode, version, relay,
+        // rendezvous — goes underneath as text that wraps: it was inside the pill, and a pill does
+        // not wrap, so at 390px the sentence ran straight off the side of the screen.
+        <Detail detail={describeCoordinator(check.health)}>
+          <Pill
+            tone='success'
+            icon='check'
+            label={t("sharing.address_shared_ok")}
+          />
+        </Detail>
       ) : (
         <Pill
           tone='warning'
@@ -179,13 +208,15 @@ function Status({
 
     case "own-server":
       return accept === "own-server" ? (
-        <Pill
-          tone='success'
-          icon='check'
-          label={t("sharing.address_own_ok", {
-            name: check.name ?? normalizeCoordinatorUrl(check.url) ?? check.url,
-          })}
-        />
+        <Detail
+          detail={check.name ?? normalizeCoordinatorUrl(check.url) ?? check.url}
+        >
+          <Pill
+            tone='success'
+            icon='check'
+            label={t("sharing.address_own_ok")}
+          />
+        </Detail>
       ) : (
         <Pill
           tone='warning'
@@ -207,3 +238,16 @@ function Status({
       );
   }
 }
+
+/** A short pill, and the long part underneath where it is allowed to wrap. */
+const Detail = ({
+  detail,
+  children,
+}: React.PropsWithChildren<{ detail: string }>) => (
+  <View style={{ gap: 4, alignItems: "flex-start" }}>
+    {children}
+    <Text variant='caption' tone='tertiary'>
+      {detail}
+    </Text>
+  </View>
+);

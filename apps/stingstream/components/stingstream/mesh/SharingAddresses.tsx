@@ -103,6 +103,7 @@ export function SharingAddresses() {
           disabled={save.isPending}
           placeholder={t("sharing.server_field_placeholder")}
           blankHint={t("sharing.server_field_blank")}
+          stored={serverStored}
           testID='sharing-server-address'
         />
       </Field>
@@ -118,6 +119,7 @@ export function SharingAddresses() {
           disabled={save.isPending}
           placeholder={t("sharing.own_field_placeholder")}
           blankHint={t("sharing.own_field_blank")}
+          stored={ownStored}
           testID='sharing-own-address'
         />
       </Field>
@@ -133,9 +135,12 @@ export function SharingAddresses() {
         {t("sharing.server_save")}
       </Button>
 
+      {/* An icon, because a ghost button with nothing but a label reads as a stray heading rather
+          than something to press — which is exactly how it looked in the audit screenshot. */}
       <Button
         variant='ghost'
         size='sm'
+        icon='info'
         onPress={() => setExplainerOpen(true)}
         testID='sharing-address-explainer'
         style={{ alignSelf: "flex-start", marginTop: 8 }}

@@ -139,7 +139,13 @@ export function InviteCard({
           padding: 12,
         }}
       >
-        <Text variant='caption' selectable>
+        {/*
+          Clamped to two lines. The link is a host plus a 250-character base58 code, so unclamped it
+          filled nine lines of the card with noise nobody reads — and the two ways it is actually
+          handed over are the QR above and Copy below. The full string stays in the DOM, so
+          selecting it still selects all of it.
+        */}
+        <Text variant='caption' selectable numberOfLines={2}>
           {link}
         </Text>
       </View>
