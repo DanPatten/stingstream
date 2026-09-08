@@ -30,6 +30,10 @@ pub fn router(node: Arc<MeshNode>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/mesh/v1/status", get(status))
+        .route(
+            "/mesh/v1/settings/sharing",
+            get(get_sharing).put(put_sharing),
+        )
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
@@ -289,6 +293,11 @@ async fn join_group(
 #[derive(Serialize)]
 struct InviteBody {
     code: String,
+    /// The same invite as a link somebody can open, when this node has a host to build one from.
+    ///
+    /// Null is an ordinary answer, not an error: a member with no domain of their own, in a group
+    /// with no coordinator, has no address to name. The caller shows the code, as it always did.
+    url: Option<String>,
 }
 
 async fn make_invite(
@@ -296,9 +305,51 @@ async fn make_invite(
     Path(group): Path<String>,
 ) -> ApiResult<Json<InviteBody>> {
     let id = parse_group(&group)?;
-    Ok(Json(InviteBody {
-        code: node.invite(&id).await?,
-    }))
+    let (code, url) = node.invite_with_link(&id).await?;
+    Ok(Json(InviteBody { code, url }))
+}
+
+/// This node's sharing settings, as read and written by the Sharing server settings page.
+#[derive(Serialize, Deserialize)]
+struct SharingBody {
+    /// The domain the owner has pointed at this node, origin only. Null when unset.
+    #[serde(default)]
+    public_address: Option<String>,
+    /// The coordinator a newly created group adopts when created as Public. Null when unset.
+    #[serde(default)]
+    coordinator_default: Option<String>,
+}
+
+impl From<crate::sharing::SharingSettings> for SharingBody {
+    fn from(s: crate::sharing::SharingSettings) -> Self {
+        Self {
+            public_address: s.public_address,
+            coordinator_default: s.coordinator_default,
+        }
+    }
+}
+
+/// `GET /mesh/v1/settings/sharing`
+async fn get_sharing(State(node): State<Arc<MeshNode>>) -> ApiResult<Json<SharingBody>> {
+    Ok(Json(node.sharing_settings()?.into()))
+}
+
+/// `PUT /mesh/v1/settings/sharing` — both fields, together.
+///
+/// A whole-document write rather than two endpoints: the page shows both, an absent field means
+/// "cleared", and a partial update would make "the user emptied this box" indistinguishable from
+/// "the client is older than this node and does not know the field exists".
+async fn put_sharing(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<SharingBody>,
+) -> ApiResult<Json<SharingBody>> {
+    let stored = node
+        .set_sharing_settings(crate::sharing::SharingSettings {
+            public_address: body.public_address,
+            coordinator_default: body.coordinator_default,
+        })
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(stored.into()))
 }
 
 #[derive(Deserialize)]

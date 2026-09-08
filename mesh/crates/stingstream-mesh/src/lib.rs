@@ -36,6 +36,7 @@ pub mod proto;
 pub mod rendezvous;
 pub mod requests;
 pub mod score;
+pub mod sharing;
 pub mod sidedoor;
 pub mod tunnel;
 pub mod util;

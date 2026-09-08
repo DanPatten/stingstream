@@ -417,10 +417,73 @@ impl MeshNode {
     /// they simply arrive with a coordinator the joiner then replaces from the group's own gossip
     /// (see [`crate::group::CoordinatorStamp::unstamped`]).
     pub async fn invite(&self, id: &GroupId) -> Result<String> {
+        Ok(self.invite_with_link(id).await?.0)
+    }
+
+    /// The invite code, and the link to hand out instead of it when this node has a host.
+    ///
+    /// Both come from the same mint so they cannot disagree: the link is the code, wrapped in an
+    /// address a browser can open. Which address, and why in that order, is
+    /// [`crate::sharing::invite_link`]. `None` for the link is an ordinary outcome — a member who
+    /// has configured no domain and whose group has no coordinator has no host to name, and the UI
+    /// shows the code exactly as it does today.
+    pub async fn invite_with_link(&self, id: &GroupId) -> Result<(String, Option<String>)> {
         let Some(group) = self.db.group(id)? else {
             bail!("this node is not a member of group {id}");
         };
-        Invite::new(&group, self.addr()).encode()
+        let code = Invite::new(&group, self.addr()).encode()?;
+        let public = self.db.meta(crate::sharing::PUBLIC_ADDRESS_KEY)?;
+        let link = crate::sharing::invite_link(public.as_deref(), group.coordinator.as_ref(), &code);
+        Ok((code, link))
+    }
+
+    /// This node's sharing settings — its own public address, and the coordinator new groups adopt.
+    ///
+    /// A setting is cleared by storing the empty string (`meta` has no delete), so an empty value
+    /// is read back as absent. Otherwise "never set" and "set, then cleared" would be two states
+    /// the caller has to know apart, for no reason: they mean the same thing.
+    pub fn sharing_settings(&self) -> Result<crate::sharing::SharingSettings> {
+        let read = |key: &str| -> Result<Option<String>> {
+            Ok(self.db.meta(key)?.filter(|v| !v.trim().is_empty()))
+        };
+        Ok(crate::sharing::SharingSettings {
+            public_address: read(crate::sharing::PUBLIC_ADDRESS_KEY)?,
+            coordinator_default: read(crate::sharing::COORDINATOR_DEFAULT_KEY)?,
+        })
+    }
+
+    /// Store both sharing settings, and hand back what was stored.
+    ///
+    /// The public address is normalised and validated here rather than at the edge, so a value
+    /// written by the app, by a future CLI or by a test all go through the same rules. Storing the
+    /// empty string is how a setting is cleared, so both fields round-trip `None` faithfully — an
+    /// absent key and a cleared key mean the same thing and the caller need not tell them apart.
+    pub fn set_sharing_settings(
+        &self,
+        next: crate::sharing::SharingSettings,
+    ) -> Result<crate::sharing::SharingSettings> {
+        let public = match next.public_address.as_deref() {
+            Some(raw) => crate::sharing::normalize_public_address(raw)?,
+            None => None,
+        };
+        let coordinator = match next.coordinator_default.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(raw) => Some(
+                raw.parse::<url::Url>()
+                    .map(|u| u.to_string())
+                    .map_err(|e| anyhow::anyhow!("sharing server is not a url: {e}"))?,
+            ),
+        };
+        self.db
+            .set_meta(crate::sharing::PUBLIC_ADDRESS_KEY, public.as_deref().unwrap_or(""))?;
+        self.db.set_meta(
+            crate::sharing::COORDINATOR_DEFAULT_KEY,
+            coordinator.as_deref().unwrap_or(""),
+        )?;
+        Ok(crate::sharing::SharingSettings {
+            public_address: public,
+            coordinator_default: coordinator,
+        })
     }
 
     /// Change a group's coordinator, and tell the group.

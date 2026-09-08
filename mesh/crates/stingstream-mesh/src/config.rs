@@ -35,18 +35,23 @@ pub const FALLBACK_COORDINATOR_ENV: &str = "STINGSTREAM_MESH_FALLBACK_COORDINATO
 /// Default local API port. 8791 sits next to the gateway's 8790.
 pub const DEFAULT_API_PORT: u16 = 8791;
 
-/// The shared fallback coordinator baked into the build.
+/// The shared fallback coordinator baked into the build. **Deliberately `None`.**
 ///
-/// This is Dan's Railway `stingstream-relay` in Lite mode. It is appended to every group's relay
-/// map at a *lower* preference than n0's public relays — iroh picks its home relay by measured
-/// latency, and this one is deliberately left without QUIC address discovery (`quic = None`) so it
-/// is never chosen for address discovery and only carries traffic when nothing else can. Its main
-/// jobs are rendezvous and the HTTPS side door.
+/// It used to be Dan's Railway `stingstream-relay`, appended to *every* group's relay map whether
+/// or not the group had asked for a coordinator. That made a promise the app could not keep: a
+/// group created with no coordinator was presented as peer-to-peer while its traffic could still
+/// be relayed through infrastructure one person pays for, and there is nothing to opt out of —
+/// `seed_relay_map` builds **one** relay map per node, because iroh has one endpoint, so a
+/// per-group exemption does not exist.
 ///
-/// Set to `None` to build a node with no fallback at all. Overridable per install with
+/// The address did not go away; it moved somewhere honest. It is the prefilled value of the
+/// *Sharing server* field in Settings, so choosing it is a visible act, and choosing it stores it
+/// as the group's own coordinator — at which point it lands in the relay map through the ordinary
+/// path, for that group's sake, with the label in the UI matching what the node actually does.
+///
+/// An install that wants a blanket fallback back still has one: set it with
 /// `STINGSTREAM_MESH_FALLBACK_COORDINATOR` or `[discovery] fallback_coordinator` in `mesh.toml`.
-pub const DEFAULT_FALLBACK_COORDINATOR: Option<&str> =
-    Some("https://stingstream-coordinator-production.up.railway.app");
+pub const DEFAULT_FALLBACK_COORDINATOR: Option<&str> = None;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -424,5 +429,19 @@ mod tests {
         assert!(cfg.fallback_coordinator().is_none());
         cfg.discovery.fallback_coordinator = Some("https://coord.example.org".into());
         assert!(cfg.fallback_coordinator().is_some());
+    }
+
+    /// A group the user was shown as "Private" must not be quietly relayed through a server we
+    /// chose for them. Pinned as a test rather than left to the constant, because the failure is
+    /// invisible: everything works, it just works through somebody else's machine.
+    #[test]
+    fn a_node_has_no_blanket_fallback_coordinator_unless_it_is_configured() {
+        assert!(MeshConfig::default().fallback_coordinator().is_none());
+        let mut cfg = MeshConfig::default();
+        cfg.discovery.fallback_coordinator = Some("https://coord.example.org".into());
+        assert!(
+            cfg.fallback_coordinator().is_some(),
+            "an install that asks for one still gets it"
+        );
     }
 }
