@@ -13,6 +13,13 @@ import {
 } from "@/hooks/useNodeContext";
 import { useTheme } from "@/hooks/useTheme";
 import {
+  type AccountServer,
+  DEFAULT_ACCOUNT_SERVICE,
+  fetchMe,
+  serverOrigin,
+  signIn as signInToAccountService,
+} from "@/lib/stingstream/accountsApi";
+import {
   createAdmin,
   getSetupState,
   SetupRequestError,
@@ -23,6 +30,10 @@ import {
   useJellyfin,
   userAtom,
 } from "@/providers/JellyfinProvider";
+import {
+  rememberAccountSession,
+  takeAccountSession,
+} from "@/utils/accounts/session";
 import type { CustomHeader } from "@/utils/customHeaders";
 import {
   checkJellyfinServer,
@@ -30,6 +41,7 @@ import {
   ServerTooOldError,
 } from "@/utils/jellyfin/checkServer";
 import type { SavedServer } from "@/utils/secureCredentials";
+import { AccountSignInForm } from "./AccountSignInForm";
 import { AuthCard } from "./AuthCard";
 import { ServerForm } from "./ServerForm";
 import { SetupAccountForm } from "./SetupAccountForm";
@@ -48,6 +60,7 @@ type Phase =
   | "setup"
   | "setupElsewhere"
   | "signIn"
+  | "account"
   | "serverForm";
 
 /** How many times to retry the silent auto-connect before falling back to the address form. */
@@ -78,6 +91,7 @@ export const LoginScreen: React.FC = () => {
     setServer,
     removeServer,
     login,
+    loginWithAccountToken,
     loginWithSavedCredential,
     loginWithPassword,
     initiateQuickConnect,
@@ -90,9 +104,17 @@ export const LoginScreen: React.FC = () => {
     password?: string;
   }>();
 
+  // Not served by a node? Ask who you are, not where your server is. The address form is still
+  // reachable from the account card, for somebody self-hosting an account service or opening a
+  // machine no service has heard of — but it is no longer the first question anybody meets, which
+  // is the whole of Dan's complaint about the join page.
   const [phase, setPhase] = useState<Phase>(
-    nodeContext ? "connecting" : "serverForm",
+    nodeContext ? "connecting" : "account",
   );
+  const [accountServers, setAccountServers] = useState<AccountServer[] | null>(
+    null,
+  );
+  const [openingNode, setOpeningNode] = useState<string | null>(null);
   const [serverName, setServerName] = useState<string | null>(
     nodeContext?.nodeName ?? null,
   );
@@ -139,7 +161,7 @@ export const LoginScreen: React.FC = () => {
       await setServer({ address: result.url });
       return result.name || null;
     },
-    [setServer, t],
+    [loginWithAccountToken, setServer, t],
   );
 
   /** The address form's Connect, with the three failures it can report worded for a person. */
@@ -401,6 +423,67 @@ export const LoginScreen: React.FC = () => {
 
   // ---------------------------------------------------------------------------
 
+  /**
+   * Sign in to the account service, then decide what to do with the result.
+   *
+   * Two outcomes, and the good one is invisible: if this page is served by a node, the token is
+   * spent on *that* node straight away and the person never sees a list. A list only appears when
+   * there is a genuine choice to make.
+   */
+  const handleAccountSignIn = useCallback(
+    async (username: string, password: string) => {
+      const session = await signInToAccountService(
+        DEFAULT_ACCOUNT_SERVICE,
+        username,
+        password,
+      );
+      rememberAccountSession(session.token);
+
+      const me = await fetchMe(DEFAULT_ACCOUNT_SERVICE, session.token);
+
+      const here = nodeContext?.origin;
+      const thisOne = here
+        ? me.servers.find((s) => serverOrigin(s) === here.replace(/\/+$/, ""))
+        : undefined;
+      if (here && thisOne) {
+        await openServerWithAccount(thisOne, session.token);
+        return;
+      }
+      // Exactly one reachable server is not a choice, so it is not offered as one.
+      const reachable = me.servers.filter((s) => serverOrigin(s) !== null);
+      if (reachable.length === 1) {
+        await openServerWithAccount(reachable[0], session.token);
+        return;
+      }
+      setAccountServers(me.servers);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodeContext],
+  );
+
+  /**
+   * Open one server with an account token.
+   *
+   * The exchange goes to the **server**, not to the account service: it verifies the token itself
+   * against a key it cached when it was claimed. That is why this works with the account service
+   * switched off, and it is the reason the whole design is signature-based.
+   */
+  const openServerWithAccount = useCallback(
+    async (server: AccountServer, token: string) => {
+      const origin = serverOrigin(server);
+      if (!origin) throw new Error(t("account.server_no_address"));
+      setOpeningNode(server.node);
+      try {
+        await setServer({ address: origin });
+        await loginWithAccountToken(origin, token);
+      } finally {
+        setOpeningNode(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setServer, t],
+  );
+
   return (
     <>
       <AuthCard>
@@ -444,6 +527,19 @@ export const LoginScreen: React.FC = () => {
               Platform.OS === "web" ? undefined : handleSignInWithCode
             }
             onUseDifferentServer={handleUseDifferentServer}
+          />
+        ) : null}
+
+        {phase === "account" ? (
+          <AccountSignInForm
+            onSubmit={handleAccountSignIn}
+            servers={accountServers}
+            busyNode={openingNode}
+            onPickServer={(server) => {
+              const token = takeAccountSession();
+              if (token) void openServerWithAccount(server, token);
+            }}
+            onUseServerAddress={() => setPhase("serverForm")}
           />
         ) : null}
 

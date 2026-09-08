@@ -158,6 +158,18 @@ function SettingsMobile() {
           <View className='mb-4' testID='settings-section-account'>
             <LinkDevice className='mb-4' />
             <ListGroup title={t("home.settings.sections.account")}>
+              {/* Administrator only: an account is this *server's*, and creating one is a request
+                  the server signs. Somebody watching in this household does not get to claim the
+                  machine they are watching on. */}
+              {isAdmin && (
+                <ListItem
+                  testID='settings-account'
+                  onPress={() => router.push("/settings/account")}
+                  showArrow
+                  title={t("account.settings_title")}
+                  subtitle={t("account.settings_hint")}
+                />
+              )}
               <ListItem
                 testID='settings-sign-out'
                 textColor='red'

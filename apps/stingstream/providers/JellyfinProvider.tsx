@@ -25,6 +25,7 @@ import { toast } from "sonner-native";
 import useRouter from "@/hooks/useAppRouter";
 import { useInterval } from "@/hooks/useInterval";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
+import { sessionOn } from "@/lib/stingstream/accountsApi";
 import { settingsAtom, useSettings } from "@/utils/atoms/settings";
 import {
   getIntegrationHeaders,
@@ -177,6 +178,14 @@ interface JellyfinContextValue {
     username: string,
     password: string,
   ) => Promise<void>;
+  /**
+   * Sign in to a server with a StingStream account token.
+   *
+   * The exchange goes to the **server**, which verifies the token against a key it cached when it
+   * was claimed — no call to the account service, so this works while that service is down. What
+   * comes back is an ordinary Jellyfin session, and everything downstream is unchanged.
+   */
+  loginWithAccountToken: (serverUrl: string, token: string) => Promise<void>;
   removeSavedCredential: (serverUrl: string, userId: string) => Promise<void>;
   switchServerUrl: (newUrl: string) => void;
 }
@@ -838,6 +847,47 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     },
   });
 
+  const loginWithAccountTokenMutation = useMutation({
+    mutationFn: async ({
+      serverUrl,
+      token,
+    }: {
+      serverUrl: string;
+      token: string;
+    }) => {
+      if (!jellyfin) throw new Error("API not initialized");
+
+      writeInfoLog(`Login (account): exchanging a token at ${serverUrl}`);
+      const auth = await sessionOn(serverUrl, token).catch((error) => {
+        writeToLog("WARN", `Login (account) failed at ${serverUrl}: ${error}`);
+        throw error;
+      });
+
+      const result = auth as {
+        AccessToken?: string;
+        User?: { Id?: string; PrimaryImageTag?: string | null };
+      };
+      if (!result.AccessToken || !result.User) {
+        throw new Error("that server did not return a session");
+      }
+
+      // Same clean slate a saved-server sign-in takes: a token from a different account must not
+      // land on top of the previous one's cached library.
+      queryClient.clear();
+      storage.remove("REACT_QUERY_OFFLINE_CACHE");
+
+      setUser(result.User as never);
+      storage.set("user", JSON.stringify(result.User));
+      setApi(
+        createApiWithCustomHeaders(jellyfin, serverUrl, result.AccessToken),
+      );
+      storage.set("serverUrl", serverUrl);
+      storage.set("token", result.AccessToken);
+
+      await refreshStreamyfinPluginSettings();
+    },
+  });
+
   const loginWithPasswordMutation = useMutation({
     mutationFn: async ({
       serverUrl,
@@ -1063,6 +1113,8 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       loginWithSavedCredentialMutation.mutateAsync({ serverUrl, userId }),
     loginWithPassword: (serverUrl, username, password) =>
       loginWithPasswordMutation.mutateAsync({ serverUrl, username, password }),
+    loginWithAccountToken: (serverUrl, token) =>
+      loginWithAccountTokenMutation.mutateAsync({ serverUrl, token }),
     removeSavedCredential: (serverUrl, userId) =>
       removeSavedCredentialMutation.mutateAsync({ serverUrl, userId }),
     switchServerUrl,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  type AccountServer,
   AccountError,
+  type AccountServer,
   fetchMe,
   serverOrigin,
   sessionOn,
@@ -15,7 +15,11 @@ afterEach(() => {
 });
 
 /** Capture what was sent, and answer with what the far end would. */
-const mock = (status: number, body: unknown, seen: { req?: RequestInit; url?: string } = {}) => {
+const mock = (
+  status: number,
+  body: unknown,
+  seen: { req?: RequestInit; url?: string } = {},
+) => {
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     seen.url = String(url);
     seen.req = init;
@@ -23,7 +27,8 @@ const mock = (status: number, body: unknown, seen: { req?: RequestInit; url?: st
       ok: status >= 200 && status < 300,
       status,
       json: async () => body,
-      text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+      text: async () =>
+        typeof body === "string" ? body : JSON.stringify(body),
     } as Response;
   }) as typeof fetch;
   return seen;
@@ -62,20 +67,27 @@ describe("signing in", () => {
    */
   test("shows the message the far end wrote", async () => {
     mock(401, { error: "that username and password do not match" });
-    await expect(signIn("https://accounts.example", "dan", "nope")).rejects.toThrow(
-      "that username and password do not match",
-    );
+    await expect(
+      signIn("https://accounts.example", "dan", "nope"),
+    ).rejects.toThrow("that username and password do not match");
   });
 
   test("a reply that is not JSON still produces something readable", async () => {
     mock(502, "<html>Bad Gateway</html>");
-    const err = await signIn("https://accounts.example", "dan", "pw").catch((e) => e);
+    const err = await signIn("https://accounts.example", "dan", "pw").catch(
+      (e) => e,
+    );
     expect(err).toBeInstanceOf(AccountError);
     expect(String(err)).not.toContain("undefined");
   });
 
   test("a trailing slash on the service does not double up", async () => {
-    const seen = mock(200, { token: "t", expires_in: 1, account: "a", username: "u" });
+    const seen = mock(200, {
+      token: "t",
+      expires_in: 1,
+      account: "a",
+      username: "u",
+    });
     await signIn("https://accounts.example/", "dan", "pw");
     expect(seen.url).toBe("https://accounts.example/accounts/v1/login");
   });
@@ -85,24 +97,40 @@ describe("reading the account", () => {
   test("sends the token as a bearer", async () => {
     const seen = mock(200, { account: "a1", username: "dan", servers: [] });
     await fetchMe("https://accounts.example", "t");
-    expect((seen.req?.headers as Record<string, string>).Authorization).toBe("Bearer t");
+    const headers = (seen.req?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer t");
   });
 });
 
 describe("sharing", () => {
   test("share and revoke differ only by method, so one screen drives both", async () => {
     const shared = mock(204, {});
-    await setShare("https://accounts.example", "t", { node: "n1", username: "alice" }, "share");
+    await setShare(
+      "https://accounts.example",
+      "t",
+      { node: "n1", username: "alice" },
+      "share",
+    );
     expect(shared.req?.method).toBe("PUT");
 
     const revoked = mock(204, {});
-    await setShare("https://accounts.example", "t", { node: "n1", username: "alice" }, "revoke");
+    await setShare(
+      "https://accounts.example",
+      "t",
+      { node: "n1", username: "alice" },
+      "revoke",
+    );
     expect(revoked.req?.method).toBe("DELETE");
   });
 
   test("no libraries means every library, which is what the service reads an empty list as", async () => {
     const seen = mock(204, {});
-    await setShare("https://accounts.example", "t", { node: "n1", username: "alice" }, "share");
+    await setShare(
+      "https://accounts.example",
+      "t",
+      { node: "n1", username: "alice" },
+      "share",
+    );
     expect(JSON.parse(String(seen.req?.body)).libraries).toEqual([]);
   });
 });
@@ -123,9 +151,9 @@ describe("signing in to a server", () => {
 
 describe("where a server can be reached", () => {
   test("an address is used as its origin", () => {
-    expect(serverOrigin(server({ address: "https://media.example.com/" }))).toBe(
-      "https://media.example.com",
-    );
+    expect(
+      serverOrigin(server({ address: "https://media.example.com/" })),
+    ).toBe("https://media.example.com");
   });
 
   /**

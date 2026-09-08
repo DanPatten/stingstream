@@ -63,7 +63,10 @@ export class AccountError extends Error {}
  * status code. A body that is not JSON at all means something between here and there answered
  * instead, and that gets a sentence of its own.
  */
-const readError = async (res: Response, what: string): Promise<AccountError> => {
+const readError = async (
+  res: Response,
+  what: string,
+): Promise<AccountError> => {
   const text = await res.text().catch(() => "");
   try {
     const parsed = JSON.parse(text) as { error?: string };
