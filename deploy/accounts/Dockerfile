@@ -14,7 +14,7 @@
 FROM rust:1.98-slim-bookworm AS builder
 
 # The short commit SHA baked into `/healthz`'s `commit` field (docs/RELEASING.md's auto-deploy
-# proof), so a live coordinator's build is identifiable without a git checkout in hand. Converted
+# proof), so a live service's build is identifiable without a git checkout in hand. Converted
 # to ENV rather than left as a bare ARG for two reasons: `option_env!` in http.rs reads the
 # compilation process's real environment at build time, which an ARG alone does not populate for a
 # RUN command unless it is referenced there -- and an ENV instruction is unambiguously part of the
@@ -98,21 +98,28 @@ COPY --from=builder /src/mesh/target/release/stingstream-accounts /usr/local/bin
 
 USER stingstream
 WORKDIR /data
-# `[::]` rather than `0.0.0.0`: a dual-stack socket on Linux accepts IPv4 too, and Railway (like
-# Fly) reaches a container over an IPv6-only private network — an IPv4-only listener is invisible
-# to their edge proxy, with a healthy container, clean logs and every request timing out. The
-# platform's `PORT` still chooses the port; see the ordering in config.rs.
-ENV STINGSTREAM_COORDINATOR_DATA_DIR=/data \
-    STINGSTREAM_COORDINATOR_BIND=[::]:8080
 
-# Lite mode's single port. Full mode also wants 53/udp, 53/tcp, 443/tcp and 7842/udp; see
-# deploy/coordinator/compose.yml.
+# `[::]` rather than `0.0.0.0`: a dual-stack socket on Linux accepts IPv4 too, and Railway reaches a
+# container over an IPv6-only private network — an IPv4-only listener is invisible to their edge
+# proxy, and the symptom is a healthy container with clean logs and every request timing out. The
+# platform's `PORT` still chooses the port.
+ENV STINGSTREAM_ACCOUNTS_DATA=/data \
+    STINGSTREAM_ACCOUNTS_BIND=[::]
+
+# Declared so `docker run` without `-v` still gets a writable anonymous volume rather than silently
+# writing the accounts database into the container layer. It does **not** save you on Railway: a
+# volume has to be attached there explicitly, and without one every account and the signing key are
+# gone on the next redeploy.
+VOLUME ["/data"]
+
+# One port. Everything else this service needs is outbound-free.
 EXPOSE 8080
 
-LABEL org.opencontainers.image.title="StingStream coordinator" \
-      org.opencontainers.image.description="iroh relay, rendezvous, side-door DNS and SNI router for StingStream groups" \
+LABEL org.opencontainers.image.title="StingStream accounts" \
+      org.opencontainers.image.description="The StingStream account service: usernames, passkeys, which server belongs to whom, and who a library is shared with" \
       org.opencontainers.image.source="https://github.com/DanPatten/stingstream" \
       org.opencontainers.image.licenses="GPL-2.0-or-later"
 
-ENTRYPOINT ["/usr/local/bin/stingstream-relay"]
-CMD ["--mode", "lite"]
+# No CMD. The coordinator has one because it has modes; this has a single job, and a stray default
+# argument here would be one more thing to keep in step with `deploy/accounts/railway.json`.
+ENTRYPOINT ["/usr/local/bin/stingstream-accounts"]
