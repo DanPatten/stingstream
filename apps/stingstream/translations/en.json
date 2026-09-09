@@ -107,6 +107,7 @@
     "welcome_start": "Get started",
     "title": "Create your admin account",
     "description": "This is the account that runs the server: it manages your libraries and decides who else can watch. You can add more people afterwards.",
+    "server_name": "Server name",
     "username": "Username",
     "password": "Password",
     "password_hint": "At least {{min}} characters.",

@@ -17,6 +17,7 @@ import { signInWithPasskey } from "@/lib/stingstream/passkeysApi";
 import {
   createAdmin,
   getSetupState,
+  looksLikeHostname,
   SetupRequestError,
   type SetupState,
 } from "@/lib/stingstream/setup";
@@ -297,9 +298,19 @@ export const LoginScreen: React.FC = () => {
       }
       if (cancelled) return;
 
-      // The node's own name wins. Jellyfin's `ServerName` is the machine's hostname on a default
-      // install — "Log in to PLEXPC" — and is never shown for a server we know is a node.
-      if (!nodeContext.nodeName && name) setServerName(name);
+      // The name the server *reports* wins, and the marker's is the placeholder that holds the
+      // card until it answers.
+      //
+      // It used to be the other way round, because Jellyfin's `ServerName` is the machine's
+      // hostname on a default install and "Log in to PLEXPC" was the bug that started this
+      // rewrite. That is no longer where it comes from: the supervisor seeds it from the node
+      // name, and setup writes whatever the owner typed. The marker, meanwhile, is baked into a
+      // page at serve time from `runtime.json`, so it is the value most likely to be *stale* --
+      // and it was stale for exactly the person who had just renamed their server.
+      //
+      // `looksLikeHostname` is still the guard: a node whose configuration was reset can go
+      // back to reporting a hostname, and that is never worth showing.
+      if (name && !looksLikeHostname(name)) setServerName(name);
 
       // Asked of the node itself, and allowed to come back with nothing: `decidePhase` treats
       // silence and a 404 the same way, by deferring to the marker.
@@ -408,11 +419,17 @@ export const LoginScreen: React.FC = () => {
   }, [adoptSession, api?.basePath, connectTo, nodeContext, t]);
 
   const handleCreateAccount = useCallback(
-    async (username: string, password: string) => {
+    async (username: string, password: string, chosenServerName: string) => {
       if (!nodeContext) throw new Error(t("setup.error_unexpected"));
 
       try {
-        await createAdmin(nodeContext.origin, { username, password });
+        await createAdmin(nodeContext.origin, {
+          username,
+          password,
+          serverName: chosenServerName,
+        });
+        // Shown on the very next card, before anything has re-fetched it.
+        if (chosenServerName) setServerName(chosenServerName);
       } catch (e) {
         // Somebody claimed the node between this screen loading and this submit — a second
         // browser tab, or the machine's owner. Say so, and put them on the sign-in card rather

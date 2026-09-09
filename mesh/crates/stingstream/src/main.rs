@@ -327,7 +327,10 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
         // need to know where a browser can reach this node -- that is what tells a client where
         // its server's linked servers are -- but that address changes when a laptop moves network,
         // so it is *pushed on a timer* rather than frozen at start-up. See `side_door_publisher`.
-        match embedded_mesh::start(&data_dir, port, &config.node_name, shutdown_rx.clone())
+        // `rt.node_name`, not `config.node_name`: the owner may have renamed the server during
+        // setup, and a peer should see the name they chose rather than the one the installer
+        // guessed. See `CarriedSecrets::node_name`.
+        match embedded_mesh::start(&data_dir, port, &rt.node_name, shutdown_rx.clone())
         .await
         {
             Ok(m) => {
@@ -749,7 +752,10 @@ fn build_runtime(
         node_id: carried
             .node_id
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        node_name: config.node_name.clone(),
+        node_name: carried
+            .node_name
+            .clone()
+            .unwrap_or_else(|| config.node_name.clone()),
         first_run: carried.first_run,
         dev: mode.is_dev(),
         data_dir: data_dir.to_path_buf(),

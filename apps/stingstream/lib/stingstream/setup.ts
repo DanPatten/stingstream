@@ -329,7 +329,7 @@ export interface CreatedAdmin {
  */
 export async function createAdmin(
   origin: string,
-  credentials: { username: string; password: string },
+  credentials: { username: string; password: string; serverName?: string },
   options: SetupAdminOptions = {},
 ): Promise<CreatedAdmin> {
   const {
@@ -357,7 +357,7 @@ export async function createAdmin(
 /** One `POST setup/admin`, with every answer it can give mapped onto a typed error. */
 async function postAdmin(
   origin: string,
-  credentials: { username: string; password: string },
+  credentials: { username: string; password: string; serverName?: string },
   fetchImpl: FetchLike,
 ): Promise<CreatedAdmin> {
   const response = await request(
@@ -368,7 +368,10 @@ async function postAdmin(
         "content-type": "application/json",
         accept: "application/json",
       },
+      // `ServerName` is optional and an older node simply ignores it, so a newer app against an
+      // older node still creates the account -- it just does not get to rename the server.
       body: JSON.stringify({
+        ServerName: credentials.serverName,
         Username: credentials.username,
         Password: credentials.password,
       }),

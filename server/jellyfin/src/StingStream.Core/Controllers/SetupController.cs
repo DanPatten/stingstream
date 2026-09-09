@@ -192,6 +192,36 @@ public sealed class SetupController : ControllerBase
             _logger.LogInformation("First-run setup marked the startup wizard complete");
         }
 
+        // The name, if they gave one. Two places, because two things read it and neither can read
+        // the other's: Jellyfin's own ServerName is what `IServerApplicationHost.FriendlyName`
+        // returns -- the invite landing page, the sign-in card -- and takes effect at once;
+        // runtime.json is what the supervisor carries forward, so the marker, the placeholder page
+        // and the embedded mesh agree from the next start.
+        //
+        // Failing to record it must not fail a setup that has otherwise worked: the account is the
+        // thing the person came for, and a server with the wrong name is a settings screen away.
+        var serverName = request.ServerName?.Trim();
+        if (!string.IsNullOrEmpty(serverName))
+        {
+            try
+            {
+                if (!string.Equals(
+                        _serverConfig.Configuration.ServerName,
+                        serverName,
+                        StringComparison.Ordinal))
+                {
+                    _serverConfig.Configuration.ServerName = serverName;
+                    _serverConfig.SaveConfiguration();
+                }
+
+                _runtime.SetNodeName(serverName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "First-run setup could not record the server name");
+            }
+        }
+
         // Before authenticating, not after: the window in which anyone on this machine can claim
         // the account closes the instant the password changes, and an authentication that then
         // fails for some unrelated reason must not reopen it.
@@ -335,6 +365,14 @@ public sealed class SetupAdminRequest
 
     /// <summary>The password for the account. At least eight characters.</summary>
     public string? Password { get; set; }
+
+    /// <summary>What to call this server. Optional; blank leaves the name it started with.</summary>
+    /// <remarks>
+    /// The app pre-fills it with "StingStream". Before this the name was whatever
+    /// <c>config.toml</c> said — the machine's, or a container's — so a person invited to somebody's
+    /// server was told they had been invited to "ui-loop".
+    /// </remarks>
+    public string? ServerName { get; set; }
 }
 
 /// <summary>One sentence saying why a setup request was refused.</summary>

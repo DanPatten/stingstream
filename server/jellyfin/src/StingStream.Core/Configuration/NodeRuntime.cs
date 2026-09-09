@@ -175,6 +175,17 @@ public interface INodeRuntimeProvider
 
     /// <summary>Mark first-run wiring as complete, in memory and on disk.</summary>
     void ClearFirstRun();
+
+    /// <summary>Record the name the owner chose for this server.</summary>
+    /// <param name="name">The new name. Blank is ignored.</param>
+    /// <remarks>
+    /// <c>config.toml</c>'s <c>node_name</c> is the name a node <em>starts</em> with — the machine's,
+    /// or whatever a container was told. Onboarding asks for the real one, and this is where it
+    /// goes: the supervisor carries it forward on every start, so the marker, the placeholder page
+    /// and the embedded mesh all pick it up. Jellyfin's own <c>ServerName</c> is set separately and
+    /// takes effect at once; this is what makes it survive a restart and reach the mesh.
+    /// </remarks>
+    void SetNodeName(string name);
 }
 
 /// <inheritdoc />
@@ -294,6 +305,43 @@ public sealed class NodeRuntimeProvider : INodeRuntimeProvider
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _logger.LogWarning(ex, "Could not clear first_run in {Path}", path);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public void SetNodeName(string name)
+    {
+        var trimmed = name?.Trim();
+        var path = RuntimeJsonPath;
+        if (path is null || string.IsNullOrEmpty(trimmed))
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            var current = ReadFile(path);
+            if (current is null || string.Equals(current.NodeName, trimmed, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            current.NodeName = trimmed;
+            try
+            {
+                // Sibling then rename, as ClearFirstRun does and for the same reason: the
+                // supervisor reads this file and must never see half of it.
+                var tmp = path + ".core.tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(current, _json));
+                File.Move(tmp, path, overwrite: true);
+                _cached = current;
+                _cachedLength = -1;
+                _logger.LogInformation("Server renamed to {Name} in {Path}", trimmed, path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not record the server name in {Path}", path);
             }
         }
     }

@@ -18827,6 +18827,11 @@
             "type": "string",
             "description": "The password for the account. At least eight characters.",
             "nullable": true
+          },
+          "ServerName": {
+            "type": "string",
+            "description": "What to call this server. Optional; blank leaves the name it started with.",
+            "nullable": true
           }
         },
         "additionalProperties": false,

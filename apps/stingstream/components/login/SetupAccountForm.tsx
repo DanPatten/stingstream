@@ -16,9 +16,22 @@ import {
 } from "@/lib/stingstream/setup";
 import { FocusPressable } from "./FocusPressable";
 
+/**
+ * What a server is called before anybody says otherwise.
+ *
+ * `config.toml`'s `node_name` is the machine's own, or whatever a container was told, and it leaked
+ * into the places a person actually reads: *"You have been invited to ui-loop"*. So setup asks, and
+ * this is the answer for anybody who does not care.
+ */
+export const DEFAULT_SERVER_NAME = "StingStream";
+
 export interface SetupAccountFormProps {
   /** Creates the account and signs in. Throws with a ready-to-show sentence when it cannot. */
-  onSubmit: (username: string, password: string) => Promise<void>;
+  onSubmit: (
+    username: string,
+    password: string,
+    serverName: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -41,6 +54,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
 
+  const [serverName, setServerName] = useState(DEFAULT_SERVER_NAME);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [revealed, setRevealed] = useState(false);
@@ -68,7 +82,9 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
 
     setBusy(true);
     try {
-      await onSubmit(username.trim(), password);
+      // Blank means "leave it alone" rather than "call it nothing": somebody who clears the field
+      // gets the name the node already had, not an empty one.
+      await onSubmit(username.trim(), password, serverName.trim());
     } catch (e) {
       setFormError(
         e instanceof Error && e.message
@@ -78,7 +94,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
     } finally {
       setBusy(false);
     }
-  }, [busy, username, password, onSubmit, t]);
+  }, [busy, username, password, serverName, onSubmit, t]);
 
   const revealToggle = (
     <FocusPressable
@@ -119,6 +135,21 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
       </Text>
 
       <View style={{ marginTop: 20, gap: 12 }}>
+        <Text variant='caption' tone='secondary' weight='medium'>
+          {t("setup.server_name")}
+        </Text>
+        <Input
+          testID='firstrun-server-name'
+          aria-label={t("setup.server_name")}
+          placeholder={DEFAULT_SERVER_NAME}
+          value={serverName}
+          onChangeText={setServerName}
+          autoCapitalize='words'
+          autoCorrect={false}
+          maxLength={64}
+          editable={!busy}
+          style={{ marginBottom: 4 }}
+        />
         <Input
           testID='firstrun-username'
           aria-label={t("setup.username")}

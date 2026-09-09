@@ -5810,6 +5810,8 @@ export interface components {
             Username?: string | null;
             /** @description The password for the account. At least eight characters. */
             Password?: string | null;
+            /** @description What to call this server. Optional; blank leaves the name it started with. */
+            ServerName?: string | null;
         };
         /** @description One sentence saying why a setup request was refused. */
         SetupError: {

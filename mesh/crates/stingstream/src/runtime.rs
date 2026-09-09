@@ -339,6 +339,14 @@ impl std::fmt::Debug for FirstRunFlag {
 #[derive(Debug, Default, Clone)]
 pub struct CarriedSecrets {
     pub node_id: Option<String>,
+    /// The name the owner chose during setup, if they have.
+    ///
+    /// `config.toml`'s `node_name` is the name a node *starts* with -- the machine's, or whatever a
+    /// container was told. Onboarding asks for the real one, `StingStream.Core` writes it here, and
+    /// from then on this file is the answer: carrying it forward is what stops the next start
+    /// putting the old one back. Empty is treated as absent, so clearing the field falls back to
+    /// the config rather than leaving a node with no name at all.
+    pub node_name: Option<String>,
     pub first_run: bool,
     pub api_keys: BTreeMap<String, String>,
     pub nzbget_username: Option<String>,
@@ -370,6 +378,7 @@ impl CarriedSecrets {
         }
         Self {
             node_id: Some(prev.node_id.clone()),
+            node_name: Some(prev.node_name.clone()).filter(|n| !n.trim().is_empty()),
             first_run: prev.first_run,
             api_keys,
             nzbget_username,
