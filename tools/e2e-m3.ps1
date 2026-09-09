@@ -462,6 +462,34 @@ function Get-AuthHeaders {
     return @{ 'Authorization' = "MediaBrowser Token=`"$($Node.Token)`"" }
 }
 
+function Share-AllLibraries {
+    <#
+    .SYNOPSIS
+        Share every library on a node into one link.
+    .DESCRIPTION
+        Sharing is per link and **closed by default**: a link publishes nothing until its owner
+        chooses, because a link that silently published somebody's whole collection is not
+        recoverable once the other server has the index (StingStream.Core/Sharing/).
+
+        A copy of the helper in `e2e-common.ps1` rather than a call to it: this harness is the one
+        that does **not** dot-source that file -- it carries its own `Invoke-Node` and
+        `Get-Member-Value` -- and sourcing it now would collide with both. Keep the two in step.
+    .PARAMETER Node
+        The node whose libraries are being shared.
+    .PARAMETER Group
+        The link's group id.
+    #>
+    param(
+        [Parameter(Mandatory)]$Node,
+        [Parameter(Mandatory)][string]$Group
+    )
+    $current = Invoke-Node $Node "/stingstream/api/v1/mesh/groups/$Group/libraries"
+    $ids = @(@(Get-Member-Value $current 'available') | ForEach-Object { Get-Member-Value $_ 'id' } | Where-Object { $_ })
+    if ($ids.Count -eq 0) { return @() }
+    [void](Invoke-Node $Node "/stingstream/api/v1/mesh/groups/$Group/libraries" -Method PUT -Body @{ libraries = $ids })
+    return $ids
+}
+
 function Invoke-Node {
     param(
         [Parameter(Mandatory)]$Node,
