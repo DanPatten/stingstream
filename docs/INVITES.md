@@ -5,8 +5,26 @@ thing to know.
 
 | | |
 |---|---|
-| **A group invite** | One *server* invited to link with another. A base58 code carrying the group secret, redeemed by a node. `docs/MESH.md` §2. |
+| **A server link** | One *server* invited to share with another. A base58 code carrying the group secret, redeemed by a node. `docs/MESH.md` §2. |
 | **A person invite** | One *person* invited to watch on your server. A token that creates an account **here**, scoped to the libraries you picked. This document. |
+
+**In the app these are one button.** Dan, on the old screen: *"It needs to be simplier and not a
+'group' persay. I want the ability as the server owner to either invite end users (they dont own
+another server) or other server owners."* So Sharing shows **People** and **Servers**, and *Invite
+someone* asks which of the two you mean — "someone to watch" or "someone who runs StingStream" —
+rather than asking about a concept from the transport. The word *group* survives on the wire, in
+`group.rs` and in `docs/MESH.md`, and nowhere a person reads.
+
+Both branches ask the same next question, with the same control
+(`components/stingstream/shared/LibraryPicker.tsx`): **which of my libraries?** For a person that is
+their account's `EnabledFolders`; for a server it is what this node publishes into that link. Dan:
+*"Each side picks its own"* — you choose what they see of yours, they choose what you see of theirs,
+each on their own server. `StingStream.Core/Sharing/` holds the second, and
+`docs/MESH.md` §4 covers how it reaches the other side.
+
+**A link starts closed.** A new server link shares nothing until its owner picks, which is why
+accepting an invite lands on that link's own screen rather than a list: the moment you accept is the
+one moment you are certainly thinking about what to share back.
 
 They share a link shape and nothing else. `/join` tells them apart by asking the server rather than
 by looking at the string — the alphabets overlap, so guessing would be guessing.

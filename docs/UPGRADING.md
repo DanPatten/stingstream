@@ -278,6 +278,32 @@ Three things changed behaviour, not just appearance:
 
 ### The address form, and finding a server — Part 6
 
+### Sharing is per link, and closed by default — Part 8
+
+**An existing link shares nothing until its owner chooses.** Sharing became per link
+(`StingStream.Core/Sharing/`), and the default for a link with no choice recorded is *no libraries*
+rather than *all of them*. So after upgrading, **a group you already had stops federating until you
+open Sharing → the link → and tick the libraries you mean to share.**
+
+That is deliberate and it is the safe direction. The alternative default — treat "no choice" as
+"everything" — would mean a link created before anyone had the control kept publishing a whole
+collection, and there is no undo once the other server holds the index. An empty library is a
+question its owner can answer; a leaked one is not.
+
+Everything else follows from it and needs nothing from you: un-sharing a library retracts it from
+the other server rather than merely ceasing to re-send it; a node forces a re-publish the moment the
+choice changes; and inventory records written before this existed are shared with nobody until a
+one-time rebuild fills in which library each item came from, which the publisher triggers itself on
+its first pass.
+
+**No protocol change**: the filtering happens before anything reaches the wire.
+
+The vocabulary changed with it. *Group* is gone from every screen — Sharing now shows **People** and
+**Servers**, and one *Invite someone* button asks which you mean. The word survives on the wire and
+in `docs/MESH.md`. Also: *Leave group* became **Stop sharing**, and it now rotates the secret before
+leaving, so the other side actually loses access and every invite minted for that link stops working
+— previously leaving was local and silent, and they kept both.
+
 ### Minor 2, and the address form — Part 7
 
 **`PROTOCOL_MINOR` 1 → 2.** `Heartbeat` gained an optional `side_door`: where a browser can reach

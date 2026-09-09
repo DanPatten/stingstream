@@ -370,6 +370,28 @@ whose fields disappear on the way out.
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
 
+### What a node publishes, and to whom
+
+**Not everything, and not the same thing to everybody.** A node publishes into each link only the
+libraries its owner chose for that link — Dan: *"Each side picks its own"* — so two links from the
+same server can carry entirely different sets, and a link carries nothing at all until somebody
+chooses.
+
+The choice lives in `StingStream.Core` (`Sharing/SharedLibraryStore`), because libraries are
+Jellyfin's concept and the mesh has never known what one is. `InventoryPublisher` filters against it
+per group before `PUT /mesh/v1/inventory`, which is why the mesh needs no notion of a library to
+enforce it.
+
+Two consequences worth knowing before touching either side:
+
+* **A snapshot replaces**, so un-sharing retracts by itself: `put_inventory` calls
+  `replace_local_inventory`, and the next snapshot simply does not contain what was withdrawn. The
+  app forces a snapshot on every change rather than waiting up to fifteen minutes for the periodic
+  one.
+* **A delta must retract explicitly.** A change to an item a link cannot see is published as a
+  *removal*, not as silence — otherwise a film moved into an un-shared library sits on the peer for
+  ever as a pointer to something it will never be offered again.
+
 ### The heartbeat's `side_door`
 
 A node publishes where a **browser** can reach it: the domain its owner pointed at it
