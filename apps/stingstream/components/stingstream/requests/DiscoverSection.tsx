@@ -22,10 +22,12 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * Long enough that typing a title is one search, short enough not to feel stuck. */
 const SEARCH_DEBOUNCE_MS = 400;
 
-/** Public-domain titles WP-TOOLS seeds by default (`tools/ui-seed-media.ps1`), so an example
- * chip is guaranteed to find something real in every environment this screen is checked in,
- * verification node included. Six, per the design: enough to suggest a spread of films and one
- * series without turning the empty state into a wall of buttons. */
+/** Public-domain titles. These are search *terms*, not library content: pressing one runs a real
+ * Radarr/Sonarr metadata lookup, so a chip finds whatever the node's indexers actually return.
+ * They were originally picked to match the media WP-TOOLS seeded into a test node; that seeder was
+ * removed on 2026-09-09 (see docs/UI-LOOP.md), so a chip is no longer guaranteed to hit something
+ * already in the library. Six, per the design: enough to suggest a spread of films and one series
+ * without turning the empty state into a wall of buttons. */
 const EXAMPLE_SEARCHES = [
   "Sintel",
   "Big Buck Bunny",

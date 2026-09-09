@@ -1,15 +1,22 @@
 # The UI iterate loop (WP-TOOLS)
 
 Tooling for v0.2.0's "iterate loop" (the plan's Part 2, section "The iterate loop"): run a private
-StingStream node, seed it with deterministic test media carrying real TMDB/TVDB movie artwork by
-default (F-12, Dan: "tests must use real movie images, never placeholders" -- offline gradients
-are opt-in, see `-OfflineArtwork` below), screenshot every screen at every viewport, sweep each one
-for real problems, and drive the golden-startup budgets end to end. All of
-it lives under `tools/ui-node.ps1`, `tools/ui-seed-media.ps1`, `tools/ui-startup.ps1` and
+StingStream node, screenshot every screen at every viewport, sweep each one for real problems, and
+drive the golden-startup budgets end to end. All of
+it lives under `tools/ui-node.ps1`, `tools/ui-startup.ps1` and
 `tools/ui-shots/**`. This package owns those files and this document; it does not own any
 `apps/stingstream/**` source file -- every screen this loop screenshots belongs to another work
 package, and the `testID` contract below is a request to those packages, not something this
 package implements.
+
+> **No test media, as of 2026-09-09.** The loop used to seed a node with 8 public-domain-titled
+> movies and 2 series (`tools/ui-seed-media.ps1`, `ui-node.ps1 -Seed`). Dan asked for that removed
+> -- a local node was coming up showing sample content -- so the script is deleted and the `-Seed`
+> / `-OfflineArtwork` switches are gone from `ui-node.ps1` and `ui-startup.ps1`. A node now starts
+> on an **empty** media root. Screenshots and `T_home` therefore render whatever the machine
+> actually holds; put real content under `<DataDir>\media\Movies` / `\TV` by hand if a shot needs
+> a populated library. The historical sections below (Verification, Pass-03..05) describe runs
+> made *before* this and still refer to the seeder; they are kept as a record, not as instructions.
 
 Companion documents: `docs/RUNNING.md` (what a node is and how `config.toml`/`runtime.json` work),
 `docs/CONTRIBUTING.md` (rule 3: never run a node out of the repository's own build outputs),
@@ -54,21 +61,18 @@ using) **and never run a node out of `mesh/target/debug/`or `server/*/bin/` dire
 ## Commands
 
 ```powershell
-# Start a private node: Jellyfin + mesh only (no arrs), seeded, fresh data dir, Tier B if a
-# web-dist export already exists at the default location.
-powershell tools\ui-node.ps1 -Fresh -Seed
+# Start a private node: Jellyfin + mesh only (no arrs), fresh data dir, empty media root,
+# Tier B if a web-dist export already exists at the default location.
+powershell tools\ui-node.ps1 -Fresh
 
 # Point it at a running Metro dev server instead (Tier A).
 powershell tools\ui-node.ps1 -DevServer http://127.0.0.1:8081
 
 # Full node (Radarr/Sonarr/NZBGet too), bound to loopback only.
-powershell tools\ui-node.ps1 -Fresh -Seed -WithArrs -Bind 127.0.0.1
+powershell tools\ui-node.ps1 -Fresh -WithArrs -Bind 127.0.0.1
 
 # Stop whatever is running against the default data dir.
 powershell tools\ui-node.ps1 -Stop
-
-# Seed media into an already-running node's data dir (also usable standalone).
-powershell tools\ui-seed-media.ps1 -MediaRoot E:\Dan\Documents\Repos\StingStream\.local\ui-loop\data\media
 
 # Screenshots + sweep + report, three viewports, against a running node.
 cd tools\ui-shots
@@ -106,11 +110,13 @@ reflected), `-Port` (default 8795), `-WithArrs` (switch, default off: `[children
 radarr/sonarr/nzbget = false`, the same shape `tools/e2e-m4.ps1` uses for a pure holder), `-Bind`
 (`0.0.0.0` default so a LAN IP and an Android emulator's `10.0.2.2` both work; `127.0.0.1` to
 restrict to this machine), `-WebDist <dir>`, `-DevServer <url>` (passes `--web-dev-server <url>` --
-see "The `--web-dev-server` flag" below), `-Seed` (runs `ui-seed-media.ps1` into the data dir's
-media root **before** the node's first start, so the first library scan finds the files already
-there -- confirmed to matter, see "Does first-run wiring scan pre-placed files?" below; real
-TMDB/TVDB artwork by default, F-12 -- see "Real artwork by default" below), `-OfflineArtwork`
-(with `-Seed`: fall back to the old offline gradients instead), `-Stop`.
+see "The `--web-dev-server` flag" below), `-Stop`.
+
+The data dir's `media` root is created empty and nothing fills it -- see the note at the top of
+this document. If a screen you are iterating on needs a populated library, place real files under
+`<DataDir>\media\Movies` / `<DataDir>\media\TV` **before** the node's first start, so the first
+library scan finds them already there; that ordering is confirmed to matter -- see "Does first-run
+wiring scan pre-placed files?" below.
 
 `config.toml` is written once (first start only, matching the supervisor's own "written with
 defaults, never rewritten" contract for this file -- delete it, or pass `-Fresh`, to regenerate):
@@ -141,131 +147,38 @@ flag this fallback simply never triggers again -- nothing to update here.
 
 **Yes, confirmed live (2026-09-06).** Media placed on disk under `<DataDir>\media\Movies` and
 `<DataDir>\media\TV` *before* the node's first start was picked up by Jellyfin's own first-run
-library scan with no manual refresh: a fresh node seeded with 8 movies + 2 series (16 top-level
-items) reported all 16 through `/jellyfin/Items` immediately once first-run wiring completed, with
-no call to `/jellyfin/Library/Refresh` at any point. `tools/ui-seed-media.ps1` still supports an
-explicit `-RefreshNodeUrl` for the one case this does not cover -- re-seeding *new* titles into a
-data dir whose node is already running (a library that already exists does not re-scan itself on a
-timer fast enough to be useful for an interactive loop).
-
-### Real artwork by default (F-12), offline gradients only behind `-OfflineArtwork`
-
-**F-12 (Dan): "tests must use real movie images, never placeholders."** Real TMDB/TVDB artwork is
-the default for everyone -- agents included -- in `tools/ui-seed-media.ps1`,
-`tools/ui-node.ps1 -Seed` and `tools/ui-startup.ps1`. Pass `-OfflineArtwork` to any of the three to
-fall back to the old deterministic gradients instead (no network dependency at all, at the cost of
-not being a real image) -- e.g. no network access, or a deliberate no-network smoke test.
-
-Two things had to be confirmed live (2026-09-06) before real artwork could work at all, both now
-handled automatically:
-
-1. **StingStream.Core's first-run wiring creates the Movies/TV Shows libraries with
-   `EnableInternetProviders: false`** (confirmed via `GET /jellyfin/Library/VirtualFolders`) --
-   despite `FirstRunService.cs`'s own comment that its `LibraryOptions` are "exactly as a stock
-   install would do it." A library scan with providers off never fetches anything from TMDB/TVDB,
-   real or otherwise.
-2. **A local image file wins over any fetched one, regardless of that setting.** Forcing a full
-   image refresh (`replaceAllImages=true`) on an item that already had a local `poster.jpg`
-   produced no change at all after 90+ seconds of polling -- Jellyfin's local-file image provider
-   is simply higher priority. So real-artwork mode has to do two things, not one: never write
-   `poster.jpg`/`fanart.jpg` in the first place (the pre-start placement pass), **and** flip
-   `EnableInternetProviders` on for both libraries once they exist (which needs the node's API, so
-   it cannot happen before the node's first start creates them).
-
-`ui-node.ps1 -Seed` therefore seeds with no local images by default, waits for first-run wiring
-exactly as it always did, and then calls `ui-seed-media.ps1 -RefreshNodeUrl <url>` -- which PATCHes
-`/Library/VirtualFolders/LibraryOptions` for each library (idempotent: skips a library that already
-has providers on; preserves every other field on the existing `LibraryOptions` object rather than
-POSTing a partial one, which would otherwise silently reset `EnableRealtimeMonitor`/`EnablePhotos`/
-etc. to their C# defaults -- confirmed this matters, and confirmed the fix preserves them), triggers
-`/Library/Refresh`, and polls the catalogue's first movie for a real `ImageTags.Primary` to appear
-as the signal that a fetch actually happened, reporting how long it took. If the wiring wait itself
-times out (the same shared-machine contention documented under "Verification" below), it warns and
-skips the follow-up automatically -- run `ui-seed-media.ps1 -RefreshNodeUrl <url>` by hand once the
-node finishes wiring. `tools/ui-startup.ps1` does the equivalent as its own step, and deliberately
-places it **before** Playwright ever opens the page: T_home is meant to measure how fast Home shows
-a poster that is already there, not how long a TMDB round trip takes, so the real-artwork wait is
-its own untimed-budget step ahead of the Playwright step rather than folded into T_home.
-
-**Measured on this machine, both modes confirmed end to end (2026-09-06):** offline mode's posters
-carry the title only now (no caption); real mode's fetched `Big Buck Bunny` poster byte-matches the
-film's actual theatrical artwork, and all 10 seeded titles fetched real images in every run tried.
-Timing is genuinely conditions-dependent, not a fixed number -- enabling providers is always an
-immediate `204`, but the identification-and-download pass that follows races this machine's other
-concurrent load: one clean run reached all 10 real images within about 20-40 seconds of enabling
-providers (the item-count poll went 4 -> 5 -> 7 -> 9 -> 10 across four 5-second cycles, and the
-sample movie already had its image by the time that finished); one heavily-loaded run had not
-finished identifying all 10 titles after 180 seconds and needed a second, longer wait budget (the
-item-count wait is 420s under real artwork, kept at 180s only for `-OfflineArtwork`'s deterministic
-NFO-only scan). Expect anywhere from under a minute to several minutes -- this is a real network
-round trip to TMDB for every title, not a local operation, and shares the network/CPU with whatever
-else is running on the machine.
-
----
-
-## `tools/ui-seed-media.ps1`
-
-Eight public-domain-titled movies (real TMDB ids) and two public-domain-titled series (real TVDB
-ids), placed directly on disk with an NFO carrying the id -- lifted from `tools/e2e-m4.ps1`'s
-`New-Clip`/`Write-MovieNfo`/`Install-Movie` (that file is untouched; the helpers are reproduced
-here, not imported, since e2e-m4 deliberately keeps its own copies as a passing acceptance record --
-see `docs/RUNNING.md`'s note on why `tools/e2e-common.ps1` doesn't own e2e-m3's/e2e-m4's helpers
-either) plus new `Write-SeriesNfo`/`Install-Series` for the two shows.
-
-| Movie | Year | TMDB | | Series | Year | TVDB |
-|---|---|---|---|---|---|---|
-| Big Buck Bunny | 2008 | 10378 | | The Beverly Hillbillies | 1962 | 71471 |
-| Sintel | 2010 | 45745 | | Highway Patrol | 1955 | 190051 |
-| Elephants Dream | 2006 | 9761 | | | | |
-| Night of the Living Dead | 1968 | 10331 | | | | |
-| Sita Sings the Blues | 2008 | 22820 | | | | |
-| Tears of Steel | 2012 | 133701 | | | | |
-| The Cabinet of Dr. Caligari | 1920 | 234 | | | | |
-| Nosferatu | 1922 | 653 | | | | |
-
-Both series get 3 Season-01 episodes each. Movies are 20s, episodes 30s, all 720p colour bars
-encoded constant-bitrate the same way `e2e-m4.ps1`'s `New-Clip` does (`-minrate`/`-maxrate`/
-`-bufsize` with `nal-hrd=cbr`) -- real, playable, non-trivial media, not a few-hundred-kilobyte
-artifact of an ordinary `-b:v` target on a static test pattern.
-
-**Artwork is real by default (F-12)**: no local `poster.jpg`/`fanart.jpg` is written at all, so
-Jellyfin identifies each title from the `uniqueid` already in its NFO and fetches real TMDB/TVDB
-poster/backdrop art -- see "Real artwork by default" below for what that actually takes (it is not
-just "don't write the file"). Pass `-OfflineArtwork` for the old behaviour instead: a 600x900
-`poster.jpg` and a 1920x1080 `fanart.jpg` per title, rendered entirely offline with `System.Drawing`
-(GDI+, built into Windows) -- a diagonal gradient whose two colours are derived from a hash of the
-title (so the same title always renders the same gradient and different titles are visibly
-distinct, with no hand-maintained colour table) plus the title text, so a screenshot pass in this
-mode never depends on TMDB's image CDN being reachable or serving the same poster twice. Both modes
-are deterministic and idempotent: a second run with no `-Force` makes no changes (every clip, and
-every `-OfflineArtwork` image, is skipped once it already exists at the expected path/size), so
-`tools/ui-node.ps1 -Seed` is cheap on every start after the first.
+library scan with no manual refresh: a fresh node holding 8 movies + 2 series (16 top-level items)
+reported all 16 through `/jellyfin/Items` immediately once first-run wiring completed, with no call
+to `/jellyfin/Library/Refresh` at any point. This is still the rule to follow when placing real
+content by hand: get the files down first, then start the node. The one case it does not cover is
+adding *new* titles to a data dir whose node is already running -- a library that already exists
+does not re-scan itself on a timer fast enough for an interactive loop, so POST
+`/jellyfin/Library/Refresh` yourself.
 
 ---
 
 ## `tools/ui-startup.ps1`
 
-The golden-startup acceptance harness. Wipes its own private data dir, seeds it, starts a node
-(private copy, never the repo's build outputs), and times, on one clock started when the process
+The golden-startup acceptance harness. Wipes its own private data dir, starts a node on an empty
+media root (private copy, never the repo's build outputs), and times, on one clock started when the process
 launched: **T_gateway** (TCP accept), **T_index** (`GET /` -> 200; once WP-GATE's node marker
 exists, also checks `loopback`/`firstRun` in the injected `window.__STINGSTREAM_NODE__`, and prints
 whether it was found -- until then 200 is the whole check), **T_healthy** (`/healthz` all enabled
 children healthy), **T_wired** (`runtime.json`'s `first_run` flag clears). With `-DriveUi`,
 Playwright then opens the page (reusing `tools/ui-shots`'s own Playwright install, so this package
 carries the dependency exactly once) and measures **FCP** (first-contentful-paint, from the
-`PerformanceObserver` paint entry) and **T_home** (a real poster with `naturalWidth > 0` on Home),
+`PerformanceObserver` paint entry) and **T_home** (an image with `naturalWidth > 0` on Home),
 driving the first-run "Create your StingStream account" screen when it finds one (WP3) and falling
-back to an ordinary sign-in with the seeded admin credentials (read via `--pass-file`, never
+back to an ordinary sign-in with the generated admin credentials (read via `--pass-file`, never
 printed) until it exists. With `-Lan`, a second Playwright context opens the LAN URL and reports
 whichever of the marker-based check or the pre-marker "finish setup on the computer" text it found.
 Finally the node is restarted on the same data dir and an ordinary sign-in -> Home pass is timed
 again as **T_home2** ("second-launch home").
 
-Seeds with real TMDB/TVDB artwork by default (F-12; `-OfflineArtwork` falls back to the old
-gradients). With `-DriveUi` and real artwork, once `T_wired` clears this script runs its own
-untimed step -- enabling the libraries' internet image providers and waiting for a real poster --
-**before** Playwright opens the page, so that step's own network time is never charged against
-`T_home`; see "Real artwork by default" above for why and for the measured timing range.
+**`T_home` caveat since test media was removed (2026-09-09).** The wait is "any `img` with
+`naturalWidth > 0`", which used to be satisfied by a seeded poster. On an empty library it is
+satisfied only if Home renders an image of its own (logo, empty-state art). If `T_home` starts
+timing out on a machine with no media, that is the reason -- not a regression in startup.
 
 Budgets, from the plan's own "Golden startup" acceptance section:
 
@@ -482,7 +395,7 @@ the sideloaded APKs.
 
 **Golden startup** -- `ui-startup.ps1 -DriveUi -Lan -WithArrs` passes every budget three runs in a
 row: fresh data dir -> `/` shows "Create your StingStream account" with nothing typed -> account
-created -> home with seeded posters within 5s -> LAN IP shows "finish setup on the computer" ->
+created -> home rendered within 5s -> LAN IP shows "finish setup on the computer" ->
 restart -> sign-in -> home; no console errors at any step; the generated password stops working and
 is gone from `runtime.json`; `/jellyfin/web` 404 and `/jellyfin/Startup/*` not anonymous; the TV
 emulator signs in with a code entered on the web build within 3s; the phone build signs in with no
