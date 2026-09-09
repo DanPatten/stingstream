@@ -111,7 +111,11 @@ export default function JoinFromLinkPage() {
             ? e.message
             : t("invites.error_unexpected"),
         );
-        setPhase("problem");
+        // Unless the visitor is already signed in on this server, in which case a dead end is the
+        // wrong answer and "go to sign in" is a nonsense one. Dan hit exactly that: an invite he
+        // had already redeemed, a card that said it could not be used, and a button to a sign-in
+        // he had done. Somebody with a session does not need this link for anything.
+        setPhase(user?.Id ? "signed-in" : "problem");
       }
     };
 
@@ -192,7 +196,7 @@ export default function JoinFromLinkPage() {
     );
   }
 
-  if (phase === "signed-in" && invite) {
+  if (phase === "signed-in") {
     return (
       <AuthCard>
         <Text variant='title' weight='bold'>
@@ -200,14 +204,24 @@ export default function JoinFromLinkPage() {
         </Text>
         {/* Named rather than assumed: somebody may be signed in as one person and holding an
             invite meant for another in the same household, and the account name is the only thing
-            that tells them which. */}
+            that tells them which.
+
+            Two shapes, because there are two ways to arrive here. A *live* invite is a real
+            decision — accepting it would make a second account — so it says so and lists what the
+            invite opens. An invite that cannot be used is not a decision at all: it says why in the
+            node's own words, and the only thing left to do is carry on. */}
         <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-          {t("invites.already_signed_in_body", {
-            name: user?.Name ?? "",
-            server: invite.serverName,
-          })}
+          {invite
+            ? t("invites.already_signed_in_body", {
+                name: user?.Name ?? "",
+                server: invite.serverName,
+              })
+            : t("invites.already_signed_in_spent", {
+                name: user?.Name ?? "",
+                reason: problem ?? t("invites.error_unexpected"),
+              })}
         </Text>
-        <InviteLibraryList libraries={invite.libraries} />
+        {invite ? <InviteLibraryList libraries={invite.libraries} /> : null}
         <Button
           variant='primary'
           size='lg'

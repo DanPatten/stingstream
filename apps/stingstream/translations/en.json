@@ -1998,6 +1998,7 @@
     "problem_go_to_sign_in": "Go to sign in",
     "already_signed_in_title": "You are already signed in",
     "already_signed_in_body": "You are signed in as {{name}} on {{server}}. This invite would create a second account — sign out first if that is what you want.",
+    "already_signed_in_spent": "You are signed in as {{name}}, so there is nothing to do here — {{reason}}",
     "already_signed_in_continue": "Keep watching",
     "error_no_code": "This link is missing its invite code. Ask whoever sent it to send the whole link — some chat apps cut off the last part.",
     "error_unknown": "This invite link is not valid. Ask whoever sent it to send it again, in full.",

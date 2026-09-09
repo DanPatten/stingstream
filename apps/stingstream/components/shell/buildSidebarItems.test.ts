@@ -46,12 +46,14 @@ const keys = (...args: Parameters<typeof buildSidebarItems>): string[] =>
   flattenSidebar(buildSidebarItems(...args)).map((i) => i.key);
 
 describe("buildSidebarItems", () => {
-  test("a plain member gets Home, the personal rows, Sharing and Settings", () => {
+  // Sharing is not here, and that is the point: every query behind it is elevated, so a member
+  // who opened it got "GET /groups: this needs an administrator account on your server" over an
+  // otherwise empty page. A tab that can only fail is worse than no tab.
+  test("a plain member gets Home, the personal rows and Settings", () => {
     expect(keys(member, settings(), [], t)).toEqual([
       "(home)",
       "(favorites)",
       "(requests)",
-      "sharing",
       "settings",
     ]);
   });
@@ -101,6 +103,11 @@ describe("buildSidebarItems", () => {
     // pass-02 F-20: a group's `index` is `/`, so navigating by
     // `/(auth)/(tabs)/(requests)` left every section sharing one address and
     // none of them surviving a refresh.
+    //
+    // Home is the exception and has to be. Its address really *is* `/`, and because every group
+    // has an `index`, `replace("/")` resolves inside whichever group you are already in --
+    // pressing Home from a library landed on the library grid. So Home alone carries the fully
+    // qualified path; the address bar still reads `/`.
     const paths = Object.fromEntries(
       flattenSidebar(
         buildSidebarItems(
@@ -116,7 +123,7 @@ describe("buildSidebarItems", () => {
     );
 
     expect(paths).toMatchObject({
-      "(home)": "/",
+      "(home)": "/(auth)/(tabs)/(home)/",
       "(favorites)": "/favorites",
       "(watchlists)": "/watchlists",
       "(custom-links)": "/links",
@@ -146,12 +153,13 @@ describe("buildSidebarItems", () => {
   });
 
   test("no user and no settings still produces a usable sidebar", () => {
-    // The first render after sign-in, before either atom has settled.
+    // The first render after sign-in, before either atom has settled. Nothing elevated shows until
+    // the user atom says it may, which is the safe direction: a row that appears and then vanishes
+    // is worse than one that appears a beat late.
     expect(keys(null, null, null, t)).toEqual([
       "(home)",
       "(favorites)",
       "(requests)",
-      "sharing",
       "settings",
     ]);
   });

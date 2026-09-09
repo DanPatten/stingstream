@@ -187,15 +187,24 @@ export function buildSidebarItems(
     ...(showWatchlists ? [tabItem("(watchlists)", t)] : []),
     ...(settings?.showCustomMenuLinks ? [tabItem("(custom-links)", t)] : []),
     tabItem("(requests)", t),
-    {
-      key: "sharing",
-      label: t("shell.sharing"),
-      icon: { set: "semantic", name: "sharing" },
-      testID: "tab-sharing",
-      route: { pathname: "/sharing" },
-      navigate: "push",
-      match: ["sharing"],
-    },
+    // Sharing is the owner's screen end to end -- who has an account here, which servers this one
+    // is linked to, and this server's own address -- and every query behind it is elevated. A
+    // client who opened it got "GET /groups: this needs an administrator account on your server"
+    // over an otherwise empty page. Same gate as Manage and Transfers below, and for the same
+    // reason: a tab that can only fail is worse than no tab.
+    ...(isAdmin
+      ? [
+          {
+            key: "sharing",
+            label: t("shell.sharing"),
+            icon: { set: "semantic" as const, name: "sharing" as const },
+            testID: "tab-sharing",
+            route: { pathname: "/sharing" },
+            navigate: "push" as const,
+            match: ["sharing"],
+          },
+        ]
+      : []),
     // Manage, Transfers and Sessions talk to endpoints that require Jellyfin's
     // RequiresElevation policy — a non-administrator who opened them would get
     // a permanently blocked screen, so they are not offered at all. Same gate
@@ -211,7 +220,20 @@ export function buildSidebarItems(
   ];
 
   return [
-    { key: "primary", items: [tabItem("(home)", t)] },
+    {
+      key: "primary",
+      items: [
+        tabItem("(home)", t, {
+          // The one section that cannot use its public URL. Every tab group has an `index`, so
+          // every group defines `/` -- and `replace("/")` resolves *within the group you are
+          // already in*. Pressing Home from a library therefore landed on `(libraries)/index`, the
+          // library grid, with the sidebar still lighting the library you came from. Dan: "Oh
+          // clicking home is what that is doing". The fully qualified path is unambiguous and the
+          // address bar still reads `/`, which is Home's real address.
+          route: { pathname: "/(auth)/(tabs)/(home)/" },
+        }),
+      ],
+    },
     ...(libraries.length > 0
       ? [
           {

@@ -11,14 +11,37 @@ import { UsersSection } from "./UsersSection";
 
 type Section = "users" | "libraries" | "transcoding" | "logs";
 
+const SECTIONS: Section[] = ["users", "libraries", "transcoding", "logs"];
+
+/**
+ * A section name from a URL, or `users`.
+ *
+ * Narrowed rather than cast: the value arrives from a query string, and a screen that trusted it
+ * would render nothing at all for a typo — four `&&`s that all miss, and a blank page under a
+ * segmented control.
+ */
+export const sectionFromParam = (value: string | undefined): Section =>
+  SECTIONS.find((s) => s === value) ?? "users";
+
 /**
  * Everything here goes through Jellyfin's own API (`/jellyfin/*`), not
  * StingStream.Core — these are Jellyfin server-admin features, and this node
  * always talks to its own Jellyfin (see docs/ARCHITECTURE.md).
  */
-export function AdminScreen() {
+export function AdminScreen({
+  initialSection = "users",
+}: {
+  /**
+   * Which tab to open on.
+   *
+   * Home's empty state offers **Add media**, and landing on the account list is not that. A screen
+   * with tabs that always opens on the first one cannot be linked to, and a button that promises
+   * one thing and shows another is the bug Dan reported.
+   */
+  initialSection?: Section;
+} = {}) {
   const { t } = useTranslation();
-  const [section, setSection] = useState<Section>("users");
+  const [section, setSection] = useState<Section>(initialSection);
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
 
