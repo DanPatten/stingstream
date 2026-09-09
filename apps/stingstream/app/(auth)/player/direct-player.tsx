@@ -19,14 +19,9 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Alert,
-  PixelRatio,
-  Platform,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { PixelRatio, Platform, useWindowDimensions, View } from "react-native";
 import { useAnimatedReaction, useSharedValue } from "react-native-reanimated";
+import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 import { AutoSubtitleNotice } from "@/components/video-player/controls/AutoSubtitleNotice";
@@ -584,10 +579,7 @@ export default function DirectPlayerPage() {
               hasMediaSource: !!mediaSource,
               hasUrl: !!url,
             });
-            Alert.alert(
-              t("player.error"),
-              t("player.failed_to_get_stream_url"),
-            );
+            toast.error(t("player.failed_to_get_stream_url"));
             setStreamStatus({ isLoading: false, isError: true });
             return null;
           }
@@ -606,7 +598,7 @@ export default function DirectPlayerPage() {
         if (isExpectedError(error)) {
           // The server itself declined to produce a stream (NoCompatibleStream
           // and friends): say so instead of only flipping the error state.
-          Alert.alert(t("player.error"), t("player.failed_to_get_stream_url"));
+          toast.error(t("player.failed_to_get_stream_url"));
         }
         setStreamStatus({ isLoading: false, isError: true });
         return null;
@@ -1806,8 +1798,7 @@ export default function DirectPlayerPage() {
                 onLoad={() => setIsVideoLoaded(true)}
                 onError={(e: { nativeEvent: MpvOnErrorEventPayload }) => {
                   console.error("Video Error:", e.nativeEvent);
-                  Alert.alert(
-                    t("player.error"),
+                  toast.error(
                     t("player.an_error_occurred_while_playing_the_video"),
                   );
                   // Attach the negotiation and decode facts that make a

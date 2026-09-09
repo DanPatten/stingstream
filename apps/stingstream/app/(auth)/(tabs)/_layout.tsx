@@ -11,8 +11,9 @@ import type {
 import { useAtomValue } from "jotai";
 import { type PropsWithChildren, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Platform, View } from "react-native";
+import { Platform, View } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
+import { toast } from "sonner-native";
 import { TAB_LABEL_FONT_SIZE, tabTestID } from "@/components/shell/tabIcons";
 import { WebShellLayout } from "@/components/shell/WebShellLayout";
 import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
@@ -183,7 +184,7 @@ function TVTabLayout() {
             error instanceof Error
               ? error.message
               : t("server.session_expired");
-          Alert.alert(t("login.connection_failed"), message);
+          toast.error(message);
         }
         return;
       }

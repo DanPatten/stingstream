@@ -9,7 +9,7 @@ import { useNavigation } from "expo-router";
 import { useAtom } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Platform, ScrollView, View } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
@@ -23,6 +23,7 @@ import { HeaderButton } from "@/components/common/HeaderButton";
 import { Text } from "@/components/common/Text";
 import ActiveDownloads from "@/components/downloads/ActiveDownloads";
 import { DownloadSize } from "@/components/downloads/DownloadSize";
+import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import useRouter from "@/hooks/useAppRouter";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -53,29 +54,19 @@ export default function DownloadsPage() {
 
   const _insets = useSafeAreaInsets();
 
-  const migration_20241124 = () => {
-    Alert.alert(
+  const migration_20241124 = async () => {
+    const ok = await confirmDestructive(
       t("home.downloads.new_app_version_requires_re_download"),
       t("home.downloads.new_app_version_requires_re_download_description"),
-      [
-        {
-          text: t("home.downloads.back"),
-          style: "cancel",
-          onPress: () => {
-            setShowMigration(false);
-            router.back();
-          },
-        },
-        {
-          text: t("home.downloads.delete"),
-          style: "destructive",
-          onPress: async () => {
-            await deleteAllFiles();
-            setShowMigration(false);
-          },
-        },
-      ],
+      t("home.downloads.delete"),
     );
+    if (!ok) {
+      setShowMigration(false);
+      router.back();
+      return;
+    }
+    await deleteAllFiles();
+    setShowMigration(false);
   };
 
   const downloadedFiles = useMemo(() => downloadedItems, [downloadedItems]);

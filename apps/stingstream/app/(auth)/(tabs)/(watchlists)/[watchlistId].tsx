@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   RefreshControl,
   ScrollView,
@@ -23,6 +22,7 @@ import {
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
+import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
 import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
@@ -120,48 +120,34 @@ export default function WatchlistDetailScreen() {
     setRefreshing(false);
   }, [refetchWatchlist, refetchItems]);
 
-  const handleDelete = useCallback(() => {
-    Alert.alert(
+  const handleDelete = useCallback(async () => {
+    const ok = await confirmDestructive(
       t("watchlists.delete_confirm_title"),
       t("watchlists.delete_confirm_message", { name: watchlist?.name }),
-      [
-        { text: t("watchlists.cancel_button"), style: "cancel" },
-        {
-          text: t("watchlists.delete_button"),
-          style: "destructive",
-          onPress: async () => {
-            if (watchlistIdNum) {
-              await deleteWatchlist.mutateAsync(watchlistIdNum);
-              router.back();
-            }
-          },
-        },
-      ],
+      t("watchlists.delete_button"),
     );
+    if (!ok || !watchlistIdNum) return;
+    await deleteWatchlist.mutateAsync(watchlistIdNum);
+    router.back();
   }, [deleteWatchlist, watchlistIdNum, watchlist?.name, router, t]);
 
   const handleRemoveItem = useCallback(
     (item: BaseItemDto) => {
       if (!watchlistIdNum || !item.Id) return;
 
-      Alert.alert(
-        t("watchlists.remove_item_title"),
-        t("watchlists.remove_item_message", { name: item.Name }),
-        [
-          { text: t("watchlists.cancel_button"), style: "cancel" },
-          {
-            text: t("watchlists.remove_button"),
-            style: "destructive",
-            onPress: async () => {
-              await removeFromWatchlist.mutateAsync({
-                watchlistId: watchlistIdNum,
-                itemId: item.Id!,
-                watchlistName: watchlist?.name,
-              });
-            },
-          },
-        ],
-      );
+      void (async () => {
+        const ok = await confirmDestructive(
+          t("watchlists.remove_item_title"),
+          t("watchlists.remove_item_message", { name: item.Name }),
+          t("watchlists.remove_button"),
+        );
+        if (!ok) return;
+        await removeFromWatchlist.mutateAsync({
+          watchlistId: watchlistIdNum,
+          itemId: item.Id!,
+          watchlistName: watchlist?.name,
+        });
+      })();
     },
     [removeFromWatchlist, watchlistIdNum, watchlist?.name, t],
   );

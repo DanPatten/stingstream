@@ -55,6 +55,7 @@ UI and headers:
 - `stack-screen-header-configuration` | Sub-pages need explicit Stack.Screen with headerTransparent + back button
 - `switch-pointerevents-ignored` | Switch ignores its own pointerEvents (Android); wrap in a View pointerEvents="none"
 - `pressable-listitem-cannot-hold-buttons` | A pressable ListItem is a real `<button>` on web; row action buttons must be siblings, not `iconAfter`
+- `no-browser-dialogs` | Never `globalThis.confirm`/`alert`; `Alert.alert` draws nothing on web and is TV-only. Use `confirmDestructive`/`confirmAction`/`toast`
 
 State and data:
 - `use-network-aware-query-client-limitations` | Object.create breaks private fields; only for invalidateQueries

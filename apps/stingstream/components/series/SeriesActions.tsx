@@ -1,13 +1,8 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Alert,
-  Linking,
-  TouchableOpacity,
-  View,
-  type ViewProps,
-} from "react-native";
+import { Linking, TouchableOpacity, View, type ViewProps } from "react-native";
+import { toast } from "sonner-native";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import type { MovieDetails } from "@/utils/jellyseerr/server/models/Movie";
 import type { TvDetails } from "@/utils/jellyseerr/server/models/Tv";
@@ -32,7 +27,7 @@ export const ItemActions = ({ item, ...props }: Props) => {
 
   const openTrailer = useCallback(async () => {
     if (!trailerLink) {
-      Alert.alert(t("common.no_trailer_available"));
+      toast.error(t("common.no_trailer_available"));
       return;
     }
 

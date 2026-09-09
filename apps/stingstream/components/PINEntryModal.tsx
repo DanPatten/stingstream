@@ -8,7 +8,6 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Alert,
   Animated,
   Keyboard,
   Platform,
@@ -16,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
 import { verifyAccountPIN } from "@/utils/secureCredentials";
@@ -146,18 +146,15 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
     }
   };
 
-  const handleForgotPIN = () => {
-    Alert.alert(t("pin.forgot_pin"), t("pin.forgot_pin_desc"), [
-      { text: t("common.cancel"), style: "cancel" },
-      {
-        text: t("common.continue"),
-        style: "destructive",
-        onPress: () => {
-          onClose();
-          onForgotPIN?.();
-        },
-      },
-    ]);
+  const handleForgotPIN = async () => {
+    const ok = await confirmDestructive(
+      t("pin.forgot_pin"),
+      t("pin.forgot_pin_desc"),
+      t("common.continue"),
+    );
+    if (!ok) return;
+    onClose();
+    onForgotPIN?.();
   };
 
   return (

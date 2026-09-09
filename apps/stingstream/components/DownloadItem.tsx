@@ -14,7 +14,7 @@ import { t } from "i18next";
 import { useAtom } from "jotai";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Switch, View, type ViewProps } from "react-native";
+import { Platform, Switch, View, type ViewProps } from "react-native";
 import { toast } from "sonner-native";
 import { HEADER_ICON_SIZE } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
@@ -287,8 +287,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
       const downloadDetails = await Promise.all(downloadDetailsPromises);
       for (const { url, item, mediaSource, transport } of downloadDetails) {
         if (!url) {
-          Alert.alert(
-            t("home.downloads.something_went_wrong"),
+          toast.error(
             t("home.downloads.could_not_get_stream_url_from_jellyfin"),
           );
           continue;

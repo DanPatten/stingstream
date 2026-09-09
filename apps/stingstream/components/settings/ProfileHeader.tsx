@@ -107,6 +107,18 @@ export const ProfileHeader: React.FC = () => {
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const [imageFailed, setImageFailed] = useState(false);
+  // Above the early return, not below it. Signing out sets `user` to null, so the skeleton branch
+  // rendered one hook fewer than the card did and React threw "Rendered fewer hooks than expected"
+  // straight into the error boundary -- every sign-out, on the screen the sign-out button is on.
+  //
+  // `useServerName` asks the server and falls back to the marker, which is the stale one -- see the
+  // hook. `looksLikeHostnameOrDefault` still filters what it hands back, because a name that is
+  // really a hostname is worse than the generic word.
+  const reportedName = useServerName();
+  const serverLabel =
+    reportedName && !looksLikeHostnameOrDefault(reportedName)
+      ? reportedName
+      : t("home.settings.sections.generic_server");
 
   if (!user) {
     return (
@@ -143,15 +155,6 @@ export const ProfileHeader: React.FC = () => {
           width: AVATAR_SIZE * 2,
         })
       : null;
-
-  // `useServerName` asks the server and falls back to the marker, which is the stale one -- see
-  // the hook. `looksLikeHostnameOrDefault` still filters what it hands back, because a name that
-  // is really a hostname is worse than the generic word.
-  const reportedName = useServerName();
-  const serverLabel =
-    reportedName && !looksLikeHostnameOrDefault(reportedName)
-      ? reportedName
-      : t("home.settings.sections.generic_server");
 
   return (
     <View

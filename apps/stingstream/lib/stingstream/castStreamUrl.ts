@@ -2,7 +2,7 @@ import {
   getNodeBaseUrl,
   getStingStreamApiBaseUrl,
 } from "@stingstream/api-client";
-import { fetchMeshGroups, fetchMeshPeers, fetchMeshStatus } from "./meshApi";
+import { fetchMeshPeers, fetchMeshStatus } from "./meshApi";
 import {
   raceSideDoor,
   type SideDoorKind,

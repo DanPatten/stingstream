@@ -9,7 +9,7 @@ import { t } from "i18next";
 import { orderBy } from "lodash";
 import type React from "react";
 import { useCallback, useMemo, useState } from "react";
-import { Alert, TouchableOpacity, View } from "react-native";
+import { TouchableOpacity, View } from "react-native";
 import { HorizontalScroll } from "@/components/common/HorizontalScroll";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
@@ -18,6 +18,7 @@ import { dateOpts } from "@/components/jellyseerr/DetailFacts";
 import { textShadowStyle } from "@/components/jellyseerr/discover/GenericSlideCard";
 import JellyseerrStatusIcon from "@/components/jellyseerr/JellyseerrStatusIcon";
 import { RoundButton } from "@/components/RoundButton";
+import { confirmAction } from "@/components/stingstream/shared/confirm";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import {
   MediaStatus,
@@ -207,24 +208,14 @@ const JellyseerrSeasons: React.FC<{
     refetch,
   ]);
 
-  const promptRequestAll = useCallback(
-    () =>
-      Alert.alert(
-        t("jellyseerr.confirm"),
-        t("jellyseerr.are_you_sure_you_want_to_request_all_seasons"),
-        [
-          {
-            text: t("jellyseerr.cancel"),
-            style: "cancel",
-          },
-          {
-            text: t("jellyseerr.yes"),
-            onPress: requestAll,
-          },
-        ],
-      ),
-    [requestAll],
-  );
+  const promptRequestAll = useCallback(async () => {
+    const ok = await confirmAction(
+      t("jellyseerr.confirm"),
+      t("jellyseerr.are_you_sure_you_want_to_request_all_seasons"),
+      t("jellyseerr.yes"),
+    );
+    if (ok) requestAll();
+  }, [requestAll]);
 
   const requestSeason = useCallback(
     async (canRequest: boolean, seasonNumber: number) => {

@@ -8,9 +8,10 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Platform, TouchableOpacity, View } from "react-native";
+import { Platform, TouchableOpacity, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { Colors } from "@/constants/Colors";
 import {
   deleteAccountCredential,
@@ -78,21 +79,14 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
   const handleDeleteAccount = async (account: SavedServerAccount) => {
     if (!server) return;
 
-    Alert.alert(
+    const ok = await confirmDestructive(
       t("server.remove_saved_login"),
       t("server.remove_account_description", { username: account.username }),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("common.remove"),
-          style: "destructive",
-          onPress: async () => {
-            await deleteAccountCredential(server.address, account.userId);
-            onAccountDeleted?.();
-          },
-        },
-      ],
+      t("common.remove"),
     );
+    if (!ok) return;
+    await deleteAccountCredential(server.address, account.userId);
+    onAccountDeleted?.();
   };
 
   const getSecurityIcon = (

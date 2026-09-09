@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert } from "react-native";
+import { toast } from "sonner-native";
 import useRouter from "@/hooks/useAppRouter";
 import { useWebSocketContext } from "@/providers/WebSocketProvider";
 
@@ -269,7 +269,9 @@ export const useWebSocket = ({
       console.log("Command ~ DisplayMessage");
       const title = args?.Header;
       const body = args?.Text;
-      Alert.alert(t("player.message_from_server", { message: title }), body);
+      toast(t("player.message_from_server", { message: title }), {
+        description: body,
+      });
     }
     clearLastMessage();
   }, [

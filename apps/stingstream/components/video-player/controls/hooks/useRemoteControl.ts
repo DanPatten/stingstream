@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
 import { type SharedValue, useSharedValue } from "react-native-reanimated";
+import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { useTVBackPress } from "@/hooks/useTVBackPress";
 import { useTVEventHandler } from "@/hooks/useTVEventHandler";
 import i18n from "@/i18n";
@@ -156,26 +156,19 @@ export function useRemoteControl({
       onWillExitRef.current?.();
 
       // Controls are hidden, so confirm before leaving playback.
-      Alert.alert(
-        i18n.t("player.stopPlayback"),
-        videoTitleRef.current
-          ? i18n.t("player.stopPlayingTitle", {
-              title: videoTitleRef.current,
-            })
-          : i18n.t("player.stopPlayingConfirm"),
-        [
-          {
-            text: i18n.t("common.cancel"),
-            style: "cancel",
-            onPress: () => onCancelExitRef.current?.(),
-          },
-          {
-            text: i18n.t("common.stop"),
-            style: "destructive",
-            onPress: onBackRef.current,
-          },
-        ],
-      );
+      void (async () => {
+        const ok = await confirmDestructive(
+          i18n.t("player.stopPlayback"),
+          videoTitleRef.current
+            ? i18n.t("player.stopPlayingTitle", {
+                title: videoTitleRef.current,
+              })
+            : i18n.t("player.stopPlayingConfirm"),
+          i18n.t("common.stop"),
+        );
+        if (ok) onBackRef.current?.();
+        else onCancelExitRef.current?.();
+      })();
       return true;
     }
     return false;

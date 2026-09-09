@@ -41,7 +41,7 @@ function fakeFetch(
 }
 
 const PEERS_URL = `https://jellyfin.example.com/stingstream/api/v1/mesh/peers?group=${GROUP}`;
-const GROUPS_URL =
+const _GROUPS_URL =
   "https://jellyfin.example.com/stingstream/api/v1/mesh/groups";
 const STATUS_URL =
   "https://jellyfin.example.com/stingstream/api/v1/mesh/status";
