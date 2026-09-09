@@ -278,6 +278,30 @@ Three things changed behaviour, not just appearance:
 
 ### The address form, and finding a server — Part 6
 
+### Minor 2, and the address form — Part 7
+
+**`PROTOCOL_MINOR` 1 → 2.** `Heartbeat` gained an optional `side_door`: where a browser can reach
+the node that sent the beat. Optional with `#[serde(default)]` on an existing body, so §3 makes it a
+minor — an older node decodes the beat and ignores the key, and a newer one reads its absence as
+"this peer has no address for me", which is what it means. **Nothing to do on upgrade**, in either
+direction.
+
+It restores a field the coordinator's removal took out while leaving every consumer standing, so two
+things start working again with no client change: **casting a film held by another node** (which had
+been silently routing through the home node), and a new one — **a client whose own server is down
+now routes itself to a server that one is linked to** rather than asking for an address.
+`docs/SIDEDOOR.md` §4b.
+
+**The node marker was being spliced into an HTML comment.** `gateway::web::inject` looked for the
+first `</head>`, and the committed Expo template opens with a comment mentioning that tag — so every
+page a node served carried the marker inside a comment and no browser ever ran it. The app decided
+it was not on a node and fell back to asking for a server address. Fixed by inserting after the
+opening `<head>` instead. **No config change; rebuild and it is gone.**
+
+**On web there is no address field at all any more**, on any path: `ConnectScreen` is not rendered
+there, `?apiUrl=` is ignored there, and a page with an origin is now always treated as a node.
+Phone and TV keep their address entry. Creating an account no longer asks for the password twice.
+
 **"A node-served web build never shows the address step" was the intent from v0.2.0 and did not
 hold.** On a cold node — the case every new install passes through — the auto-connect gave the
 server 1.4 s, read the gateway's honest `503 jellyfin is Starting` as *"that is not a StingStream

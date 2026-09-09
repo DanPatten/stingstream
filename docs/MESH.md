@@ -366,9 +366,40 @@ whose fields disappear on the way out.
 |---|---|
 | `Snapshot { node_name, seq, chunk, chunks, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. **Chunked** — see below. |
 | `Delta { node_name, seq, upserts, removals }` | incremental changes, chunked the same way; the removals ride the first chunk |
-| `Heartbeat { node_name, heartbeat }` | liveness plus advertised capacity |
+| `Heartbeat { node_name, heartbeat }` | liveness, advertised capacity, and **where a browser can reach this node** — see below |
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
+
+### The heartbeat's `side_door`
+
+A node publishes where a **browser** can reach it: the domain its owner pointed at it
+(`sharing.public_address`), and its own LAN address with the **gateway's** port on it. Both, because
+a household where nobody has a domain still gets a working answer from the second machine in the
+house. A node with neither publishes nothing rather than an empty record.
+
+It is what makes a client able to do this, which is the whole reason it exists:
+
+> **Your server is down, so the app goes to one it is linked to.** While signed in, a client
+> remembers where its own server and every server that one is linked to can be reached. On a later
+> cold load, when its own origin does not answer, it races that list — public addresses first — and
+> goes to the first that answers, with a fresh sign-in there. Nobody is asked for an address.
+> `apps/stingstream/lib/stingstream/knownServers.ts`.
+
+The record is composed where each half is known. The domain lives in the mesh's own `meta` table, so
+the mesh reads it. The gateway's address and port belong to the supervisor, so it **pushes** them
+(`PUT /mesh/v1/settings/sidedoor`) on a timer rather than at start-up: a laptop changes network, and
+a frozen answer would send somebody to an address that stopped being true.
+
+Preserved across `StingStream.Core`'s capacity pushes with the same `COALESCE` the fulfilment flags
+use, and for the same reason — Core's beat carries none of these fields, and treating an absence as
+a retraction would erase the record on every tick.
+
+**This came back rather than being invented.** Part 5 removed the coordinator that used to publish
+it and left every consumer standing: the `peers.side_door` column, `MeshPeer.SideDoor` in Core,
+`MeshNodePeer.sideDoor` in the app, and the whole racing client in `lib/stingstream/sidedoor.ts` —
+all decoding a key nothing sent. The visible cost was that **casting a film held by another node
+silently fell back to routing through the home node**, because `castStreamUrl.ts` looks the record
+up and got `null` every time.
 
 ### Frame size, and why snapshots are chunked
 
@@ -590,7 +621,8 @@ member's index.
 | Method | Path | |
 |---|---|---|
 | `GET` | `/healthz` | `ok` |
-| `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses, and the DHT's state |
+| `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses, the DHT's state, and this node's own `side_door` record |
+| `PUT` | `/mesh/v1/settings/sidedoor` | `{lan_urls}` — the supervisor telling the mesh where a browser can reach this node. Pushed on a timer; see the heartbeat's `side_door` above |
 | `GET` | `/mesh/v1/groups` | groups this node belongs to |
 | `POST` | `/mesh/v1/groups` | `{name}` → create |
 | `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, via, contacted}` |

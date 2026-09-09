@@ -122,6 +122,31 @@ answer pointed at. `secure` distinguishes a real HTTPS win from the plain-HTTP L
 `client_ip` is the caller's own address, which is what lets the client remember which address won
 *on this network*.
 
+## 4b. Your address is published to your group, and that is what the fallback uses
+
+A node gossips its side door in its heartbeat: the domain above, and its own LAN address on the
+gateway's port. Its peers store it, and a client that has signed in remembers the lot.
+
+That is what lets a client be smart when its own server is off. Dan:
+
+> *"if the server the client is connecting to is DOWN then it should attempt hitting ANY other
+> servers the user's target server is linked to instead… automatically routes to the first one
+> that's up… no need to ever enter in an address manually."*
+
+On a cold load the app probes its own origin; if nothing answers within about three seconds it
+races what it remembers, **public addresses first and LAN second**, and goes to the first that
+answers. On the web that is a real navigation, because the winner has to serve its own bundle and
+its own sign-in — which is why signing in again there is the mechanism rather than a wrinkle.
+
+Two things this deliberately does not do: it does not run when the server answered *"still
+starting"* (that server is alive, and waiting is right), and it does not fail over mid-session.
+
+**A node with no domain still takes part**, through its LAN address — which is what makes a second
+machine in the same house a working fallback for the many households where nobody has a domain.
+
+`docs/MESH.md` §4 has the wire format; `apps/stingstream/lib/stingstream/knownServers.ts` is the
+client half.
+
 ## 5. What the client does
 
 `lib/stingstream/sidedoor.ts`. There used to be three candidates to race — `lan.`, `pub.` and
