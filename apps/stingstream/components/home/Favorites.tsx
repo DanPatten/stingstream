@@ -44,11 +44,18 @@ export const Favorites = () => {
     (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
     [queryClient],
   );
-  // A kind counts as empty only once it has *loaded* and come back with nothing; a kind that has
-  // not loaded is unknown, not empty, so the banner never flashes before the rows have answered.
+  // A kind counts as empty once it has *settled* with nothing to show; one that has not answered
+  // yet is unknown, not empty, so the banner never flashes before the rows have.
+  //
+  // "Settled" rather than "loaded", because a row that **errored** also draws nothing, and
+  // requiring data from all six meant one failing query left the page blank with no banner and no
+  // rows -- which is what Dan reported as "favorites has no empty state". A screen with nothing on
+  // it should say so whichever way it got there; the row itself is what reports its own failure.
   const readAllEmpty = useCallback(
     () =>
       FAVORITE_QUERY_KEYS.every((key) => {
+        const state = queryClient.getQueryState(key);
+        if (state?.status === "error") return true;
         const data = queryClient.getQueryData<CachedPages>(key);
         if (!data?.pages) return false;
         return data.pages.every((page) => (page?.length ?? 0) === 0);

@@ -9,7 +9,7 @@ import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import { useNodeContext } from "@/hooks/useNodeContext";
+import { useServerName } from "@/hooks/useServerName";
 import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
@@ -106,7 +106,6 @@ export const ProfileHeader: React.FC = () => {
   const { accent } = useTheme();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
-  const nodeContext = useNodeContext();
   const [imageFailed, setImageFailed] = useState(false);
 
   if (!user) {
@@ -145,9 +144,13 @@ export const ProfileHeader: React.FC = () => {
         })
       : null;
 
+  // `useServerName` asks the server and falls back to the marker, which is the stale one -- see
+  // the hook. `looksLikeHostnameOrDefault` still filters what it hands back, because a name that
+  // is really a hostname is worse than the generic word.
+  const reportedName = useServerName();
   const serverLabel =
-    nodeContext?.nodeName && !looksLikeHostnameOrDefault(nodeContext.nodeName)
-      ? nodeContext.nodeName
+    reportedName && !looksLikeHostnameOrDefault(reportedName)
+      ? reportedName
       : t("home.settings.sections.generic_server");
 
   return (

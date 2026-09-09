@@ -19,6 +19,7 @@ import {
   webFocusRing,
 } from "@/constants/theme";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
+import { useServerName } from "@/hooks/useServerName";
 import { useTheme } from "@/hooks/useTheme";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 
@@ -123,7 +124,7 @@ export const UserMenu: React.FC<Props> = ({
   }, [anchor, close]);
 
   const name = user?.Name ?? "";
-  const serverName = nodeName();
+  const serverName = useServerName();
 
   const signOut = useCallback(() => {
     close();
@@ -266,15 +267,6 @@ export const UserMenu: React.FC<Props> = ({
  * while the page lives, and `hooks/useNodeContext.ts` — WP3's file — does not
  * exist yet. When it does, this becomes one line calling it.
  */
-const nodeName = (): string | undefined => {
-  if (Platform.OS !== "web") return undefined;
-  const marker = (globalThis as { __STINGSTREAM_NODE__?: unknown })
-    .__STINGSTREAM_NODE__ as { nodeName?: unknown } | undefined;
-  return typeof marker?.nodeName === "string" && marker.nodeName.length > 0
-    ? marker.nodeName
-    : undefined;
-};
-
 /** Initials on the accent — no avatar image, so no request and no broken box. */
 const Avatar: React.FC<{ name: string; color: string }> = ({ name, color }) => (
   <View
