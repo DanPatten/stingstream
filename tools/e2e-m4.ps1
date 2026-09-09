@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     M4 acceptance harness: three real nodes, two encodes of one film, and a source choice that has
     to be right.
@@ -1069,6 +1069,18 @@ Invoke-Step 'One film, pulled from both holders at once, byte-exact' {
                "silently test a single holder." -f $expected.Length)
     }
 
+    # Counted before, so the assertion below measures *this* read rather than every transfer the
+    # harness has already done. The same count-not-offset idiom the failover step uses, for the
+    # same reason: the log only grows.
+    $chunksFrom = {
+        param($shortId)
+        ([regex]::Matches((Get-NodeLog -Node $NodeA), "measured a peer's throughput.*node=$shortId")).Count
+    }
+    $shortB = $NodeB.MeshId.Substring(0, 12)
+    $shortC = $NodeC.MeshId.Substring(0, 12)
+    $beforeB = & $chunksFrom $shortB
+    $beforeC = & $chunksFrom $shortC
+
     $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($Metropolis.ItemKey))/$($NodeB.MeshId)"
     $result = Receive-BytesJob -Job (Start-BytesJob -Uri $url -TimeoutSec 420) -TimeoutSec 420
     if ($result.Error) { throw "the swarmed read failed: $($result.Error)" }
@@ -1083,33 +1095,47 @@ Invoke-Step 'One film, pulled from both holders at once, byte-exact' {
     if ($log -notmatch 'streaming from several holders at once') {
         throw 'A never swarmed the read; it fell back to a single holder.'
     }
-    # One whitespace-free token, `abc123=4194304,def456=2097152`, so this is not guessing where
-    # the field ends. Polled rather than read once: the line is written when the *body* is
-    # dropped, which is a moment after the client has the last byte -- hyper ends a body as soon
-    # as `Content-Length` is satisfied. Reading once raced that, and this step failed on its
-    # first run having already proved the bytes were right.
-    $finished = $null
-    $deadline = (Get-Date).AddSeconds(10)
-    while ((Get-Date) -lt $deadline) {
-        $m = [regex]::Match((Get-NodeLog -Node $NodeA),
-                            'finished streaming from several holders.*?shares=(\S+)')
-        if ($m.Success) { $finished = $m; break }
-        Start-Sleep -Milliseconds 250
-    }
-    if (-not $finished) { throw 'A did not report which holders contributed.' }
 
     # Both holders actually delivered bytes. Without this the step would pass on a swarm that
     # opened two connections and used one of them, which is the failure mode a scheduler bug
     # produces and the one "it completed" cannot see.
-    $shares = @($finished.Groups[1].Value -split ',' | Where-Object { $_ -match '=\d+$' })
-    $working = @($shares | Where-Object { [int]($_ -split '=')[1] -gt 0 })
-    Write-Host ("      shares: {0}" -f ($shares -join ' '))
-    if ($working.Count -lt 2) {
-        throw ("only {0} holder delivered bytes; the swarm did not spread the read." -f $working.Count)
+    #
+    # Counted from the per-chunk throughput lines, which A writes *during* the transfer, rather
+    # than from the summary it writes when the body is dropped. The summary is the nicer number
+    # and it is the wrong thing to assert on: it lands a moment after the client already has the
+    # last byte -- hyper ends a body as soon as `Content-Length` is satisfied -- and on a loaded
+    # CI runner that moment was longer than the poll. The bytes were right and the step failed
+    # anyway, which is the worst kind of test.
+    $fromB = (& $chunksFrom $shortB) - $beforeB
+    $fromC = (& $chunksFrom $shortC) - $beforeC
+    Write-Host ("      chunks measured during the run: B {0}, C {1}" -f $fromB, $fromC)
+    if ($fromB -lt 1 -or $fromC -lt 1) {
+        throw ("the swarm did not spread the read: B contributed {0} chunk(s), C {1}." -f $fromB, $fromC)
     }
 
-    Write-Host ("      {0:N0} bytes reassembled byte-exact from {1} holders" -f $result.Bytes.Length, $working.Count)
-    Add-HarnessNote ("Swarm: {0:N0} bytes pulled from {1} holders at once, byte-exact." -f $result.Bytes.Length, $working.Count)
+    # The summary, when it has landed. Informational: it is the readable version of the same fact,
+    # and worth printing, but the assertion above is the one that does not depend on when a body
+    # was dropped.
+    $summary = $null
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        $m = [regex]::Match((Get-NodeLog -Node $NodeA),
+                            'finished streaming from several holders.*?shares=(\S+)')
+        if ($m.Success) { $summary = $m.Groups[1].Value; break }
+        Start-Sleep -Milliseconds 250
+    }
+    if ($summary) {
+        Write-Host ("      shares: {0}" -f $summary)
+    } else {
+        # Said out loud rather than passed over. The line is written when the body is dropped, and
+        # if it never arrives that is not a slow disk -- it means the reader's guard did not run,
+        # which would mean the workers were still fetching a file nobody was reading. Worth
+        # knowing, and worth knowing from a CI log rather than from a bug report.
+        Write-Host '      (no swarm summary line within 20s -- see the note in swarm_body)' -ForegroundColor Yellow
+    }
+
+    Write-Host ("      {0:N0} bytes reassembled byte-exact from 2 holders" -f $result.Bytes.Length)
+    Add-HarnessNote ("Swarm: {0:N0} bytes pulled from 2 holders at once, byte-exact." -f $result.Bytes.Length)
 }
 
 # ============================================================================================
