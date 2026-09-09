@@ -101,14 +101,29 @@ const DEFAULT_FIRSTRUN_USERNAME = "reviewer";
 const DEFAULT_FIRSTRUN_PASSWORD = "StingStreamReview1"; // >= 8 chars, per setup.password_hint
 
 /**
- * Drives the first-run "Create your StingStream account" screen (testID firstrun-create-account)
- * to completion. Per the plan, a successful submit signs the app straight in (no separate login
- * step) -- confirmed live. Returns the credentials used, so the caller can persist them (--creds)
- * for a later run against the same, now-set-up node.
+ * Clicks past the first-run welcome page, if one is showing.
+ *
+ * First run is two pages now: a welcome, then the admin-account form. Tolerant of both shapes on
+ * purpose -- this file drives nodes built from older commits too, and "no welcome" is a node that
+ * predates it rather than a failure.
+ */
+export async function dismissFirstRunWelcome(page) {
+  const start = byTestId(page, "firstrun-welcome-start");
+  if (!(await isVisibleSoon(start, 4000))) return false;
+  await start.click({ timeout: TIMEOUT });
+  return true;
+}
+
+/**
+ * Drives the first-run screens (welcome, then testID firstrun-create-account) to completion. Per
+ * the plan, a successful submit signs the app straight in (no separate login step) -- confirmed
+ * live. Returns the credentials used, so the caller can persist them (--creds) for a later run
+ * against the same, now-set-up node.
  */
 export async function createFirstRunAccount(page, { base, username = DEFAULT_FIRSTRUN_USERNAME, password = DEFAULT_FIRSTRUN_PASSWORD } = {}) {
   await page.goto(new URL("/login", base).toString(), { waitUntil: "domcontentloaded", timeout: TIMEOUT });
   await connectIfNeeded(page, base);
+  await dismissFirstRunWelcome(page);
 
   const reached = await isVisibleSoon(byTestId(page, "firstrun-username"), TIMEOUT);
   if (!reached) {
@@ -122,7 +137,7 @@ export async function createFirstRunAccount(page, { base, username = DEFAULT_FIR
 
   await byTestId(page, "firstrun-username").fill(username);
   await byTestId(page, "firstrun-password").fill(password);
-  await byTestId(page, "firstrun-confirm").fill(password);
+  // No confirm field: it was removed in Part 7 (7a38f62), and this line was still filling one.
   await byTestId(page, "firstrun-submit").click({ timeout: TIMEOUT });
   await byTestId(page, "firstrun-create-account").waitFor({ state: "detached", timeout: TIMEOUT });
   await page.waitForLoadState("networkidle", { timeout: TIMEOUT }).catch(() => {});
@@ -267,10 +282,20 @@ async function gotoUrl(page, base, key) {
 export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
   return [
     {
+      // The welcome, which is what a fresh node actually opens on.
+      id: "00-first-run-welcome",
+      optional: true,
+      navigate: async (page) => {
+        await page.goto(firstRunUrl || base, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+        await byTestId(page, "firstrun-welcome").waitFor({ state: "visible", timeout: TIMEOUT });
+      },
+    },
+    {
       id: "00-first-run-local",
       optional: true,
       navigate: async (page) => {
         await page.goto(firstRunUrl || base, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+        await dismissFirstRunWelcome(page);
         await byTestId(page, "firstrun-create-account").waitFor({ state: "visible", timeout: TIMEOUT });
       },
     },

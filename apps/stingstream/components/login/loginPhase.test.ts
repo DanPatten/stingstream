@@ -103,7 +103,7 @@ describe("who decides whether the node still needs an account", () => {
         connected: false,
         setup: { known: false, pending: false, trustedPeer: false },
       }),
-    ).toEqual({ phase: "setup", unreachable: false });
+    ).toEqual({ phase: "welcome", unreachable: false });
   });
 
   // The case the 404 branch was originally written for, and it still holds: a node old enough to
@@ -124,7 +124,32 @@ describe("who decides whether the node still needs an account", () => {
         context: { setupPending: true, trustedPeer: true },
         setup: null,
       }),
-    ).toEqual({ phase: "setup", unreachable: true });
+    ).toEqual({ phase: "welcome", unreachable: true });
+  });
+
+  // The welcome page is a step for the person, not a fact about the server, so it is not decided
+  // here. If it were, anything that re-decides -- a Retry, a refetch -- would drop somebody back
+  // onto a page they had already moved past, mid-typing.
+  test("a node that needs an account starts at the welcome, never at the form", () => {
+    const decisions = [
+      decide({
+        context: { setupPending: true, trustedPeer: true },
+        setup: { known: true, pending: true, trustedPeer: true },
+      }),
+      decide({
+        context: { setupPending: true, trustedPeer: true },
+        setup: null,
+      }),
+      decide({
+        context: { setupPending: true, trustedPeer: true },
+        setup: { known: false, pending: false, trustedPeer: false },
+      }),
+    ];
+    expect(decisions.map((d) => d.phase)).toEqual([
+      "welcome",
+      "welcome",
+      "welcome",
+    ]);
   });
 
   test("an untrusted peer is sent to finish setup elsewhere", () => {

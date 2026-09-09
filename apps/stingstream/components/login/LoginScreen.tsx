@@ -40,6 +40,7 @@ import { ServerStarting } from "./ServerStarting";
 import { SetupAccountForm } from "./SetupAccountForm";
 import { SetupElsewhere } from "./SetupElsewhere";
 import { SignInForm } from "./SignInForm";
+import { WelcomeScreen } from "./WelcomeScreen";
 
 /**
  * How long to keep trying a node that is there but not ready, and how fast to back off.
@@ -448,7 +449,9 @@ export const LoginScreen: React.FC = () => {
       if (!state.pending) {
         setPhase("signIn");
       } else if (state.trustedPeer) {
-        setPhase("setup");
+        // The welcome, not the form: somebody arriving here has read the "finish setup from a
+        // device on your home network" card, not the one that says what StingStream is.
+        setPhase("welcome");
       } else {
         setSetupMessage(t("setup.elsewhere_still_pending"));
       }
@@ -531,6 +534,10 @@ export const LoginScreen: React.FC = () => {
             exhausted={startingStalled}
             onRetry={handleRetryConnect}
           />
+        ) : null}
+
+        {phase === "welcome" ? (
+          <WelcomeScreen onStart={() => setPhase("setup")} />
         ) : null}
 
         {phase === "setup" ? (

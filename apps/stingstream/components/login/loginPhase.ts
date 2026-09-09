@@ -17,7 +17,10 @@
  *
  * - `connecting` — the first moment, before anything has answered.
  * - `starting` — the node is there and not ready. It says so and retries itself.
- * - `setup` / `setupElsewhere` — a node with no account yet, claimable from here or not.
+ * - `welcome` / `setupElsewhere` — a node with no account yet, claimable from here or not.
+ * - `setup` — the admin-account form. **Only reachable from `welcome`**, never decided here:
+ *   `decidePhase` answers the question "what is true of this server", and which of first run's two
+ *   pages you are on is a question about the person, not the server.
  * - `signIn` — the ordinary card.
  * - `serverForm` — "which server?", and **only** where that question is honest: a phone, a
  *   television, a bundle opened from something that is not a node.
@@ -25,6 +28,7 @@
 export type Phase =
   | "connecting"
   | "starting"
+  | "welcome"
   | "setup"
   | "setupElsewhere"
   | "signIn"
@@ -81,6 +85,11 @@ export interface PhaseDecision {
  *    its Jellyfin child yet is not evidence that somebody already created an account.
  *
  * And in every branch below the first, an unreachable server is `starting`, never `serverForm`.
+ *
+ * "Needs an account and you may create it" answers `welcome`, not `setup`. Both mean the same
+ * thing about the server; which of first run's two pages is showing is the screen's own state, and
+ * putting it here would make a re-decision — a Retry, say — throw away the page somebody had
+ * already moved past.
  */
 export function decidePhase({
   context,
@@ -97,14 +106,14 @@ export function decidePhase({
   if (setup?.known) {
     if (!setup.pending) return { phase: reached, unreachable: false };
     return {
-      phase: setup.trustedPeer ? "setup" : "setupElsewhere",
+      phase: setup.trustedPeer ? "welcome" : "setupElsewhere",
       unreachable: false,
     };
   }
 
   if (context.setupPending === true) {
     return {
-      phase: context.trustedPeer ? "setup" : "setupElsewhere",
+      phase: context.trustedPeer ? "welcome" : "setupElsewhere",
       // A 404 is an answer of sorts — the node is up, it just has no route. Silence is not.
       unreachable: setup === null,
     };

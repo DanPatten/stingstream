@@ -89,11 +89,16 @@ async function main() {
     result.fcpSeconds = await measureFcpSeconds(page);
     console.log(`FCP: ${result.fcpSeconds}`);
 
-    // First-run "Create your StingStream account" (WP3's firstrun-* testIDs) if it exists yet;
-    // otherwise this data dir already has an account (unexpected on ui-startup.ps1's own fresh
-    // data dir, but not this script's job to assume away) and --creds must already have it.
+    // First run, if this node still needs it; otherwise this data dir already has an account
+    // (unexpected on ui-startup.ps1's own fresh data dir, but not this script's job to assume
+    // away) and --creds must already have it.
+    //
+    // The welcome page is what a fresh node opens on, so it is what the "interactive" timing is
+    // measured to -- it is the first thing anybody can act on. The account form is one click
+    // behind it.
     const hasSetupScreen = await page
-      .locator('[data-testid="firstrun-username"]')
+      .locator('[data-testid="firstrun-welcome"], [data-testid="firstrun-username"]')
+      .first()
       .waitFor({ state: "visible", timeout: 6000 })
       .then(() => true)
       .catch(() => false);

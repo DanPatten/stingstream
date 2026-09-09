@@ -22,13 +22,18 @@ export interface SetupAccountFormProps {
 }
 
 /**
- * First run, on the machine the node runs on: the one screen between installing StingStream and
- * using it.
+ * First run, second page: the account that owns this server.
  *
  * There is no skip and no wizard. Dan's instruction was "no setup step either with that Jellyfin
  * shit" — the account has to exist for anything to work, so this asks for it once, in StingStream's
  * own words, and then puts the user on Home. Everything else a first run used to ask (libraries,
  * metadata providers, remote access) the node already decided for itself.
+ *
+ * **It says out loud that this is the administrator.** It used to be headed "Create your
+ * StingStream account", which is true and incomplete: this is not *an* account on the server, it
+ * is the one that runs it — it manages libraries, invites everybody else, and is what somebody is
+ * signing in as when they later wonder why they can see settings their sister cannot. Naming that
+ * here costs one line and saves the question.
  */
 export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   onSubmit,
@@ -109,8 +114,11 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
       <Text variant={isCompact ? "display" : "title"} weight='bold'>
         {t("setup.title")}
       </Text>
+      <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
+        {t("setup.description")}
+      </Text>
 
-      <View style={{ marginTop: 24, gap: 12 }}>
+      <View style={{ marginTop: 20, gap: 12 }}>
         <Input
           testID='firstrun-username'
           aria-label={t("setup.username")}
