@@ -24,11 +24,9 @@ namespace StingStream.Core.Invites;
 /// <see cref="CoreDatabase.SchemaVersion"/> does not move.
 /// </para>
 /// <para>
-/// <b>Rows, not a settings document.</b> An invite has a lifecycle — minted, then redeemed or
-/// revoked or simply overtaken by its own expiry — and a history worth keeping after it is over: an
-/// administrator looking at an account they do not recognise should be able to find the invite that
-/// created it. A document would have to be rewritten whole on every change, which is how two
-/// concurrent mints lose one of themselves.
+/// <b>Rows, not a settings document.</b> An invite has a lifecycle — minted, then redeemed, then
+/// deleted — and two concurrent mints must not lose one of themselves, which is exactly what
+/// rewriting a whole document on every change does.
 /// </para>
 /// </remarks>
 public sealed class InviteStore
@@ -73,6 +71,11 @@ public sealed class InviteStore
                 -- `token_hash` is a SHA-256 of the token and is the only form of it that touches
                 -- the disk. UNIQUE because a collision would mean two invites answering to one
                 -- link, and because it is the column every redemption looks up by.
+                -- `expires_at` is NOT NULL and stays that way: this DDL is IF NOT EXISTS-only by
+                -- design, so there is no mechanism here to relax a constraint on a database that
+                -- already exists. An invite that does not expire stores InviteGate.NeverExpires,
+                -- which InviteGate.IsNever reads back as "never". Rows minted before that keep
+                -- their real date and still expire.
                 CREATE TABLE IF NOT EXISTS invites (
                     id                 TEXT PRIMARY KEY,
                     token_hash         TEXT NOT NULL UNIQUE,
@@ -282,25 +285,37 @@ public sealed class InviteStore
             cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Withdraw an invite.</summary>
+    /// <summary>Delete an invite.</summary>
     /// <param name="id">The invite id.</param>
-    /// <param name="at">When.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when a row was there to revoke.</returns>
+    /// <returns>True when there was a row to delete.</returns>
     /// <remarks>
-    /// The row stays. Deleting it would take the record of what was shared with whom out of the
-    /// administrator's list, and revoking an invite is not the same as pretending it never
-    /// happened — an account it already created still exists and is still theirs to manage.
+    /// <para>
+    /// <b>The row goes.</b> This used to be a soft <c>UPDATE ... SET revoked_at</c>, on the
+    /// reasoning that the list was the record of what had been shared with whom. Dan: <em>"When
+    /// deleteing an invite dont say withdrawn - just delete it."</em> — and the reasoning went with
+    /// the same message: <em>"sharing is basically just users not groups at this point."</em> The
+    /// record of who has access is the account list, which is where the Sharing screen now reads
+    /// People from, so a spent invite is no longer the only trace of anything.
+    /// </para>
+    /// <para>
+    /// <b>An account the invite already created is untouched.</b> Deleting the invite deletes the
+    /// invite. Removing somebody's access is a decision about a person, made on the Users screen,
+    /// and quietly bundling the two would make a tidy-up into a lockout.
+    /// </para>
+    /// <para>
+    /// <c>revoked_at</c> stays in the schema and <see cref="InviteStatus.Revoked"/> stays in the
+    /// gate, because rows written before this still carry one and must keep being refused.
+    /// </para>
     /// </remarks>
-    public async Task<bool> RevokeAsync(string id, DateTimeOffset at, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         EnsureSchema();
         var affected = 0;
         await _db.WriteAsync(
             c => affected = CoreDatabase.Execute(
                 c,
-                "UPDATE invites SET revoked_at = $a WHERE id = $id AND revoked_at IS NULL;",
-                ("$a", Stamp(at)),
+                "DELETE FROM invites WHERE id = $id;",
                 ("$id", id)),
             cancellationToken).ConfigureAwait(false);
         return affected > 0;

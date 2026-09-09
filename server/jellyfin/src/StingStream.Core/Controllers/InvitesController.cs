@@ -109,23 +109,29 @@ public sealed class InvitesController : ControllerBase
             : Ok(minted);
     }
 
-    /// <summary>Withdraw an invite.</summary>
+    /// <summary>Delete an invite.</summary>
     /// <param name="id">The invite id, from the list. Never the token.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">Withdrawn.</response>
-    /// <response code="404">No such invite, or it was already withdrawn.</response>
+    /// <response code="204">Deleted.</response>
+    /// <response code="404">No such invite, or it was already gone.</response>
     /// <returns>Nothing.</returns>
     /// <remarks>
-    /// The row stays in the list, marked revoked. An account the invite already created is not
-    /// touched — that account is a person, and removing their access is a separate decision made on
-    /// the Users screen.
+    /// <para>
+    /// The row is deleted rather than marked withdrawn. Dan: <em>"When deleteing an invite dont say
+    /// withdrawn - just delete it."</em> — and the list stopped being the record of who has access
+    /// in the same breath, because the Sharing screen reads People from the accounts on this server
+    /// now.
+    /// </para>
+    /// <para>
+    /// An account the invite already created is not touched — that account is a person, and
+    /// removing their access is a separate decision made on the Users screen.
+    /// </para>
     /// </remarks>
-    [HttpDelete("{id}", Name = "StingStreamRevokeInvite")]
+    [HttpDelete("{id}", Name = "StingStreamDeleteInvite")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> Revoke(string id, CancellationToken cancellationToken)
-        => await _invites.RevokeAsync(id, DateTimeOffset.UtcNow, cancellationToken)
-                .ConfigureAwait(false)
+    public async Task<ActionResult> Delete(string id, CancellationToken cancellationToken)
+        => await _invites.DeleteAsync(id, cancellationToken).ConfigureAwait(false)
             ? NoContent()
             : NotFound();
 

@@ -69,8 +69,32 @@ open about five years. That model is **kept**, not replaced. Two things are adde
 |---|---|
 | Who may invite | **Only an administrator.** Holding an account on somebody's server does not let you hand out accounts on it — that is a decision about their disk, their bandwidth and their library. |
 | What an invite grants | **The libraries the inviter picks, per invite.** Not a role, not a default, not everything. |
-| How long it lasts | Between a day and a year; seven days if nobody chose. |
+| The username | **The owner sets it, the invited person may change it.** Pre-filled on the landing page; blank means they choose. |
+| How long it lasts | **Until somebody deletes it.** No expiry, no short-term links. |
 | How many people | **One.** An invite is spent by the account it creates. |
+| Ending one | **Delete.** The row goes; the account it created stays. |
+
+## 3a. The link
+
+An invite is a link, and it is now nearly always a link rather than a bare token. Dan: *"After
+creating generate A FULL LINK to the server, if no domain is setup use the host's ip address for LAN
+and if there is a domain setup then use that instead."*
+
+`InviteService.LinkAsync` answers in that order:
+
+1. **`sharing.public_address`** — the owner's own domain, over HTTPS, works from anywhere.
+2. **The side door's `lan-ip-http` candidate** — this machine's address on its own network, over
+   plain HTTP. `MintedInvite.UrlIsLan` is true, and the dialog says so with a *Set it up now* that
+   opens the address field.
+3. **Null** — only for a node bound to loopback with no domain, which is every harness node and
+   nobody's real server. The screen shows the bare token.
+
+**The LAN address deliberately does not come from Jellyfin.** `IServerApplicationHost` is already
+injected here and `GetApiUrlForLocalAccess` looks like the obvious answer, but it reports
+*Jellyfin's* port and `BaseUrl` — and Jellyfin sits behind the gateway on a different port under a
+`/jellyfin` prefix. It would produce a URL that looks right and reaches the wrong thing. The side
+door's candidate is built by the gateway from its own bound address, which is the one a browser can
+open. `MeshStatus.DecodeSideDoor` is Core's first and only reader of that record.
 
 ## 4. The token
 
@@ -89,12 +113,24 @@ anonymous routes take it in a request **body**. The obvious shape for "tell me a
 access log, the gateway's, and every proxy in between — where it would outlive the invite by however
 long logs are kept. That is why `lookup` is a `POST` that changes nothing.
 
-## 5. Single use and expiry are real here
+## 5. Single use is real here; expiry is gone on purpose
 
 `docs/MESH.md` and Part 3 of the plan record why single-use and expiry were **dropped** for group
 invites: the group secret inside the code *is* the credential, so there is no admitting party and
 nobody is in a position to say "that one is spent". A person invite is the opposite — the server
 admits, it holds the row, and it decides.
+
+**Single use is the property that was ever load-bearing. Expiry was not, and it is gone.** Dan:
+*"these all work indefinetly until revoked - no short term links."* An invite works until somebody
+deletes it. The argument the old bound was written on — that a link outliving its reason is a
+standing offer of an account, sitting in a chat history — is answered better by deleting the link
+than by a date nobody chose, since the person who cares is looking at a list of them.
+
+`expires_at` is `TEXT NOT NULL` and this schema has no migration mechanism (§8), so "never" is
+stored as `InviteGate.NeverExpires` — a date no invite can outlive — and `InviteGate.IsNever` reads
+it back. **Rows minted before this keep their real date and still expire**: dropping the check
+outright would bring somebody's long-dead invite back to life, so `InviteStatus.Expired` stays and
+simply stops being reachable for anything new.
 
 And it decides in SQLite, not in C#. `InviteStore.TryRedeemAsync` is one
 `UPDATE ... WHERE redeemed_at IS NULL`, because read-then-write has a window the width of a user
@@ -128,9 +164,9 @@ All under `/stingstream/api/v1/invites`.
 |---|---|---|
 | `GET /libraries` | Admin | Every library on this server, for the picker. Includes the federated "Shared" ones — passing on what a friend shared is a choice, and it is the inviter's |
 | `GET /` | Admin | Every invite ever minted, newest first, with its status and the account it created |
-| `POST /` | Admin | Mint. `{Label, Libraries[], ExpiresInDays}` → `{Token, Url, Invite}`. **The only time the token is returned** |
-| `DELETE /{id}` | Admin | Withdraw. By id, never by token, so withdrawing never means handling the credential again |
-| `POST /lookup` | Anonymous | `{Token}` → the server's name, who invited you, and the libraries. `404` for a token nobody minted; `410` with a sentence for one that is spent, expired or withdrawn |
+| `POST /` | Admin | Mint. `{Label, Libraries[]}` → `{Token, Url, UrlIsLan, Invite}`. **The only time the token is returned** |
+| `DELETE /{id}` | Admin | Delete. By id, never by token, so deleting never means handling the credential again. The row is gone |
+| `POST /lookup` | Anonymous | `{Token}` → the server's name, who invited you, the username it suggests, and the libraries. `404` for a token nobody minted — **which now includes a deleted one**; `410` with a sentence for one that is spent |
 | `POST /accept` | Anonymous | `{Token, Username, Password}` → creates the account, applies the policy, returns a session |
 
 **Why `404` and `410` are told apart.** Distinguishing them reveals that a particular 256-bit string
@@ -154,15 +190,18 @@ One table, `invites`, in `core.db`. The DDL lives in `InviteStore.EnsureSchema` 
 |---|---|
 | `id` | Opaque. Safe to show, log and put in a URL; what revocation addresses |
 | `token_hash` | SHA-256 of the token, `UNIQUE`. The only form of it on disk |
-| `label` | The administrator's own note. Shown to them, never to the invited person |
+| `label` | The username the invited account arrives with, or empty. **Shown to somebody else** — it stopped being a private note in Part 9, and the landing page pre-fills it |
 | `libraries` | JSON array of collection-folder GUIDs |
 | `created_by`, `created_by_name` | Who minted it. The name is **copied**, not looked up: a rename should not retroactively change who somebody believes invited them |
-| `created_at`, `expires_at` | |
+| `created_at` | |
+| `expires_at` | `InviteGate.NeverExpires` for everything minted now; a real date on older rows, which still expire |
 | `redeemed_at`, `redeemed_user`, `redeemed_user_name` | The account it created, or null |
-| `revoked_at` | Withdrawn, or null |
+| `revoked_at` | Set only on rows written before Part 9, when deleting was a soft revoke. Still refused |
 
-Rows are **kept** after an invite is spent. An administrator looking at an account they do not
-recognise should be able to find the invite that created it, and this is the only record of that.
+Rows are **kept** after an invite is spent, and **deleted outright** when somebody deletes one — not
+marked. That was safe to change only because the record of who has access moved: the Sharing screen
+reads People from the accounts on this server, so a spent invite is no longer the only trace of the
+person it created. Deleting the invite does not touch the account.
 
 ## 9. The landing page
 
@@ -180,9 +219,11 @@ then asks `POST /invites/lookup`:
   the libraries listed before they are asked for anything.
 * **404** — not a person invite. Almost always a group code, so the code is remembered and they are
   sent to the Join screen deep in Settings, which is what this route did before person invites
-  existed.
-* **410** — it *was* one and cannot be used. The node's own sentence, which already ends in what to
-  do next.
+  existed. A **deleted** invite lands here too, and there is no way for it not to: the row is gone,
+  so there is nothing left to say anything more specific with.
+* **410** — it *was* one and cannot be used: somebody has already redeemed it, or it is an older
+  row that has expired or been withdrawn. The node's own sentence, which already ends in what to do
+  next.
 
 ## 10. Acceptance
 
@@ -191,6 +232,7 @@ client opens the link, creates an account, signs in, sees **only** the shared li
 film that lives on **server B**. That last hop is the point — it proves the invited person gets the
 federated library rather than only A's own files.
 
-`InviteGateTests` covers the decision itself: live, unknown, spent, expired, withdrawn, and the
-order they are reported in. There is no HTTP harness in that suite by design (`SetupGate` says why),
+`InviteGateTests` covers the decision itself: live, unknown, spent, expired, withdrawn, the order
+they are reported in, and the two halves of the no-expiry change — that a null date means never
+rather than the epoch, and that a row minted with a real one still runs out. There is no HTTP harness in that suite by design (`SetupGate` says why),
 which is exactly the reason the decision is a pure static and the controller only calls it.

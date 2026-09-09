@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
+import { useAtomValue } from "jotai";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Button } from "@/components/Button";
@@ -20,6 +22,9 @@ import {
   useNodeMeshGroups,
   useNodeMeshPeers,
 } from "@/lib/stingstream/mesh";
+import { useServerUsers } from "@/lib/stingstream/serverUsers";
+import { userAtom } from "@/providers/JellyfinProvider";
+import { InvitePerson } from "../invites/InvitePerson";
 import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
@@ -44,26 +49,68 @@ import { SharingAddresses } from "./SharingAddresses";
  * So this screen has two nouns, both of which a person already has a word for, and one button that
  * asks the only question that actually matters — which of the two you mean.
  *
- * Both halves already existed and had never been told apart: person invites create an account
- * **here** scoped to libraries you pick (`Invites/`), and a server link makes each side's libraries
- * appear on the other. What was missing was the app ever saying so.
+ * ## Why People is accounts rather than invites
+ *
+ * It was the invite list, which read correctly right up until an invite could be deleted. Dan
+ * asked for exactly that — *"When deleteing an invite dont say withdrawn - just delete it"* — and
+ * deleting a spent one would have made the person it created vanish from this screen, as a side
+ * effect of tidying up a link.
+ *
+ * His own sentence in the same message settles it: *"sharing is basically just users not groups at
+ * this point."* So People is the accounts on this server, with invitations nobody has opened yet
+ * listed alongside as what they are — pending. It survives a deletion, and it picks up anybody an
+ * administrator created by hand, who was never in the invite list at all.
  */
-export function SharingScreen() {
+export function SharingScreen({
+  openAdvanced = false,
+}: {
+  openAdvanced?: boolean;
+}) {
   const { t } = useTranslation();
   const router = useRouter();
   const isAdmin = useIsStingStreamAdmin();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(null);
-  // Administrator only: the invite routes are elevated, and a non-administrator asking gets a 403
-  // it can do nothing with. They still see the Servers half, which is not elevated.
+  // Administrator only: both are elevated routes, and a non-administrator asking gets a 403 it can
+  // do nothing with. They still see the Servers half, which is not elevated.
   const invites = useInvites(isAdmin);
+  const users = useServerUsers(isAdmin);
+  const me = useAtomValue(userAtom);
   const [choosing, setChoosing] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [advanced, setAdvanced] = useState(openAdvanced);
 
-  const people = useMemo(
-    () => (invites.data ?? []).filter((i) => i.status !== "revoked"),
-    [invites.data],
-  );
+  const people = useMemo<PersonEntry[]>(() => {
+    const accounts: PersonEntry[] = (users.data ?? [])
+      // Not yourself. This is the list of people who can see your things, and you are not one of
+      // them — without this a brand-new server opens on "People: dan", which reads as though the
+      // owner had shared their library with themselves, and the "Nobody yet" empty state could
+      // never appear at all.
+      .filter((user) => user.Id !== me?.Id)
+      .map((user) => ({
+        key: `user:${user.Id}`,
+        name: user.Name ?? t("sharing.person_unnamed"),
+        state: user.Policy?.IsDisabled ? "disabled" : "active",
+        user,
+      }));
+
+    // Only invitations nobody has opened. A spent one describes an account that is already in the
+    // list above, and showing both would count the same person twice.
+    const pending: PersonEntry[] = (invites.data ?? [])
+      .filter((invite) => invite.status === "valid")
+      .map((invite) => ({
+        key: `invite:${invite.id}`,
+        name: invite.label || t("invites.row_untitled"),
+        state: "pending",
+        invite,
+      }));
+
+    return [...accounts, ...pending];
+  }, [invites.data, me?.Id, t, users.data]);
+
   const servers = groups.data ?? [];
+
+  const openAddress = useCallback(() => setAdvanced(true), []);
 
   // A server whose mesh child is down answers 503, and that is emphatically not "you share with
   // nobody" — showing the empty state would tell the user their links had vanished. It gets its own
@@ -104,11 +151,15 @@ export function SharingScreen() {
 
         {people.length > 0 ? (
           <ListGroup title={t("sharing.people_title")}>
-            {people.map((invite) => (
+            {people.map((person) => (
               <PersonRow
-                key={invite.id}
-                invite={invite}
-                onPress={() => router.push("/settings/invites")}
+                key={person.key}
+                person={person}
+                onPress={() =>
+                  router.push(
+                    person.invite ? "/settings/invites" : "/settings/admin",
+                  )
+                }
               />
             ))}
           </ListGroup>
@@ -173,7 +224,7 @@ export function SharingScreen() {
       )}
 
       {isAdmin ? (
-        <Disclosure title={t("sharing.advanced")}>
+        <Disclosure title={t("sharing.advanced")} defaultOpen={advanced}>
           <SharingAddresses />
         </Disclosure>
       ) : null}
@@ -183,52 +234,68 @@ export function SharingScreen() {
         onClose={() => setChoosing(false)}
         onPerson={() => {
           setChoosing(false);
-          router.push("/settings/invites");
+          setInviting(true);
         }}
         onServer={() => {
           setChoosing(false);
           router.push("/settings/groups/create");
         }}
       />
+
+      {/* The address field is on this screen, so "set up a domain" unfolds it rather than pushing a
+          second copy of the screen somebody is already looking at. */}
+      <InvitePerson
+        visible={inviting}
+        onClose={() => setInviting(false)}
+        onSetUpAddress={openAddress}
+      />
     </PageContainer>
   );
 }
 
+/** One row of the People list: an account on this server, or an invitation nobody has opened. */
+interface PersonEntry {
+  key: string;
+  name: string;
+  state: "active" | "disabled" | "pending";
+  user?: UserDto;
+  invite?: InviteSummary;
+}
+
 /**
- * One invited person.
+ * One person.
  *
- * A spent invite stays in the list rather than disappearing, showing the account it created: an
- * administrator looking at a name they do not recognise in Users should be able to find where it
- * came from, and this is the only record of it.
+ * An account says what it can watch, which is the only thing anybody comes to this screen to check.
+ * `EnableAllFolders` is the case worth naming rather than listing: an administrator sees
+ * everything, and a row reading "Movies, TV, Shared Movies…" would bury that.
  */
-const PersonRow: React.FC<{ invite: InviteSummary; onPress: () => void }> = ({
-  invite,
+const PersonRow: React.FC<{ person: PersonEntry; onPress: () => void }> = ({
+  person,
   onPress,
 }) => {
   const { t } = useTranslation();
-  const libraries = invite.libraries.map((l) => l.name).join(", ");
+
+  const subtitle = person.invite
+    ? person.invite.libraries.map((l) => l.name).join(", ")
+    : person.user?.Policy?.EnableAllFolders
+      ? t("sharing.person_all_libraries")
+      : (person.user?.Policy?.EnabledFolders?.length ?? 0) > 0
+        ? t("sharing.person_library_count", {
+            count: person.user?.Policy?.EnabledFolders?.length ?? 0,
+          })
+        : t("sharing.person_no_libraries");
 
   return (
     <ListItem
       testID='sharing-person'
-      title={
-        invite.status === "used"
-          ? (invite.redeemedUserName ?? t("invites.row_untitled"))
-          : invite.label || t("invites.row_untitled")
-      }
-      subtitle={libraries}
+      title={person.name}
+      subtitle={subtitle}
       showArrow
       onPress={onPress}
       iconAfter={
         <Pill
-          label={t(
-            invite.status === "used"
-              ? "sharing.person_active"
-              : invite.status === "expired"
-                ? "sharing.person_expired"
-                : "sharing.person_pending",
-          )}
-          tone={invite.status === "used" ? "success" : "neutral"}
+          label={t(`sharing.person_${person.state}`)}
+          tone={person.state === "active" ? "success" : "neutral"}
           emphasis='soft'
         />
       }
@@ -242,6 +309,10 @@ const PersonRow: React.FC<{ invite: InviteSummary; onPress: () => void }> = ({
  * Not "create or join a group" — which is what the old screen asked, and which requires knowing
  * what a group is before you can answer. These two are things people already have words for, and
  * the difference between them is real: one gets an account here, the other keeps their own server.
+ *
+ * **It stopped being a router.** Answering "someone to watch" used to navigate to a screen whose
+ * primary button asked the same thing again — Dan: *"I click invite -> Someone to watch -> and then
+ * have to click invite again which is done."* Now the answer opens the form.
  */
 const InviteChooser: React.FC<{
   visible: boolean;

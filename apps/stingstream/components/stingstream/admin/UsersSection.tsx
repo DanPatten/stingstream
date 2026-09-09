@@ -13,6 +13,7 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { radius, tokens } from "@/constants/theme";
+import { SERVER_USERS_QUERY_KEY } from "@/lib/stingstream/serverUsers";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
@@ -81,7 +82,10 @@ export function UsersSection() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["stingstream", "jellyfin-users"],
+    // Shared with the Sharing screen, which lists the same accounts as People. Two components
+    // asking the same question of the same server must not be able to disagree about the answer,
+    // and this one creates and deletes the rows the other shows.
+    queryKey: SERVER_USERS_QUERY_KEY,
     queryFn: async () => {
       const res = await getUserApi(api!).getUsers();
       return res.data;
@@ -90,9 +94,7 @@ export function UsersSection() {
   });
 
   const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["stingstream", "jellyfin-users"],
-    });
+    queryClient.invalidateQueries({ queryKey: SERVER_USERS_QUERY_KEY });
 
   const createUser = useMutation({
     mutationFn: async () => {

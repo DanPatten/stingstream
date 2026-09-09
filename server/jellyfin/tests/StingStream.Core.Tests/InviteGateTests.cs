@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using StingStream.Core.Invites;
 using Xunit;
@@ -101,19 +102,65 @@ public class InviteGateTests
         Assert.Null(InviteGate.Explain(InviteStatus.Valid));
     }
 
-    [Theory]
-    [InlineData(0, InviteGate.DefaultExpiryDays)]
-    [InlineData(-5, InviteGate.DefaultExpiryDays)]
-    [InlineData(1, 1)]
-    [InlineData(30, 30)]
-    [InlineData(InviteGate.MaxExpiryDays, InviteGate.MaxExpiryDays)]
-    [InlineData(100000, InviteGate.MaxExpiryDays)]
-    public void ExpiryIsClampedRatherThanRefused(int requested, int expected)
+    [Fact]
+    public void AnInviteWithNoExpiryNeverExpires()
     {
-        // Clamped, because the bound exists to stop an invite outliving its reason and silently
-        // shortening one does that; making somebody retype the form does not do it any better. The
-        // value that comes back is the one shown to them and stored, so nothing is hidden.
-        Assert.Equal(expected, InviteGate.ClampExpiry(requested));
+        // Dan: "these all work indefinetly until revoked - no short term links." Everything minted
+        // since carries no expiry at all, and a null date has to mean never rather than "the epoch",
+        // which is the direction that would refuse every new invite the moment it was made.
+        var forever = new InviteState(null, null, null);
+        Assert.Equal(InviteStatus.Valid, InviteGate.Decide(forever, _now));
+        Assert.Equal(InviteStatus.Valid, InviteGate.Decide(forever, _now.AddYears(50)));
+    }
+
+    [Fact]
+    public void ANeverExpiringInviteIsStillRefusedOnceItIsSpent()
+    {
+        // No expiry is not "no rules". Single use and deletion both still apply -- they are the two
+        // that were ever load-bearing.
+        Assert.Equal(
+            InviteStatus.AlreadyUsed,
+            InviteGate.Decide(new InviteState(null, _now.AddHours(-1), null), _now));
+        Assert.Equal(
+            InviteStatus.Revoked,
+            InviteGate.Decide(new InviteState(null, null, _now.AddHours(-1)), _now));
+    }
+
+    [Fact]
+    public void TheStoredSentinelReadsBackAsNever()
+    {
+        // `invites.expires_at` is TEXT NOT NULL and this schema has no migration mechanism, so
+        // "never" is written as a date no invite can outlive. This is the pair of assertions that
+        // stops that being a silent trap: the sentinel is recognised, and a real date is not.
+        Assert.True(InviteGate.IsNever(InviteGate.NeverExpires));
+        Assert.True(InviteGate.IsNever(InviteGate.NeverThreshold));
+        Assert.False(InviteGate.IsNever(_now.AddDays(365)));
+        Assert.False(InviteGate.IsNever(_now.AddYears(100)));
+    }
+
+    [Fact]
+    public void TheSentinelSurvivesTheRoundTripStoragePutsItThrough()
+    {
+        // The store writes ToString("O") and reads it back with DateTimeOffset.TryParse. An exact
+        // equality on MaxValue would be a rounding accident away from "this invite expired in the
+        // year 9999", which is why IsNever is a threshold.
+        var written = InviteGate.NeverExpires.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+        Assert.True(DateTimeOffset.TryParse(
+            written,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out var read));
+        Assert.True(InviteGate.IsNever(read));
+    }
+
+    [Fact]
+    public void AnInviteMintedBeforeThisStillExpires()
+    {
+        // The one thing the sentinel could quietly break. Dropping the expiry check outright would
+        // bring somebody's long-dead invite back to life, so old rows keep their real date and are
+        // still refused.
+        var old = new InviteState(_now.AddDays(-1), null, null);
+        Assert.Equal(InviteStatus.Expired, InviteGate.Decide(old, _now));
     }
 
     [Fact]
@@ -135,13 +182,32 @@ public class InviteGateTests
     }
 
     [Fact]
-    public void ALabelHasABound()
+    public void TheNameIsHeldToTheRulesAnAccountNameIsHeldTo()
     {
+        // It stopped being a private note. Dan: "owner sets username - can be changed when
+        // accepting the invite." So it is the account name the invited person arrives with, and a
+        // name this server would refuse has to be caught while the inviter is still looking at the
+        // form -- not when somebody else opens the link and cannot get past it.
+        Assert.NotNull(InviteGate.ValidateMint("has a space", new[] { Guid.NewGuid() }));
+        Assert.NotNull(InviteGate.ValidateMint("no/slashes", new[] { Guid.NewGuid() }));
+
         var tooLong = new string('x', InviteGate.MaxLabelLength + 1);
         Assert.NotNull(InviteGate.ValidateMint(tooLong, new[] { Guid.NewGuid() }));
 
         var justRight = new string('x', InviteGate.MaxLabelLength);
         Assert.Null(InviteGate.ValidateMint(justRight, new[] { Guid.NewGuid() }));
+        Assert.Null(InviteGate.ValidateMint("mum_2", new[] { Guid.NewGuid() }));
+    }
+
+    [Fact]
+    public void LeavingTheNameBlankIsHowYouLetThemChoose()
+    {
+        // An inviter who does not care what the account is called should not have to invent a name,
+        // and the landing page then opens with an empty field -- which is what it did before the
+        // owner could set one at all.
+        Assert.Null(InviteGate.ValidateMint(null, new[] { Guid.NewGuid() }));
+        Assert.Null(InviteGate.ValidateMint(string.Empty, new[] { Guid.NewGuid() }));
+        Assert.Null(InviteGate.ValidateMint("   ", new[] { Guid.NewGuid() }));
     }
 
     [Fact]

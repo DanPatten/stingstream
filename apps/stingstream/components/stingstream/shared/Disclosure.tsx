@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
@@ -16,11 +16,26 @@ import { Text } from "@/components/common/Text";
 export function Disclosure({
   title,
   children,
+  defaultOpen = false,
 }: {
   title: string;
   children: React.ReactNode;
+  /**
+   * Start open, or open when this becomes true.
+   *
+   * Collapsed-by-default is right for a section nobody should meet unless they went looking, and
+   * wrong for somebody who was *sent* here: a minted invite that only works at home offers "set up
+   * a domain", and landing on the right screen with the field still folded away is the same dead
+   * end with an extra step. It stays uncontrolled otherwise — this only ever opens it, so a
+   * deliberate collapse afterwards is not fought.
+   */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
 
   return (
     <View>

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace StingStream.Core.Mesh;
@@ -49,12 +50,88 @@ public sealed class MeshStatus
     public List<string> DirectAddrs { get; set; } = new();
 
     /// <summary>
-    /// Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
-    /// coordinator's last reachability verdict. Null on a node with no coordinator or no
-    /// certificate, which is the zero-server default. Passed through from the mesh unchanged --
-    /// Core neither builds nor interprets it. See <c>docs/SIDEDOOR.md</c>.
+    /// Where a browser can reach this node: the addresses it publishes to its group.
     /// </summary>
+    /// <remarks>
+    /// Held as raw JSON because for most of its life Core had no reason to look inside it. It has
+    /// one now -- an invite link needs an address, and this is the only place a node's own LAN
+    /// address is written down -- so <see cref="DecodeSideDoor"/> is the first reader.
+    /// See <c>docs/SIDEDOOR.md</c> and <c>stingstream_mesh::sidedoor</c>.
+    /// </remarks>
     public System.Text.Json.JsonElement? SideDoor { get; set; }
+
+    /// <summary>The side door as a typed record, or null when this node publishes none.</summary>
+    /// <returns>The record.</returns>
+    /// <remarks>
+    /// A parse rather than a chain of <c>GetProperty</c> calls at the call site: the shape is
+    /// versioned by the mesh and a reader that names each field inline is a reader that breaks
+    /// somewhere unhelpful. Malformed JSON answers null rather than throwing, because a node that
+    /// says something we cannot read is the same, to a caller, as a node that says nothing.
+    /// </remarks>
+    public MeshSideDoor? DecodeSideDoor()
+    {
+        if (SideDoor is not { } element
+            || element.ValueKind != System.Text.Json.JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        try
+        {
+            return element.Deserialize<MeshSideDoor>(MeshJson.Options);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>Where a browser can reach a node, as that node publishes it.</summary>
+/// <remarks>
+/// A copy of <c>stingstream_mesh::sidedoor::SideDoor</c>, for the reason the file header gives:
+/// the two halves are separate processes, so a generator would only move the coupling somewhere
+/// less visible. There are at most two kinds of candidate -- the owner's domain and their LAN
+/// address -- and the order they arrive in is the order to prefer them in.
+/// </remarks>
+public sealed class MeshSideDoor
+{
+    /// <summary>The node id, so a client can check it reached the node it meant to.</summary>
+    public string Node { get; set; } = string.Empty;
+
+    /// <summary>Addresses worth trying, best first.</summary>
+    public List<MeshSideDoorCandidate> Candidates { get; set; } = new();
+
+    /// <summary>The node's private addresses.</summary>
+    public List<string> LanIps { get; set; } = new();
+
+    /// <summary>The plain-HTTP gateway port.</summary>
+    public int? HttpPort { get; set; }
+
+    /// <summary>When the node last rebuilt this, RFC 3339.</summary>
+    public string? UpdatedAt { get; set; }
+
+    /// <summary>The first candidate of a kind, or null.</summary>
+    /// <param name="kind"><c>own</c> or <c>lan-ip-http</c>.</param>
+    /// <returns>The candidate.</returns>
+    public MeshSideDoorCandidate? First(string kind)
+        => Candidates.Find(c => string.Equals(c.Kind, kind, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>One address worth trying.</summary>
+public sealed class MeshSideDoorCandidate
+{
+    /// <summary><c>own</c> for the owner's domain, <c>lan-ip-http</c> for a private address.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The host, without brackets on an IPv6 literal.</summary>
+    public string Host { get; set; } = string.Empty;
+
+    /// <summary>The port.</summary>
+    public int Port { get; set; }
+
+    /// <summary>The whole URL, built by the mesh so nobody has to reassemble one.</summary>
+    public string Url { get; set; } = string.Empty;
 }
 
 /// <summary>One group this node belongs to.</summary>

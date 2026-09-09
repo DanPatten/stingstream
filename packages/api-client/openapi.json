@@ -736,9 +736,9 @@
         "tags": [
           "Invites"
         ],
-        "summary": "Withdraw an invite.",
-        "description": "The row stays in the list, marked revoked. An account the invite already created is not\r\ntouched — that account is a person, and removing their access is a separate decision made on\r\nthe Users screen.",
-        "operationId": "StingStreamRevokeInvite",
+        "summary": "Delete an invite.",
+        "description": "\r\nThe row is deleted rather than marked withdrawn. Dan: <em>\"When deleteing an invite dont say\r\n            withdrawn - just delete it.\"</em> — and the list stopped being the record of who has access\r\n            in the same breath, because the Sharing screen reads People from the accounts on this server\r\n            now.\r\n\r\nAn account the invite already created is not touched — that account is a person, and\r\n            removing their access is a separate decision made on the Users screen.",
+        "operationId": "StingStreamDeleteInvite",
         "parameters": [
           {
             "name": "id",
@@ -752,7 +752,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Withdrawn."
+            "description": "Deleted."
           },
           "401": {
             "description": "Unauthorized"
@@ -761,7 +761,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "No such invite, or it was already withdrawn.",
+            "description": "No such invite, or it was already gone.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2849,6 +2849,181 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MeshInvite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Mesh/groups/{group}/libraries": {
+      "get": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Which of this server's libraries are shared into one link, and which exist.",
+        "description": "Both halves in one answer because the screen shows one list with checkmarks, and two\r\nrequests to draw one list is two chances for them to disagree.",
+        "operationId": "GetSharedLibraries",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The choice, and everything it could be.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedLibraries"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Choose which of this server's libraries are shared into one link.",
+        "description": "\r\nA whole-list write: an absent id is how a library is un-shared, so a partial update could\r\n            not tell \"the owner removed this one\" from \"the client did not mention it\".\r\n\r\nA snapshot is forced rather than waited for. A snapshot <em>replaces</em> this node's rows\r\n            on every peer, so it is what actually retracts a library the owner has just un-shared —\r\n            waiting up to fifteen minutes for the periodic one would mean the screen said \"no longer\r\n            shared\" while the other server still listed the films.",
+        "operationId": "SetSharedLibraries",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The whole list. Empty shares nothing.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetSharedLibrariesRequest"
+                  }
+                ],
+                "description": "Choose which libraries a link gets."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetSharedLibrariesRequest"
+                  }
+                ],
+                "description": "Choose which libraries a link gets."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetSharedLibrariesRequest"
+                  }
+                ],
+                "description": "Choose which libraries a link gets."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored, and republished.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedLibraries"
                 }
               }
             }
@@ -12499,6 +12674,11 @@
             "description": "Absolute path on this node. Never published to peers; kept for local bookkeeping.",
             "nullable": true
           },
+          "LibraryId": {
+            "type": "string",
+            "description": "The collection folder this item sits in, as a `Guid.ToString(\"N\")`, or null when it\r\nhas not been resolved yet.",
+            "nullable": true
+          },
           "LocalImages": {
             "type": "object",
             "additionalProperties": {
@@ -12538,9 +12718,14 @@
             },
             "description": "What they will be able to watch."
           },
+          "Username": {
+            "type": "string",
+            "description": "The name whoever invited them picked, or empty. Theirs to change."
+          },
           "ExpiresAt": {
             "type": "string",
-            "description": "When the invite stops working, ISO 8601."
+            "description": "When the invite stops working, ISO 8601, or null when it does not.",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -12586,7 +12771,7 @@
           },
           "Label": {
             "type": "string",
-            "description": "The administrator's own note."
+            "description": "The account name it will create, or empty when the person chooses their own."
           },
           "Libraries": {
             "type": "array",
@@ -12605,7 +12790,8 @@
           },
           "ExpiresAt": {
             "type": "string",
-            "description": "When it stops working, ISO 8601."
+            "description": "When it stops working, ISO 8601, or null when it does not.",
+            "nullable": true
           },
           "Status": {
             "type": "string",
@@ -14631,7 +14817,7 @@
             }
           },
           "SideDoor": {
-            "description": "Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the\r\ncoordinator's last reachability verdict. Null on a node with no coordinator or no\r\ncertificate, which is the zero-server default. Passed through from the mesh unchanged --\r\nCore neither builds nor interprets it. See `docs/SIDEDOOR.md`.",
+            "description": "Where a browser can reach this node: the addresses it publishes to its group.",
             "nullable": true
           }
         },
@@ -14831,7 +15017,7 @@
         "properties": {
           "Label": {
             "type": "string",
-            "description": "A note to themselves. Optional.",
+            "description": "The name the invited person's account will get. Optional.",
             "nullable": true
           },
           "Libraries": {
@@ -14842,11 +15028,6 @@
             },
             "description": "The libraries the invited person will see. At least one.",
             "nullable": true
-          },
-          "ExpiresInDays": {
-            "type": "integer",
-            "description": "How long it should last. Clamped; zero means the default.",
-            "format": "int32"
           }
         },
         "additionalProperties": false,
@@ -14861,8 +15042,12 @@
           },
           "Url": {
             "type": "string",
-            "description": "The link to send, or null when this server has no address anybody could open.",
+            "description": "The link to send. Null only when this server has no address at all.",
             "nullable": true
+          },
+          "UrlIsLan": {
+            "type": "boolean",
+            "description": "Whether StingStream.Core.Invites.MintedInvite.Url is a private address, so it only works on this network."
           },
           "Invite": {
             "allOf": [
@@ -18534,6 +18719,22 @@
         "additionalProperties": false,
         "description": "Sessions stop message."
       },
+      "SetSharedLibrariesRequest": {
+        "type": "object",
+        "properties": {
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The whole list. Empty shares nothing, which is also the default for a new link.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Choose which libraries a link gets."
+      },
       "SetupAdminRequest": {
         "type": "object",
         "properties": {
@@ -18580,6 +18781,28 @@
         },
         "additionalProperties": false,
         "description": "Whether this node still needs its first account."
+      },
+      "SharedLibraries": {
+        "type": "object",
+        "properties": {
+          "Shared": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The collection folders published into this link. Empty means nothing is shared."
+          },
+          "Available": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InviteLibrary"
+            },
+            "description": "Every library on this server, named so a person can recognise it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "What this server shares into one link, and what it could share."
       },
       "SharedSettings": {
         "type": "object",

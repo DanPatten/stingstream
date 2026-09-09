@@ -109,6 +109,16 @@ public sealed class InviteService
             return (null, problem);
         }
 
+        // The label is a username now, so a name that is already taken is caught while the
+        // inviter is still looking at the form rather than by whoever opens the link. Not a
+        // reservation -- somebody could take the name in between -- but that race ends in a
+        // sentence on the landing page, and this ends the common case with a sentence here.
+        var wanted = request.Label?.Trim() ?? string.Empty;
+        if (wanted.Length > 0 && _users.GetUserByName(wanted) is not null)
+        {
+            return (null, "That name is already taken on this server. Choose another.");
+        }
+
         var chosen = InviteGate.NormaliseLibraries(request.Libraries);
         var known = LibraryNames();
         var unknown = chosen.Where(id => !known.ContainsKey(id)).ToArray();
@@ -125,38 +135,43 @@ public sealed class InviteService
         {
             Id = Guid.NewGuid().ToString("N"),
             TokenHash = Hash(token),
-            Label = request.Label?.Trim() ?? string.Empty,
+            Label = wanted,
             Libraries = chosen,
             CreatedBy = createdBy,
             CreatedByName = createdByName,
             CreatedAt = now,
-            ExpiresAt = now.AddDays(InviteGate.ClampExpiry(request.ExpiresInDays)),
+            // No expiry. Dan: "these all work indefinetly until revoked - no short term links."
+            ExpiresAt = InviteGate.NeverExpires,
         };
 
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
-            "Minted invite {Id} for {Count} librarie(s), expiring {Expires:u}",
+            "Minted invite {Id} for {Count} librarie(s)",
             row.Id,
-            chosen.Count,
-            row.ExpiresAt);
+            chosen.Count);
 
+        var (url, isLan) = await LinkAsync(token, cancellationToken).ConfigureAwait(false);
         return (
             new MintedInvite
             {
                 Token = token,
-                Url = await LinkAsync(token, cancellationToken).ConfigureAwait(false),
+                Url = url,
+                UrlIsLan = isLan,
                 Invite = Summarise(row, known, now),
             },
             null);
     }
 
-    /// <summary>Withdraw an invite.</summary>
+    /// <summary>Delete an invite.</summary>
     /// <param name="id">The invite id.</param>
-    /// <param name="now">The current time.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when there was one to withdraw.</returns>
-    public Task<bool> RevokeAsync(string id, DateTimeOffset now, CancellationToken cancellationToken)
-        => _store.RevokeAsync(id, now, cancellationToken);
+    /// <returns>True when there was one to delete.</returns>
+    /// <remarks>
+    /// The row is gone, spent or not — see <see cref="InviteStore.DeleteAsync"/> for why that
+    /// stopped being a soft revoke. An account the invite already created is untouched.
+    /// </remarks>
+    public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
+        => _store.DeleteAsync(id, cancellationToken);
 
     /// <summary>What a token names, and whether it may still be used.</summary>
     /// <param name="token">The token out of a link's fragment.</param>
@@ -191,7 +206,8 @@ public sealed class InviteService
             ServerName = _host.FriendlyName,
             InvitedBy = row.CreatedByName,
             Libraries = Name(row.Libraries, names),
-            ExpiresAt = row.ExpiresAt.ToString("O", CultureInfo.InvariantCulture),
+            Username = row.Label,
+            ExpiresAt = Expiry(row.ExpiresAt),
         };
     }
 
@@ -310,10 +326,10 @@ public sealed class InviteService
         return (name, null);
     }
 
-    /// <summary>The link to send, or null when this server has no address anybody could open.</summary>
+    /// <summary>The link to send, and whether it only works on this network.</summary>
     /// <param name="token">The token.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The link, or null.</returns>
+    /// <returns>The link and whether it is a LAN address; a null link when there is no address.</returns>
     /// <remarks>
     /// <para>
     /// The token rides in the <b>fragment</b>, after the <c>#</c>, which a browser never puts on
@@ -323,28 +339,71 @@ public sealed class InviteService
     /// own JavaScript, which posts it in a request body.
     /// </para>
     /// <para>
-    /// Mirrors <c>stingstream_mesh::sharing::invite_link</c>, including its answer when there is no
-    /// host: nothing. A server with no domain is still perfectly usable — the app reaches it over
-    /// the mesh from anywhere and a browser reaches it at home — so the honest answer is the token
-    /// on its own, and the screen says why there is no link.
+    /// <b>The domain if there is one, this machine's LAN address if there is not.</b> Dan:
+    /// <em>"if no domain is setup use the host's ip address for LAN and if there is a domain setup
+    /// then use that instead."</em> Before this the answer with no domain was nothing at all, and
+    /// the screen showed a bare token with a sentence about adding a domain — which is a worse
+    /// answer than a link that works at home, since the person being invited is usually in the
+    /// house.
+    /// </para>
+    /// <para>
+    /// <b>The LAN address comes from the mesh's side door, not from Jellyfin.</b>
+    /// <see cref="IServerApplicationHost.GetApiUrlForLocalAccess"/> is right here and deliberately
+    /// unused: it answers with <em>Jellyfin's</em> port and <c>BaseUrl</c>, and Jellyfin sits
+    /// behind the gateway on a different port under a <c>/jellyfin</c> prefix. It would produce a
+    /// URL that looks right and reaches the wrong thing. The side door's <c>lan-ip-http</c>
+    /// candidate is built by the gateway from its own bound address, which is the one a browser
+    /// can actually open.
+    /// </para>
+    /// <para>
+    /// Null survives for the node that genuinely has no address: bound to loopback, no domain.
+    /// That is every harness node and nobody's real server.
     /// </para>
     /// </remarks>
-    private async Task<string?> LinkAsync(string token, CancellationToken cancellationToken)
+    private async Task<(string? Url, bool IsLan)> LinkAsync(
+        string token,
+        CancellationToken cancellationToken)
     {
         try
         {
             var settings = await _mesh.SharingSettingsAsync(cancellationToken).ConfigureAwait(false);
             var host = settings?.PublicAddress?.Trim().TrimEnd('/');
-            return string.IsNullOrEmpty(host) ? null : $"{host}/join#{token}";
+            if (!string.IsNullOrEmpty(host))
+            {
+                return ($"{host}/join#{token}", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Fall through to the LAN address rather than giving up: the two come from different
+            // endpoints, and one of them being unreachable is not a reason to answer nothing.
+            _logger.LogWarning(ex, "Could not read this node's public address for an invite link");
+        }
+
+        try
+        {
+            var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
+            var lan = status?.DecodeSideDoor()?.First("lan-ip-http")?.Url?.TrimEnd('/');
+            if (!string.IsNullOrEmpty(lan))
+            {
+                return ($"{lan}/join#{token}", true);
+            }
         }
         catch (Exception ex)
         {
             // The mesh being unreachable must not stop an invite being minted: the token is the
             // thing that matters and it already exists. No link, and the screen shows the token.
             _logger.LogWarning(ex, "Could not read this node's address; minting an invite with no link");
-            return null;
         }
+
+        return (null, false);
     }
+
+    /// <summary>An expiry as the API states it: ISO 8601, or null for an invite that does not.</summary>
+    private static string? Expiry(DateTimeOffset expiresAt)
+        => InviteGate.IsNever(expiresAt)
+            ? null
+            : expiresAt.ToString("O", CultureInfo.InvariantCulture);
 
     /// <summary>Restrict an account to exactly the libraries an invite named.</summary>
     private async Task ApplyLibraryScopeAsync(
@@ -425,7 +484,7 @@ public sealed class InviteService
             Libraries = Name(row.Libraries, known),
             CreatedByName = row.CreatedByName,
             CreatedAt = row.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
-            ExpiresAt = row.ExpiresAt.ToString("O", CultureInfo.InvariantCulture),
+            ExpiresAt = Expiry(row.ExpiresAt),
             Status = InviteGate.Decide(row.ToState(), now) switch
             {
                 InviteStatus.Valid => "valid",

@@ -8,13 +8,13 @@ import {
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
+  deleteInvite,
   fetchInviteLibraries,
   fetchInvites,
   type InviteLibrary,
   type InviteSummary,
   type MintedInvite,
   mintInvite,
-  revokeInvite,
 } from "./invitesApi";
 
 /**
@@ -86,7 +86,7 @@ export function useMintInvite() {
   return useMutation<
     MintedInvite,
     Error,
-    { label?: string; libraries: string[]; expiresInDays?: number }
+    { label?: string; libraries: string[] }
   >({
     mutationFn: (input) => mintInvite(base!, input, token),
     onSuccess: () => {
@@ -95,12 +95,12 @@ export function useMintInvite() {
   });
 }
 
-/** Withdraw one. Addressed by id, never by token. */
-export function useRevokeInvite() {
+/** Delete one. Addressed by id, never by token. */
+export function useDeleteInvite() {
   const { base, token } = useInvitesApi();
   const queryClient = useQueryClient();
   return useMutation<void, Error, string>({
-    mutationFn: (id) => revokeInvite(base!, id, token),
+    mutationFn: (id) => deleteInvite(base!, id, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: INVITES_QUERY_KEY });
     },

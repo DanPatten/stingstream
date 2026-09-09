@@ -369,9 +369,11 @@ $Minted = Invoke-Step 'A mints a person invite, naming two libraries of three' {
     $script:GrantedNames = @($Libraries.Shared.Name, $federated.Name) | Sort-Object
 
     $minted = Invoke-Node $NodeA '/stingstream/api/v1/invites' -Method POST -Body @{
-        Label         = 'Mum'
-        Libraries     = @($Libraries.Shared.Id, $federated.Id)
-        ExpiresInDays = 7
+        # `Label` is the username the invited account arrives with -- pre-filled on the landing
+        # page and still theirs to change. It stopped being a private note in Part 9. No expiry is
+        # sent, and there is nothing to send: an invite works until it is deleted.
+        Label     = 'Mum'
+        Libraries = @($Libraries.Shared.Id, $federated.Id)
     }
     if (-not $minted.Token) { throw 'A minted no invite token.' }
     # `Url` is *absent*, not null, when this node has no domain: Core omits nulls
@@ -386,6 +388,12 @@ $Minted = Invoke-Step 'A mints a person invite, naming two libraries of three' {
     $listed = Invoke-Node $NodeA '/stingstream/api/v1/invites'
     if (@($listed).Count -ne 1) { throw "A lists $(@($listed).Count) invites; expected 1." }
     if ($listed[0].Status -ne 'valid') { throw "the fresh invite is '$($listed[0].Status)'." }
+    # No expiry: Core omits nulls, so the property is absent rather than a date. An invite that
+    # quietly kept a seven-day life would look identical on this screen and stop working on a
+    # Tuesday, which is the failure this asserts against.
+    if ($null -ne (Get-Member-Value $listed[0] 'ExpiresAt')) {
+        throw "the fresh invite carries an expiry of '$(Get-Member-Value $listed[0] 'ExpiresAt')'; invites do not expire."
+    }
     return $minted
 }
 
@@ -409,6 +417,12 @@ Invoke-Step 'A cold client reads the invite with no account anywhere' {
         throw "the invite describes libraries [$($names -join ', ')]; expected [$($script:GrantedNames -join ', ')]."
     }
     Write-Host ("      '{0}' invited by {1}; opens: {2}" -f $described.ServerName, $described.InvitedBy, ($names -join ', '))
+
+    # The username the inviter picked reaches the person who will use it. Pre-filled, not fixed --
+    # the accept below deliberately sends a different one, and is expected to be honoured.
+    if ((Get-Member-Value $described 'Username') -ne 'Mum') {
+        throw "the landing page was told the username is '$(Get-Member-Value $described 'Username')'; expected 'Mum'."
+    }
 
     # A token nobody minted is a 404, not a 410 -- which is exactly how a *group* invite code
     # identifies itself at this endpoint, and how /join tells the two kinds apart.
@@ -496,7 +510,7 @@ Invoke-Step "The account plays a film that lives on the OTHER server" {
 }
 
 # ============================================================================================
-Invoke-Step 'The invite is spent, and a withdrawn one dies at once' {
+Invoke-Step 'The invite is spent, and a deleted one is gone' {
     $again = Get-HttpStatus -Uri "$($NodeA.Url)/stingstream/api/v1/invites/accept" `
         -Body @{ Token = $Minted.Token; Username = 'someone-else'; Password = 'a-good-long-password' }
     if ($again -ne 410) { throw "reusing the invite answered $again; expected 410." }
@@ -512,11 +526,27 @@ Invoke-Step 'The invite is spent, and a withdrawn one dies at once' {
     }
 
     Invoke-Node $NodeA "/stingstream/api/v1/invites/$($second.Invite.Id)" -Method DELETE | Out-Null
-    $withdrawn = Get-HttpStatus -Uri "$($NodeA.Url)/stingstream/api/v1/invites/lookup" -Body @{ Token = $second.Token }
-    if ($withdrawn -ne 410) { throw "a withdrawn invite answered $withdrawn; expected 410." }
 
-    Write-Host '      single use holds, and withdrawing takes effect immediately'
-    Add-HarnessNote 'Invites are single use and can be withdrawn; both enforced by the server, not the screen.'
+    <#
+        404, not 410. Deleting used to be a soft `UPDATE ... SET revoked_at`, so the row stayed and
+        could still say "this was withdrawn". Dan: "When deleteing an invite dont say withdrawn -
+        just delete it." The row is gone, so the token is one nobody minted -- which is the same
+        answer a mangled link gets, and the only honest one once there is nothing left to consult.
+    #>
+    $deleted = Get-HttpStatus -Uri "$($NodeA.Url)/stingstream/api/v1/invites/lookup" -Body @{ Token = $second.Token }
+    if ($deleted -ne 404) { throw "a deleted invite answered $deleted; expected 404." }
+
+    $remaining = @(Invoke-Node $NodeA '/stingstream/api/v1/invites')
+    if ($remaining.Count -ne 1) { throw "A lists $($remaining.Count) invites after deleting one; expected 1." }
+    if ($remaining[0].Id -eq $second.Invite.Id) { throw 'the deleted invite is still in the list.' }
+
+    # And deleting it did not take the account it never created -- nor, in the spent case above,
+    # the one it did: `mum` still exists and is still signed in.
+    $mum = Invoke-Jellyfin $NodeA "/Users/$($Guest.UserId)" -TimeoutSec 60
+    if (-not $mum.Id) { throw 'deleting an invite disturbed the account another invite had created.' }
+
+    Write-Host '      single use holds, and a deleted invite leaves no row and no trace'
+    Add-HarnessNote 'Invites are single use and delete outright; both enforced by the server, not the screen.'
 }
 
 } finally {

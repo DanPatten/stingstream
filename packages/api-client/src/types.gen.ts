@@ -161,12 +161,16 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Withdraw an invite.
-         * @description The row stays in the list, marked revoked. An account the invite already created is not
-         *     touched — that account is a person, and removing their access is a separate decision made on
-         *     the Users screen.
+         * Delete an invite.
+         * @description The row is deleted rather than marked withdrawn. Dan: <em>"When deleteing an invite dont say
+         *                 withdrawn - just delete it."</em> — and the list stopped being the record of who has access
+         *                 in the same breath, because the Sharing screen reads People from the accounts on this server
+         *                 now.
+         *
+         *     An account the invite already created is not touched — that account is a person, and
+         *                 removing their access is a separate decision made on the Users screen.
          */
-        delete: operations["Invites_StingStreamRevokeInvite"];
+        delete: operations["Invites_StingStreamDeleteInvite"];
         options?: never;
         head?: never;
         patch?: never;
@@ -648,6 +652,37 @@ export interface paths {
         put?: never;
         /** Mint an invite. */
         post: operations["Mesh_Invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/libraries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which of this server's libraries are shared into one link, and which exist.
+         * @description Both halves in one answer because the screen shows one list with checkmarks, and two
+         *     requests to draw one list is two chances for them to disagree.
+         */
+        get: operations["Mesh_GetSharedLibraries"];
+        /**
+         * Choose which of this server's libraries are shared into one link.
+         * @description A whole-list write: an absent id is how a library is un-shared, so a partial update could
+         *                 not tell "the owner removed this one" from "the client did not mention it".
+         *
+         *     A snapshot is forced rather than waited for. A snapshot <em>replaces</em> this node's rows
+         *                 on every peer, so it is what actually retracts a library the owner has just un-shared —
+         *                 waiting up to fifteen minutes for the periodic one would mean the screen said "no longer
+         *                 shared" while the other server still listed the films.
+         */
+        put: operations["Mesh_SetSharedLibraries"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3507,6 +3542,11 @@ export interface components {
             /** @description Absolute path on this node. Never published to peers; kept for local bookkeeping. */
             LocalPath?: string | null;
             /**
+             * @description The collection folder this item sits in, as a `Guid.ToString("N")`, or null when it
+             *     has not been resolved yet.
+             */
+            LibraryId?: string | null;
+            /**
              * @description Absolute paths of this item's artwork on this node, keyed by lowercase image kind
              *     (`primary`, `backdrop`, `logo`, `thumb`, `banner`).
              */
@@ -3525,8 +3565,10 @@ export interface components {
             InvitedBy?: string;
             /** @description What they will be able to watch. */
             Libraries?: components["schemas"]["InviteLibrary"][];
-            /** @description When the invite stops working, ISO 8601. */
-            ExpiresAt?: string;
+            /** @description The name whoever invited them picked, or empty. Theirs to change. */
+            Username?: string;
+            /** @description When the invite stops working, ISO 8601, or null when it does not. */
+            ExpiresAt?: string | null;
         };
         /** @description One sentence saying why an invite request was refused. */
         InviteError: {
@@ -3546,7 +3588,7 @@ export interface components {
         InviteSummary: {
             /** @description The id to revoke by. */
             Id?: string;
-            /** @description The administrator's own note. */
+            /** @description The account name it will create, or empty when the person chooses their own. */
             Label?: string;
             /** @description The libraries it grants. */
             Libraries?: components["schemas"]["InviteLibrary"][];
@@ -3554,8 +3596,8 @@ export interface components {
             CreatedByName?: string;
             /** @description When it was minted, ISO 8601. */
             CreatedAt?: string;
-            /** @description When it stops working, ISO 8601. */
-            ExpiresAt?: string;
+            /** @description When it stops working, ISO 8601, or null when it does not. */
+            ExpiresAt?: string | null;
             /** @description `valid`, `expired`, `used` or `revoked`. */
             Status?: string;
             /** @description The name of the account it created, or null. */
@@ -4365,12 +4407,7 @@ export interface components {
             AvailableStreams?: number;
             RelayUrls?: string[];
             DirectAddrs?: string[];
-            /**
-             * @description Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the
-             *     coordinator's last reachability verdict. Null on a node with no coordinator or no
-             *     certificate, which is the zero-server default. Passed through from the mesh unchanged --
-             *     Core neither builds nor interprets it. See `docs/SIDEDOOR.md`.
-             */
+            /** @description Where a browser can reach this node: the addresses it publishes to its group. */
             SideDoor?: unknown;
         };
         /** @description A subtitle sidecar as a peer sees it: described, and fetched by index. */
@@ -4447,22 +4484,19 @@ export interface components {
         MetadataField: "Cast" | "Genres" | "ProductionLocations" | "Studios" | "Tags" | "Name" | "Overview" | "Runtime" | "OfficialRating";
         /** @description What an administrator asked for. */
         MintInviteRequest: {
-            /** @description A note to themselves. Optional. */
+            /** @description The name the invited person's account will get. Optional. */
             Label?: string | null;
             /** @description The libraries the invited person will see. At least one. */
             Libraries?: string[] | null;
-            /**
-             * Format: int32
-             * @description How long it should last. Clamped; zero means the default.
-             */
-            ExpiresInDays?: number;
         };
         /** @description A freshly minted invite. The only time the token is ever returned. */
         MintedInvite: {
             /** @description The token. Send the link, not this, unless there is no link to send. */
             Token?: string;
-            /** @description The link to send, or null when this server has no address anybody could open. */
+            /** @description The link to send. Null only when this server has no address at all. */
             Url?: string | null;
+            /** @description Whether StingStream.Core.Invites.MintedInvite.Url is a private address, so it only works on this network. */
+            UrlIsLan?: boolean;
             /** @description The invite as it now appears in the list. */
             Invite?: components["schemas"]["InviteSummary"];
         };
@@ -5739,6 +5773,11 @@ export interface components {
              */
             MessageType: "SessionsStop";
         };
+        /** @description Choose which libraries a link gets. */
+        SetSharedLibrariesRequest: {
+            /** @description The whole list. Empty shares nothing, which is also the default for a new link. */
+            Libraries?: string[] | null;
+        };
         /** @description The account somebody chose on the first-run screen. */
         SetupAdminRequest: {
             /** @description The name for the account. Letters, digits, dots, underscores and dashes. */
@@ -5763,6 +5802,13 @@ export interface components {
              *     endpoint that creates it answers as though it did not exist.
              */
             TrustedPeer?: boolean;
+        };
+        /** @description What this server shares into one link, and what it could share. */
+        SharedLibraries: {
+            /** @description The collection folders published into this link. Empty means nothing is shared. */
+            Shared?: string[];
+            /** @description Every library on this server, named so a person can recognise it. */
+            Available?: components["schemas"]["InviteLibrary"][];
         };
         /**
          * @description "Omniarr": the one settings model StingStream keeps, pushed idempotently into both Radarr and
@@ -7356,7 +7402,7 @@ export interface operations {
             };
         };
     };
-    Invites_StingStreamRevokeInvite: {
+    Invites_StingStreamDeleteInvite: {
         parameters: {
             query?: never;
             header?: never;
@@ -7368,7 +7414,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Withdrawn. */
+            /** @description Deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7389,7 +7435,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No such invite, or it was already withdrawn. */
+            /** @description No such invite, or it was already gone. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8966,6 +9012,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeshInvite"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_GetSharedLibraries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The choice, and everything it could be. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedLibraries"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_SetSharedLibraries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        /** @description The whole list. Empty shares nothing. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SetSharedLibrariesRequest"];
+                "text/json": components["schemas"]["SetSharedLibrariesRequest"];
+                "application/*+json": components["schemas"]["SetSharedLibrariesRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored, and republished. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedLibraries"];
                 };
             };
             /** @description Unauthorized */

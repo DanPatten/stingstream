@@ -26,7 +26,7 @@ public enum InviteStatus
 /// <summary>
 /// Enough of an invite to judge it. Deliberately not the storage row.
 /// </summary>
-/// <param name="ExpiresAt">When it stops working.</param>
+/// <param name="ExpiresAt">When it stops working, or <see langword="null"/> for never.</param>
 /// <param name="RedeemedAt">When somebody used it, or <see langword="null"/>.</param>
 /// <param name="RevokedAt">When the administrator withdrew it, or <see langword="null"/>.</param>
 /// <remarks>
@@ -34,7 +34,7 @@ public enum InviteStatus
 /// a database, and so that adding a column to the row cannot quietly change who is let in.
 /// </remarks>
 public readonly record struct InviteState(
-    DateTimeOffset ExpiresAt,
+    DateTimeOffset? ExpiresAt,
     DateTimeOffset? RedeemedAt,
     DateTimeOffset? RevokedAt);
 
@@ -71,27 +71,52 @@ public static class InviteGate
     /// <summary>Bytes of randomness in a token. 256 bits; see <c>InviteService.NewToken</c>.</summary>
     public const int TokenBytes = 32;
 
-    /// <summary>Longest label an invite may carry.</summary>
+    /// <summary>Longest username an invite may carry.</summary>
     /// <remarks>
-    /// The label is the administrator's own note — "Mum", "Ben's TV" — shown back to them in the
-    /// list and to nobody else. Long enough for a name and a reason, short enough that it cannot be
-    /// used to store something else.
+    /// The same bound the first-run screen uses, because it is now the same thing: the value in
+    /// this field becomes an account name on this server. See <see cref="ValidateMint"/> for why it
+    /// stopped being a free-text note.
     /// </remarks>
-    public const int MaxLabelLength = 64;
+    public const int MaxLabelLength = FirstRun.SetupGate.MaxUsernameLength;
 
-    /// <summary>Shortest life an invite may be given, in days.</summary>
-    public const int MinExpiryDays = 1;
-
-    /// <summary>Longest life an invite may be given, in days.</summary>
+    /// <summary>
+    /// What is stored in <c>expires_at</c> for an invite that does not expire.
+    /// </summary>
     /// <remarks>
-    /// A year. Not "never": an invite that outlives the reason it was made is a standing offer of
-    /// an account on somebody's server, sitting in a chat history that has long since been
-    /// forwarded, screenshotted or synced to a laptop somebody sold.
+    /// <para>
+    /// Dan: <em>"these all work indefinetly until revoked - no short term links."</em> So a new
+    /// invite has no expiry at all — it works until somebody deletes it.
+    /// </para>
+    /// <para>
+    /// <b>Why a sentinel rather than a null column.</b> <c>invites.expires_at</c> is
+    /// <c>TEXT NOT NULL</c>, and <see cref="InviteStore"/>'s DDL is <c>IF NOT EXISTS</c>-only by
+    /// design (<c>docs/CONTRIBUTING.md</c> rule 2 — it deliberately does not move
+    /// <c>CoreDatabase.SchemaVersion</c>), so there is no mechanism here to relax the constraint on
+    /// a database that already exists. Writing a date no invite can outlive says the same thing in
+    /// a column that already accepts it, and <see cref="IsNever"/> reads it back as "never".
+    /// </para>
+    /// <para>
+    /// <b>Rows minted before this keep their real expiry and still expire.</b> Dropping the check
+    /// outright would bring somebody's long-dead invite back to life, which is the one outcome
+    /// nobody asked for — so <see cref="InviteStatus.Expired"/> stays, and simply stops being
+    /// reachable for anything minted from here on.
+    /// </para>
     /// </remarks>
-    public const int MaxExpiryDays = 365;
+    public static readonly DateTimeOffset NeverExpires = DateTimeOffset.MaxValue;
 
-    /// <summary>What an invite gets when nobody chose, in days.</summary>
-    public const int DefaultExpiryDays = 7;
+    /// <summary>Anything at or past this is the <see cref="NeverExpires"/> sentinel.</summary>
+    /// <remarks>
+    /// A range rather than an equality, because a timestamp round-trips through
+    /// <c>ToString("O")</c> and back carrying its own precision and offset, and an exact comparison
+    /// would turn a rounding difference into "this invite expired in the year 9999". Nothing
+    /// legitimate lands in the fourth millennium.
+    /// </remarks>
+    public static readonly DateTimeOffset NeverThreshold = new(4000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Whether a stored expiry means "this invite does not expire".</summary>
+    /// <param name="expiresAt">What the row holds.</param>
+    /// <returns>True when it is the sentinel.</returns>
+    public static bool IsNever(DateTimeOffset expiresAt) => expiresAt >= NeverThreshold;
 
     /// <summary>Most libraries one invite may name.</summary>
     /// <remarks>
@@ -119,6 +144,11 @@ public static class InviteGate
     /// is over. The boundary is arbitrary but it has to be somewhere, and this is the direction
     /// that never lets one live a moment longer than it was given.
     /// </para>
+    /// <para>
+    /// A <see langword="null"/> <see cref="InviteState.ExpiresAt"/> means the invite does not
+    /// expire, which is what everything minted since <see cref="NeverExpires"/> arrived carries.
+    /// The check is skipped rather than deleted, so older rows with a real date still run out.
+    /// </para>
     /// </remarks>
     public static InviteStatus Decide(InviteState? invite, DateTimeOffset now)
     {
@@ -137,7 +167,12 @@ public static class InviteGate
             return InviteStatus.AlreadyUsed;
         }
 
-        return now >= state.ExpiresAt ? InviteStatus.Expired : InviteStatus.Valid;
+        if (state.ExpiresAt is { } expires && now >= expires)
+        {
+            return InviteStatus.Expired;
+        }
+
+        return InviteStatus.Valid;
     }
 
     /// <summary>One sentence for the person who was refused, or <see langword="null"/> when they were not.</summary>
@@ -156,30 +191,25 @@ public static class InviteGate
         _ => "This invite link is not valid.",
     };
 
-    /// <summary>How long an invite asked for should actually last, in days.</summary>
-    /// <param name="requested">What the caller asked for. Zero or less means "no preference".</param>
-    /// <returns>A number of days inside the allowed range.</returns>
-    /// <remarks>
-    /// Clamped rather than refused. The bound exists to stop an invite outliving its reason, and
-    /// silently shortening one somebody asked to last five years does that; making them retype the
-    /// form does not do it any better. The value that comes back is the one shown to them and
-    /// stored, so nothing here is hidden.
-    /// </remarks>
-    public static int ClampExpiry(int requested)
-    {
-        if (requested <= 0)
-        {
-            return DefaultExpiryDays;
-        }
-
-        return Math.Clamp(requested, MinExpiryDays, MaxExpiryDays);
-    }
-
     /// <summary>Why this invite cannot be minted, or <see langword="null"/> when it can.</summary>
-    /// <param name="label">The administrator's own note.</param>
+    /// <param name="username">The name the invited person's account will get. Optional.</param>
     /// <param name="libraries">The libraries the invited person will be able to see.</param>
     /// <returns>One sentence, or <see langword="null"/>.</returns>
     /// <remarks>
+    /// <para>
+    /// <b>The name is no longer a private note.</b> It used to be the administrator's own label
+    /// — "Mum", "Ben's TV" — shown back to them and to nobody else. Dan: <em>"owner sets
+    /// username - can be changed when accepting the invite."</em> So it is the account name the
+    /// invited person arrives with, pre-filled on the landing page and still theirs to change, and
+    /// it is held to the rules a name is held to everywhere else on this server rather than to a
+    /// length bound. Catching it here means the mistake surfaces while the inviter is still looking
+    /// at the form, not when somebody else opens the link.
+    /// </para>
+    /// <para>
+    /// <b>Blank is allowed and means "let them choose".</b> An inviter who does not care what the
+    /// account is called should not have to invent a name, and the landing page simply opens with
+    /// an empty field — which is what it did before this existed.
+    /// </para>
     /// <para>
     /// <b>An empty library list is refused.</b> It would mint a working invite to an account that
     /// can see nothing, which looks like a bug on the other end and reads as a snub. If the
@@ -190,11 +220,12 @@ public static class InviteGate
     /// double-taps — and <see cref="NormaliseLibraries"/> quietly removes it.
     /// </para>
     /// </remarks>
-    public static string? ValidateMint(string? label, IReadOnlyCollection<Guid>? libraries)
+    public static string? ValidateMint(string? username, IReadOnlyCollection<Guid>? libraries)
     {
-        if (label is not null && label.Length > MaxLabelLength)
+        if (!string.IsNullOrWhiteSpace(username)
+            && FirstRun.SetupGate.ValidateUsername(username) is { } problem)
         {
-            return $"A label can be at most {MaxLabelLength} characters.";
+            return problem;
         }
 
         var chosen = NormaliseLibraries(libraries);

@@ -24,7 +24,14 @@ public sealed class InviteRow
     /// <summary>Lowercase hex SHA-256 of the token.</summary>
     public string TokenHash { get; set; } = string.Empty;
 
-    /// <summary>The administrator's own note. Shown to them, never to the invited person.</summary>
+    /// <summary>The account name the invited person will arrive with. May be empty.</summary>
+    /// <remarks>
+    /// <b>This is shown to somebody else.</b> It used to be a private note to whoever minted the
+    /// invite; it is now the username the landing page pre-fills, and the invited person may change
+    /// it before they accept. The column did not change and neither did its name — what changed is
+    /// who reads it, which is worth knowing before writing anything here that was meant to stay on
+    /// this side. Empty means "let them choose".
+    /// </remarks>
     public string Label { get; set; } = string.Empty;
 
     /// <summary>The libraries the account will be able to see, and nothing else.</summary>
@@ -43,7 +50,14 @@ public sealed class InviteRow
     /// <summary>When it was minted.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>When it stops working.</summary>
+    /// <summary>
+    /// When it stops working. <see cref="InviteGate.NeverExpires"/> for an invite that does not.
+    /// </summary>
+    /// <remarks>
+    /// Every invite minted since Dan asked for <em>"no short term links"</em> carries the sentinel;
+    /// older rows carry a real date and still expire. <see cref="ToState"/> is where the two are
+    /// told apart.
+    /// </remarks>
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>When somebody made an account with it, or null.</summary>
@@ -60,7 +74,12 @@ public sealed class InviteRow
 
     /// <summary>This row as the gate sees it.</summary>
     /// <returns>The state.</returns>
-    public InviteState ToState() => new(ExpiresAt, RedeemedAt, RevokedAt);
+    /// <remarks>
+    /// The sentinel becomes <see langword="null"/> here rather than in the gate, so
+    /// <see cref="InviteGate.Decide"/> never has to know how storage spells "never".
+    /// </remarks>
+    public InviteState ToState()
+        => new(InviteGate.IsNever(ExpiresAt) ? null : ExpiresAt, RedeemedAt, RevokedAt);
 }
 
 /// <summary>One invite in the administrator's list.</summary>
@@ -69,7 +88,7 @@ public sealed class InviteSummary
     /// <summary>The id to revoke by.</summary>
     public string Id { get; set; } = string.Empty;
 
-    /// <summary>The administrator's own note.</summary>
+    /// <summary>The account name it will create, or empty when the person chooses their own.</summary>
     public string Label { get; set; } = string.Empty;
 
     /// <summary>The libraries it grants.</summary>
@@ -81,8 +100,8 @@ public sealed class InviteSummary
     /// <summary>When it was minted, ISO 8601.</summary>
     public string CreatedAt { get; set; } = string.Empty;
 
-    /// <summary>When it stops working, ISO 8601.</summary>
-    public string ExpiresAt { get; set; } = string.Empty;
+    /// <summary>When it stops working, ISO 8601, or null when it does not.</summary>
+    public string? ExpiresAt { get; set; }
 
     /// <summary><c>valid</c>, <c>expired</c>, <c>used</c> or <c>revoked</c>.</summary>
     public string Status { get; set; } = string.Empty;
@@ -108,16 +127,19 @@ public sealed class InviteLibrary
 }
 
 /// <summary>What an administrator asked for.</summary>
+/// <remarks>
+/// There is no <c>ExpiresInDays</c> any more. Dan: <em>"Remove how long the link works, these all
+/// work indefinetly until revoked - no short term links."</em> A caller on an older build that
+/// still sends one is not refused — the property simply is not bound, and the invite does not
+/// expire, which is what the newer server means by the request either way.
+/// </remarks>
 public sealed class MintInviteRequest
 {
-    /// <summary>A note to themselves. Optional.</summary>
+    /// <summary>The name the invited person's account will get. Optional.</summary>
     public string? Label { get; set; }
 
     /// <summary>The libraries the invited person will see. At least one.</summary>
     public IReadOnlyList<Guid>? Libraries { get; set; }
-
-    /// <summary>How long it should last. Clamped; zero means the default.</summary>
-    public int ExpiresInDays { get; set; }
 }
 
 /// <summary>A freshly minted invite. The only time the token is ever returned.</summary>
@@ -126,15 +148,25 @@ public sealed class MintedInvite
     /// <summary>The token. Send the link, not this, unless there is no link to send.</summary>
     public string Token { get; set; } = string.Empty;
 
-    /// <summary>
-    /// The link to send, or null when this server has no address anybody could open.
-    /// </summary>
+    /// <summary>The link to send. Null only when this server has no address at all.</summary>
     /// <remarks>
-    /// Null is a real answer, not a failure: a server with no domain is reachable through the app
-    /// and on its own network, and the token still works when typed in. The app shows the token in
-    /// that case and says why.
+    /// Dan: <em>"After creating generate A FULL LINK to the server, if no domain is setup use the
+    /// host's ip address for LAN and if there is a domain setup then use that instead."</em> So
+    /// there is nearly always a link now — see <c>InviteService.LinkAsync</c>. Null survives for
+    /// the one case that is genuinely address-less: a node bound to loopback with no domain, which
+    /// is every harness node and nobody's actual server.
     /// </remarks>
     public string? Url { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="Url"/> is a private address, so it only works on this network.
+    /// </summary>
+    /// <remarks>
+    /// The screen says so, and offers to go and set a domain up. Silently handing somebody a
+    /// <c>192.168.…</c> link to forward to their mother is how an invite fails at the far end for
+    /// a reason neither person can see.
+    /// </remarks>
+    public bool UrlIsLan { get; set; }
 
     /// <summary>The invite as it now appears in the list.</summary>
     public InviteSummary Invite { get; set; } = new();
@@ -152,8 +184,16 @@ public sealed class InviteDescription
     /// <summary>What they will be able to watch.</summary>
     public IReadOnlyList<InviteLibrary> Libraries { get; set; } = Array.Empty<InviteLibrary>();
 
-    /// <summary>When the invite stops working, ISO 8601.</summary>
-    public string ExpiresAt { get; set; } = string.Empty;
+    /// <summary>The name whoever invited them picked, or empty. Theirs to change.</summary>
+    /// <remarks>
+    /// Pre-filled rather than fixed, because Dan chose exactly that: <em>"owner sets username - can
+    /// be changed when accepting the invite."</em> A name somebody else typed is a suggestion, and
+    /// the person it belongs to is the one signing in with it.
+    /// </remarks>
+    public string Username { get; set; } = string.Empty;
+
+    /// <summary>When the invite stops working, ISO 8601, or null when it does not.</summary>
+    public string? ExpiresAt { get; set; }
 }
 
 /// <summary>The account somebody chose on an invite landing page.</summary>

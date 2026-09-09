@@ -26,10 +26,14 @@ const ACCEPT_PATH = "/stingstream/api/v1/invites/accept";
 /** How long one call gets before it is called unreachable. */
 const REQUEST_TIMEOUT_MS = 10_000;
 
-/** Core's own rules, mirrored so a typo is caught before a round trip. */
-export const INVITE_LABEL_MAX_LENGTH = 64;
-export const INVITE_MAX_EXPIRY_DAYS = 365;
-export const INVITE_DEFAULT_EXPIRY_DAYS = 7;
+/**
+ * Core's own rule, mirrored so a typo is caught before a round trip.
+ *
+ * The same bound the first-run screen uses, because it is the same thing: what an inviter types
+ * here becomes an account name on this server. `InviteGate.MaxLabelLength` is defined as
+ * `SetupGate.MaxUsernameLength` for exactly that reason.
+ */
+export const INVITE_USERNAME_MAX_LENGTH = 32;
 
 /** A library an invite grants, or could. */
 export interface InviteLibrary {
@@ -44,17 +48,32 @@ export interface InviteDescription {
   serverName: string;
   invitedBy: string;
   libraries: InviteLibrary[];
-  expiresAt: string;
+  /**
+   * The name whoever invited them picked, or empty.
+   *
+   * Pre-filled on the form and still theirs to change — Dan: *"owner sets username - can be changed
+   * when accepting the invite."* A name somebody else typed is a suggestion, and the person it
+   * belongs to is the one who will be signing in with it.
+   */
+  username: string;
+  /** When it stops working, or null when it does not. Everything minted now is null. */
+  expiresAt: string | null;
 }
 
 /** One invite in the administrator's list. */
 export interface InviteSummary {
   id: string;
+  /** The account name it will create, or empty when the person chooses their own. */
   label: string;
   libraries: InviteLibrary[];
   createdByName: string;
   createdAt: string;
-  expiresAt: string;
+  /** When it stops working, or null when it does not. */
+  expiresAt: string | null;
+  /**
+   * `revoked` and `expired` only ever describe invites minted before Part 9: an invite is deleted
+   * now rather than withdrawn, and nothing new is given an expiry.
+   */
   status: "valid" | "expired" | "used" | "revoked";
   redeemedUserName?: string | null;
   redeemedAt?: string | null;
@@ -63,8 +82,19 @@ export interface InviteSummary {
 /** A freshly minted invite. The only time the token is ever returned. */
 export interface MintedInvite {
   token: string;
-  /** The link to send, or null when this server has no address anybody could open. */
+  /**
+   * The link to send. Null only for a server with no address at all — bound to loopback, no
+   * domain — which is every harness node and nobody's actual server.
+   */
   url: string | null;
+  /**
+   * Whether that link is a private address, so it only works on this network.
+   *
+   * The dialog says so and offers to go and set a domain up. Silently handing somebody a
+   * `192.168.…` link to forward to their mother is how an invite fails at the far end for a reason
+   * neither person can see.
+   */
+  urlIsLan: boolean;
   invite: InviteSummary;
 }
 
@@ -168,7 +198,7 @@ const toSummary = (raw: unknown): InviteSummary => {
     libraries: toLibraries(r.Libraries),
     createdByName: typeof r.CreatedByName === "string" ? r.CreatedByName : "",
     createdAt: typeof r.CreatedAt === "string" ? r.CreatedAt : "",
-    expiresAt: typeof r.ExpiresAt === "string" ? r.ExpiresAt : "",
+    expiresAt: typeof r.ExpiresAt === "string" ? r.ExpiresAt : null,
     // An unrecognised status is treated as expired rather than valid: a node newer than this
     // bundle could name a state we have never heard of, and the safe reading of "I don't know
     // what this invite is" is that it cannot be used.
@@ -229,7 +259,8 @@ export async function lookupInvite(
     serverName: typeof body.ServerName === "string" ? body.ServerName : "",
     invitedBy: typeof body.InvitedBy === "string" ? body.InvitedBy : "",
     libraries: toLibraries(body.Libraries),
-    expiresAt: typeof body.ExpiresAt === "string" ? body.ExpiresAt : "",
+    username: typeof body.Username === "string" ? body.Username : "",
+    expiresAt: typeof body.ExpiresAt === "string" ? body.ExpiresAt : null,
   };
 }
 
@@ -334,7 +365,7 @@ export async function fetchInvites(
 /** Mint one. The token in the answer is the only copy that will ever exist. */
 export async function mintInvite(
   apiBaseUrl: string,
-  input: { label?: string; libraries: string[]; expiresInDays?: number },
+  input: { label?: string; libraries: string[] },
   accessToken?: string | null,
 ): Promise<MintedInvite> {
   const res = await fetch(`${apiBaseUrl}/invites`, {
@@ -343,10 +374,11 @@ export async function mintInvite(
       ...authHeaders(accessToken),
       "content-type": "application/json",
     },
+    // No expiry is sent, and an older node that still expects one is not broken by that: its
+    // `ExpiresInDays` binds to zero, which its own `ClampExpiry` reads as "no preference".
     body: JSON.stringify({
       Label: input.label ?? "",
       Libraries: input.libraries,
-      ExpiresInDays: input.expiresInDays ?? INVITE_DEFAULT_EXPIRY_DAYS,
     }),
   });
   if (!res.ok) {
@@ -363,12 +395,13 @@ export async function mintInvite(
   return {
     token: typeof body.Token === "string" ? body.Token : "",
     url: typeof body.Url === "string" && body.Url.length > 0 ? body.Url : null,
+    urlIsLan: body.UrlIsLan === true,
     invite: toSummary(body.Invite),
   };
 }
 
-/** Withdraw one. Addressed by id, never by token. */
-export async function revokeInvite(
+/** Delete one. Addressed by id, never by token. */
+export async function deleteInvite(
   apiBaseUrl: string,
   id: string,
   accessToken?: string | null,
@@ -377,9 +410,9 @@ export async function revokeInvite(
     method: "DELETE",
     headers: authHeaders(accessToken),
   });
-  // 404 means it was already withdrawn or already gone, which is the state the caller was asking
-  // for. Reporting it as a failure would put an error in front of somebody who got what they
-  // wanted, usually from double-tapping.
+  // 404 means it was already gone, which is the state the caller was asking for. Reporting it as a
+  // failure would put an error in front of somebody who got what they wanted, usually from
+  // double-tapping.
   if (!res.ok && res.status !== 404) {
     throw await readError(res, "DELETE /invites");
   }

@@ -40,6 +40,12 @@ export interface InviteAccountFormProps {
  * So the server's name, who invited them and the list of libraries are stated before they are
  * asked for anything — and the library list is the honest version of what they are getting, not a
  * vague "access to a library".
+ *
+ * **The username may arrive pre-filled**, from whatever whoever invited them typed. Dan: *"owner
+ * sets username - can be changed when accepting the invite."* Pre-filled and editable, not fixed:
+ * a name somebody else chose is a suggestion, and the person it belongs to is the one who will be
+ * signing in with it. An invite that named nobody simply opens with an empty field, as it always
+ * did.
  */
 export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
   invite,
@@ -48,7 +54,7 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
 
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(invite.username ?? "");
   const [password, setPassword] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
