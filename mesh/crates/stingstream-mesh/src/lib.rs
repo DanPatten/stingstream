@@ -40,6 +40,7 @@ pub mod sharing;
 pub mod sidedoor;
 pub mod swarm;
 pub mod util;
+pub mod vouch;
 pub mod watch;
 
 pub use config::MeshConfig;

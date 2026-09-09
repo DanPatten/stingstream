@@ -63,6 +63,32 @@ public interface IMeshClient
     /// <returns>The invite code, and the link to hand out instead when this node has a host.</returns>
     Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken);
 
+    /// <summary>Sign a statement about one of this node's people, for another node.</summary>
+    /// <param name="audience">Node id of the server the assertion is for.</param>
+    /// <param name="nonce">That server's own challenge.</param>
+    /// <param name="userId">The user's id on this server.</param>
+    /// <param name="userName">Their username here.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The assertion, and who signed it.</returns>
+    Task<MeshVouch> VouchAsync(
+        string audience,
+        string nonce,
+        string userId,
+        string userName,
+        CancellationToken cancellationToken);
+
+    /// <summary>Check an assertion somebody presented, and read what it claims.</summary>
+    /// <param name="assertion">The assertion.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The claims, or null when it is not genuine or is not addressed to this node.</returns>
+    /// <remarks>
+    /// A null rather than an exception for the ordinary refusal, because "that is not a valid
+    /// assertion" is an answer this route exists to give — the caller turns it into a 401 with a
+    /// sentence. A transport failure still throws, because a mesh that is down is not the same as
+    /// an assertion that is bad and must not be reported as one.
+    /// </remarks>
+    Task<MeshVouchClaims?> VerifyVouchAsync(string assertion, CancellationToken cancellationToken);
+
     /// <summary>Which account service this server uses, and whose account it belongs to.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The account status.</returns>
@@ -436,6 +462,52 @@ public sealed class MeshClient : IMeshClient
             .ConfigureAwait(false);
         await ThrowIfFailedAsync(response, "minting an invite", cancellationToken).ConfigureAwait(false);
         return await ReadAsync<MeshInvite>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshVouch> VouchAsync(
+        string audience,
+        string nonce,
+        string userId,
+        string userName,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/identity/assert",
+                new { aud = audience, nonce, sub = userId, name = userName },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "signing an identity assertion", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshVouch>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshVouchClaims?> VerifyVouchAsync(
+        string assertion,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/identity/verify",
+                new { assertion },
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        // The mesh answers 401 for an assertion that is not genuine, expired, or addressed to
+        // somebody else. That is a verdict, not a fault, and the caller needs to tell it apart from
+        // "the mesh is not running" -- which ThrowIfFailedAsync still turns into an exception.
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            return null;
+        }
+
+        await ThrowIfFailedAsync(response, "checking an identity assertion", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshVouchClaims>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

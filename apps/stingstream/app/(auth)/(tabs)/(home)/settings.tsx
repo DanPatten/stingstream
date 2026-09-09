@@ -12,6 +12,10 @@ import { LinkDevice } from "@/components/settings/LinkDevice";
 import { PasskeysSection } from "@/components/settings/PasskeysSection";
 import { ProfileHeader } from "@/components/settings/ProfileHeader";
 import { StorageSettings } from "@/components/settings/StorageSettings";
+import {
+  buildSettingsGroups,
+  type SettingsRow,
+} from "@/components/shell/buildSettingsSections";
 import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
 import useRouter from "@/hooks/useAppRouter";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
@@ -26,7 +30,6 @@ function SettingsMobile() {
   const [user] = useAtom(userAtom);
   const { logout } = useJellyfin();
   const meshSummary = useMeshSummary();
-  const isAdmin = !!user?.Policy?.IsAdministrator;
   const isWeb = Platform.OS === "web";
 
   // The embedded mesh has no web build at all, so `meshSummary`'s own "Not on this platform" is
@@ -35,6 +38,35 @@ function SettingsMobile() {
   const deviceStatus = isWeb
     ? t("home.settings.sections.this_device_web")
     : meshSummary;
+
+  // Which rows this account gets is a rule, and it lives in one tested place —
+  // `components/shell/buildSettingsSections.ts`, the way the sidebar's rows do.
+  const groups = buildSettingsGroups(user, t);
+
+  const renderRow = (row: SettingsRow) => {
+    if (row.kind === "deviceStatus") {
+      return isWeb ? (
+        // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's own
+        // title to fit it (confirmed live at 390px) where `subtitle` just wraps under it, which
+        // is what it is for.
+        <ListItem key={row.key} title={row.label} subtitle={deviceStatus} />
+      ) : (
+        <ListItem key={row.key} title={row.label}>
+          <Pill label={deviceStatus} tone='neutral' />
+        </ListItem>
+      );
+    }
+    return (
+      <ListItem
+        key={row.key}
+        testID={row.testID}
+        onPress={() => router.push(row.route as never)}
+        showArrow
+        title={row.label}
+        subtitle={row.detail}
+      />
+    );
+  };
 
   return (
     <ScrollView
@@ -54,120 +86,30 @@ function SettingsMobile() {
         >
           <ProfileHeader />
 
-          <View className='mt-2 mb-4' testID='settings-section-general'>
-            <View className='mb-4'>
-              <AppLanguageSelector />
-            </View>
-            <ListGroup title={t("home.settings.sections.general")}>
-              <ListItem
-                onPress={() => router.push("/settings/appearance")}
-                showArrow
-                title={t("home.settings.appearance.title")}
-              />
-              <ListItem
-                onPress={() => router.push("/settings/playback-controls")}
-                showArrow
-                title={t("home.settings.playback_controls.title")}
-              />
-              <ListItem
-                onPress={() => router.push("/settings/audio-subtitles")}
-                showArrow
-                title={t("home.settings.audio_subtitles.title")}
-              />
-              <ListItem
-                onPress={() => router.push("/settings/music")}
-                showArrow
-                title={t("home.settings.music.title")}
-              />
-              <ListItem
-                onPress={() => router.push("/settings/network")}
-                showArrow
-                title={t("home.settings.network.title")}
-              />
-              <ListItem
-                onPress={() => router.push("/settings/plugins")}
-                showArrow
-                title={t("home.settings.plugins.plugins_title")}
-              />
-            </ListGroup>
-            {/* Downloads and app-storage usage do not exist on web — nothing here is ever
-                downloaded to a browser, so the row and its "delete all" action make no sense
-                there. */}
-            {!isWeb && (
-              <View className='mt-4'>
-                <StorageSettings />
-              </View>
-            )}
-          </View>
-
-          <View className='mb-4' testID='settings-section-sharing'>
-            <ListGroup title={t("home.settings.sections.sharing")}>
-              {/* Servers, not "Sharing": what this screen lists is the other people's servers this
-                  one pools libraries with. Inviting a *person* is no longer here at all — that is
-                  what Users is, and it has a section of its own. */}
-              <ListItem
-                testID='settings-servers'
-                onPress={() => router.push("/settings/servers")}
-                showArrow
-                title={t("home.settings.sections.servers")}
-                subtitle={t("home.settings.sections.servers_hint")}
-              />
-              {isWeb ? (
-                // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's
-                // own title to fit it (confirmed live at 390px) where `subtitle` just wraps under
-                // it, which is what it is for.
-                <ListItem
-                  title={t("home.settings.sections.this_device")}
-                  subtitle={deviceStatus}
-                />
-              ) : (
-                <ListItem title={t("home.settings.sections.this_device")}>
-                  <Pill label={deviceStatus} tone='neutral' />
-                </ListItem>
+          {groups.map((group) => (
+            <View
+              key={group.key}
+              className={group.key === "general" ? "mt-2 mb-4" : "mb-4"}
+              testID={group.testID}
+            >
+              {group.key === "general" && (
+                <View className='mb-4'>
+                  <AppLanguageSelector />
+                </View>
               )}
-            </ListGroup>
-          </View>
-
-          {isAdmin && (
-            <View className='mb-4' testID='settings-section-server'>
-              <ListGroup title={t("home.settings.sections.server")}>
-                {/* First, and its own row: who can get in is the question people come here with
-                    most, and it used to be a tab behind a screen about transcoding. */}
-                <ListItem
-                  testID='settings-users'
-                  onPress={() => router.push("/users")}
-                  showArrow
-                  title={t("home.settings.sections.users")}
-                  subtitle={t("home.settings.sections.users_hint")}
-                />
-                <ListItem
-                  onPress={() => router.push("/settings/server")}
-                  showArrow
-                  title={t("home.settings.sections.server_settings")}
-                  subtitle={t("home.settings.sections.server_settings_hint")}
-                />
-                <ListItem
-                  onPress={() => router.push("/settings/admin")}
-                  showArrow
-                  title={t("home.settings.sections.libraries_and_transcoding")}
-                  subtitle={t(
-                    "home.settings.sections.libraries_and_transcoding_hint",
-                  )}
-                />
-                <ListItem
-                  onPress={() => router.push("/settings/node")}
-                  showArrow
-                  title={t("home.settings.sections.server_status")}
-                  subtitle={t("home.settings.sections.server_status_hint")}
-                />
-                <ListItem
-                  onPress={() => router.push("/settings/logs")}
-                  showArrow
-                  title={t("home.settings.logs.logs_title")}
-                />
+              <ListGroup title={group.title}>
+                {group.rows.map(renderRow)}
               </ListGroup>
+              {/* Downloads and app-storage usage do not exist on web — nothing here is ever
+                  downloaded to a browser, so the row and its "delete all" action make no sense
+                  there. */}
+              {group.key === "general" && !isWeb && (
+                <View className='mt-4'>
+                  <StorageSettings />
+                </View>
+              )}
             </View>
-          )}
+          ))}
 
           <View className='mb-4' testID='settings-section-account'>
             <LinkDevice className='mb-4' />

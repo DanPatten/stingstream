@@ -125,7 +125,10 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
           : t("invites.landing_invited")}
       </Text>
 
-      <InviteLibraryList libraries={invite.libraries} />
+      <InviteLibraryList
+        libraries={invite.libraries}
+        isAdministrator={invite.isAdministrator}
+      />
 
       <View style={{ marginTop: 20, gap: 12 }}>
         <Input
@@ -193,14 +196,47 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
  * What the invite actually opens.
  *
  * Named libraries rather than a count, because "2 libraries" tells somebody nothing and the whole
- * question they have is what they are being given access to. An invite always names at least one —
- * the server refuses to mint one that names none — so there is no empty case to draw.
+ * question they have is what they are being given access to. A viewer invite always names at least
+ * one — the server refuses to mint one that names none — so there is no empty case to draw for it.
+ *
+ * **An administrator invite names none, and that is the one empty case there is.** It is not drawn
+ * as an empty list: an administrator sees every library, including ones added later, and saying so
+ * is both shorter and truer than listing today's. Somebody should know they are accepting the run
+ * of the server while they can still decline it.
  */
 export const InviteLibraryList: React.FC<{
   libraries: { id: string; name: string }[];
-}> = ({ libraries }) => {
+  isAdministrator?: boolean;
+}> = ({ libraries, isAdministrator }) => {
   const { t } = useTranslation();
-  if (libraries.length === 0) return null;
+  if (!isAdministrator && libraries.length === 0) return null;
+
+  if (isAdministrator) {
+    return (
+      <View
+        testID='invite-landing-administrator'
+        style={{
+          marginTop: 16,
+          padding: 12,
+          borderRadius: 12,
+          backgroundColor: tokens.color.bg["2"],
+          gap: 6,
+        }}
+      >
+        <Text variant='caption' tone='tertiary' weight='medium'>
+          {t("invites.landing_administrator_title")}
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons
+            name='checkmark-circle'
+            size={16}
+            color={tokens.color.state.success}
+          />
+          <Text variant='body'>{t("invites.landing_administrator_body")}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View

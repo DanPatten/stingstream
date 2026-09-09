@@ -99,3 +99,78 @@ export function policyForSelection(
     ? { ...policy, EnableAllFolders: true, EnabledFolders: [] }
     : { ...policy, EnableAllFolders: false, EnabledFolders: selected };
 }
+
+/**
+ * Why this account's administrator switch is locked, or `null` when it is not.
+ *
+ * A reason rather than a boolean, because the switch stays on screen when it cannot be used and
+ * says why — a control that disappears reads as a fault, which is the same call `cannotDisable`
+ * already makes in `UserDialog`.
+ *
+ * Two rules, and both are about not ending up with a server nobody can administer:
+ *
+ * - **You cannot demote yourself.** The server does not stop you, and that is exactly the problem:
+ *   it is one tap, it is silent, and the screen you would use to undo it is the screen you just
+ *   locked yourself out of.
+ * - **You cannot demote the last administrator.** Even somebody else's account, if it is the only
+ *   one left. Jellyfin's own last-administrator guard covers deletion, not demotion.
+ *
+ * Promoting has no rule. Handing somebody administration is a decision, not a hazard, and the one
+ * screen that can make it is already administrator-only.
+ */
+export type AdminChangeBlock = "self" | "last-administrator";
+
+export function adminChangeBlocked(
+  target: { Id?: string | null; Policy?: UserPolicy | null } | null | undefined,
+  me: { Id?: string | null } | null | undefined,
+  all:
+    | readonly { Id?: string | null; Policy?: UserPolicy | null }[]
+    | null
+    | undefined,
+): AdminChangeBlock | null {
+  if (!target?.Id) return null;
+  // Promotion is never blocked.
+  if (!target.Policy?.IsAdministrator) return null;
+
+  if (me?.Id && target.Id === me.Id) return "self";
+
+  const administrators = (all ?? []).filter(
+    (user) => user.Policy?.IsAdministrator,
+  ).length;
+  // `< 2` rather than `=== 1`: an empty or still-loading list must not read as "go ahead".
+  return administrators < 2 ? "last-administrator" : null;
+}
+
+/**
+ * The policy to save when somebody flips the administrator switch.
+ *
+ * The rest of the policy is carried through untouched for the same reason
+ * `policyForSelection` carries it: `updateUserPolicy` replaces the whole thing, so anything
+ * dropped here is a permission revoked by accident.
+ *
+ * **Promoting clears the folder list rather than keeping it.** Jellyfin checks `IsAdministrator`
+ * before it checks folders, so a list left behind decides nothing while it is set — but it would
+ * come back to life the moment somebody was demoted, silently restoring whatever they could see
+ * before. Demoting is the mirror of that and is the sharper edge: it writes `EnableAllFolders`
+ * false with an empty list, so a former administrator can see **nothing** until somebody picks. An
+ * account that quietly kept every library after being demoted is the one outcome this must not
+ * produce.
+ */
+export function policyForAdminChange(
+  policy: UserPolicy,
+  isAdministrator: boolean,
+): UserPolicy {
+  return isAdministrator
+    ? {
+        ...policy,
+        IsAdministrator: true,
+        EnableAllFolders: true,
+        EnabledFolders: [],
+      }
+    : {
+        ...policy,
+        IsAdministrator: false,
+        EnableAllFolders: false,
+        EnabledFolders: [],
+      };
+}

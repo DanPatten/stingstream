@@ -58,6 +58,24 @@ public sealed class InviteRow
     /// <summary>The libraries the account will be able to see, and nothing else.</summary>
     public IReadOnlyList<Guid> Libraries { get; set; } = Array.Empty<Guid>();
 
+    /// <summary>Whether this invite creates an administrator rather than a viewer.</summary>
+    /// <remarks>
+    /// <para>
+    /// Dan: <em>"when inviting ask if they should be an admin or end user (default end user)"</em>.
+    /// The default is the quiet one on purpose — a link that hands over the server should never be
+    /// what you get by not answering a question.
+    /// </para>
+    /// <para>
+    /// <b>An administrator invite ignores <see cref="Libraries"/>, and that is Jellyfin's rule
+    /// rather than ours.</b> <c>IsAdministrator</c> is checked before folders are, so a library
+    /// list on this kind of invite would be a promise the server does not keep.
+    /// <see cref="InviteGate.ValidateMint"/> therefore stops requiring one, and
+    /// <c>InviteService.ApplyLibraryScopeAsync</c> writes <c>EnableAllFolders</c> instead of a
+    /// list.
+    /// </para>
+    /// </remarks>
+    public bool IsAdministrator { get; set; }
+
     /// <summary>Jellyfin user id of the administrator who minted it.</summary>
     public string CreatedBy { get; set; } = string.Empty;
 
@@ -112,8 +130,16 @@ public sealed class InviteSummary
     /// <summary>The account name it will create, or empty when the person chooses their own.</summary>
     public string Label { get; set; } = string.Empty;
 
-    /// <summary>The libraries it grants.</summary>
+    /// <summary>The libraries it grants. Empty for an administrator invite, which grants all.</summary>
     public IReadOnlyList<InviteLibrary> Libraries { get; set; } = Array.Empty<InviteLibrary>();
+
+    /// <summary>Whether it creates an administrator.</summary>
+    /// <remarks>
+    /// In the list so a pending invite can say what it will do before anybody opens it. An
+    /// administrator link is a much larger thing to have left in a chat history than a viewer one,
+    /// and the only thing standing behind it is that it is single use.
+    /// </remarks>
+    public bool IsAdministrator { get; set; }
 
     /// <summary>Who minted it.</summary>
     public string CreatedByName { get; set; } = string.Empty;
@@ -159,8 +185,18 @@ public sealed class MintInviteRequest
     /// <summary>The name the invited person's account will get. Optional.</summary>
     public string? Label { get; set; }
 
-    /// <summary>The libraries the invited person will see. At least one.</summary>
+    /// <summary>
+    /// The libraries the invited person will see. At least one, unless
+    /// <see cref="IsAdministrator"/> is set.
+    /// </summary>
     public IReadOnlyList<Guid>? Libraries { get; set; }
+
+    /// <summary>Make them an administrator of this server rather than a viewer.</summary>
+    /// <remarks>
+    /// Absent means <see langword="false"/>, which is what an older client sends and what it should
+    /// mean: the default is the smaller grant.
+    /// </remarks>
+    public bool IsAdministrator { get; set; }
 }
 
 /// <summary>A freshly minted invite. The only time the token is ever returned.</summary>
@@ -202,8 +238,15 @@ public sealed class InviteDescription
     /// <summary>Who invited them.</summary>
     public string InvitedBy { get; set; } = string.Empty;
 
-    /// <summary>What they will be able to watch.</summary>
+    /// <summary>What they will be able to watch. Empty when the invite makes them an administrator.</summary>
     public IReadOnlyList<InviteLibrary> Libraries { get; set; } = Array.Empty<InviteLibrary>();
+
+    /// <summary>Whether accepting makes them an administrator of this server.</summary>
+    /// <remarks>
+    /// Told to them before they are asked for anything, for the same reason the library list is:
+    /// somebody should know what they are accepting while they can still decline it.
+    /// </remarks>
+    public bool IsAdministrator { get; set; }
 
     /// <summary>The name whoever invited them picked, or empty. Theirs to change.</summary>
     /// <remarks>

@@ -397,6 +397,19 @@ public class InventoryPublisherTests
 
         public Task<MeshInvite> InviteAsync(string group, CancellationToken cancellationToken) => throw Unused();
 
+        public Task<MeshVouch> VouchAsync(
+            string audience,
+            string nonce,
+            string userId,
+            string userName,
+            CancellationToken cancellationToken)
+            => throw Unused();
+
+        public Task<MeshVouchClaims?> VerifyVouchAsync(
+            string assertion,
+            CancellationToken cancellationToken)
+            => throw Unused();
+
         public Task<MeshAccountStatus> AccountStatusAsync(CancellationToken cancellationToken) => throw Unused();
 
         public Task<MeshAccountStatus> AccountRegisterAsync(
@@ -465,6 +478,12 @@ public class InventoryPublisherTests
         public NodeRuntime? Current => null;
 
         public void ClearFirstRun()
+        {
+        }
+
+        // The inventory publisher does not name the node; this exists so the double satisfies the
+        // interface.
+        public void SetNodeName(string name)
         {
         }
     }

@@ -113,13 +113,29 @@ public sealed class InviteStore
                 // Already migrated.
             }
 
+            // Which of the two kinds of person this invite is for. `DEFAULT 0` is doing real work:
+            // every invite minted before this column existed created a viewer, and that is exactly
+            // what it must go on doing. An invite is never silently promoted by an upgrade.
+            try
+            {
+                CoreDatabase.Execute(
+                    c,
+                    "ALTER TABLE invites ADD COLUMN is_administrator INTEGER NOT NULL DEFAULT 0;");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException e)
+                when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already migrated.
+            }
+
             _schemaReady = true;
         }
     }
 
     private const string Select =
         "SELECT id, token_hash, label, libraries, created_by, created_by_name, created_at, "
-        + "expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token FROM invites";
+        + "expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token, "
+        + "is_administrator FROM invites";
 
     /// <summary>Every invite, newest first.</summary>
     /// <returns>The rows.</returns>
@@ -181,8 +197,9 @@ public sealed class InviteStore
                 """
                 INSERT INTO invites
                     (id, token_hash, label, libraries, created_by, created_by_name, created_at,
-                     expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token)
-                VALUES ($id, $h, $l, $lib, $cb, $cbn, $ca, $ea, $ra, $ru, $run, $va, $tok)
+                     expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token,
+                     is_administrator)
+                VALUES ($id, $h, $l, $lib, $cb, $cbn, $ca, $ea, $ra, $ru, $run, $va, $tok, $adm)
                 ON CONFLICT(id) DO UPDATE SET
                     token_hash = excluded.token_hash, label = excluded.label,
                     libraries = excluded.libraries, created_by = excluded.created_by,
@@ -190,7 +207,8 @@ public sealed class InviteStore
                     created_at = excluded.created_at, expires_at = excluded.expires_at,
                     redeemed_at = excluded.redeemed_at, redeemed_user = excluded.redeemed_user,
                     redeemed_user_name = excluded.redeemed_user_name,
-                    revoked_at = excluded.revoked_at, token = excluded.token;
+                    revoked_at = excluded.revoked_at, token = excluded.token,
+                    is_administrator = excluded.is_administrator;
                 """,
                 ("$id", row.Id),
                 ("$h", row.TokenHash),
@@ -204,7 +222,8 @@ public sealed class InviteStore
                 ("$ru", row.RedeemedUserId),
                 ("$run", row.RedeemedUserName),
                 ("$va", row.RevokedAt is { } v ? Stamp(v) : null),
-                ("$tok", row.Token)),
+                ("$tok", row.Token),
+                ("$adm", row.IsAdministrator)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -375,6 +394,7 @@ public sealed class InviteStore
         RedeemedUserName = r.IsDBNull(10) ? null : r.GetString(10),
         RevokedAt = r.IsDBNull(11) ? null : ReadStamp(r.GetString(11)),
         Token = r.IsDBNull(12) ? null : r.GetString(12),
+        IsAdministrator = !r.IsDBNull(13) && r.GetInt32(13) != 0,
     };
 
     private static IReadOnlyList<Guid> ReadLibraries(string json)

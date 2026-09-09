@@ -100,8 +100,16 @@ export function useSetUserDisabled() {
   });
 }
 
-/** Which libraries an existing account can see. Same read-modify-write rule as above. */
-export function useSetUserLibraries() {
+/**
+ * Write a whole policy back for one account.
+ *
+ * Deliberately generic: `updateUserPolicy` replaces the entire policy, so every caller has to do
+ * the read-modify-write anyway, and the *rules* about what the new policy should be are pure and
+ * tested in `components/stingstream/users/userAccess.ts` — `policyForSelection` for the library
+ * ticks, `policyForAdminChange` for the administrator switch. This hook only posts what they
+ * decided; it does not have an opinion of its own.
+ */
+export function useSetUserPolicy() {
   const { api, invalidate } = useUsersApi();
   return useMutation<void, Error, { userId: string; policy: UserPolicy }>({
     mutationFn: async ({ userId, policy }) => {

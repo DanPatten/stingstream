@@ -18,9 +18,10 @@ import * as Device from "expo-device";
 import { Image } from "expo-image";
 import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
 import { Platform } from "react-native";
+import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { GlobalModal } from "@/components/GlobalModal";
 import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin";
-import { PendingAccountSaveModal } from "@/components/PendingAccountSaveModal";
+import { PendingAccountSave } from "@/components/PendingAccountSave";
 import { useInterFonts } from "@/constants/fonts";
 import { TVImageBudget } from "@/constants/TVImageBudget";
 import { tokens } from "@/constants/theme";
@@ -649,6 +650,18 @@ function Layout() {
                                             title: "",
                                           }}
                                         />
+                                        {/* The other half of a cross-server sign-in, and outside
+                                            `(auth)` for both of the same reasons: somebody arrives
+                                            from another server's page and may have no session
+                                            here, and having one is what lets the page work rather
+                                            than a reason to bounce them to Home. */}
+                                        <Stack.Screen
+                                          name='authorize'
+                                          options={{
+                                            headerShown: false,
+                                            title: "",
+                                          }}
+                                        />
                                         <Stack.Screen name='+not-found' />
                                         <Stack.Screen
                                           name='(auth)/tv-option-modal'
@@ -743,9 +756,11 @@ function Layout() {
                                         closeButton
                                       />
                                       {!Platform.isTV && <GlobalModal />}
-                                      {!Platform.isTV && (
-                                        <PendingAccountSaveModal />
-                                      )}
+                                      {!Platform.isTV && <PendingAccountSave />}
+                                      {/* Not on TV: there `confirmDestructive` uses the native
+                                          Alert, and docs/conventions/tv.md rules out overlay
+                                          modals on that platform outright. */}
+                                      {!Platform.isTV && <AppDialogHost />}
                                       <JellyseerrAutoLogin />
                                     </ThemeProvider>
                                   </IntroSheetProvider>

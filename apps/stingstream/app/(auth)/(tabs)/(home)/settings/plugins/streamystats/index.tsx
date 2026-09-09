@@ -16,13 +16,14 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
 import { useSettings } from "@/utils/atoms/settings";
 import { reachabilityProbe } from "@/utils/serverUrl/probes/reachability";
 
-export default function StreamystatsPage() {
+function StreamystatsPage() {
   useDismissKeyboardOnLeave();
   const { t } = useTranslation();
   const navigation = useNavigation();
@@ -300,3 +301,5 @@ export default function StreamystatsPage() {
     </ScrollView>
   );
 }
+
+export default adminOnly(StreamystatsPage);

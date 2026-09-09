@@ -103,7 +103,10 @@ public sealed class InviteService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var problem = InviteGate.ValidateMint(request.Label, request.Libraries);
+        var problem = InviteGate.ValidateMint(
+            request.Label,
+            request.Libraries,
+            request.IsAdministrator);
         if (problem is not null)
         {
             return (null, problem);
@@ -119,7 +122,12 @@ public sealed class InviteService
             return (null, "That name is already taken on this server. Choose another.");
         }
 
-        var chosen = InviteGate.NormaliseLibraries(request.Libraries);
+        // An administrator sees every library by rule, so a list on that kind of invite is not
+        // stored at all rather than stored and ignored. A row that named libraries it does not
+        // grant would make the Users screen and the landing page both say something untrue.
+        var chosen = request.IsAdministrator
+            ? Array.Empty<Guid>()
+            : InviteGate.NormaliseLibraries(request.Libraries);
         var known = LibraryNames();
         var unknown = chosen.Where(id => !known.ContainsKey(id)).ToArray();
         if (unknown.Length > 0)
@@ -137,6 +145,7 @@ public sealed class InviteService
             TokenHash = Hash(token),
             Label = wanted,
             Libraries = chosen,
+            IsAdministrator = request.IsAdministrator,
             CreatedBy = createdBy,
             CreatedByName = createdByName,
             CreatedAt = now,
@@ -148,7 +157,8 @@ public sealed class InviteService
 
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
-            "Minted invite {Id} for {Count} librarie(s)",
+            "Minted {Kind} invite {Id} for {Count} librarie(s)",
+            row.IsAdministrator ? "administrator" : "viewer",
             row.Id,
             chosen.Count);
 
@@ -208,6 +218,7 @@ public sealed class InviteService
             ServerName = _host.FriendlyName,
             InvitedBy = row.CreatedByName,
             Libraries = Name(row.Libraries, names),
+            IsAdministrator = row.IsAdministrator,
             Username = row.Label,
             ExpiresAt = Expiry(row.ExpiresAt),
         };
@@ -295,7 +306,8 @@ public sealed class InviteService
 
         try
         {
-            await ApplyLibraryScopeAsync(created, row.Libraries).ConfigureAwait(false);
+            await ApplyLibraryScopeAsync(created, row.Libraries, row.IsAdministrator)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -434,23 +446,77 @@ public sealed class InviteService
             ? null
             : expiresAt.ToString("O", CultureInfo.InvariantCulture);
 
-    /// <summary>Restrict an account to exactly the libraries an invite named.</summary>
+    /// <summary>Give an account exactly what its invite promised, and nothing more.</summary>
+    /// <param name="user">The new account.</param>
+    /// <param name="libraries">The libraries the invite named.</param>
+    /// <param name="isAdministrator">Whether the invite creates an administrator.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Public because <c>Identity.IdentityService</c> creates accounts from the same invites down a
+    /// different path — somebody signing in with their own server instead of choosing a password.
+    /// What an invite grants must not depend on which of the two doors was used, so there is one
+    /// implementation and both call it rather than two that agree today.
+    /// </remarks>
+    public Task ApplyInvitePolicyAsync(
+        User user,
+        IReadOnlyList<Guid> libraries,
+        bool isAdministrator)
+        => ApplyLibraryScopeAsync(user, libraries, isAdministrator);
+
+    /// <summary>Turn an account off, for a caller whose own setup step failed.</summary>
+    /// <param name="user">The account.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Shared with <c>Identity.IdentityService</c> for the same reason as
+    /// <see cref="ApplyInvitePolicyAsync"/>: the recovery from a half-made account is the part it
+    /// would be worst to have two versions of.
+    /// </remarks>
+    public Task DisableAccountAsync(User user) => DisableAsync(user);
+    /// <remarks>
+    /// <para>
+    /// The policy is read back before it is written because
+    /// <c>IUserManager.UpdatePolicyAsync</c> replaces the <b>whole</b> policy and the interface has
+    /// no <c>GetPolicy</c>: building a fresh <c>UserPolicy</c> here would silently reset
+    /// <c>EnableMediaPlayback</c> and <c>SyncPlayAccess</c> to defaults on the way past.
+    /// </para>
+    /// <para>
+    /// <b>Both branches are explicit.</b> Jellyfin's <c>AddDefaultPermissions</c> leaves a new
+    /// account with <c>EnableAllFolders = true</c>, so the viewer branch is what stops an invite
+    /// naming one library out of four from handing over all four. The administrator branch does not
+    /// rely on that default either — it says what it means, so that a future change to Jellyfin's
+    /// defaults cannot quietly turn one kind of invite into the other.
+    /// </para>
+    /// </remarks>
     private async Task ApplyLibraryScopeAsync(
         User user,
-        IReadOnlyList<Guid> libraries)
+        IReadOnlyList<Guid> libraries,
+        bool isAdministrator)
     {
         var policy = _users.GetUserDto(user).Policy
             ?? throw new InvalidOperationException("The new account has no policy to restrict.");
 
-        policy.EnableAllFolders = false;
-        policy.EnabledFolders = libraries.ToArray();
+        policy.IsAdministrator = isAdministrator;
 
-        // Belt and braces on top of Jellyfin's own default, which already has these false. An
-        // invited account is a guest on somebody's server: it should not be able to hand out
-        // further accounts, delete anybody's files, or drive other people's sessions.
-        policy.IsAdministrator = false;
-        policy.EnableContentDeletion = false;
-        policy.EnableRemoteControlOfOtherUsers = false;
+        if (isAdministrator)
+        {
+            // Jellyfin checks IsAdministrator before it checks folders, so a list here would be a
+            // set of ids that decide nothing. Say "everything", which is what it means, and which
+            // is also what keeps a library added next week visible to them.
+            policy.EnableAllFolders = true;
+            policy.EnabledFolders = Array.Empty<Guid>();
+        }
+        else
+        {
+            policy.EnableAllFolders = false;
+            policy.EnabledFolders = libraries.ToArray();
+        }
+
+        // Belt and braces on top of Jellyfin's own default, which already has these false. A viewer
+        // invited onto somebody's server is a guest: it should not be able to delete anybody's
+        // files or drive other people's sessions. An administrator is not a guest, and withholding
+        // these from one would be a role that looks like an administrator and is not.
+        policy.EnableContentDeletion = isAdministrator;
+        policy.EnableRemoteControlOfOtherUsers = isAdministrator;
 
         await _users.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
     }
@@ -511,6 +577,7 @@ public sealed class InviteService
             Id = row.Id,
             Label = row.Label,
             Libraries = Name(row.Libraries, known),
+            IsAdministrator = row.IsAdministrator,
             CreatedByName = row.CreatedByName,
             CreatedAt = row.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
             ExpiresAt = Expiry(row.ExpiresAt),

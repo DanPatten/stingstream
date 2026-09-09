@@ -216,6 +216,52 @@ public sealed class MeshJoinResult
     public List<string> Contacted { get; set; } = new();
 }
 
+/// <summary>The answer to <c>POST /mesh/v1/identity/assert</c>.</summary>
+/// <remarks>
+/// The assertion itself is opaque here on purpose: it is postcard inside base64url, signed with the
+/// node key, and the only thing that reads it is the mesh on the far end
+/// (<c>mesh/crates/stingstream-mesh/src/vouch.rs</c>). Core carries it, it does not parse it.
+/// </remarks>
+public sealed class MeshVouch
+{
+    /// <summary>The signed assertion, to hand to the other server.</summary>
+    public string Assertion { get; set; } = string.Empty;
+
+    /// <summary>This node's id, so a screen can name the signer without decoding anything.</summary>
+    public string Iss { get; set; } = string.Empty;
+
+    /// <summary>This node's friendly name.</summary>
+    public string Server { get; set; } = string.Empty;
+}
+
+/// <summary>What an assertion turned out to say, once the mesh has checked its signature.</summary>
+/// <remarks>
+/// <b>These fields are trustworthy in one specific sense and no other.</b> The mesh has proved the
+/// named issuer really signed them and that they are addressed to this node and unexpired. It has
+/// <em>not</em> checked that the nonce is unspent — that is this server's own bookkeeping, in
+/// <c>IdentityStore</c>, because only the audience knows which challenges it has issued.
+/// </remarks>
+public sealed class MeshVouchClaims
+{
+    /// <summary>Node id of the server that signed it, 64-character hex.</summary>
+    public string Iss { get; set; } = string.Empty;
+
+    /// <summary>The user's id on that server. What the local link is keyed on.</summary>
+    public string Sub { get; set; } = string.Empty;
+
+    /// <summary>Their username there. A suggestion for the local account's name, never an identity.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>That server's friendly name, for saying where somebody came from.</summary>
+    public string Server { get; set; } = string.Empty;
+
+    /// <summary>This node's id.</summary>
+    public string Aud { get; set; } = string.Empty;
+
+    /// <summary>The challenge it was made against.</summary>
+    public string Nonce { get; set; } = string.Empty;
+}
+
 /// <summary>The answer to <c>POST /mesh/v1/groups/{group}/invite</c>.</summary>
 public sealed class MeshInvite
 {

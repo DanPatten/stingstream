@@ -18,12 +18,23 @@ involve.
 | Admin | Settings → Admin | phone, web | yes |
 | Node status | Settings → Node status | phone, web | yes |
 | Requests (My requests / Alerts / Approvals / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
+| Servers (mesh links) | Settings → Servers | phone, web | yes — and the routes are gated, not just the row |
+| My server | Settings → The server I run | phone, web | **no** — the one sharing screen a client keeps |
 
 Finding something to request is not one of those sections: on phone and web it is the Search tab
 itself, which answers one box with two sections — "In your library" (Jellyfin) and "Not in your
 library" (the node's catalogue lookup), each catalogue result carrying a Request action that opens
 the same sheet (F-73). The Requests tab is what happened next. TV keeps its own Discover section,
 since the TV search screen is a different screen with a different input.
+
+**Settings' own rows are built by a pure function now**, `components/shell/buildSettingsSections.ts`,
+the way the sidebar's are — because who sees which row became a rule with several clauses in it.
+Servers, Plugins and Network are administrator-only: each ends at a screen that either needs
+`RequiresElevation` or configures the install rather than this copy of the app, and a row that can
+only fail is worse than no row. Hiding the row is the courtesy; the gate is `RequiresAdmin` (or the
+`adminOnly` wrapper) on the route itself, because a URL can be pasted. **My server** is the
+deliberate exception in the other direction: it is about the server the *reader* runs, so every
+account gets it. See `docs/INVITES.md` §11.
 
 All five of the first block are hidden on TV (`tabBarItemHidden: Platform.isTV` on the two tabs; the `settings.tsx`
 entries only render inside the phone/web `SettingsMobile` branch, never `settings.tv.tsx`) — TV

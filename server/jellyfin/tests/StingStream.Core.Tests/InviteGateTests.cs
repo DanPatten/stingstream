@@ -174,6 +174,39 @@ public class InviteGateTests
     }
 
     [Fact]
+    public void AnAdministratorInviteNeedNotNameAny()
+    {
+        // Jellyfin checks IsAdministrator before it checks folders, so a picker on this kind of
+        // invite is a set of boxes that change nothing -- the Users screen already says exactly
+        // that rather than drawing one. Requiring a library here would make the inviter answer a
+        // question whose answer is then discarded.
+        Assert.Null(InviteGate.ValidateMint("Dan", Array.Empty<Guid>(), isAdministrator: true));
+        Assert.Null(InviteGate.ValidateMint("Dan", null, isAdministrator: true));
+        Assert.Null(InviteGate.ValidateMint(null, null, isAdministrator: true));
+    }
+
+    [Fact]
+    public void TheRoleDoesNotExcuseTheOtherRules()
+    {
+        // Only the empty-library rule bends for an administrator. A name this server would refuse
+        // is still refused, and so is a list longer than the cap -- an administrator invite that
+        // carries libraries is not an error, they simply stop being what decides.
+        Assert.NotNull(InviteGate.ValidateMint("has a space", null, isAdministrator: true));
+
+        var far = Enumerable.Range(0, InviteGate.MaxLibraries + 1).Select(_ => Guid.NewGuid()).ToArray();
+        Assert.NotNull(InviteGate.ValidateMint("Dan", far, isAdministrator: true));
+    }
+
+    [Fact]
+    public void ViewerIsWhatNotAnsweringMeans()
+    {
+        // The default is the smaller grant, so an older client that sends no role at all -- and a
+        // row minted before the column existed -- creates a viewer. A link that hands over the
+        // server should never be what you get by leaving a question alone.
+        Assert.NotNull(InviteGate.ValidateMint("Mum", Array.Empty<Guid>()));
+    }
+
+    [Fact]
     public void AnOrdinaryInviteIsAccepted()
     {
         Assert.Null(InviteGate.ValidateMint("Mum", new[] { Guid.NewGuid() }));

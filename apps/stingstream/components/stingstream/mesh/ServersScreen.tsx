@@ -20,6 +20,7 @@ import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
 import { DeviceMeshSection } from "./DeviceMeshSection";
+import { LinkRequests } from "./LinkRequests";
 import { SharingAddresses } from "./SharingAddresses";
 
 /**
@@ -123,6 +124,15 @@ export function ServersScreen({
       </QueryState>
 
       <View style={{ height: 20 }} />
+
+      {/* Above the buttons: a server waiting for an answer is a thing to do, and the buttons below
+          are things you might do. Draws nothing when nobody has asked. */}
+      {isAdmin ? (
+        <>
+          <LinkRequests />
+          <View style={{ height: 20 }} />
+        </>
+      ) : null}
 
       {isAdmin ? (
         <View>

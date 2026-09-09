@@ -12,6 +12,7 @@ using StingStream.Core.Controllers;
 using StingStream.Core.Data;
 using StingStream.Core.Federated;
 using StingStream.Core.FirstRun;
+using StingStream.Core.Identity;
 using StingStream.Core.Inventory;
 using StingStream.Core.Invites;
 using StingStream.Core.Library;
@@ -162,6 +163,13 @@ public static class StingStreamCoreExtensions
         // the libraries the administrator picked -- which is what makes "you get invited to a
         // server and you create an account" true without anything central. See Invites/.
         services.AddStingStreamInvites();
+
+        // Signing in here with an account you hold on your own server. The other half of the same
+        // invite: rather than choosing a password, somebody who already runs StingStream has their
+        // own node sign a short-lived statement and this one checks the signature -- so no password
+        // reaches this server at all. Their server has to be up, which is Dan's decision and falls
+        // out of the design. See Identity/ and mesh/.../vouch.rs.
+        services.AddStingStreamIdentity();
 
         // Which of this server's libraries each linked server gets. Dan: "Each side picks its own."
         // Without it the inventory publisher pushed one record set to every link, so linking with

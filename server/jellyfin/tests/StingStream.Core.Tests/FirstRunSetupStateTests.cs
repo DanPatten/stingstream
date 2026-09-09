@@ -141,6 +141,13 @@ public class FirstRunSetupStateTests
         {
         }
 
+        // Nothing under test here reads the node's name back, and there is no runtime.json to
+        // write it into: `Current` is null on purpose, which is the "started by hand rather than by
+        // the supervisor" case.
+        public void SetNodeName(string name)
+        {
+        }
+
         public void Dispose()
         {
             try

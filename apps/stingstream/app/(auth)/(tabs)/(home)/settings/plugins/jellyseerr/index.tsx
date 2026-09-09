@@ -1,9 +1,10 @@
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { JellyseerrSettings } from "@/components/settings/Jellyseerr";
+import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 
-export default function JellyseerrPluginPage() {
+function JellyseerrPluginPage() {
   useDismissKeyboardOnLeave();
   const insets = useSafeAreaInsets();
 
@@ -21,3 +22,5 @@ export default function JellyseerrPluginPage() {
     </ScrollView>
   );
 }
+
+export default adminOnly(JellyseerrPluginPage);

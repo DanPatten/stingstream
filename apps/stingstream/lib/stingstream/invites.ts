@@ -87,7 +87,7 @@ export function useMintInvite() {
   return useMutation<
     MintedInvite,
     Error,
-    { label?: string; libraries: string[] }
+    { label?: string; libraries: string[]; isAdministrator?: boolean }
   >({
     mutationFn: (input) => mintInvite(base!, input, token),
     onSuccess: () => {

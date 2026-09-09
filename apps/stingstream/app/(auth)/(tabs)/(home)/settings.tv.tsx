@@ -86,6 +86,10 @@ export default function SettingsTV() {
   const { logout, loginWithSavedCredential, loginWithPassword } = useJellyfin();
   const [user] = useAtom(userAtom);
   const [api] = useAtom(apiAtom);
+  // This screen had no role check at all, so every account on the television
+  // was offered Groups — a screen whose every mesh call needs Jellyfin's
+  // elevated policy. Same gate the phone and web settings apply.
+  const isAdmin = Boolean(user?.Policy?.IsAdministrator);
   const [, setCacheVersion] = useAtom(cacheVersionAtom);
   const { showOptions } = useTVOptionModal();
   const {
@@ -1462,12 +1466,14 @@ export default function SettingsTV() {
               the screens handle the ten-foot differences themselves (no QR
               scanner, code typed in). */}
           <TVSectionHeader title={t("tv.settings.sharing")} />
-          <TVSettingsRow
-            label={t("tv.settings.groups")}
-            value={meshSummary}
-            onPress={() => router.push("/settings/servers")}
-            isFirst={false}
-          />
+          {isAdmin && (
+            <TVSettingsRow
+              label={t("tv.settings.groups")}
+              value={meshSummary}
+              onPress={() => router.push("/settings/servers")}
+              isFirst={false}
+            />
+          )}
           <TVSettingsRow
             label={t("tv.settings.this_device")}
             value={user?.Name || "-"}

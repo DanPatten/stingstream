@@ -270,6 +270,11 @@ impl MeshNode {
         self.secret_key.public().to_string()
     }
 
+    /// What this node calls itself, for a screen on the other end of an assertion.
+    pub fn node_name(&self) -> &str {
+        &self.cfg.node_name
+    }
+
     pub fn endpoint_id(&self) -> EndpointId {
         self.secret_key.public()
     }

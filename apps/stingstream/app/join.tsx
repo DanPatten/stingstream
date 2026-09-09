@@ -1,3 +1,4 @@
+import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useRouter } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useState } from "react";
@@ -6,12 +7,14 @@ import { ActivityIndicator, View } from "react-native";
 import { Button } from "@/components/Button";
 import { Text } from "@/components/common/Text";
 import { AuthCard } from "@/components/login/AuthCard";
+import { SignInWithOwnServer } from "@/components/stingstream/identity/SignInWithOwnServer";
 import {
   InviteAccountForm,
   InviteLibraryList,
 } from "@/components/stingstream/invites/InviteAccountForm";
 import { tokens } from "@/constants/theme";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
+import { signInWithAssertion } from "@/lib/stingstream/identityApi";
 import {
   acceptInvite,
   type InviteDescription,
@@ -19,6 +22,11 @@ import {
   lookupInvite,
 } from "@/lib/stingstream/invitesApi";
 import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import {
+  fragmentFromLocation,
+  parseAssertion,
+  parseReturnLink,
+} from "@/utils/identity/handoff";
 import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
 import { inviteCodeFromLocation } from "@/utils/mesh/inviteLink";
 import { rememberPendingInvite } from "@/utils/mesh/pendingInvite";
@@ -50,7 +58,7 @@ export default function JoinFromLinkPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const nodeContext = useNodeContext();
-  const { login, setServer } = useJellyfin();
+  const { adoptSession, login, setServer } = useJellyfin();
   const user = useAtomValue(userAtom);
   const api = useAtomValue(apiAtom);
 
@@ -59,9 +67,37 @@ export default function JoinFromLinkPage() {
   // non-empty code, and the group path is the only thing that consumes it.
   const [code] = useState(() => inviteCodeFromLocation());
 
+  // Read from the same fragment, and read first. Somebody coming *back* from their own server has
+  // an assertion where an invite code would be; `inviteCodeFromLocation` would otherwise hand the
+  // whole `assertion=…` pair to `lookupInvite` as if it were a token.
+  const [assertion] = useState(() => parseAssertion(fragmentFromLocation()));
+  // Their answer to "and link your server?", carried back with the assertion.
+  const [wantsLink] = useState(() => parseReturnLink(fragmentFromLocation()));
+
   const [phase, setPhase] = useState<
-    "checking" | "person" | "group" | "signed-in" | "problem"
+    | "checking"
+    | "person"
+    | "group"
+    | "signed-in"
+    | "problem"
+    | "done"
+    // The person invite is open and they have said they already run a server: the same screen,
+    // with the address form instead of the password form.
+    | "own-server"
   >("checking");
+
+  /**
+   * Whether they already had a session when they opened the link — read **once**, at mount.
+   *
+   * Dan: *"i accepted an invite, entered a password and got this. this is 100% NOT TRUE at all."*
+   * Accepting an invite signs you in, so re-reading the live session afterwards meant a successful
+   * sign-up re-ran the decision below, found a session, found its own invite now spent, and told
+   * the person they were already signed in — as themselves, a second earlier.
+   *
+   * "Already signed in" is only ever true of somebody who arrived that way, which is what this
+   * remembers.
+   */
+  const [wasSignedIn] = useState(() => Boolean(user?.Id));
   const [invite, setInvite] = useState<InviteDescription | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -69,6 +105,44 @@ export default function JoinFromLinkPage() {
     let cancelled = false;
 
     const decide = async () => {
+      // Coming back from their own server, with a signed assertion instead of a code. Nothing
+      // below applies: there is no invite to look up, because the invite (if there was one) went
+      // out with the request and is coming back inside it.
+      if (assertion && nodeContext) {
+        try {
+          const session = await signInWithAssertion(nodeContext.origin, {
+            assertion,
+            requestLink: wantsLink,
+          });
+          if (cancelled) return;
+
+          // The app has to be pointed at this server before it can hold a session on it — the same
+          // step `handleCreateAccount` takes, for the same reason.
+          if (!api?.basePath) {
+            const target = jellyfinUrlFor(nodeContext);
+            const result = await checkJellyfinServer(target);
+            if (!result)
+              throw new Error(t("login.could_not_connect_to_server"));
+            await setServer({ address: result.url });
+          }
+
+          // `adoptSession`, not `login`: there is no password here and there never was. This is
+          // the same ending Quick Connect and a passkey have — a token and a user, with nothing
+          // left to verify.
+          adoptSession(session.accessToken!, session.user as UserDto);
+          setPhase("done");
+        } catch (e) {
+          if (cancelled) return;
+          setProblem(
+            e instanceof Error && e.message
+              ? e.message
+              : t("invites.error_unexpected"),
+          );
+          setPhase("problem");
+        }
+        return;
+      }
+
       if (!code) {
         // A link whose fragment did not survive being pasted, or somebody who typed `/join`. Say
         // so rather than sending them somewhere that will fail differently.
@@ -92,7 +166,7 @@ export default function JoinFromLinkPage() {
         const described = await lookupInvite(nodeContext.origin, code);
         if (cancelled) return;
         setInvite(described);
-        setPhase(user?.Id ? "signed-in" : "person");
+        setPhase(wasSignedIn ? "signed-in" : "person");
       } catch (e) {
         if (cancelled) return;
 
@@ -115,7 +189,7 @@ export default function JoinFromLinkPage() {
         // wrong answer and "go to sign in" is a nonsense one. Dan hit exactly that: an invite he
         // had already redeemed, a card that said it could not be used, and a button to a sign-in
         // he had done. Somebody with a session does not need this link for anything.
-        setPhase(user?.Id ? "signed-in" : "problem");
+        setPhase(wasSignedIn ? "signed-in" : "problem");
       }
     };
 
@@ -123,12 +197,26 @@ export default function JoinFromLinkPage() {
     return () => {
       cancelled = true;
     };
-  }, [code, nodeContext, t, user?.Id]);
+  }, [
+    adoptSession,
+    api?.basePath,
+    assertion,
+    code,
+    nodeContext,
+    wantsLink,
+    setServer,
+    t,
+    wasSignedIn,
+  ]);
 
   // The group path leaves this screen entirely. Separate from the effect above so the navigation
   // happens after the phase has actually rendered -- replacing mid-decision races the router.
   useEffect(() => {
     if (phase === "group") router.replace("/settings/servers/join");
+    // A new account is signed in by the time this runs, so Home is where they belong. Doing it
+    // here rather than inside the submit handler keeps it after the phase has rendered — replacing
+    // mid-decision races the router.
+    if (phase === "done") router.replace("/");
   }, [phase, router]);
 
   const handleCreateAccount = useCallback(
@@ -152,11 +240,12 @@ export default function JoinFromLinkPage() {
         await setServer({ address: result.url });
       }
       await login(username, password, invite?.serverName ?? undefined);
+      setPhase("done");
     },
     [api?.basePath, code, invite?.serverName, login, nodeContext, setServer, t],
   );
 
-  if (phase === "checking" || phase === "group") {
+  if (phase === "checking" || phase === "group" || phase === "done") {
     return (
       <View
         style={{
@@ -221,7 +310,12 @@ export default function JoinFromLinkPage() {
                 reason: problem ?? t("invites.error_unexpected"),
               })}
         </Text>
-        {invite ? <InviteLibraryList libraries={invite.libraries} /> : null}
+        {invite ? (
+          <InviteLibraryList
+            libraries={invite.libraries}
+            isAdministrator={invite.isAdministrator}
+          />
+        ) : null}
         <Button
           variant='primary'
           size='lg'
@@ -234,10 +328,52 @@ export default function JoinFromLinkPage() {
     );
   }
 
+  // They already run StingStream, so there is no account to create here — their own server says
+  // who they are and this one makes the account off the back of that. Dan: "during the invite flow
+  // offer the option to sign in with their own server or create an account".
+  if (phase === "own-server") {
+    return (
+      <AuthCard>
+        <SignInWithOwnServer
+          nodeOrigin={nodeContext?.origin ?? ""}
+          inviteToken={code}
+          serverName={invite?.serverName}
+          requestLink
+          onCancel={() => setPhase("person")}
+        />
+      </AuthCard>
+    );
+  }
+
   return (
     <AuthCard>
       {invite ? (
-        <InviteAccountForm invite={invite} onSubmit={handleCreateAccount} />
+        <>
+          <InviteAccountForm invite={invite} onSubmit={handleCreateAccount} />
+          {/* Below the form, not beside it: creating an account is what almost everybody opening
+              an invite is here to do, and this is the smaller door. */}
+          <View
+            style={{
+              marginTop: 20,
+              paddingTop: 16,
+              borderTopWidth: 1,
+              borderTopColor: tokens.color.border.subtle,
+              gap: 8,
+            }}
+          >
+            <Text variant='caption' tone='secondary'>
+              {t("identity.join_own_server_prompt")}
+            </Text>
+            <Button
+              testID='invite-use-own-server'
+              variant='secondary'
+              size='lg'
+              onPress={() => setPhase("own-server")}
+            >
+              {t("identity.join_own_server_action")}
+            </Button>
+          </View>
+        </>
       ) : null}
     </AuthCard>
   );

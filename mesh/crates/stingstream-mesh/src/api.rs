@@ -35,6 +35,8 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             get(get_sharing).put(put_sharing),
         )
         .route("/mesh/v1/settings/sidedoor", put(put_side_door))
+        .route("/mesh/v1/identity/assert", post(vouch_issue))
+        .route("/mesh/v1/identity/verify", post(vouch_verify))
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
@@ -278,6 +280,84 @@ async fn join_group(
         via: outcome.via,
         contacted: outcome.contacted,
     }))
+}
+
+// --- vouching for a person to another node ------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VouchRequest {
+    /// Node id of the server the assertion is for.
+    aud: String,
+    /// That server's own challenge.
+    nonce: String,
+    /// The user's id on *this* server.
+    sub: String,
+    /// Their username here.
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VouchBody {
+    assertion: String,
+    /// This node's id, so the caller can show who is vouching without decoding the assertion.
+    iss: String,
+    server: String,
+}
+
+/// `POST /mesh/v1/identity/assert` — sign a statement about one of this node's people.
+///
+/// **The caller is trusted to have authenticated them, and that is not a gap.** This route is
+/// loopback-only, so the only thing that can reach it is `StingStream.Core` inside this node's own
+/// Jellyfin — which requires a session before it calls here. Putting a second authentication in
+/// front of it would mean the mesh holding Jellyfin's user table, which is precisely the coupling
+/// the loopback boundary exists to avoid.
+async fn vouch_issue(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<VouchRequest>,
+) -> ApiResult<Json<VouchBody>> {
+    let assertion = crate::vouch::issue(
+        &node.secret_key,
+        node.node_name(),
+        &body.sub,
+        &body.name,
+        &body.aud,
+        &body.nonce,
+        crate::vouch::DEFAULT_TTL_SECS,
+    )
+    .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+
+    Ok(Json(VouchBody {
+        assertion,
+        iss: node.node_id(),
+        server: node.node_name().to_string(),
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyRequest {
+    assertion: String,
+}
+
+/// `POST /mesh/v1/identity/verify` — check one that arrived, and say what it claims.
+///
+/// Verification lives here rather than in `StingStream.Core` for one flat reason: .NET has no
+/// built-in Ed25519, and adding a cryptography dependency to Core to re-implement a check the mesh
+/// can already do would be two implementations of the same signature rule. Core already delegates
+/// every other mesh concern over this socket.
+///
+/// **This says the assertion is genuine and addressed to us. It does not say the nonce is
+/// unspent** — that is the audience's own bookkeeping, and Core's `IdentityStore` is what holds it.
+async fn vouch_verify(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<VerifyRequest>,
+) -> ApiResult<Json<crate::vouch::Claims>> {
+    let claims = crate::vouch::verify(&body.assertion, &node.node_id())
+        // 401, not 400: the body was well formed and the answer is "no".
+        .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, format!("{e:#}")))?;
+    Ok(Json(claims))
 }
 
 #[derive(Serialize)]

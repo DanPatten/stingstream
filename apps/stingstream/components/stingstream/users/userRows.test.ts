@@ -13,6 +13,7 @@ const invite = (
   id,
   label,
   libraries: [{ id: "lib", name: "Movies" }],
+  isAdministrator: false,
   createdByName: "dan",
   createdAt: "2026-09-09T00:00:00Z",
   expiresAt: null,

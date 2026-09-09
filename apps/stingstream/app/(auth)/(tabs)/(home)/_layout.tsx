@@ -300,6 +300,17 @@ export default function IndexLayout() {
           headerShadowVisible: false,
         }}
       />
+      {/* The one sharing screen that is not an administrator's: Servers is about this server,
+          this is about the one the reader runs. */}
+      <Stack.Screen
+        name='settings/my-server'
+        options={{
+          title: "My server",
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
       <Stack.Screen
         name='settings/servers/create'
         options={{

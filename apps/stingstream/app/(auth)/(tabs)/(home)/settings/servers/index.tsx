@@ -3,6 +3,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { ServersScreen } from "@/components/stingstream/mesh/ServersScreen";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
+import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { MESH_QUERY_KEY } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 
@@ -27,7 +28,12 @@ export default function ServersPage() {
 
   return (
     <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <ServersScreen openAdvanced={advanced === "1"} />
+      {/* `create` and `join` were gated from the start; the list and the detail
+          page were not, so a pasted URL walked straight past the hidden row into
+          a screen whose every call needs elevation. */}
+      <RequiresAdmin>
+        <ServersScreen openAdvanced={advanced === "1"} />
+      </RequiresAdmin>
     </RefreshScreen>
   );
 }

@@ -49,6 +49,14 @@ export interface InviteDescription {
   invitedBy: string;
   libraries: InviteLibrary[];
   /**
+   * Whether accepting makes them an administrator of this server.
+   *
+   * Told to them before they are asked for anything, for the same reason the library list is:
+   * somebody should know what they are accepting while they can still decline it. An
+   * administrator invite carries no libraries, because an administrator sees all of them.
+   */
+  isAdministrator: boolean;
+  /**
    * The name whoever invited them picked, or empty.
    *
    * Pre-filled on the form and still theirs to change — Dan: *"owner sets username - can be changed
@@ -66,6 +74,8 @@ export interface InviteSummary {
   /** The account name it will create, or empty when the person chooses their own. */
   label: string;
   libraries: InviteLibrary[];
+  /** Whether it creates an administrator rather than a viewer. */
+  isAdministrator: boolean;
   createdByName: string;
   createdAt: string;
   /** When it stops working, or null when it does not. */
@@ -196,6 +206,9 @@ const toSummary = (raw: unknown): InviteSummary => {
     id: typeof r.Id === "string" ? r.Id : "",
     label: typeof r.Label === "string" ? r.Label : "",
     libraries: toLibraries(r.Libraries),
+    // A node too old to know about roles omits the field, and every invite it minted creates a
+    // viewer — so absent must read as false, not as unknown.
+    isAdministrator: r.IsAdministrator === true,
     createdByName: typeof r.CreatedByName === "string" ? r.CreatedByName : "",
     createdAt: typeof r.CreatedAt === "string" ? r.CreatedAt : "",
     expiresAt: typeof r.ExpiresAt === "string" ? r.ExpiresAt : null,
@@ -259,6 +272,7 @@ export async function lookupInvite(
     serverName: typeof body.ServerName === "string" ? body.ServerName : "",
     invitedBy: typeof body.InvitedBy === "string" ? body.InvitedBy : "",
     libraries: toLibraries(body.Libraries),
+    isAdministrator: body.IsAdministrator === true,
     username: typeof body.Username === "string" ? body.Username : "",
     expiresAt: typeof body.ExpiresAt === "string" ? body.ExpiresAt : null,
   };
@@ -365,7 +379,7 @@ export async function fetchInvites(
 /** Mint one. The token in the answer is the only copy that will ever exist. */
 export async function mintInvite(
   apiBaseUrl: string,
-  input: { label?: string; libraries: string[] },
+  input: { label?: string; libraries: string[]; isAdministrator?: boolean },
   accessToken?: string | null,
 ): Promise<MintedInvite> {
   const res = await fetch(`${apiBaseUrl}/invites`, {
@@ -379,6 +393,9 @@ export async function mintInvite(
     body: JSON.stringify({
       Label: input.label ?? "",
       Libraries: input.libraries,
+      // Always sent, never omitted. An older node ignores the property; a newer one binds an
+      // absent value to false, and both readings agree — the default is the smaller grant.
+      IsAdministrator: input.isAdministrator === true,
     }),
   });
   if (!res.ok) {

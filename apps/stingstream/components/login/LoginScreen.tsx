@@ -1,3 +1,4 @@
+import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6,9 +7,11 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal";
+import { SignInWithOwnServer } from "@/components/stingstream/identity/SignInWithOwnServer";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
+import { signInWithAssertion } from "@/lib/stingstream/identityApi";
 import {
   findLiveServer,
   readKnownServers,
@@ -27,6 +30,7 @@ import {
   useJellyfin,
   userAtom,
 } from "@/providers/JellyfinProvider";
+import { fragmentFromLocation, parseAssertion } from "@/utils/identity/handoff";
 import {
   checkJellyfinServer,
   NotAJellyfinServerError,
@@ -140,7 +144,24 @@ export const LoginScreen: React.FC = () => {
   const [retrying, setRetrying] = useState(false);
   const [quickConnectCode, setQuickConnectCode] = useState<string | null>(null);
   const [quickConnectActive, setQuickConnectActive] = useState(false);
-  const [keepSignedIn, setKeepSignedIn] = useState(false);
+  // On by default: staying signed in is what almost everybody wants on their own phone or
+  // browser, and the account it saves carries no protection of its own, so the cost of the default
+  // being wrong is one press of "Sign out". Dan: "lets default save login".
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
+
+  /** Showing the "sign in with the server I run" address form instead of the password card. */
+  const [ownServer, setOwnServer] = useState(false);
+
+  /**
+   * A signed assertion in the fragment: somebody coming back from their own server.
+   *
+   * Read during render, once, before anything can navigate — the same reason `/join` reads its
+   * invite code that way, and the same failure if it does not. `/login` is a legitimate landing
+   * place for the return leg: it is where somebody who already had an account here was sent from.
+   */
+  const [returnedAssertion] = useState(() =>
+    parseAssertion(fragmentFromLocation()),
+  );
 
   // This screen owns no header. The card is the page: a navigation bar above it with a title and
   // a back chevron is the "cramped phone column" look, and there is nowhere to go back to.
@@ -380,8 +401,8 @@ export const LoginScreen: React.FC = () => {
   const handleSignIn = useCallback(
     async (username: string, password: string) => {
       await login(username, password, serverName ?? undefined);
-      // The protection picker shows AFTER a successful login, from the root — this screen
-      // unmounts the moment the session exists, so it cannot host the modal itself.
+      // The save happens AFTER a successful login, from the root — this screen unmounts the moment
+      // the session exists, so it cannot be the thing that runs afterwards.
       if (keepSignedIn) {
         setPendingAccountSave({ serverName: serverName ?? undefined });
       }
@@ -417,6 +438,51 @@ export const LoginScreen: React.FC = () => {
       Name: result.username,
     });
   }, [adoptSession, api?.basePath, connectTo, nodeContext, t]);
+
+  /**
+   * The return leg of signing in with your own server.
+   *
+   * Runs once, on arrival, and only when the fragment carries an assertion — so an ordinary visit
+   * to `/login` does nothing here. It ends the same way a passkey does: a token and a user, with
+   * nothing left to verify, so `adoptSession` rather than `login`.
+   *
+   * No invite token is sent. This route is for somebody who already has an account here; a first
+   * arrival comes back to `/join`, which still holds the invite.
+   */
+  useEffect(() => {
+    if (!returnedAssertion || !nodeContext) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const session = await signInWithAssertion(nodeContext.origin, {
+          assertion: returnedAssertion,
+        });
+        if (cancelled) return;
+        if (!api?.basePath) {
+          await connectTo(jellyfinUrlFor(nodeContext));
+        }
+        adoptSession(session.accessToken as string, session.user as UserDto);
+      } catch (e) {
+        if (cancelled) return;
+        // Shown on the card they land back on rather than thrown: the assertion is spent either
+        // way, and the useful next step is to try again from their own server.
+        setOwnServer(true);
+        toast.error((e as Error)?.message ?? t("identity.authorize_failed"));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    adoptSession,
+    api?.basePath,
+    connectTo,
+    nodeContext,
+    returnedAssertion,
+    t,
+  ]);
 
   const handleCreateAccount = useCallback(
     async (username: string, password: string, chosenServerName: string) => {
@@ -570,7 +636,7 @@ export const LoginScreen: React.FC = () => {
           />
         ) : null}
 
-        {phase === "signIn" ? (
+        {phase === "signIn" && !ownServer ? (
           <SignInForm
             serverName={serverName}
             keepSignedIn={keepSignedIn}
@@ -587,6 +653,22 @@ export const LoginScreen: React.FC = () => {
             onSignInWithPasskey={
               passkeys?.supported ? handleSignInWithPasskey : undefined
             }
+            // Only where a node served the page: the whole flow is a redirect to another origin
+            // and back to this one, and without an origin there is nowhere to come back to.
+            onSignInWithOwnServer={
+              nodeContext ? () => setOwnServer(true) : undefined
+            }
+          />
+        ) : null}
+
+        {/* The address form for somebody signing in with a server they run. Replaces the card
+            rather than sitting under it: it is a different question, and answering it leaves this
+            page entirely. */}
+        {phase === "signIn" && ownServer && nodeContext ? (
+          <SignInWithOwnServer
+            nodeOrigin={nodeContext.origin}
+            serverName={serverName}
+            onCancel={() => setOwnServer(false)}
           />
         ) : null}
 

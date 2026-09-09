@@ -17,6 +17,7 @@ import {
   type MintedInvite,
 } from "@/lib/stingstream/invitesApi";
 import { LibraryPicker } from "../shared/LibraryPicker";
+import { SegmentedControl } from "../shared/SegmentedControl";
 import { useChosenLibraries } from "../shared/useChosenLibraries";
 
 /**
@@ -104,7 +105,19 @@ const MintInviteDialog: React.FC<{
   const mint = useMintInvite();
 
   const [username, setUsername] = useState("");
+  // Dan: "when inviting ask if they should be an admin or end user (default end user)". The
+  // default is the smaller grant on purpose — a link that hands over the server should never be
+  // what you get by not answering the question.
+  const [isAdministrator, setIsAdministrator] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const roles = useMemo(
+    () => [
+      { key: "viewer", label: t("invites.role_viewer") },
+      { key: "administrator", label: t("invites.role_administrator") },
+    ],
+    [t],
+  );
 
   const available = useMemo(() => libraries.data ?? [], [libraries.data]);
   // Everything ticked to begin with; unticking is the edit. See the hook for why that is a UI
@@ -113,6 +126,7 @@ const MintInviteDialog: React.FC<{
 
   const reset = useCallback(() => {
     setUsername("");
+    setIsAdministrator(false);
     resetChosen();
     setError(null);
   }, [resetChosen]);
@@ -120,7 +134,10 @@ const MintInviteDialog: React.FC<{
   const submit = useCallback(() => {
     setError(null);
     mint.mutate(
-      { label: username.trim(), libraries: chosen },
+      // The libraries go along even for an administrator invite and the server drops them: what
+      // this side must not do is send a list it is not showing, so the picker being hidden is
+      // what makes `chosen` irrelevant rather than a second rule here.
+      { label: username.trim(), libraries: chosen, isAdministrator },
       {
         onSuccess: (result) => {
           reset();
@@ -129,7 +146,7 @@ const MintInviteDialog: React.FC<{
         onError: (e) => setError(e.message),
       },
     );
-  }, [chosen, username, mint, onMinted, reset]);
+  }, [chosen, username, isAdministrator, mint, onMinted, reset]);
 
   return (
     <Dialog
@@ -164,20 +181,58 @@ const MintInviteDialog: React.FC<{
         </View>
 
         <View>
-          <Text variant='caption' tone='secondary' weight='medium'>
-            {t("invites.libraries")}
+          <Text
+            variant='caption'
+            tone='secondary'
+            weight='medium'
+            style={{ marginBottom: 6 }}
+          >
+            {t("invites.role")}
           </Text>
-          <Text variant='caption' tone='tertiary' style={{ marginBottom: 6 }}>
-            {t("invites.libraries_hint")}
-          </Text>
-          <LibraryPicker
-            available={available}
-            selected={chosen}
-            onToggle={toggle}
-            loading={libraries.isPending}
-            disabled={mint.isPending}
+          {/* Pills rather than the width-derived layout: underline tabs read as the sections of a
+              screen, and this is one question inside a dialog. */}
+          <SegmentedControl
+            segments={roles}
+            layout='pills'
+            value={isAdministrator ? "administrator" : "viewer"}
+            onChange={(key) => setIsAdministrator(key === "administrator")}
           />
+          <Text variant='caption' tone='tertiary' style={{ marginTop: 6 }}>
+            {isAdministrator
+              ? t("invites.role_administrator_hint")
+              : t("invites.role_viewer_hint")}
+          </Text>
         </View>
+
+        {/* No picker for an administrator. Jellyfin checks IsAdministrator before it checks
+            folders, so a set of ticks here would change nothing — the Users screen already says
+            exactly that rather than drawing boxes that do not apply. */}
+        {isAdministrator ? (
+          <View>
+            <Text variant='caption' tone='secondary' weight='medium'>
+              {t("invites.libraries")}
+            </Text>
+            <Text variant='caption' tone='tertiary' style={{ marginTop: 6 }}>
+              {t("users.libraries_administrator")}
+            </Text>
+          </View>
+        ) : (
+          <View>
+            <Text variant='caption' tone='secondary' weight='medium'>
+              {t("invites.libraries")}
+            </Text>
+            <Text variant='caption' tone='tertiary' style={{ marginBottom: 6 }}>
+              {t("invites.libraries_hint")}
+            </Text>
+            <LibraryPicker
+              available={available}
+              selected={chosen}
+              onToggle={toggle}
+              loading={libraries.isPending}
+              disabled={mint.isPending}
+            />
+          </View>
+        )}
 
         <FormError message={error} />
 
@@ -188,8 +243,9 @@ const MintInviteDialog: React.FC<{
           onPress={submit}
           loading={mint.isPending}
           // Disabled rather than allowed-and-refused: the server says the same thing, but a
-          // button that cannot work should look like it.
-          disabled={mint.isPending || chosen.length === 0}
+          // button that cannot work should look like it. An administrator invite has no library
+          // requirement to fail, so the check follows the role.
+          disabled={mint.isPending || (!isAdministrator && chosen.length === 0)}
         >
           {t("invites.mint")}
         </Button>
@@ -265,6 +321,11 @@ export const MintedInviteDialog: React.FC<{
     >
       {value ? (
         <View>
+          {/* Before the link, not after it. An administrator link is a much larger thing to leave
+              in a chat history than a viewer one — the only thing standing behind it is that it is
+              single use — and somebody about to paste it should read that first. */}
+          {minted?.invite?.isAdministrator ? <AdministratorNotice /> : null}
+
           {minted?.url ? (
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <View
@@ -313,6 +374,39 @@ export const MintedInviteDialog: React.FC<{
         </View>
       ) : null}
     </Dialog>
+  );
+};
+
+/**
+ * "This link hands over the server."
+ *
+ * Not a confirmation step, deliberately — the question was already asked and answered on the form
+ * before this dialog existed, and a second "are you sure" for a decision somebody just made is
+ * noise. What this is for is the moment *after*: the link is on screen and about to be pasted
+ * somewhere, and whoever is pasting it should know it is not the ordinary kind.
+ */
+const AdministratorNotice: React.FC = () => {
+  const { t } = useTranslation();
+  return (
+    <View
+      testID='invite-administrator'
+      style={{
+        marginBottom: 16,
+        padding: 12,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: tokens.color.border.subtle,
+        backgroundColor: tokens.color.bg["2"],
+        gap: 6,
+      }}
+    >
+      <Text variant='caption' weight='semibold'>
+        {t("invites.minted_administrator_title")}
+      </Text>
+      <Text variant='caption' tone='secondary'>
+        {t("invites.minted_administrator_body")}
+      </Text>
+    </View>
   );
 };
 

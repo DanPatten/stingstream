@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { UserPolicy } from "@jellyfin/sdk/lib/generated-client/models";
 import type { PickableLibrary } from "../shared/LibraryPicker";
 import {
+  adminChangeBlocked,
   describeAccess,
+  policyForAdminChange,
   policyForSelection,
   sameLibraryId,
   selectionForPolicy,
@@ -150,6 +152,103 @@ describe("policyForSelection", () => {
       IsAdministrator: true,
       IsDisabled: true,
       EnableContentDeletion: true,
+    });
+  });
+});
+
+describe("adminChangeBlocked", () => {
+  const account = (id: string, isAdministrator = false) => ({
+    Id: id,
+    Policy: policy({ IsAdministrator: isAdministrator }),
+  });
+
+  const me = { Id: "me" };
+
+  test("promoting is never blocked", () => {
+    // Handing somebody administration is a decision, not a hazard, and the only screen that can
+    // make it is already administrator-only.
+    const viewer = account("sam");
+    expect(adminChangeBlocked(viewer, me, [account("me", true), viewer])).toBe(
+      null,
+    );
+  });
+
+  test("you cannot demote yourself", () => {
+    // The server does not stop you, which is the problem: it is one tap, it is silent, and the
+    // screen you would use to undo it is the one you just locked yourself out of.
+    const self = account("me", true);
+    expect(adminChangeBlocked(self, me, [self, account("dan", true)])).toBe(
+      "self",
+    );
+  });
+
+  test("you cannot demote the last administrator", () => {
+    // Jellyfin's own last-administrator guard covers deletion, not demotion.
+    const only = account("dan", true);
+    expect(adminChangeBlocked(only, me, [only, account("sam")])).toBe(
+      "last-administrator",
+    );
+  });
+
+  test("demoting one of two administrators is allowed", () => {
+    const other = account("dan", true);
+    expect(adminChangeBlocked(other, me, [account("me", true), other])).toBe(
+      null,
+    );
+  });
+
+  test("a list that has not loaded reads as blocked, not as go-ahead", () => {
+    // `< 2` rather than `=== 1`, so an empty or in-flight list can never be the thing that lets
+    // the last administrator be demoted.
+    const admin = account("dan", true);
+    expect(adminChangeBlocked(admin, me, [])).toBe("last-administrator");
+    expect(adminChangeBlocked(admin, me, null)).toBe("last-administrator");
+    expect(adminChangeBlocked(admin, me, undefined)).toBe("last-administrator");
+  });
+
+  test("self wins over last-administrator when both apply", () => {
+    // The sentence should name the thing the person can do something about.
+    const self = account("me", true);
+    expect(adminChangeBlocked(self, me, [self])).toBe("self");
+  });
+});
+
+describe("policyForAdminChange", () => {
+  test("promoting says everything rather than pinning today's list", () => {
+    const before = policy({
+      EnabledFolders: [MOVIES],
+      EnableAllFolders: false,
+    });
+    expect(policyForAdminChange(before, true)).toMatchObject({
+      IsAdministrator: true,
+      EnableAllFolders: true,
+      EnabledFolders: [],
+    });
+  });
+
+  test("demoting leaves them able to see nothing until somebody picks", () => {
+    // The sharp edge: an account that quietly kept every library after being demoted is the one
+    // outcome this must not produce.
+    const before = policy({ IsAdministrator: true, EnableAllFolders: true });
+    expect(policyForAdminChange(before, false)).toMatchObject({
+      IsAdministrator: false,
+      EnableAllFolders: false,
+      EnabledFolders: [],
+    });
+  });
+
+  test("the rest of the policy is carried through untouched", () => {
+    // `updateUserPolicy` replaces the whole thing, so a permission dropped here is one revoked by
+    // accident -- the same reason `policyForSelection` spreads rather than rebuilds.
+    const before = policy({
+      IsDisabled: true,
+      EnableContentDeletion: true,
+      EnableRemoteControlOfOtherUsers: true,
+    });
+    expect(policyForAdminChange(before, true)).toMatchObject({
+      IsDisabled: true,
+      EnableContentDeletion: true,
+      EnableRemoteControlOfOtherUsers: true,
     });
   });
 });

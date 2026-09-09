@@ -68,7 +68,8 @@ open about five years. That model is **kept**, not replaced. Two things are adde
 | | |
 |---|---|
 | Who may invite | **Only an administrator.** Holding an account on somebody's server does not let you hand out accounts on it — that is a decision about their disk, their bandwidth and their library. |
-| What an invite grants | **The libraries the inviter picks, per invite.** Not a role, not a default, not everything. |
+| What an invite grants | **The libraries the inviter picks, per invite.** Not a default, not everything. |
+| What role it grants | **Watch, or administrator — asked at mint time, defaulting to watch.** Dan: *"when inviting ask if they should be an admin or end user (default end user)"*. An administrator invite names no libraries, because Jellyfin checks `IsAdministrator` before it checks folders and a picker there would be boxes that change nothing. §3b. |
 | The username | **The owner sets it, the invited person may change it.** Pre-filled on the landing page; blank means they choose. |
 | How long it lasts | **Until somebody deletes it.** No expiry, no short-term links. |
 | How many people | **One.** An invite is spent by the account it creates. |
@@ -95,6 +96,43 @@ injected here and `GetApiUrlForLocalAccess` looks like the obvious answer, but i
 `/jellyfin` prefix. It would produce a URL that looks right and reaches the wrong thing. The side
 door's candidate is built by the gateway from its own bound address, which is the one a browser can
 open. `MeshStatus.DecodeSideDoor` is Core's first and only reader of that record.
+
+## 3b. The role
+
+An invite creates one of two kinds of person, and the form asks which before it asks anything else.
+**The default is *Watch*, and that is the whole point of having a default here**: a link that hands
+over the server should never be what somebody gets by not answering a question.
+
+`invites.is_administrator` is `INTEGER NOT NULL DEFAULT 0`, added by the same
+`try ALTER TABLE / catch duplicate column name` step the `token` column uses. The default is
+load-bearing rather than incidental — every invite minted before the column existed created a
+viewer, and an upgrade must not silently promote one.
+
+Three things follow from Jellyfin checking `IsAdministrator` **before** it checks folders:
+
+* `InviteGate.ValidateMint` stops requiring a library for an administrator invite. Requiring one
+  would make the inviter answer a question whose answer is then discarded.
+* `InviteService.MintAsync` stores an **empty** library list for one, rather than storing the
+  picker's value and ignoring it. A row that named libraries it does not grant would make the Users
+  screen and the landing page both say something untrue.
+* `ApplyLibraryScopeAsync` writes `EnableAllFolders = true` for an administrator and an explicit
+  list for a viewer. Both branches are explicit, so a future change to Jellyfin's own defaults
+  cannot quietly turn one kind of invite into the other.
+
+`EnableContentDeletion` and `EnableRemoteControlOfOtherUsers` follow the role. They were
+unconditionally false, which was right when every invited account was a guest; withholding them from
+an administrator would be a role that looks like one and is not.
+
+**The minted dialog says out loud what an administrator link is**, before the link itself. It is not
+a confirmation — the question was already asked and answered on the form — it is for the moment
+after, when the link is on screen and about to be pasted somewhere. Single use is the only thing
+standing behind it.
+
+**Changing it afterwards is the Users screen's job, not this one.** `UserDialog` has an
+Administrator switch, guarded by `adminChangeBlocked`: you cannot demote yourself, and you cannot
+demote the last administrator. Demoting writes `EnableAllFolders = false` with an empty list, so a
+former administrator can see nothing until somebody picks — an account that quietly kept every
+library after being demoted is the outcome that must not happen.
 
 ## 4. The token
 
@@ -164,7 +202,7 @@ All under `/stingstream/api/v1/invites`.
 |---|---|---|
 | `GET /libraries` | Admin | Every library on this server, for the picker. Includes the federated "Shared" ones — passing on what a friend shared is a choice, and it is the inviter's |
 | `GET /` | Admin | Every invite ever minted, newest first, with its status and the account it created |
-| `POST /` | Admin | Mint. `{Label, Libraries[]}` → `{Token, Url, UrlIsLan, Invite}`. **The only time the token is returned** |
+| `POST /` | Admin | Mint. `{Label, Libraries[], IsAdministrator}` → `{Token, Url, UrlIsLan, Invite}`. **The only time the token is returned.** `IsAdministrator` absent means false, which is what an older client sends and the reading that grants least |
 | `DELETE /{id}` | Admin | Delete. By id, never by token, so deleting never means handling the credential again. The row is gone |
 | `POST /lookup` | Anonymous | `{Token}` → the server's name, who invited you, the username it suggests, and the libraries. `404` for a token nobody minted — **which now includes a deleted one**; `410` with a sentence for one that is spent |
 | `POST /accept` | Anonymous | `{Token, Username, Password}` → creates the account, applies the policy, returns a session |
@@ -191,7 +229,8 @@ One table, `invites`, in `core.db`. The DDL lives in `InviteStore.EnsureSchema` 
 | `id` | Opaque. Safe to show, log and put in a URL; what revocation addresses |
 | `token_hash` | SHA-256 of the token, `UNIQUE`. The only form of it on disk |
 | `label` | The username the invited account arrives with, or empty. **Shown to somebody else** — it stopped being a private note in Part 9, and the landing page pre-fills it |
-| `libraries` | JSON array of collection-folder GUIDs |
+| `libraries` | JSON array of collection-folder GUIDs. **Empty for an administrator invite**, which grants all of them by role |
+| `is_administrator` | Whether it creates an administrator. `NOT NULL DEFAULT 0`, so every row minted before the column existed still creates a viewer. §3b |
 | `created_by`, `created_by_name` | Who minted it. The name is **copied**, not looked up: a rename should not retroactively change who somebody believes invited them |
 | `created_at` | |
 | `expires_at` | `InviteGate.NeverExpires` for everything minted now; a real date on older rows, which still expire |
@@ -236,3 +275,82 @@ federated library rather than only A's own files.
 they are reported in, and the two halves of the no-expiry change — that a null date means never
 rather than the epoch, and that a row minted with a real one still runs out. There is no HTTP harness in that suite by design (`SetupGate` says why),
 which is exactly the reason the decision is a pure static and the controller only calls it.
+
+---
+
+## 11. Signing in with a server of your own
+
+The other half of the same invite. Dan: *"during the invite flow offer the option to sign in with
+their own server or create an account — signing in with their own server will re-use their same
+login on this new server AND submit a request to link their server to this one."*
+
+So `/join` offers two doors. **Create account** is §9 and §10, unchanged. **I already run
+StingStream** is this section, and it ends with an account here that has no password anybody knows.
+
+### What proves who they are
+
+An iroh node id **is** an Ed25519 public key. So a node can sign a statement and any other node can
+check it against the id the statement names, with no enrolment, no key exchange and nothing stored
+on either side beforehand:
+
+```
+assertion = Sign_homeNodeKey( DOMAIN || { iss, sub, name, server, aud, nonce, iat, exp } )
+```
+
+| Field | Why it is in there |
+|---|---|
+| `aud` | The target's node id. **The one that matters.** Without it, signing in to somebody's server would hand that server a token that signs you in to every server you can reach |
+| `nonce` | Issued by the target, single-use *there*. Only the audience knows what it has spent, so freshness is the audience's to enforce — `IdentityChallenges` holds them, in memory, `Take` removing as it reads |
+| `exp` | Five minutes, the window `PasskeyCeremonies` already uses |
+
+`vouch.rs` signs and verifies; `IdentityService` decides. Verification lives in Rust because .NET
+has no built-in Ed25519 and Core already delegates every mesh concern over loopback — two
+implementations of one signature rule is the thing worth avoiding.
+
+**Their server has to be up, every time.** Dan: *"lets just make it so that your server has to be up
+to sign in with it to another server."* That is not enforced anywhere; it falls out, because nobody
+but their node can produce the signature. It is also why there is no key material on any device.
+
+### Two doors, not one credential
+
+An assertion proves identity and grants nothing. Anybody can run StingStream, so a genuine
+assertion from a server nobody here has heard of has to arrive **with an invite** the first time —
+otherwise every StingStream server in the world would accept every other one's users.
+`IdentityGate.DecideSignIn` is that rule; after the first time the `linked_identities` row is what
+lets them back in.
+
+**The account gets a random password nobody knows, and that is load-bearing.** Jellyfin
+authenticates a password-less account with an empty password, so leaving it blank would make every
+linked account signable-into by name alone — a far worse door than the one this avoids.
+
+The name is theirs, qualified only if it is taken: `sam`, else `sam.loft`. **Not `sam@loft`** —
+`SetupGate.ValidateUsername` allows letters, digits, dots, underscores and dashes and nothing else,
+and a name our own form would refuse is a name nobody could re-type.
+
+### The redirect, and why it is not a cross-origin call
+
+Nothing posts a password across origins. `/join` sends the browser to **their own** server's
+`/authorize`, which signs them in on its own origin, names the server that is asking, and sends
+them back with the assertion in the fragment. The alternative — their node accepting credentialed
+cross-origin auth from anywhere, with the password typed into a page somebody else's machine served
+— is the thing this shape exists to avoid. `utils/identity/handoff.ts` owns both fragments;
+`/authorize` is exempted in `useProtectedRoute` for both of `/join`'s reasons.
+
+### Asking to link the two servers
+
+Signing in this way also submits a **request**, and a request is all it is: only an administrator
+here decides which servers join their group, which is what keeps §3's first row true. Approving
+mints an ordinary single-use mesh invite — there is no second kind of link and no new protocol — and
+the code goes back to the person who asked, who redeems it on their own server through the Join
+screen that has always existed. What they share back is then chosen there, in the picker that
+already says *"each side picks its own"*.
+
+A decline is remembered: the upsert refuses to reset a decided row to pending, so asking again
+cannot get a different answer by itself.
+
+| | |
+|---|---|
+| Mesh | `mesh/crates/stingstream-mesh/src/vouch.rs`, `api.rs` (`/mesh/v1/identity/{assert,verify}`, loopback) |
+| Server | `StingStream.Core/Identity/`, `Controllers/IdentityController.cs` |
+| App | `app/authorize.tsx`, `components/stingstream/identity/`, `lib/stingstream/identity{Api,}.ts`, `utils/identity/handoff.ts` |
+| Tests | `vouch.rs`'s own module, `IdentityGateTests.cs`, `utils/identity/handoff.test.ts` |

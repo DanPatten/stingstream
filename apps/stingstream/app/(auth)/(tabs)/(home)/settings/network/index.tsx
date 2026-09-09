@@ -5,11 +5,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { LocalNetworkSettings } from "@/components/settings/LocalNetworkSettings";
+import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { storage } from "@/utils/mmkv";
 
-export default function NetworkSettingsPage() {
+function NetworkSettingsPage() {
   useDismissKeyboardOnLeave();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -48,3 +49,5 @@ export default function NetworkSettingsPage() {
     </ScrollView>
   );
 }
+
+export default adminOnly(NetworkSettingsPage);

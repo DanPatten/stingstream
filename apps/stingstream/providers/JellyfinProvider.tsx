@@ -1143,6 +1143,11 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
     // person already signed in who opens one needs to be told what the link was, not silently
     // dropped on Home. The route decides for itself which of the two it is looking at.
     const isJoinRoute = root === "join";
+    // `/authorize` is the same shape of exception and needs both halves of it. Somebody arrives
+    // here from *another* server's page, so they may have no session on this one yet — and if they
+    // do have one, that is the ordinary case rather than a reason to drop them on Home: being
+    // signed in is precisely what lets this page sign the assertion. See `app/authorize.tsx`.
+    const isAuthorizeRoute = root === "authorize";
 
     if (!user?.Id && inAuthGroup) {
       router.replace("/login");
@@ -1150,7 +1155,8 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
       user?.Id &&
       !inAuthGroup &&
       !isTopShelfLaunchRoute &&
-      !isJoinRoute
+      !isJoinRoute &&
+      !isAuthorizeRoute
     ) {
       router.replace("/(auth)/(tabs)/(home)/");
     }

@@ -1,8 +1,9 @@
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KefinTweaksSettings } from "@/components/settings/KefinTweaks";
+import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 
-export default function KefinTweaksPage() {
+function KefinTweaksPage() {
   const insets = useSafeAreaInsets();
 
   return (
@@ -19,3 +20,5 @@ export default function KefinTweaksPage() {
     </ScrollView>
   );
 }
+
+export default adminOnly(KefinTweaksPage);

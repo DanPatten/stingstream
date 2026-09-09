@@ -1,7 +1,8 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { Image } from "expo-image";
+import { useFocusEffect } from "expo-router";
 import { useAtomValue } from "jotai";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Platform,
@@ -12,12 +13,10 @@ import {
 } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/common/Dialog";
-import { Icon, type IconName } from "@/components/common/Icon";
-import { Input } from "@/components/common/Input";
+import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
-import { radius, tokens } from "@/constants/theme";
+import { radius, rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import {
   useDeleteInvite,
@@ -26,19 +25,15 @@ import {
   useInvites,
 } from "@/lib/stingstream/invites";
 import type { MintedInvite } from "@/lib/stingstream/invitesApi";
-import {
-  useDeleteUser,
-  useServerUsers,
-  useSetUserDisabled,
-  useSetUserPassword,
-} from "@/lib/stingstream/serverUsers";
+import { useDeleteUser, useServerUsers } from "@/lib/stingstream/serverUsers";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
+import { LinkedIdentities } from "../identity/LinkedIdentities";
 import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { UserLibrariesDialog } from "./UserLibrariesDialog";
+import { UserDialog } from "./UserDialog";
 import { describeAccess } from "./userAccess";
 import { buildUserRows } from "./userRows";
 
@@ -59,6 +54,14 @@ import { buildUserRows } from "./userRows";
  *
  * Pending invitations sit in the same list as accounts, tagged, because "somebody I invited who has
  * not turned up yet" is a person as far as anybody reading this screen is concerned.
+ *
+ * ## One icon on a row, not three
+ *
+ * Dan: *"these icons are not intuative for users and have no hover state, delete is good, other 2
+ * are not."* A key and a prohibition sign are not words. Pressing a row opens `UserDialog`, which
+ * is where resetting a password and locking somebody out now live, with labels on them. The bin
+ * stays because it is the one icon everybody reads and the one action worth having without opening
+ * anything first.
  */
 export function UsersScreen() {
   const { t } = useTranslation();
@@ -71,17 +74,39 @@ export function UsersScreen() {
 
   const link = useInviteLink();
   const removeInvite = useDeleteInvite();
-  const setDisabled = useSetUserDisabled();
   const removeUser = useDeleteUser();
 
   const [inviting, setInviting] = useState(false);
   const [showing, setShowing] = useState<MintedInvite | null>(null);
-  const [resetTarget, setResetTarget] = useState<UserDto | null>(null);
-  const [editing, setEditing] = useState<UserDto | null>(null);
+  // The id rather than the account: `UserDialog` reads the row back out of the list, so it keeps
+  // showing the truth after its own edits invalidate it.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const rows = useMemo(
     () => buildUserRows(users.data, invites.data, me?.Id),
     [users.data, invites.data, me?.Id],
+  );
+
+  /**
+   * Refetch whenever this screen comes back into view.
+   *
+   * Dan: *"i invited a user, left and went back to users page and didnt see him until full
+   * refresh."* Two app-wide settings meet here and leave a gap between them. A pushed screen stays
+   * **mounted** in the stack, so coming back to it is not a mount and `refetchOnMount` never
+   * fires; and `refetchOnWindowFocus` is off for the whole app (`app/_layout.tsx`, "not needed for
+   * mobile" — which this is not, in a browser). So the list a person returned to was whatever it
+   * held when they left it, until the 60-second `refetchInterval` came round or they reloaded the
+   * page.
+   *
+   * Screen focus is the event that actually means "somebody is looking at this again", and it is
+   * the one React Navigation gives us. Both queries, because an account and an invitation are two
+   * halves of one list.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void users.refetch();
+      void invites.refetch();
+    }, [users.refetch, invites.refetch]),
   );
 
   const busy = removeInvite.isPending || link.isPending || removeUser.isPending;
@@ -153,18 +178,8 @@ export function UsersScreen() {
                   isSelf={row.isSelf}
                   serverAddress={api?.basePath}
                   libraries={libraries.data}
-                  busy={busy || setDisabled.isPending}
-                  onPress={() => setEditing(row.user)}
-                  onResetPassword={() => setResetTarget(row.user)}
-                  onToggleDisabled={() =>
-                    setDisabled.mutate(
-                      {
-                        user: row.user,
-                        disabled: !row.user.Policy?.IsDisabled,
-                      },
-                      { onError: (e) => toast.error(e.message) },
-                    )
-                  }
+                  busy={busy}
+                  onPress={() => setEditingId(row.user.Id ?? null)}
                   onDelete={() => deleteUser(row.user)}
                 />
               ) : (
@@ -172,6 +187,7 @@ export function UsersScreen() {
                   key={row.key}
                   name={row.invite.label || t("invites.row_untitled")}
                   libraries={row.invite.libraries.map((l) => l.name)}
+                  isAdministrator={row.invite.isAdministrator}
                   busy={busy}
                   onPress={() => openLink(row.invite.id)}
                   onDelete={() =>
@@ -186,24 +202,18 @@ export function UsersScreen() {
         )}
       </QueryState>
 
+      {/* Below the accounts, not merged into them: these *are* accounts in the list above, and the
+          half that is not visible there is which server vouches for them. */}
+      <LinkedIdentities />
+
       <InvitePerson visible={inviting} onClose={() => setInviting(false)} />
       <MintedInviteDialog minted={showing} onClose={() => setShowing(null)} />
-      <UserLibrariesDialog user={editing} onClose={() => setEditing(null)} />
-      <ResetPasswordDialog
-        user={resetTarget}
-        onClose={() => setResetTarget(null)}
-      />
+      <UserDialog userId={editingId} onClose={() => setEditingId(null)} />
     </View>
   );
 }
 
-/**
- * One account.
- *
- * Its actions are icons rather than the words they used to be. The old row put "Reset password" and
- * "Disable" in the list as bare `<Text onPress>` — no button role, no touch target, no
- * confirmation — so they read as prose and behaved as controls.
- */
+/** One account. Press it to manage it; the bin is the only thing the row does itself. */
 const AccountRow: React.FC<{
   user: UserDto;
   isSelf: boolean;
@@ -211,20 +221,8 @@ const AccountRow: React.FC<{
   libraries: { id: string; name: string }[] | undefined;
   busy: boolean;
   onPress: () => void;
-  onResetPassword: () => void;
-  onToggleDisabled: () => void;
   onDelete: () => void;
-}> = ({
-  user,
-  isSelf,
-  serverAddress,
-  libraries,
-  busy,
-  onPress,
-  onResetPassword,
-  onToggleDisabled,
-  onDelete,
-}) => {
+}> = ({ user, isSelf, serverAddress, libraries, busy, onPress, onDelete }) => {
   const { t } = useTranslation();
   const disabled = Boolean(user.Policy?.IsDisabled);
   const isAdmin = Boolean(user.Policy?.IsAdministrator);
@@ -248,13 +246,6 @@ const AccountRow: React.FC<{
     .filter(Boolean)
     .join(" • ");
 
-  /**
-   * An administrator cannot be disabled and you cannot delete yourself: the server answers 403 to
-   * both, along with the last-administrator and last-enabled-user guards beside them. Greyed rather
-   * than dropped, so every row keeps the same three controls in the same places.
-   */
-  const cannotDisable = isSelf || isAdmin;
-
   return (
     <RowShell
       testID='users-account'
@@ -263,26 +254,12 @@ const AccountRow: React.FC<{
       onPress={onPress}
       leading={<Avatar serverAddress={serverAddress} user={user} />}
       actions={
-        <>
-          <RowAction
-            icon='key'
-            label={t("users.reset_password")}
-            disabled={busy}
-            onPress={onResetPassword}
-          />
-          <RowAction
-            icon={disabled ? "unblock" : "block"}
-            label={disabled ? t("users.enable") : t("users.disable")}
-            disabled={busy || cannotDisable}
-            onPress={onToggleDisabled}
-          />
-          <RowAction
-            icon='delete'
-            label={t("users.delete")}
-            disabled={busy || isSelf}
-            onPress={onDelete}
-          />
-        </>
+        <DeleteAction
+          label={t("users.delete")}
+          // You cannot delete yourself; the server refuses and the app should not offer it.
+          disabled={busy || isSelf}
+          onPress={onDelete}
+        />
       }
     />
   );
@@ -292,17 +269,24 @@ const AccountRow: React.FC<{
 const PendingRow: React.FC<{
   name: string;
   libraries: string[];
+  isAdministrator: boolean;
   busy: boolean;
   onPress: () => void;
   onDelete: () => void;
-}> = ({ name, libraries, busy, onPress, onDelete }) => {
+}> = ({ name, libraries, isAdministrator, busy, onPress, onDelete }) => {
   const { t } = useTranslation();
 
   return (
     <RowShell
       testID='users-pending'
       title={name}
-      subtitle={[t("users.pending"), libraries.join(", ")]
+      // An administrator invite names no libraries, so without saying so the row would read
+      // "Invited" and nothing else — the one row in this list where what is missing is the
+      // important part.
+      subtitle={[
+        t("users.pending"),
+        isAdministrator ? t("users.administrator") : libraries.join(", "),
+      ]
         .filter(Boolean)
         .join(" • ")}
       onPress={onPress}
@@ -321,33 +305,79 @@ const PendingRow: React.FC<{
         </View>
       }
       actions={
-        <>
-          <RowAction
-            icon='link'
-            label={t("users.show_link")}
-            disabled={busy}
-            onPress={onPress}
-          />
-          <RowAction
-            icon='delete'
-            label={t("users.delete_invite")}
-            disabled={busy}
-            onPress={onDelete}
-          />
-        </>
+        <DeleteAction
+          label={t("users.delete_invite")}
+          disabled={busy}
+          onPress={onDelete}
+        />
       }
     />
   );
 };
 
 /**
- * A row whose label opens one thing and whose icons do others.
+ * The bin.
+ *
+ * Its own control rather than `Button variant='ghost'`, because ghost's hover is a 6% white wash
+ * and this sits **inside a row that already tints on hover** — Dan: *"have no hover state"*, and he
+ * was looking at a real one that the row underneath had swallowed. This one fills a circle and
+ * turns red, so hovering it says both "this is a button" and "this one is destructive" before it is
+ * pressed.
+ */
+const DeleteAction: React.FC<{
+  label: string;
+  disabled: boolean;
+  onPress: () => void;
+}> = ({ label, disabled, onPress }) => {
+  const states = usePressableStates({ disabled });
+
+  return (
+    <Pressable
+      accessibilityRole='button'
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={6}
+      {...states.handlers}
+      style={[
+        {
+          width: tokens.control.minTouchTarget,
+          height: tokens.control.minTouchTarget,
+          borderRadius: tokens.control.minTouchTarget / 2,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: states.pressed
+            ? rgba(tokens.color.state.danger, 0.24)
+            : states.hovered
+              ? rgba(tokens.color.state.danger, 0.14)
+              : "transparent",
+          opacity: disabled ? tokens.control.disabledOpacity : 1,
+        },
+        states.webStyle,
+      ]}
+    >
+      <Icon
+        name='delete'
+        size={18}
+        color={
+          states.hovered || states.pressed
+            ? tokens.color.state.danger
+            : tokens.color.text.tertiary
+        }
+      />
+    </Pressable>
+  );
+};
+
+/**
+ * A row whose label opens one thing and whose icon does another.
  *
  * **Not `ListItem`.** A pressable `ListItem` renders a real `<button>` on the web, and the row
- * actions are buttons too — nesting them is invalid HTML, which React says out loud (*"<button>
+ * action is a button too — nesting them is invalid HTML, which React says out loud (*"<button>
  * cannot contain a nested <button>"*, seen live on this screen at 1440) and which flattens the
- * whole row into one control for a screen reader. So the label and the icons are **siblings**: one
- * `Pressable` holding the avatar and the text, the buttons beside it.
+ * whole row into one control for a screen reader. So the label and the action are **siblings**: one
+ * `Pressable` holding the avatar and the text, the button beside it.
  *
  * The metrics are `ListItem`'s, deliberately — the 44 px floor, the 16 px gutter, the same hover
  * and pressed tints — because this sits in a `ListGroup` next to rows that are `ListItem`s and a
@@ -421,25 +451,6 @@ const RowShell: React.FC<{
   );
 };
 
-/** The icon-only ghost button this codebase already spells exactly one way. */
-const RowAction: React.FC<{
-  icon: IconName;
-  label: string;
-  disabled: boolean;
-  onPress: () => void;
-}> = ({ icon, label, disabled, onPress }) => (
-  <Button
-    variant='ghost'
-    size='sm'
-    icon={icon}
-    disabled={disabled}
-    onPress={onPress}
-    accessibilityLabel={label}
-  >
-    {""}
-  </Button>
-);
-
 /** The user's own photo, or a fallback tile, so a row with no photo still reads as a person. */
 function Avatar({
   serverAddress,
@@ -485,69 +496,3 @@ function Avatar({
     />
   );
 }
-
-/**
- * Setting somebody else's password.
- *
- * It was a panel that unfolded above the list, which meant a control belonging to one row appeared
- * nowhere near it and pushed every other row down. A row action gets a dialog.
- */
-const ResetPasswordDialog: React.FC<{
-  user: UserDto | null;
-  onClose: () => void;
-}> = ({ user, onClose }) => {
-  const { t } = useTranslation();
-  const [password, setPassword] = useState("");
-  const reset = useSetUserPassword();
-
-  const close = () => {
-    setPassword("");
-    onClose();
-  };
-
-  const submit = () => {
-    if (!user?.Id) return;
-    reset.mutate(
-      { userId: user.Id, password },
-      {
-        onSuccess: () => {
-          toast.success(t("users.reset_success"));
-          close();
-        },
-        onError: (e) => toast.error(e.message),
-      },
-    );
-  };
-
-  return (
-    <Dialog
-      visible={!!user}
-      onClose={close}
-      title={t("users.reset_title")}
-      description={t("users.reset_description", { name: user?.Name ?? "" })}
-      actions={[
-        { label: t("common.cancel"), onPress: close },
-        {
-          label: t("users.reset_action"),
-          testID: "user-reset-submit",
-          onPress: submit,
-          loading: reset.isPending,
-          disabled: reset.isPending || password.length === 0,
-        },
-      ]}
-    >
-      <Input
-        testID='user-reset-password'
-        placeholder={t("users.reset_placeholder")}
-        secureTextEntry
-        autoCapitalize='none'
-        value={password}
-        onChangeText={setPassword}
-        editable={!reset.isPending}
-      />
-      <Text variant='caption' tone='tertiary' style={{ marginTop: 8 }}>
-        {t("users.reset_hint")}
-      </Text>
-    </Dialog>
-  );
-};

@@ -194,6 +194,7 @@ public static class InviteGate
     /// <summary>Why this invite cannot be minted, or <see langword="null"/> when it can.</summary>
     /// <param name="username">The name the invited person's account will get. Optional.</param>
     /// <param name="libraries">The libraries the invited person will be able to see.</param>
+    /// <param name="isAdministrator">Whether the invite creates an administrator.</param>
     /// <returns>One sentence, or <see langword="null"/>.</returns>
     /// <remarks>
     /// <para>
@@ -211,16 +212,29 @@ public static class InviteGate
     /// an empty field — which is what it did before this existed.
     /// </para>
     /// <para>
-    /// <b>An empty library list is refused.</b> It would mint a working invite to an account that
-    /// can see nothing, which looks like a bug on the other end and reads as a snub. If the
-    /// intention really is an account with no access, the administrator can make one and say so.
+    /// <b>An empty library list is refused for a viewer.</b> It would mint a working invite to an
+    /// account that can see nothing, which looks like a bug on the other end and reads as a snub.
+    /// If the intention really is an account with no access, the administrator can make one and say
+    /// so.
+    /// </para>
+    /// <para>
+    /// <b>An administrator invite is the exception, and it has to be.</b> Jellyfin checks
+    /// <c>IsAdministrator</c> before it checks folders, so a library list on that kind of invite
+    /// changes nothing — the Users screen already says as much rather than drawing a picker that
+    /// does not apply. Requiring one here would mean making the inviter answer a question whose
+    /// answer is discarded. An administrator invite that <em>does</em> carry a list is not refused
+    /// either; the list is simply not what decides, and
+    /// <c>InviteService.ApplyLibraryScopeAsync</c> writes <c>EnableAllFolders</c> over it.
     /// </para>
     /// <para>
     /// A duplicate in the list is not an error — it is what a picker produces when somebody
     /// double-taps — and <see cref="NormaliseLibraries"/> quietly removes it.
     /// </para>
     /// </remarks>
-    public static string? ValidateMint(string? username, IReadOnlyCollection<Guid>? libraries)
+    public static string? ValidateMint(
+        string? username,
+        IReadOnlyCollection<Guid>? libraries,
+        bool isAdministrator = false)
     {
         if (!string.IsNullOrWhiteSpace(username)
             && FirstRun.SetupGate.ValidateUsername(username) is { } problem)
@@ -229,7 +243,7 @@ public static class InviteGate
         }
 
         var chosen = NormaliseLibraries(libraries);
-        if (chosen.Count == 0)
+        if (chosen.Count == 0 && !isAdministrator)
         {
             return "Choose at least one library to share.";
         }

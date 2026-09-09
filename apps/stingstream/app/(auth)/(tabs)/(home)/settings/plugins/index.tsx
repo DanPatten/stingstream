@@ -5,9 +5,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { PluginSettings } from "@/components/settings/PluginSettings";
+import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useSettings } from "@/utils/atoms/settings";
 
-export default function PluginsPage() {
+function PluginsPage() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { refreshStreamyfinPluginSettings } = useSettings();
@@ -55,3 +56,5 @@ export default function PluginsPage() {
     </ScrollView>
   );
 }
+
+export default adminOnly(PluginsPage);
