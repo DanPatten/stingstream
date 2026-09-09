@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Person-invite acceptance: somebody with no account anywhere ends up watching a film that lives
     on a different server.
@@ -330,6 +330,13 @@ $Group = Invoke-Step 'A and B link, and B''s film materialises into A''s own lib
     $invite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($group.group)/invite" -Method POST
     $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST -Body @{ code = $invite.code } -TimeoutSec 240
     if ($joined.via -eq 'none') { throw 'B joined but reached nobody, so nothing would ever sync.' }
+
+    # Sharing is per link and closed by default -- a link publishes nothing until its owner chooses
+    # (StingStream.Core/Sharing/). B shares everything, because the point of this step is that an
+    # invited person on A can watch a film that lives on B.
+    foreach ($node in @($NodeA, $NodeB)) {
+        [void](Share-AllLibraries -Node $node -Group $group.group)
+    }
 
     # The federated library is what makes an invited person's account worth having: they see the
     # *group's* films, not one server's.

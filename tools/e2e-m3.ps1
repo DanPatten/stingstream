@@ -837,6 +837,14 @@ $Group = Invoke-Step 'A creates a group, B joins by invite' {
     Write-Host "      B joined via '$($joined.via)', contacted: $(@(Get-Member-Value $joined 'contacted') -join ', ')"
     if ($joined.group -ne $group.group) { throw "B joined the wrong group: $($joined.group)" }
     if ($joined.via -eq 'none') { throw 'B joined but reached nobody, so nothing would ever sync.' }
+
+    # Sharing is per link and closed by default, so a link publishes nothing until its owner
+    # chooses. Both sides choose everything here: this harness is about federation, and scoping has
+    # its own coverage. Without this the index below stays empty for the *right* reason, which is
+    # the most confusing possible way for a federation test to fail.
+    $sharedA = Share-AllLibraries -Node $NodeA -Group $group.group
+    $sharedB = Share-AllLibraries -Node $NodeB -Group $group.group
+    Write-Host "      shared: A $($sharedA.Count) library(s), B $($sharedB.Count)"
     return $group
 }
 

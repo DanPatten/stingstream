@@ -698,6 +698,13 @@ Invoke-Step 'A creates a group; C joins through the API' {
         Code = $script:InviteCode
     } | Out-Null
     Write-Host '      C joined through the API'
+
+    # Sharing is per link and closed by default -- a link publishes nothing until its owner chooses
+    # (StingStream.Core/Sharing/). Everything is shared here: this harness is about watching
+    # together and about recordings federating, not about scoping.
+    foreach ($node in @($NodeA, $NodeC)) {
+        [void](Share-AllLibraries -Node $node -Group $script:GroupId)
+    }
 }
 
 # ============================================================================================

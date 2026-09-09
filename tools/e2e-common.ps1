@@ -693,6 +693,38 @@ function Get-AuthHeaders {
     return @{ 'Authorization' = "MediaBrowser Token=`"$($Node.Token)`"" }
 }
 
+function Share-AllLibraries {
+    <#
+    .SYNOPSIS
+        Share every library on a node into one link.
+    .DESCRIPTION
+        Sharing is per link and **closed by default**: a new link publishes nothing until its owner
+        chooses, because a link that silently published somebody's whole collection is not
+        recoverable once the other server has the index (see StingStream.Core/Sharing/).
+
+        Every federation harness therefore has to make the choice the product makes a person make.
+        It shares everything, deliberately: these harnesses test that titles federate, and scoping
+        has its own coverage in the Core unit tests and in the two-node step below.
+    .PARAMETER Node
+        The node whose libraries are being shared.
+    .PARAMETER Group
+        The link's group id.
+    #>
+    param(
+        [Parameter(Mandatory)]$Node,
+        [Parameter(Mandatory)][string]$Group
+    )
+    $current = Invoke-Node $Node "/stingstream/api/v1/mesh/groups/$Group/libraries"
+    $ids = @(@(Get-Member-Value $current 'available') | ForEach-Object { Get-Member-Value $_ 'id' } | Where-Object { $_ })
+    if ($ids.Count -eq 0) {
+        # No libraries yet is not a failure here: the caller may be creating the link before the
+        # first scan. The next call, after media lands, does the work.
+        return @()
+    }
+    [void](Invoke-Node $Node "/stingstream/api/v1/mesh/groups/$Group/libraries" -Method PUT -Body @{ libraries = $ids })
+    return $ids
+}
+
 function Invoke-Node {
     param(
         [Parameter(Mandatory)]$Node,

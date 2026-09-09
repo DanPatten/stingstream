@@ -599,6 +599,15 @@ $Group = Invoke-Step 'A creates a group; B and C join' {
         Write-Host "      $($node.Name) joined via '$($joined.via)'"
         if ($joined.via -eq 'none') { throw "$($node.Name) joined but reached nobody." }
     }
+
+    # Sharing is per link and closed by default -- a link publishes nothing until its owner
+    # chooses (StingStream.Core/Sharing/). Every node shares everything here: this harness is about
+    # federation, and scoping has its own coverage. Without it the index below stays empty for the
+    # *right* reason, which is the most confusing way a federation test can fail.
+    foreach ($node in @($NodeA, $NodeB, $NodeC)) {
+        $shared = Share-AllLibraries -Node $node -Group $group.group
+        Write-Host "      $($node.Name) shares $($shared.Count) library(s)"
+    }
     return $group
 }
 

@@ -549,6 +549,13 @@ $Group = Invoke-Step 'A creates a group; B joins by invite' {
     if ($joined.group -ne $group.group) { throw "B joined the wrong group: $($joined.group)" }
     if ($joined.via -eq 'none') { throw 'B joined but reached nobody, so nothing would ever sync.' }
     Write-Host "      B joined via '$($joined.via)'"
+
+    # Sharing is per link and closed by default -- a link publishes nothing until its owner chooses
+    # (StingStream.Core/Sharing/). Both sides share everything here: this harness is about
+    # federation, and scoping has its own coverage.
+    foreach ($node in @($NodeA, $NodeB)) {
+        [void](Share-AllLibraries -Node $node -Group $group.group)
+    }
     return $group
 }
 
