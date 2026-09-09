@@ -288,14 +288,32 @@ fn root_div_end(html: &str) -> Option<usize> {
 /// Splice everything the gateway adds into an `index.html` it is serving: the node marker and the
 /// splash.
 ///
-/// The marker and the splash's stylesheet go before `</head>`; the splash element goes immediately
-/// after `<div id="root"></div>`. A document with no `</head>` (a hand-written fixture, or whatever
-/// a future bundler emits) gets the head block at the very top instead — a browser hoists a
-/// `<meta>`/`<script>`/`<style>` found before `<html>` into the head anyway, and having them in the
-/// wrong place beats not having them.
+/// The marker and the splash's stylesheet go **immediately after the opening `<head>` tag**; the
+/// splash element goes immediately after `<div id="root"></div>`.
+///
+/// ## Why after `<head>` and not before `</head>`
+///
+/// It used to be before `</head>`, found by a plain case-insensitive search, and that shipped a
+/// bug that made the whole marker contract a no-op:
+/// `apps/stingstream/public/index.html` opens with a comment explaining that Expo *"appends its
+/// scripts before `</head>`"* — so the search found **that text, inside the comment**, and spliced
+/// the marker and the splash style into a comment. The browser never ran either. Every page a node
+/// served reported itself as not-a-node, and the app fell back to asking for a server address at
+/// the machine it was already talking to.
+///
+/// An opening tag cannot be the thing a comment mentions in passing and still open the document's
+/// head, and comments are skipped by the scan either way. It is also the more correct position on
+/// its own merits: the marker now precedes every other element in the head, which is what
+/// `docs/RUNNING.md` promises ("the app knows before first paint"). Before, it landed *after*
+/// Expo's script tags and only worked because they carry `defer`.
+///
+/// A document with no `<head>` at all (a hand-written fixture, or whatever a future bundler emits)
+/// gets the head block at the very top instead — a browser hoists a `<meta>`/`<script>`/`<style>`
+/// found before `<html>` into the head anyway, and having them in the wrong place beats not having
+/// them.
 pub fn inject(html: &str, marker: &Marker<'_>) -> String {
     let head = format!("{}{SPLASH_STYLE}", marker.html());
-    let mut out = match find_ignore_ascii_case(html, "</head>") {
+    let mut out = match head_open_end(html) {
         Some(i) => {
             let mut out = String::with_capacity(html.len() + head.len() + splash_body().len());
             out.push_str(&html[..i]);
@@ -311,14 +329,33 @@ pub fn inject(html: &str, marker: &Marker<'_>) -> String {
     out
 }
 
-/// Byte index of the first case-insensitive occurrence of `needle` (which must be ASCII).
-fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
-    let h = haystack.as_bytes();
-    let n = needle.as_bytes();
-    if n.is_empty() || h.len() < n.len() {
-        return None;
+/// Byte index just past the document's opening `<head …>` tag, skipping comments.
+///
+/// `<head>` and `<head lang="x">` both count; `<header>` does not, which is what the delimiter
+/// check after the tag name is for.
+fn head_open_end(html: &str) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if html[i..].starts_with("<!--") {
+            // Skip the whole comment. An unterminated one swallows the rest of the document,
+            // which is the right answer: there is no head in what remains.
+            let end = html[i..].find("-->")?;
+            i += end + "-->".len();
+            continue;
+        }
+        if bytes[i] == b'<' && html[i..].len() > 5 && html[i + 1..i + 5].eq_ignore_ascii_case("head")
+        {
+            // `<head>`, `<head …>` — but not `<header>`.
+            let after = bytes[i + 5];
+            if after == b'>' || after.is_ascii_whitespace() {
+                let gt = html[i..].find('>')?;
+                return Some(i + gt + 1);
+            }
+        }
+        i += 1;
     }
-    (0..=h.len() - n.len()).find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
+    None
 }
 
 /// Whether a served file is the document the marker belongs in.
@@ -785,14 +822,71 @@ mod tests {
     }
 
     #[test]
-    fn the_marker_is_spliced_before_the_closing_head_tag() {
+    fn the_marker_is_spliced_just_inside_the_opening_head_tag() {
         let out = inject("<html><HEAD><title>a</title></HEAD><body>b</body></html>", &marker("n", true, None));
         let at = out.find("stingstream-node").unwrap();
-        assert!(at < out.find("</HEAD>").unwrap());
-        assert!(at > out.find("<title>").unwrap());
+        assert!(at > out.find("<HEAD>").unwrap());
+        // Before everything else in the head, which is the point: it must run before the bundle,
+        // not merely before `</head>`.
+        assert!(at < out.find("<title>").unwrap());
         // A document with no head at all still gets it, at the top.
         let none = inject("<!doctype html><title>a</title>", &marker("n", true, None));
         assert!(none.starts_with("<meta name=\"stingstream-node\""));
+        // `<header>` is not `<head>`.
+        let header = inject("<html><body><header>x</header></body></html>", &marker("n", true, None));
+        assert!(header.starts_with("<meta name=\"stingstream-node\""));
+    }
+
+    /// Everything between `<!--` and `-->`, so an assertion can ask what a **browser** would see
+    /// rather than what `grep` finds. An unterminated comment swallows the rest.
+    fn without_comments(html: &str) -> String {
+        let mut out = String::with_capacity(html.len());
+        let mut rest = html;
+        while let Some(start) = rest.find("<!--") {
+            out.push_str(&rest[..start]);
+            match rest[start..].find("-->") {
+                Some(end) => rest = &rest[start + end + "-->".len()..],
+                None => return out,
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The bug this file exists to never ship again.
+    ///
+    /// The real template opens with a comment whose text explains that Expo *"appends its scripts
+    /// before `</head>`"*. Splicing before the first `</head>` therefore put the marker **inside
+    /// that comment**: `curl | grep` found it, every test passed against a clean fixture, and no
+    /// browser ever ran it. The app reported itself as not-a-node and asked for a server address
+    /// at the machine it was already talking to.
+    ///
+    /// So this asserts against the committed template itself, and only after the comments are
+    /// gone.
+    #[test]
+    fn the_marker_survives_a_template_whose_comments_mention_head_tags() {
+        const TEMPLATE: &str = include_str!("../../../../../apps/stingstream/public/index.html");
+
+        let out = inject(TEMPLATE, &marker("attic", true, Some(true)));
+        let visible = without_comments(&out);
+        assert!(
+            visible.contains("window.__STINGSTREAM_NODE__="),
+            "the marker is commented out and a browser will never run it"
+        );
+        assert!(visible.contains(r#"<meta name="stingstream-node" content="1">"#));
+        assert!(visible.contains("ss-splash-style"), "the splash style is commented out too");
+
+        // A decoy that names both tags, to pin the scan rather than the one template.
+        let decoy = inject(
+            "<!-- Expo appends before </head> and after <head> --><html><head><title>a</title></head><body><div id=\"root\"></div></body></html>",
+            &marker("n", true, None),
+        );
+        let visible = without_comments(&decoy);
+        assert!(visible.contains("__STINGSTREAM_NODE__"), "{decoy}");
+        assert!(
+            visible.find("__STINGSTREAM_NODE__").unwrap() < visible.find("<title>").unwrap(),
+            "{decoy}"
+        );
     }
 
     // --- the splash ---------------------------------------------------------------------------

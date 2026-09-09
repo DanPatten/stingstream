@@ -1,10 +1,17 @@
 <!DOCTYPE html>
 <!--
   The web shell for `web.output: "single"`. Expo uses this file as its HTML template when
-  it exists, substitutes the placeholders and appends its scripts before </head>. It is a
+  it exists, substitutes the placeholders and appends its scripts at the end of the head. It is a
   verbatim copy of Expo's own template plus the icon links below; diff it against
   node_modules/@expo/cli/static/template/index.html after an SDK bump.
   Why it exists rather than app/+html.tsx: docs/APP-RELEASE.md §3 "Branding".
+
+  Do not write a literal closing-head or opening-head tag in this comment. The gateway splices the
+  node marker into the head at serve time (mesh/crates/stingstream/src/gateway/web.rs), and a tag
+  spelled out here once made it splice into this comment instead -- so every page a node served
+  told the app it was not a node, and the app asked for a server address at the machine it was
+  already talking to. `inject` no longer scans for the closing tag and skips comments, so this is
+  belt and braces; it costs nothing to keep.
 -->
 <html lang="%LANG_ISO_CODE%">
   <head>

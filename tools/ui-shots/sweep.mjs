@@ -265,6 +265,41 @@ export async function sweepDom(page, { screen, viewport, viewportWidth, isMobile
     findings.push({ screen, viewport, kind: "broken-image", severity: "error", detail: `${e.src} alt="${e.alt}"` });
   }
 
+  // Two things that can only be checked in a real browser, and that a `curl | grep` cannot see.
+  //
+  // The marker: the gateway once spliced it into an HTML comment, so it was present in the bytes
+  // and absent from the page. `window.__STINGSTREAM_NODE__` is the object the app actually reads,
+  // so reading it is the only honest check.
+  //
+  // The address field: on web there must be no way to ask which server this is -- the page came
+  // from the server. It appeared twice, both times because something else failed and the app fell
+  // back to asking.
+  const bootstrap = await page.evaluate(() => ({
+    marker: typeof window.__STINGSTREAM_NODE__,
+    isNode:
+      !!window.__STINGSTREAM_NODE__ &&
+      window.__STINGSTREAM_NODE__.node === true,
+    addressField: !!document.querySelector('[data-testid="login-server-url"]'),
+  }));
+  if (bootstrap.marker !== "object" || !bootstrap.isNode) {
+    findings.push({
+      screen,
+      viewport,
+      kind: "node-marker",
+      severity: "error",
+      detail: `window.__STINGSTREAM_NODE__ is ${bootstrap.marker} — the page does not know it came from a node`,
+    });
+  }
+  if (bootstrap.addressField) {
+    findings.push({
+      screen,
+      viewport,
+      kind: "address-field",
+      severity: "error",
+      detail: 'a server-address field is on screen; on web the origin is the server',
+    });
+  }
+
   if (checkHomeStructure) {
     const home = await page.evaluate(() => {
       // Heuristic, not a fixed selector: a "hero" is a large element (>= 40% of the viewport

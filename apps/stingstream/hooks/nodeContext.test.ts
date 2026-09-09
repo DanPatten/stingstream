@@ -116,19 +116,34 @@ describe("parseNodeMarker", () => {
       });
     });
 
-    test("a broken payload with no meta tag is not a node", () => {
-      expect(
-        parseNodeMarker({ marker: { node: false }, origin: ORIGIN }),
-      ).toBeNull();
-      expect(parseNodeMarker({ marker: [1, 2], origin: ORIGIN })).toBeNull();
-      expect(parseNodeMarker({ marker: null, origin: ORIGIN })).toBeNull();
+    // The regression. The gateway spliced the marker into an HTML comment, so every branch above
+    // failed on a page a node had served -- and the app asked for a server address at the machine
+    // it was already talking to. A document with an origin is a node that told us nothing, never
+    // "not a node".
+    test("a broken payload with no meta tag still has the origin as its server", () => {
+      for (const marker of [{ node: false }, [1, 2], null]) {
+        const context = parseNodeMarker({ marker, origin: ORIGIN });
+        expect(context?.origin).toBe(ORIGIN);
+        // Nothing is claimed about it beyond where it is.
+        expect(context?.setupPending).toBeNull();
+        expect(context?.nodeName).toBeNull();
+        expect(jellyfinUrlFor(context!)).toBe(`${ORIGIN}/jellyfin`);
+      }
     });
   });
 
-  test("absent: a plain static server serving the same bundle is not a node", () => {
-    expect(parseNodeMarker({ origin: "https://example.org" })).toBeNull();
+  test("no marker at all: the page still has a server, the one that served it", () => {
+    const context = parseNodeMarker({ origin: "https://example.org" });
+    expect(context?.origin).toBe("https://example.org");
+    expect(context?.setupPending).toBeNull();
+  });
+
+  test("only a document with no usable origin has no server", () => {
     expect(parseNodeMarker(null)).toBeNull();
     expect(parseNodeMarker(undefined)).toBeNull();
+    // A `file://` open, which is the one browser case with nothing to ask.
+    expect(parseNodeMarker({ origin: "file:///tmp/index.html" })).toBeNull();
+    expect(parseNodeMarker({ origin: null })).toBeNull();
   });
 
   describe("env fallback", () => {

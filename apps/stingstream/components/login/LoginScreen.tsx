@@ -92,12 +92,21 @@ export const LoginScreen: React.FC = () => {
     password?: string;
   }>();
 
-  // Not served by a node? Then this is a bare app build that has never been pointed anywhere, and
-  // the address form is the only honest first card: there is nothing central left to ask who you
-  // are (Part 5). On a phone or a television that is the ordinary case; in a browser it means the
-  // bundle came from something that is not a node, which in practice means a dev server.
+  /**
+   * Whether "which server?" is a question this platform can honestly ask.
+   *
+   * **Never on web.** A page was served by something, and that something is the server — so there
+   * is nothing to ask and there must be nothing that can ask. It is not conditional on the marker:
+   * making it conditional is exactly what shipped the address form twice, most recently because
+   * the marker was being spliced into an HTML comment and every check for it failed.
+   *
+   * On a phone or a television it is a real question, and Dan's answer is that it stays:
+   * *"url on phone/tv is fine"*.
+   */
+  const canAskForAddress = Platform.OS !== "web";
+
   const [phase, setPhase] = useState<Phase>(
-    nodeContext ? "connecting" : "serverForm",
+    nodeContext || !canAskForAddress ? "connecting" : "serverForm",
   );
   /** Bumped by the Retry button, which is the only thing that re-runs the auto-connect. */
   const [connectAttempt, setConnectAttempt] = useState(0);
@@ -269,14 +278,21 @@ export const LoginScreen: React.FC = () => {
     // button. Everything else the run needs comes from `latest`, above.
   }, [nodeContext, connectAttempt]);
 
-  /** Deep link: `/login?apiUrl=…&username=…&password=…` still works, and still bypasses all this. */
+  /**
+   * Deep link: `/login?apiUrl=…&username=…&password=…` still works on native, and still bypasses
+   * all of the above.
+   *
+   * **Ignored on web**, where it is a second way to point the app at an address — it calls
+   * `setServer` with no validation at all and forces the sign-in card, racing the auto-connect.
+   * One rule, no exceptions: in a browser the origin is the server.
+   */
   useEffect(() => {
-    if (!params.apiUrl) return;
+    if (!params.apiUrl || !canAskForAddress) return;
     (async () => {
       await setServer({ address: params.apiUrl as string });
       setPhase("signIn");
     })();
-  }, [params.apiUrl]);
+  }, [params.apiUrl, canAskForAddress]);
 
   useEffect(() => {
     if (api?.basePath && params.apiUrl && params.username && params.password) {
@@ -397,9 +413,9 @@ export const LoginScreen: React.FC = () => {
   /**
    * Back to the address form, on the surfaces where there is an address to change.
    *
-   * Passed to `SignInForm` only when **no node served this page**. On a node it is not an escape
-   * hatch behind Advanced, it is not anything: the server is the origin, and offering to change
-   * it offers to type back the address already in the URL bar.
+   * Passed to `SignInForm` only on a platform that can ask at all, and only when no node served
+   * the page. In a browser it is never passed: the server is the origin, and offering to change it
+   * offers to type back the address already in the URL bar.
    */
   const handleUseDifferentServer = useCallback(() => {
     removeServer();
@@ -488,7 +504,9 @@ export const LoginScreen: React.FC = () => {
               Platform.OS === "web" ? undefined : handleSignInWithCode
             }
             onUseDifferentServer={
-              nodeContext ? undefined : handleUseDifferentServer
+              canAskForAddress && !nodeContext
+                ? handleUseDifferentServer
+                : undefined
             }
             onSignInWithPasskey={
               passkeys?.supported ? handleSignInWithPasskey : undefined
@@ -496,7 +514,7 @@ export const LoginScreen: React.FC = () => {
           />
         ) : null}
 
-        {phase === "serverForm" ? (
+        {phase === "serverForm" && canAskForAddress ? (
           <ConnectScreen
             initialUrl={params.apiUrl ?? ""}
             onConnect={handleConnect}

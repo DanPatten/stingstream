@@ -953,6 +953,41 @@ $MovieItem = Invoke-Step 'Movie: imported into Jellyfin' {
     }
 }
 
+Invoke-Step 'The served page carries a node marker a browser would actually run' {
+    # Asserted after stripping comments, which is the whole point of the step.
+    #
+    # The gateway used to splice the marker before the first `</head>` it found, and the committed
+    # Expo template opens with a comment whose text mentions that tag -- so the marker went *into
+    # the comment*. `curl | grep` found it, the Rust tests passed against a clean fixture, and no
+    # browser ever ran it: every page a node served told the app it was not a node, and the app
+    # asked for a server address at the machine it was already talking to.
+    $page = (Invoke-WebRequest -Uri "$script:GatewayUrl/" -UseBasicParsing -TimeoutSec 30).Content
+    $visible = [regex]::Replace($page, '<!--.*?-->', '', 'Singleline')
+
+    if ($visible -notmatch 'window\.__STINGSTREAM_NODE__=') {
+        if ($page -match 'window\.__STINGSTREAM_NODE__=') {
+            throw 'The marker is present but commented out; a browser will never run it.'
+        }
+        throw 'The served page carries no node marker at all.'
+    }
+    if ($visible -notmatch '<meta name="stingstream-node"') {
+        throw 'The node marker meta tag is missing from the served page.'
+    }
+
+    $json = [regex]::Match($visible, 'window\.__STINGSTREAM_NODE__=(\{.*?\})</script>').Groups[1].Value
+    $marker = $json | ConvertFrom-Json
+    Write-Host "      marker: node=$(Get-Member-Value $marker 'node') name=$(Get-Member-Value $marker 'nodeName')"
+    if ((Get-Member-Value $marker 'node') -ne $true) { throw "The marker does not claim to be a node: $json" }
+
+    # It has to run before the bundle, not merely somewhere in the document.
+    $markerAt = $visible.IndexOf('__STINGSTREAM_NODE__')
+    $bundleAt = $visible.IndexOf('/_expo/static/js/')
+    if ($bundleAt -ge 0 -and $markerAt -gt $bundleAt) {
+        throw 'The marker is spliced after the app bundle; it must precede it.'
+    }
+}
+
+# ============================================================================================
 Invoke-Step 'The node answers "who is JellyfinServer?" with its own address' {
     # What lets the phone and TV connect screens lead with "here is your server" instead of an
     # empty address field. Jellyfin's own responder is off on a node by design -- it would

@@ -166,9 +166,10 @@ const addressesFor = (value: unknown): string[] => {
  *
  * Order matters. A well-formed marker wins; a `<meta>` tag with a broken payload still counts as
  * "this is a node" (the tag is the presence signal, the script is the detail) and falls back to
- * the documented default paths; and only when the document says nothing at all does the env var
- * get a say — otherwise a stale `EXPO_PUBLIC_STINGSTREAM_NODE_URL` baked into a bundle would
- * override the node actually serving it.
+ * the documented default paths; then a stale `EXPO_PUBLIC_STINGSTREAM_NODE_URL` gets a say only
+ * when the document said nothing at all, so it can never override the node actually serving the
+ * page; and finally the page's **own origin** counts, because a page that loaded from somewhere
+ * can always ask that somewhere. `null` means there is no document — a native build.
  */
 export function parseNodeMarker(
   input: NodeMarkerInput | null | undefined,
@@ -227,6 +228,32 @@ export function parseNodeMarker(
     };
   }
 
+  // **A page has a server: the one that served it.**
+  //
+  // This is the last word rather than the first because the marker knows more — the node's name,
+  // whether it still needs its first account, whether this peer may create it. But none of that
+  // decides *whether there is a server*, and treating it as though it did is what shipped the
+  // worst bug in this file's history: the gateway spliced the marker into an HTML comment
+  // (`gateway/web.rs`), every branch above failed, and the app asked somebody to type in the
+  // address that was already in their URL bar.
+  //
+  // So on a document with an origin, absence of a marker means "a node that tells me nothing",
+  // never "not a node". Dan, twice: *"the url your connecting to IS THE FUCKING server"*.
+  if (origin) {
+    return {
+      origin,
+      jellyfinPath: DEFAULT_JELLYFIN_PATH,
+      apiPath: DEFAULT_API_PATH,
+      loopback: false,
+      trustedPeer: trustedPeerFor(origin, undefined),
+      addresses: [],
+      setupPending: null,
+      nodeName: null,
+      version: null,
+    };
+  }
+
+  // No document at all: a native build, or a test. Those genuinely have to be told where to go.
   return null;
 }
 
