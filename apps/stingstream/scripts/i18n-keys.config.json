@@ -23,7 +23,7 @@
     "build",
     "translations"
   ],
-  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx recommendations sync payload; the key exists ahead of that so WP-BRAND rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3 LoginScreen/SignInForm and WP-TV-LOGIN TVLinkCodeScreen and settings.tv.tsx). (3) i18next PLURAL SUFFIXES: the static scan only sees the base t(key, {count}) call, not the _one/_other forms i18next selects from at runtime — same reason custom_headers.header_count_one/_other are listed above; WP8 (sharing.member_count, sharing.member_removed_result, sharing.rotate_secret_result) and WP9 (Manage/Transfers/Server settings/Server status) each added their own set.",
+  "_ignoreUnusedNote": "Keys present in en.json but referenced by no t() call — allow-listed so the unused-key cleanup keeps them. Two kinds: (1) ORPHANS of features that already exist but render hardcoded strings or use other keys — watchlists.* (add/remove, handled by WatchlistSheet via hooks), pin.* (confirm step of the existing PIN setup flow), player.* (in-player subtitle search, swipe-down hint, stop-playback confirm); these should be wired to the live UI or removed in a follow-up i18n pass, not assumed to be future work. (2) GENUINELY PLANNED, tracked by issues: home.settings.other.show_large_home_carousel (#1702 media-bar), home.settings.logs.delete_all_logs (#1703 iOS logs fix), home.suggested_episodes (#1704); home.tv_channel_title (v0.2.0 WP-TV-SHELL wires this into Home.tv.tsx recommendations sync payload; the key exists ahead of that so WP-BRAND rebrand of the Android TV home-row channel name lands as one unit with the Kotlin default in modules/tv-recommendations); login.sign_in_with_code and home.settings.link_device.* (v0.2.0 WP11 rebrand plan — added ahead of the screens that consume them, WP3 LoginScreen/SignInForm and WP-TV-LOGIN TVLinkCodeScreen and settings.tv.tsx). (3) i18next PLURAL SUFFIXES: the static scan only sees the base t(key, {count}) call, not the _one/_other forms i18next selects from at runtime — same reason custom_headers.header_count_one/_other are listed above; WP8 (sharing.member_count, sharing.member_removed_result, sharing.rotate_secret_result) and WP9 (Manage/Transfers/Server settings/Server status) each added their own set; users.library_count came in with the Users screen, which lost the sharing.person_* dynamic prefix that used to cover the equivalent key.",
   "ignoreUnused": [
     "watchlists.add_to_watchlist",
     "watchlists.remove_from_watchlist",
@@ -81,6 +81,8 @@
     "transfers.restart_count_one",
     "transfers.restart_count_other",
     "transfers.torrent_engine_running_one",
-    "transfers.torrent_engine_running_other"
+    "transfers.torrent_engine_running_other",
+    "users.library_count_one",
+    "users.library_count_other"
   ]
 }

@@ -311,8 +311,8 @@ the node while the app was in a pocket would otherwise stay invisible until the 
 
 ## 7. The Group screen
 
-`app/(auth)/(tabs)/(home)/settings/groups/*`, reached from Settings → Mesh. Phone, TV and web share
-the same screens; the ten-foot differences are handled inside them.
+`app/(auth)/(tabs)/(home)/settings/servers/*`, reached from Settings → Servers. Phone, TV and web
+share the same screens; the ten-foot differences are handled inside them.
 
 | Screen | |
 |---|---|

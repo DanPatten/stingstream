@@ -63,6 +63,17 @@ const ICONS = {
   add: "add",
   edit: "pencil",
   delete: "trash",
+  /** Setting somebody else's password, on the Users screen. */
+  key: "key",
+  /**
+   * Turning an account off and back on.
+   *
+   * A pair rather than one glyph that toggles: the button says what pressing it
+   * does, and "disable" and "enable" are opposite enough that the same icon for
+   * both reads as a state badge instead of an action.
+   */
+  block: "ban",
+  unblock: "checkmark-circle-outline",
 
   // Direction
   chevronRight: "chevron-forward",
@@ -72,6 +83,14 @@ const ICONS = {
 
   // Identity and status
   user: "person-circle",
+  /**
+   * The accounts on this server, as a section.
+   *
+   * Distinct from `user`, which is one person — an avatar fallback, the
+   * administrators-only notice. A sidebar row that says "everybody" wants the
+   * plural glyph.
+   */
+  users: "people",
   signOut: "log-out",
   warning: "warning",
   error: "alert-circle",

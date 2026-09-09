@@ -128,7 +128,7 @@ export default function JoinFromLinkPage() {
   // The group path leaves this screen entirely. Separate from the effect above so the navigation
   // happens after the phase has actually rendered -- replacing mid-decision races the router.
   useEffect(() => {
-    if (phase === "group") router.replace("/settings/groups/join");
+    if (phase === "group") router.replace("/settings/servers/join");
   }, [phase, router]);
 
   const handleCreateAccount = useCallback(

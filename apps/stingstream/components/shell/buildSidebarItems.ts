@@ -60,7 +60,7 @@ export interface SidebarItem {
   tab?: TabKey;
   /**
    * A more specific match than the tab: every one of these segments must be in
-   * the current route for the row to be the active one. Sharing lives inside
+   * the current route for the row to be the active one. Users lives inside
    * the `(home)` stack, so without this it would light Home instead of itself.
    */
   match?: string[];
@@ -187,21 +187,23 @@ export function buildSidebarItems(
     ...(showWatchlists ? [tabItem("(watchlists)", t)] : []),
     ...(settings?.showCustomMenuLinks ? [tabItem("(custom-links)", t)] : []),
     tabItem("(requests)", t),
-    // Sharing is the owner's screen end to end -- who has an account here, which servers this one
-    // is linked to, and this server's own address -- and every query behind it is elevated. A
-    // client who opened it got "GET /groups: this needs an administrator account on your server"
-    // over an otherwise empty page. Same gate as Manage and Transfers below, and for the same
-    // reason: a tab that can only fail is worse than no tab.
+    // Users replaced Sharing here, and it is a promotion rather than a rename: the account list
+    // used to be a tab inside `/settings/admin`, two clicks behind a screen about transcode
+    // throttling, while the row in this position showed a screen that was half accounts and half
+    // mesh groups. Every query behind it is elevated -- `GET /Users`, `GET /invites` and
+    // `POST /Users/{id}/Policy` all require Jellyfin's RequiresElevation -- so a client who opened
+    // it got a permission error over an otherwise empty page. Same gate as Manage and Transfers
+    // below, and for the same reason: a tab that can only fail is worse than no tab.
     ...(isAdmin
       ? [
           {
-            key: "sharing",
-            label: t("shell.sharing"),
-            icon: { set: "semantic" as const, name: "sharing" as const },
-            testID: "tab-sharing",
-            route: { pathname: "/sharing" },
+            key: "users",
+            label: t("shell.users"),
+            icon: { set: "semantic" as const, name: "users" as const },
+            testID: "tab-users",
+            route: { pathname: "/users" },
             navigate: "push" as const,
-            match: ["sharing"],
+            match: ["users"],
           },
         ]
       : []),
@@ -306,15 +308,6 @@ export function buildMoreItems(
 
   const app: SidebarItem[] = [
     {
-      key: "sharing",
-      label: t("shell.sharing"),
-      icon: { set: "semantic", name: "sharing" },
-      testID: "more-sharing",
-      route: { pathname: "/sharing" },
-      navigate: "push",
-      match: ["sharing"],
-    },
-    {
       key: "settings",
       label: t("tabs.settings"),
       icon: { set: "semantic", name: "settings" },
@@ -330,7 +323,19 @@ export function buildMoreItems(
   // (pass-02, cross-cutting rule 3), and Sessions is the one that reads as
   // "about the server" rather than "about this screen". Since pass-03 F-72 it
   // is a sidebar row at every width, so the two lists agree.
+  // Users is in this group rather than beside Settings, where Sharing used to sit, and that is a
+  // gate rather than a tidy-up: the `app` group is drawn for everybody, so a member could reach the
+  // old Sharing row. Every endpoint the Users screen touches is elevated.
   const admin: SidebarItem[] = [
+    {
+      key: "users",
+      label: t("shell.users"),
+      icon: { set: "semantic", name: "users" },
+      testID: "more-users",
+      route: { pathname: "/users" },
+      navigate: "push",
+      match: ["users"],
+    },
     tabItem("(manage)", t),
     tabItem("(downloads)", t),
     sessionsItem(t),
@@ -378,10 +383,10 @@ const SHARED_GROUP_SCREENS = [
 /**
  * Which row is the current one.
  *
- * Three rules, most specific first: an explicit segment match (Sharing sits
+ * Three rules, most specific first: an explicit segment match (Users sits
  * inside the `(home)` stack and would otherwise light Home), then the library
  * whose id is in the route, then the tab group the route is in. Ties among
- * segment matches go to the longer match, so `settings/groups` beats
+ * segment matches go to the longer match, so `settings/servers` beats
  * `settings`.
  *
  * The one exception is a shared-group screen (see `SHARED_GROUP_SCREENS`),

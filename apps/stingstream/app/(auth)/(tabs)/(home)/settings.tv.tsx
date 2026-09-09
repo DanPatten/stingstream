@@ -1465,7 +1465,7 @@ export default function SettingsTV() {
           <TVSettingsRow
             label={t("tv.settings.groups")}
             value={meshSummary}
-            onPress={() => router.push("/settings/groups")}
+            onPress={() => router.push("/settings/servers")}
             isFirst={false}
           />
           <TVSettingsRow

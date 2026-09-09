@@ -102,25 +102,16 @@ function SettingsMobile() {
 
           <View className='mb-4' testID='settings-section-sharing'>
             <ListGroup title={t("home.settings.sections.sharing")}>
+              {/* Servers, not "Sharing": what this screen lists is the other people's servers this
+                  one pools libraries with. Inviting a *person* is no longer here at all — that is
+                  what Users is, and it has a section of its own. */}
               <ListItem
-                testID='settings-sharing'
-                onPress={() => router.push("/settings/groups")}
+                testID='settings-servers'
+                onPress={() => router.push("/settings/servers")}
                 showArrow
-                title={t("home.settings.sections.sharing")}
+                title={t("home.settings.sections.servers")}
+                subtitle={t("home.settings.sections.servers_hint")}
               />
-              {/* Inviting a *person* rather than linking a server, so it belongs beside sharing
-                  rather than under Server: it is the same act as far as anyone using it is
-                  concerned. Administrator-only, because handing out accounts on somebody's server
-                  is a decision about their disk, their bandwidth and their library. */}
-              {isAdmin ? (
-                <ListItem
-                  testID='settings-invites'
-                  onPress={() => router.push("/settings/invites")}
-                  showArrow
-                  title={t("home.settings.sections.invite_people")}
-                  subtitle={t("home.settings.sections.invite_people_hint")}
-                />
-              ) : null}
               {isWeb ? (
                 // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's
                 // own title to fit it (confirmed live at 390px) where `subtitle` just wraps under
@@ -140,6 +131,15 @@ function SettingsMobile() {
           {isAdmin && (
             <View className='mb-4' testID='settings-section-server'>
               <ListGroup title={t("home.settings.sections.server")}>
+                {/* First, and its own row: who can get in is the question people come here with
+                    most, and it used to be a tab behind a screen about transcoding. */}
+                <ListItem
+                  testID='settings-users'
+                  onPress={() => router.push("/users")}
+                  showArrow
+                  title={t("home.settings.sections.users")}
+                  subtitle={t("home.settings.sections.users_hint")}
+                />
                 <ListItem
                   onPress={() => router.push("/settings/server")}
                   showArrow
@@ -149,9 +149,9 @@ function SettingsMobile() {
                 <ListItem
                   onPress={() => router.push("/settings/admin")}
                   showArrow
-                  title={t("home.settings.sections.users_and_libraries")}
+                  title={t("home.settings.sections.libraries_and_transcoding")}
                   subtitle={t(
-                    "home.settings.sections.users_and_libraries_hint",
+                    "home.settings.sections.libraries_and_transcoding_hint",
                   )}
                 />
                 <ListItem

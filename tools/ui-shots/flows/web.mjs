@@ -13,7 +13,7 @@
 // testID contract, replacing both of the things pass-02's TODO was waiting on:
 //   - Every section now has its own URL, not just Home and Settings: `/`, `/search`, `/library`,
 //     `/favorites`, `/watchlists`, `/requests`, `/manage`, `/transfers`, `/links`, `/more`,
-//     `/sharing`, `/settings`, `/sessions`. `/home` redirects to `/`. Every route group's `index`
+//     `/users`, `/settings`, `/sessions`. `/home` redirects to `/`. Every route group's `index`
 //     used to collide at `/` (F-20/F-21: `/requests` etc. fell through to a `(libraries)/[id]`
 //     catch-all and spun, hammering the server with a ~400-request storm) -- confirmed live this
 //     pass that direct navigation to all of the above now lands on the right screen, not the
@@ -29,17 +29,20 @@
 //     apps/stingstream/components/shell/buildSidebarItems.ts (buildSidebarItems, read-only) to
 //     confirm this before relying on it elsewhere: `tabItem()` is the one place both navigators'
 //     rows come from.
-//   - Sharing and Settings are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
+//   - Users and Settings are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
 //     they get their own testIDs per surface instead of a shared `tabTestID()`: the desktop
-//     sidebar's rows are `tab-sharing`/`tab-settings` (buildSidebarItems, visible at
-//     `isWebWide` i.e. >=768px); the compact "More" screen's rows are `more-sharing`/
+//     sidebar's rows are `tab-users`/`tab-settings` (buildSidebarItems, visible at
+//     `isWebWide` i.e. >=768px); the compact "More" screen's rows are `more-users`/
 //     `more-settings`/`more-sessions` (buildMoreItems, reached via `tab-more` -> `more-screen`,
 //     <768px only -- Sessions has no sidebar row at all; on web wide it is a header button
-//     instead, out of scope for this pass). Favorites/Watchlists/Custom-links/Manage/Transfers DO
-//     share `tabTestID()` with the sidebar even inside the More screen (`tab-favorites`,
-//     `tab-watchlists`, `tab-custom-links`, `tab-manage`, `tab-transfers`) -- only Sharing/
-//     Settings/Sessions get the `more-*` prefix, because only those three are not one of the ten
-//     TAB_KEYS. See NAV, below, for the concrete map this file uses.
+//     instead, out of scope for this pass). Users replaced Sharing on both surfaces when the
+//     account list was promoted out of `/settings/admin`, and unlike Sharing it is
+//     administrator-only in More as well as in the sidebar, so a member's More screen has neither
+//     row. Favorites/Watchlists/Custom-links/Manage/Transfers DO share `tabTestID()` with the
+//     sidebar even inside the More screen (`tab-favorites`, `tab-watchlists`,
+//     `tab-custom-links`, `tab-manage`, `tab-transfers`) -- only Users/Settings/Sessions get the
+//     `more-*` prefix, because only those three are not one of the ten TAB_KEYS. See NAV, below,
+//     for the concrete map this file uses.
 //
 // The breakpoint that decides sidebar-vs-compact-bar is 768px (apps/stingstream/hooks/
 // useBreakpoint.ts: `compact` < 768 <= `medium` < 1280 <= `expanded`) -- so of this file's three
@@ -177,7 +180,7 @@ export const connectAndSignIn = signIn;
 
 /**
  * Every section's real URL, per WP1 (apps/stingstream/components/shell/tabIcons.ts TAB_PATHS,
- * plus Sharing/Settings/Sessions which are not tab groups). `/home` also exists, as a redirect to
+ * plus Users/Settings/Sessions which are not tab groups). `/home` also exists, as a redirect to
  * `/` -- `/` is used directly since that is where a bare launch lands.
  */
 const URLS = {
@@ -191,7 +194,7 @@ const URLS = {
   transfers: "/transfers",
   links: "/links",
   more: "/more",
-  sharing: "/sharing",
+  users: "/users",
   settings: "/settings",
   sessions: "/sessions",
 };
@@ -215,7 +218,7 @@ const NAV = {
   watchlists: { more: "tab-watchlists", wide: "tab-watchlists" },
   manage: { more: "tab-manage", wide: "tab-manage" },
   transfers: { more: "tab-transfers", wide: "tab-transfers" },
-  sharing: { more: "more-sharing", wide: "tab-sharing" },
+  users: { more: "more-users", wide: "tab-users" },
   settings: { more: "more-settings", wide: "tab-settings" },
   sessions: { more: "more-sessions" }, // web-wide: a header button, not a sidebar row -- not driven here.
 };
@@ -246,7 +249,7 @@ async function clickNav(page, testId, expectedPath) {
 /** Reaches `key` (a NAV entry) by clicking through the nav surface this viewport actually shows --
  * the desktop sidebar (`wide`, >=768px) or the phone bottom bar + More screen (`compact`/`more`,
  * <768px) -- rather than by URL. Used where a pass wants to confirm the *click* path works, not
- * just that the URL resolves (see 08-requests/09-sharing in buildScreens). */
+ * just that the URL resolves (see 08-requests/09-users in buildScreens). */
 async function navigateViaNav(page, base, viewportWidth, key) {
   const entry = NAV[key];
   if (!entry) throw new Error(`no NAV entry for "${key}"`);
@@ -419,14 +422,14 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
-      // Same "both paths" treatment as Requests. Sharing has no compact-bar tab of its own: at
-      // <768px it is reached via tab-more -> more-sharing; at >=768px it is a direct sidebar row
-      // (tab-sharing). navigateViaNav() picks the right one for this viewport.
-      id: "09-sharing",
+      // Same "both paths" treatment as Requests. Users has no compact-bar tab of its own: at
+      // <768px it is reached via tab-more -> more-users; at >=768px it is a direct sidebar row
+      // (tab-users). navigateViaNav() picks the right one for this viewport.
+      id: "09-users",
       requiresAuth: true,
       navigate: async (page, ctx) => {
-        await gotoUrl(page, base, "sharing");
-        await navigateViaNav(page, base, ctx.viewportWidth, "sharing");
+        await gotoUrl(page, base, "users");
+        await navigateViaNav(page, base, ctx.viewportWidth, "users");
       },
     },
     {

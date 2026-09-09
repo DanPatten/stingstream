@@ -1,26 +1,28 @@
-import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
+import type {
+  UserDto,
+  UserPolicy,
+} from "@jellyfin/sdk/lib/generated-client/models";
 import { getUserApi } from "@jellyfin/sdk/lib/utils/api";
-import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom } from "@/providers/JellyfinProvider";
 
 /**
  * The accounts on this server.
  *
- * One query, two screens. **Users & libraries** has always managed them; **Sharing** now lists them
- * as well, because Dan's own sentence settled what that screen's People half is:
+ * The Users screen is built out of this rather than out of the invite list, and the difference has
+ * teeth. People used to be the *invite* list, so once deleting an invite meant deleting the row,
+ * somebody who had already redeemed one would have quietly vanished — a person disappearing as a
+ * side effect of tidying up a link. Reading the accounts instead makes the list survive that, and
+ * it picks up anybody an administrator created by hand, who was never in the invite list at all.
  *
- * > *"sharing is basically just users not groups at this point."*
- *
- * That mattered rather than being a wording change. People used to be the *invite* list, so once
- * deleting an invite meant deleting the row (Part 9), somebody who had already redeemed one would
- * have quietly vanished from Sharing — a person disappearing as a side effect of tidying up a link.
- * Reading the accounts instead makes the list survive that, and it also picks up anybody an
- * administrator created by hand, who was never in it at all.
- *
- * The key is shared with `UsersSection` deliberately: two components asking the same question of
- * the same server should not be able to disagree about the answer, and one of them creates and
- * deletes the rows the other is showing.
+ * Dan's own sentence is what settled it: *"sharing is basically just users not groups at this
+ * point."*
  */
 export const SERVER_USERS_QUERY_KEY = [
   "stingstream",
@@ -30,9 +32,9 @@ export const SERVER_USERS_QUERY_KEY = [
 /**
  * Every account on this server.
  *
- * `enabled` is for a screen that shows this beside things a non-administrator may see — Sharing
- * does. `GET /Users` is elevated, so asking without it buys a 403 the caller cannot act on and a
- * red line in the console, which is the same reason `useInvites` takes the flag.
+ * `enabled` is for a screen that shows this beside things a non-administrator may see.
+ * `GET /Users` is elevated, so asking without it buys a 403 the caller cannot act on and a red
+ * line in the console, which is the same reason `useInvites` takes the flag.
  */
 export function useServerUsers(enabled = true): UseQueryResult<UserDto[]> {
   const api = useAtomValue(apiAtom);
@@ -40,5 +42,89 @@ export function useServerUsers(enabled = true): UseQueryResult<UserDto[]> {
     queryKey: SERVER_USERS_QUERY_KEY,
     queryFn: async () => (await getUserApi(api!).getUsers()).data,
     enabled: !!api && enabled,
+  });
+}
+
+/**
+ * Everything the Users screen does to an account.
+ *
+ * These were inline `useMutation`s inside the old Users tab, which is why
+ * nothing else could reuse them and why "change somebody's libraries" — a thing
+ * `InvitesController` explicitly defers to the Users screen — had nowhere to
+ * live. Invites, mesh, requests and passkeys each keep their calls in a
+ * `lib/stingstream/*` module beside their query key; users were the odd one out.
+ *
+ * All four go through Jellyfin's own API rather than StingStream.Core: user CRUD
+ * is Jellyfin's, and Core owns only playback policy and invites.
+ */
+const useUsersApi = () => {
+  const api = useAtomValue(apiAtom);
+  const queryClient = useQueryClient();
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: SERVER_USERS_QUERY_KEY });
+  return { api, invalidate };
+};
+
+/** Set somebody else's password. `ResetPassword: false` means "use `NewPw`", not "clear it". */
+export function useSetUserPassword() {
+  const { api } = useUsersApi();
+  return useMutation<void, Error, { userId: string; password: string }>({
+    mutationFn: async ({ userId, password }) => {
+      await getUserApi(api!).updateUserPassword({
+        userId,
+        updateUserPassword: { ResetPassword: false, NewPw: password },
+      });
+    },
+  });
+}
+
+/**
+ * Turn an account off or on.
+ *
+ * The whole policy goes back, not a patch: `updateUserPolicy` replaces it, and
+ * there is no `getPolicy` to read one back from — the caller holds the `UserDto`
+ * and passes the policy it already has.
+ */
+export function useSetUserDisabled() {
+  const { api, invalidate } = useUsersApi();
+  return useMutation<void, Error, { user: UserDto; disabled: boolean }>({
+    mutationFn: async ({ user, disabled }) => {
+      if (!user.Id || !user.Policy)
+        throw new Error("This account has no policy to update.");
+      await getUserApi(api!).updateUserPolicy({
+        userId: user.Id,
+        userPolicy: { ...user.Policy, IsDisabled: disabled },
+      });
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** Which libraries an existing account can see. Same read-modify-write rule as above. */
+export function useSetUserLibraries() {
+  const { api, invalidate } = useUsersApi();
+  return useMutation<void, Error, { userId: string; policy: UserPolicy }>({
+    mutationFn: async ({ userId, policy }) => {
+      await getUserApi(api!).updateUserPolicy({ userId, userPolicy: policy });
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Delete an account, for good.
+ *
+ * The server revokes their tokens and removes their playlists on the way out
+ * (`UserController.DeleteUser`), so this is not reversible and the caller is
+ * expected to have asked first. Deleting the invite that created somebody does
+ * *not* do this — that only removes the link.
+ */
+export function useDeleteUser() {
+  const { api, invalidate } = useUsersApi();
+  return useMutation<void, Error, string>({
+    mutationFn: async (userId) => {
+      await getUserApi(api!).deleteUser({ userId });
+    },
+    onSuccess: invalidate,
   });
 }

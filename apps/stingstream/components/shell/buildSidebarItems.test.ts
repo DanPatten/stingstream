@@ -46,9 +46,9 @@ const keys = (...args: Parameters<typeof buildSidebarItems>): string[] =>
   flattenSidebar(buildSidebarItems(...args)).map((i) => i.key);
 
 describe("buildSidebarItems", () => {
-  // Sharing is not here, and that is the point: every query behind it is elevated, so a member
-  // who opened it got "GET /groups: this needs an administrator account on your server" over an
-  // otherwise empty page. A tab that can only fail is worse than no tab.
+  // Users is not here, and that is the point: every query behind it is elevated, so a member who
+  // opened it got "this needs an administrator account on your server" over an otherwise empty
+  // page. A tab that can only fail is worse than no tab.
   test("a plain member gets Home, the personal rows and Settings", () => {
     expect(keys(member, settings(), [], t)).toEqual([
       "(home)",
@@ -63,7 +63,7 @@ describe("buildSidebarItems", () => {
       "(home)",
       "(favorites)",
       "(requests)",
-      "sharing",
+      "users",
       "(manage)",
       "(downloads)",
       "sessions",
@@ -130,7 +130,7 @@ describe("buildSidebarItems", () => {
       "(requests)": "/requests",
       "(manage)": "/manage",
       "(downloads)": "/transfers",
-      sharing: "/sharing",
+      users: "/users",
       settings: "/settings",
     });
   });
@@ -278,8 +278,8 @@ describe("activeSidebarKey", () => {
     ).toBeUndefined();
   });
 
-  test("Sharing beats Home, though it lives inside the Home stack", () => {
-    expect(at(["(auth)", "(tabs)", "(home)", "sharing"])).toBe("sharing");
+  test("Users beats Home, though it lives inside the Home stack", () => {
+    expect(at(["(auth)", "(tabs)", "(home)", "users"])).toBe("users");
   });
 
   test("Settings wins on its own, and loses to the longer match", () => {
@@ -334,10 +334,12 @@ const moreKeys = (...args: Parameters<typeof buildMoreItems>): string[] =>
   buildMoreItems(...args).flatMap((group) => group.items.map((i) => i.key));
 
 describe("buildMoreItems", () => {
-  test("a member gets Favorites, Sharing and Settings and no admin group", () => {
+  // Users is not here either, for the same reason it is not in the sidebar: the `app` group is
+  // drawn for everybody, so the old Sharing row was the one place a member could reach an
+  // administrators-only screen. It moved into the gated `admin` group.
+  test("a member gets Favorites and Settings and no admin group", () => {
     expect(moreKeys(member, settings(), t)).toEqual([
       "(favorites)",
-      "sharing",
       "settings",
     ]);
     expect(buildMoreItems(member, settings(), t).map((g) => g.key)).toEqual([
@@ -356,7 +358,7 @@ describe("buildMoreItems", () => {
     ]);
     expect(
       groups.find((group) => group.key === "admin")?.items.map((i) => i.key),
-    ).toEqual(["(manage)", "(downloads)", "sessions"]);
+    ).toEqual(["users", "(manage)", "(downloads)", "sessions"]);
   });
 
   test("everything the five-icon bar hides is reachable from here", () => {
@@ -405,11 +407,7 @@ describe("buildMoreItems", () => {
   });
 
   test("no user and no settings still produces a usable list", () => {
-    expect(moreKeys(null, null, t)).toEqual([
-      "(favorites)",
-      "sharing",
-      "settings",
-    ]);
+    expect(moreKeys(null, null, t)).toEqual(["(favorites)", "settings"]);
   });
 });
 

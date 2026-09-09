@@ -619,8 +619,8 @@ const HomeMobile = () => {
               ? {
                   label: t("home.empty_add_media"),
                   icon: "manage",
-                  // Straight to Libraries. The screen opens on Users otherwise, which is not what
-                  // "Add media" promised.
+                  // Named rather than left to the default, so this keeps landing on Libraries
+                  // whatever that screen's first tab becomes.
                   onPress: () =>
                     router.push({
                       pathname: "/settings/admin",

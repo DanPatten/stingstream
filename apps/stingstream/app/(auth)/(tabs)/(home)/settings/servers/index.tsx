@@ -1,12 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { SharingScreen } from "@/components/stingstream/mesh/SharingScreen";
+import { ServersScreen } from "@/components/stingstream/mesh/ServersScreen";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import { MESH_QUERY_KEY } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 
-export default function GroupsPage() {
+export default function ServersPage() {
   // `?advanced=1` arrives from a minted invite whose link only works on this network: the fix is
   // the address field, which lives inside a collapsed disclosure on this screen. Landing here with
   // it still folded away is the same dead end with an extra step.
@@ -27,7 +27,7 @@ export default function GroupsPage() {
 
   return (
     <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <SharingScreen openAdvanced={advanced === "1"} />
+      <ServersScreen openAdvanced={advanced === "1"} />
     </RefreshScreen>
   );
 }

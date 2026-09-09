@@ -31,11 +31,14 @@ import { useChosenLibraries } from "../shared/useChosenLibraries";
  * dressed as a decision. Answering "someone to watch" navigated to a different screen whose primary
  * button asked the same thing again. Two presses, two screens, one intent.
  *
- * So the flow lives here rather than inside `InvitesScreen`, and both screens mount it. Answering
- * the chooser opens the form; creating the invite replaces the form with the link. One act.
+ * So the flow lives here rather than inside a screen of its own, and `UsersScreen` mounts it.
+ * Pressing Invite opens the form; creating the invite replaces the form with the link. One act.
  *
- * The mint → minted hand-off is internal for the same reason: a caller that had to hold both
- * dialogs' state would be a caller that could get the transition wrong, and there are two of them.
+ * The chooser itself is gone now that Users and Servers are separate screens: each one's button
+ * already knows which of the two you meant.
+ *
+ * The mint → minted hand-off is internal for the same reason the flow is one component: a caller
+ * that had to hold both dialogs' state would be a caller that could get the transition wrong.
  */
 export const InvitePerson: React.FC<{
   visible: boolean;
@@ -43,10 +46,10 @@ export const InvitePerson: React.FC<{
   /**
    * Take the user to this server's address setting.
    *
-   * Optional, and it exists because the right answer differs by host. `SharingScreen` **is** the
+   * Optional, and it exists because the right answer differs by host. `ServersScreen` **is** the
    * screen holding that field, so it unfolds its own Advanced section in place rather than pushing
-   * a second copy of itself; anywhere else navigates there. Defaulting to the navigation means a
-   * future third caller gets something that works.
+   * a second copy of itself; anywhere else — Users, where invites are actually made — navigates
+   * there. Defaulting to the navigation means a future third caller gets something that works.
    */
   onSetUpAddress?: () => void;
 }> = ({ visible, onClose, onSetUpAddress }) => {
@@ -215,7 +218,7 @@ const MintInviteDialog: React.FC<{
 export const MintedInviteDialog: React.FC<{
   minted: MintedInvite | null;
   onClose: () => void;
-  /** Defaults to navigating to the address setting; `SharingScreen` unfolds its own instead. */
+  /** Defaults to navigating to the address setting; `ServersScreen` unfolds its own instead. */
   onSetUpAddress?: () => void;
 }> = ({ minted, onClose, onSetUpAddress }) => {
   const { t } = useTranslation();
@@ -228,7 +231,7 @@ export const MintedInviteDialog: React.FC<{
       onSetUpAddress();
       return;
     }
-    router.push({ pathname: "/settings/groups", params: { advanced: "1" } });
+    router.push({ pathname: "/settings/servers", params: { advanced: "1" } });
   }, [onClose, onSetUpAddress, router]);
 
   const copy = useCallback(async () => {

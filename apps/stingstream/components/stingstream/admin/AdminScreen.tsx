@@ -7,21 +7,20 @@ import { SegmentedControlBar } from "../shared/SegmentedControl";
 import { LibrariesSection } from "./LibrariesSection";
 import { LogsSection } from "./LogsSection";
 import { TranscodingSection } from "./TranscodingSection";
-import { UsersSection } from "./UsersSection";
 
-type Section = "users" | "libraries" | "transcoding" | "logs";
+type Section = "libraries" | "transcoding" | "logs";
 
-const SECTIONS: Section[] = ["users", "libraries", "transcoding", "logs"];
+const SECTIONS: Section[] = ["libraries", "transcoding", "logs"];
 
 /**
- * A section name from a URL, or `users`.
+ * A section name from a URL, or `libraries`.
  *
  * Narrowed rather than cast: the value arrives from a query string, and a screen that trusted it
- * would render nothing at all for a typo — four `&&`s that all miss, and a blank page under a
+ * would render nothing at all for a typo — three `&&`s that all miss, and a blank page under a
  * segmented control.
  */
 export const sectionFromParam = (value: string | undefined): Section =>
-  SECTIONS.find((s) => s === value) ?? "users";
+  SECTIONS.find((s) => s === value) ?? "libraries";
 
 /**
  * Everything here goes through Jellyfin's own API (`/jellyfin/*`), not
@@ -29,14 +28,13 @@ export const sectionFromParam = (value: string | undefined): Section =>
  * always talks to its own Jellyfin (see docs/ARCHITECTURE.md).
  */
 export function AdminScreen({
-  initialSection = "users",
+  initialSection = "libraries",
 }: {
   /**
    * Which tab to open on.
    *
-   * Home's empty state offers **Add media**, and landing on the account list is not that. A screen
-   * with tabs that always opens on the first one cannot be linked to, and a button that promises
-   * one thing and shows another is the bug Dan reported.
+   * A screen with tabs that always opens on the first one cannot be linked to, and a button that
+   * promises one thing and shows another is a bug Dan has reported once already.
    */
   initialSection?: Section;
 } = {}) {
@@ -61,7 +59,6 @@ export function AdminScreen({
     <View style={{ flex: 1 }}>
       <SegmentedControlBar
         segments={[
-          { key: "users", label: t("admin.tab_users") },
           { key: "libraries", label: t("admin.tab_libraries") },
           { key: "transcoding", label: t("admin.tab_transcoding") },
           { key: "logs", label: t("admin.tab_logs") },
@@ -70,7 +67,6 @@ export function AdminScreen({
         onChange={(v) => setSection(v as Section)}
       />
       <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-        {section === "users" && <UsersSection />}
         {section === "libraries" && <LibrariesSection />}
         {section === "transcoding" && <TranscodingSection />}
         {section === "logs" && <LogsSection />}

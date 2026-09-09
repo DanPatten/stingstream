@@ -14,7 +14,7 @@ import { useAppRouter } from "@/hooks/useAppRouter";
  * `router.replace`s them to Home. The 404 is mounted for a frame and then gone.
  *
  * That turned every in-app path typo into a silent, plausible-looking navigation to the wrong
- * screen. It hid a real one for weeks: tapping a share pushed `/settings/groups/<id>/page`, a
+ * screen. It hid a real one for weeks: tapping a share pushed `/settings/servers/<id>/page`, a
  * route that had been renamed to `index.tsx`, and the only symptom anyone could describe was
  * *"clicking on an existing share doesn't work, it takes me to the homepage"*.
  *

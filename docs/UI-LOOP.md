@@ -276,7 +276,7 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 | Library | `/library` | `04-library-movies` stays a best-effort text click after it |
 | Settings | `/settings` | |
 | Requests | `/requests` -- **and** a nav click | Both paths, on purpose: `08-requests` navigates by URL, then *also* clicks `tab-requests` (the compact bar at <768px, the desktop sidebar row at >=768px -- same testID, `tabTestID()` is shared) and checks the URL again. Requests was pass-02's worst F-20/F-21 case, so this screen keeps double-checking it. |
-| Sharing | `/sharing` -- **and** a nav click | Same "both paths" treatment as Requests. No compact-bar tab of its own: at <768px reached via `tab-more` -> `more-sharing` inside `more-screen`; at >=768px a direct sidebar row, `tab-sharing`. |
+| Users | `/users` -- **and** a nav click | Same "both paths" treatment as Requests. No compact-bar tab of its own: at <768px reached via `tab-more` -> `more-users` inside `more-screen`; at >=768px a direct sidebar row, `tab-users`. Administrator-only on both surfaces, unlike the Sharing row it replaced. |
 | Search | `/search` | |
 | Manage | `/manage` | |
 | Transfers | `/transfers` | |
@@ -420,8 +420,8 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `login-username` / `login-password` / `login-submit` | Sign-in form fields + submit | WP3 | **Landed** |
 | `tab-home` / `tab-search` / `tab-library` / `tab-requests` / `tab-more` | Compact bottom tab bar (`shell-tabbar`, <768px) and desktop sidebar (`buildSidebarItems.ts`, >=768px) -- same testID, shared via `tabTestID()` | WP1 | **Landed** 2026-09-06 (`dbdee21`). The old auto-assigned `tab-(home)`-style ids (literal Expo Router group names) are gone; querying for one now finds nothing. |
 | `tab-favorites` / `tab-watchlists` / `tab-custom-links` / `tab-manage` / `tab-transfers` | Same shared `tabTestID()` ids -- desktop sidebar rows, and (for the ones not on the compact bar) rows inside the phone's `more-screen` too | WP1 | **Landed** |
-| `tab-sharing` / `tab-settings` | Desktop sidebar-only rows (>=768px) for Sharing/Settings, which are not tab groups | WP1 | **Landed** |
-| `more-sharing` / `more-settings` / `more-sessions` | Phone-only `more-screen` rows (<768px) for the same three destinations | WP1 | **Landed** |
+| `tab-users` / `tab-settings` | Desktop sidebar-only rows (>=768px) for Users/Settings, which are not tab groups | WP1 | **Landed** (`tab-users` replaced `tab-sharing` 2026-09-09) |
+| `more-users` / `more-settings` / `more-sessions` | Phone-only `more-screen` rows (<768px) for the same three destinations. `more-users` is administrator-only, so a member's More screen has neither it nor an admin group | WP1 | **Landed** (`more-users` replaced `more-sharing` 2026-09-09) |
 | `shell-tabbar` | The compact bottom tab bar's own container | WP1 | **Landed** |
 | `more-screen` | The phone "More" screen's container | WP1 | **Landed** |
 | `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron | WP1 | **Landed** |
@@ -430,7 +430,8 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `library-card` | A poster/card -- both a real item card (`components/cards/Card.tsx`) and the Libraries screen's own "Movies"/"TV Shows" tiles (`components/library/LibraryItemCard.tsx`) carry this exact id, not just item cards | WP2 | **Landed** 2026-09-08 |
 | `details-play` | The Play/Resume button on Details (`components/PlayButton.tsx`) | WP5 | **Landed** |
 | `player-video` | The `<video>`/player surface | WP-PLAYER | Not landed |
-| `settings-sharing` | The Sharing entry in Settings | WP10 | Not landed |
+| `settings-users` / `settings-servers` | The Users and Servers entries in Settings | WP10 | **Landed** 2026-09-09 |
+| `users-screen` / `users-invite` / `users-account` / `users-pending` | The Users screen, its Invite button, and the two kinds of row | WP10 | **Landed** 2026-09-09 |
 
 Once one of these lands, tighten the matching selector in `tools/ui-shots/flows/web.mjs` (and,
 where relevant, `sweep.mjs`'s Home-structure heuristic) to match against `[data-testid="..."]`
@@ -582,13 +583,13 @@ everything through it), `-ForceCopy` to pick up the current `stingstream.exe`/Je
 
 **Re-pin -- fixed and confirmed.** Every section in "Pinned routes" above now navigates the way
 that table says: direct `page.goto()` for Home/Library/Settings/Search/Manage/Transfers/Favorites,
-`13-more` gated to 390px only, and `08-requests`/`09-sharing` doing BOTH a direct URL nav and a
+`13-more` gated to 390px only, and `08-requests`/`09-users` doing BOTH a direct URL nav and a
 `navigateViaNav()` click (the compact bar + More screen at 390px, the desktop sidebar at
 1024/1440px) with a URL check after each. **Zero `navigate-failed` findings on any of these nine
 screens, at any of the three viewports** -- the acceptance bar this pass was held to. Confirmed by
 hand, not just by the absence of a finding: read `08-requests-1440x900.png` and
-`09-sharing-390x844.png` back after the run -- Requests highlights correctly in the desktop
-sidebar, Sharing's content renders correctly reached via `tab-more` -> `more-sharing` at 390px, and
+`09-users-390x844.png` back after the run -- Requests highlights correctly in the desktop
+sidebar, the section's content renders correctly reached via `tab-more` at 390px, and
 `13-more-390x844.png` shows the real More screen (Favorites / Manage, Transfers, Sessions /
 Sharing, Settings -- Watchlists and Custom Links absent because this seed's settings do not turn
 either on, which is correct, not a bug).

@@ -89,7 +89,7 @@ export function JoinGroupScreen() {
         // the other server sees nothing of yours until you choose, and the moment you have just
         // accepted is the only moment you are certainly thinking about it. A list would leave the
         // link looking finished when it is half-made.
-        router.replace(`/settings/groups/${result.group}`);
+        router.replace(`/settings/servers/${result.group}`);
       } catch (e) {
         setError((e as Error).message);
       }

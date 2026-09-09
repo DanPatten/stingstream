@@ -104,15 +104,6 @@ export default function IndexLayout() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
-        name='sharing'
-        options={{
-          title: "Sharing",
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
-      <Stack.Screen
         name='downloads/index'
         options={{
           headerBlurEffect: "none",
@@ -274,9 +265,18 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
+        name='users'
+        options={{
+          title: "Users",
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
         name='settings/admin'
         options={{
-          title: "Users & libraries",
+          title: "Libraries & transcoding",
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -292,25 +292,16 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups'
+        name='settings/servers'
         options={{
-          title: "Sharing",
+          title: "Servers",
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
         }}
       />
       <Stack.Screen
-        name='settings/invites'
-        options={{
-          title: "Invite someone",
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
-      <Stack.Screen
-        name='settings/groups/create'
+        name='settings/servers/create'
         options={{
           title: "Invite a server owner",
           headerBlurEffect: "none",
@@ -319,7 +310,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/join'
+        name='settings/servers/join'
         options={{
           title: "Accept an invite",
           headerBlurEffect: "none",
@@ -328,7 +319,7 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/groups/[group]'
+        name='settings/servers/[group]'
         options={{
           title: "Sharing with",
           headerBlurEffect: "none",
