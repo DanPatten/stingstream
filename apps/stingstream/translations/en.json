@@ -1162,8 +1162,9 @@
     "toggle_orientation_hint": "Toggles the screen orientation between portrait and landscape"
   },
   "not_found": {
-    "title": "This screen doesn't exist.",
-    "go_home": "Go to home screen!"
+    "detail": "The link you followed points somewhere StingStream does not have.",
+    "go_home": "Go to Home",
+    "title": "That screen does not exist"
   },
   "shell": {
     "libraries": "Libraries",

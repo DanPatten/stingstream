@@ -20,6 +20,14 @@ import { useOfflineMode } from "@/providers/OfflineModeProvider";
  *
  * const router = useRouter();
  * router.push({ pathname: "/items/page", params: { id: item.Id } }); // offline added automatically
+ *
+ * @remarks
+ * **`/page` is not a convention — check the route file.** Most screens are `index.tsx` and their
+ * URL has no trailing segment; `page.tsx` survives only where an `index` would collide with a tab
+ * root, as in the `items` example above. `477044a8` renamed the settings tree to `index.tsx` and a
+ * single template-literal push kept its `/page`, which made tapping a share land on Home for weeks
+ * — a path that does not resolve falls through to `+not-found`, and the session guard replaces that
+ * with Home before anybody sees it. `app/(auth)/+not-found.tsx` now makes that visible.
  */
 export function useAppRouter() {
   const router = useRouter();

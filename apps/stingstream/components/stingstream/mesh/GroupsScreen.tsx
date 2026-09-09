@@ -98,9 +98,7 @@ export function GroupsScreen() {
                   lastActiveToken={
                     latestPeerActivity(groupPeers)?.token ?? null
                   }
-                  onPress={() =>
-                    router.push(`/settings/groups/${group.group}/page`)
-                  }
+                  onPress={() => router.push(`/settings/groups/${group.group}`)}
                 />
               );
             })}
