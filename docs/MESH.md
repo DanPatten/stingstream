@@ -129,11 +129,11 @@ encodings, and the difference matters:
 ### Invite codes
 
 ```
-invite = base58check( version_byte(1) || postcard(InvitePayload) )
+invite = base58check( version_byte(3) || postcard(InvitePayload) )
 
 InvitePayload {
   group_id:      [u8; 32],
-  secret:        [u8; 32],
+  token:         [u8; 32],        // NOT the secret -- see "Admission" below
   group_name:    String,
   inviter:       [u8; 32],        // node id
   inviter_relay: Option<String>,  // relay hint, so a join needs no lookup
@@ -145,6 +145,50 @@ base58 has no look-alike characters, so a code survives being read aloud; base58
 catches a transposition before it becomes a confusing join failure. An unknown version byte is
 reported as "unsupported invite version N" rather than failing somewhere inside postcard.
 
+**Version 3 dropped the `secret` field, and that is the whole of Part 9's mesh half.** Until then a
+code *was* the group secret in the clear, so it worked an unlimited number of times, for ever, for
+anybody who got a copy — and the only way to kill one was to rotate the secret for every member at
+once. A v2 code still decodes on a v3 node and is refused anyway, deliberately: honouring it would
+mean keeping that open for as long as anybody held an old code.
+
+### Admission — ALPN `stingstream/admit/1`
+
+The token is not a credential on its own. The node that minted it stores its BLAKE3 hash in
+`mesh_invites` and hands the group secret over only to somebody who presents it:
+
+```
+joiner  --> AdmitRequest  { group_id, token }
+inviter <-- AdmitResponse ::Admitted { secret, group_name }
+                          ::Refused  { reason }
+```
+
+One request, one answer, one bidirectional stream, then the connection closes. The framing is the
+handshake's — a little-endian `u32` length covering two protocol version bytes and a postcard body —
+and an incompatible major is refused and counted under the `admit` surface.
+
+**Why a separate ALPN.** A joiner has no secret, so it cannot open the peer connection: that
+handshake exists precisely to prove the secret, and refusing an unauthenticated dial is its whole
+job. iroh still gives an encrypted channel authenticated by node id, and the invite names the node
+id it was minted by, so this is the one surface on a node that will talk to somebody holding
+neither a secret nor a membership.
+
+**Spent on success, not on receipt.** `Db::redeem_mesh_invite` is one
+`UPDATE ... WHERE redeemed_at IS NULL`, so of two joiners racing the same code exactly one wins —
+the same shape, for the same reason, as `InviteStore.TryRedeemAsync` on the person-invite side. A
+joiner whose connection drops before the secret arrives can retry.
+
+**No expiry.** A code works until it is redeemed or deleted (`DELETE
+/mesh/v1/groups/{g}/invites/{id}`, addressed by the token's hash, which is safe to show and log).
+
+**Rotating the secret deletes every outstanding invite for that group**, on whichever node applies
+the rekey. Before admission that was free — an old code carried a dead secret — and it is what the
+app's own removal warning promises. Without it, an unspent token minted before a removal would let
+the removed member straight back in with the new key.
+
+**What this does not fix:** any member can still invite somebody new, because any member holds the
+secret and can run its own admit endpoint. That is inherent to a shared-secret group. The mitigation
+is visibility: a server the other side adds appears in your member list.
+
 ### Invite links
 
 `POST /mesh/v1/groups/{g}/invite` returns the code and, when this node has a host, a link:
@@ -153,13 +197,13 @@ reported as "unsupported invite version N" rather than failing somewhere inside 
 https://<host>/join#<code>
 ```
 
-The code is the same base58 string in both, so a link and a code are interchangeable everywhere and
-nothing about the payload above changed. `<host>` is **this node's** `sharing.public_address`, and
-there is no fallback: without one there is no link, and the caller shows the code
-(`sharing::invite_link`). There used to be a fallback to the group's coordinator, and removing it
-closed a risk as well as a component — `SECURITY.md` R11 records what that was.
+The code is the same base58 string in both, so a link and a code are interchangeable everywhere.
+`<host>` is **this node's** `sharing.public_address`, and there is no fallback: without one there is
+no link, and the caller shows the code (`sharing::invite_link`). Nothing third-party is in the path
+of an invite, which is the point — a link built from somebody else's address would have their page
+reading the fragment.
 
-The code rides in the **fragment**. A browser never puts a fragment on the wire, so the group secret
+The code rides in the **fragment**. A browser never puts a fragment on the wire, so the token
 appears in no access log — not the node's, not any proxy's in between — while a query string would
 have been written into both.
 
@@ -186,18 +230,28 @@ outside the LAN resolves.
 
 ### Joining
 
-1. Dial the address in the code, complete the handshake, `GET /peer/v1/inventory`, merge.
-2. Subscribe to the gossip topic with whoever answered as the bootstrap set.
+1. Dial the inviter on `stingstream/admit/1`, present the token, receive the secret.
+2. Dial it again on `stingstream/http/1`, complete the handshake, `GET /peer/v1/inventory`, merge.
+3. Subscribe to the gossip topic with whoever answered as the bootstrap set.
 
-There used to be a step between them — ask the group's coordinator for a rendezvous list and try
-each member — which covered the case where the inviter is offline. Section 6 records why that went
-with the rest of the coordinator: it is a real problem, and a rare one, and it cost a permanent
+There used to be a step between the last two — ask the group's coordinator for a rendezvous list and
+try each member — which covered the case where the inviter is offline. Section 6 records why that
+went with the rest of the coordinator: it is a real problem, and a rare one, and it cost a permanent
 service that every group depended on by default.
 
 Each dial is bounded by `peer.join_dial_timeout_secs` (12 by default), so an inviter that is
-switched off costs seconds rather than a minute. A join with nobody reachable still *succeeds* —
-the group exists locally and syncs when a member appears — but the API says
-`"via": "none"` so the caller can say so.
+switched off costs seconds rather than a minute.
+
+**Step 1 makes the inviter's availability load-bearing, and that is a change.** A join used to
+succeed with nobody reachable — the secret was already in your hand, so the group existed locally
+and synced when a member appeared, and the API said `"via": "none"`. It cannot now: without the
+secret there is no group to create, so the join fails and the error names the server that did not
+answer.
+
+**Unless this node is already a member**, in which case step 1 is skipped entirely. The secret is
+already here and the code is only being used for the inviter's address — which is the recovery path
+this section has always described for a member that has been away long enough to lose every address
+it knew. Making that depend on an unspent token would have quietly removed it.
 
 ---
 
@@ -532,13 +586,17 @@ Exactly one retry each way. The window is also what a laptop that was in a drawe
 through. A member offline across both a rotation *and* the whole window has to re-join from a fresh
 invite — there is no key server to ask, and by design nobody can hand it the secret without also
 being able to hand it to anyone else. Re-joining with a *stale* code is enough, because what a code
-supplies at that point is an **address**: the secret it carries is ignored by a node whose group has
-already rotated.
+supplies at that point is an **address**: a node that is still a member of the group skips admission
+entirely and uses only the address inside the code.
 
-#### What comes free
+#### What is enforced rather than free
 
-* **Invite codes.** A code carries the secret, so every one minted before the rotation is already
-  dead and the next `POST /invite` mints one that works. Nothing regenerates anything.
+* **Invite codes.** Every code minted before the rotation stops working, and `Db::apply_rekey`
+  deletes the rows to make that true. Before Part 9 it came free — a code carried the secret, so an
+  old one carried a dead one. A code now carries a token and admission hands over whatever secret is
+  current, so an unspent token minted before a removal would have let the removed member straight
+  back in with the new key. The next `POST /invite` mints one that works; nothing regenerates
+  anything.
 
 #### What is deliberately *not* immediate
 
@@ -648,8 +706,10 @@ member's index.
 | `GET` | `/mesh/v1/groups` | groups this node belongs to |
 | `POST` | `/mesh/v1/groups` | `{name}` → create |
 | `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, via, contacted}` |
-| `POST` | `/mesh/v1/groups/{group}/invite` | → `{code}` |
-| `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret |
+| `POST` | `/mesh/v1/groups/{group}/invite` | → `{code, url}`. Every call mints a new single-use code |
+| `GET` | `/mesh/v1/groups/{group}/invites` | outstanding and spent invites. `id` is the token's **hash**, never the token |
+| `DELETE` | `/mesh/v1/groups/{group}/invites/{id}` | stop one code working, without rotating the secret on everybody else |
+| `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret and every outstanding invite |
 | `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
 | `GET`/`PUT` | `/mesh/v1/capacity` | this node's advertised capacity, which rides the heartbeat |

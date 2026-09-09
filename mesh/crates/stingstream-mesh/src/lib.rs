@@ -22,6 +22,7 @@
 //!
 //! See `docs/MESH.md` for the wire protocol, the invite format and the local/peer API reference.
 
+pub mod admit;
 pub mod api;
 pub mod auth;
 pub mod config;
@@ -55,4 +56,12 @@ pub use node::MeshNode;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const HTTP_ALPN: &[u8] = b"stingstream/http/1";
+
+/// ALPN for the admission step: presenting an invite token and being handed the group secret.
+///
+/// Separate from [`HTTP_ALPN`] because a joiner has no secret yet, and the peer handshake exists to
+/// prove exactly that. This is the only surface on a node that will talk to somebody holding
+/// neither a secret nor a membership — which is why it does one thing, once, per connection. See
+/// [`admit`].
+pub const ADMIT_ALPN: &[u8] = b"stingstream/admit/1";
 

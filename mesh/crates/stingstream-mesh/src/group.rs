@@ -45,7 +45,19 @@ use iroh::{EndpointAddr, EndpointId, RelayUrl, TransportAddr};
 use serde::{Deserialize, Serialize};
 
 /// Current invite-code version byte. Bumped whenever the payload shape changes.
-pub const INVITE_VERSION: u8 = 2;
+///
+/// * **1** — M3: group id, secret, name, inviter address.
+/// * **2** — Part 5: the coordinator field went with the coordinator.
+/// * **3** — Part 9: the **secret** goes. The code carries an [`InviteToken`] instead, and the
+///   inviting node hands the secret over only if it recognises that token — see [`crate::admit`].
+///   That is what makes an invite single use, and what lets one be deleted on its own instead of
+///   rotating the secret for everybody.
+///
+/// **Version 3 is a flag day for joining, in one direction.** A v3 code names a token, so an older
+/// node decoding one refuses with "unsupported invite version" — which is the clear error this
+/// byte exists for. A v2 code still decodes on a v3 node and is refused the same way, deliberately:
+/// it carries a secret in the clear, and honouring it would mean keeping the hole open.
+pub const INVITE_VERSION: u8 = 3;
 
 /// A 32-byte group identifier, which is also the group's gossip topic.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -93,6 +105,41 @@ impl FromStr for GroupId {
         let mut b = [0u8; 32];
         b.copy_from_slice(&raw);
         Ok(Self(b))
+    }
+}
+
+/// A 32-byte invite token: what an invite code carries instead of the group secret.
+///
+/// Random, presented once, and stored by the inviting node only as a hash — so a copy of `mesh.db`
+/// cannot be turned back into a working invite, the same posture `StingStream.Core`'s `InviteStore`
+/// takes for person invites. It is a credential, so it is never logged: [`Debug`] prints the hash,
+/// which is safe to log and is what the invite table is keyed on.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteToken(pub [u8; 32]);
+
+impl InviteToken {
+    pub fn generate() -> Self {
+        let mut b = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut b);
+        Self(b)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// The form that touches the disk: lowercase hex BLAKE3 of the token.
+    ///
+    /// BLAKE3 rather than SHA-256 because it is already a dependency here (it is what file hashes
+    /// use) and the property wanted is only preimage resistance over 256 random bits.
+    pub fn hash(&self) -> String {
+        blake3::hash(&self.0).to_hex().to_string()
+    }
+}
+
+impl fmt::Debug for InviteToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "InviteToken({})", self.hash())
     }
 }
 
@@ -291,7 +338,9 @@ impl RekeyRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvitePayload {
     pub group_id: [u8; 32],
-    pub secret: [u8; 32],
+    /// The token the inviting node has to recognise. **Not** the group secret — see
+    /// [`INVITE_VERSION`] and [`crate::admit`] for why that changed.
+    pub token: [u8; 32],
     pub group_name: String,
     /// The inviter's node id. Any *member* can be dialed to join; the inviter is just the one whose
     /// address was known when the code was minted.
@@ -303,20 +352,27 @@ pub struct InvitePayload {
 }
 
 /// A decoded invite code.
+///
+/// **It does not carry the secret.** The group name is here because the joiner is shown it before
+/// anything is dialled, and it is confirmed by the admitting node afterwards.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Invite {
     pub group_id: GroupId,
-    pub secret: GroupSecret,
+    pub token: InviteToken,
     pub group_name: String,
     pub inviter: EndpointAddr,
 }
 
 impl Invite {
-    /// Build an invite for `group`, pointing at `inviter` (usually this node's own address).
-    pub fn new(group: &Group, inviter: EndpointAddr) -> Self {
+    /// Build an invite for `group` carrying `token`, pointing at `inviter`.
+    ///
+    /// The caller records the token's hash against the group before handing the code out —
+    /// [`crate::node::MeshNode::invite_with_link`] does both in one place, because a code minted
+    /// without a row is a code nobody can redeem.
+    pub fn new(group: &Group, token: InviteToken, inviter: EndpointAddr) -> Self {
         Self {
             group_id: group.id,
-            secret: group.secret,
+            token,
             group_name: group.name.clone(),
             inviter,
         }
@@ -329,7 +385,7 @@ impl Invite {
     pub fn encode(&self) -> Result<String> {
         let payload = InvitePayload {
             group_id: self.group_id.0,
-            secret: self.secret.0,
+            token: self.token.0,
             group_name: self.group_name.clone(),
             inviter: *self.inviter.id.as_bytes(),
             inviter_relay: self.inviter.relay_urls().next().map(|u| u.to_string()),
@@ -370,18 +426,27 @@ impl Invite {
 
         Ok(Self {
             group_id: GroupId(payload.group_id),
-            secret: GroupSecret(payload.secret),
+            token: InviteToken(payload.token),
             group_name: payload.group_name,
             inviter: EndpointAddr::from_parts(inviter_id, addrs),
         })
     }
 
-    /// The group this invite creates locally on join.
-    pub fn to_group(&self) -> Group {
+    /// The group this invite creates locally, once the inviting node has handed over the secret.
+    ///
+    /// Takes the name the admitting node gave rather than the one in the code: the code is a string
+    /// somebody may have been holding for a month, and the group it names is allowed to have been
+    /// renamed since. An empty answer falls back to the code's own copy, which is what a node that
+    /// somehow has an unnamed group would send.
+    pub fn to_group(&self, secret: GroupSecret, name: &str) -> Group {
         Group {
             id: self.group_id,
-            name: self.group_name.clone(),
-            secret: self.secret,
+            name: if name.is_empty() {
+                self.group_name.clone()
+            } else {
+                name.to_string()
+            },
+            secret,
             created_at: crate::util::now_rfc3339(),
         }
     }
@@ -399,7 +464,7 @@ mod tests {
             .with_ip_addr("192.168.1.20:41234".parse().unwrap());
         Invite {
             group_id: GroupId::generate(),
-            secret: GroupSecret::generate(),
+            token: InviteToken::generate(),
             group_name: "The Attic".to_string(),
             inviter: addr,
         }
@@ -411,7 +476,7 @@ mod tests {
         let code = a.encode().unwrap();
         let b = Invite::decode(&code).unwrap();
         assert_eq!(a.group_id, b.group_id);
-        assert_eq!(a.secret, b.secret);
+        assert_eq!(a.token, b.token);
         assert_eq!(a.group_name, b.group_name);
         assert_eq!(a.inviter.id, b.inviter.id);
         assert_eq!(
@@ -429,7 +494,7 @@ mod tests {
         let key = SecretKey::generate();
         let a = Invite {
             group_id: GroupId::generate(),
-            secret: GroupSecret::generate(),
+            token: InviteToken::generate(),
             group_name: String::new(),
             inviter: EndpointAddr::new(key.public()),
         };
@@ -463,6 +528,73 @@ mod tests {
         let bad: String = bad.into_iter().collect();
         assert_ne!(bad, code);
         assert!(Invite::decode(&bad).is_err());
+    }
+
+    #[test]
+    fn an_invite_code_never_carries_the_secret() {
+        // The whole of Part 9's mesh half, asserted on the bytes rather than on the type: an invite
+        // used to *be* the secret, so it worked forever for anybody who got a copy. If a refactor
+        // ever puts it back, this fails before anything else does.
+        let secret = GroupSecret::generate();
+        let mut invite = sample_invite();
+        invite.token = InviteToken(*secret.as_bytes());
+        let raw = bs58::decode(invite.encode().unwrap())
+            .with_check(None)
+            .into_vec()
+            .unwrap();
+        // The token is in there, deliberately -- this proves the search below can find 32 bytes
+        // when they are present, so its absence for a real secret means something.
+        assert!(raw.windows(32).any(|w| w == secret.as_bytes()));
+
+        let mut real = sample_invite();
+        let group = Group {
+            id: real.group_id,
+            name: real.group_name.clone(),
+            secret,
+            created_at: crate::util::now_rfc3339(),
+        };
+        real.token = InviteToken::generate();
+        let raw = bs58::decode(Invite::new(&group, real.token, real.inviter.clone()).encode().unwrap())
+            .with_check(None)
+            .into_vec()
+            .unwrap();
+        assert!(
+            !raw.windows(32).any(|w| w == group.secret.as_bytes()),
+            "an invite code carried the group secret"
+        );
+    }
+
+    #[test]
+    fn a_version_two_code_is_refused_rather_than_honoured() {
+        // A v2 code carries a secret in the clear. Decoding one would work -- the postcard shapes
+        // are close enough -- and honouring it would keep the hole Part 9 exists to close open for
+        // as long as anybody had an old code. So the version byte refuses it, which is the same
+        // path a future version takes.
+        let code = sample_invite().encode().unwrap();
+        let mut raw = bs58::decode(&code).with_check(None).into_vec().unwrap();
+        raw[0] = 2;
+        let old = bs58::encode(raw).with_check().into_string();
+        let e = Invite::decode(&old).unwrap_err().to_string();
+        assert!(e.contains("unsupported invite version"), "{e}");
+    }
+
+    #[test]
+    fn a_token_is_never_printed_by_debug() {
+        let token = InviteToken::generate();
+        let printed = format!("{token:?}");
+        assert!(printed.contains(&token.hash()));
+        assert!(!printed.contains(&data_encoding::HEXLOWER.encode(token.as_bytes())));
+    }
+
+    #[test]
+    fn the_admitting_node_gets_to_name_the_group() {
+        // The code is a string somebody may have been holding for a month, and the group it names
+        // is allowed to have been renamed since.
+        let invite = sample_invite();
+        let secret = GroupSecret::generate();
+        assert_eq!(invite.to_group(secret, "Renamed").name, "Renamed");
+        assert_eq!(invite.to_group(secret, "").name, "The Attic");
+        assert_eq!(invite.to_group(secret, "Renamed").secret, secret);
     }
 
     #[test]

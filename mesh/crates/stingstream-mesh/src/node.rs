@@ -167,7 +167,11 @@ impl MeshNode {
         });
         let router = Router::builder(endpoint.clone())
             .accept(GOSSIP_ALPN, gossip.clone())
-            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state.clone()));
+            .accept(crate::HTTP_ALPN, peer::PeerProtocol(peer_state.clone()))
+            // The one surface that talks to somebody holding no group secret. It cannot be part of
+            // the peer protocol, whose handshake exists to prove exactly that secret -- see
+            // `crate::admit`.
+            .accept(crate::ADMIT_ALPN, crate::admit::AdmitProtocol(db.clone()));
         let router = router.spawn();
 
 
@@ -328,11 +332,11 @@ impl MeshNode {
 
     /// Mint an invite code for a group this node belongs to.
     ///
-    /// The code carries whatever coordinator the group has **now**, read fresh from the database,
-    /// so a code minted after a coordinator change carries the new value with no separate step —
-    /// which is what "regenerating invite codes" amounts to: the old codes still work as joins,
-    /// they simply arrive with a coordinator the joiner then replaces from the group's own gossip
-    /// (see [`crate::group::CoordinatorStamp::unstamped`]).
+    /// **Every call mints a new one-shot code.** Since Part 9 the code carries a token rather than
+    /// the group secret, and this node records the token's hash before handing the code out; the
+    /// secret is given to whoever presents it, once, over [`crate::admit`]. Two consequences worth
+    /// knowing: pressing Invite twice produces two working codes, and a code that has been redeemed
+    /// stops working rather than continuing to admit strangers.
     pub async fn invite(&self, id: &GroupId) -> Result<String> {
         Ok(self.invite_with_link(id).await?.0)
     }
@@ -348,7 +352,11 @@ impl MeshNode {
         let Some(group) = self.db.group(id)? else {
             bail!("this node is not a member of group {id}");
         };
-        let code = Invite::new(&group, self.addr()).encode()?;
+        // The row goes in first. A code handed out with no row behind it is a code nobody can
+        // redeem, and the failure would surface on the other person's machine, days later.
+        let token = crate::group::InviteToken::generate();
+        self.db.put_mesh_invite(&token.hash(), &group.id)?;
+        let code = Invite::new(&group, token, self.addr()).encode()?;
         let public = self.db.meta(crate::sharing::PUBLIC_ADDRESS_KEY)?;
         let link = crate::sharing::invite_link(public.as_deref(), &code);
         Ok((code, link))
@@ -394,16 +402,36 @@ impl MeshNode {
 
     /// Join a group from an invite code.
     ///
-    /// Tries, in order: the inviter's address from the code, then the coordinator's rendezvous list
-    /// if the group has a coordinator. Joining still *succeeds* with neither reachable — the group
-    /// exists locally and its gossip topic is live, so the node syncs as soon as any member appears
-    /// — but the caller is told, because "joined and saw nobody" is usually a mistake.
+    /// **The inviter has to be reachable now.** Since Part 9 the code carries a token rather than
+    /// the group secret, so joining begins by dialling the node that minted it on
+    /// [`crate::ADMIT_ALPN`] and asking to be let in. That is a real change: a join used to succeed
+    /// with nobody reachable, because the secret was already in your hand. It cannot any more, and
+    /// the error says whose server did not answer.
+    ///
+    /// **Unless you are already a member.** Pasting a code for a group this node is already in
+    /// needs no admission at all — the secret is already here, and the code is only being used for
+    /// the inviter's address. That is not a special case bolted on: it is the recovery path
+    /// `docs/MESH.md` describes for a member that has been away long enough to lose every address
+    /// it knew, and making it depend on an unspent token would have quietly removed it.
     pub async fn join(self: &Arc<Self>, code: &str) -> Result<JoinOutcome> {
         let invite = Invite::decode(code)?;
-        let group = invite.to_group();
-        if self.db.group(&group.id)?.is_some() {
-            tracing::info!(group = %group.id, "already a member; refreshing the group record");
-        }
+
+        let group = match self.db.group(&invite.group_id)? {
+            Some(existing) => {
+                tracing::info!(group = %existing.id, "already a member; refreshing the group record");
+                existing
+            }
+            None => {
+                self.remember(&invite.inviter);
+                let timeout = std::time::Duration::from_secs(
+                    self.cfg.peer.join_dial_timeout_secs.max(1),
+                );
+                let admitted = crate::admit::request(&self.endpoint, &invite, timeout)
+                    .await
+                    .context("this invite was not accepted")?;
+                invite.to_group(admitted.secret, &admitted.group_name)
+            }
+        };
         self.db.upsert_group(&group)?;
         self.db
             .note_member(&group.id, &self.node_id(), &self.cfg.node_name)?;

@@ -156,6 +156,9 @@ The test is not "did the wire format change". It is **what does an older node do
   and the default must be the pre-change behaviour, not a sentinel the old code will misread.
 * A new peer HTTP route under `/peer/v1/`. An older node answers 404, which every caller already
   has to handle.
+* **A new ALPN.** Same shape as a new route, one layer down: an older node does not advertise it, so
+  a newer one dialling gets a connection refusal it can report rather than a frame it misreads.
+  `stingstream/admit/1` is the worked example, added at minor 3.
 * A new negotiated capability: something the sender only does when `session.minor >= N`. Secret
   rotation is the worked example — `MINOR_REKEY` is 1, and a node negotiated below it is simply not
   offered a rekey rather than being handed a frame it will 404.
@@ -277,6 +280,41 @@ Three things changed behaviour, not just appearance:
   "Sign in with a code" text link remains.
 
 ### The address form, and finding a server — Part 6
+
+### Minor 3, and invites that are spent — Part 9
+
+**`PROTOCOL_MINOR` 2 → 3, and `INVITE_VERSION` 2 → 3.** Two changes, and only one of them is a flag
+day.
+
+The minor is the new ALPN, `stingstream/admit/1`. §3 makes that a minor for the same reason a new
+`/peer/v1/` route is one: an older node does not advertise it, so a newer one dialling gets a
+connection refusal it can report. **Nothing to do**, in either direction.
+
+The invite format is the flag day, and it is one-directional and legible. **A code minted by a v0.2
+node does not work on an older one, and an old code does not work on a new one** — both say
+"unsupported invite version", which is the error that version byte exists for. Old codes are refused
+by a new node *deliberately* rather than incidentally: a v2 code carries the group secret in the
+clear, and honouring it would keep that open for as long as anybody held one. **Mint a fresh code
+after upgrading; there is nothing else to do.**
+
+What changed underneath: a code now carries a random **token**, and the node that minted it hands
+the group secret over only to whoever presents that token, once. So an invite is single use, it can
+be deleted on its own (`DELETE /mesh/v1/groups/{g}/invites/{id}`) instead of by rotating the secret
+on everybody, and it does not expire. Three consequences worth knowing before you meet them:
+
+* **Joining now needs the other server online.** It did not before — the secret was already in the
+  code — so a join used to succeed with nobody reachable and sync later. It cannot, and the error
+  names the server that did not answer.
+* **Re-pasting a code for a group you are already in still works**, and needs no token: the secret
+  is already on your machine and the code is only supplying an address. That is the recovery path
+  `docs/MESH.md` describes for a node that has lost every address it knew.
+* **Rotating the secret now deletes outstanding invites explicitly.** It used to come free. Without
+  it, an unspent token minted before you removed somebody would let them back in with the new key.
+
+Person invites changed in the same release and need no upgrade step: they no longer expire, deleting
+one deletes the row rather than marking it withdrawn, and the name the inviter types is now the
+username the invited person arrives with. **Invites minted before this keep their original expiry
+and still run out** — see `docs/INVITES.md` §5 for why that was left alone.
 
 ### Sharing is per link, and closed by default — Part 8
 
@@ -488,28 +526,13 @@ the groups already stored, and nothing about a group's stored record changed.
 
 ### v0.2.0: invites are links
 
-An invite is now handed out as `https://<host>/join#<code>` when the minting node has a host to
-build one from — its own address if one is set under Settings → Sharing → Sharing server, otherwise
-the group's coordinator. The **code has not changed**: the link is the same base58 code with an
-address wrapped around it, so an invite minted by a new node still joins an old one and every code
-already handed out still works. A node with neither address hands out the bare code exactly as
-before.
+An invite is handed out as `https://<host>/join#<code>` when the minting node has a host to build one
+from: its own address, set under Settings → Sharing → Advanced. The link is the code with an address
+wrapped around it, so a link and a code are interchangeable everywhere the app accepts one, and a
+node with no address hands out the bare code.
+
+The code rides in the **fragment**, which a browser never puts on the wire, so it appears in no
+access log — the node's or any proxy's in between.
 
 The Join screen accepts a link or a code in the field, from the clipboard and from the QR scanner,
 so nobody has to know which they were sent.
-
-### v0.2.0: a node starts with a sharing server
-
-`sharing.coordinator_default` is seeded with the shipped address the first time a node's `mesh.db`
-is opened, so a new install has a sharing server without anybody being asked for one, and groups it
-creates carry that server.
-
-It was previously *prefilled into a settings form*, which is not the same thing: until somebody
-opened that form and saved, the node had none, and creating a group had to cope with that — which
-is where the short-lived Public/Private choice and its "set a sharing server first" state came from.
-Both are gone.
-
-**An existing node is seeded on its next start** if it has never had the setting. A node whose
-setting was **cleared on purpose** stores an empty string, which counts as set, so a deliberate
-clear survives every restart. Nothing else changes: the value is copied onto a group when the group
-is created, and the group is the authority from then on.

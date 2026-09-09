@@ -18,7 +18,7 @@ HTTPS side door and `RUNNING.md` for what a node writes where.
 
 | Actor | What they can do | What they cannot |
 |---|---|---|
-| **A member of your group** | See every title anyone in the group holds and stream it. Publish inventory. Make requests. Start a watch party. Change the group's coordinator. Remove any member, including you, and rotate the secret. | Read your Jellyfin accounts, your watched state or your passwords. Reach your Radarr, Sonarr, NZBGet or the mesh's own API. Write files outside `$STINGSTREAM_DATA/federated`. |
+| **A member of your group** | See every title anyone in the group holds and stream it. Publish inventory. Make requests. Start a watch party. Mint an invite into the group. Remove any member, including you, and rotate the secret. | Read your Jellyfin accounts, your watched state or your passwords. Reach your Radarr, Sonarr, NZBGet or the mesh's own API. Write files outside `$STINGSTREAM_DATA/federated`. |
 | **A user on your node** | Whatever their Jellyfin account allows. A non-admin sees the merged library and their own requests. | See other users' requests, change anyone's playback policy but their own, or reach any elevated endpoint. |
 | **An administrator on your node** | Everything. This is your machine. | |
 | **A Jellyfin API key** | Everything an administrator can do. Jellyfin stamps `role = Administrator` on every API key; that is upstream's decision and we inherit it. Treat an API key as a full credential. | |
@@ -35,7 +35,6 @@ your shelves, do not put their node in your group.
 | **A revoked member** | Nothing, from the moment the removal is made on any node they can reach. They keep the old secret and the group id forever, so the deny-list is checked against the QUIC identity *before* either secret, and their live connections are torn down per stream. | `auth.rs`, `peer.rs`, §3 |
 | **Somebody on your LAN** | The gateway on `:8790`: the web UI, `/jellyfin/*` behind Jellyfin's own auth, `/stingstream/api/*` behind it too, and a three-field `/healthz`. Not the mesh API, not the arr webhook, not an unsigned `/stream` URL. | `gateway/mod.rs` |
 | **Somebody on the internet, via the side door** | The same, over TLS, if the node has a certificate and a published hostname. | `SIDEDOOR.md` |
-| **A coordinator operator (including Dan)** | SNI hostnames, node ids, IP addresses and traffic volumes. Opaque blobs at the rendezvous. Never a group id, a member name, a title, plaintext media or any private key. | `rendezvous.rs`, and the end-to-end test that asserts it |
 | **A public relay (n0's, or anyone's)** | Ciphertext, node ids, gossip topic ids, and the two protocol version bytes. | iroh's stateless relay design |
 | **A cast receiver** | Exactly the one stream URL it was handed, for twelve hours. | §2, signed stream URLs |
 | **A malicious title or filename from a peer** | A sanitised path component under the federated root, or nothing. | `SafePath`, and a fuzz test |
@@ -114,21 +113,20 @@ offline during the removal does not have it and the removed node could still tal
 2. **Its connections refused from now on.** The deny-list is checked against the QUIC/TLS identity,
    which a peer cannot choose, and *before* either secret. That covers the window before every
    member has the new key, and the member that was offline for the whole rotation.
-3. **Invite codes regenerated.** Nothing to do: an invite carries the secret, so every code minted
-   before the removal is already dead.
-4. **The coordinator's rendezvous entry re-keyed.** Also nothing to do: the rendezvous id, its
-   bearer token and its sealing key are all derived from the group secret, so the group moves to a
-   different, unrelated path at the coordinator the moment the secret changes. Old entries expire on
-   their own and the coordinator never knew what they were.
-5. **Their holdings dropped, after a grace period.** Deliberately not immediate: a removal that also
+3. **Every outstanding invite deleted.** `Db::apply_rekey` drops the group's `mesh_invites` rows on
+   whichever node applies the rotation. This used to be free — a code carried the secret, so an old
+   one carried a dead one — but since Part 9 a code carries a token and admission hands over
+   whichever secret is *current*, so an unspent token minted before the removal would have let the
+   removed member straight back in with the new key.
+4. **Their holdings dropped, after a grace period.** Deliberately not immediate: a removal that also
    wiped the removed node's titles from every library the same second would look, to everyone
    watching, exactly like a bug that ate half the catalogue. Greying out first and removing second
    is the sequence members already understand, because it is what an offline peer does.
-6. **Their stream URLs die** within twelve hours at the latest, and immediately for anything minted
+5. **Their stream URLs die** within twelve hours at the latest, and immediately for anything minted
    after the rotation, because the signing key is per node and the deny-list refuses the peer route.
 
-Two administrators removing someone at once resolves as `(epoch, at, by)`, highest wins — the same
-shape the coordinator field uses. The loser's members recover because the winner keeps the previous
+Two administrators removing someone at once resolves as `(epoch, at, by)`, highest wins. The loser's
+members recover because the winner keeps the previous
 secret alive for **seven days** and hands the new one to anybody who turns up holding it. A dial
 recovers in both directions: behind, it pulls; ahead, it pushes.
 
@@ -153,9 +151,8 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/mesh/status`, `/groups`, `/groups/{g}/index`, `/peers`, `/peers/{n}/stats`, `/groups/{g}/sources/{k}` | GET | Member |
 | `/stingstream/api/v1/mesh/groups` | POST | Admin |
 | `/stingstream/api/v1/mesh/groups/join` | POST | Admin |
-| `/stingstream/api/v1/mesh/groups/{g}/invite` | POST | Admin |
-| `/stingstream/api/v1/mesh/groups/{g}/coordinator` | PUT | Admin |
-| `/stingstream/api/v1/mesh/settings/sharing` | GET, PUT | Admin — the two addresses are the node's, not the signed-in user's |
+| `/stingstream/api/v1/mesh/groups/{g}/invite` | POST | Admin. Mints a single-use token; the group secret never leaves this node in the code |
+| `/stingstream/api/v1/mesh/settings/sharing` | GET, PUT | Admin — the address is the node's, not the signed-in user's |
 | `/stingstream/api/v1/mesh/groups/{g}` | DELETE | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/members` | GET | Admin |
 | `/stingstream/api/v1/mesh/groups/{g}/members/{n}` | DELETE | Admin |
@@ -193,8 +190,7 @@ Gateway routes, which are not Jellyfin's:
 |---|---|
 | `/healthz` | Anyone; full detail on loopback only |
 | `/join` | Anyone. Serves the app through the SPA fallback; the invite is in the fragment and never reaches the server |
-| coordinator `/healthz`, `/node/v1/{node}` | Anyone, `Access-Control-Allow-Origin: *`. Both are read by the app from a browser served by somebody's node, so both are cross-origin by construction; both were already public and unauthenticated, and neither carries a cookie or anything per-caller. Scoped to these two routes, so rendezvous, register, probe and ACME keep refusing browsers |
-| `/sidedoor/v1/hello` | Anyone, CORS `*`, five fields |
+| `/sidedoor/v1/hello` | Anyone, CORS `*`, five fields. Cross-origin by construction: it is how a client whose own server is down finds a linked one |
 | `/stingstream/mesh/*` | Loopback only |
 | `/stream/*` | Loopback, or a signed URL that has not expired |
 | `/jellyfin/*`, `/stingstream/*` | Proxied; Jellyfin's own auth applies |
@@ -225,19 +221,30 @@ handshake first; a light node refuses the content routes outright.
 | Radarr / Sonarr / NZBGet credentials | 256 | `runtime.json`, 0600 on Unix | On `runtime.json` rewrite |
 | TLS private key, ACME account key | — | `$STINGSTREAM_DATA/tls/`, 0600 on Unix | ACME renewal at 60 days |
 
-**Invite codes do not expire.** An invite is `base58check(version ‖ group id ‖ secret ‖ inviter
-address ‖ coordinator)`, and it is a bearer credential with 256 bits of entropy and no time limit.
-That is a deliberate trade — a code that expired would strand somebody who was handed one on a
-Friday and set the laptop up on a Sunday — and it is why "rotate the secret" is a first-class action
-on the Group screen, for when a code goes somewhere it should not have. Residual risk R3.
+**Invite codes are single use and do not expire.** An invite is
+`base58check(version ‖ group id ‖ token ‖ group name ‖ inviter address)`. The token is 256 bits of
+randomness that the **minting node stores only as a BLAKE3 hash**, and it is not a credential on its
+own: the group secret is handed over by that node, over `stingstream/admit/1`, to the first caller
+that presents the token and to nobody afterwards (`admit::decide`, `Db::redeem_mesh_invite`).
+
+Until Part 9 the code *was* the secret, in the clear, so it worked an unlimited number of times, for
+ever, for anybody who got a copy — and the only way to kill one was to rotate the secret for every
+member at once. That is closed. What remains deliberate is the absence of an expiry: a code that
+expired would strand somebody handed one on a Friday who set the laptop up on a Sunday, and the
+answers to a code going astray are now proportionate — delete that one code, or rotate the secret,
+which also deletes every outstanding invite. Residual risk R3.
+
+**Any member can still mint one**, because any member holds the secret and can run its own admit
+endpoint. Inherent to a shared-secret group; the mitigation is visibility, since a server the other
+side adds appears in the member list.
 
 **Log redaction.** Swept in the review, on all three sides.
 
 *Server.* No `tracing` or `ILogger` call in this repository prints a group secret, an invite code,
 an API key, a password or a token. `GroupSecret`'s `Debug` prints `GroupSecret(<redacted>)`;
-`RekeyRecord`'s prints the epoch and the author and not the key. Node ids are truncated to twelve
-characters in most log lines. Two latent paths in the coordinator (derived `Debug` on structs
-holding tokens) were C12 and are fixed.
+`RekeyRecord`'s prints the epoch and the author and not the key; `InviteToken`'s prints its hash,
+which is what the invite table is keyed on and is safe to log. Node ids are truncated to twelve
+characters in most log lines.
 
 *App, crash reporting.* See N19: the SDK was there, enabled, and pointed at somebody else's
 project. It is now inert unless a build deliberately configures it.
@@ -277,9 +284,8 @@ hundred bytes — and there is a test asserting exactly which routes fall on whi
 
 **Body limits and timeouts, listener by listener.** The gateway's public listener has a 15-second
 first-byte and 30-second header-read timeout (`gateway/listen.rs`); the mesh's local API has a 4 MiB
-body limit (M8b) and the coordinator's has 64 KiB (M8b); the peer server has a 30-second header-read
-timeout (M8b); the coordinator's DNS-over-TCP has a 10-second exchange timeout (M8b) and its tunnels
-have idle, duration and concurrency limits (M8b).
+body limit (M8b); the peer server has a 30-second header-read timeout (M8b); the admit surface reads
+one 8 KiB-capped frame per connection and answers once (`admit.rs`).
 
 **The gateway's proxy path is deliberately unbounded**, and that is the one exception. A request
 body through `/jellyfin/*` is an upload to Jellyfin, and a response body is a film; putting a size
@@ -307,7 +313,8 @@ their own account. The node key and the TLS key still sit under that ACL, so the
 That is the standard reverse-proxy arrangement and it is what makes "one login" possible, but it is
 a real property of the install: **a StingStream node is not a shared machine**.
 
-**R3 — Invite codes never expire.** §5.
+**R3 — Invite codes never expire.** Single use since Part 9, and deletable one at a time, so the
+window is bounded by whoever redeems it first rather than by a clock. §5.
 
 **R4 — A member of your group is trusted.** No per-user or per-title access control across the mesh.
 `ARCHITECTURE.md` explains why; it is not a bug and it is not going to change.
@@ -315,10 +322,6 @@ a real property of the install: **a StingStream node is not a shared machine**.
 **R5 — Downgrade to an unsigned stream URL.** `[gateway] require_signed_stream_urls = false` exists
 as an escape hatch and re-opens N1 completely. It is documented in `config.rs` next to the switch and
 there is no reason to set it outside a debugging session.
-
-**R6 — The coordinator sees metadata.** Node ids, IP addresses, SNI hostnames, timing and volume.
-Not group ids, not names, not content. If that matters to you, run your own coordinator
-(`INSTALL.md`) or none at all — zero-server is the default for a reason.
 
 **R7 — The app's dependency tree has twelve advisories**, all transitive and all in build or
 dev-server tooling: `image-size` via metro, `js-yaml` via `@expo/cli` and the RN community CLI,
@@ -340,14 +343,6 @@ somebody else's file.
 a phone's own mesh member is a removable row. Removing it is arguably right (a lost phone), but the
 app does not notice: it keeps trying to dial and playback silently falls back to home-node proxying.
 A one-line follow-up on the app side.
-
-**R11 — Closed by Part 5, not fixed.** This risk was that an invite link built from the *shared
-coordinator's* address would have that coordinator's `/join` page read the fragment — and the
-fragment carries a group's secret — so a coordinator operator who changed that page could have
-every invite opened through them. There is no coordinator any more, and `sharing::invite_link`
-lost the fallback that produced such a link: a node builds a link from **its own** address or from
-nothing at all. Nothing third-party is now in the path of any invite. Recorded rather than deleted
-because the reasoning is the reason person invites carry their token in a fragment too.
 
 **R13 — A passkey is only as bound as the domain it was made on.** Credentials are registered
 against the server's own address, so moving to a different domain strands every one of them: the
@@ -427,7 +422,7 @@ executes in a workflow without touching the workflow file. That is how `tj-actio
 reached tens of thousands of repositories in March 2025.
 
 `ci.yml` — the workflow this milestone owns — is pinned to commit SHAs with the version each one
-corresponded to in a comment. **`app.yml`, `coordinator.yml`, `images.yml` and `release.yml` are
+corresponded to in a comment. **`app.yml`, `images.yml` and `release.yml` are
 not**, and they are the ones that matter more, because their runners hold real secrets: a GHCR push
 token, a release token and the app signing keystore. They belong to M8a; the exact SHAs are in the
 M8b report as a request. Until they are pinned, this is residual risk R10.

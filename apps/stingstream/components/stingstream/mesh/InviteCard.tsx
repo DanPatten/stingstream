@@ -13,10 +13,15 @@ import { LoadingState } from "../shared/ScreenState";
 /**
  * An invite, as a link and as a QR of that link.
  *
- * An invite carries the group id, its **secret**, this node's address and the group's sharing
- * server — everything needed to become a member. So it is minted on demand rather than shown by
- * default, it is never cached by React Query, and one line says the thing that is not obvious:
- * whoever opens it is in.
+ * An invite carries the group id, this node's address and a **single-use token** this node has to
+ * honour — enough to become a member, once. So it is minted on demand rather than shown by default,
+ * it is never cached by React Query, and one line says the thing that is not obvious: whoever opens
+ * it first is in, and nobody after them.
+ *
+ * It used to carry the group **secret** in the clear, which is why that line used to be sterner: a
+ * copy worked for ever, for anybody, and the only way to kill one was to rotate the secret on every
+ * member at once. `docs/MESH.md` "Admission" is what replaced it. Opening this screen twice mints
+ * two codes, and both work — once each.
  *
  * That one line is all the prose there is. Two footnotes used to sit under the link — that joining
  * needs a member online, and that removing a member invalidates old invites. Dan cut both, and both

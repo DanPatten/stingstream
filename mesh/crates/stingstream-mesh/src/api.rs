@@ -38,6 +38,11 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
+        .route("/mesh/v1/groups/{group}/invites", get(list_invites))
+        .route(
+            "/mesh/v1/groups/{group}/invites/{id}",
+            axum::routing::delete(delete_invite),
+        )
         .route("/mesh/v1/groups/{group}", axum::routing::delete(leave_group))
         .route("/mesh/v1/groups/{group}/members", get(list_members))
         .route(
@@ -292,6 +297,38 @@ async fn make_invite(
     let id = parse_group(&group)?;
     let (code, url) = node.invite_with_link(&id).await?;
     Ok(Json(InviteBody { code, url }))
+}
+
+/// `GET /mesh/v1/groups/{group}/invites` — the outstanding and spent invites for one link.
+///
+/// The `id` in each row is the token's **hash**, which is what the invite table is keyed on. It is
+/// safe to show, log and put in a URL, and it is not the credential: a hash cannot be redeemed and
+/// cannot be turned back into the token it came from. That is the same split
+/// `StingStream.Core`'s `InviteRow.Id` makes, and for the same reason — deleting an invite should
+/// never mean handling the thing that opens it.
+async fn list_invites(
+    State(node): State<Arc<MeshNode>>,
+    Path(group): Path<String>,
+) -> ApiResult<Json<Vec<crate::db::MeshInviteRow>>> {
+    let id = parse_group(&group)?;
+    Ok(Json(node.db.mesh_invites(&id)?))
+}
+
+/// `DELETE /mesh/v1/groups/{group}/invites/{id}` — stop one code working.
+///
+/// The whole point of the admission step: before it, the only way to kill a code was to rotate the
+/// group secret, which throws every other member off the link at the same time. Now one code dies
+/// on its own and nobody else notices.
+async fn delete_invite(
+    State(node): State<Arc<MeshNode>>,
+    Path((group, id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    let gid = parse_group(&group)?;
+    if node.db.delete_mesh_invite(&gid, &id)? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Ok(StatusCode::NOT_FOUND)
+    }
 }
 
 /// The gateway's LAN base URLs, pushed by the supervisor.

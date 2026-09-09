@@ -116,9 +116,11 @@ async fn a_removed_member_is_locked_out_and_the_rest_of_the_group_carries_on() -
     let c = MeshNode::spawn(offline_config(&root.path().join("c"), "shed")).await?;
 
     let group = a.create_group("the-house").await?;
+    // One code each: an invite is single use since Part 9, so the two joiners cannot share one.
+    // `old_code` is a third, minted and left unspent, and step 5 below is about what happens to it.
+    b.join(&a.invite(&group.id).await?).await?;
+    c.join(&a.invite(&group.id).await?).await?;
     let old_code = a.invite(&group.id).await?;
-    b.join(&old_code).await?;
-    c.join(&old_code).await?;
 
     // C publishes something, so there is a holding to watch the fate of.
     let cfile = root.path().join("c-media/one.mkv");
@@ -243,17 +245,32 @@ async fn a_removed_member_is_locked_out_and_the_rest_of_the_group_carries_on() -
         .context("B should still be able to dial A after the rotation")?;
 
     // 5. The old invite code is dead; a new one is not.
-    let decoded = stingstream_mesh::group::Invite::decode(&old_code)?;
-    assert_eq!(
-        decoded.secret, secret_before,
-        "the old code carries the old secret, which is exactly why it stops working"
+    //
+    // This assertion changed shape in Part 9 and the reason is worth keeping. It used to read the
+    // secret straight out of the code, because a code *was* the secret -- so a rotation killed
+    // every outstanding invite for free. A code now carries a token, and admission hands over
+    // whichever secret is current, so an unspent token minted before the removal would have let the
+    // removed member back in with the new key. `Db::apply_rekey` deletes them, and this is what
+    // proves it: the old code's token is no longer a row on A.
+    let old = stingstream_mesh::group::Invite::decode(&old_code)?;
+    assert_ne!(secret_before, a_secret, "the rotation actually changed the secret");
+    assert!(
+        matches!(
+            stingstream_mesh::admit::decide(&a.db, &group.id, &old.token, "someone"),
+            stingstream_mesh::admit::AdmitResponse::Refused { .. }
+        ),
+        "a code minted before the removal still admitted a joiner"
     );
+
     let new_code = a.invite(&group.id).await?;
-    assert_eq!(
-        stingstream_mesh::group::Invite::decode(&new_code)?.secret,
-        a_secret,
-        "a code minted after the rotation carries the new secret"
-    );
+    let fresh = stingstream_mesh::group::Invite::decode(&new_code)?;
+    match stingstream_mesh::admit::decide(&a.db, &group.id, &fresh.token, "someone") {
+        stingstream_mesh::admit::AdmitResponse::Admitted { secret, .. } => assert_eq!(
+            secret, a_secret.0,
+            "a code minted after the rotation admits with the new secret"
+        ),
+        other => panic!("a fresh code was refused: {other:?}"),
+    }
 
     // And the members list says what happened, which is what the Group screen shows.
     let members = a.members(&group.id)?;

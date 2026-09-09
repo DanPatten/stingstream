@@ -877,6 +877,59 @@ $Group = Invoke-Step 'A creates a group, B joins by invite' {
 }
 
 # ============================================================================================
+Invoke-Step 'An invite code works once, and only once' {
+    <#
+        Part 9's admission step, end to end.
+
+        Until it, an invite code *was* the group secret in the clear: it worked an unlimited number
+        of times, for ever, for anybody who got a copy, and the only way to kill one was to rotate
+        the secret for every member at once. Now the code carries a token, A holds a row for it, and
+        A hands the secret over only to whoever presents it -- once.
+
+        On its own group, deliberately. B is already a member of the group above, and a member
+        pasting a code for a group it is already in skips admission entirely (it has the secret; the
+        code is only supplying an address). Reusing that group here would assert nothing and would
+        disturb every federation step below it.
+    #>
+    $side = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{ name = 'E2E Admission' }
+    if (-not $side.group) { throw 'A did not create the second group.' }
+
+    $once = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($side.group)/invite" -Method POST
+    if (-not $once.code) { throw 'A minted no invite code.' }
+
+    $joined = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST `
+        -Body @{ code = $once.code } -TimeoutSec 240
+    if ($joined.group -ne $side.group) { throw "B joined the wrong group: $($joined.group)" }
+
+    # B leaves, so the second attempt is a genuine admission rather than the member short-circuit.
+    Invoke-Node $NodeB "/stingstream/api/v1/mesh/groups/$($side.group)" -Method DELETE | Out-Null
+
+    $reused = $false
+    try {
+        Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST `
+            -Body @{ code = $once.code } -TimeoutSec 240 | Out-Null
+        $reused = $true
+    } catch {
+        Write-Host "      the second use was refused: $($_.Exception.Message)"
+    }
+    if ($reused) { throw 'the same invite code admitted a second join; single use is not enforced.' }
+
+    # And a fresh code from the same group still works, so what was refused was the token and not
+    # the group -- the failure mode where "single use" is really "nothing works any more".
+    $fresh = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($side.group)/invite" -Method POST
+    $again = Invoke-Node $NodeB '/stingstream/api/v1/mesh/groups/join' -Method POST `
+        -Body @{ code = $fresh.code } -TimeoutSec 240
+    if ($again.group -ne $side.group) { throw 'a freshly minted code did not work.' }
+
+    # Tidy up: neither node keeps the scratch group, so the federation steps below see the same
+    # world they always did.
+    Invoke-Node $NodeB "/stingstream/api/v1/mesh/groups/$($side.group)" -Method DELETE | Out-Null
+    Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($side.group)" -Method DELETE | Out-Null
+
+    Write-Host '      one code, one join'
+}
+
+# ============================================================================================
 # ============================================================================================
 Invoke-Step 'Sharing settings decide whether an invite is a link or a code' {
     <#

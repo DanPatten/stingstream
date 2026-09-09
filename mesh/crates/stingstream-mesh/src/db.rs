@@ -214,6 +214,17 @@ impl Db {
              );",
         )
         .context("migrating mesh.db: revocations")?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS mesh_invites (
+                 token_hash  TEXT PRIMARY KEY,
+                 group_id    TEXT NOT NULL,
+                 created_at  TEXT NOT NULL,
+                 redeemed_at TEXT,
+                 redeemed_by TEXT
+             );
+             CREATE INDEX IF NOT EXISTS ix_mesh_invites_group ON mesh_invites (group_id);",
+        )
+        .context("migrating mesh.db: mesh_invites")?;
         for statement in [
             "ALTER TABLE inventory ADD COLUMN local_images TEXT",
             "ALTER TABLE inventory ADD COLUMN local_subtitles TEXT",
@@ -462,6 +473,18 @@ impl Db {
                 ],
             )
             .context("applying a group rekey")?;
+        // Every invite handed out before the rotation stops working -- which is what the app's own
+        // warning promises, and what a rotation is *for*. Before the admission step that was true
+        // for free: a code carried the secret, so an old one simply carried a dead one. Now a code
+        // carries a token and admission hands over whatever secret is current, so an unspent token
+        // minted before a removal would let the removed member straight back in with the new key.
+        // Deleting them here is what keeps the promise, on whichever node applies the rekey.
+        self.lock()
+            .execute(
+                "DELETE FROM mesh_invites WHERE group_id = ?1",
+                params![id.to_string()],
+            )
+            .context("clearing invites after a rekey")?;
         Ok(true)
     }
 
@@ -537,9 +560,113 @@ impl Db {
             .context("clearing group peers")?;
         conn.execute("DELETE FROM revocations WHERE group_id = ?1", params![gid])
             .context("clearing group revocations")?;
+        // Outstanding invites die with the link they were for. Leaving one and then being admitted
+        // back by a code minted before you left would be a way to rejoin a group somebody removed
+        // you from, and the row is worthless either way once the secret is gone.
+        conn.execute("DELETE FROM mesh_invites WHERE group_id = ?1", params![gid])
+            .context("clearing group invites")?;
         let n = conn
             .execute("DELETE FROM groups WHERE group_id = ?1", params![gid])
             .context("deleting the group")?;
+        Ok(n > 0)
+    }
+
+    // --- invites ------------------------------------------------------------------------------
+
+    /// Record a freshly minted invite token, by hash.
+    ///
+    /// The token itself never touches the disk — same posture as `StingStream.Core`'s
+    /// `InviteStore`, and for the same reason: a copy of this file is a backup, a support bundle or
+    /// a stolen disk, and none of those should be turnable back into a working invite.
+    pub fn put_mesh_invite(&self, token_hash: &str, group: &GroupId) -> Result<()> {
+        self.lock()
+            .execute(
+                "INSERT OR REPLACE INTO mesh_invites (token_hash, group_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![token_hash, group.to_string(), now_rfc3339()],
+            )
+            .context("recording an invite")?;
+        Ok(())
+    }
+
+    /// Spend an invite, if it is still there and still unspent.
+    ///
+    /// **One statement, not read-then-write.** `UPDATE ... WHERE redeemed_at IS NULL` pushes the
+    /// decision into SQLite, which serialises writes, so of two joiners racing the same code
+    /// exactly one sees a row affected. Read, decide, write has a window the width of a dial, and a
+    /// code pasted into a group chat is precisely the thing that gets used twice in the same
+    /// second. It is the same shape, for the same reason, as `InviteStore.TryRedeemAsync`.
+    ///
+    /// The group is part of the `WHERE`, not checked afterwards: every group on this node shares
+    /// one invite table, and a token must not open a group it was not minted for.
+    pub fn redeem_mesh_invite(
+        &self,
+        token_hash: &str,
+        group: &GroupId,
+        by: &str,
+    ) -> Result<MeshInviteOutcome> {
+        let conn = self.lock();
+        let gid = group.to_string();
+        let n = conn
+            .execute(
+                "UPDATE mesh_invites SET redeemed_at = ?1, redeemed_by = ?2
+                  WHERE token_hash = ?3 AND group_id = ?4 AND redeemed_at IS NULL",
+                params![now_rfc3339(), by, token_hash, gid],
+            )
+            .context("redeeming an invite")?;
+        if n > 0 {
+            return Ok(MeshInviteOutcome::Admitted);
+        }
+        // Nothing updated: either there is no such row, or there is one and it is spent. The two
+        // are told apart here rather than at the call site, so the caller can say "already used"
+        // — which is the difference between "ask them for a new one" and a dead end.
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mesh_invites WHERE token_hash = ?1 AND group_id = ?2",
+                params![token_hash, gid],
+                |r| r.get(0),
+            )
+            .context("looking up an invite")?;
+        Ok(if exists > 0 {
+            MeshInviteOutcome::AlreadyUsed
+        } else {
+            MeshInviteOutcome::Unknown
+        })
+    }
+
+    /// Every invite minted for a group, newest first.
+    ///
+    /// The hash is the id, and it is safe to show, log and put in a URL — it is not the credential,
+    /// and inverting it to the token it came from is the thing a hash exists to prevent.
+    pub fn mesh_invites(&self, group: &GroupId) -> Result<Vec<MeshInviteRow>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT token_hash, created_at, redeemed_at, redeemed_by
+               FROM mesh_invites WHERE group_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![group.to_string()], |r| {
+                Ok(MeshInviteRow {
+                    id: r.get(0)?,
+                    created_at: r.get(1)?,
+                    redeemed_at: r.get(2)?,
+                    redeemed_by: r.get(3)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("listing invites")?;
+        Ok(rows)
+    }
+
+    /// Delete one invite. Returns whether there was one to delete.
+    pub fn delete_mesh_invite(&self, group: &GroupId, token_hash: &str) -> Result<bool> {
+        let n = self
+            .lock()
+            .execute(
+                "DELETE FROM mesh_invites WHERE group_id = ?1 AND token_hash = ?2",
+                params![group.to_string(), token_hash],
+            )
+            .context("deleting an invite")?;
         Ok(n > 0)
     }
 
@@ -1451,6 +1578,28 @@ fn insert_record(
     )
     .context("inserting a local record")?;
     Ok(())
+}
+
+/// What happened when a joiner presented an invite token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshInviteOutcome {
+    /// The token was good and is now spent.
+    Admitted,
+    /// It was a real token for this group, and somebody has already used it.
+    AlreadyUsed,
+    /// No row matched. A mangled code, a deleted invite, or one for another group.
+    Unknown,
+}
+
+/// One invite, as the local API lists it. The id is the token's hash, never the token.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MeshInviteRow {
+    pub id: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redeemed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redeemed_by: Option<String>,
 }
 
 /// One row of the `peers` table, as the local API serves it.

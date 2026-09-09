@@ -75,13 +75,19 @@ pub const PROTOCOL_MAJOR: u8 = 2;
 ///   with `#[serde(default)]` on an existing body, which `docs/UPGRADING.md` §3 classes as a minor:
 ///   an older node decodes the beat and ignores the key, and a newer one reads `None` from an older
 ///   node's beat as "this peer has no address for me", which is exactly what it means.
+/// * **3** — Part 9: the admission step, ALPN `stingstream/admit/1` ([`crate::admit`]). A new
+///   ALPN is a new capability of the same kind as a new `/peer/v1/` route, which
+///   `docs/UPGRADING.md` §3 classes as a minor: an older node simply does not answer on it, and a
+///   newer one dialling it gets a connection refusal it can report. The **invite format** moved in
+///   the same release ([`crate::group::INVITE_VERSION`] 2 → 3) and that half *is* a flag day — but
+///   it is carried by its own version byte with its own clear error, not by this number.
 ///
 /// **Deliberately not reset by the major bump.** The two axes are independent: the major says who
 /// this build can talk to at all, the minor says which optional features to expect from somebody it
 /// can. Resetting to 0 would claim a v2 node might lack rotation, which is false, and it would make
 /// [`negotiate_minor`] and the [`MINOR_REKEY`] check degenerate — clippy notices, and it is right
 /// to. So a build is "2.2": major 2, with rotation and with published addresses.
-pub const PROTOCOL_MINOR: u8 = 2;
+pub const PROTOCOL_MINOR: u8 = 3;
 
 /// The minor version at which secret rotation and revocation became available.
 ///
@@ -107,6 +113,8 @@ pub enum Surface {
     Handshake,
     /// A frame delivered on a group's gossip topic.
     Gossip,
+    /// The admission step, ALPN `stingstream/admit/1`.
+    Admit,
 }
 
 impl Surface {
@@ -114,12 +122,14 @@ impl Surface {
         match self {
             Surface::Handshake => "handshake",
             Surface::Gossip => "gossip",
+            Surface::Admit => "admit",
         }
     }
 }
 
 static REFUSED_HANDSHAKE: AtomicU64 = AtomicU64::new(0);
 static REFUSED_GOSSIP: AtomicU64 = AtomicU64::new(0);
+static REFUSED_ADMIT: AtomicU64 = AtomicU64::new(0);
 
 /// The most recent incompatible version seen, for the status body: `(surface, major, minor, who)`.
 static LAST_INCOMPATIBLE: Mutex<Option<Incompatible>> = Mutex::new(None);
@@ -152,6 +162,7 @@ pub fn refuse(surface: Surface, major: u8, minor: u8, from: &str) {
     match surface {
         Surface::Handshake => REFUSED_HANDSHAKE.fetch_add(1, Ordering::Relaxed),
         Surface::Gossip => REFUSED_GOSSIP.fetch_add(1, Ordering::Relaxed),
+        Surface::Admit => REFUSED_ADMIT.fetch_add(1, Ordering::Relaxed),
     };
 
     if let Ok(mut last) = LAST_INCOMPATIBLE.lock() {
@@ -205,6 +216,8 @@ pub struct ProtocolStatus {
     pub version: String,
     pub refused_handshake: u64,
     pub refused_gossip: u64,
+    /// Admission attempts refused for an incompatible major. Added in 2.3.
+    pub refused_admit: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_incompatible: Option<Incompatible>,
 }
@@ -217,13 +230,16 @@ pub fn status() -> ProtocolStatus {
         version: format!("{PROTOCOL_MAJOR}.{PROTOCOL_MINOR}"),
         refused_handshake: REFUSED_HANDSHAKE.load(Ordering::Relaxed),
         refused_gossip: REFUSED_GOSSIP.load(Ordering::Relaxed),
+        refused_admit: REFUSED_ADMIT.load(Ordering::Relaxed),
         last_incompatible: LAST_INCOMPATIBLE.lock().ok().and_then(|l| l.clone()),
     }
 }
 
-/// Total frames refused for an incompatible major, across both surfaces.
+/// Total frames refused for an incompatible major, across every surface.
 pub fn refused_total() -> u64 {
-    REFUSED_HANDSHAKE.load(Ordering::Relaxed) + REFUSED_GOSSIP.load(Ordering::Relaxed)
+    REFUSED_HANDSHAKE.load(Ordering::Relaxed)
+        + REFUSED_GOSSIP.load(Ordering::Relaxed)
+        + REFUSED_ADMIT.load(Ordering::Relaxed)
 }
 
 /// Reset every counter. Tests only — the counters are process-global, so a test that asserts on
@@ -232,6 +248,7 @@ pub fn refused_total() -> u64 {
 pub fn reset_for_test() {
     REFUSED_HANDSHAKE.store(0, Ordering::Relaxed);
     REFUSED_GOSSIP.store(0, Ordering::Relaxed);
+    REFUSED_ADMIT.store(0, Ordering::Relaxed);
     if let Ok(mut l) = LAST_INCOMPATIBLE.lock() {
         *l = None;
     }
