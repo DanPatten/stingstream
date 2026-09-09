@@ -56,7 +56,8 @@ pub fn network_xml(s: &NetworkSettings) -> String {
     body.push_str(&xml::element("PublicHttpPort", &port));
     body.push_str(&xml::element("PublicHttpsPort", "8920"));
     // Jellyfin's UDP auto-discovery would advertise the child's loopback port to the LAN, which is
-    // wrong for every client: the node is reached through the gateway.
+    // wrong for every client: the node is reached through the gateway. The gateway answers the
+    // same broadcast itself, with its own address and port — `gateway::discovery`.
     body.push_str(&xml::element("AutoDiscovery", "false"));
     body.push_str(&xml::element("EnableUPnP", "false"));
     body.push_str(&xml::element("EnableIPv4", "true"));

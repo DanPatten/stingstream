@@ -18,6 +18,7 @@
 //! [`proxy::Upstream::upstream_prefix`] exists.
 
 pub mod brand;
+pub mod discovery;
 pub mod listen;
 pub mod proxy;
 pub mod web;

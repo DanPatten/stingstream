@@ -953,6 +953,60 @@ $MovieItem = Invoke-Step 'Movie: imported into Jellyfin' {
     }
 }
 
+Invoke-Step 'The node answers "who is JellyfinServer?" with its own address' {
+    # What lets the phone and TV connect screens lead with "here is your server" instead of an
+    # empty address field. Jellyfin's own responder is off on a node by design -- it would
+    # advertise the child's loopback port -- so the gateway answers the same broadcast itself
+    # (`gateway::discovery`), and the only answer worth anything is one naming the gateway's port.
+    #
+    # Sent to 127.0.0.1 rather than broadcast: a broadcast on a shared CI network reaches whatever
+    # else is on it, and the property under test is what *this* node says.
+    $health = Invoke-Json -Uri "$script:GatewayUrl/healthz"
+    $advertised = @(Get-Member-Value $health 'addresses')
+
+    $client = [System.Net.Sockets.UdpClient]::new()
+    $reply = $null
+    try {
+        $client.Client.ReceiveTimeout = 3000
+        $question = [Text.Encoding]::UTF8.GetBytes('Who is JellyfinServer?')
+        [void]$client.Send($question, $question.Length, '127.0.0.1', 7359)
+
+        $from = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+        try {
+            $reply = [Text.Encoding]::UTF8.GetString($client.Receive([ref]$from)) | ConvertFrom-Json
+        } catch {
+            $reply = $null
+        }
+    } finally {
+        $client.Dispose()
+    }
+
+    # A machine with no LAN address of its own has nothing useful to say, and saying "127.0.0.1"
+    # to somebody else's phone would be worse than silence. Both halves are asserted, so this
+    # passes for the right reason on a runner with no network as well as on one with.
+    if ($advertised.Count -eq 0) {
+        if ($reply) { throw 'The node advertised no LAN address but still answered discovery.' }
+        Write-Host '      no LAN address on this machine; the node correctly stayed silent' -ForegroundColor DarkGray
+        return
+    }
+
+    if (-not $reply) { throw 'The node did not answer discovery on UDP 7359 within 3s.' }
+    $address = Get-Member-Value $reply 'Address'
+    $name = Get-Member-Value $reply 'Name'
+    Write-Host "      discovery answered: $name at $address"
+    if (-not $address) { throw 'The discovery reply carried no Address.' }
+    if (-not $name) { throw 'The discovery reply carried no Name.' }
+    # The whole point: the gateway's port, not the embedded Jellyfin's. A client handed the
+    # child's port would connect to nothing.
+    if ($address -notmatch ":$GatewayPort$") {
+        throw "Discovery advertised '$address', which does not name the gateway port $GatewayPort."
+    }
+    if ($advertised -notcontains $address) {
+        throw "Discovery advertised '$address', which /healthz does not list ($($advertised -join ', '))."
+    }
+}
+
+# ============================================================================================
 Invoke-Step 'Movie: streams from Jellyfin' {
     Write-Host "      item $($MovieItem.Id): $($MovieItem.Name) -> $($MovieItem.Path)"
     $url = "$script:GatewayUrl/jellyfin/Videos/$($MovieItem.Id)/stream?static=true"

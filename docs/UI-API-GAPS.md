@@ -552,16 +552,23 @@ looked at operationId either way.
 
 ---
 
-## Noted in passing (WP-TV-LOGIN): a node's embedded Jellyfin does not answer UDP discovery
+## ~~Noted in passing (WP-TV-LOGIN): a node's embedded Jellyfin does not answer UDP discovery~~ — closed (Part 6)
 
-A StingStream node (`ui-node.ps1`-started, `tools/ui-node.ps1 -Fresh -Seed`) has nothing listening
-on UDP 7359 (`netstat -ano -p UDP` shows no entry, and a direct `"Who is JellyfinServer?"` probe to
-`127.0.0.1:7359` gets no answer within 3 s) — `useJellyfinDiscovery` (kept for the TV sign-in
-screen's "Found on your network" list) will never find a StingStream node this way, only a stock
-Jellyfin server that runs its own UDP responder. Not chased further here since the TV screen's own
-job — finding a node's gateway on port 8790 once discovery answers at all — is unaffected either
-way; whoever owns the supervisor/Jellyfin startup config is the right place to decide whether to
-turn the responder on.
+A StingStream node had nothing listening on UDP 7359 (`netstat -ano -p UDP` showed no entry, and a
+direct `"Who is JellyfinServer?"` probe to `127.0.0.1:7359` got no answer within 3 s), so
+`useJellyfinDiscovery` could never find one — only a stock Jellyfin running its own responder.
+
+It was left for "whoever owns the supervisor/Jellyfin startup config", and that turned out to be
+the right instinct and the wrong owner. **Turning Jellyfin's responder on would have been a bug**:
+`preseed::jellyfin` disables it deliberately, because `GetSmartApiUrl` advertises the port
+*Jellyfin* is listening on, which is loopback-bound and reaches nobody. A node is reached through
+the gateway.
+
+So the gateway answers instead — `mesh/crates/stingstream/src/gateway/discovery.rs`, wire-compatible
+with `AutoDiscoveryHost.cs` (same port, same case-insensitive match, same `{Address, Id, Name}`),
+advertising `lan_base_urls`, which is the gateway's own address and port. Closed because Part 6
+made "find your server" the *first* thing the phone connect screen does rather than a button
+somebody had to know to press, and a discovery list that is always empty is worse than none.
 
 ---
 

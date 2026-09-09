@@ -500,6 +500,17 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     }
     print_banner(&rt, mode.is_dev(), &web, mesh_node_id.as_deref(), &lan);
 
+    // Answer "who is JellyfinServer?" on this network, so a phone or a television finds this node
+    // instead of asking somebody to type its address. Jellyfin's own responder is off by design
+    // (`preseed::jellyfin`) because it would advertise its loopback port; this one advertises the
+    // gateway's. A node with no LAN address of its own simply never has anything to say.
+    let discovery = tokio::spawn(gateway::discovery::serve(
+        gateway::LanAddresses::new(&config.gateway.bind, config.gateway.port),
+        std::sync::Arc::from(rt.node_id.as_str()),
+        std::sync::Arc::from(rt.node_name.as_str()),
+        shutdown_rx.clone(),
+    ));
+
     let app = gateway::router_with_web(node.clone(), web, setup);
     let server = {
         let app = app.clone();
@@ -551,6 +562,10 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     if let Some(t) = https_server {
         let _ = t.await;
     }
+    // Blocked on `recv_from` when nobody is asking, so it leaves on the select rather than on the
+    // socket; aborted anyway so a datagram arriving mid-shutdown cannot hold the process open.
+    discovery.abort();
+    let _ = discovery.await;
     // The mesh's own task shuts its endpoint down on the same signal; holding the handle until
     // here is what keeps it alive for exactly as long as the gateway it serves.
     drop(mesh);
