@@ -28,11 +28,22 @@ public sealed class MeshController : StingStreamControllerBase
 {
     private readonly IMeshClient _mesh;
     private readonly FederatedLibraryService _federated;
+    private readonly Sharing.SharedLibraryStore _shared;
+    private readonly Invites.InviteService _invites;
+    private readonly Mesh.InventoryPublisher _publisher;
 
-    public MeshController(IMeshClient mesh, FederatedLibraryService federated)
+    public MeshController(
+        IMeshClient mesh,
+        FederatedLibraryService federated,
+        Sharing.SharedLibraryStore shared,
+        Invites.InviteService invites,
+        Mesh.InventoryPublisher publisher)
     {
         _mesh = mesh;
         _federated = federated;
+        _shared = shared;
+        _invites = invites;
+        _publisher = publisher;
     }
 
     /// <summary>This node's mesh identity, addresses and group count.</summary>
@@ -219,6 +230,63 @@ public sealed class MeshController : StingStreamControllerBase
         CancellationToken cancellationToken)
         => await _mesh.SetSharingSettingsAsync(body, cancellationToken).ConfigureAwait(false);
 
+
+    /// <summary>Which of this server's libraries are shared into one link, and which exist.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The choice, and everything it could be.</response>
+    /// <returns>The shared libraries and the available ones.</returns>
+    /// <remarks>
+    /// Both halves in one answer because the screen shows one list with checkmarks, and two
+    /// requests to draw one list is two chances for them to disagree.
+    /// </remarks>
+    [HttpGet("groups/{group}/libraries", Name = "GetSharedLibraries")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<SharedLibraries>> SharedLibraries(
+        string group,
+        CancellationToken cancellationToken)
+        => new SharedLibraries
+        {
+            Shared = await _shared.GetAsync(group, cancellationToken).ConfigureAwait(false),
+            Available = _invites.Libraries(),
+        };
+
+    /// <summary>Choose which of this server's libraries are shared into one link.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="body">The whole list. Empty shares nothing.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">Stored, and republished.</response>
+    /// <returns>The choice as stored.</returns>
+    /// <remarks>
+    /// <para>
+    /// A whole-list write: an absent id is how a library is un-shared, so a partial update could
+    /// not tell "the owner removed this one" from "the client did not mention it".
+    /// </para>
+    /// <para>
+    /// A snapshot is forced rather than waited for. A snapshot <em>replaces</em> this node's rows
+    /// on every peer, so it is what actually retracts a library the owner has just un-shared —
+    /// waiting up to fifteen minutes for the periodic one would mean the screen said "no longer
+    /// shared" while the other server still listed the films.
+    /// </para>
+    /// </remarks>
+    [HttpPut("groups/{group}/libraries", Name = "SetSharedLibraries")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<SharedLibraries>> SetSharedLibraries(
+        string group,
+        [FromBody] SetSharedLibrariesRequest body,
+        CancellationToken cancellationToken)
+    {
+        var libraries = body?.Libraries ?? Array.Empty<Guid>();
+        await _shared.SetAsync(group, libraries, cancellationToken).ConfigureAwait(false);
+        _publisher.RequestSnapshot();
+        return new SharedLibraries
+        {
+            Shared = libraries,
+            Available = _invites.Libraries(),
+        };
+    }
 
     /// <summary>Leave a group.</summary>
     /// <param name="group">The group id.</param>

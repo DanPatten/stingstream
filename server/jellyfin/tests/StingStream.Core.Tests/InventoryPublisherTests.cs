@@ -36,6 +36,17 @@ public class InventoryPublisherTests
     private const string Group = "abc123";
     private const string Key = "movie:tmdb:10378";
 
+    /// <summary>This server's two libraries.</summary>
+    private static readonly Guid Movies = Guid.Parse("11111111111111111111111111111111");
+    private static readonly Guid Tv = Guid.Parse("22222222222222222222222222222222");
+
+    /// <summary>A link that has been given everything, which is what the older specs assume.</summary>
+    private static FakeShared Everything()
+        => new(new Dictionary<string, IReadOnlyList<Guid>>(StringComparer.Ordinal)
+        {
+            [Group] = new[] { Movies, Tv },
+        });
+
     [Fact]
     public async Task A_change_that_lands_while_a_snapshot_is_in_flight_survives_it()
     {
@@ -54,7 +65,7 @@ public class InventoryPublisherTests
 
         var mesh = new FakeMesh();
         var publisher = new InventoryPublisher(
-            mesh, inventory, feed, new FakeRuntime(), NullLogger<InventoryPublisher>.Instance);
+            mesh, inventory, feed, new FakeRuntime(), Everything(), NullLogger<InventoryPublisher>.Instance);
 
         await publisher.PassAsync(CancellationToken.None);
 
@@ -83,7 +94,7 @@ public class InventoryPublisherTests
 
         var mesh = new FakeMesh();
         var publisher = new InventoryPublisher(
-            mesh, inventory, feed, new FakeRuntime(), NullLogger<InventoryPublisher>.Instance);
+            mesh, inventory, feed, new FakeRuntime(), Everything(), NullLogger<InventoryPublisher>.Instance);
 
         await publisher.PassAsync(CancellationToken.None);
         Assert.Single(mesh.Snapshots);
@@ -100,7 +111,7 @@ public class InventoryPublisherTests
         feed.Upserted(Key);
         var mesh = new FakeMesh { Groups = new List<MeshGroup>() };
         var publisher = new InventoryPublisher(
-            mesh, new FakeInventory(), feed, new FakeRuntime(), NullLogger<InventoryPublisher>.Instance);
+            mesh, new FakeInventory(), feed, new FakeRuntime(), Everything(), NullLogger<InventoryPublisher>.Instance);
 
         await publisher.PassAsync(CancellationToken.None);
 
@@ -110,7 +121,148 @@ public class InventoryPublisherTests
         Assert.False(feed.HasChanges);
     }
 
+    // --- each side picks its own -----------------------------------------------------------------
+
+    /// <summary>
+    /// The control Dan asked for, and the reason it needed code rather than a checkbox: the
+    /// publisher used to build one record set and push the same one to every link.
+    /// </summary>
+    [Fact]
+    public async Task A_snapshot_carries_only_the_libraries_shared_into_that_link()
+    {
+        var inventory = new FakeInventory();
+        inventory.Add("movie:tmdb:1", hash: null, library: Movies);
+        inventory.Add("episode:tvdb:2", hash: null, library: Tv);
+
+        var mesh = new FakeMesh();
+        var shared = new FakeShared(new Dictionary<string, IReadOnlyList<Guid>>(StringComparer.Ordinal)
+        {
+            [Group] = new[] { Movies },
+        });
+        var publisher = new InventoryPublisher(
+            mesh,
+            inventory,
+            new InventoryChangeFeed(),
+            new FakeRuntime(),
+            shared,
+            NullLogger<InventoryPublisher>.Instance);
+
+        await publisher.PassAsync(CancellationToken.None);
+
+        var snapshot = Assert.Single(mesh.Snapshots);
+        var record = Assert.Single(snapshot);
+        Assert.Equal("movie:tmdb:1", record.ItemKey);
+    }
+
+    /// <summary>
+    /// A brand-new link shares nothing until its owner chooses, rather than everything.
+    /// </summary>
+    /// <remarks>
+    /// An empty library is a question somebody can answer. A link that silently published the whole
+    /// collection the moment it was created is not — and it is not recoverable either, because by
+    /// the time anyone notices, the other server already has the index.
+    /// </remarks>
+    [Fact]
+    public async Task A_link_nobody_has_chosen_libraries_for_gets_nothing()
+    {
+        var inventory = new FakeInventory();
+        inventory.Add("movie:tmdb:1", hash: null, library: Movies);
+
+        var mesh = new FakeMesh();
+        var publisher = new InventoryPublisher(
+            mesh,
+            inventory,
+            new InventoryChangeFeed(),
+            new FakeRuntime(),
+            new FakeShared(new Dictionary<string, IReadOnlyList<Guid>>(StringComparer.Ordinal)),
+            NullLogger<InventoryPublisher>.Instance);
+
+        await publisher.PassAsync(CancellationToken.None);
+
+        Assert.Empty(Assert.Single(mesh.Snapshots));
+    }
+
+    /// <summary>
+    /// A change to something a link cannot see is a **removal**, not silence.
+    /// </summary>
+    /// <remarks>
+    /// This is the half an implementation that merely "publishes less" gets wrong. A film moved
+    /// into an un-shared library, or one whose library was never shared, must not sit on a peer as
+    /// a pointer to something it will never be offered again.
+    /// </remarks>
+    [Fact]
+    public async Task A_delta_for_an_unshared_library_retracts_rather_than_saying_nothing()
+    {
+        var inventory = new FakeInventory();
+        inventory.Add("episode:tvdb:2", hash: null, library: Tv);
+
+        var mesh = new FakeMesh();
+        var shared = new FakeShared(new Dictionary<string, IReadOnlyList<Guid>>(StringComparer.Ordinal)
+        {
+            [Group] = new[] { Movies },
+        });
+        var feed = new InventoryChangeFeed();
+        var publisher = new InventoryPublisher(
+            mesh,
+            inventory,
+            feed,
+            new FakeRuntime(),
+            shared,
+            NullLogger<InventoryPublisher>.Instance);
+
+        // Get the snapshot out of the way, then change the TV episode.
+        await publisher.PassAsync(CancellationToken.None);
+        feed.Upserted("episode:tvdb:2");
+        await publisher.PassAsync(CancellationToken.None);
+
+        var delta = Assert.Single(mesh.Deltas);
+        Assert.Empty(delta.Upserts);
+        Assert.Equal("episode:tvdb:2", Assert.Single(delta.Removals));
+    }
+
+    /// <summary>
+    /// A record written before per-library sharing existed is shared with nobody, and triggers a
+    /// one-time rebuild that fills its library in.
+    /// </summary>
+    [Fact]
+    public async Task Records_from_before_this_feature_are_rebuilt_rather_than_leaked()
+    {
+        var inventory = new FakeInventory();
+        inventory.Add("movie:tmdb:1", hash: null);
+        inventory.ClearLibrary("movie:tmdb:1");
+
+        var mesh = new FakeMesh();
+        var publisher = new InventoryPublisher(
+            mesh,
+            inventory,
+            new InventoryChangeFeed(),
+            new FakeRuntime(),
+            Everything(),
+            NullLogger<InventoryPublisher>.Instance);
+
+        await publisher.PassAsync(CancellationToken.None);
+
+        // Shared with nobody rather than with everybody: the other reading of null would publish a
+        // library its owner may have un-shared.
+        Assert.Empty(Assert.Single(mesh.Snapshots));
+        Assert.Equal(1, inventory.Rebuilds);
+    }
+
     // --- fakes ---------------------------------------------------------------------------------
+
+    private sealed class FakeShared : Sharing.ISharedLibraries
+    {
+        private readonly IReadOnlyDictionary<string, IReadOnlyList<Guid>> _all;
+
+        public FakeShared(IReadOnlyDictionary<string, IReadOnlyList<Guid>> all)
+        {
+            _all = all;
+        }
+
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<Guid>>> AllAsync(
+            CancellationToken cancellationToken) => Task.FromResult(_all);
+    }
+
 
     private sealed class FakeInventory : IInventoryService
     {
@@ -119,17 +271,23 @@ public class InventoryPublisherTests
         /// <summary>Runs once, immediately after the first page is read.</summary>
         public Action? AfterRead { get; set; }
 
-        public void Add(string key, string? hash)
+        public void Add(string key, string? hash, Guid? library = null)
             => _records[key] = new InventoryRecord
             {
                 ItemKey = key,
                 JellyfinItemId = "1",
                 Kind = "movie",
                 FileHash = hash,
+                LibraryId = (library ?? Movies).ToString("N"),
                 UpdatedAt = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
             };
 
         public void SetHash(string key, string hash) => _records[key].FileHash = hash;
+
+        /// <summary>A record as it deserialises from before <c>LibraryId</c> existed.</summary>
+        public void ClearLibrary(string key) => _records[key].LibraryId = null;
+
+        public int Rebuilds { get; private set; }
 
         public IReadOnlyList<InventoryRecord> All(int limit = 500, int offset = 0)
         {
@@ -158,7 +316,10 @@ public class InventoryPublisherTests
         public long Count => _records.Count;
 
         public Task<int> RebuildAllAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(_records.Count);
+        {
+            Rebuilds++;
+            return Task.FromResult(_records.Count);
+        }
 
         public Task<InventoryRecord?> RefreshItemAsync(Guid itemId, CancellationToken cancellationToken = default)
             => Task.FromResult<InventoryRecord?>(null);
@@ -173,6 +334,7 @@ public class InventoryPublisherTests
             Kind = record.Kind,
             FileHash = record.FileHash,
             LocalPath = record.LocalPath,
+            LibraryId = record.LibraryId,
             UpdatedAt = record.UpdatedAt,
         };
     }

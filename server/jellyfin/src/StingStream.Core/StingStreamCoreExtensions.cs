@@ -19,6 +19,7 @@ using StingStream.Core.Mesh;
 using StingStream.Core.Passkeys;
 using StingStream.Core.Playback;
 using StingStream.Core.Requests;
+using StingStream.Core.Sharing;
 using StingStream.Core.SyncPlay;
 using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
@@ -161,6 +162,11 @@ public static class StingStreamCoreExtensions
         // the libraries the administrator picked -- which is what makes "you get invited to a
         // server and you create an account" true without anything central. See Invites/.
         services.AddStingStreamInvites();
+
+        // Which of this server's libraries each linked server gets. Dan: "Each side picks its own."
+        // Without it the inventory publisher pushed one record set to every link, so linking with
+        // somebody shared everything. See Sharing/.
+        services.AddStingStreamSharing();
 
         // Passkeys, bound to this server's own domain (Part 5, WP4). In C# over Fido2NetLib rather
         // than in the mesh: `webauthn-rs` reaches OpenSSL, which is why the deleted version had to

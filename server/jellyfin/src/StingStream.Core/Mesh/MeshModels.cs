@@ -572,3 +572,25 @@ public sealed class MeshCapacity
     /// <summary>Free bytes on the volume holding this node's media.</summary>
     public long FreeSpace { get; set; }
 }
+
+/// <summary>What this server shares into one link, and what it could share.</summary>
+public sealed class SharedLibraries
+{
+    /// <summary>The collection folders published into this link. Empty means nothing is shared.</summary>
+    public IReadOnlyList<System.Guid> Shared { get; set; } = System.Array.Empty<System.Guid>();
+
+    /// <summary>Every library on this server, named so a person can recognise it.</summary>
+    /// <remarks>
+    /// The same <c>InviteLibrary</c> a person invite's picker uses. One shape for "choose some of
+    /// my libraries", because it is the same question asked of two different audiences.
+    /// </remarks>
+    public IReadOnlyList<Invites.InviteLibrary> Available { get; set; }
+        = System.Array.Empty<Invites.InviteLibrary>();
+}
+
+/// <summary>Choose which libraries a link gets.</summary>
+public sealed class SetSharedLibrariesRequest
+{
+    /// <summary>The whole list. Empty shares nothing, which is also the default for a new link.</summary>
+    public IReadOnlyList<System.Guid>? Libraries { get; set; }
+}

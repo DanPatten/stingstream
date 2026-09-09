@@ -329,6 +329,7 @@ public sealed class InventoryService : IInventoryService
                 ? "recording"
                 : item is Movie ? "movie" : "episode",
             LocalPath = item.Path,
+            LibraryId = LibraryIdOf(item),
             LocalImages = BuildLocalImages(item),
             LocalSubtitles = BuildLocalSubtitles(item),
             Media = BuildMediaSummary(item),
@@ -786,6 +787,35 @@ public sealed class InventoryService : IInventoryService
     /// Jellyfin has not downloaded yet simply has no entry until it does; the next refresh picks
     /// it up.
     /// </remarks>
+    /// <summary>
+    /// Which collection folder this item lives in, as a <c>Guid.ToString("N")</c>.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The library id, or null when Jellyfin does not place it in one.</returns>
+    /// <remarks>
+    /// The first folder wins. An item can be reachable through more than one collection folder if
+    /// somebody has pointed two libraries at overlapping paths, which is a configuration nobody
+    /// intends; picking the first is stable across passes and is what the library UI shows.
+    /// </remarks>
+    internal string? LibraryIdOf(BaseItem item)
+    {
+        try
+        {
+            foreach (var folder in _library.GetCollectionFolders(item))
+            {
+                return folder.Id.ToString("N");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never fatal: a record with no library is published to nobody until it is resolved,
+            // which is a smaller failure than no record at all.
+            _logger.LogDebug(ex, "Could not resolve the library for {Name}", item.Name);
+        }
+
+        return null;
+    }
+
     private Dictionary<string, string> BuildLocalImages(BaseItem item)
     {
         var images = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

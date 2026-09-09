@@ -49,6 +49,27 @@ public sealed class InventoryRecord
     public string? LocalPath { get; set; }
 
     /// <summary>
+    /// The collection folder this item sits in, as a <c>Guid.ToString("N")</c>, or null when it
+    /// has not been resolved yet.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Local bookkeeping, like <see cref="LocalPath"/>, and never published: a peer has no
+    /// business knowing which of this node's shelves a film sat on. It exists so the publisher can
+    /// answer "is this item in a library I share with that server?" without a library lookup per
+    /// item per pass.
+    /// </para>
+    /// <para>
+    /// Null on any record written before this field existed. The publisher resolves and writes it
+    /// back the first time it needs it, so the gap closes itself rather than needing a migration —
+    /// which matters because the alternative readings of null are both wrong: treating it as "not
+    /// shared" would empty every peer's library until a full rescan, and treating it as "shared"
+    /// would leak libraries the owner had un-shared.
+    /// </para>
+    /// </remarks>
+    public string? LibraryId { get; set; }
+
+    /// <summary>
     /// Absolute paths of this item's artwork on this node, keyed by lowercase image kind
     /// (<c>primary</c>, <c>backdrop</c>, <c>logo</c>, <c>thumb</c>, <c>banner</c>).
     /// </summary>

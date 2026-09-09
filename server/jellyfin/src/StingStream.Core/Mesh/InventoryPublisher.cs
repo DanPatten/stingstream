@@ -55,8 +55,10 @@ public sealed class InventoryPublisher : BackgroundService
     private readonly IInventoryService _inventory;
     private readonly InventoryChangeFeed _changes;
     private readonly INodeRuntimeProvider _runtime;
+    private readonly Sharing.ISharedLibraries _shared;
     private readonly ILogger<InventoryPublisher> _logger;
 
+    private bool _backfilled;
     private DateTime _nextSnapshotUtc = DateTime.MinValue;
     private DateTime _nextCapacityUtc = DateTime.MinValue;
 
@@ -65,14 +67,32 @@ public sealed class InventoryPublisher : BackgroundService
         IInventoryService inventory,
         InventoryChangeFeed changes,
         INodeRuntimeProvider runtime,
+        Sharing.ISharedLibraries shared,
         ILogger<InventoryPublisher> logger)
     {
         _mesh = mesh;
         _inventory = inventory;
         _changes = changes;
         _runtime = runtime;
+        _shared = shared;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Whether one record belongs to a library shared into one link.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A record with no library is shared with nobody.</b> That is the safe direction of the two
+    /// wrong answers: publishing it would leak a library its owner had un-shared, and the gap is
+    /// self-healing — <see cref="BackfillLibrariesAsync"/> rebuilds records written before
+    /// <see cref="InventoryRecord.LibraryId"/> existed, once, on the first pass after upgrading.
+    /// </para>
+    /// </remarks>
+    private static bool SharedInto(InventoryRecord record, IReadOnlyList<Guid> libraries)
+        => record.LibraryId is { Length: > 0 } id
+            && Guid.TryParse(id, out var library)
+            && libraries.Contains(library);
 
     /// <summary>Force a full snapshot on the next pass.</summary>
     public void RequestSnapshot() => _nextSnapshotUtc = DateTime.MinValue;
@@ -193,9 +213,13 @@ public sealed class InventoryPublisher : BackgroundService
     /// <returns>A task.</returns>
     public async Task PublishSnapshotAsync(IReadOnlyList<MeshGroup> groups, CancellationToken cancellationToken)
     {
-        var records = new List<MeshInventoryRecord>();
+        // Paired, because what goes on the wire is the mesh record and what decides *who sees it*
+        // is the source record's library. Building both once and filtering per link is the whole
+        // of "each side picks its own": before this, one list was pushed to every group.
+        var all = new List<(InventoryRecord Source, MeshInventoryRecord Wire)>();
         var missing = 0;
         var seen = 0;
+        var unresolved = 0;
         var offset = 0;
         const int Page = 500;
         while (true)
@@ -210,7 +234,12 @@ public sealed class InventoryPublisher : BackgroundService
                     continue;
                 }
 
-                records.Add(ToMesh(record));
+                if (record.LibraryId is not { Length: > 0 })
+                {
+                    unresolved++;
+                }
+
+                all.Add((record, ToMesh(record)));
             }
 
             if (page.Count < Page)
@@ -236,26 +265,83 @@ public sealed class InventoryPublisher : BackgroundService
                 seen);
         }
 
+        await BackfillLibrariesAsync(unresolved, seen, cancellationToken).ConfigureAwait(false);
+
+        var shared = await _shared.AllAsync(cancellationToken).ConfigureAwait(false);
         foreach (var group in groups)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var libraries = shared.TryGetValue(group.Group, out var chosen)
+                ? chosen
+                : Array.Empty<Guid>();
+            var records = all
+                .Where(pair => SharedInto(pair.Source, libraries))
+                .Select(pair => pair.Wire)
+                .ToList();
+
+            // A snapshot *replaces* this node's rows for the group on every peer
+            // (`replace_local_inventory`), so un-sharing a library retracts it here rather than
+            // merely stopping it being re-sent. That is the half a "publish less" implementation
+            // misses, and it is why the sharing screen can promise the control it offers.
             await _mesh.PutInventoryAsync(group.Group, records, cancellationToken).ConfigureAwait(false);
             // The hashed count is here because a snapshot that is right about *which* titles this
             // node holds and wrong about their hashes looks identical in a log otherwise -- and
             // "which of these records carried a hash" is the only question worth asking when a
             // peer's index is missing one. See the drain-ordering note in PassAsync.
             _logger.LogInformation(
-                "Published {Count} inventory record(s) ({Hashed} hashed) to group {Group}",
+                "Published {Count} of {Total} inventory record(s) ({Hashed} hashed) to {Group}, "
+                + "from {Libraries} shared library(s)",
                 records.Count,
+                all.Count,
                 Hashed(records),
-                group.Name);
+                group.Name,
+                libraries.Count);
+        }
+    }
+
+    /// <summary>
+    /// Rebuild the inventory once when records predate <see cref="InventoryRecord.LibraryId"/>.
+    /// </summary>
+    /// <param name="unresolved">How many records in this pass had no library.</param>
+    /// <param name="seen">How many records were looked at.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Cheaper than a schema migration and safer than guessing: the record is stored as JSON, so an
+    /// older row simply deserialises with a null library, and a rebuild fills it in. Until it does,
+    /// those records are shared with nobody — which would be alarming if it lasted, and does not.
+    /// Runs at most once per process, because <see cref="IInventoryService.RebuildAllAsync"/> walks
+    /// the whole library.
+    /// </remarks>
+    private async Task BackfillLibrariesAsync(int unresolved, int seen, CancellationToken cancellationToken)
+    {
+        if (unresolved == 0 || _backfilled)
+        {
+            return;
+        }
+
+        _backfilled = true;
+        _logger.LogInformation(
+            "{Unresolved} of {Seen} inventory record(s) predate per-library sharing and are shared "
+            + "with nobody until they are rebuilt. Rebuilding now; this happens once.",
+            unresolved,
+            seen);
+        try
+        {
+            await _inventory.RebuildAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The next restart tries again. Failing the publish pass over this would stop the node
+            // advertising anything at all, which is a much worse outcome than a stale library id.
+            _logger.LogWarning(ex, "Rebuilding the inventory for per-library sharing failed");
         }
     }
 
     private async Task PublishDeltaAsync(IReadOnlyList<MeshGroup> groups, CancellationToken cancellationToken)
     {
         var (upsertKeys, removals) = _changes.Drain();
-        var upserts = new List<MeshInventoryRecord>(upsertKeys.Count);
+        var changed = new List<(InventoryRecord Source, MeshInventoryRecord Wire)>(upsertKeys.Count);
         var vanished = new List<string>(removals);
         foreach (var key in upsertKeys)
         {
@@ -269,29 +355,61 @@ public sealed class InventoryPublisher : BackgroundService
                 continue;
             }
 
-            upserts.Add(ToMesh(record));
+            changed.Add((record, ToMesh(record)));
         }
 
-        if (upserts.Count == 0 && vanished.Count == 0)
+        if (changed.Count == 0 && vanished.Count == 0)
         {
             return;
         }
 
         try
         {
+            var shared = await _shared.AllAsync(cancellationToken).ConfigureAwait(false);
+            var sent = 0;
             foreach (var group in groups)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await _mesh.PatchInventoryAsync(group.Group, upserts, vanished, cancellationToken)
+                var libraries = shared.TryGetValue(group.Group, out var chosen)
+                    ? chosen
+                    : Array.Empty<Guid>();
+
+                var upserts = new List<MeshInventoryRecord>(changed.Count);
+                var gone = new List<string>(vanished);
+                foreach (var (source, wire) in changed)
+                {
+                    if (SharedInto(source, libraries))
+                    {
+                        upserts.Add(wire);
+                    }
+                    else
+                    {
+                        // **A change to an item this link cannot see is a removal, not silence.**
+                        // An item moved into an un-shared library, or one whose library was never
+                        // shared, must not sit on a peer as a pointer to something it will never be
+                        // offered again. Harmless when the peer never held it: `patch_inventory`
+                        // removing a key it does not have is a no-op.
+                        gone.Add(source.ItemKey);
+                    }
+                }
+
+                if (upserts.Count == 0 && gone.Count == 0)
+                {
+                    continue;
+                }
+
+                sent++;
+                await _mesh.PatchInventoryAsync(group.Group, upserts, gone, cancellationToken)
                     .ConfigureAwait(false);
             }
 
             _logger.LogInformation(
-                "Published a delta of {Upserts} upsert(s) ({Hashed} hashed) and {Removals} "
-                + "removal(s) to {Groups} group(s)",
-                upserts.Count,
-                Hashed(upserts),
+                "Published a delta of {Upserts} change(s) ({Hashed} hashed) and {Removals} "
+                + "removal(s) to {Groups} of {Total} link(s)",
+                changed.Count,
+                Hashed(changed.Select(pair => pair.Wire).ToList()),
                 vanished.Count,
+                sent,
                 groups.Count);
         }
         catch
