@@ -394,6 +394,16 @@ $Minted = Invoke-Step 'A mints a person invite, naming two libraries of three' {
     if ($null -ne (Get-Member-Value $listed[0] 'ExpiresAt')) {
         throw "the fresh invite carries an expiry of '$(Get-Member-Value $listed[0] 'ExpiresAt')'; invites do not expire."
     }
+
+    <#
+        The link can be re-opened. Losing the one copy is an ordinary thing to do, and the answer
+        used to be "mint another" -- which leaves the link somebody was already sent dead in their
+        chat. A live invite keeps its token until it is used; the spent step below asserts the other
+        half, that it stops being retrievable the moment it has been.
+    #>
+    $again = Invoke-Node $NodeA "/stingstream/api/v1/invites/$($minted.Invite.Id)/link"
+    if ($again.Token -ne $minted.Token) { throw 're-opening the invite returned a different token.' }
+
     return $minted
 }
 
@@ -520,6 +530,12 @@ Invoke-Step 'The invite is spent, and a deleted one is gone' {
     if ($row.Status -ne 'used') { throw "the spent invite is listed as '$($row.Status)'." }
     $redeemedBy = Get-Member-Value $row 'RedeemedUserName'
     if ($redeemedBy -ne 'mum') { throw "the spent invite names '$redeemedBy' rather than the account it created." }
+
+    # And its token is gone, so re-opening it has nothing to show. That bound is the whole reason
+    # keeping the token at all was acceptable: `core.db` holds live invites, never a history of
+    # usable ones.
+    $goneLink = Get-HttpStatus -Uri "$($NodeA.Url)/stingstream/api/v1/invites/$($row.Id)/link" -Method GET
+    if ($goneLink -ne 404) { throw "a redeemed invite still offers its link (HTTP $goneLink); expected 404." }
 
     $second = Invoke-Node $NodeA '/stingstream/api/v1/invites' -Method POST -Body @{
         Label = 'Ben'; Libraries = @($Libraries.Shared.Id)

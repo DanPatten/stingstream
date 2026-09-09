@@ -176,6 +176,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/invites/{id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The link for an invite that has already been minted.
+         * @description Dan: <em>"allow the user to re-open the existing invite to get the url again"</em>. Losing
+         *                 the one copy of a link is an ordinary thing to do, and the answer used to be "mint another",
+         *                 which leaves a dead link in somebody else's chat.
+         *
+         *     Administrator only, like minting, and addressed by the invite's id rather than by its token
+         *                 — so asking for a link never means already holding one. A redeemed invite answers 404: its
+         *                 token is cleared when the account is created, and there is nothing left to show.
+         */
+        get: operations["Invites_StingStreamInviteLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/invites/accept": {
         parameters: {
             query?: never;
@@ -7436,6 +7462,65 @@ export interface operations {
                 content?: never;
             };
             /** @description No such invite, or it was already gone. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamInviteLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The invite id, from the list. Never the token. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token and the link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedInvite"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such invite, or it has been used and its token is gone. */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -68,9 +68,16 @@ public sealed class InviteStore
                 -- One row per invite ever minted, kept after it is spent so an account can be
                 -- traced back to the invite that created it.
                 --
-                -- `token_hash` is a SHA-256 of the token and is the only form of it that touches
-                -- the disk. UNIQUE because a collision would mean two invites answering to one
-                -- link, and because it is the column every redemption looks up by.
+                -- `token_hash` is a SHA-256 of the token and is what every redemption looks up by.
+                -- UNIQUE because a collision would mean two invites answering to one link.
+                --
+                -- `token` (added below) holds the token itself, and only while the invite is
+                -- **live**: it is cleared the moment somebody redeems one. Dan: "allow the user to
+                -- re-open the existing invite to get the url again". That is a real trade -- a copy
+                -- of this file now yields working links for the invites that have not been used --
+                -- and it is bounded on purpose: spent invites keep only their hash, so the file
+                -- never accumulates a history of usable credentials, and deleting an invite takes
+                -- its token with the row.
                 -- `expires_at` is NOT NULL and stays that way: this DDL is IF NOT EXISTS-only by
                 -- design, so there is no mechanism here to relax a constraint on a database that
                 -- already exists. An invite that does not expire stores InviteGate.NeverExpires,
@@ -92,13 +99,27 @@ public sealed class InviteStore
                 );
                 CREATE INDEX IF NOT EXISTS ix_invites_created ON invites (created_at);
                 """);
+
+            // Additive, nullable, and swallowed when it is already there -- the same shape the mesh
+            // database's `migrate()` uses. A separate statement rather than a column in the CREATE
+            // above, because that one only ever runs on a database that does not exist yet.
+            try
+            {
+                CoreDatabase.Execute(c, "ALTER TABLE invites ADD COLUMN token TEXT;");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException e)
+                when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already migrated.
+            }
+
             _schemaReady = true;
         }
     }
 
     private const string Select =
         "SELECT id, token_hash, label, libraries, created_by, created_by_name, created_at, "
-        + "expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at FROM invites";
+        + "expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token FROM invites";
 
     /// <summary>Every invite, newest first.</summary>
     /// <returns>The rows.</returns>
@@ -160,8 +181,8 @@ public sealed class InviteStore
                 """
                 INSERT INTO invites
                     (id, token_hash, label, libraries, created_by, created_by_name, created_at,
-                     expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at)
-                VALUES ($id, $h, $l, $lib, $cb, $cbn, $ca, $ea, $ra, $ru, $run, $va)
+                     expires_at, redeemed_at, redeemed_user, redeemed_user_name, revoked_at, token)
+                VALUES ($id, $h, $l, $lib, $cb, $cbn, $ca, $ea, $ra, $ru, $run, $va, $tok)
                 ON CONFLICT(id) DO UPDATE SET
                     token_hash = excluded.token_hash, label = excluded.label,
                     libraries = excluded.libraries, created_by = excluded.created_by,
@@ -169,7 +190,7 @@ public sealed class InviteStore
                     created_at = excluded.created_at, expires_at = excluded.expires_at,
                     redeemed_at = excluded.redeemed_at, redeemed_user = excluded.redeemed_user,
                     redeemed_user_name = excluded.redeemed_user_name,
-                    revoked_at = excluded.revoked_at;
+                    revoked_at = excluded.revoked_at, token = excluded.token;
                 """,
                 ("$id", row.Id),
                 ("$h", row.TokenHash),
@@ -182,7 +203,8 @@ public sealed class InviteStore
                 ("$ra", row.RedeemedAt is { } r ? Stamp(r) : null),
                 ("$ru", row.RedeemedUserId),
                 ("$run", row.RedeemedUserName),
-                ("$va", row.RevokedAt is { } v ? Stamp(v) : null)),
+                ("$va", row.RevokedAt is { } v ? Stamp(v) : null),
+                ("$tok", row.Token)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -258,7 +280,10 @@ public sealed class InviteStore
         await _db.WriteAsync(
             c => CoreDatabase.Execute(
                 c,
-                "UPDATE invites SET redeemed_user = $u WHERE id = $id;",
+                // The token goes here rather than in `TryRedeemAsync`: that claim is tentative
+                // and `ReleaseAsync` puts it back, which has to put back a *usable* invite. By
+                // this line the account exists and the link is spent for good.
+                "UPDATE invites SET redeemed_user = $u, token = NULL WHERE id = $id;",
                 ("$u", userId),
                 ("$id", id)),
             cancellationToken).ConfigureAwait(false);
@@ -349,6 +374,7 @@ public sealed class InviteStore
         RedeemedUserId = r.IsDBNull(9) ? null : r.GetString(9),
         RedeemedUserName = r.IsDBNull(10) ? null : r.GetString(10),
         RevokedAt = r.IsDBNull(11) ? null : ReadStamp(r.GetString(11)),
+        Token = r.IsDBNull(12) ? null : r.GetString(12),
     };
 
     private static IReadOnlyList<Guid> ReadLibraries(string json)

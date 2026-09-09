@@ -400,6 +400,36 @@ export async function mintInvite(
   };
 }
 
+/**
+ * The link for an invite that was minted earlier.
+ *
+ * Losing the one copy of a link is an ordinary thing to do, and the answer used to be "mint
+ * another" — which leaves a dead link in somebody else's chat. Addressed by the invite's **id**, so
+ * asking for a link never means already holding one.
+ *
+ * Null for a redeemed invite as well as for one that never existed: the server clears the token
+ * when the account is created, so there is nothing left to show.
+ */
+export async function fetchInviteLink(
+  apiBaseUrl: string,
+  id: string,
+  accessToken?: string | null,
+): Promise<MintedInvite | null> {
+  const res = await fetch(
+    `${apiBaseUrl}/invites/${encodeURIComponent(id)}/link`,
+    { headers: authHeaders(accessToken) },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw await readError(res, "GET /invites/{id}/link");
+  const body = (await res.json()) as Record<string, unknown>;
+  return {
+    token: typeof body.Token === "string" ? body.Token : "",
+    url: typeof body.Url === "string" && body.Url.length > 0 ? body.Url : null,
+    urlIsLan: body.UrlIsLan === true,
+    invite: toSummary(body.Invite),
+  };
+}
+
 /** Delete one. Addressed by id, never by token. */
 export async function deleteInvite(
   apiBaseUrl: string,

@@ -3,6 +3,7 @@ import { useAtomValue } from "jotai";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -14,8 +15,8 @@ import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
-import { useInvites } from "@/lib/stingstream/invites";
-import type { InviteSummary } from "@/lib/stingstream/invitesApi";
+import { useInviteLink, useInvites } from "@/lib/stingstream/invites";
+import type { InviteSummary, MintedInvite } from "@/lib/stingstream/invitesApi";
 import {
   groupCounts,
   MeshUnavailableError,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/stingstream/mesh";
 import { useServerUsers } from "@/lib/stingstream/serverUsers";
 import { userAtom } from "@/providers/JellyfinProvider";
-import { InvitePerson } from "../invites/InvitePerson";
+import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
 import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
@@ -79,6 +80,8 @@ export function SharingScreen({
   const [choosing, setChoosing] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [advanced, setAdvanced] = useState(openAdvanced);
+  const link = useInviteLink();
+  const [showing, setShowing] = useState<MintedInvite | null>(null);
 
   const people = useMemo<PersonEntry[]>(() => {
     const accounts: PersonEntry[] = (users.data ?? [])
@@ -155,11 +158,23 @@ export function SharingScreen({
               <PersonRow
                 key={person.key}
                 person={person}
-                onPress={() =>
-                  router.push(
-                    person.invite ? "/settings/invites" : "/settings/admin",
-                  )
-                }
+                onPress={() => {
+                  // A pending invitation opens its own link again -- which is what somebody
+                  // pressing it wants, and what used to require minting a second one and leaving
+                  // the first dead in a chat. An account goes where accounts are managed.
+                  const invite = person.invite;
+                  if (!invite) {
+                    router.push("/settings/admin");
+                    return;
+                  }
+                  link.mutate(invite.id, {
+                    onSuccess: (result) => {
+                      if (result) setShowing(result);
+                      else toast.error(t("invites.link_gone"));
+                    },
+                    onError: (e) => toast.error(e.message),
+                  });
+                }}
               />
             ))}
           </ListGroup>
@@ -247,6 +262,12 @@ export function SharingScreen({
       <InvitePerson
         visible={inviting}
         onClose={() => setInviting(false)}
+        onSetUpAddress={openAddress}
+      />
+
+      <MintedInviteDialog
+        minted={showing}
+        onClose={() => setShowing(null)}
         onSetUpAddress={openAddress}
       />
     </PageContainer>

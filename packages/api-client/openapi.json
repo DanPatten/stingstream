@@ -804,6 +804,86 @@
         ]
       }
     },
+    "/stingstream/api/v1/invites/{id}/link": {
+      "get": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "The link for an invite that has already been minted.",
+        "description": "\r\nDan: <em>\"allow the user to re-open the existing invite to get the url again\"</em>. Losing\r\n            the one copy of a link is an ordinary thing to do, and the answer used to be \"mint another\",\r\n            which leaves a dead link in somebody else's chat.\r\n\r\nAdministrator only, like minting, and addressed by the invite's id rather than by its token\r\n            — so asking for a link never means already holding one. A redeemed invite answers 404: its\r\n            token is cleared when the account is created, and there is nothing left to show.",
+        "operationId": "StingStreamInviteLink",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invite id, from the list. Never the token.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The token and the link.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedInvite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such invite, or it has been used and its token is gone.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/invites/accept": {
       "post": {
         "tags": [

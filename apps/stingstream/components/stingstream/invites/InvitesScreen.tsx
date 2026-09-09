@@ -8,10 +8,14 @@ import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { useDeleteInvite, useInvites } from "@/lib/stingstream/invites";
-import type { InviteSummary } from "@/lib/stingstream/invitesApi";
+import {
+  useDeleteInvite,
+  useInviteLink,
+  useInvites,
+} from "@/lib/stingstream/invites";
+import type { InviteSummary, MintedInvite } from "@/lib/stingstream/invitesApi";
 import { EmptyState, ErrorState, LoadingState } from "../shared/ScreenState";
-import { InvitePerson } from "./InvitePerson";
+import { InvitePerson, MintedInviteDialog } from "./InvitePerson";
 
 /**
  * The invites this server has handed out.
@@ -34,7 +38,27 @@ export function InvitesScreen() {
   const { t } = useTranslation();
   const invites = useInvites();
   const remove = useDeleteInvite();
+  const link = useInviteLink();
   const [inviting, setInviting] = useState(false);
+  const [showing, setShowing] = useState<MintedInvite | null>(null);
+
+  /**
+   * Re-open an invite's link.
+   *
+   * Only offered on invites nobody has opened: a redeemed one has no token left to show, and the
+   * server answers with nothing rather than pretending. Fetched on the press rather than held in
+   * the list, so a credential never sits in a query cache.
+   */
+  const openLink = (invite: InviteSummary) => {
+    if (invite.status !== "valid") return;
+    link.mutate(invite.id, {
+      onSuccess: (result) => {
+        if (result) setShowing(result);
+        else toast.error(t("invites.link_gone"));
+      },
+      onError: (e) => toast.error(e.message),
+    });
+  };
 
   if (invites.isPending) return <LoadingState />;
   if (invites.error) {
@@ -81,7 +105,8 @@ export function InvitesScreen() {
             <InviteRow
               key={invite.id}
               invite={invite}
-              busy={remove.isPending}
+              busy={remove.isPending || link.isPending}
+              onPress={() => openLink(invite)}
               onDelete={() => {
                 remove.mutate(invite.id, {
                   onSuccess: () => toast.success(t("invites.deleted")),
@@ -94,6 +119,8 @@ export function InvitesScreen() {
       )}
 
       <InvitePerson visible={inviting} onClose={() => setInviting(false)} />
+
+      <MintedInviteDialog minted={showing} onClose={() => setShowing(null)} />
     </PageContainer>
   );
 }
@@ -108,8 +135,9 @@ export function InvitesScreen() {
 const InviteRow: React.FC<{
   invite: InviteSummary;
   busy: boolean;
+  onPress: () => void;
   onDelete: () => void;
-}> = ({ invite, busy, onDelete }) => {
+}> = ({ invite, busy, onPress, onDelete }) => {
   const { t } = useTranslation();
 
   const tone =
@@ -133,6 +161,9 @@ const InviteRow: React.FC<{
     <ListItem
       title={invite.label || t("invites.row_untitled")}
       subtitle={subtitle}
+      // Only a live invite has a link to show. A spent one is a record, not a thing to open.
+      onPress={invite.status === "valid" ? onPress : undefined}
+      showArrow={invite.status === "valid"}
       iconAfter={
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pill label={t(`invites.status_${invite.status}`)} tone={tone} />

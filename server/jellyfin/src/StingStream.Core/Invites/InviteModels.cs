@@ -24,6 +24,27 @@ public sealed class InviteRow
     /// <summary>Lowercase hex SHA-256 of the token.</summary>
     public string TokenHash { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The token itself, while the invite is still live. Null once it has been redeemed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Dan: <em>"allow the user to re-open the existing invite to get the url again"</em>. Losing
+    /// the one copy of a link is an ordinary thing to do — a closed tab, a phone that did not
+    /// receive the message — and answering it with "mint another" leaves a dead link in somebody
+    /// else's chat.
+    /// </para>
+    /// <para>
+    /// <b>This is a real trade and it is bounded on purpose.</b> A copy of <c>core.db</c> now
+    /// yields working links for the invites nobody has used yet. What it does not yield is a
+    /// history: the token is cleared the moment an account is created from it
+    /// (<see cref="InviteStore.SetRedeemedUserAsync"/>), and deleting an invite takes the row with
+    /// it. So the file holds exactly the live invites and nothing else, and the hash stays the
+    /// thing redemption is checked against.
+    /// </para>
+    /// </remarks>
+    public string? Token { get; set; }
+
     /// <summary>The account name the invited person will arrive with. May be empty.</summary>
     /// <remarks>
     /// <b>This is shown to somebody else.</b> It used to be a private note to whoever minted the

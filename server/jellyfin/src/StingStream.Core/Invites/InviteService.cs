@@ -142,6 +142,8 @@ public sealed class InviteService
             CreatedAt = now,
             // No expiry. Dan: "these all work indefinetly until revoked - no short term links."
             ExpiresAt = InviteGate.NeverExpires,
+            // Kept until somebody uses it, so the link can be shown again. See InviteRow.Token.
+            Token = token,
         };
 
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
@@ -150,7 +152,7 @@ public sealed class InviteService
             row.Id,
             chosen.Count);
 
-        var (url, isLan) = await LinkAsync(token, cancellationToken).ConfigureAwait(false);
+        var (url, isLan) = await BuildLinkAsync(token, cancellationToken).ConfigureAwait(false);
         return (
             new MintedInvite
             {
@@ -326,6 +328,33 @@ public sealed class InviteService
         return (name, null);
     }
 
+    /// <summary>The link for an invite that has already been minted, or null.</summary>
+    /// <param name="id">The invite id, from the list.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The token and its link, or null when there is no live invite with that id.</returns>
+    /// <remarks>
+    /// Null for an invite that has been redeemed as well as for one that never existed: the token
+    /// is cleared when an account is created from it, so there is nothing left to show and nothing
+    /// useful to say about it. The screen offers this only on invites nobody has opened.
+    /// </remarks>
+    public async Task<MintedInvite?> LinkAsync(string id, CancellationToken cancellationToken)
+    {
+        var row = _store.Get(id);
+        if (row?.Token is not { Length: > 0 } token)
+        {
+            return null;
+        }
+
+        var (url, isLan) = await BuildLinkAsync(token, cancellationToken).ConfigureAwait(false);
+        return new MintedInvite
+        {
+            Token = token,
+            Url = url,
+            UrlIsLan = isLan,
+            Invite = Summarise(row, LibraryNames(), DateTimeOffset.UtcNow),
+        };
+    }
+
     /// <summary>The link to send, and whether it only works on this network.</summary>
     /// <param name="token">The token.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -360,7 +389,7 @@ public sealed class InviteService
     /// That is every harness node and nobody's real server.
     /// </para>
     /// </remarks>
-    private async Task<(string? Url, bool IsLan)> LinkAsync(
+    private async Task<(string? Url, bool IsLan)> BuildLinkAsync(
         string token,
         CancellationToken cancellationToken)
     {

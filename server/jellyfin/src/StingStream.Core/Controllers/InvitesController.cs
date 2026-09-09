@@ -109,6 +109,35 @@ public sealed class InvitesController : ControllerBase
             : Ok(minted);
     }
 
+    /// <summary>The link for an invite that has already been minted.</summary>
+    /// <param name="id">The invite id, from the list. Never the token.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The token and the link.</response>
+    /// <response code="404">No such invite, or it has been used and its token is gone.</response>
+    /// <returns>The invite, as minting returned it.</returns>
+    /// <remarks>
+    /// <para>
+    /// Dan: <em>"allow the user to re-open the existing invite to get the url again"</em>. Losing
+    /// the one copy of a link is an ordinary thing to do, and the answer used to be "mint another",
+    /// which leaves a dead link in somebody else's chat.
+    /// </para>
+    /// <para>
+    /// Administrator only, like minting, and addressed by the invite's id rather than by its token
+    /// — so asking for a link never means already holding one. A redeemed invite answers 404: its
+    /// token is cleared when the account is created, and there is nothing left to show.
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id}/link", Name = "StingStreamInviteLink")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MintedInvite>> Link(
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var minted = await _invites.LinkAsync(id, cancellationToken).ConfigureAwait(false);
+        return minted is null ? NotFound() : Ok(minted);
+    }
+
     /// <summary>Delete an invite.</summary>
     /// <param name="id">The invite id, from the list. Never the token.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

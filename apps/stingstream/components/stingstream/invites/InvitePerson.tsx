@@ -50,21 +50,7 @@ export const InvitePerson: React.FC<{
    */
   onSetUpAddress?: () => void;
 }> = ({ visible, onClose, onSetUpAddress }) => {
-  const router = useRouter();
   const [minted, setMinted] = useState<MintedInvite | null>(null);
-
-  const setUpAddress = useCallback(() => {
-    setMinted(null);
-    onClose();
-    if (onSetUpAddress) {
-      onSetUpAddress();
-      return;
-    }
-    router.push({
-      pathname: "/settings/groups",
-      params: { advanced: "1" },
-    });
-  }, [onClose, onSetUpAddress, router]);
 
   return (
     <>
@@ -79,7 +65,14 @@ export const InvitePerson: React.FC<{
           setMinted(null);
           onClose();
         }}
-        onSetUpAddress={setUpAddress}
+        onSetUpAddress={
+          onSetUpAddress &&
+          (() => {
+            setMinted(null);
+            onClose();
+            onSetUpAddress();
+          })
+        }
       />
     </>
   );
@@ -203,27 +196,40 @@ const MintInviteDialog: React.FC<{
 };
 
 /**
- * The link, once and only once.
+ * The link.
  *
- * The server stores a hash of the token, so this dialog is holding the only copy that will ever
- * exist — which is why it says so, and why closing it is a deliberate act rather than a tap
- * outside. Losing it costs one more mint, which is the right trade against a credential that can
- * be re-read from a screen somebody walked away from.
+ * **It used to say "this is the only time it is shown", and it was true.** The server kept a hash
+ * of the token and nothing else, so a closed tab cost a fresh mint — and a fresh mint leaves the
+ * link somebody was already sent dead in their chat. Dan: *"no dont do this - allow the user to
+ * re-open the existing invite to get the url again"*. So a live invite keeps its token until
+ * somebody uses it, pressing the row opens this again, and the warning is gone because it was no
+ * longer true.
  *
- * **There is nearly always a link now.** It used to be a bare token whenever the server had no
- * domain, with a sentence suggesting one be added and no way to do it. Dan: *"if no domain is setup
- * use the host's ip address for LAN and if there is a domain setup then use that instead. Show a
- * box if there is no domain setup that it wont work externally until setup with a nice setup now
- * link."* So a LAN link is offered with the one thing that is actually true about it said out loud
- * — it works in this house — and the way to fix that is one press away.
+ * **There is nearly always a link.** It used to be a bare token whenever the server had no domain,
+ * with a sentence suggesting one be added and no way to do it. Dan: *"if no domain is setup use the
+ * host's ip address for LAN and if there is a domain setup then use that instead. Show a box if
+ * there is no domain setup that it wont work externally until setup with a nice setup now link."*
+ * So a LAN link is offered with the one thing that is actually true about it said out loud — it
+ * works in this house — and the way to fix that is one press away.
  */
-const MintedInviteDialog: React.FC<{
+export const MintedInviteDialog: React.FC<{
   minted: MintedInvite | null;
   onClose: () => void;
-  onSetUpAddress: () => void;
+  /** Defaults to navigating to the address setting; `SharingScreen` unfolds its own instead. */
+  onSetUpAddress?: () => void;
 }> = ({ minted, onClose, onSetUpAddress }) => {
   const { t } = useTranslation();
+  const router = useRouter();
   const value = minted?.url ?? minted?.token ?? null;
+
+  const setUpAddress = useCallback(() => {
+    onClose();
+    if (onSetUpAddress) {
+      onSetUpAddress();
+      return;
+    }
+    router.push({ pathname: "/settings/groups", params: { advanced: "1" } });
+  }, [onClose, onSetUpAddress, router]);
 
   const copy = useCallback(async () => {
     if (!value) return;
@@ -290,15 +296,8 @@ const MintedInviteDialog: React.FC<{
           </View>
 
           {minted?.urlIsLan ? (
-            <LanOnlyNotice onSetUpAddress={onSetUpAddress} />
+            <LanOnlyNotice onSetUpAddress={setUpAddress} />
           ) : null}
-
-          <Text
-            variant='caption'
-            style={{ marginTop: 10, color: tokens.color.state.warning }}
-          >
-            {t("invites.minted_only_copy")}
-          </Text>
 
           <Button
             variant='secondary'

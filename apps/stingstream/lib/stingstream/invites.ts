@@ -10,6 +10,7 @@ import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   deleteInvite,
   fetchInviteLibraries,
+  fetchInviteLink,
   fetchInvites,
   type InviteLibrary,
   type InviteSummary,
@@ -92,6 +93,20 @@ export function useMintInvite() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: INVITES_QUERY_KEY });
     },
+  });
+}
+
+/**
+ * Re-open an invite's link.
+ *
+ * A mutation rather than a query, deliberately: this returns a credential, and a query cache is
+ * read back by anything that asks for the key. It is fetched when somebody presses the row and
+ * held in the screen's own state until the dialog closes.
+ */
+export function useInviteLink() {
+  const { base, token } = useInvitesApi();
+  return useMutation<MintedInvite | null, Error, string>({
+    mutationFn: (id) => fetchInviteLink(base!, id, token),
   });
 }
 
