@@ -54,7 +54,9 @@ export function SharingScreen() {
   const isAdmin = useIsStingStreamAdmin();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(null);
-  const invites = useInvites();
+  // Administrator only: the invite routes are elevated, and a non-administrator asking gets a 403
+  // it can do nothing with. They still see the Servers half, which is not elevated.
+  const invites = useInvites(isAdmin);
   const [choosing, setChoosing] = useState(false);
 
   const people = useMemo(

@@ -40,13 +40,20 @@ const useInvitesApi = () => {
 
 export const INVITES_QUERY_KEY = ["stingstream", "invites"] as const;
 
-/** Every invite this server has minted, newest first. */
-export function useInvites(): UseQueryResult<InviteSummary[]> {
+/**
+ * Every invite this server has minted, newest first.
+ *
+ * `enabled` is for a screen that shows this alongside things a non-administrator may see — the
+ * Sharing screen does. Every route here is `RequiresElevation`, so asking without it produces a
+ * 403 the caller cannot act on and a red line in the console, which is the same reasoning the
+ * session gate above is written for.
+ */
+export function useInvites(enabled = true): UseQueryResult<InviteSummary[]> {
   const { base, token, authed } = useInvitesApi();
   return useQuery({
     queryKey: [...INVITES_QUERY_KEY, "list", base],
     queryFn: () => fetchInvites(base!, token),
-    enabled: authed,
+    enabled: authed && enabled,
     // An invite's *status* changes without anybody on this screen doing anything — somebody
     // redeems one, or it simply runs out — so the list goes stale on its own.
     refetchInterval: 60_000,
