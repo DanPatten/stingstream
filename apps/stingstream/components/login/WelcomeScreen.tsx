@@ -3,7 +3,6 @@ import { View } from "react-native";
 import { Button } from "@/components/Button";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -84,15 +83,6 @@ export const WelcomeScreen: React.FC<{ onStart: () => void }> = ({
       >
         {t("setup.welcome_start")}
       </Button>
-
-      <Text
-        variant='caption'
-        tone='tertiary'
-        align='center'
-        style={{ marginTop: 12, color: tokens.color.text.tertiary }}
-      >
-        {t("setup.welcome_next")}
-      </Text>
     </View>
   );
 };
