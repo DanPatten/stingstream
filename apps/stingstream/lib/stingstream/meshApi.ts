@@ -101,6 +101,25 @@ export interface MeshJoinResponse {
   contacted: string[];
 }
 
+/** A library on this server, named so a person can recognise it. */
+export interface MeshLibrary {
+  id: string;
+  name: string;
+  collectionType?: string | null;
+}
+
+/**
+ * What this server shares into one link, and what it could share.
+ *
+ * Both halves in one answer because the screen draws a single list with checkmarks, and two
+ * requests to draw one list is two chances for them to disagree.
+ */
+export interface SharedLibraries {
+  /** Collection-folder ids. Empty means this link gets nothing, which is a new link's default. */
+  shared: string[];
+  available: MeshLibrary[];
+}
+
 /**
  * One member of a group, from `GET /mesh/groups/{group}/members`.
  *
@@ -602,6 +621,20 @@ export async function fetchMeshInvite(
   const code = toInviteCode(await res.json());
   if (!code) throw new Error("the node returned an invite with no code");
   return code;
+}
+
+/** Core answers PascalCase; `both()` reads either spelling, as everything else here does. */
+export function toSharedLibraries(raw: unknown): SharedLibraries {
+  const shared = field<unknown[]>(raw, ...both("shared")) ?? [];
+  const available = field<unknown[]>(raw, ...both("available")) ?? [];
+  return {
+    shared: shared.filter((id): id is string => typeof id === "string"),
+    available: available.map((entry) => ({
+      id: field<string>(entry, ...both("id")) ?? "",
+      name: field<string>(entry, ...both("name")) ?? "",
+      collectionType: field<string>(entry, ...both("collectionType")) ?? null,
+    })),
+  };
 }
 
 /**

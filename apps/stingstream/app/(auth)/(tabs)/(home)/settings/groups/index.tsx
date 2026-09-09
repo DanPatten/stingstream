@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { GroupsScreen } from "@/components/stingstream/mesh/GroupsScreen";
+import { SharingScreen } from "@/components/stingstream/mesh/SharingScreen";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import { MESH_QUERY_KEY } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
@@ -22,7 +22,7 @@ export default function GroupsPage() {
 
   return (
     <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <GroupsScreen />
+      <SharingScreen />
     </RefreshScreen>
   );
 }

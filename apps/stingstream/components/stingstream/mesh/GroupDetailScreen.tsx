@@ -7,8 +7,6 @@ import { Dialog } from "@/components/common/Dialog";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
 import { radius, tokens } from "@/constants/theme";
 import {
   canManageMembers,
@@ -16,11 +14,14 @@ import {
   useLeaveMeshGroup,
   useNodeMeshGroups,
   useNodeMeshPeers,
+  useSetSharedLibraries,
+  useSharedLibraries,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { confirmDestructive } from "../shared/confirm";
 import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
+import { LibraryPicker } from "../shared/LibraryPicker";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { QueryState } from "../shared/ScreenState";
 import { GroupMembers } from "./GroupMembers";
@@ -139,6 +140,13 @@ export function GroupDetailScreen({ group }: { group: string }) {
 
         {isAdmin && (
           <>
+            <View style={{ height: 20 }} />
+            <SharedLibrariesSection group={group} />
+          </>
+        )}
+
+        {isAdmin && (
+          <>
             <View style={{ height: 16 }} />
             <Button
               testID='sharing-invite'
@@ -206,10 +214,49 @@ export function GroupDetailScreen({ group }: { group: string }) {
   );
 }
 
-const hostOf = (url: string): string => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
+/**
+ * Which of this server's libraries the other side gets.
+ *
+ * Dan: *"Each side picks its own."* So this edits **your** half only. What you see of theirs is
+ * their decision, made on their own server, and saying that plainly is more honest than a control
+ * that looks editable and is not.
+ *
+ * Saved on every tap rather than behind a Save button: there is one field, the server republishes
+ * immediately, and a screen that can be left half-applied is how somebody ends up believing they
+ * un-shared something they did not.
+ */
+const SharedLibrariesSection: React.FC<{ group: string }> = ({ group }) => {
+  const { t } = useTranslation();
+  const libraries = useSharedLibraries(group);
+  const save = useSetSharedLibraries();
+
+  const shared = libraries.data?.shared ?? [];
+
+  const toggle = (id: string) => {
+    const next = shared.includes(id)
+      ? shared.filter((existing) => existing !== id)
+      : [...shared, id];
+    save.mutate(
+      { group, libraries: next },
+      { onError: (e) => toast.error(e.message) },
+    );
+  };
+
+  return (
+    <View>
+      <Text variant='caption' tone='secondary' weight='medium'>
+        {t("sharing.link_libraries_title")}
+      </Text>
+      <Text variant='caption' tone='tertiary' style={{ marginBottom: 8 }}>
+        {t("sharing.link_libraries_hint")}
+      </Text>
+      <LibraryPicker
+        available={libraries.data?.available ?? []}
+        selected={shared}
+        onToggle={toggle}
+        loading={libraries.isPending}
+        disabled={save.isPending}
+      />
+    </View>
+  );
 };

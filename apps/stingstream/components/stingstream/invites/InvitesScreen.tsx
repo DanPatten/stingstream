@@ -7,7 +7,6 @@ import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
-import { Icon } from "@/components/common/Icon";
 import { Input } from "@/components/common/Input";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
@@ -15,7 +14,6 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { radius, tokens } from "@/constants/theme";
-import { useTheme } from "@/hooks/useTheme";
 import {
   useInviteLibraries,
   useInvites,
@@ -25,10 +23,10 @@ import {
 import {
   INVITE_DEFAULT_EXPIRY_DAYS,
   INVITE_LABEL_MAX_LENGTH,
-  type InviteLibrary,
   type InviteSummary,
   type MintedInvite,
 } from "@/lib/stingstream/invitesApi";
+import { LibraryPicker } from "../shared/LibraryPicker";
 import { EmptyState, ErrorState, LoadingState } from "../shared/ScreenState";
 
 /** How long an invite can be given, offered as the few answers people actually want. */
@@ -281,25 +279,13 @@ const MintInviteDialog: React.FC<{
           <Text variant='caption' tone='tertiary' style={{ marginBottom: 6 }}>
             {t("invites.libraries_hint")}
           </Text>
-          {libraries.isPending ? (
-            <LoadingState />
-          ) : available.length === 0 ? (
-            <Text variant='caption' tone='tertiary'>
-              {t("invites.libraries_none")}
-            </Text>
-          ) : (
-            <View style={{ gap: 4 }}>
-              {available.map((library) => (
-                <LibraryChoice
-                  key={library.id}
-                  library={library}
-                  selected={chosen.includes(library.id)}
-                  disabled={mint.isPending}
-                  onToggle={() => toggle(library.id)}
-                />
-              ))}
-            </View>
-          )}
+          <LibraryPicker
+            available={available}
+            selected={chosen}
+            onToggle={toggle}
+            loading={libraries.isPending}
+            disabled={mint.isPending}
+          />
         </View>
 
         <View>
@@ -339,31 +325,6 @@ const MintInviteDialog: React.FC<{
         </Button>
       </View>
     </Dialog>
-  );
-};
-
-const LibraryChoice: React.FC<{
-  library: InviteLibrary;
-  selected: boolean;
-  disabled: boolean;
-  onToggle: () => void;
-}> = ({ library, selected, disabled, onToggle }) => {
-  // The accent is a user setting, so it is read rather than named -- a hard-coded teal is wrong
-  // for anybody who picked violet or amber in Appearance.
-  const { accent } = useTheme();
-  return (
-    <ListItem
-      title={library.name}
-      disabled={disabled}
-      onPress={onToggle}
-      iconAfter={
-        <Icon
-          name={selected ? "radioOn" : "radioOff"}
-          size={20}
-          color={selected ? accent[500] : tokens.color.text.tertiary}
-        />
-      }
-    />
   );
 };
 

@@ -31,6 +31,7 @@ import {
   toMembers,
   toPeer,
   toRotation,
+  toSharedLibraries,
   toSharingSettings,
   toStatus,
 } from "./meshApi";
@@ -69,6 +70,23 @@ import {
  * has to load `providers/JellyfinProvider`'s import graph just to make a `fetch` call.
  */
 
+export type {
+  Age,
+  GroupCounts,
+  GroupSyncState,
+  LinkPath,
+  MemberRow,
+  MeshGroupMembers,
+  MeshInvite,
+  MeshJoinResponse,
+  MeshMember,
+  MeshNodeGroup,
+  MeshNodePeer,
+  MeshNodeStatus,
+  MeshRotation,
+  MeshSharingSettings,
+  SharedLibraries,
+} from "./meshApi";
 export {
   ageOf,
   canManageMembers,
@@ -90,22 +108,6 @@ export {
 } from "./meshApi";
 /** Re-exported so a screen can take the record without reaching past this module. */
 export type { SideDoorRecord } from "./sidedoor";
-export type {
-  Age,
-  GroupCounts,
-  GroupSyncState,
-  LinkPath,
-  MemberRow,
-  MeshGroupMembers,
-  MeshInvite,
-  MeshJoinResponse,
-  MeshMember,
-  MeshNodeGroup,
-  MeshNodePeer,
-  MeshNodeStatus,
-  MeshRotation,
-  MeshSharingSettings,
-};
 export { MeshUnavailableError };
 
 const useMeshApi = () => {
@@ -380,6 +382,57 @@ export function useRotateGroupSecret() {
       request<unknown>(`/groups/${encodeURIComponent(group)}/rotate`, {
         method: "POST",
       }).then(toRotation),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
+  });
+}
+
+/**
+ * Which of this server's libraries a link gets, and every library it could get.
+ *
+ * Dan: *"Each side picks its own."* This is your half — what they see of yours. What you see of
+ * theirs is their decision, made on their server, and the screen says so rather than pretending
+ * it is editable here.
+ */
+export function useSharedLibraries(group: string | null | undefined) {
+  const { base, authed, request } = useMeshApi();
+  return useQuery({
+    queryKey: [...MESH_QUERY_KEY, "libraries", base, group ?? ""],
+    queryFn: async () =>
+      toSharedLibraries(
+        await request<unknown>(
+          `/groups/${encodeURIComponent(group as string)}/libraries`,
+        ),
+      ),
+    enabled: authed && !!group,
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
+/**
+ * Choose what a link gets. Administrator only.
+ *
+ * The whole list every time: an absent id is how a library is un-shared, so a partial write could
+ * not tell "the owner removed this one" from "this screen did not mention it". The node republishes
+ * immediately rather than waiting for its next snapshot, so un-sharing takes effect on the other
+ * server in seconds rather than in up to fifteen minutes.
+ */
+export function useSetSharedLibraries() {
+  const { request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      group,
+      libraries,
+    }: {
+      group: string;
+      libraries: string[];
+    }) =>
+      request<unknown>(`/groups/${encodeURIComponent(group)}/libraries`, {
+        method: "PUT",
+        body: JSON.stringify({ libraries }),
+      }).then(toSharedLibraries),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
   });
