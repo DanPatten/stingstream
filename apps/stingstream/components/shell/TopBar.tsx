@@ -6,9 +6,9 @@ import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import { SearchField } from "./SearchField";
-import { useFocusVisible } from "./useFocusVisible";
 import { useScreenTitle } from "./useScreenTitle";
 import { WatchTogetherButton } from "./WatchTogether";
 

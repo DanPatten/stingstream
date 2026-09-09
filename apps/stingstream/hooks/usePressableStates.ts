@@ -8,6 +8,7 @@ import {
   rgba,
   webFocusRing,
 } from "@/constants/theme";
+import { useFocusVisible } from "./useFocusVisible";
 import { useTheme } from "./useTheme";
 
 /** Precedence, most specific first: a disabled control is never "hovered". */
@@ -26,7 +27,11 @@ export interface PressableStates {
   /** Raw flags, for a control that draws something other than an overlay. */
   hovered: boolean;
   pressed: boolean;
-  /** Keyboard/D-pad focus. On web this is what draws the ring. */
+  /**
+   * Keyboard/D-pad focus, as the platform reports it. On TV this is what drives the ring and the
+   * scale. On web it is true after a mouse click too, so draw from `webStyle` rather than from
+   * this — see `useFocusVisible`.
+   */
   focused: boolean;
   disabled: boolean;
   /** The four states collapsed in precedence order. */
@@ -88,6 +93,19 @@ export const usePressableStates = (
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
   const [focused, setFocused] = useState(false);
+  /**
+   * Focus worth drawing: focus that arrived from the keyboard.
+   *
+   * `onFocus` fires on a mouse click too, so the ring used to appear around whatever you last
+   * clicked -- Dan, on a minted invite: *"button borders are fucked up"*. The tokens have always
+   * called this the *keyboard* focus ring, and a 2 px accent outline a pixel outside a `secondary`
+   * button's own border reads as a rendering fault rather than as focus.
+   *
+   * `useFocusVisible` is the app's existing answer, written for the sidebar and moved into `hooks/`
+   * when this needed it: one listener, published through `useSyncExternalStore`, so a Tab lights
+   * the control that already had focus rather than only the next one.
+   */
+  const focusVisible = useFocusVisible(focused);
 
   const onPressIn = useCallback(() => setPressed(true), []);
   const onPressOut = useCallback(() => setPressed(false), []);
@@ -126,7 +144,7 @@ export const usePressableStates = (
           // leave in the shared style object.
           transitionDuration: `${motion.fast}ms`,
           ...webFocusRing(
-            focused && (!disabled || focusRingWhenDisabled),
+            focusVisible && (!disabled || focusRingWhenDisabled),
             accent ?? accentName ?? DEFAULT_ACCENT,
           ),
         } as ViewStyle)

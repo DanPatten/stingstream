@@ -11,6 +11,7 @@ import { StingStreamWordmark } from "@/components/brand";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens, webFocusRing } from "@/constants/theme";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import type {
   SidebarItem as SidebarItemModel,
@@ -18,7 +19,6 @@ import type {
 } from "./buildSidebarItems";
 import { RailTooltip, SidebarItem } from "./SidebarItem";
 import { UserMenu } from "./UserMenu";
-import { useFocusVisible } from "./useFocusVisible";
 
 /** 240 when the labels are showing, a 72 px icon rail when they are not. */
 export const SIDEBAR_WIDTH = 240;

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, space, tokens, webFocusRing } from "@/constants/theme";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
@@ -20,7 +21,6 @@ import {
   useWatchSessions,
 } from "@/lib/stingstream/watch";
 import { apiAtom } from "@/providers/JellyfinProvider";
-import { useFocusVisible } from "./useFocusVisible";
 
 /**
  * "Watch together" — the top bar's one social control.

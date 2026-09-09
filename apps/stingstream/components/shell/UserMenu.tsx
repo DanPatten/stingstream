@@ -18,9 +18,9 @@ import {
   tokens,
   webFocusRing,
 } from "@/constants/theme";
+import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
-import { useFocusVisible } from "./useFocusVisible";
 
 const MENU_WIDTH = 248;
 /** Enough to decide whether the card fits below its trigger before it renders. */

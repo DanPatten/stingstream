@@ -221,6 +221,28 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   const { t } = useTranslation();
 
   const [api, setApi] = useAtom(apiAtom);
+  /**
+   * The same value, readable in the tick it was set.
+   *
+   * `setApi` is a jotai setter, so `api` above only changes on the next render — and "set the
+   * server, then sign in" is a sequence a caller can perform in one tick. `/join` does exactly
+   * that: a visitor with no session accepts an invite, the screen points the app at the node, and
+   * `login` ran a moment later against an `api` that was still `null` and threw **"API not
+   * initialized"** at somebody whose account had just been created successfully.
+   *
+   * So every path that installs an api records it here first, and the mutations below read
+   * `api ?? apiRef.current`. A ref rather than restructuring the callers, because the bug is not
+   * theirs: asking a provider to connect and then use the connection is a reasonable thing to do
+   * in one go.
+   */
+  const apiRef = useRef<Api | null>(api);
+  const installApi = useCallback(
+    (next: Api | null) => {
+      apiRef.current = next;
+      setApi(next);
+    },
+    [setApi],
+  );
   const [user, setUser] = useAtom(userAtom);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [secret, setSecret] = useState<string | null>(null);
@@ -289,7 +311,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     (accessToken: string, nextUser: UserDto) => {
       if (!jellyfin || !api?.basePath) return;
       setUser(nextUser);
-      setApi(createServerApi(jellyfin, api.basePath, accessToken));
+      installApi(createServerApi(jellyfin, api.basePath, accessToken));
       storage.set("token", accessToken);
       storage.set("user", JSON.stringify(nextUser));
     },
@@ -315,7 +337,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     storage.remove("REACT_QUERY_OFFLINE_CACHE");
     clearTVDiscoverySafely();
     setUser(null);
-    setApi(null);
+    installApi(null);
     setPluginSettings(undefined);
     queryClient.clear();
 
@@ -332,7 +354,13 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
         `Failed to clear Jellyseerr data: ${e instanceof Error ? e.message : e}`,
       );
     }
-  }, [setUser, setApi, setPluginSettings, clearAllJellyseerData, queryClient]);
+  }, [
+    setUser,
+    installApi,
+    setPluginSettings,
+    clearAllJellyseerData,
+    queryClient,
+  ]);
 
   const handleSessionExpired = useCallback(() => {
     if (sessionExpiredRef.current) return; // run once per session
@@ -519,7 +547,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       if (!apiInstance?.basePath) throw new Error("Failed to connect");
 
       writeInfoLog(`Server set: ${server.address}`);
-      setApi(apiInstance);
+      installApi(apiInstance);
       storage.set("serverUrl", server.address);
     },
     onSuccess: async (_, server) => {
@@ -535,7 +563,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     mutationFn: async () => {
       clearTVDiscoverySafely();
       storage.remove("serverUrl");
-      setApi(null);
+      installApi(null);
     },
     onError: (error) => {
       console.error("Failed to remove server:", error);
@@ -588,22 +616,26 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       serverName?: string;
       options?: LoginOptions;
     }) => {
-      if (!api || !jellyfin) throw new Error("API not initialized");
+      // `apiRef` as well as `api`: a caller that set the server a moment ago is still holding the
+      // render in which it was null. See the ref's own comment -- this is the line that threw
+      // "API not initialized" at somebody who had just redeemed an invite.
+      const active = api ?? apiRef.current;
+      if (!active || !jellyfin) throw new Error("API not initialized");
 
       try {
-        writeInfoLog(`Login: authenticating against ${api.basePath}`);
-        const auth = await api.authenticateUserByName(username, password);
+        writeInfoLog(`Login: authenticating against ${active.basePath}`);
+        const auth = await active.authenticateUserByName(username, password);
 
         if (auth.data.AccessToken && auth.data.User) {
           setUser(auth.data.User);
           storage.set("user", JSON.stringify(auth.data.User));
-          setApi(
-            createServerApi(jellyfin, api.basePath, auth.data?.AccessToken),
+          installApi(
+            createServerApi(jellyfin, active.basePath, auth.data?.AccessToken),
           );
           storage.set("token", auth.data?.AccessToken);
 
           // Save credentials to secure storage if requested
-          if (api.basePath && options?.saveAccount) {
+          if (active.basePath && options?.saveAccount) {
             const securityType = options.securityType || "none";
             let pinHash: string | undefined;
 
@@ -618,7 +650,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
               toast.error(t("save_account.not_saved"));
             } else {
               await saveAccountCredential({
-                serverUrl: api.basePath,
+                serverUrl: active.basePath,
                 serverName: serverName || "",
                 token: auth.data.AccessToken,
                 userId: auth.data.User.Id || "",
@@ -642,7 +674,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
             const jellyseerrApi = new JellyseerrApi(
               recentPluginSettings.jellyseerrServerUrl.value,
             );
-            const jellyfinServerUrl = api.basePath;
+            const jellyfinServerUrl = active.basePath;
             const jellyfinUserId = auth.data.User.Id;
             await jellyseerrApi.test().then((result) => {
               if (result.isValid && result.requiresPass) {
@@ -693,7 +725,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
             (!error.response || error.response.status === 401)
             ? "WARN"
             : "ERROR",
-          `Login failed against ${api.basePath}: ${describeRequestError(error)}`,
+          `Login failed against ${active.basePath}: ${describeRequestError(error)}`,
         );
         if (axios.isAxiosError(error)) {
           // What's thrown from here is only a translated message for the
@@ -795,7 +827,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
         storage.remove("REACT_QUERY_OFFLINE_CACHE");
 
         // Token is valid, update state
-        setApi(apiInstance);
+        installApi(apiInstance);
         setUser(response.data);
         storage.set("serverUrl", serverUrl);
         storage.set("token", credential.token);
@@ -892,7 +924,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
 
         setUser(auth.data.User);
         storage.set("user", JSON.stringify(auth.data.User));
-        setApi(createServerApi(jellyfin, serverUrl, auth.data.AccessToken));
+        installApi(createServerApi(jellyfin, serverUrl, auth.data.AccessToken));
         storage.set("serverUrl", serverUrl);
         storage.set("token", auth.data.AccessToken);
 
@@ -935,7 +967,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
 
       clearTVDiscoverySafely();
       const newApi = createServerApi(jellyfin, newUrl, api.accessToken);
-      setApi(newApi);
+      installApi(newApi);
       // Note: We don't update storage.set("serverUrl") here
       // because we want to keep the original remote URL as the "primary" URL
     },
@@ -965,7 +997,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
 
         if (serverUrl && token) {
           const apiInstance = createServerApi(jellyfin, serverUrl, token);
-          setApi(apiInstance);
+          installApi(apiInstance);
 
           if (storedUser?.Id) {
             setUser(storedUser);
