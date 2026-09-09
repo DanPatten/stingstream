@@ -610,7 +610,8 @@ impl Db {
                         max_direct_streams = ?4, max_transcodes = ?5,
                         active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8,
                         can_fulfil_movies = COALESCE(?9, can_fulfil_movies),
-                        can_fulfil_tv = COALESCE(?10, can_fulfil_tv)
+                        can_fulfil_tv = COALESCE(?10, can_fulfil_tv),
+                        side_door = COALESCE(?11, side_door)
                  WHERE group_id = ?1 AND node_id = ?2",
                 params![
                     group.to_string(),
@@ -627,6 +628,12 @@ impl Db {
                     // explicit `false` and does stop volunteering on the next beat.
                     hb.can_fulfil_movies.map(|v| v as i64),
                     hb.can_fulfil_tv.map(|v| v as i64),
+                    // Same COALESCE, same reason. Stored as the JSON the client reads rather than
+                    // as columns: nothing here inspects it, and a shape the app already decodes is
+                    // one fewer place for the two ends to disagree.
+                    hb.side_door
+                        .as_ref()
+                        .and_then(|sd| serde_json::to_string(sd).ok()),
                 ],
             )
             .context("recording a heartbeat")?;
@@ -673,7 +680,7 @@ impl Db {
         let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
                           active_transcodes, free_space, throughput_bps, throughput_samples,
-                          throughput_at, can_fulfil_movies, can_fulfil_tv
+                          throughput_at, can_fulfil_movies, can_fulfil_tv, side_door
                    FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
@@ -700,6 +707,11 @@ impl Db {
                     // it until the claim times out.
                     can_fulfil_movies: r.get::<_, Option<i64>>(16)?.unwrap_or(0) != 0,
                     can_fulfil_tv: r.get::<_, Option<i64>>(17)?.unwrap_or(0) != 0,
+                    // Unparseable is the same as absent: a peer running something we cannot read
+                    // is a peer we have no address for, which every caller already handles.
+                    side_door: r
+                        .get::<_, Option<String>>(18)?
+                        .and_then(|j| serde_json::from_str(&j).ok()),
                 })
             })
             .context("listing peers")?;
@@ -1466,6 +1478,11 @@ pub struct PeerRow {
     /// When the average was last updated, RFC 3339.
     pub throughput_at: Option<String>,
     /// Whether this peer advertises that it could grab a film — see
+    /// Where a browser can reach this peer, as it last gossiped it. `None` for a peer with no
+    /// domain and no LAN address to offer, and for one running a build that does not publish it.
+    /// See [`crate::sidedoor`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_door: Option<crate::sidedoor::SideDoor>,
     /// [`crate::inventory::Heartbeat::can_fulfil_movies`]. False for a peer that has not said.
     #[serde(default)]
     pub can_fulfil_movies: bool,

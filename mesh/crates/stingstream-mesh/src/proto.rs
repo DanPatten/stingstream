@@ -71,13 +71,17 @@ pub const PROTOCOL_MAJOR: u8 = 2;
 /// * **0** — the M3–M7 protocol as it stood: peer handshake, gossip bodies through `Watch`.
 /// * **1** — M8b: group secret rotation and member revocation (`GET`/`POST /peer/v1/group/rekey`
 ///   and the `Revocation` gossip body).
+/// * **2** — Part 7: `Heartbeat::side_door`, where a browser can reach a node. An optional field
+///   with `#[serde(default)]` on an existing body, which `docs/UPGRADING.md` §3 classes as a minor:
+///   an older node decodes the beat and ignores the key, and a newer one reads `None` from an older
+///   node's beat as "this peer has no address for me", which is exactly what it means.
 ///
 /// **Deliberately not reset by the major bump.** The two axes are independent: the major says who
 /// this build can talk to at all, the minor says which optional features to expect from somebody it
 /// can. Resetting to 0 would claim a v2 node might lack rotation, which is false, and it would make
 /// [`negotiate_minor`] and the [`MINOR_REKEY`] check degenerate — clippy notices, and it is right
-/// to. So a build is "2.1": major 2, and it has rotation.
-pub const PROTOCOL_MINOR: u8 = 1;
+/// to. So a build is "2.2": major 2, with rotation and with published addresses.
+pub const PROTOCOL_MINOR: u8 = 2;
 
 /// The minor version at which secret rotation and revocation became available.
 ///

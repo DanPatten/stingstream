@@ -34,6 +34,7 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             "/mesh/v1/settings/sharing",
             get(get_sharing).put(put_sharing),
         )
+        .route("/mesh/v1/settings/sidedoor", put(put_side_door))
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
         .route("/mesh/v1/groups/join", post(join_group))
         .route("/mesh/v1/groups/{group}/invite", post(make_invite))
@@ -182,6 +183,13 @@ struct StatusBody {
     /// network problem. A non-zero `refused_gossip` here says which it is, without anybody having
     /// to find the log line. See [`crate::proto`] and `docs/UPGRADING.md`.
     protocol: crate::proto::ProtocolStatus,
+    /// Where a browser can reach **this** node, as it publishes it to its group.
+    ///
+    /// The same record its peers see, offered here so a client can cache its own server's address
+    /// alongside its peers' from one place. Absent on a node with no domain and no LAN address,
+    /// which is a loopback-only node and every harness node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    side_door: Option<crate::sidedoor::SideDoor>,
 }
 
 async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
@@ -196,6 +204,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
         direct_addrs: addr.ip_addrs().map(|a| a.to_string()).collect(),
         dht: node.dht_state(),
         protocol: crate::proto::status(),
+        side_door: node.capacity().side_door,
     })
 }
 
@@ -283,6 +292,32 @@ async fn make_invite(
     let id = parse_group(&group)?;
     let (code, url) = node.invite_with_link(&id).await?;
     Ok(Json(InviteBody { code, url }))
+}
+
+/// The gateway's LAN base URLs, pushed by the supervisor.
+///
+/// The supervisor owns the gateway, so it is the only part of a node that knows which address and
+/// port a browser on this network should use — the mesh knows only its own iroh addresses, and the
+/// embedded media server is loopback-bound. The domain half of the record comes from this node's
+/// own settings, so this carries only what the mesh cannot work out for itself.
+#[derive(Serialize, Deserialize)]
+struct SideDoorBody {
+    /// `http://host:port`, as `gateway::lan_base_urls` produces them. Empty on a loopback-only
+    /// node, which then publishes nothing.
+    #[serde(default)]
+    lan_urls: Vec<String>,
+}
+
+/// `PUT /mesh/v1/settings/sidedoor` — the supervisor telling the mesh where a browser can reach it.
+///
+/// Loopback-only like the rest of this API, and idempotent: it is pushed on a timer because a
+/// laptop changes network, so the common case is writing the record it already had.
+async fn put_side_door(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<SideDoorBody>,
+) -> Result<StatusCode, ApiError> {
+    node.set_side_door(&body.lan_urls)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// This node's own public address, as read and written by the Sharing settings page.

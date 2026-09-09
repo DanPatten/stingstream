@@ -1189,6 +1189,12 @@ impl MeshNode {
             can_fulfil_tv: capacity
                 .can_fulfil_tv
                 .or_else(|| self.capacity().can_fulfil_tv),
+            // Same reasoning again: where a browser can reach this node is published by
+            // `set_side_door`, and Core's capacity push carries none of it.
+            side_door: capacity
+                .side_door
+                .clone()
+                .or_else(|| self.capacity().side_door),
             ..capacity.clone()
         };
         let json = serde_json::to_string(&merged).context("encoding this node's capacity")?;
@@ -1209,6 +1215,28 @@ impl MeshNode {
         hb.can_fulfil_movies = Some(movies);
         hb.can_fulfil_tv = Some(tv);
         let json = serde_json::to_string(&hb).context("encoding this node's fulfilment capability")?;
+        self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
+    }
+
+    /// Publish where a browser can reach this node.
+    ///
+    /// The supervisor calls this: it owns the gateway, so it is the only part of a node that knows
+    /// which port and which LAN address a client should actually use. The domain half comes from
+    /// this node's own settings, so a change made in the app is picked up on the next call without
+    /// the supervisor having to be told.
+    ///
+    /// A node with neither publishes **nothing** rather than an empty record — see
+    /// [`crate::sidedoor::SideDoor::is_empty`].
+    pub fn set_side_door(&self, lan_urls: &[String]) -> Result<()> {
+        let public = self.sharing_settings()?.public_address;
+        let record = crate::sidedoor::SideDoor::build(
+            &self.node_id().to_string(),
+            public.as_deref(),
+            lan_urls,
+        );
+        let mut hb = self.capacity();
+        hb.side_door = (!record.is_empty()).then_some(record);
+        let json = serde_json::to_string(&hb).context("encoding this node's side door")?;
         self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
     }
 

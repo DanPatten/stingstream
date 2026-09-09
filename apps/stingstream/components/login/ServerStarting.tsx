@@ -17,6 +17,13 @@ export interface ServerStartingProps {
   addresses: string[];
   /** True once the retry budget is spent and nothing more is happening on its own. */
   exhausted: boolean;
+  /**
+   * True when this is no longer *your* server coming up but a linked one being tried instead.
+   *
+   * Said out loud rather than done quietly: on web this ends in a navigation to a different domain
+   * and a fresh sign-in, and a redirect nobody was warned about reads as something going wrong.
+   */
+  routing?: boolean;
   onRetry: () => void;
 }
 
@@ -35,6 +42,7 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
   serverName,
   addresses,
   exhausted,
+  routing = false,
   onRetry,
 }) => {
   const { t } = useTranslation();
@@ -56,9 +64,11 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
       >
         {exhausted
           ? t("login.starting_stalled_title")
-          : serverName
-            ? t("login.starting_title_named", { server: serverName })
-            : t("login.starting_title")}
+          : routing
+            ? t("login.routing_title", { server: serverName ?? "" })
+            : serverName
+              ? t("login.starting_title_named", { server: serverName })
+              : t("login.starting_title")}
       </Text>
 
       <Text
@@ -69,7 +79,11 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
       >
         {exhausted
           ? t("login.starting_stalled_description")
-          : t("login.starting_description")}
+          : t(
+              routing
+                ? "login.routing_description"
+                : "login.starting_description",
+            )}
       </Text>
 
       {exhausted && addresses.length > 0 ? (

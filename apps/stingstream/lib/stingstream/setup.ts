@@ -108,13 +108,11 @@ export class SetupRequestError extends Error {
 export interface SetupFormErrors {
   username?: string;
   password?: string;
-  confirm?: string;
 }
 
 export interface SetupFormValues {
   username: string;
   password: string;
-  confirm: string;
 }
 
 /**
@@ -143,12 +141,9 @@ export function validateSetupForm(values: SetupFormValues): SetupFormErrors {
     });
   }
 
-  // Only worth saying once the password itself is usable — two complaints about one mistake read
-  // as two mistakes.
-  if (!errors.password && values.confirm !== values.password) {
-    errors.confirm = t("setup.passwords_do_not_match");
-  }
-
+  // No confirmation field, by Dan's instruction. It is one screen on your own machine, the
+  // password can be revealed with the eye, and getting it wrong is recoverable from the same
+  // machine — which is not the trade a confirm field is usually paid for.
   return errors;
 }
 

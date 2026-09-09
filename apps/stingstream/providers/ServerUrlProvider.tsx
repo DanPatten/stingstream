@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { Platform } from "react-native";
+import { useKnownServers } from "@/hooks/useKnownServers";
 import { useWifiSSID } from "@/hooks/useWifiSSID";
 import {
   useMeshSharingSettings,
@@ -112,6 +113,11 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
   // The only candidate is the address the node's owner set under Sharing. A node without one is
   // reachable on its own network and through the app's mesh, and not from a browser elsewhere --
   // see `docs/SIDEDOOR.md`.
+  // Learn where this server and its linked servers can be reached, so a later cold load with a
+  // dead origin has somewhere to go instead of a question. Writes only; nothing here renders from
+  // it. See `lib/stingstream/knownServers.ts`.
+  useKnownServers();
+
   const { data: meshStatus } = useNodeMeshStatus();
   const { data: sharing } = useMeshSharingSettings();
   const racedNodeRef = useRef<string | null>(null);

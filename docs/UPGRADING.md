@@ -28,8 +28,8 @@ and `/mesh/v1/status` reports the pair as a string:
 $ curl -s localhost:8791/mesh/v1/status | jq .protocol
 {
   "major": 2,
-  "minor": 1,
-  "version": "2.1",
+  "minor": 2,
+  "version": "2.2",
   "refused_handshake": 0,
   "refused_gossip": 0
 }

@@ -38,7 +38,6 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -48,7 +47,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
    */
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const values = { username, password, confirm };
+  const values = { username, password };
   const errors: SetupFormErrors = validateSetupForm(values);
   const showing = (field: keyof SetupFormErrors): string | null =>
     touched[field] ? (errors[field] ?? null) : null;
@@ -56,9 +55,9 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   const submit = useCallback(async () => {
     if (busy) return;
     Keyboard.dismiss();
-    setTouched({ username: true, password: true, confirm: true });
+    setTouched({ username: true, password: true });
     setFormError(null);
-    if (!isSetupFormValid(validateSetupForm({ username, password, confirm }))) {
+    if (!isSetupFormValid(validateSetupForm({ username, password }))) {
       return;
     }
 
@@ -74,7 +73,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
     } finally {
       setBusy(false);
     }
-  }, [busy, username, password, confirm, onSubmit, t]);
+  }, [busy, username, password, onSubmit, t]);
 
   const revealToggle = (
     <FocusPressable
@@ -110,9 +109,6 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
       <Text variant={isCompact ? "display" : "title"} weight='bold'>
         {t("setup.title")}
       </Text>
-      <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-        {t("setup.description")}
-      </Text>
 
       <View style={{ marginTop: 24, gap: 12 }}>
         <Input
@@ -144,9 +140,10 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
             autoCapitalize='none'
             autoComplete='new-password'
             textContentType='newPassword'
-            returnKeyType='next'
+            returnKeyType='go'
             maxLength={500}
             editable={!busy}
+            onSubmitEditing={submit}
             style={{ paddingRight: 44 }}
           />
           {revealToggle}
@@ -156,23 +153,6 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
             {t("setup.password_hint", { min: PASSWORD_MIN_LENGTH })}
           </Text>
         )}
-        <Input
-          testID='firstrun-confirm'
-          aria-label={t("setup.confirm_password")}
-          placeholder={t("setup.confirm_password")}
-          value={confirm}
-          onChangeText={setConfirm}
-          onBlur={() => setTouched((s) => ({ ...s, confirm: true }))}
-          error={showing("confirm")}
-          secureTextEntry={!revealed}
-          autoCapitalize='none'
-          autoComplete='new-password'
-          textContentType='newPassword'
-          returnKeyType='go'
-          maxLength={500}
-          editable={!busy}
-          onSubmitEditing={submit}
-        />
       </View>
 
       <FormError message={formError} style={{ marginTop: 12 }} />

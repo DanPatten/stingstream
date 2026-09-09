@@ -321,10 +321,12 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // listening would answer a player with a connection error rather than a 503.
     let mesh = if config.children.mesh && config.mesh.embedded {
         let port = rt.mesh.api_port;
-        // The gateway port used to go with it: the mesh was where a coordinator's SNI passthrough
-        // landed (ALPN `stingstream/tcp/1`) and it piped the connection into the gateway on
-        // loopback. There is no coordinator and no passthrough, so the mesh does not need to know
-        // the gateway's port at all -- a node serves its own TLS on its own domain now.
+        // The gateway port is not passed here, and that is deliberate. It used to be, because the
+        // mesh was where a coordinator's SNI passthrough landed and it piped the connection into
+        // the gateway on loopback; there is no coordinator and no passthrough now. The mesh does
+        // need to know where a browser can reach this node -- that is what tells a client where
+        // its server's linked servers are -- but that address changes when a laptop moves network,
+        // so it is *pushed on a timer* rather than frozen at start-up. See `side_door_publisher`.
         match embedded_mesh::start(&data_dir, port, &config.node_name, shutdown_rx.clone())
         .await
         {
@@ -500,6 +502,44 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     }
     print_banner(&rt, mode.is_dev(), &web, mesh_node_id.as_deref(), &lan);
 
+    // Tell the mesh where a browser can reach this node, so its peers learn it and a client whose
+    // own server is down can route itself to one of them instead of being asked for an address.
+    //
+    // Pushed rather than read: the supervisor owns the gateway, so it is the only part of a node
+    // that knows the address and port a browser should use. On a timer because the answer changes
+    // -- a laptop moves network, a VPN comes up -- and `LanAddresses` already re-derives it on its
+    // own TTL, so this is a cheap idempotent write of what is usually the same record.
+    let side_door_publisher = {
+        let addresses = gateway::LanAddresses::new(&config.gateway.bind, config.gateway.port);
+        let port = rt.mesh.api_port;
+        let enabled = config.children.mesh && port != 0;
+        let mut rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            if !enabled {
+                return;
+            }
+            let client = reqwest::Client::new();
+            let url = format!("http://127.0.0.1:{port}/mesh/v1/settings/sidedoor");
+            loop {
+                let body = serde_json::json!({ "lan_urls": addresses.get().as_ref() });
+                match client.put(&url).json(&body).send().await {
+                    // A 404 is an older mesh that has no such route, and nothing to complain
+                    // about on every tick.
+                    Ok(r) if r.status().is_success() || r.status().as_u16() == 404 => {}
+                    Ok(r) => tracing::debug!(status = %r.status(), "publishing this node's address"),
+                    Err(e) => tracing::debug!(error = %e, "publishing this node's address"),
+                }
+                tokio::select! {
+                    _ = rx.changed() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                }
+                if *rx.borrow() {
+                    break;
+                }
+            }
+        })
+    };
+
     // Answer "who is JellyfinServer?" on this network, so a phone or a television finds this node
     // instead of asking somebody to type its address. Jellyfin's own responder is off by design
     // (`preseed::jellyfin`) because it would advertise its loopback port; this one advertises the
@@ -566,6 +606,8 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // socket; aborted anyway so a datagram arriving mid-shutdown cannot hold the process open.
     discovery.abort();
     let _ = discovery.await;
+    side_door_publisher.abort();
+    let _ = side_door_publisher.await;
     // The mesh's own task shuts its endpoint down on the same signal; holding the handle until
     // here is what keeps it alive for exactly as long as the gateway it serves.
     drop(mesh);

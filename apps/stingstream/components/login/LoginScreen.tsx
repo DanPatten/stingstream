@@ -9,6 +9,10 @@ import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal"
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  findLiveServer,
+  readKnownServers,
+} from "@/lib/stingstream/knownServers";
 import { signInWithPasskey } from "@/lib/stingstream/passkeysApi";
 import {
   createAdmin,
@@ -50,6 +54,16 @@ import { SignInForm } from "./SignInForm";
 const AUTO_CONNECT_BUDGET_MS = 90_000;
 const AUTO_CONNECT_FIRST_DELAY_MS = 1_000;
 const AUTO_CONNECT_MAX_DELAY_MS = 5_000;
+
+/**
+ * How many failed attempts before looking for a linked server instead.
+ *
+ * Two, which is about three seconds — long enough that a single dropped packet does not send
+ * somebody to a different machine, short enough that a genuinely dead server does not cost the
+ * full ninety. A server that answered with "still starting" never gets here at all: it is alive,
+ * and waiting is the right answer.
+ */
+const FALLBACK_AFTER_ATTEMPTS = 2;
 
 /**
  * The golden path, and every path that is not it.
@@ -112,6 +126,8 @@ export const LoginScreen: React.FC = () => {
   const [connectAttempt, setConnectAttempt] = useState(0);
   /** True once the connect budget is spent, which turns the starting card into an offer to retry. */
   const [startingStalled, setStartingStalled] = useState(false);
+  /** The linked server being tried, so the card can say where it is going rather than jump. */
+  const [routingTo, setRoutingTo] = useState<string | null>(null);
   // Both halves have to say yes -- this browser, and a server with a domain to bind to. Null
   // while it is still being asked, so no link flashes and disappears.
   const passkeys = usePasskeySupport();
@@ -226,17 +242,52 @@ export const LoginScreen: React.FC = () => {
       // just proved it answers.
       let name: string | null | undefined;
       let delay = AUTO_CONNECT_FIRST_DELAY_MS;
+      let attempts = 0;
+      // Set the moment the server says it is coming up, and never unset. It is the difference
+      // between "wait" and "go somewhere else", and a node that has answered once is alive.
+      let itIsAlive = false;
       for (;;) {
         try {
           name = await connectTo(target);
           break;
         } catch (e) {
           if (cancelled) return;
+          attempts += 1;
           // A node serves its own web bundle from the gateway, which is listening well before the
           // Jellyfin behind it is. Say which of the two is happening rather than spinning
           // silently: "Starting your server" is true, and it is what somebody watching a fresh
           // install wants to be told.
-          if (e instanceof ServerStartingError) setPhase("starting");
+          if (e instanceof ServerStartingError) {
+            itIsAlive = true;
+            setPhase("starting");
+          }
+
+          // Nothing answered, twice. Not "starting" — *absent*. Rather than ask for an address,
+          // go to a server this one is linked to, which the app learned while it was working.
+          // Dan: "the client should be smart… automatically routes to the first one that's up".
+          if (!itIsAlive && attempts >= FALLBACK_AFTER_ATTEMPTS) {
+            const live = await findLiveServer(readKnownServers(), {
+              exceptOrigin: nodeContext.origin,
+            });
+            if (cancelled) return;
+            if (live) {
+              setRoutingTo(live.server.name || live.choice.url);
+              setPhase("starting");
+              // On web there is nothing to reuse: Jellyfin's CORS is deliberately closed, so the
+              // winner has to serve its own bundle, its own marker and its own sign-in. That full
+              // navigation *is* the mechanism, which is why a fresh login there is not a
+              // compromise — Dan said so.
+              if (Platform.OS === "web") {
+                globalThis.location?.replace(live.choice.url);
+              } else {
+                await setServer({ address: `${live.choice.url}/jellyfin` });
+                setServerName(live.server.name || null);
+                setPhase("signIn");
+              }
+              return;
+            }
+          }
+
           if (Date.now() >= deadline) break;
           await new Promise((r) => setTimeout(r, delay));
           if (cancelled) return;
@@ -474,7 +525,8 @@ export const LoginScreen: React.FC = () => {
 
         {phase === "starting" ? (
           <ServerStarting
-            serverName={serverName}
+            serverName={routingTo ?? serverName}
+            routing={routingTo !== null}
             addresses={nodeContext?.addresses ?? []}
             exhausted={startingStalled}
             onRetry={handleRetryConnect}

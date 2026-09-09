@@ -49,7 +49,7 @@ const json = (status: number, body: unknown) =>
   });
 
 describe("validateSetupForm", () => {
-  const good = { username: "dan", password: "hunter22", confirm: "hunter22" };
+  const good = { username: "dan", password: "hunter22" };
 
   test("a good form has nothing to say", () => {
     const errors = validateSetupForm(good);
@@ -58,11 +58,7 @@ describe("validateSetupForm", () => {
   });
 
   test("an empty username is the first thing anyone will hit", () => {
-    const errors = validateSetupForm({
-      username: "   ",
-      password: "",
-      confirm: "",
-    });
+    const errors = validateSetupForm({ username: "   ", password: "" });
     expect(errors.username).toBeTruthy();
     expect(errors.password).toBeTruthy();
     expect(isSetupFormValid(errors)).toBe(false);
@@ -91,34 +87,20 @@ describe("validateSetupForm", () => {
     const short = "a".repeat(PASSWORD_MIN_LENGTH - 1);
     const ok = "a".repeat(PASSWORD_MIN_LENGTH);
     expect(
-      validateSetupForm({ username: "dan", password: short, confirm: short })
-        .password,
+      validateSetupForm({ username: "dan", password: short }).password,
     ).toBeTruthy();
     expect(
-      validateSetupForm({ username: "dan", password: ok, confirm: ok })
-        .password,
+      validateSetupForm({ username: "dan", password: ok }).password,
     ).toBeUndefined();
   });
 
-  test("a mismatched confirmation is reported on the confirm field", () => {
-    const errors = validateSetupForm({
-      username: "dan",
-      password: "hunter22",
-      confirm: "hunter23",
-    });
-    expect(errors.confirm).toBeTruthy();
-    expect(errors.password).toBeUndefined();
-  });
-
-  test("a too-short password does not also complain about the confirmation", () => {
-    // One mistake, one message: complaining twice reads as two separate problems.
-    const errors = validateSetupForm({
-      username: "dan",
-      password: "short",
-      confirm: "",
-    });
-    expect(errors.password).toBeTruthy();
-    expect(errors.confirm).toBeUndefined();
+  // There is no confirmation field, by Dan's instruction: one screen on your own machine, with
+  // the password revealable, and a mistake recoverable from that same machine.
+  test("nothing is asked twice", () => {
+    expect(validateSetupForm(good)).toEqual({});
+    expect(
+      Object.keys(validateSetupForm({ username: "", password: "" })),
+    ).toEqual(["username", "password"]);
   });
 });
 

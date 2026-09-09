@@ -279,6 +279,18 @@ pub struct Heartbeat {
     /// folder, and room. See [`Heartbeat::can_fulfil_movies`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub can_fulfil_tv: Option<bool>,
+    /// Where a **browser** can reach this node: the owner's domain, and its LAN address.
+    ///
+    /// This is how a client learns the addresses of the servers its own server is linked to, which
+    /// is what lets it route itself somewhere else when its own server is down instead of asking
+    /// somebody to type an address. See [`crate::sidedoor`] for why it had to be restored, and for
+    /// the two things that were quietly broken while it was missing.
+    ///
+    /// `None` on the wire means "unchanged", exactly as it does for the two flags above, and for
+    /// the same reason: Core's capacity push carries neither, and a plain absence in it would erase
+    /// the node's own answer on every beat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_door: Option<crate::sidedoor::SideDoor>,
 }
 
 /// One node's view of one item, as it appears in the merged index.
