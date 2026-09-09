@@ -13,7 +13,9 @@ import {
   MeshUnavailableError,
   useLeaveMeshGroup,
   useNodeMeshGroups,
+  useNodeMeshMembers,
   useNodeMeshPeers,
+  useRemoveMeshMember,
   useSetSharedLibraries,
   useSharedLibraries,
 } from "@/lib/stingstream/mesh";
@@ -41,6 +43,8 @@ export function GroupDetailScreen({ group }: { group: string }) {
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(group);
   const leave = useLeaveMeshGroup();
+  const removeMember = useRemoveMeshMember();
+  const members = useNodeMeshMembers(group);
   const mesh = useMesh();
   const isAdmin = useIsStingStreamAdmin();
   const [showInvite, setShowInvite] = useState(false);
@@ -61,27 +65,67 @@ export function GroupDetailScreen({ group }: { group: string }) {
   const onlineCount = peerRows.filter((p) => p.online).length;
   const groupName = info?.name ?? "";
 
+  /**
+   * Unlink: stop sharing, and make the other side stop too.
+   *
+   * **Two calls, because leaving alone is one-sided and silent.** `leave` is purely local — it
+   * stops this node gossiping, drops the index and forgets the secret, and dials nobody. The other
+   * server keeps this node in its peer list for ever and, more to the point, **keeps the shared
+   * secret**, so every invite code ever minted for the link still works and this node could be
+   * re-added without its owner doing anything.
+   *
+   * So the honest version rotates first — which removes the other side and re-keys what is left —
+   * and only then leaves. The rotation is attempted for every member rather than only the one that
+   * matters, because in a link of more than two there is no single "them".
+   *
+   * A rotation that cannot reach anybody is not a reason to stay: leaving still happens, and the
+   * toast says the other side may not have heard yet. The alternative — refusing to unlink because
+   * a peer is offline — leaves somebody unable to end a share they no longer want.
+   */
   const onLeave = useCallback(() => {
     void (async () => {
       const confirmed = await confirmDestructive(
-        t("sharing.leave_confirm_title", { group: groupName || group }),
-        t("sharing.leave_confirm_warning"),
-        t("sharing.leave_confirm_button"),
+        t("sharing.unlink_confirm_title", { group: groupName || group }),
+        t("sharing.unlink_confirm_warning"),
+        t("sharing.unlink_confirm_button"),
       );
       if (!confirmed) return;
+
+      let told = true;
+      try {
+        // The membership list rather than the peer list: only this one knows which row is the
+        // node asking the question, and the mesh refuses to revoke yourself anyway.
+        const others = (members.data?.members ?? []).filter(
+          (m) => !m.isSelf && !m.revoked,
+        );
+        for (const member of others) {
+          await removeMember.mutateAsync({ group, node: member.node });
+        }
+      } catch {
+        // Offline, or a build that refuses. Recorded so the toast can be honest about it.
+        told = false;
+      }
+
       try {
         await leave.mutateAsync(group);
         // The embedded node follows the server, so tell it now rather than waiting for the
         // five-minute sync to notice.
         await mesh.syncGroups();
         toast.success(
-          t("sharing.leave_success", { group: groupName || group }),
+          t(
+            told
+              ? "sharing.unlink_success"
+              : "sharing.unlink_success_unreached",
+            {
+              group: groupName || group,
+            },
+          ),
         );
       } catch (error) {
         toast.error((error as Error).message);
       }
     })();
-  }, [group, groupName, leave, mesh, t]);
+  }, [group, groupName, leave, members.data, mesh, removeMember, t]);
 
   // A server whose mesh child is down answers 503 here, and that is not "this group has no
   // members" — it is "nothing can be asked right now", which gets its own state rather than an
@@ -204,7 +248,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
                 onPress={onLeave}
                 loading={leave.isPending}
               >
-                {t("sharing.leave_button")}
+                {t("sharing.unlink_button")}
               </Button>
             </View>
           )}

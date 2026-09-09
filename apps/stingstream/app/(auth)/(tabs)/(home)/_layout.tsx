@@ -312,7 +312,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/groups/create'
         options={{
-          title: "Create group",
+          title: "Invite a server owner",
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -321,7 +321,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/groups/join'
         options={{
-          title: "Join group",
+          title: "Accept an invite",
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -330,7 +330,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/groups/[group]'
         options={{
-          title: "Group",
+          title: "Sharing with",
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
