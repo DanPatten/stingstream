@@ -36,6 +36,7 @@ pub mod proto;
 pub mod requests;
 pub mod score;
 pub mod sharing;
+pub mod swarm;
 pub mod util;
 pub mod watch;
 

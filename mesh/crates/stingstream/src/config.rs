@@ -21,7 +21,6 @@ pub struct Config {
     pub gateway: GatewayConfig,
     pub children: ChildrenConfig,
     pub mesh: MeshSection,
-    pub sidedoor: SideDoorConfig,
     pub ports: PortsConfig,
     pub supervisor: SupervisorConfig,
     pub logging: LoggingConfig,
@@ -126,86 +125,6 @@ pub struct MeshSection {
     pub embedded: bool,
 }
 
-/// The HTTPS side door (`docs/SIDEDOOR.md`).
-///
-/// Everything here is inert without a coordinator that serves a `direct.<host>` zone: with none,
-/// the node has no hostname to get a certificate for, and `/healthz` says so rather than retrying
-/// forever. The zero-server default is exactly that case, and it is not a fault.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct SideDoorConfig {
-    /// Run the side door at all: the ACME client, the port mapping, the reachability probe and the
-    /// candidate hostnames published to the group.
-    pub enabled: bool,
-
-    /// Which coordinator to use. Empty means "the first group that has one, then the shared
-    /// fallback baked into the build" -- which is what a node should do and needs no configuration.
-    pub coordinator: String,
-
-    /// `production` (Let's Encrypt), `staging` (Let's Encrypt staging), or a directory URL.
-    ///
-    /// **Start with `staging`.** Its certificates are not publicly trusted, so a browser shows a
-    /// warning, but its rate limits are generous and a mistake costs nothing. Production allows 50
-    /// new certificates per registered domain per week and does not forgive a loop.
-    /// `tools/e2e-sidedoor.ps1` points this at a local Pebble.
-    pub acme_directory: String,
-
-    /// `mailto:` address for the ACME account. Optional; Let's Encrypt uses it only for expiry
-    /// warnings, which this node does not need because it renews itself.
-    pub acme_contact: String,
-
-    /// A PEM root to trust **when talking to the ACME server**, for a private CA like Pebble.
-    ///
-    /// It changes nothing else: not what the gateway serves, not what a browser accepts, and not
-    /// any other connection this node makes. Leave it empty for Let's Encrypt.
-    pub acme_root: String,
-
-    /// Seconds to wait after publishing the DNS-01 record before telling the CA to look for it.
-    ///
-    /// Zero is right for a Full-mode coordinator, which answers its own zone from memory. A Lite
-    /// one writes through a provider API -- allow 20 seconds or so for Cloudflare.
-    pub acme_propagation_secs: u64,
-
-    /// Ask the router for a TCP mapping to the gateway (UPnP IGD, NAT-PMP, PCP).
-    pub port_mapping: bool,
-
-    /// The address to publish as this node's public one, overriding what is discovered.
-    ///
-    /// For the case the discovery cannot cover: a router that speaks none of the three mapping
-    /// protocols, a forwarding rule added by hand, and a node whose public address iroh has
-    /// therefore never observed. Given here it is used as-is, private ranges included, because an
-    /// operator who types an address knows something this node does not.
-    pub public_ip: String,
-
-    /// The port the world reaches this node's gateway on, overriding the mapped one.
-    ///
-    /// The other half of a hand-written forwarding rule: a router set up to send TCP 443 to this
-    /// machine's 8790 is reached at 443, and the `pub.` hostname has to say so.
-    pub external_port: u16,
-
-    /// The port the coordinator's SNI router listens on, which the `relay.` hostname is dialled at.
-    /// 443 in every deployment that has one.
-    pub relay_port: u16,
-
-    /// Renew the certificate once it is this many days old. 60 of 90 leaves a month of retries
-    /// before anything a browser can see breaks.
-    pub renew_after_days: u64,
-
-    /// How often to refresh the registration with the coordinator. Must stay well inside the
-    /// coordinator's own 900-second registration TTL, or the node's names stop resolving and the
-    /// SNI router stops routing it.
-    pub register_interval_secs: u64,
-
-    /// How often to ask the coordinator to re-test whether this node is reachable directly.
-    pub probe_interval_secs: u64,
-
-    /// Ask the coordinator to probe this node's **IP address** rather than its public hostname.
-    ///
-    /// Off by default, because the hostname is what a browser will use and is therefore the honest
-    /// thing to test. On for a test rig whose zone is not in public DNS, where the hostname would
-    /// fail to resolve for reasons that have nothing to do with reachability.
-    pub probe_by_address: bool,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -276,7 +195,6 @@ impl Default for Config {
             gateway: GatewayConfig::default(),
             children: ChildrenConfig::default(),
             mesh: MeshSection::default(),
-            sidedoor: SideDoorConfig::default(),
             ports: PortsConfig::default(),
             supervisor: SupervisorConfig::default(),
             logging: LoggingConfig::default(),
@@ -340,28 +258,6 @@ impl Default for MeshSection {
     }
 }
 
-impl Default for SideDoorConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            coordinator: String::new(),
-            acme_directory: "production".to_string(),
-            acme_contact: String::new(),
-            acme_root: String::new(),
-            acme_propagation_secs: 5,
-            port_mapping: true,
-            public_ip: String::new(),
-            external_port: 0,
-            relay_port: 443,
-            renew_after_days: 60,
-            // Five minutes, against the coordinator's fifteen-minute TTL: two refreshes may be
-            // lost before the node's names stop resolving.
-            register_interval_secs: 300,
-            probe_interval_secs: 900,
-            probe_by_address: false,
-        }
-    }
-}
 
 impl Default for ChildrenConfig {
     fn default() -> Self {

@@ -100,12 +100,12 @@ Groups are private by design. There is no public list, no search for strangers, 
 someone outside a group to see what's in it. An invite is the only way in, and removing a member
 makes every invite handed out before then stop working.
 
-Making a group asks for a name and nothing else. Behind it, a small server introduces members to
-each other and passes a connection along when two homes cannot reach each other directly — which is
-what makes it work on almost any connection. It never sees your library: what goes through it is
-encrypted, and it holds no accounts and no keys. You can point that setting at a server you run
-yourself, or empty it so your computers only ever connect directly; both live under Sharing →
-Advanced, and neither changes who can see your library.
+Making a group asks for a name and nothing else. There is nothing to configure and nothing to sign
+up for: your computers find each other and connect directly about nine times in ten, and when they
+cannot — a firewall that blocks it, or an internet connection with no address of its own — the
+connection is carried by public relay infrastructure that is already part of how this works.
+Whatever goes through a relay is encrypted end to end; it cannot see your library, and it holds no
+accounts and no keys.
 
 Your watch history, favourites and resume points never leave your own computer.
 
@@ -113,19 +113,16 @@ Your watch history, favourites and resume points never leave your own computer.
 
 ## Do I need to run a server somewhere?
 
-No. Every install comes pointed at a small shared **sharing server** that introduces members and
-carries a connection on the networks where a direct one cannot be made — a firewall that blocks the
-traffic, or an internet connection with no address of its own. It never holds media, accounts or
-keys, and where a direct connection is possible your files go straight from one computer to the
-other without touching it.
+No, and there is nothing central to sign up for. StingStream used to ship pointed at a shared server
+that introduced members to each other; it does not any more, and nothing replaced it. Your computers
+find each other over public discovery and connect directly where they can, and where they cannot the
+connection is carried by public relay infrastructure — encrypted end to end, holding no media, no
+accounts and no keys.
 
-You can point that setting at a server you run yourself, or empty it so your computers only ever
-connect directly. Both are under Settings → Sharing → Advanced, and running your own is documented
-in [`deploy/coordinator/README.md`](deploy/coordinator/README.md).
-
-The same page has a second, separate box: **your server's address**, if you have pointed a domain
-at your computer. That one is only about invites. With it set, an invite is a link a friend can
-open; without it, an invite is a code they paste in. Both work, and neither needs a fixed IP
+There is one optional box, under Settings → Sharing → Advanced: **your server's address**, if you
+have pointed a domain at your computer. It changes two things and nothing else. With it set, an
+invite is a link a friend can open in a browser from anywhere, and you can sign in with a passkey;
+without it, an invite is a code they paste into the app. Both work, and neither needs a fixed IP
 address — a bare IP cannot be used, because home addresses change and browsers will not trust a
 certificate for one.
 

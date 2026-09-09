@@ -10,7 +10,7 @@ that reference is the newer document and wins on detail:
 
 | Document | Owns |
 |---|---|
-| [`docs/MESH.md`](MESH.md) | The mesh and the coordinator: wire protocol, invite format, gossip, the index schema, the local and peer APIs, the side door's coordinator half. |
+| [`docs/MESH.md`](MESH.md) | The mesh: wire protocol, invite format, gossip, the index schema, the local and peer APIs, swarming, and what the coordinator did before it was deleted. |
 | [`docs/APP-MESH.md`](APP-MESH.md) | The mesh embedded in the app: the FFI crate, the light-node rules, and the `stingstream.local` rewrite on native. |
 | [`docs/M2-web-spike.md`](M2-web-spike.md) | Why the Expo web target works, what had to change to make it, and the traps (bun only, no yarn). |
 | [`docs/APP-DEV.md`](APP-DEV.md) | Building and running the app: toolchains, bun, the TV variant, the emulator. |
@@ -71,8 +71,8 @@ had a chance to stop being useful.
 | Arr merge | One service from the user's view, shared config, separate Radarr and Sonarr cores. Sonarr from `v5-develop` (.NET 10), Radarr from `develop` (.NET 8). |
 | Identity | Username + password on your **home node only**. No accounts on other nodes and no cross-server mapping: group membership is node-to-node trust, and remote titles appear in your own server's library. |
 | Replication | Single copy, stream from wherever it lives. Grabbers check the group index first. Any node can pin a library to mirror it. |
-| Central server | **Zero-server by default** (Dan, 2026-09-04): a new group needs nothing anyone hosts — iroh's public relays and DNS discovery plus mainline-DHT discovery. **Fallback: a StingStream coordinator Dan hosts on Railway** (TCP-only: relay protocol over 443, rendezvous, side-door DNS and ACME via a DNS-provider API, reachability probe, SNI passthrough). **Anyone can override with their own server:** the Group screen has a coordinator picker — Default (public infrastructure + Dan's fallback) or a custom hostname — and the invite code carries the choice to every member. Their own server can be the same coordinator binary in Lite mode (one-click Railway template) or Full mode (VPS with UDP address discovery and an authoritative DNS zone). GitHub cannot relay traffic and only distributes images, releases and docs. |
-| Remote web and cast | An **HTTPS side door** next to the mesh, adapted from Plex's remote-access design (Dan, 2026-09-04): coordinator-managed per-node hostnames (an IP-reflecting zone on a VPS, or provider-API records via Cloudflare on Railway), a per-node Let's Encrypt wildcard certificate whose private key never leaves the node, UPnP/NAT-PMP/PCP port mapping, a coordinator reachability probe, SNI passthrough through the coordinator when direct fails, and connection racing in the web client and cast sender. Requires a coordinator; not available in pure zero-server mode. |
+| Central server | **None** (Dan, 2026-09-08: *"scrap the public server completely, no more railcar"*). A group needs nothing anyone hosts: iroh's public relays, n0 DNS discovery and the mainline DHT. The coordinator Dan hosted on Railway, and the account service that briefly followed it, are both deleted. GitHub distributes images, releases and docs and cannot relay traffic. |
+| Remote web and cast | **Bring your own domain.** A node serves HTTPS on the gateway port when there is a certificate in `$STINGSTREAM_DATA/tls/`, and plain HTTP when there is not — which is most installs, and is not a fault. Cloudflare Tunnel is the recommended way to get one: free, no port forwarding, survives CGNAT. The private key never leaves the node. Without a domain the app still reaches the server from anywhere over the mesh; what needs one is a browser link away from home, and passkeys. See [`SIDEDOOR.md`](SIDEDOOR.md). |
 | Roadmap features | Requests (Seerr-style), watch-together across the mesh, offline downloads, automatic subtitles, relay doubling as a storage node, Live TV/DVR passthrough. **Not** music/books, **not** a public directory. |
 
 ---
@@ -248,20 +248,19 @@ those milestones need them.
 ### Groups and identity
 
 - **Node identity** = iroh keypair, persisted in `$STINGSTREAM_DATA/node.key`.
-- **Group** = 32-byte group ID (also the gossip topic) + group secret + relay URL. The relay is a
-  property of the group, so members auto-configure it from the invite.
-- **Invite code** = base58(group ID, secret, inviter node address, relay URL). Joining requires the
-  inviter or any member online, or — where the group has a coordinator — a rendezvous entry any
-  member left there. An invite carries the secret and therefore never expires on its own; a rotation
-  is what kills one.
+- **Group** = 32-byte group ID (also the gossip topic) + group secret. Nothing else: the
+  coordinator URL a group used to carry went with the coordinator (Part 5).
+- **Invite code** = base58(group ID, secret, inviter node address). Joining requires the inviter or
+  any member online. An invite carries the secret and therefore never expires on its own; a rotation
+  is what kills one. A *person* invite is a different thing entirely — see
+  [`INVITES.md`](INVITES.md) — and is single-use and expiring, because there the server admits.
 - **Member revocation** (M8b) is a **secret rotation plus a deny-list**, and needs both halves.
   Rotation alone leaves the removed node holding a key that opens everything it recorded; a
   deny-list alone is per-node state a member that was offline does not have. A rotation is a signed
   `RekeyRecord` carried point to point over authenticated peer connections and **never over gossip**
   — at the instant of the decision the removed node can still read the topic. The deny-list is
-  checked against the QUIC identity, which cannot be forged, before either secret. Invite codes and
-  the coordinator's rendezvous entry re-key themselves for nothing, because both are derived from
-  the secret. Two administrators removing somebody at once resolve as `(epoch, at, by)`, highest
+  checked against the QUIC identity, which cannot be forged, before either secret. Invite codes
+  re-key themselves for nothing, because they are derived from the secret. Two administrators removing somebody at once resolve as `(epoch, at, by)`, highest
   wins, and the loser recovers through a seven-day window in which the previous secret still
   identifies a member well enough to be handed the new one. `docs/SECURITY.md` §3 and
   `docs/MESH.md`.
@@ -451,119 +450,31 @@ at most `mirrorConcurrency` copies at once. Off by default, and it should stay o
 point of the federated library is that one copy is enough. It is for a seedbox or an always-on node
 somebody wants to be the group's backstop.
 
-### Coordinator (`stingstream-relay`) — one binary, three deployment modes
+### There is no coordinator, and no coordinator-managed side door — **superseded, Part 5**
 
-The coordinator is **optional infrastructure**. A group created with none works: iroh's public
-relays carry the traffic, n0's DNS and the mainline DHT carry the discovery, and the invite code
-carries the inviter's address so a join needs no lookup at all. One Rust binary (Docker image on
-GHCR) covers the rest, with feature flags chosen by what the host can offer:
+Two sections stood here: one describing a `stingstream-relay` binary in three deployment modes, and
+one describing an HTTPS side door built on the DNS zone it served. Both are gone, and the code with
+them.
 
-| Mode | Where | Provides | Cannot provide |
-|---|---|---|---|
-| **None (default)** | nobody | iroh public relays + n0 DNS discovery + mainline DHT | side door, rendezvous when the inviter is offline |
-| **Lite (Dan's fallback)** | Railway, TCP only | relay protocol on 443 (HTTPS→WebSocket, so it works through Railway's proxy), rendezvous, reachability probe, SNI passthrough, side-door DNS records and ACME challenges published through a **DNS-provider API** (Cloudflare first, provider trait for others) | UDP address discovery (nodes get it from n0's relays), authoritative DNS |
-| **Full** | a VPS with UDP | everything in Lite plus `iroh-dns-server` discovery, UDP 7842 address discovery, and the authoritative IP-reflecting `direct.<host>` zone with no provider dependency | — |
+The short version is that it was the most infrastructure in the product serving the fewest people.
+Hole punching succeeds about nine times in ten and n0's public relays already carry the rest on TCP
+443, so the coordinator's relay was a third path behind two that work. Its rendezvous solved joining
+a group when the inviter is offline — real, and rare. Its DNS zone existed to give a node an HTTPS
+name, and a person who wants that can point a domain at their own server: fewer moving parts, and
+nobody else's machine in the path. What was left was a permanent commitment, on Dan's bill, that
+every group depended on by default. Dan: *"Scrap the public server completely, no more railcar…
+I basically want to go pure p2p."*
 
-Dan's Railway instance is baked into the build as the default fallback coordinator:
+* **What each piece was replaced by**, and the flag day it caused on the wire:
+  [`MESH.md`](MESH.md) §6.
+* **How a node serves HTTPS now** — a certificate in `$STINGSTREAM_DATA/tls/`, from a tunnel or
+  your own ACME client: [`SIDEDOOR.md`](SIDEDOOR.md).
+* **What replaced "somebody with no server of their own"** — the question the central account
+  service that briefly followed was built to answer: [`INVITES.md`](INVITES.md).
 
-```
-https://stingstream-coordinator-production.up.railway.app
-```
+The milestone sections later in this document are left as they were written. They are the record of
+what shipped when, and rewriting them would make this file a worse history for no gain.
 
-Deployed 2026-09-05 in M3a from `ghcr.io/danpatten/stingstream-coordinator:latest`. It is
-`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs`, appended to every
-group's relay map regardless of the group's own choice, and deliberately registered *without* QUIC
-address discovery so iroh never picks it as a home relay — its jobs are rendezvous and the side
-door, not carrying video. Relaying media through it is metered egress on Dan's bill, so it is
-ranked below n0's public relays and a per-group bandwidth cap is configurable. Override it per
-install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR`; an explicitly empty value means "no
-fallback", which is what the integration tests use.
-
-Compose profile `storage-node` (Full mode) adds a StingStream node joined to the group, so the host
-is also an always-on seedbox and cache. `docs/MESH.md` section 6 is the reference for the wire
-protocol, the API and the hosting configuration; `deploy/coordinator/README.md` is the hosting
-guide.
-
-### HTTPS side door (browsers, Chromecast, TV web views, 443-only networks)
-
-The mesh serves the native apps. Anything that cannot speak iroh QUIC or verify a node-key
-certificate — a browser away from home, a Chromecast receiver, a TV web view, or any client on a
-network that only passes TCP 443 — uses a second door that ends in the same gateway. Adapted from
-the Plex remote-access design with one change: private keys never leave the node.
-
-1. **Per-node hostnames.** Every node gets `lan.<nodeid>.direct.<host>`,
-   `pub.<nodeid>.direct.<host>` and `relay.<nodeid>.direct.<host>`, where `<nodeid>` is the node id
-   in z-base-32 (52 characters — the 64-character hex form does not fit in a DNS label). In **Full**
-   mode the coordinator is authoritative for `direct.<host>` and answers IP-reflecting labels
-   arithmetically (`192-168-1-5.<nodeid>.direct.<host>` → `192.168.1.5`, IPv6 with dashes likewise)
-   with nothing to maintain and long TTLs. In **Lite** mode (Railway, no UDP, not authoritative) the
-   coordinator publishes real A/AAAA records for the same three names through a `DnsProvider` —
-   Cloudflare first, behind a trait — whenever a node reports an address change, using a
-   zone-scoped token. **The hostnames are identical either way**, which is the point: a node, a
-   browser and a cast receiver never need to know which kind of coordinator is behind them.
-2. **Per-node wildcard certificate.** Each node generates its own key and a CSR for
-   `*.<nodeid>.direct.<host>`, runs the ACME client itself (Let's Encrypt, DNS-01, Rust
-   `instant-acme`), and asks the coordinator to publish the `_acme-challenge` TXT record through an
-   endpoint only that node can write, with the request signed by its iroh key (the acme-dns
-   pattern). The coordinator writes the record itself (Full) or through the provider API (Lite).
-   Renewal at 60 days. The gateway serves the certificate with rustls on 8790 and, optionally, 443.
-   The coordinator never holds a node's key.
-3. **Port mapping.** The supervisor asks the router for a TCP mapping to the gateway via UPnP IGD,
-   NAT-PMP or PCP, reusing iroh's `portmapper`. The result is shown on the Node status screen, with
-   manual-rule instructions if all three fail.
-4. **Reachability probe.** The node reports `{lan_ips, public_ip, mapped_port, cert_expiry}` to the
-   coordinator, signed by its own iroh key so the claimed addresses cannot be altered in flight. The
-   coordinator attempts a real TLS *handshake* to the public hostname — not a TCP connect, which a
-   plain listener would pass — and records `direct_https: ok | blocked` in the node's discovery
-   record, so clients learn the answer without first reaching the node. It deliberately does not
-   validate the certificate: trust is the browser's job, and a node mid-renewal should not read as
-   unreachable. A node may only ask about a hostname containing its own id, so the endpoint is not
-   a port scanner with someone else's source address.
-5. **Coordinator passthrough when direct fails** (CGNAT, no UPnP, 443-only networks). The
-   coordinator's 443 listener reads the ClientHello by hand and dispatches by SNI: its own hostname
-   terminates there and serves the relay and the API, and `relay.<nodeid>.direct.<host>` becomes a
-   raw TCP tunnel over iroh to that node's gateway. TLS still terminates on the *node*, with the
-   node's certificate, so the coordinator sees an SNI string and ciphertext. Same certificate, three
-   hostnames. Only registered nodes are routable, and an unregistered id is refused identically to a
-   stranger's name, so the router cannot be used as an open proxy.
-6. **Connection racing.** The web bundle and the cast sender read the candidate hostnames from the
-   discovery record — LAN, public, relay — open all of them with a short timeout, keep the first
-   that completes a TLS handshake, and remember the winner per network. LAN wins at home, public
-   wins away, relay wins on hostile networks.
-7. **Chromecast.** The sender hands the receiver the raced HTTPS URL. Cast receivers resolve
-   through Google's public DNS, which our authoritative zone answers, so even the LAN hostname works
-   from a receiver.
-8. **DNS rebinding protection.** Some routers (OpenWrt dnsmasq, pfSense, Fritz!Box) drop public DNS
-   answers that point at private IPs. The web client detects this (LAN name fails while the LAN IP
-   is reachable), shows the one-line fix — whitelist `direct.<host>` — and falls back to plain
-   `http://<lan-ip>:8790` for LAN browsers with a visible warning.
-
-Hosting needs, by mode. **Lite (Railway):** a service with the TCP proxy on 443, a domain whose
-DNS lives at a supported provider (Cloudflare first) and a zone-scoped API token, and a Let's
-Encrypt account for the coordinator's own name. **Full (VPS):** NS delegation of `direct.<host>` to
-the box, UDP+TCP 53, TCP 443, UDP 7842, and the same Let's Encrypt account. The hosting guide covers
-both. Let's Encrypt allows 50 new certificates per registered domain per week and exempts renewals,
-so a friend-group coordinator is comfortable; Dan's shared fallback would request a rate-limit
-increase or add ZeroSSL as a second CA once it passes that.
-
-**Status.** Both halves shipped: the coordinator's in M3a, the node's in M3d. A node now runs its
-own ACME client (`instant-acme`, DNS-01 through the coordinator's signed TXT endpoint) with the key
-generated and kept on the node; the gateway serves that certificate with rustls and picks up a
-renewal on the next handshake rather than on a restart; iroh's `portmapper` asks the router for a
-TCP mapping and surfaces the manual rule when all three protocols fail; the node answers ALPN
-`stingstream/tcp/1` so the coordinator's SNI passthrough has somewhere to land; and its candidate
-hostnames ride the gossip heartbeat to every member. The web bundle races them.
-`tools/e2e-sidedoor.ps1` proves the whole path — a real ACME order against a local Pebble, a real
-wildcard certificate, a real TLS handshake against `pub.<nodeid>`, a real tunnel through the SNI
-router, and the `blocked` case — on loopback, in about twelve seconds after the build (about three
-minutes in CI including a cold build), on Windows and in CI. PowerShell 7 is now installed on the
-build machine (user scope), so `pwsh` and Windows PowerShell 5.1 both work for every harness here;
-`docs/RUNNING.md` still recommends `powershell` for the two M3 steps that predate it.
-**What has not happened is a certificate from real Let's Encrypt for a real domain**, because a
-Lite-mode coordinator publishes every one of these names through a DNS provider and there is no
-Cloudflare token yet; Dan's Railway coordinator therefore has no side door today and a node pointed
-at it reports `state: "no_zone"` and carries on without one. Full mode needs no token at all.
-`docs/SIDEDOOR.md` is the reference.
 
 ### The app (`apps/stingstream`)
 

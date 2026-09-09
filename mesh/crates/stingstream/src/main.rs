@@ -135,7 +135,7 @@ struct Cli {
     /// `/healthz` answers 200, non-zero otherwise. Does not start anything. This is
     /// `deploy/node/Dockerfile`'s `HEALTHCHECK` command: the runtime image ships no curl/wget (see
     /// its own comments), so the binary checking its own loopback endpoint is the smallest thing
-    /// that works, the same reasoning `stingstream-relay --check` follows.
+    /// that works.
     #[arg(long)]
     healthcheck: bool,
 }
@@ -321,21 +321,11 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // listening would answer a player with a connection error rather than a 503.
     let mesh = if config.children.mesh && config.mesh.embedded {
         let port = rt.mesh.api_port;
-        // The gateway port goes with it: the mesh is where the coordinator's SNI passthrough
-        // lands (ALPN `stingstream/tcp/1`), and all it does with a tunnelled connection is pipe
-        // it into the gateway on loopback.
-        let tunnel_port = if config.sidedoor.enabled {
-            config.gateway.port
-        } else {
-            0
-        };
-        match embedded_mesh::start(
-            &data_dir,
-            port,
-            &config.node_name,
-            tunnel_port,
-            shutdown_rx.clone(),
-        )
+        // The gateway port used to go with it: the mesh was where a coordinator's SNI passthrough
+        // landed (ALPN `stingstream/tcp/1`) and it piped the connection into the gateway on
+        // loopback. There is no coordinator and no passthrough, so the mesh does not need to know
+        // the gateway's port at all -- a node serves its own TLS on its own domain now.
+        match embedded_mesh::start(&data_dir, port, &config.node_name, shutdown_rx.clone())
         .await
         {
             Ok(m) => {

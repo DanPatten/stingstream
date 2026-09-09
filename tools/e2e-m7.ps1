@@ -32,7 +32,7 @@
       still arrives.
 
       **Join from an invite code in the environment**, which is the path
-      `deploy/coordinator/compose.yml`'s `storage-node` profile depends on and which nothing had
+      `deploy/node/compose.yml` depends on and which nothing had
       exercised.
 
     The cast:
@@ -703,7 +703,7 @@ Invoke-Step 'A creates a group; C joins through the API' {
 # ============================================================================================
 Invoke-Step 'B joins from STINGSTREAM_JOIN_CODE, with nobody at the keyboard' {
     <#
-        The path `deploy/coordinator/compose.yml`'s storage-node profile depends on and which
+        The path `deploy/node/compose.yml` depends on and which
         nothing had exercised: a node comes up, reads an invite code from its environment, and joins
         the group without anybody running the API call by hand.
 

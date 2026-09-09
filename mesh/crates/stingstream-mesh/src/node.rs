@@ -1555,16 +1555,46 @@ impl MeshNode {
             "streaming from a peer"
         );
 
-        let mut out = Response::new(self.clone().failover_body(
-            group,
-            item_key.to_string(),
-            hash,
-            chosen,
-            queue,
-            body,
-            start,
-            end,
-        ));
+        // Several holders of the same bytes is what makes failover possible; it also makes the
+        // transfer faster, and that is all a swarm is. Only when the shape is right: a body to
+        // divide, an end to divide it to, a span worth dividing, and somebody to divide it with.
+        // See `crate::swarm` for each of those.
+        let span_end = end.or_else(|| total.and_then(|t| t.checked_sub(1)));
+        let span = span_end
+            .filter(|_| parts.status.is_success())
+            .map_or(0, |e| e.saturating_sub(start) + 1);
+        let peer = &self.cfg.peer;
+        let body = if crate::swarm::worth_swarming(
+            span,
+            queue.len(),
+            peer.swarm_max_holders,
+            peer.swarm_min_span_bytes,
+        ) {
+            let pieces = crate::swarm::chunks(
+                start,
+                span_end.expect("a swarmable span has an end"),
+                peer.swarm_chunk_bytes,
+            );
+            let count = crate::swarm::workers(pieces.len(), queue.len(), peer.swarm_max_holders);
+            let mut holders = Vec::with_capacity(count);
+            holders.push(chosen.clone());
+            holders.extend(queue.iter().take(count.saturating_sub(1)).cloned());
+            self.clone()
+                .swarm_body(group, item_key.to_string(), hash, holders, pieces, body)
+        } else {
+            self.clone().failover_body(
+                group,
+                item_key.to_string(),
+                hash,
+                chosen,
+                queue,
+                body,
+                start,
+                end,
+            )
+        };
+
+        let mut out = Response::new(body);
         *out.status_mut() = parts.status;
         for (name, value) in parts.headers.iter() {
             out.headers_mut().insert(name, value.clone());
@@ -2317,6 +2347,389 @@ impl MeshNode {
         axum::body::Body::from_stream(stream)
     }
 
+
+    /// Pull one span from several holders at once, and emit it in order.
+    ///
+    /// The runtime half of [`crate::swarm`]. That module decides *what* to fetch — the chunking,
+    /// the queue, the window — and this one owns the connections and does it.
+    ///
+    /// **Why the reader is one task and the fetching is several.** The client is a video player
+    /// consuming a byte stream: the body has to come out strictly in offset order, contiguously,
+    /// with no gaps and nothing repeated. So the workers race, and the reader waits for chunk `k`,
+    /// emits it, and moves to `k + 1`. A fast holder cannot get ahead of the reader by more than
+    /// [`crate::swarm::window`] chunks, which is what bounds the memory.
+    ///
+    /// **Chunk zero is special and worth the special case.** The request that got here is already
+    /// open with bytes flowing, and throwing it away to re-request the same offset would put a
+    /// round trip in front of the first frame of every playback. So worker zero serves chunk zero
+    /// from that body — [`crate::swarm::Queue::claim`] is what lets the queue rescue it anyway if
+    /// that holder dies.
+    #[allow(clippy::too_many_arguments)]
+    fn swarm_body(
+        self: Arc<Self>,
+        group: Group,
+        item_key: String,
+        hash: String,
+        holders: Vec<String>,
+        chunks: Vec<crate::swarm::Chunk>,
+        primary_body: Incoming,
+    ) -> axum::body::Body {
+        let total = chunks.len();
+        let window = crate::swarm::window(holders.len());
+        let first = chunks[0];
+
+        let mut queue = crate::swarm::Queue::new(chunks, 1);
+        queue.claim(first);
+        let shared = Arc::new(SwarmShared {
+            queue: std::sync::Mutex::new(queue),
+            ready: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            reader_at: std::sync::atomic::AtomicUsize::new(0),
+            live: std::sync::atomic::AtomicUsize::new(holders.len()),
+            reader_gone: std::sync::atomic::AtomicBool::new(false),
+            contributed: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            notify: tokio::sync::Notify::new(),
+        });
+
+        tracing::info!(
+            group = %group.id, item_key, chunks = total, holders = holders.len(),
+            "streaming from several holders at once"
+        );
+
+        let mut primary = Some(primary_body);
+        for (n, holder) in holders.iter().enumerate() {
+            let node = self.clone();
+            let shared = shared.clone();
+            let group = group.clone();
+            let item_key = item_key.clone();
+            let hash = hash.clone();
+            let holder = holder.clone();
+            // Worker zero inherits the body that is already flowing; the rest open their own.
+            let opening = if n == 0 { Some(first) } else { None };
+            let body = if n == 0 { primary.take() } else { None };
+            tokio::spawn(async move {
+                node.swarm_worker(shared, group, item_key, hash, holder, opening, body, window)
+                    .await;
+            });
+        }
+
+        let stream = async_stream::stream! {
+            // Its `Drop` is what tells the workers to stop and what reports who served, and it has
+            // to be a guard rather than code after the loop: the loop's end is not reached when
+            // hyper ends the body on `Content-Length`, which is the ordinary case.
+            let _reader = SwarmReader {
+                shared: shared.clone(),
+                group: group.id,
+                item_key: item_key.clone(),
+                chunks: total,
+            };
+
+            for index in 0..total {
+                loop {
+                    // Registered before the check, not after: a worker that finishes between the
+                    // two would otherwise signal an empty room and the reader would wait for a
+                    // notification that had already happened.
+                    let notified = shared.notify.notified();
+                    tokio::pin!(notified);
+                    notified.as_mut().enable();
+
+                    let ready = shared.ready.lock().expect("swarm buffer").remove(&index);
+                    if let Some(bytes) = ready {
+                        shared
+                            .reader_at
+                            .store(index + 1, std::sync::atomic::Ordering::Release);
+                        // Space has freed, so a worker parked on the window can move.
+                        shared.notify.notify_waiters();
+                        yield Ok::<bytes::Bytes, std::io::Error>(bytes);
+                        break;
+                    }
+
+                    if shared.live.load(std::sync::atomic::Ordering::Acquire) == 0 {
+                        tracing::error!(
+                            group = %group.id, item_key, index,
+                            "every holder of this file stopped part-way through"
+                        );
+                        yield Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "no holder could finish these bytes",
+                        ));
+                        return;
+                    }
+
+                    notified.await;
+                }
+            }
+        };
+        axum::body::Body::from_stream(stream)
+    }
+
+    /// One holder, working the queue until it is empty or it has failed too often.
+    #[allow(clippy::too_many_arguments)]
+    async fn swarm_worker(
+        self: Arc<Self>,
+        shared: Arc<SwarmShared>,
+        group: Group,
+        item_key: String,
+        hash: String,
+        holder: String,
+        mut opening: Option<crate::swarm::Chunk>,
+        mut body: Option<Incoming>,
+        window: usize,
+    ) {
+        // Its own meter, which is the point of one per worker: a shared one would average three
+        // links into a number that describes none of them, and that number is what the scorer uses
+        // to choose holders next time.
+        let mut meter = Meter::new(self.clone(), group.id, holder.clone());
+        let mut failures = 0u32;
+
+        loop {
+            // Do not run far ahead of the reader. See `swarm::window` for why this cannot
+            // deadlock: the head of the queue only outruns the reader when the chunk it is waiting
+            // for is in flight with somebody who is fetching it.
+            let chunk = loop {
+                if shared.reader_gone.load(std::sync::atomic::Ordering::Acquire) {
+                    break None;
+                }
+                if let Some(chunk) = opening.take() {
+                    break Some(chunk);
+                }
+
+                let notified = shared.notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+
+                let at = shared.reader_at.load(std::sync::atomic::Ordering::Acquire);
+                let (head, done) = {
+                    let queue = shared.queue.lock().expect("swarm queue");
+                    (queue.head(), queue.is_done())
+                };
+
+                // Only a *finished* queue ends a worker. An empty one does not, and the difference
+                // is a bug this cost a harness run to find: a chunk can come back into the queue
+                // after it looked empty, because the holder that took it died holding it. A worker
+                // that had already exited on "nothing pending" is not there to pick it up, and with
+                // enough of them gone the reader is left waiting for bytes nobody is fetching —
+                // which it reports as the stream failing, in the middle of a film, having been one
+                // chunk from the end.
+                if done {
+                    break None;
+                }
+
+                match head {
+                    Some(index) if index <= at + window => {
+                        break shared.queue.lock().expect("swarm queue").take();
+                    }
+                    // Either the head is too far ahead of the reader, or there is nothing pending
+                    // and somebody else's chunk is still in flight. Both mean wait: the second is
+                    // exactly the case above, where that chunk may yet come back.
+                    _ => notified.await,
+                }
+            };
+            let Some(chunk) = chunk else { break };
+
+            let taken = body.take();
+            match self
+                .fetch_chunk(&group, &item_key, &hash, &holder, chunk, taken, &mut meter)
+                .await
+            {
+                Ok(bytes) => {
+                    failures = 0;
+                    *shared
+                        .contributed
+                        .lock()
+                        .expect("swarm shares")
+                        .entry(holder.clone())
+                        .or_insert(0) += bytes.len() as u64;
+                    shared
+                        .ready
+                        .lock()
+                        .expect("swarm buffer")
+                        .insert(chunk.index, bytes);
+                    shared
+                        .queue
+                        .lock()
+                        .expect("swarm queue")
+                        .complete(chunk.index);
+                    shared.notify.notify_waiters();
+                }
+                Err(got) => {
+                    failures += 1;
+                    tracing::debug!(
+                        group = %group.id, item_key, node = %short(&holder),
+                        chunk = chunk.index, got, "handing a chunk back to the swarm"
+                    );
+                    // Back to the front of the queue, whole. Somebody else will pick it up; this
+                    // worker moves on rather than retrying a holder that has just failed.
+                    shared
+                        .queue
+                        .lock()
+                        .expect("swarm queue")
+                        .give_back(chunk.index);
+                    shared.notify.notify_waiters();
+
+                    if failures >= SWARM_HOLDER_FAILURES {
+                        tracing::warn!(
+                            group = %group.id, item_key, node = %short(&holder), failures,
+                            "dropping a holder from the swarm after repeated failures"
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Last out turns the light off: the reader needs to know when nobody is left, or it would
+        // wait for a chunk that is never coming.
+        shared.live.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        shared.notify.notify_waiters();
+    }
+
+    /// Run a future with the stall budget, or `None` when it did not finish in time.
+    ///
+    /// `0` means the stall check is off, which is what `stream_stall_secs = 0` asks for: the future
+    /// is awaited without a bound and failover is left to QUIC's own timeouts.
+    async fn with_stall<F: std::future::Future>(secs: u64, fut: F) -> Option<F::Output> {
+        if secs == 0 {
+            return Some(fut.await);
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(secs), fut)
+            .await
+            .ok()
+    }
+
+    /// Fetch exactly one chunk, whole.
+    ///
+    /// `Err(n)` means it failed after `n` of its bytes had arrived, so the queue can put back only
+    /// what is missing. A partial chunk is never emitted: the reader deals in whole chunks, and a
+    /// half one would have to be spliced with somebody else's continuation at exactly the right
+    /// offset — which is the bug this design exists to make impossible.
+    #[allow(clippy::too_many_arguments)]
+    async fn fetch_chunk(
+        &self,
+        group: &Group,
+        item_key: &str,
+        hash: &str,
+        holder: &str,
+        chunk: crate::swarm::Chunk,
+        open: Option<Incoming>,
+        meter: &mut Meter,
+    ) -> std::result::Result<bytes::Bytes, u64> {
+        let want = chunk.len();
+        let stall = self.cfg.peer.stream_stall_secs;
+        let mut body = match open {
+            Some(body) => body,
+            None => {
+                // Bounded, and this is not belt and braces. A holder that was *killed* closes
+                // nothing: its socket stops answering and QUIC will not call that a failure until
+                // its own idle timeout, tens of seconds later. Until then the chunk this worker
+                // took is in flight and cannot be given back — so the reader waits on it, and one
+                // dead holder costs the whole transfer that timeout rather than a stall. Measured
+                // at 165 seconds in `e2e-m4` before this existed.
+                let opened = match Self::with_stall(
+                    stall.saturating_mul(2),
+                    self.open_range(
+                        group,
+                        item_key,
+                        hash,
+                        holder,
+                        RangeAsk::From(chunk.start, Some(chunk.end)),
+                    ),
+                )
+                .await
+                {
+                    Some(r) => r,
+                    None => {
+                        tracing::warn!(
+                            group = %group.id, item_key, node = %short(holder),
+                            chunk = chunk.index, "a holder did not answer a chunk request in time"
+                        );
+                        return Err(0);
+                    }
+                };
+                match opened {
+                    Ok(resp) if resp.status().is_success() => resp.into_body(),
+                    Ok(resp) => {
+                        // A `503` is a holder saying it is busy, not broken. It counts as a failure
+                        // like any other — the chunk goes back and somebody else takes it — which
+                        // is what "shrink this holder's share" means when the share is a queue
+                        // rather than a fixed slice.
+                        tracing::debug!(
+                            group = %group.id, item_key, node = %short(holder),
+                            status = resp.status().as_u16(), chunk = chunk.index,
+                            "a holder refused a chunk"
+                        );
+                        return Err(0);
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            group = %group.id, item_key, node = %short(holder),
+                            error = %e, chunk = chunk.index, "a holder could not be reached"
+                        );
+                        return Err(0);
+                    }
+                }
+            }
+        };
+
+        // Start the measurement window here, not when the worker last finished. Between chunks a
+        // worker may have been parked on the swarm window or waiting on a dial, and folding that
+        // into the sample would report a fast holder as a slow one — to the scorer, which is what
+        // chooses holders next time. `flush` with nothing accumulated records nothing and only
+        // resets the clock.
+        meter.flush();
+
+        let mut buf = bytes::BytesMut::with_capacity(want.min(1 << 22) as usize);
+        while (buf.len() as u64) < want {
+            let frame = if stall == 0 {
+                body.frame().await
+            } else {
+                match tokio::time::timeout(std::time::Duration::from_secs(stall), body.frame())
+                    .await
+                {
+                    Ok(f) => f,
+                    Err(_) => {
+                        tracing::warn!(
+                            group = %group.id, item_key, node = %short(holder),
+                            chunk = chunk.index, got = buf.len(), stall,
+                            "a holder produced nothing for the stall timeout"
+                        );
+                        meter.flush();
+                        return Err(buf.len() as u64);
+                    }
+                }
+            };
+
+            match frame {
+                Some(Ok(f)) => {
+                    if let Ok(data) = f.into_data() {
+                        meter.add(data.len() as u64);
+                        buf.extend_from_slice(&data);
+                    }
+                }
+                Some(Err(e)) => {
+                    tracing::warn!(
+                        group = %group.id, item_key, node = %short(holder),
+                        error = %e, chunk = chunk.index, got = buf.len(),
+                        "a holder's chunk failed mid-body"
+                    );
+                    meter.flush();
+                    return Err(buf.len() as u64);
+                }
+                // A clean end before the chunk is full. The common shape of a killed holder: a
+                // closed connection is an EOF, not an error.
+                None => {
+                    meter.flush();
+                    return Err(buf.len() as u64);
+                }
+            }
+        }
+
+        // A holder that sent *more* than the range it was asked for is not answering the question
+        // that was put to it, and splicing the extra into the middle of a film would corrupt it.
+        buf.truncate(want as usize);
+        meter.flush();
+        Ok(buf.freeze())
+    }
+
     /// Ask one holder for a file, either passing the client's own range through or resuming.
     ///
     /// One retry on a transport failure, because a cached connection can be dead without knowing
@@ -2606,6 +3019,85 @@ impl Meter {
 impl Drop for Meter {
     fn drop(&mut self) {
         self.flush();
+    }
+}
+
+/// How many failures in a row before a holder is dropped from a swarm.
+///
+/// Not one: a single refusal is often a holder at its concurrency limit, and a swarm that gave up
+/// on a peer the first time it said "busy" would end up single-threaded on a node under load --
+/// which is precisely when the extra sources are worth having. Not many either: a holder that has
+/// failed three consecutive chunks is not busy, it is gone, and every further attempt costs the
+/// reader a stall timeout.
+const SWARM_HOLDER_FAILURES: u32 = 3;
+
+/// What the workers and the reader share while one span is pulled from several holders.
+///
+/// One notify for everything, deliberately. There are exactly two things anybody waits for -- a
+/// chunk arriving, and the reader moving on -- and both are woken by the same events; a channel
+/// per chunk would be a lot of machinery for a rendezvous that happens a few times a second.
+struct SwarmShared {
+    queue: std::sync::Mutex<crate::swarm::Queue>,
+    /// Chunks that have arrived and not yet been emitted, in order.
+    ready: std::sync::Mutex<std::collections::BTreeMap<usize, bytes::Bytes>>,
+    /// The index the reader wants next. Bounds how far ahead a worker may run.
+    reader_at: std::sync::atomic::AtomicUsize,
+    /// Workers still going. At zero with the queue unfinished, the stream is over.
+    live: std::sync::atomic::AtomicUsize,
+    /// Set when the reader is gone, so the workers stop fetching a file nobody is reading.
+    ///
+    /// Not hypothetical: hyper ends a body the moment `Content-Length` is satisfied and drops the
+    /// generator without polling it again, and a player that seeks abandons a body every time. With
+    /// no signal the workers would sit blocked on the window — reader position frozen, so nothing
+    /// is ever close enough to take — holding a connection and a concurrency permit on somebody
+    /// else's node until the process ended.
+    reader_gone: std::sync::atomic::AtomicBool,
+    /// Bytes each holder actually delivered.
+    ///
+    /// Kept for the line logged when the transfer ends, which is the only way to see from outside
+    /// that a swarm really used several sources rather than falling back to one — the holders
+    /// themselves log nothing per request, and "it went faster" is not evidence anybody can act on.
+    /// `tools/e2e-m4.ps1` asserts on it.
+    contributed: std::sync::Mutex<std::collections::BTreeMap<String, u64>>,
+    notify: tokio::sync::Notify,
+}
+
+/// Held by the reader for exactly as long as the body is being consumed.
+///
+/// Everything that has to happen when a swarm ends happens here, because the reader's own loop does
+/// not reliably reach its end: hyper finishes a body as soon as `Content-Length` is satisfied and
+/// drops the generator, and a player that seeks abandons bodies part-way all the time. A `Drop` is
+/// the only place that runs in both cases.
+struct SwarmReader {
+    shared: Arc<SwarmShared>,
+    group: GroupId,
+    item_key: String,
+    chunks: usize,
+}
+
+impl Drop for SwarmReader {
+    fn drop(&mut self) {
+        self.shared
+            .reader_gone
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.shared.notify.notify_waiters();
+
+        let shares = self
+            .shared
+            .contributed
+            .lock()
+            .expect("swarm shares")
+            .iter()
+            .map(|(node, bytes)| format!("{}={bytes}", short(node)))
+            .collect::<Vec<_>>()
+            // Comma-joined so the whole thing is one whitespace-free token in the log: a reader --
+            // `tools/e2e-m4.ps1` included -- can take it with `shares=(\S+)` rather than guessing
+            // where the field ends.
+            .join(",");
+        tracing::info!(
+            group = %self.group, item_key = %self.item_key, chunks = self.chunks, shares = %shares,
+            "finished streaming from several holders"
+        );
     }
 }
 

@@ -82,7 +82,8 @@ are what the release version actually flows through.
 
 The node **Docker image** is not built by `release.yml` at all — `.github/workflows/images.yml`
 publishes `ghcr.io/danpatten/stingstream-node:<sha>` and `:latest` on every push to `master`
-(mirroring `coordinator.yml`'s own pattern for the coordinator image), and `release.yml`'s `release`
+(mirroring what `coordinator.yml` did for the coordinator image before Part 5 deleted both), and
+`release.yml`'s `release`
 job only **retags** the image already built for the tagged commit with the release version
 (`docker buildx imagetools create`, which copies a manifest rather than rebuilding). This means a
 release tag should be pushed against a commit that is already on `master` and has already had
@@ -126,7 +127,7 @@ this section's caching existed):
 | | publish multi-arch manifest | 8s |
 | | compose smoke test | 54s |
 | | **wall clock** | **≈39m 37s** |
-| coordinator.yml (34009381375) | test (windows-latest) | 12m 59s |
+| ~~coordinator.yml~~ (34009381375) — **the workflow no longer exists**; rows kept because the run they came from is what the numbers above are compared against | test (windows-latest) | 12m 59s |
 | | test (ubuntu-latest) | 6m 31s |
 | | NAT scenario (docker) | 5m 14s |
 | | HTTPS side door (Pebble) | 3m 06s |

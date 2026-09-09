@@ -27,7 +27,6 @@ http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio", "service"] }
-instant-acme = { version = "0.8", default-features = false, features = ["ring", "hyper-rustls", "rcgen"] }
 iroh = "1.1"
 portmapper = "0.19"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

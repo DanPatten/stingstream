@@ -466,7 +466,7 @@ Invoke-Step 'B misses a rotation and catches up on its next dial' {
     # restart empties it -- so with every discovery service off, a restarted B knows A's node *id*
     # from its peers table and not one address to reach it at. That is a real property of a node,
     # not an artefact of this harness, and it is why the recovery is driven by pasting a code in
-    # again: on a network with n0's relays or a coordinator, B would find A on its own and this step
+    # again: on a network with n0's relays, B would find A on its own and this step
     # would be one line shorter.
     #
     # The code used is the one minted at epoch 1, which is *older than the group*. That is the point:

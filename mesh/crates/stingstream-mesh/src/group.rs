@@ -7,8 +7,13 @@
 //!   authorises nothing on its own.
 //! * **`group_secret`** — 32 random bytes, never sent over the wire in the clear. It gates peer
 //!   connections (see [`crate::auth`]) and encrypts gossip payloads (see [`crate::gossip`]).
-//! * **`coordinator`** — optional URL of a `stingstream-relay`. Absent means the group runs on
-//!   public infrastructure only (n0 relays, n0 DNS, mainline DHT); see `docs/MESH.md`.
+//!
+//! There is no third field. A group used to carry a *coordinator* URL — a server that relayed,
+//! introduced members to each other and minted hostnames — and Part 5 deleted it: every group now
+//! runs on public infrastructure only (n0 relays, n0 DNS, mainline DHT), and the address that used
+//! to be a property of the group is a property of a *node* instead, because in a group where one
+//! member has a domain and another does not, one value could never be right for both. See
+//! `docs/MESH.md`.
 //!
 //! # Rotation and revocation (M8b)
 //!

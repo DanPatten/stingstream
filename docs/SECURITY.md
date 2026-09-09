@@ -82,28 +82,22 @@ severity column is about this system's own threat model, not a generic CVSS.
 | N19 | **The app shipped a crash reporter pointed at a third party, on by default.** `@sentry/react-native` is inherited from the Streamyfin fork, and its DSN fell back to *upstream Streamyfin's own Sentry organisation* whenever `EXPO_PUBLIC_SENTRY_DSN` was unset — which it is in every StingStream build. `sentryEnabled` defaulted to true, so a person who never opened Settings was reporting by default, to somebody who never agreed to receive it and cannot be asked to delete it. It also made `README.md`, `deploy/play/privacy-policy.md` and the Data Safety declaration to Google all false, and Google enforces a wrong Data Safety form by removal rather than by warning. | **High** | The DSN fallback is gone, so with nothing configured `Sentry.init` is never called; consent is opt-in (`=== true`) rather than opt-out (`!== false`); the default is `false`. The scrubbers, the toggle and the admin lock are untouched and start working the moment somebody sets a DSN they own. Four tests pin it, including "a release build with no DSN never initializes". |
 | N18 | **Three log lines in the app printed the user's own Jellyfin access token**, from the `ApiKey=` in a direct-play URL, to logcat and to the browser console. | **Low** | `lib/stingstream/redactUrl.ts` at the three call sites; the parameter name is kept and only the value goes. |
 
-### The coordinator (`stingstream-relay`)
+### The coordinator — deleted, and the findings with it
 
-Optional infrastructure: a group with no coordinator has none of this surface. Dan's Railway
-instance is the shipped default fallback, so these matter to every group that uses it.
+Thirteen findings (C1–C13) stood here against `stingstream-relay`: an SSRF and arbitrary-port
+scanner in its probe endpoint, an unauthenticated DNS-record write, a token comparison that was not
+constant-time, and ten more. Every one of them was fixed at the time and every one is now moot:
+Part 5 deleted the crate, the deployment and the entire surface. A group has no coordinator to
+have findings against.
 
-| # | Finding | Severity | Fix |
-|---|---|---|---|
-| C1 | **SSRF and an arbitrary-port scanner in `POST /probe/v1`.** The guard was `body.host.contains(&node)` — a substring test, so anybody who owns `anything.<their-node-id>.evil.com` passed it and could point the coordinator's TLS probe at any address their DNS resolved to, including `127.0.0.1` and `169.254.169.254`. The registered-IP branch was attacker-supplied too, and the returned `detail` carried anyhow's full context chain, which distinguishes closed from filtered from open-non-TLS. | **High** | Three parts. The host must equal one of the names *this* coordinator publishes for *that* node, or the public address that node registered, compared as an `IpAddr`. The target is resolved once and **every** resolved address must be routable — loopback, link-local, RFC 1918, ULA, CGNAT, multicast, broadcast and the unspecified address all refused, with `::ffff:` mappings unwrapped first — and the connection is made to the *address*, so a DNS rebind between check and connect has nothing to win. A private address can no longer be registered as a public one either, and `iroh_addrs` is capped at 8. `detail` is now `blocked` / `timed out` / `refused` and nothing more. |
-| C2 | **No rate limiting anywhere on the HTTP API**, and the relay's own limiter defaults to off. In Lite mode each accepted registration also writes real DNS records into the operator's Cloudflare zone. | **High** | A token bucket (`src/ratelimit.rs`), keyed by the **verified node id** on the three signed routes and by client address on the rest, applied to register, probe, ACME, the three rendezvous routes and the pkarr/DoH proxy. Numbers in config; `429` carries `Retry-After`. `X-Forwarded-For` is believed only when the operator says there is a proxy in front, and then only its rightmost entry. |
-| C3 | **Unauthenticated rendezvous group creation** fills `max_groups` (10 000) and denies service to every real group. Rendezvous ids are also trust-on-first-write, so anybody who sees one in a URL can squat it. | **High** | `registry.max_nodes` (default 10 000), enforced in `slot()` — which both `register` and `add_acme_token` go through, because the ACME door was the same hole — with the same `507` the rendezvous already used. Squatting is unchanged and is residual: a rendezvous id is trust-on-first-write by design, and the mitigation is that it is derived from the group secret, so seeing one means having seen a URL. |
-| C4 | **`Entry.updated_at` was an unbounded attacker-controlled string** — the only field of an entry that was not length-checked. | **High** | Capped at 64 bytes, alongside `sealed` and `slot`. |
-| C5 | **`NodeRegistry` had no size cap** while the rendezvous did. | **High** | C3. |
-| C6 | **`/probe/v1` silently created a "registered" node** via `or_insert_with`, and `is_registered` is exactly the predicate the SNI router uses to decide whether to tunnel. | **Medium** | `set_reachability` is update-only. A `registered` flag that only `register()` sets now backs `is_registered`, because `add_acme_token` was creating entries by a different door and an entry was all the predicate asked for. |
-| C7 | **Unvalidated `iroh_addrs` become dial targets on demand**, so the coordinator can be made to emit QUIC packets at a victim. | **Medium** | C1 refuses a non-routable `pub` at registration and caps the address list. |
-| C8 | **No idle timeout, duration cap or connection cap on an established SNI tunnel.** | **Medium** | A semaphore acquired **before** the dial, an idle timeout on a clock **shared** between the two directions (a per-direction timer kills the request half of a healthy download), and a total-duration cap. All three in config. |
-| C9 | **DNS over TCP had no read timeout** on a public port 53. | **Medium** | A ten-second timeout around the whole exchange — the write side pins a task just as well as the read side. |
-| C10 | **`DELETE /rendezvous/…` skipped the `enabled` check** that `put` and `get` make. | **Low** | All three routes go through one `rendezvous_enabled()` instead of three copies, one of which was missing. |
-| C11 | **No HSTS**, although the coordinator terminates TLS on token-bearing endpoints. | **Low** | `max-age=31536000`, matching the gateway, and **only on a connection this process terminated TLS on**. Asserting it from behind Railway’s edge, where the coordinator has no certificate of its own, would lock a browser out for a year. |
-| C12 | **Secrets in derived `Debug`**: the Cloudflare API token, and the ACME token and signature on the request structs. Nothing printed them, but the trait bound made one `{:?}` a leak. | **Low** | Hand-written redacting `Debug` impls on all four, as `GroupSecret` already had. |
-| C13 | **`/healthz` reported live node, group and entry counts and the coordinator's own endpoint id**, unauthenticated. | **Low** | **Dropped**, not gated. Nothing read them; the counts are a live census of a system whose rendezvous deliberately refuses to be an enumeration oracle; and a token on the one route that must answer before anything is configured — including the container health check, which has no credentials by design — is worse than the counts are worth. |
+They are not reproduced because a register of fixed vulnerabilities in deleted code is a
+maintenance cost with no reader. What is worth carrying forward is the shape of them — **the
+coordinator's whole attack surface came from it acting on behalf of nodes it could not
+authenticate**, and the design that replaced it does not ask anything to do that: a node serves its
+own TLS on its own domain, and an invite is admitted by the server that issued it.
 
----
+`git log` has the detail for anybody who needs it; the crate was removed in `7e1b38c`.
+
 
 ## 3. Revocation, in detail
 

@@ -21,8 +21,7 @@ StingStream/
 │  └─ crates/                # mesh/Cargo.toml is the OTHER workspace
 │     ├─ stingstream/        # entry binary: supervisor + gateway + side door
 │     ├─ stingstream-mesh/   # iroh transport, groups, gossip index, source selection
-│     ├─ stingstream-mesh-ffi/ # uniffi bindings, for the app's embedded light node
-│     └─ stingstream-relay/  # the coordinator: relay, rendezvous, DNS, SNI router
+│     └─ stingstream-mesh-ffi/ # uniffi bindings, for the app's embedded light node
 ├─ packages/api-client/      # TS client generated from the StingStream OpenAPI document
 ├─ third_party/              # nzbget and jellyfin-ffmpeg fetch scripts (not vendored)
 ├─ deploy/                   # installers, Docker, compose, Play Store listing
@@ -59,8 +58,9 @@ work in one checkout, are in [`RUNNING.md`](RUNNING.md).
 | Topic | Document |
 |---|---|
 | Design, decisions, what each milestone shipped | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| Mesh wire protocol, groups, coordinator API | [`MESH.md`](MESH.md) |
-| HTTPS side door (certificates, DNS, port mapping) | [`SIDEDOOR.md`](SIDEDOOR.md) |
+| Mesh wire protocol, groups, swarming | [`MESH.md`](MESH.md) |
+| HTTPS for a browser: getting a certificate | [`SIDEDOOR.md`](SIDEDOOR.md) |
+| Inviting a person to your server | [`INVITES.md`](INVITES.md) |
 | Requests: states, policy, routing and claims | [`REQUESTS.md`](REQUESTS.md) |
 | The app: building, the embedded mesh, releases | [`APP-DEV.md`](APP-DEV.md), [`APP-MESH.md`](APP-MESH.md), [`APP-RELEASE.md`](APP-RELEASE.md) |
 | UI screen map and API client | [`UI.md`](UI.md) |

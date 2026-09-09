@@ -36,11 +36,9 @@ describe("parseInviteInput", () => {
     expect(parseInviteInput("https://media.example.com/join#7KxQm2")).toBe(
       "7KxQm2",
     );
-    expect(
-      parseInviteInput(
-        "https://stingstream-coordinator-production.up.railway.app/join#7KxQm2",
-      ),
-    ).toBe("7KxQm2");
+    expect(parseInviteInput("https://media.example.com/join#7KxQm2")).toBe(
+      "7KxQm2",
+    );
     expect(parseInviteInput("stingstream://join#7KxQm2")).toBe("7KxQm2");
     expect(parseInviteInput("  https://media.example.com/join#7KxQm2  ")).toBe(
       "7KxQm2",

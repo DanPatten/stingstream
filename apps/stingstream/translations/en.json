@@ -1447,11 +1447,11 @@
     "address_learn_more": "How this works",
     "address_explainer_title": "Where people reach you",
     "address_explainer_own_title": "Your own domain",
-    "address_explainer_own_body": "Point a domain at your own server and enter it here. There is no middleman at all: people connect straight to that address, and it is what invite links are built from. The domain needs to answer HTTPS, which a reverse proxy such as Cloudflare Tunnel, Caddy or nginx does for you. A bare IP address will not work: home addresses change, and browsers reject a certificate for one.",
+    "address_explainer_own_body": "Point a domain at your own server and enter it here. There is no middleman at all: people connect straight to that address. It is what invite links are built from, and what passkeys are bound to — a browser will only accept one for the domain it was made on. The domain needs to answer HTTPS, which a reverse proxy such as Cloudflare Tunnel, Caddy or nginx does for you. A bare IP address will not work: home addresses change, and browsers reject a certificate for one.",
     "own_field_label": "Your server's address",
-    "own_field_hint": "A domain you have pointed at this server. Invite links are built from it, so an invite goes nowhere near anybody else's machine.",
+    "own_field_hint": "A domain you have pointed at this server. Invite links are built from it, and it is what makes passkeys possible.",
     "own_field_placeholder": "media.example.com",
-    "own_field_blank": "Empty: invite links point at the sharing server instead. Set this and they point straight at you.",
+    "own_field_blank": "Empty: the app still reaches this server from anywhere, but there is no link to open in a browser away from home.",
     "invite_link_description": "Anyone who opens this link can join {{group}} and see everything in it. Send it only to people you mean to share with.",
     "invite_copy_link": "Copy link",
     "join_link_placeholder": "Paste a link or an invite code",
@@ -1467,7 +1467,7 @@
     "address_problem_ip_address": "An IP address will not work: it changes, and no certificate authority will issue for one. Use a domain.",
     "address_problem_single_label": "Nothing outside your own network can look that up. Use a full domain.",
     "address_explainer_without_title": "Without an address",
-    "address_explainer_without_body": "Everything still works: this server is reachable on your own network, and the StingStream app reaches it from anywhere. What you do not get is a link somebody can open in a browser away from home."
+    "address_explainer_without_body": "Everything still works: this server is reachable on your own network, and the StingStream app reaches it from anywhere. What you do not get is a link somebody can open in a browser away from home, or passkeys — those need a domain a browser can verify. An invite still works; it is a code rather than a link."
   },
   "requests": {
     "tab_mine": "My requests",

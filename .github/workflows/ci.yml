@@ -106,6 +106,43 @@ jobs:
       - name: Build server/infinidysk
         run: dotnet build server/infinidysk/NzbWebDAV.sln --configuration Release --no-restore
 
+  # A grep, and it earns its place. Part 5 deleted the coordinator and the account service, and the
+  # removal took four commits to finish because the references were scattered across Rust, C#,
+  # TypeScript, Kotlin, PowerShell, YAML, Dockerfiles and prose -- twice, something that named a
+  # deleted component was found only when a workflow went red or a node crash-looped. This is what
+  # notices the next one at the point somebody writes it.
+  #
+  # `docs/UPGRADING.md` and `docs/ARCHITECTURE.md` are exempt on purpose: both are *history*, and a
+  # history that cannot name what was removed is not one.
+  no-deleted-infrastructure:
+    name: no references to deleted infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Nothing outside the history may name the coordinator or the account service
+        run: |
+          set -euo pipefail
+          # Spelled in halves so this line does not match its own pattern, which is exactly
+          # what happened the first time it ran.
+          pattern="stingstream-""relay|stingstream-""accounts|[a-z0-9-]+[.]up[.]railway[.]app"
+          hits=$(grep -rInE "$pattern" \
+            --include='*.md' --include='*.rs' --include='*.ts' --include='*.tsx' \
+            --include='*.cs' --include='*.ps1' --include='*.yml' --include='*.kt' \
+            --include='*.toml' --include='Dockerfile' \
+            --exclude-dir=node_modules --exclude-dir=build --exclude-dir=dist \
+            --exclude-dir=.expo --exclude-dir=target --exclude-dir=obj --exclude-dir=bin \
+            docs tools mesh/crates apps/stingstream server/jellyfin/src \
+            .github deploy packages README.md 2>/dev/null \
+            | grep -vE "^docs/(UPGRADING|ARCHITECTURE)[.]md:" \
+            | grep -vE "stood here against|removed in " || true)
+          if [ -n "$hits" ]; then
+            echo "::error::These name infrastructure that was deleted in Part 5:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "Clean."
+
   rust:
     name: rust (${{ matrix.os }})
     strategy:

@@ -123,8 +123,7 @@ published under the one tag; Docker picks the matching one automatically.
 
 **Joining a group on first run**: set `STINGSTREAM_JOIN_CODE` to an invite code (see
 `docs/RUNNING.md` for how to mint one from another node) before starting the container, or use
-`deploy/coordinator/compose.yml`'s `storage-node` profile to run a node alongside a
-self-hosted coordinator on the same host. Either way this is exactly the same `MeshNode::join` a
+`deploy/node/compose.yml` to run one under Docker. Either way this is exactly the same `MeshNode::join` a
 manual `POST /stingstream/mesh/v1/groups/join` call would do — see
 `mesh/crates/stingstream/src/main.rs` — and it is safe to leave the variable set across restarts.
 

@@ -67,7 +67,6 @@ apps/stingstream/
 │  └─ android/                         Kotlin wrapper + the committed uniffi bindings
 ├─ providers/MeshProvider.tsx          starts the node, keeps membership in step, publishes state
 ├─ utils/mesh/streamUrl.ts             the rewrite rule (pure, unit-tested)
-├─ utils/mesh/coordinator.ts           classifies an address: coordinator, node, or neither
 ├─ utils/mesh/inviteLink.ts            building an invite link and reading one back (pure, tested)
 ├─ utils/mesh/pendingInvite.ts         an opened link, held in memory between /join and Join
 ├─ lib/stingstream/mesh.ts             the HOME NODE's mesh API, through the gateway
@@ -277,7 +276,7 @@ here.
 |---|---|---|
 | which groups the home node belongs to | `GET /stingstream/api/v1/mesh/groups` | any account |
 | an invite for each of them | `POST /stingstream/api/v1/mesh/groups/{id}/invite` → `{ "code": "…" }` | **elevated** |
-| create a group | `POST /stingstream/api/v1/mesh/groups` `{name, coordinator?}` | **elevated** |
+| create a group | `POST /stingstream/api/v1/mesh/groups` `{name}` | **elevated** |
 | join on the home node | `POST /stingstream/api/v1/mesh/groups/join` `{code}` | **elevated** |
 | leave | `DELETE /stingstream/api/v1/mesh/groups/{id}` | **elevated** |
 | the member list | `GET /stingstream/api/v1/mesh/peers?group=` | any account |
@@ -319,39 +318,32 @@ the same screens; the ten-foot differences are handled inside them.
 |---|---|
 | `groups/page` | this device's own node (id, port, relay in use, peer counts), then the home node's groups with member/online counts and whether this device has caught up |
 | `groups/create` | a name → the invite, shown immediately |
-| `groups/[group]` | members with online state and direct/relayed, the group's server, "show invite", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
+| `groups/[group]` | members with online state and direct/relayed, "show invite", leave — plus, for an administrator on a phone or the web, **Remove** per member and **Rotate secret** for the group (M8b) |
 | `/join` | where an invite link lands: reads the code out of the fragment and hands it to Join |
 
-**The create screen asks for a name and nothing else.** A group takes its server from
-`sharing.coordinator_default` on the node that created it, which is seeded with the shipped address
-when the database is first opened — so there is no state where the screen has to explain itself.
-Three earlier versions asked instead (a coordinator picker, a free-text address, then a
-Public/Private radio) and each was rejected for the same reason: it is not a question about the
-person answering it.
+**The create screen asks for a name and nothing else.** There is nothing else to ask: a group has
+an id, a secret and a name. Three earlier versions asked more (a coordinator picker, a free-text
+address, then a Public/Private radio) and each was rejected for the same reason — it is not a
+question about the person answering it. Part 5 removed the thing all three were asking about.
 
-Both addresses live under **Advanced** on the Sharing screen, and nowhere else:
+There is one address, under **Advanced** on the Sharing screen:
 
 | Field | Stored as | For |
 |---|---|---|
-| Sharing server | `sharing.coordinator_default` | copied onto a group when it is created |
-| Your server's address | `sharing.public_address` | building invite links |
+| Your server's address | `sharing.public_address` | building invite links, and binding passkeys |
 
-Both are checked live against `https://<host>/healthz`, and the answer says which kind of thing it
-is: a coordinator has `mode`, a node has `children`, neither field appears on the other. Each box
-takes one kind and, given the other, says which box it belongs in. A bare hostname is normalised to
-`https://` — a silently plain-HTTP coordinator would hand every member's rendezvous traffic to the
-network, and a plain-HTTP link opens the app outside a secure context, where `crypto.randomUUID`
-and secure storage do not exist. "Read the hosting guide" opens `deploy/coordinator/README.md`.
+**Per node, not per group**, and that is the correction that made the old design wrong rather than
+merely complicated. In a group where one member has a domain and another has none, a link the first
+mints must point at the first's server and a link the second mints cannot; one value per group would
+route the second member's invitees through the first's machine, which then has to be up for an
+invite that has nothing to do with it.
 
-**The coordinator can be changed after the group is created** (M4.5). It is still a property of the
-group that travels in every invite code, but it is no longer permanent: the detail screen's
-Coordinator row opens the same picker, with the same live `/healthz` validation, and
-`PUT /stingstream/api/v1/mesh/groups/{id}/coordinator` hands the change to the mesh — which stamps
-it, re-seeds its own relay map, announces at the new coordinator's rendezvous and gossips a signed
-`GroupConfig` record every other member applies under a last-writer-wins rule. Members that are
-offline adopt it when they return; codes already handed out still work. See `docs/MESH.md`,
-"Changing a group's coordinator", for the conflict rule and why a stale invite cannot push the old
-value back onto the group.
+The field checks the **shape** rather than probing the address: https, a real domain rather than an
+IP, never a single label. It used to ask `https://<host>/healthz` what it was talking to, in order
+to tell a coordinator from a node — there is one kind of address now, and the probe was wrong for it
+anyway, because an administrator editing their home domain from mobile data cannot resolve it from
+where they are standing and had Save disabled on a perfectly good value. The node validates the rest
+when it stores it; it is the one that has to build links from it.
 
 **Member management** (M8b) is admin-only and phone/web-only, the same shape the Requests screen
 uses for Approvals and Policy: `canManageMembers(isAdmin, Platform.isTV)` gates it, the elevated
@@ -570,10 +562,11 @@ which is why it is not done here.
 
 ## 10. Open items
 
-* ~~**The coordinator cannot be changed after a group is created**~~ — **done in M4.5.** It needed
-  an endpoint *and* a gossip body, which is what it got: `PUT .../groups/{id}/coordinator` and a
-  stamped `GroupConfig` record, last-writer-wins by timestamp with the node id breaking a tie. The
-  picker is no longer create-time only; the detail screen's Coordinator row opens it. See §7.
+* ~~**The coordinator cannot be changed after a group is created**~~ — **moot.** It was done in
+  M4.5, with an endpoint and a stamped `GroupConfig` gossip body, and Part 5 deleted the
+  coordinator and both halves with it. What people actually wanted from that feature — "people
+  reach me at a different address now" — is a node setting they change on one node, affecting only
+  the links that node mints. See §7 and `docs/MESH.md` §6.
 * **A revoked light node does not know it has been removed** (M8b). The Group screen can remove
   this device's own light-node membership — which is the right thing when the phone is lost — but
   the app carries on as though nothing happened: `MeshProvider.syncGroups()` only joins groups the

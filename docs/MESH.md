@@ -6,13 +6,12 @@ everyone holds, and the byte pipe that plays a film off someone else's disk. Two
 | Crate | What it is |
 |---|---|
 | `mesh/crates/stingstream-mesh` | the node half. iroh endpoint, groups, gossip, SQLite group index, peer HTTP, the `/stream` endpoint. Embedded by the supervisor; also a standalone binary for tests. |
-| `mesh/crates/stingstream-relay` | the **coordinator**. Optional infrastructure: iroh relay, rendezvous, side-door DNS, SNI router. One binary, `--mode lite` or `--mode full`. |
 
 This document is the reference for both: the wire protocol, the invite format, the index schema and
 every API. `docs/ARCHITECTURE.md` is the wider system picture and is owned by M1; where the two
 disagree about the mesh, this file is the newer one.
 
-**Status: M7.** Groups, discovery, the index, peer streaming and the coordinator are implemented
+**Status: Part 5.** Groups, discovery, the index and peer streaming are implemented
 and tested; the mesh runs **inside the supervisor's process** rather than as a child, and serves
 artwork and a capacity heartbeat for the federated library. M3c adds the app's embedded node and the
 URL rewrite; M4 adds source scoring and same-hash failover; M7 adds watch-together across nodes,
@@ -55,19 +54,14 @@ A new group needs nothing anyone hosts. A node's iroh endpoint is built with:
 * **mainline DHT** — the same pkarr record, published to and resolved from the BitTorrent DHT. No
   server at all; slower to converge, so it complements DNS rather than replacing it. **Best-effort,
   and never fatal** — see below.
-* **an in-memory address book** — addresses learned out of band, from an invite code or a
-  coordinator's rendezvous list. This is what lets a group work with every one of the above turned
-  off, which is the LAN case and what the integration tests run.
+* **an in-memory address book** — addresses learned out of band, from an invite code. This is what
+  lets a group work with every one of the above turned off, which is the LAN case and what the
+  integration tests run.
 
-A group may additionally carry a **coordinator URL**, which is *added to* the relay map rather than
-replacing anything. Two consequences worth being explicit about:
-
-* The map always keeps at least one UDP-capable relay, so address discovery works even when the
-  group's coordinator is TCP-only.
-* iroh picks its home relay by measured latency. A coordinator is registered with QUIC address
-  discovery only if its `/healthz` says the listener is actually running — a Lite one is TCP-only
-  and never has it — so it is not chosen for that job and mostly carries rendezvous and side-door
-  duty rather than media. Asking a coordinator that has none would cost a timeout per connection.
+There is nothing else. A group used to be able to name a **coordinator** whose relay was added to
+this map; section 6 records what that was and why it is gone. The relay map is now the same for
+every group this node belongs to, which is also the honest shape — iroh has one endpoint, so there
+was never a per-group relay map to opt out of.
 
 Switch any of it off in `mesh.toml`:
 
@@ -76,7 +70,6 @@ Switch any of it off in `mesh.toml`:
 n0_dns = true
 mainline_dht = true
 n0_relays = true
-fallback_coordinator = ""   # a shared coordinator for every group; empty is the default
 dht_bootstrap = []          # override the DHT's bootstrap nodes; empty means the public ones
 ```
 
@@ -123,14 +116,12 @@ encodings, and the difference matters:
 | 64-character hex | iroh's `Display`, the local API, the `/stream` URL, gossip | what iroh prints |
 | 52-character z-base-32 | every side-door hostname | a DNS label holds 63 characters; hex does not fit |
 
-**A group** is `(group_id, group_secret, coordinator?)`:
+**A group** is `(group_id, group_secret)`:
 
 * `group_id` — 32 random bytes, and also the `iroh-gossip` topic id. Semi-public: it travels in
   invite codes and is visible to any relay carrying the topic. It authorises nothing.
-* `group_secret` — 32 random bytes, never sent in the clear. It gates peer connections, seals gossip
-  and derives every rendezvous credential.
-* `coordinator` — optional URL. A property of the *group*, so members auto-configure from the
-  invite. **Changeable after creation** since M4.5; see "Changing a group's coordinator" below.
+* `group_secret` — 32 random bytes, never sent in the clear. It gates peer connections and seals
+  gossip.
 
 * `secret_epoch` — how many times the secret has been rotated. `0` is a group that never has. See
   "Rotating the secret, and removing a member" below (M8b).
@@ -147,7 +138,6 @@ InvitePayload {
   inviter:       [u8; 32],        // node id
   inviter_relay: Option<String>,  // relay hint, so a join needs no lookup
   inviter_ips:   Vec<String>,     // direct addresses, for a LAN join with no infrastructure
-  coordinator:   Option<String>,
 }
 ```
 
@@ -164,25 +154,23 @@ https://<host>/join#<code>
 ```
 
 The code is the same base58 string in both, so a link and a code are interchangeable everywhere and
-nothing about the payload above changed. `<host>` is **this node's** `sharing.public_address` if one
-is set, otherwise the group's coordinator, otherwise there is no link and the caller shows the code
-(`sharing::invite_link`). Preferring the node's own address is what keeps the code away from anybody
-else: a coordinator's `/join` page has to read the fragment in the visitor's browser in order to
-redirect, which `SECURITY.md` R11 records.
+nothing about the payload above changed. `<host>` is **this node's** `sharing.public_address`, and
+there is no fallback: without one there is no link, and the caller shows the code
+(`sharing::invite_link`). There used to be a fallback to the group's coordinator, and removing it
+closed a risk as well as a component — `SECURITY.md` R11 records what that was.
 
 The code rides in the **fragment**. A browser never puts a fragment on the wire, so the group secret
-appears in no access log — not the node's, not a coordinator's, not any proxy's in between — while a
-query string would have been written into all three.
+appears in no access log — not the node's, not any proxy's in between — while a query string would
+have been written into both.
 
 ### Where people reach this node
 
-Two per-node settings, in the `meta` table, read and written through
+One per-node setting, in the `meta` table, read and written through
 `GET`/`PUT /mesh/v1/settings/sharing`:
 
 | Key | Meaning |
 |---|---|
-| `sharing.public_address` | A domain pointed at this node. Only used to build invite links. |
-| `sharing.coordinator_default` | The coordinator a newly created group adopts when created Public. A default the group copies at creation; the group is the authority afterwards. |
+| `sharing.public_address` | A domain pointed at this node. What invite links are built from, and what passkeys are bound to (`docs/PASSKEYS` lives in `SECURITY.md`'s route table). |
 
 **Per node, not per group** — the difference matters. In a group where one member has a domain and
 another has none, a link the first mints must point at the first's server and a link the second
@@ -199,9 +187,12 @@ outside the LAN resolves.
 ### Joining
 
 1. Dial the address in the code, complete the handshake, `GET /peer/v1/inventory`, merge.
-2. If that fails and the group has a coordinator: fetch the rendezvous list, try each member.
-3. Subscribe to the gossip topic with whoever answered as the bootstrap set, and publish this
-   node's own address to the rendezvous.
+2. Subscribe to the gossip topic with whoever answered as the bootstrap set.
+
+There used to be a step between them — ask the group's coordinator for a rendezvous list and try
+each member — which covered the case where the inviter is offline. Section 6 records why that went
+with the rest of the coordinator: it is a real problem, and a rare one, and it cost a permanent
+service that every group depended on by default.
 
 Each dial is bounded by `peer.join_dial_timeout_secs` (12 by default), so an inviter that is
 switched off costs seconds rather than a minute. A join with nobody reachable still *succeeds* —
@@ -337,14 +328,16 @@ Each completed range logs bytes, seconds and the achieved rate, and each connect
 path type (`direct` / `relay` / `mixed`) and RTT. Since M4 the reader also folds each transfer into
 the peer's rolling throughput average, which is what the scorer reads.
 
-### ALPN `stingstream/tcp/1`
+### ALPN `stingstream/tcp/1` — retired
 
-The HTTPS side door's last hop: the coordinator's SNI router opens one bidirectional stream and
-pipes raw TCP to the node's gateway, with TLS terminating on the node. Both halves are implemented
-— `stingstream-relay`'s `tunnel` module dials, `stingstream-mesh`'s [`tunnel`] answers — and the
-node registers the ALPN only when `[sidedoor] gateway_port` in `mesh.toml` names a gateway to pipe
-into, which the supervisor sets for it. A node with no side door refuses the ALPN outright, so a
-dial fails cleanly rather than hanging. See `docs/SIDEDOOR.md`.
+A second ALPN used to exist for the side door's last hop: a coordinator's SNI router opened one
+bidirectional stream and piped raw TCP to the node's gateway, TLS terminating on the node so the
+coordinator saw only SNI and ciphertext. Both halves went with the coordinator (section 6). Nothing
+dials it and no node registers it.
+
+A node that wants to be reachable by a browser from outside now terminates its own TLS on its own
+domain — see `docs/SIDEDOOR.md`, which is about how to get a certificate rather than about
+somebody else's tunnel.
 
 ---
 
@@ -376,7 +369,6 @@ whose fields disappear on the way out.
 | `Heartbeat { node_name, heartbeat }` | liveness plus advertised capacity |
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
-| `GroupConfig { coordinator, at, by }` | the group's coordinator, stamped. See "Changing a group's coordinator" |
 
 ### Frame size, and why snapshots are chunked
 
@@ -419,73 +411,16 @@ seconds rather than waiting for the next tick. A peer with no heartbeat for `pee
 marked offline — which is what greys its titles out in the app — and comes back on its next
 heartbeat. Nothing is deleted on going offline; the federated library's grace period handles that.
 
-### Changing a group's coordinator
+### Changing a group's address — there is nothing to change
 
-A group's coordinator used to be fixed at creation, which meant a group whose owner's VPS moved — or
-one that outgrew the shared fallback — had to be rebuilt from scratch and re-joined by every member.
-`PUT /mesh/v1/groups/{group}/coordinator` changes it in place (M4.5).
+A group used to carry a coordinator URL that could be re-pointed in place, over signed gossip, with
+a last-writer-wins stamp. All of it is gone with the coordinator (section 6): a group has an id, a
+secret and a name, and nothing that identifies a server.
 
-The whole protocol is one gossip body and one comparison rule.
+What a person actually wanted from that feature — "people reach me at a different address now" — is
+a *node* setting, changed on one node, affecting only the links that node mints. No gossip, no
+agreement between members, and nothing to reconcile when two people change it at once.
 
-**The record.** A change is `(coordinator, at, by)`: the new URL (or `null`, meaning the group goes
-back to public infrastructure — a real value, not "no opinion"), the author's wall-clock time in
-milliseconds, and the author's node id. The pair `(at, by)` is a `CoordinatorStamp`, stored beside
-the coordinator in the `groups` table.
-
-**The rule is last-writer-wins, by millisecond, with the node id breaking a tie.** A tie is not
-hypothetical enough to ignore: two administrators pressing the button in the same millisecond is
-unlikely, but a group whose members disagree *forever* because each kept its own value is much worse
-than one that arbitrarily picks the higher node id — and the node id is the only value every member
-already knows and orders identically. The clock is the *author's* and no attempt is made to correct
-for skew, which is the standard cost of last-writer-wins and is accepted here for a field that
-changes perhaps twice in a group's life. A node whose own change loses is told so, with the winning
-author named, rather than left thinking it worked.
-
-**Who may write one.** Anybody who can produce a message a member can open. Sealing needs the group
-secret and the Ed25519 signature is verified against a transcript bound to the group id, and in v1
-the secret *is* the membership credential — so "sealed and signed" and "written by a member" are the
-same statement. There is deliberately no extra check that the author appears in the `peers` table: it
-would buy nothing against somebody who already holds the secret (they could gossip a `Membership`
-first) while rejecting a legitimate change from a member this node has not happened to hear from
-yet.
-
-**The stamp's author comes from the body, never the envelope.** A record has to keep its original
-author and time as every member re-announces it; taking the envelope's author would make the last
-node to repeat it look like the one that made the change, and every repeat look newer than the
-original.
-
-**Applying one is a single SQL statement** (`Db::apply_coordinator`), not a read followed by a
-write. A member rejoining a group receives every neighbour's config record within the same few
-milliseconds, so a read-then-write there is a real race rather than a theoretical one. The statement
-also tells the caller whether the row actually changed, which is what stops two members that already
-agree from re-announcing at each other forever.
-
-**Where it is re-announced:** on every snapshot tick, on `NeighborUp`, and in answer to
-`RequestSnapshot`. A member that was offline during the change therefore adopts it when it returns,
-without anything having to remember that it missed one.
-
-**What the node does besides storing it.** Gossip cannot re-seed a relay map, so a coordinator
-change also adds the new coordinator's relay to the endpoint (no restart needed) and announces this
-node at the new coordinator's rendezvous. The *old* relay is dropped only when no other group points
-at it and it is not the build's fallback coordinator — and only relays this node itself added for a
-coordinator are ever candidates. Stripping a node of n0's public relays to tidy up after one group
-would be a much worse bug than one stale entry in the map.
-
-**Invite codes need no separate regeneration.** `invite()` reads the group fresh, so a code minted
-after the change carries the new value. A code minted *before* it still works: the joiner adopts its
-coordinator **unstamped** — `(0, "")`, which loses to any real record and is **never broadcast**.
-That is the property that stops a stale code, pasted a month after the group moved, from pushing the
-old coordinator back onto everybody. The cost is that a joiner whose only contact is a member that
-is itself stale will briefly follow the stale value; it converges on the first stamped record any
-neighbour sends, which is one gossip round.
-
-`StingStream.Core` exposes this as `PUT /stingstream/api/v1/mesh/groups/{group}/coordinator` behind
-Jellyfin's elevation. The app's Group screen calls it through the same Public/Private rows the create
-screen uses: Public sends this node's `sharing.coordinator_default`, Private sends null. Core does not
-arbitrate — it hands the change to the mesh.
-
-Covered by `a_coordinator_change_reaches_the_other_node` in `tests/two_nodes.rs` and by a step in
-`tools/e2e-m3.ps1`.
 
 ### Rotating the secret, and removing a member (M8b)
 
@@ -527,8 +462,9 @@ open it.
 
 #### Conflicts, and the grace window
 
-Two administrators removing somebody at the same time resolve as `(epoch, at, by)`, highest wins —
-the same shape [`CoordinatorStamp`](#changing-a-groups-coordinator) uses, for the same reason.
+Two administrators removing somebody at the same time resolve as `(epoch, at, by)`, highest wins.
+It is a last-writer-wins stamp with the author's node id as the tiebreak, so two nodes that write
+in the same millisecond still agree on which write happened.
 
 The loser's members recover because a rotated node keeps the **previous** secret alive for
 `REKEY_GRACE_SECS` (seven days) and hands the new one to anybody who turns up holding it. A dial
@@ -550,10 +486,6 @@ already rotated.
 
 * **Invite codes.** A code carries the secret, so every one minted before the rotation is already
   dead and the next `POST /invite` mints one that works. Nothing regenerates anything.
-* **The coordinator's rendezvous entry.** The rendezvous id, its bearer token and its sealing key
-  are all derived from the secret, so the group moves to a different, unrelated path at the
-  coordinator the moment the secret changes. Old entries expire on their own and the coordinator
-  never knew what they were.
 
 #### What is deliberately *not* immediate
 
@@ -627,7 +559,7 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 
 | Table | |
 |---|---|
-| `groups` | `group_id, name, secret, coordinator, created_at` |
+| `groups` | `group_id, name, secret, created_at` |
 | `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
 | `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, local_images, local_subtitles, jellyfin_item_id, updated_at` |
 | `meta` | schema version and the per-group gossip sequence number |
@@ -660,10 +592,9 @@ member's index.
 | `GET` | `/healthz` | `ok` |
 | `GET` | `/mesh/v1/status` | node id, name, version, group count, relay and direct addresses, and the DHT's state |
 | `GET` | `/mesh/v1/groups` | groups this node belongs to |
-| `POST` | `/mesh/v1/groups` | `{name, coordinator?}` → create |
-| `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, coordinator, via, contacted}` |
+| `POST` | `/mesh/v1/groups` | `{name}` → create |
+| `POST` | `/mesh/v1/groups/join` | `{code}` → `{group, name, via, contacted}` |
 | `POST` | `/mesh/v1/groups/{group}/invite` | → `{code}` |
-| `PUT` | `/mesh/v1/groups/{group}/coordinator` | `{coordinator}` (null clears) → the group. Stamps, re-seeds the relay map, announces at the rendezvous, gossips the record |
 | `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret |
 | `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
@@ -761,6 +692,41 @@ caller named, then every other online holder of the same file, then every remain
 scored order, each asked for **its own** hash. That widening is M7's, and it is the difference
 between a stale pointer being a dead end and being a detour. See "A holder's answer, and a holder's
 failure" below.
+
+### Several holders at once (Part 5)
+
+The transfer is not necessarily one connection. Several nodes holding byte-identical copies is what
+makes same-hash failover possible; it also makes the transfer faster, and a swarm is that fact used
+for speed instead of survival. `crate::swarm` decides, `MeshNode::swarm_body` does it.
+
+**When.** All four have to hold, and each guards a case where swarming costs more than it saves:
+somebody else holds the same `file_hash` and is online; the span is at least
+`peer.swarm_min_span_bytes` (32 MiB — a seek is not a download); the response says where it ends, in
+`Content-Range` or `Content-Length`; and `peer.swarm_max_holders` is above one. Otherwise the
+sequential reader below runs exactly as it always has.
+
+**How.** The span is cut into `peer.swarm_chunk_bytes` chunks (2 MiB) and every holder works one
+shared queue, taking the earliest outstanding chunk when it is free. A shared queue rather than a
+fixed split, and that is the whole design: handing each holder a third of the file up front is
+simpler and wrong, because the estimate of who is fast is exactly the thing that is unreliable, and
+a holder that turns out to be slow leaves the reader waiting on its third while everybody else has
+finished. Taking the next chunk when free means a slow holder simply does less.
+
+The reader emits chunks **in order** — the client is a video player and the body has to be
+contiguous — and a worker may not run more than `swarm::window` chunks ahead of it, which is what
+bounds the memory to twelve mebibytes for one playback. Chunk zero is served by the connection the
+request was already opened on, so the first frame does not wait for a second round trip.
+
+**Failure.** A worker whose holder stalls, errors or ends short hands its chunk back to the queue,
+minus the bytes that did arrive, and somebody else takes it; three failures in a row and that holder
+is dropped from the swarm. A `503` is one of those failures rather than a special case — with a
+queue rather than a fixed slice, "shrink this holder's share" is what happens on its own. When every
+worker has stopped and the queue is not finished, the body ends in an error rather than hanging.
+
+`tools/e2e-m4.ps1` is the acceptance: one film pulled from two holders and reassembled byte-exact,
+then a holder killed mid-transfer and the rest finishing it. What it asserts is that the bytes are
+*right* and that more than one holder really delivered some — not that it was faster, because three
+nodes on one laptop over loopback is the wrong place to measure that.
 
 ### A holder's answer, and a holder's failure (M7)
 
@@ -948,189 +914,61 @@ because two nodes agreeing on a still picture would otherwise read as perfect sy
 
 ---
 
-## 6. The coordinator
+## 6. What there is no longer: the coordinator
 
-Optional. One binary, two modes; see `deploy/coordinator/README.md` for hosting.
+A group used to be able to name a **coordinator** — one server, run by somebody, that relayed
+traffic on TCP 443, introduced members who were not online at the same time, minted per-node
+hostnames under a DNS zone it controlled, and probed whether a node was reachable from outside.
+Dan hosted one and it was the default for every group. Part 5 deleted all of it.
 
-| | Lite | Full |
-|---|---|---|
-| Where | Railway, or any single-routed-port host | a VPS with UDP |
-| Relay protocol | on the same port as the API | same |
-| Rendezvous, probe, SNI router | yes | yes |
-| Side-door DNS | published through a provider API | served authoritatively |
-| pkarr discovery | no | `iroh-dns-server`, proxied from the same port |
-| UDP address discovery | no | 7842 |
+**Why, in one paragraph.** It was infrastructure the product did not need. Hole punching already
+succeeds about nine times in ten and n0's public relays already carry the rest on TCP 443, so the
+coordinator's relay was a third path behind two that work. Its rendezvous solved "join a group when
+the inviter is offline", which is a real problem and a rare one. Its DNS zone existed to give a node
+an HTTPS name — and a person who wants their server reachable from a browser can point a domain at
+it, which is fewer moving parts and nobody else's server in the path. What was left was a permanent
+commitment, on Dan's bill, that every group depended on by default.
 
-### One port, two protocols
+**What replaced each piece.**
 
-`GET /relay` (and the legacy `/derp`) goes to an embedded `iroh_relay::server::http_server::RelayService`;
-everything else goes to the coordinator's axum router. The connection is served with upgrades
-enabled so the relay's WebSocket handshake completes. That is what lets a platform which routes
-exactly one container port host a complete coordinator.
-
-### API
-
-| Method | Path | Auth | |
-|---|---|---|---|
-| `GET` | `/healthz` | — | mode, version, and which capabilities are on. **No counts** since M8b: this route has to answer before anything is configured (it is the container health check, and it holds no credential by design), and a live census of nodes, groups and rendezvous entries is not something to hand anybody who asks — least of all from a store that otherwise refuses to be an enumeration oracle. |
-| `GET` | `/` | — | a human page |
-| `POST` | `/rendezvous/v1/groups/{id}` | bearer | store or refresh one sealed member entry |
-| `GET` | `/rendezvous/v1/groups/{id}` | bearer | the group's live entries |
-| `DELETE` | `/rendezvous/v1/groups/{id}/{slot}` | bearer | a clean leave |
-| `POST` | `/register/v1` | node signature | a node's `lan`/`pub` addresses, mapped port and iroh addresses |
-| `POST` | `/probe/v1` | node signature | ask for a TLS handshake against the node's public name |
-| `POST` | `/acme/v1/challenge` | node signature | publish or clear a `_acme-challenge` TXT |
-| `GET` | `/node/v1/{node}` | — | the discovery record: hostnames and `direct_https` |
-| `GET`/`PUT` | `/pkarr/{key}` | — | proxied to the embedded `iroh-dns-server` (Full) |
-| `GET`/`POST` | `/dns-query` | — | DNS-over-HTTPS, same (Full) |
-
-### Rendezvous, and why the coordinator learns nothing
-
-Three values, all derived from the group secret, none of them the group id:
-
-```
-rendezvous_id    = BLAKE3-derive_key("stingstream rendezvous id v1",    group_secret)  // the path segment
-rendezvous_token = BLAKE3-derive_key("stingstream rendezvous token v1", group_secret)  // the bearer credential
-rendezvous_key   = BLAKE3-derive_key("stingstream rendezvous data v1",  group_secret)  // seals each entry
-```
-
-The coordinator stores only `SHA-256(token)` and compares in constant time, so a leaked database
-yields no write access. Each entry is `hex(nonce || XChaCha20Poly1305(rendezvous_key, …))` of a
-`MemberAddr` — node id, name, relay hint, direct addresses — so the operator sees opaque hex and
-cannot tell who is in the group or where they are. The first write to an unknown id establishes its
-token; later writes must present the same one. An unknown id and a wrong token give the **same**
-refusal, so the endpoint is not an enumeration oracle. Entries expire after 15 minutes and members
-refresh every 5, so a coordinator needs no volume and a restart heals in one cycle.
-
-Limits: 64 entries per group and 10 000 groups by default, so an open coordinator cannot be filled.
-
-### The HTTPS side door
-
-Every node gets four names under the coordinator's zone. `<nodeid>` is z-base-32.
-
-```
-lan.<nodeid>.direct.<host>              the node's LAN address
-pub.<nodeid>.direct.<host>              the node's public address
-relay.<nodeid>.direct.<host>            the coordinator, which tunnels to the node by SNI
-192-168-1-5.<nodeid>.direct.<host>      192.168.1.5, computed, nothing stored
-2001-db8--1.<nodeid>.direct.<host>      2001:db8::1
-_acme-challenge.<nodeid>.direct.<host>  that node's DNS-01 token
-```
-
-**Full mode** serves these authoritatively: dashed labels are decoded arithmetically, `lan`/`pub`
-come from the node registry, `relay` answers with the coordinator's own address, and everything
-outside the zone is forwarded to the embedded `iroh-dns-server`. A wrong record type at a real name
-is NODATA-with-SOA, not NXDOMAIN, so a resolver does not poison the other address family.
-
-**Lite mode** is not authoritative, so the same names are published as real records through a
-`DnsProvider` — Cloudflare first, behind a trait, with a recording mock for tests and dry runs. The
-token comes from `STINGSTREAM_DNS_TOKEN` and should be **zone-scoped** with `Zone:DNS:Edit` on the
-one zone.
-
-Either way the hostnames are identical, which is the point: a node, a browser and a cast receiver
-never need to know which kind of coordinator is behind them.
-
-**ACME.** A node runs its own client and generates its own key; the coordinator only publishes the
-DNS-01 token. The request is signed by the node's iroh key over
-`"stingstream-acme-v1" || node_z32 || action || token || ts`, so a node can only write the name it
-owns, and a captured request is useless after ten minutes. `/register/v1` and `/probe/v1` use the
-same signature with the claimed addresses inside the signed field, so they cannot be altered in
-flight:
-
-```text
-register:{lan}:{pub}:{mapped_port}:{iroh_relay}:{iroh_addr,iroh_addr,...}
-probe:{host}:{port}
-```
-
-Absent fields are empty, so a node with nothing to claim signs `register:::::`.
-
-**Why the registration carries iroh addresses.** The SNI passthrough has to *dial* the node, and
-`EndpointAddr::new(key)` alone leaves the coordinator waiting on pkarr or DNS discovery to
-converge — or unable to find the node at all on a network that has neither, which is exactly what
-the integration tests and the NAT scenario run. The node already knows its own addresses, so it
-sends them; the coordinator puts them in a `MemoryLookup` its endpoint was built with. A stale
-entry costs one failed dial and nothing worse: the tunnel carries a TLS session the *node*
-terminates, so a connection to the wrong machine cannot complete.
-
-**The reachability probe** does a real TLS handshake, not a TCP connect — a plain listener would
-otherwise read as reachable. It deliberately does not validate the certificate: trust is the
-browser's job, and a node mid-renewal should not read as unreachable. A node may only ask about a
-hostname containing its own id, or its own registered address, so the endpoint is not a port scanner
-with someone else's source address.
-
-**The SNI router** on 443 reads the ClientHello by hand — the bytes have to be replayed afterwards —
-and dispatches:
-
-| SNI | |
+| The coordinator did | Now |
 |---|---|
-| the coordinator's own hostname, or none | terminate TLS here, serve the relay and API |
-| `relay.<nodeid>.direct.<host>`, registered | raw TCP passthrough over iroh to that node |
-| anything else | closed |
+| Relay traffic on TCP 443 | n0's public relays, which are already the default and already do this |
+| Introduce members (rendezvous) | The inviter's address, in the invite code. Somebody has to be online, which was true of joining anyway |
+| Mint `*.direct.<host>` names and certificates | A domain its owner points at the node, and a certificate they get for it. See `docs/SIDEDOOR.md` |
+| Probe reachability from outside | Nothing. A node reports whether it is serving TLS; whether the internet can reach it is a question its owner answers by trying |
+| Carry a group's identity | Nothing — see below |
 
-TLS terminates on the **node**, with the node's own certificate, so the coordinator sees an SNI
-string and ciphertext. Only registered nodes are routable, and an unregistered id is refused
-identically to a stranger's name.
+**The address moved from the group to the node, and that is the part worth remembering.** A
+coordinator was a property of a *group*: one URL, carried in every invite, followed by every member.
+That is wrong the moment two members differ. In a group where Dan has `media.dan.example` and Alice
+has no domain, a single value sends Alice's invitees through Dan's machine — which then has to be up
+for her links to work. So a node's own address lives in its `meta` table
+(`sharing.public_address`), and `sharing::invite_link` builds a link from *that* or from nothing.
 
-### Configuration
+**On the wire this was a flag day**, not a negotiation: the `GroupConfig` gossip body is gone, and a
+`Body` is tagged by variant name, so a node that still sends one is refused rather than ignored.
+`PROTOCOL_MAJOR` went to 2 for exactly this reason — see `docs/UPGRADING.md`.
 
-TOML plus environment; environment wins, because a container platform hands you nothing else. On
-Railway, `PORT` alone is enough.
-
-| Variable | |
-|---|---|
-| `PORT` / `STINGSTREAM_COORDINATOR_BIND` | the single HTTP port |
-| `STINGSTREAM_COORDINATOR_MODE` | `lite` \| `full` |
-| `STINGSTREAM_COORDINATOR_HOSTNAME` | this coordinator's public name |
-| `STINGSTREAM_COORDINATOR_TLS` | `none` (behind a proxy) \| `manual` \| `acme` |
-| `STINGSTREAM_COORDINATOR_TLS_CERT` / `_KEY` | for `manual` |
-| `STINGSTREAM_COORDINATOR_ACME_CONTACT` / `_ACME_STAGING` | for `acme` |
-| `STINGSTREAM_COORDINATOR_RELAY` | serve the relay protocol at all |
-| `STINGSTREAM_COORDINATOR_SNI` / `_SNI_BIND` | the SNI router |
-| `STINGSTREAM_COORDINATOR_DNS_ORIGIN` / `_DNS_BIND` / `_PUBLIC_IPS` / `_NS` | the zone |
-| `STINGSTREAM_COORDINATOR_IROH_DNS` / `_IROH_DNS_PORT` / `_IROH_DNS_HTTP_PORT` | the embedded pkarr server |
-| `STINGSTREAM_COORDINATOR_DNS_PROVIDER` / `_CLOUDFLARE_ZONE` | Lite-mode publishing |
-| `STINGSTREAM_DNS_TOKEN` | the provider's API token |
-| `STINGSTREAM_COORDINATOR_DATA_DIR` | ACME cache and the pkarr store |
-
-`--check` validates a configuration, prints it as TOML and exits without binding anything.
-
-### Dan's shared fallback coordinator
-
-```
-https://stingstream-coordinator-production.up.railway.app
-```
-
-Deployed 2026-09-05 in Lite mode on Dan's Railway account (project `stingstream`, service
-`stingstream-coordinator`), running `ghcr.io/danpatten/stingstream-coordinator:latest`. Railway
-terminates TLS in front of the container, so `STINGSTREAM_COORDINATOR_TLS=none` and the coordinator
-serves plain HTTP on `$PORT`.
-
-`DEFAULT_FALLBACK_COORDINATOR` in `mesh/crates/stingstream-mesh/src/config.rs` holds it, and every
-node appends it to the relay map regardless of the group's own choice. It is registered without
-QUIC address discovery — Lite mode is TCP-only, and the coordinator says so on `/healthz` — so iroh
-never picks it for address discovery and it carries traffic only when nothing else can. Override it
-per install with `STINGSTREAM_MESH_FALLBACK_COORDINATOR`; an explicitly empty value means "no
-fallback", which is what the integration tests use.
-
-Relaying media through it is metered egress on Dan's bill. Watch Railway's metrics once real groups
-exist; if it starts carrying video, the answer is a VPS in Full mode rather than a bigger Railway
-plan.
-
----
 
 ## 7. Testing
 
 | | |
 |---|---|
-| `cargo test -p stingstream-mesh -p stingstream-relay` | 141 unit tests plus the integration suites |
+| `cargo test --workspace` | the unit tests plus the integration suites |
 | `mesh/crates/stingstream-mesh/tests/two_nodes.rs` | two nodes, one process, **every discovery service off**: create, invite, join, gossip, and a 1 MiB mid-file range out of a 50 MB file with every byte checked against its offset and the iroh path asserted `direct`. Also the range grammar's edges, and a node with the right group id but the wrong secret being refused. |
-| `mesh/crates/stingstream-relay/tests/rendezvous_join.rs` | three real nodes against a live coordinator: **B joins after the inviter has shut down**, via the rendezvous. Plus a check that the raw stored entry carries neither the group id nor the member's name. |
-| `mesh/tests/nat/run.sh` | two nodes on separate `--internal` Docker networks, each behind its own MASQUERADE router, with a Full-mode coordinator on the WAN between them. Asserts there is no route between the LANs, then that the group converges and a 1 MiB range arrives byte-for-byte. Repeats with **all UDP dropped** on one node and asserts the path is `relay`. Linux + Docker; runs in CI. |
-| `tools/e2e-m3.ps1` | the milestone's own acceptance: two *complete* nodes — Jellyfin, both arrs, NZBGet, the mesh — a group with no coordinator, a real invite, and a peer's film materialised into the other node's Jellyfin and played three ways. Runs on Windows and in CI on ubuntu; `docs/RUNNING.md` has the detail. |
+| `tools/e2e-m4.ps1` | three nodes: source scoring, same-hash failover, and the swarm — one film pulled from two holders at once and reassembled byte-exact, then a holder killed mid-transfer and the rest finishing it. |
+| `tools/e2e-m3.ps1` | the milestone's own acceptance: two *complete* nodes — Jellyfin, both arrs, NZBGet, the mesh — a group, a real invite, and a peer's film materialised into the other node's Jellyfin and played three ways. Runs on Windows and in CI on ubuntu; `docs/RUNNING.md` has the detail. |
 
-CI is `.github/workflows/coordinator.yml`: tests and clippy on Linux and Windows, the NAT scenario,
-and the coordinator image built on every change and pushed to
-`ghcr.io/danpatten/stingstream-coordinator` on `master`.
+**Two things stopped being covered when the coordinator went, and it is better to say so than to
+leave the table implying otherwise.** `rendezvous_join.rs` proved a node could join a group after
+the inviter had shut down; there is no rendezvous now, so that case is simply not supported and the
+API says `"via": "none"` when it happens. And `mesh/tests/nat/run.sh` put two nodes behind separate
+Docker NATs with a coordinator on the WAN between them and asserted, with **all UDP dropped**, that
+traffic still flowed over its relay on TCP 443. The same fallback still exists — it is n0's public
+relays rather than Dan's — but a test of it needs the internet, which is exactly what that scenario
+was built to avoid. Relayed transport is therefore unproven in CI and proven only by running two
+real nodes on hostile networks, which is on the "needs Dan" list.
 
 The integration tests deliberately run with n0's relays, n0 DNS and the mainline DHT all disabled.
 They therefore need no network beyond loopback and cannot be made flaky by someone else's

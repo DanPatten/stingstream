@@ -122,7 +122,7 @@ they are terminated (see "Known limitations").
 ### Joining a group with nobody at the keyboard
 
 A seedbox comes up with no one to run the join call by hand, so it can be told the invite code up
-front. This is what `deploy/coordinator/compose.yml`'s `storage-node` profile uses, and it is
+front. This is what `deploy/node/compose.yml` uses, and it is
 exactly the same `MeshNode::join` the API performs — including being **idempotent**, so leaving the
 value set across restarts refreshes membership rather than failing on a group already joined.
 
@@ -140,10 +140,10 @@ The file wins when both are set, so a deployment that has moved to the safer for
 overridden by a stale variable in an `.env`.
 
 **Joining and finding somebody are different things**, and this is the part worth knowing. A join
-succeeds even when neither the inviter nor the group's coordinator answers: the group exists here,
-its gossip topic is live, and a member that appears later is found. But the usual *reason* nobody
-answered is that the code is wrong, the inviter is switched off, or the coordinator has not
-finished starting — so the node retries on a backoff for about half an hour, warns in a full
+succeeds even when the inviter does not answer: the group exists here, its gossip topic is live, and
+a member that appears later is found. But the usual *reason* nobody answered is that the code is
+wrong or the inviter is switched off — so the node retries on a backoff for about half an hour,
+warns in a full
 sentence when it gives up, and reports where it got to on `/healthz`:
 
 ```powershell
@@ -261,24 +261,22 @@ entirely; the node is then a complete single-node server with no group.
 
 ### The HTTPS side door
 
-A node with a coordinator behind it also serves HTTPS on the same port, under three hostnames a
-browser can reach it at — see [`SIDEDOOR.md`](SIDEDOOR.md). Two things about that are worth knowing
-before they surprise you:
+A node serves HTTPS on the same port when there is a certificate in `$STINGSTREAM_DATA/tls/`, and
+plain HTTP when there is not — see [`SIDEDOOR.md`](SIDEDOOR.md), which is now about how to get one
+rather than about a subsystem. Two things are worth knowing before they surprise you:
 
 * **`http://127.0.0.1:8790` keeps working.** The gateway looks at the first byte of each connection
   and answers TLS or plain HTTP accordingly, so everything in this document, every `tools/e2e-*.ps1`
   and every `curl` habit is unaffected by a node that has a certificate. A plain request from
   *another machine* is redirected to `https://` once one exists.
-* **Nothing happens without a coordinator that serves a zone.** With none — the zero-server default
-  — `/healthz` reports `"side_door": {"state": "no_zone"}` and the node carries on. That is not a
-  fault. `[sidedoor] enabled = false` turns the whole thing off.
+* **An empty `tls/` is not a fault.** `/healthz` reports `"side_door": {"https": "no_certificate"}`
+  and the node carries on serving plain HTTP, which is what almost every install does. Nothing
+  fetches a certificate for you: the node used to run ACME against a coordinator's DNS zone, and
+  there is no coordinator.
 
 ```powershell
 # What the side door is doing, and why it is not doing more.
 (Invoke-RestMethod http://127.0.0.1:8790/healthz).side_door | ConvertTo-Json -Depth 5
-
-# The end-to-end acceptance: a coordinator, a local Pebble, a real certificate, a real tunnel.
-powershell -File tools/e2e-sidedoor.ps1
 ```
 
 ---
@@ -323,7 +321,7 @@ on the machine already has running. Each node's real ports land in its own `runt
 Then, with a Jellyfin token from each node (`POST /jellyfin/Users/AuthenticateByName`):
 
 ```powershell
-# A creates a group with no coordinator at all.
+# A creates a group. Nothing anyone hosts is involved.
 $g = irm -Method POST http://127.0.0.1:8890/stingstream/api/v1/mesh/groups `
       -Headers $authA -ContentType application/json -Body '{"name":"Attic"}'
 
@@ -340,21 +338,18 @@ irm "http://127.0.0.1:8890/stingstream/api/v1/mesh/peers?group=$($g.group)" -Hea
 irm -Method POST http://127.0.0.1:8890/stingstream/api/v1/mesh/federated/refresh -Headers $authA
 ```
 
-Add `"coordinator": "https://…"` to the create body for a group that uses one; the invite carries
-it to every member, so nobody else has to type it. It is not permanent — since M4.5 a group's
-coordinator can be changed, and every member follows over gossip within a second:
+A group takes a name and nothing else. It used to be able to carry a **coordinator** URL that every
+member followed and that could be re-pointed over gossip; Part 5 deleted that, along with the
+coordinator itself — `docs/MESH.md` §6 is the record of what it did and what replaced each piece.
+The one address that is still a setting belongs to a *node* rather than a group, because in a group
+where one member has a domain and another does not, one value could never be right for both:
 
 ```powershell
-# Point the group somewhere else. `"coordinator": null` puts it back on public infrastructure.
-irm -Method PUT "http://127.0.0.1:8890/stingstream/api/v1/mesh/groups/$($g.group)/coordinator" `
+# Where people reach THIS node. Only used to build invite links, and to bind passkeys.
+irm -Method PUT http://127.0.0.1:8890/stingstream/api/v1/mesh/settings/sharing `
     -Headers $authA -ContentType application/json `
-    -Body (@{ coordinator = "https://coord.example.org" } | ConvertTo-Json)
-
-# B follows without being asked. (Codes already handed out still work; new ones carry the new value.)
-irm "http://127.0.0.1:8990/stingstream/api/v1/mesh/groups" -Headers $authB
+    -Body (@{ publicAddress = "https://media.example.com" } | ConvertTo-Json)
 ```
-
-See `docs/MESH.md`, "Changing a group's coordinator", for the conflict rule.
 
 > **Run from a private copy of the build outputs.** A running node holds `mesh/target/debug/` and
 > `server/*/bin/` open, which means nobody can rebuild while it is up — including you, and
@@ -511,7 +506,7 @@ was rejected, and the logs it leaves behind are the whole point when a step fail
 > and `third_party/**` and stop those too.
 >
 > `tools/e2e-m6.ps1` and `tools/e2e-m7.ps1` have it as well. `e2e-m3`, `e2e-m8` and
-> `e2e-sidedoor` do not — see each one's own section for whether that matters.
+> `e2e-invite` do not — see each one's own section for whether that matters.
 >
 > **The same trap catches `tools/seeder` and `tools/torznab-stub`, and it is nastier**, because
 > those two are `dotnet.exe` and so invisible to a search by process name. M8b's regression lost
@@ -537,19 +532,19 @@ is where the import decisions live.
 
 The M3 test: two complete nodes, a group with nothing behind it, and a peer's film playing out of
 your own Jellyfin. It reuses the M1 pipeline to populate node B, then starts node A empty, has A
-create a group with **no coordinator**, has B join with A's invite code, and asserts the whole
+create a group, has B join with A's invite code, and asserts the whole
 chain — index, materialization, poster, badges, three separate playback paths, the unavailable tag
 when B goes away and its removal when B comes back.
 
 ```powershell
-powershell tools\e2e-m3.ps1                                  # the whole thing
-powershell tools\e2e-m3.ps1 -SkipBuild -SkipCoordinator      # when iterating
-powershell tools\e2e-m3.ps1 -KeepRunning                     # leave both nodes up
+powershell tools\e2e-m3.ps1                    # the whole thing
+powershell tools\e2e-m3.ps1 -SkipBuild         # when iterating
+powershell tools\e2e-m3.ps1 -KeepRunning       # leave both nodes up
 ```
 
-`-SkipCoordinator` drops the two steps that talk to Dan's Railway coordinator. They need the
-internet and they cost metered egress on his bill, so CI skips them; everything else runs on
-loopback and needs nothing hosted by anyone.
+Everything runs on loopback and needs nothing hosted by anyone. There used to be a
+`-SkipCoordinator` switch for the two steps that talked to Dan's Railway coordinator; both the
+switch and the coordinator are gone.
 
 Gateway ports default to 8890 (A, the watcher) and 8990 (B, the holder), with ephemeral child
 ports, so the harness does not collide with a development node. It also turns the mesh's gossip
@@ -661,6 +656,26 @@ The subtitle provider is mocked -- the sidecar is written onto B's disk -- becau
 test is the publish-and-fetch half. Whether OpenSubtitles answers today is OpenSubtitles' business,
 and an acceptance run that depended on it would fail for reasons that have nothing to do with this
 repository.
+
+### `tools/e2e-invite.ps1` — inviting a person
+
+The whole of Part 5 in one run, and the only harness whose subject is a *person* rather than a
+node. Two nodes: A invites, B holds the film. A has two libraries and the invite names one of them.
+
+```powershell
+pwsh tools/e2e-invite.ps1 -SkipBuild
+pwsh tools/e2e-invite.ps1 -KeepRunning        # leave both nodes up
+```
+
+What it proves, in order: an anonymous caller can read an invite and cannot mint one; opening the
+link creates an account and signs it in; that account sees the library the invite named and **not**
+the one it did not — which is the assertion the feature turns on, because Jellyfin's default is
+`EnableAllFolders = true` and an invite naming one library out of two would otherwise hand over
+both; the account plays a film that lives on **node B**, through A, over the mesh; and the invite
+cannot be used twice while a withdrawn one dies at once.
+
+Ports default to 8780 (A) and 8880 (B). It needs no arrs — media is placed on disk directly — so it
+is one of the quicker harnesses.
 
 ### `tools/e2e-m8.ps1` — removing a member, and refusing a build you cannot talk to
 

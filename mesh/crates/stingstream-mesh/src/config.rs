@@ -33,7 +33,6 @@ pub const NODE_NAME_ENV: &str = "STINGSTREAM_MESH_NODE_NAME";
 /// Default local API port. 8791 sits next to the gateway's 8790.
 pub const DEFAULT_API_PORT: u16 = 8791;
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MeshConfig {
@@ -44,7 +43,6 @@ pub struct MeshConfig {
     pub discovery: DiscoveryConfig,
     pub peer: PeerConfig,
     pub gossip: GossipConfig,
-    pub sidedoor: SideDoorConfig,
 
     /// Filled in by [`MeshConfig::load`]; not part of the file.
     #[serde(skip)]
@@ -134,6 +132,24 @@ pub struct PeerConfig {
     ///
     /// `0` disables the stall check and leaves failover to QUIC's own timeouts.
     pub stream_stall_secs: u64,
+
+    /// **How many holders may serve one request at once.** `1` switches swarming off.
+    ///
+    /// Several nodes hold byte-identical copies — that is what makes same-hash failover possible —
+    /// and this is the same fact used for speed instead of survival. The span is cut into chunks,
+    /// every holder works the queue, and the reader emits them in order. See [`crate::swarm`].
+    ///
+    /// Three by default. Beyond that the gain flattens (the reader is usually the bottleneck, not
+    /// any one holder) while the cost does not: each worker is a connection and a concurrency
+    /// permit on somebody else's node.
+    pub swarm_max_holders: usize,
+
+    /// Bytes each swarm request asks for. See [`crate::swarm::DEFAULT_CHUNK_BYTES`].
+    pub swarm_chunk_bytes: u64,
+
+    /// Spans shorter than this are served by one holder. See
+    /// [`crate::swarm::DEFAULT_MIN_SPAN_BYTES`] — a seek is not a download.
+    pub swarm_min_span_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,25 +164,6 @@ pub struct GossipConfig {
     pub snapshot_interval_secs: u64,
 }
 
-/// The mesh's half of the HTTPS side door (`docs/SIDEDOOR.md`).
-///
-/// The side door itself is driven by the supervisor, which owns the gateway, the certificate and
-/// Kept only for the gateway port the supervisor passes down. The passthrough listener this once
-/// configured went with the coordinator (Part 5); what remains of the side door is a certificate in
-/// `$STINGSTREAM_DATA/tls/` served by the gateway itself.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct SideDoorConfig {
-    /// The local gateway port a passthrough connection is piped into. `0` means "no passthrough",
-    /// and the node does not register the ALPN at all, so a dial is refused cleanly rather than
-    /// hanging.
-    ///
-    /// The supervisor sets this from `config.toml`'s `gateway.port` when it runs the mesh in its
-    /// own process, which is the default and needs no configuration here. Set it by hand only when
-    /// running `stingstream-mesh` as a separate process alongside a gateway.
-    pub gateway_port: u16,
-}
-
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
@@ -175,7 +172,6 @@ impl Default for MeshConfig {
             discovery: DiscoveryConfig::default(),
             peer: PeerConfig::default(),
             gossip: GossipConfig::default(),
-            sidedoor: SideDoorConfig::default(),
             data_dir: PathBuf::new(),
         }
     }
@@ -211,6 +207,9 @@ impl Default for PeerConfig {
             light: false,
             throttle_bytes_per_sec: 0,
             stream_stall_secs: 15,
+            swarm_max_holders: 3,
+            swarm_chunk_bytes: crate::swarm::DEFAULT_CHUNK_BYTES,
+            swarm_min_span_bytes: crate::swarm::DEFAULT_MIN_SPAN_BYTES,
         }
     }
 }

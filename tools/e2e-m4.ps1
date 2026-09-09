@@ -132,12 +132,20 @@ $Titles = @(
     [pscustomobject]@{
         Key = 'nosferatu'; Tmdb = 653; Title = 'Nosferatu'; Year = 1922
         ItemKey = 'movie:tmdb:653'
+    },
+    # The film that exists twice as the same bytes AND is large enough to be worth spreading across
+    # both holders. Sita is deliberately below that threshold so the failover step keeps exercising
+    # the single-holder path; this one is deliberately above it.
+    [pscustomobject]@{
+        Key = 'metropolis'; Tmdb = 19; Title = 'Metropolis'; Year = 1927
+        ItemKey = 'movie:tmdb:19'
     }
 )
 $Bunny = $Titles[0]
 $Sita = $Titles[1]
 $Notld = $Titles[2]
 $Dropped = $Titles[3]
+$Metropolis = $Titles[4]
 
 # B's link, capped so a 30 MB read takes a measurable few seconds rather than finishing before the
 # harness can kill it. Still far above what any of these files needs, so B always "fits".
@@ -513,6 +521,10 @@ $Media = Invoke-Step 'Generate two encodes of one film, and two more films' {
     # The film nobody has yet. Short, because nothing scores it -- it exists only to be dropped into
     # a running node's folder and appear on a peer.
     $result['nosferatu'] = New-Clip -Path (Join-Path $MediaDir 'nosferatu.mkv') -Width 1280 -Height 720 -Seconds 6 -Bitrate '2M'
+    # The film both holders serve at once. It has to clear `swarm_min_span_bytes` (32 MiB) with
+    # room to spare, or the transfer quietly falls back to one holder and the swarm step would
+    # pass while testing nothing.
+    $result['metropolis'] = New-Clip -Path (Join-Path $MediaDir 'metropolis.mkv') -Width 1280 -Height 720 -Seconds 20 -Bitrate '24M' -Preset 'ultrafast'
     return $result
 }
 
@@ -522,6 +534,7 @@ Invoke-Step 'Start node B (the fast holder) with two films and a 1080p Big Buck 
     Install-Movie -Node $NodeB -Title $Bunny -SourceFile $Media['bunny1080'] | Out-Null
     Install-Movie -Node $NodeB -Title $Sita -SourceFile $Media['sita'] | Out-Null
     Install-Movie -Node $NodeB -Title $Notld -SourceFile $Media['notld'] | Out-Null
+    Install-Movie -Node $NodeB -Title $Metropolis -SourceFile $Media['metropolis'] | Out-Null
     Start-HarnessNode -Node $NodeB -ClientId 'e2e-m4'
 }
 
@@ -533,13 +546,15 @@ Invoke-Step 'Start node C (the throttled holder) with a 4K Big Buck Bunny and th
     # Byte-identical to B's copy, so both publish the same BLAKE3 and one can continue the other's
     # stream at a byte offset. This is the entire premise of same-hash failover.
     Install-Movie -Node $NodeC -Title $Sita -SourceFile $Media['sita'] | Out-Null
+    # Same bytes again, and this one is big enough that A pulls it from B and C at once.
+    Install-Movie -Node $NodeC -Title $Metropolis -SourceFile $Media['metropolis'] | Out-Null
     Start-HarnessNode -Node $NodeC -ClientId 'e2e-m4'
 }
 
 # ============================================================================================
 Invoke-Step 'B and C build inventory records for what they hold' {
     foreach ($node in @($NodeB, $NodeC)) {
-        $want = if ($node.Name -eq 'B') { 3 } else { 2 }
+        $want = if ($node.Name -eq 'B') { 4 } else { 3 }
         # A plain wait. This used to re-POST `/inventory/rebuild` on every failed poll, because a
         # library that has just been created can finish its first scan after the one rebuild
         # first-run wiring does, and nothing in Core was watching for that. `InventoryWatcher` is
@@ -574,7 +589,7 @@ Invoke-Step 'Start node A (the watcher), empty' {
 }
 
 # ============================================================================================
-$Group = Invoke-Step 'A creates a group with no coordinator; B and C join' {
+$Group = Invoke-Step 'A creates a group; B and C join' {
     $group = Invoke-Node $NodeA '/stingstream/api/v1/mesh/groups' -Method POST -Body @{ name = 'E2E M4' }
     if (-not $group.group) { throw 'A did not create a group.' }
     foreach ($node in @($NodeB, $NodeC)) {
@@ -1043,7 +1058,103 @@ Invoke-Step 'A film dropped into a running holder reaches the group on its own' 
 }
 
 # ============================================================================================
+Invoke-Step 'One film, pulled from both holders at once, byte-exact' {
+    # WP5-SWARM. Several nodes holding byte-identical copies is what makes failover possible; this
+    # is the same fact used for speed. What has to be true is not "it was faster" -- a laptop
+    # running three nodes over loopback is the wrong place to measure that -- but that the bytes
+    # are *right* when several sources produced them, and that several sources really did.
+    $expected = [System.IO.File]::ReadAllBytes($Media['metropolis'])
+    if ($expected.Length -lt 34MB) {
+        throw ("metropolis is {0:N0} bytes, below the 32 MiB swarm threshold; this step would " +
+               "silently test a single holder." -f $expected.Length)
+    }
+
+    $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($Metropolis.ItemKey))/$($NodeB.MeshId)"
+    $result = Receive-BytesJob -Job (Start-BytesJob -Uri $url -TimeoutSec 420) -TimeoutSec 420
+    if ($result.Error) { throw "the swarmed read failed: $($result.Error)" }
+    if ($result.StatusCode -ne 200) { throw "the swarmed read returned HTTP $($result.StatusCode)." }
+
+    # The assertion that matters. A swarm reassembles a file out of chunks fetched by different
+    # workers from different nodes; an off-by-one anywhere in the queue, the window or the reader
+    # produces a file that is the right *length* and wrong in the middle.
+    Test-BytesEqual -Actual $result.Bytes -Expected $expected -What 'the swarmed stream'
+
+    $log = Get-NodeLog -Node $NodeA
+    if ($log -notmatch 'streaming from several holders at once') {
+        throw 'A never swarmed the read; it fell back to a single holder.'
+    }
+    # One whitespace-free token, `abc123=4194304,def456=2097152`, so this is not guessing where
+    # the field ends. Polled rather than read once: the line is written when the *body* is
+    # dropped, which is a moment after the client has the last byte -- hyper ends a body as soon
+    # as `Content-Length` is satisfied. Reading once raced that, and this step failed on its
+    # first run having already proved the bytes were right.
+    $finished = $null
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        $m = [regex]::Match((Get-NodeLog -Node $NodeA),
+                            'finished streaming from several holders.*?shares=(\S+)')
+        if ($m.Success) { $finished = $m; break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not $finished) { throw 'A did not report which holders contributed.' }
+
+    # Both holders actually delivered bytes. Without this the step would pass on a swarm that
+    # opened two connections and used one of them, which is the failure mode a scheduler bug
+    # produces and the one "it completed" cannot see.
+    $shares = @($finished.Groups[1].Value -split ',' | Where-Object { $_ -match '=\d+$' })
+    $working = @($shares | Where-Object { [int]($_ -split '=')[1] -gt 0 })
+    Write-Host ("      shares: {0}" -f ($shares -join ' '))
+    if ($working.Count -lt 2) {
+        throw ("only {0} holder delivered bytes; the swarm did not spread the read." -f $working.Count)
+    }
+
+    Write-Host ("      {0:N0} bytes reassembled byte-exact from {1} holders" -f $result.Bytes.Length, $working.Count)
+    Add-HarnessNote ("Swarm: {0:N0} bytes pulled from {1} holders at once, byte-exact." -f $result.Bytes.Length, $working.Count)
+}
+
+# ============================================================================================
+Invoke-Step 'Killing a holder mid-swarm still finishes byte-exact' {
+    # The swarm's own failure path, which is not the sequential one: a worker whose holder dies
+    # hands its chunk back to the queue and somebody else takes it, from the offset it reached.
+    $expected = [System.IO.File]::ReadAllBytes($Media['metropolis'])
+    $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($Metropolis.ItemKey))/$($NodeB.MeshId)"
+
+    $job = Start-BytesJob -Uri $url -TimeoutSec 420
+    Start-Sleep -Seconds 2
+    Write-Host '      killing node C mid-swarm'
+    Stop-Tool -Tool $NodeC.Tool -DataDir $DataC
+
+    $result = Receive-BytesJob -Job $job -TimeoutSec 420
+    if ($result.Error) { throw "the swarm failed instead of redistributing: $($result.Error)" }
+    if ($result.StatusCode -ne 200) { throw "the swarmed read returned HTTP $($result.StatusCode)." }
+    Test-BytesEqual -Actual $result.Bytes -Expected $expected -What 'the swarm that lost a holder'
+
+    Write-Host ("      {0:N0} bytes still byte-exact after a holder died mid-transfer" -f $result.Bytes.Length)
+    Add-HarnessNote 'Swarm: a holder killed mid-transfer, the rest finished the file byte-exact.'
+
+    # C comes back, because the sequential-failover step below kills *B* and needs somebody to
+    # continue from. Ordering, not politeness: these two steps each need two live holders and each
+    # kills a different one, so whichever runs first has to put its holder back.
+    Start-HarnessNode -Node $NodeC -Suffix '-restart' -ClientId 'e2e-m4'
+    Wait-Until -What 'C to be online in A''s peer list again' -Seconds 120 -PollSeconds 3 -Condition {
+        $peers = Invoke-Node $NodeA "/stingstream/api/v1/mesh/peers?group=$($Group.group)"
+        return [bool](@($peers | Where-Object { $_.node -eq $NodeC.MeshId -and $_.online }).Count)
+    } | Out-Null
+    Write-Host '      C is back, so the sequential failover step below has somewhere to go'
+}
+
+# ============================================================================================
 Invoke-Step 'Killing B mid-stream continues from C with no error' {
+    # Deliberately Sita rather than Metropolis: Sita is under the swarm threshold, so this step
+    # exercises the *sequential* failover path -- one holder, resumed at a byte offset on another --
+    # which is a different mechanism from the swarm's chunk redistribution above and still the one
+    # every ordinary-sized read uses.
+    $sitaSize = (Get-Item $Media['sita']).Length
+    if ($sitaSize -ge 32MB) {
+        throw ("sita is {0:N0} bytes, at or above the swarm threshold; this step would test the " +
+               "swarm instead of sequential failover." -f $sitaSize)
+    }
+
     $expected = [System.IO.File]::ReadAllBytes($Media['sita'])
     $url = "$($NodeA.Url)/stream/$($Group.group)/$([Uri]::EscapeDataString($Sita.ItemKey))/$($NodeB.MeshId)"
 

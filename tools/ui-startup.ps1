@@ -199,9 +199,6 @@ infinidysk = false
 [mesh]
 embedded = true
 
-[sidedoor]
-enabled = false
-
 [ports]
 jellyfin = 0
 radarr = 0

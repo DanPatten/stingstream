@@ -207,12 +207,6 @@ infinidysk = false
 [mesh]
 embedded = true
 
-# No coordinator in the iterate loop; the side door has nothing to serve without one (see
-# docs/RUNNING.md, "Nothing happens without a coordinator that serves a zone") and disabling it
-# outright keeps every start a little faster and a little quieter.
-[sidedoor]
-enabled = false
-
 [ports]
 jellyfin = 0
 radarr = 0

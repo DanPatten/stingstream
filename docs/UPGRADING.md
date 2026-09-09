@@ -27,9 +27,9 @@ and `/mesh/v1/status` reports the pair as a string:
 ```
 $ curl -s localhost:8791/mesh/v1/status | jq .protocol
 {
-  "major": 1,
+  "major": 2,
   "minor": 1,
-  "version": "1.1",
+  "version": "2.1",
   "refused_handshake": 0,
   "refused_gossip": 0
 }
@@ -190,6 +190,24 @@ group is still on 1.0, because 1.0 nodes are skipped in the fan-out and pick the
 through the grace window when they upgrade — assuming they upgrade inside seven days, which is
 `REKEY_GRACE_SECS`.
 
+### The flag day this release causes: **1.x → 2.0**
+
+`PROTOCOL_MAJOR` went from 1 to 2 in Part 5, and it is a real flag day: **a node on 1.x and a node
+on 2.x cannot see each other at all.** Plan it the way §4 says to.
+
+What forced it was one removal. A group used to be able to name a **coordinator**, and a change to
+it travelled as a `GroupConfig` gossip body; Part 5 deleted the coordinator and that body with it.
+`Body` is tagged by variant name and an unknown variant is an **error at the receiver**, not a
+skipped field — so a 1.x node still sending `GroupConfig` is refused rather than tolerated, which
+is a major by the rule below. The minor-bump carve-out covers variants being *added*.
+
+`PROTOCOL_MINOR` deliberately stayed at 1 rather than resetting to 0. `MINOR_REKEY` is 1 and is
+what `negotiate_minor` compares against; resetting would have made that comparison degenerate and
+quietly disabled the rekey path that member revocation depends on.
+
+Nothing else about a group changes across the boundary. Libraries, secrets, memberships and
+invite *codes* all survive — a 2.x node re-syncs the index from the first member it meets.
+
 ### A major bump — a flag day, and it has to be planned
 
 There is no protocol bridge and there will not be one. A group on two majors is two groups that
@@ -301,6 +319,24 @@ Group screen. Step 1 is what tells them apart, and it takes five seconds.
 These do not touch the wire protocol above and so carry no major/minor bump, but they are still
 things a person upgrading the app needs to know. Recorded here, not numbered into §1–6, so this
 section can grow without renumbering anything above it.
+
+### v0.2.0: the coordinator, and the account service, are gone
+
+Two removals in one release, and neither leaves anything to migrate.
+
+**The coordinator.** A group could name one; a node could be pointed at one; the HTTPS side door
+was built on the DNS zone it served. All of it is deleted. If you had set `[discovery]
+fallback_coordinator` or `[sidedoor] …` in a config file, **remove those keys** — both config
+structs are `deny_unknown_fields`, so a node will refuse to start rather than silently ignore them.
+A group that named a coordinator keeps working; the field is simply dropped when it is read.
+
+The side door is now a certificate you put in `$STINGSTREAM_DATA/tls/`, from a tunnel or your own
+ACME client — [`SIDEDOOR.md`](SIDEDOOR.md). Nothing fetches one for you any more, because the thing
+that did was the coordinator's DNS-01 endpoint.
+
+**The account service.** A central `stingstream-accounts` service shipped earlier the same day and
+was removed the same evening; if you never saw it, there is nothing to do. Accounts live on the
+server that holds your library, and an invite is what creates one — [`INVITES.md`](INVITES.md).
 
 ### v0.2.0: companion phone-pairing removed
 
