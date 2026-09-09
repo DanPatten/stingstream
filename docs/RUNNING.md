@@ -192,6 +192,30 @@ the setup screen — rather than flashing a "which server?" form while a probe i
 injected rather than built in, so the same bundle served by `npx serve` correctly reports that it
 is *not* a node. Field order is part of the contract.
 
+**The marker's presence is now decisive, not advisory.** `decidePhase`
+(`apps/stingstream/components/login/loginPhase.ts`) cannot return the address form when it is
+there: a node that has not answered yet gets a "Starting your server" card that keeps trying for
+90 s, and `setupPending` here outranks a `setup/state` that 404s because the Jellyfin child is not
+registered yet. Before Part 6 both of those fell through to the address form on a cold node, which
+is exactly the flash this marker exists to prevent.
+
+**Discovery.** The gateway also answers Jellyfin's `"Who is JellyfinServer?"` broadcast on UDP 7359
+with `{"Address": "<one of `addresses`>", "Id": …, "Name": …}` — the *gateway's* address and port,
+which is the whole reason it does this itself rather than letting the embedded Jellyfin do it. That
+is what fills the "On your network" list in the phone and TV connect screens. Probe it by hand:
+
+```powershell
+$c = [System.Net.Sockets.UdpClient]::new(); $c.Client.ReceiveTimeout = 3000
+$q = [Text.Encoding]::UTF8.GetBytes('Who is JellyfinServer?')
+[void]$c.Send($q, $q.Length, '127.0.0.1', 7359)
+$from = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+[Text.Encoding]::UTF8.GetString($c.Receive([ref]$from)); $c.Dispose()
+```
+
+A node bound to loopback has no address worth advertising and stays silent. A node that cannot bind
+7359 — a stock Jellyfin already holds it, or a second node on the same machine — logs a warning and
+carries on.
+
 Four of the fields are per request, which is why `index.html` is `no-cache`:
 
 | Field | What it is |

@@ -41,13 +41,15 @@ export interface SignInFormProps {
    * rather than waiting for a field somebody no longer has to fill in.
    */
   onSignInWithPasskey?: () => Promise<void>;
-  /** Clears the connected server and goes back to the address form. */
-  onUseDifferentServer?: () => void;
   /**
-   * True when a node served this page. The address form is then an escape hatch behind
-   * "Advanced", not a step: the server you want is the one you are already talking to.
+   * Clears the connected server and goes back to the address form.
+   *
+   * Passed **only** where changing the address means something: a phone or a television, which
+   * had to be pointed somewhere in the first place. On a page a node served it is not passed at
+   * all — the server is the origin, and it used to hide behind an "Advanced" disclosure that
+   * offered to re-type the address already in the URL bar.
    */
-  servedByNode: boolean;
+  onUseDifferentServer?: () => void;
 }
 
 /**
@@ -65,17 +67,15 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   onSignInWithCode,
   onSignInWithPasskey,
   onUseDifferentServer,
-  servedByNode,
 }) => {
   const { t } = useTranslation();
-  const { isWebWide, isCompact } = useBreakpoint();
+  const { isCompact } = useBreakpoint();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const submit = useCallback(async () => {
     if (busy || username.trim().length === 0) return;
@@ -115,8 +115,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
     }
   }, [busy, onSignInWithPasskey, t]);
 
-  // The address form stays reachable on a node — a phone pointed at the wrong server has to be
-  // able to leave — but it is not offered as a step. On a node it hides behind Advanced.
+  // A phone pointed at the wrong server has to be able to leave. Nothing else needs this.
   const differentServerLink = onUseDifferentServer ? (
     <FocusPressable
       testID='login-use-different-server'
@@ -284,43 +283,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
         </FocusPressable>
       ) : null}
 
-      {servedByNode ? (
-        <View style={{ marginTop: isWebWide ? 12 : 8, alignItems: "center" }}>
-          <FocusPressable
-            onPress={() => setShowAdvanced((v) => !v)}
-            accessibilityRole='button'
-            accessibilityState={{ expanded: showAdvanced }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              paddingVertical: 8,
-            }}
-          >
-            <Text variant='caption' tone='tertiary'>
-              {t("login.advanced")}
-            </Text>
-            <Ionicons
-              name={showAdvanced ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={tokens.color.text.tertiary}
-              style={{ marginLeft: 4 }}
-            />
-          </FocusPressable>
-          {/* What "Advanced" holds, said up front rather than left to guessing (critique: "sits
-              alone with no hint of what is inside"). */}
-          <Text
-            variant='micro'
-            tone='tertiary'
-            style={{ marginTop: -4, marginBottom: 4 }}
-          >
-            {t("login.advanced_hint")}
-          </Text>
-          {showAdvanced ? differentServerLink : null}
-        </View>
-      ) : (
-        differentServerLink
-      )}
+      {differentServerLink}
     </View>
   );
 };

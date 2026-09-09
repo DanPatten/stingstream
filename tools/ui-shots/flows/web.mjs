@@ -70,14 +70,26 @@ async function isVisibleSoon(locator, timeoutMs) {
   return locator.waitFor({ state: "visible", timeout: timeoutMs }).then(() => true).catch(() => false);
 }
 
-/** The server-address step (testIDs login-server-url/login-connect), when the app is not being
- * served by a node with auto-connect wired up (or when something has gone wrong with it). Confirmed
- * live both ways on this pass: a stale supervisor build skipped the node marker entirely and showed
- * this step; a current build injects the marker and auto-connects straight to firstrun/login with
- * no server step at all. Handles both without caring which one this particular node does. */
+/** Wait out whatever stands between `/login` and a card that can be driven.
+ *
+ * On a node-served page that is the **starting** card and nothing else: Part 6 made the address
+ * step unreachable when the node marker is present (`components/login/loginPhase.ts`), so the only
+ * thing to do is let the node finish coming up — which it says it is doing, and which on a fresh
+ * install with the download managers on can take a minute or two.
+ *
+ * The address step is still handled, because this same flow is pointed at builds served by
+ * something that is not a node. If it appears on a node-served page, that is the regression Part 6
+ * exists to prevent, and `sweep.mjs` will see the wrong screen in the screenshot. */
 async function connectIfNeeded(page, base) {
+  const starting = byTestId(page, "login-server-starting");
+  if (await isVisibleSoon(starting, 4000)) {
+    // Generous: the app's own budget is 90 s, and giving up sooner would screenshot a card that
+    // was about to move on by itself.
+    await starting.waitFor({ state: "hidden", timeout: 120_000 }).catch(() => {});
+  }
+
   const serverInput = byTestId(page, "login-server-url");
-  if (await isVisibleSoon(serverInput, 6000)) {
+  if (await isVisibleSoon(serverInput, 4000)) {
     // <base>/jellyfin, not the bare origin: docs/UI-LOOP.md records a real bug where the bare
     // host:port hangs this step forever with no way back. Not this pass's bug to re-litigate.
     await serverInput.fill(new URL("/jellyfin", base).toString());

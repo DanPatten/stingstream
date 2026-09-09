@@ -45,7 +45,6 @@ import {
 } from "@/lib/stingstream/requestsApi";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
-import { getIntegrationHeaders } from "@/utils/customHeaders";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
 import type {
   MovieResult,
@@ -271,10 +270,7 @@ export default function SearchPage() {
         .map((type) => encodeURIComponent(type))
         .join("&includeItemTypes=")}`;
 
-      const response1 = await axios.get(url, {
-        signal,
-        headers: getIntegrationHeaders("marlin"),
-      });
+      const response1 = await axios.get(url, { signal });
 
       const ids = response1.data.ids;
 

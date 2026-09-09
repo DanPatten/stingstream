@@ -15,15 +15,12 @@ import { toast } from "sonner-native";
 import { Colors } from "@/constants/Colors";
 import { radius, tokens } from "@/constants/theme";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
-import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import {
   deleteAccountCredential,
   getPreviousServers,
-  getServerCustomHeaders,
   removeServerFromList,
   type SavedServer,
   type SavedServerAccount,
-  updateServerCustomHeaders,
 } from "@/utils/secureCredentials";
 import { AccountsSheet } from "./AccountsSheet";
 import { Text } from "./common/Text";
@@ -31,7 +28,6 @@ import { ListGroup } from "./list/ListGroup";
 import { ListItem } from "./list/ListItem";
 import { PasswordEntryModal } from "./PasswordEntryModal";
 import { PINEntryModal } from "./PINEntryModal";
-import { CustomHeaderSheet } from "./settings/CustomHeaderSheet";
 
 /**
  * What went wrong with a saved login, in one sentence.
@@ -86,7 +82,6 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
   }, [_previousServers]);
 
   const { t } = useTranslation();
-  const { showModal, hideModal } = useGlobalModal();
   const confirmDelete = useConfirmDelete();
 
   /**
@@ -222,37 +217,9 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
     [setPreviousServers],
   );
 
-  /**
-   * A saved server's proxy headers can only be reached from here: once its
-   * token rotates, connecting to it fails, and Settings → Network is behind
-   * that connection.
-   */
-  const handleEditHeaders = useCallback(
-    (serverUrl: string) => {
-      showModal(
-        <CustomHeaderSheet
-          initialHeaders={getServerCustomHeaders(serverUrl)}
-          onCommit={(headers) => updateServerCustomHeaders(serverUrl, headers)}
-          onClose={hideModal}
-        />,
-      );
-    },
-    [showModal, hideModal],
-  );
-
   const renderRightActions = useCallback(
     (serverUrl: string, swipeableRef: React.RefObject<Swipeable | null>) => (
       <View className='flex-row'>
-        <TouchableOpacity
-          onPress={() => {
-            swipeableRef.current?.close();
-            handleEditHeaders(serverUrl);
-          }}
-          className='bg-neutral-700 justify-center items-center px-5'
-          accessibilityLabel={t("custom_headers.title")}
-        >
-          <Ionicons name='key' size={20} color='white' />
-        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => {
             swipeableRef.current?.close();
@@ -265,18 +232,13 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
         </TouchableOpacity>
       </View>
     ),
-    [handleEditHeaders, handleRemoveServer, t],
+    [handleRemoveServer, t],
   );
 
-  /** The same two actions as buttons, for the platform with no swipe. */
+  /** The same action as a button, for the platform with no swipe. */
   const renderInlineActions = useCallback(
     (serverUrl: string) => (
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <RowAction
-          icon='key'
-          label={t("custom_headers.title")}
-          onPress={() => handleEditHeaders(serverUrl)}
-        />
         <RowAction
           icon='trash'
           label={t("server.remove_server")}
@@ -285,7 +247,7 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
         />
       </View>
     ),
-    [handleEditHeaders, handleRemoveServer, t],
+    [handleRemoveServer, t],
   );
 
   const getServerSubtitle = (server: SavedServer): string | undefined => {

@@ -8,7 +8,6 @@ import { Text } from "@/components/common/Text";
 import { useTVMenuKeyInterception } from "@/hooks/useTVBackPress";
 import { apiAtom, useJellyfin } from "@/providers/JellyfinProvider";
 import { selectedTVServerAtom } from "@/utils/atoms/selectedTVServer";
-import type { CustomHeader } from "@/utils/customHeaders";
 import {
   checkJellyfinServer,
   ServerTooOldError,
@@ -163,13 +162,10 @@ export const TVLogin: React.FC = () => {
 
   // Handle connecting to a new server
   const handleConnect = useCallback(
-    async (url: string, headers?: CustomHeader[]) => {
+    async (url: string) => {
       setLoadingServerCheck(true);
       try {
-        const result = await checkJellyfinServer(
-          url.trim().replace(/\/$/, ""),
-          headers,
-        );
+        const result = await checkJellyfinServer(url.trim().replace(/\/$/, ""));
         if (!result) {
           Alert.alert(
             t("login.connection_failed"),

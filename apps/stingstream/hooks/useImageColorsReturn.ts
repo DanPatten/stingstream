@@ -15,10 +15,6 @@ import {
   calculateTextColor,
   isCloseToBlack,
 } from "@/utils/atoms/primaryColor";
-import {
-  getJellyfinHeadersForUrl,
-  optionsWithOptionalHeaders,
-} from "@/utils/customHeaders";
 import { getItemImage } from "@/utils/getItemImage";
 import { storage } from "@/utils/mmkv";
 
@@ -92,23 +88,10 @@ export const useImageColorsReturn = ({
       // Extract colors from the image
       if (!ImageColors?.getColors) return;
 
-      // The image lives on the Jellyfin server, which may sit behind an access
-      // gateway — without the proxy headers the download 403s and the screen
-      // keeps the default colors.
-      const headers =
-        ("headers" in source ? source.headers : undefined) ??
-        getJellyfinHeadersForUrl(source.uri, api?.basePath);
-
-      ImageColors.getColors(
-        source.uri,
-        optionsWithOptionalHeaders(
-          {
-            fallback: "#fff",
-            cache: false,
-          },
-          headers,
-        ),
-      )
+      ImageColors.getColors(source.uri, {
+        fallback: "#fff",
+        cache: false,
+      })
         .then((colors: ImageColorsType.ImageColorsResult) => {
           let primary = "#fff";
           let text = "#000";

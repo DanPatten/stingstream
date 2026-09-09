@@ -26,13 +26,9 @@ import useRouter from "@/hooks/useAppRouter";
 import { useInterval } from "@/hooks/useInterval";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
 import { settingsAtom, useSettings } from "@/utils/atoms/settings";
-import {
-  getIntegrationHeaders,
-  normalizeHttpBaseUrl,
-} from "@/utils/customHeaders";
 import { getOrSetDeviceId } from "@/utils/device";
 import { markExpectedError } from "@/utils/errors";
-import { createApiWithCustomHeaders } from "@/utils/jellyfin/createApi";
+import { createServerApi } from "@/utils/jellyfin/createApi";
 import {
   logAndCaptureError,
   writeErrorLog,
@@ -55,6 +51,7 @@ import {
   saveJellyseerrPassword,
   updateAccountToken,
 } from "@/utils/secureCredentials";
+import { normalizeHttpBaseUrl } from "@/utils/serverUrl/urlMatching";
 import { store } from "@/utils/store";
 import { clearTVDiscoverySafely } from "@/utils/tvDiscovery/sync";
 import { APP_VERSION } from "@/utils/version";
@@ -104,7 +101,7 @@ const initialApi = (() => {
           id,
         },
       });
-      return createApiWithCustomHeaders(jellyfinInstance, serverUrl, token);
+      return createServerApi(jellyfinInstance, serverUrl, token);
     }
   } catch (e) {
     console.error("Failed to initialize API synchronously:", e);
@@ -255,7 +252,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     const attemptKey = `${serverUrl}:${user.Id}`;
     if (jellyseerrAutoConnectAttempt.current === attemptKey) return;
     jellyseerrAutoConnectAttempt.current = attemptKey;
-    new JellyseerrApi(serverUrl, getIntegrationHeaders("jellyseerr"), apiKey)
+    new JellyseerrApi(serverUrl, apiKey)
       .loginWithApiKey(user.Id)
       .then(setJellyseerrUser)
       .catch((e) =>
@@ -292,7 +289,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
     (accessToken: string, nextUser: UserDto) => {
       if (!jellyfin || !api?.basePath) return;
       setUser(nextUser);
-      setApi(createApiWithCustomHeaders(jellyfin, api.basePath, accessToken));
+      setApi(createServerApi(jellyfin, api.basePath, accessToken));
       storage.set("token", accessToken);
       storage.set("user", JSON.stringify(nextUser));
     },
@@ -517,8 +514,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   const setServerMutation = useMutation({
     mutationFn: async (server: Server) => {
       clearTVDiscoverySafely();
-      const apiInstance =
-        jellyfin && createApiWithCustomHeaders(jellyfin, server.address);
+      const apiInstance = jellyfin && createServerApi(jellyfin, server.address);
 
       if (!apiInstance?.basePath) throw new Error("Failed to connect");
 
@@ -602,11 +598,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
           setUser(auth.data.User);
           storage.set("user", JSON.stringify(auth.data.User));
           setApi(
-            createApiWithCustomHeaders(
-              jellyfin,
-              api.basePath,
-              auth.data?.AccessToken,
-            ),
+            createServerApi(jellyfin, api.basePath, auth.data?.AccessToken),
           );
           storage.set("token", auth.data?.AccessToken);
 
@@ -649,7 +641,6 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
           ) {
             const jellyseerrApi = new JellyseerrApi(
               recentPluginSettings.jellyseerrServerUrl.value,
-              getIntegrationHeaders("jellyseerr"),
             );
             const jellyfinServerUrl = api.basePath;
             const jellyfinUserId = auth.data.User.Id;
@@ -786,7 +777,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       }
 
       // Create API instance with saved token
-      const apiInstance = createApiWithCustomHeaders(
+      const apiInstance = createServerApi(
         jellyfin,
         serverUrl,
         credential.token,
@@ -874,7 +865,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       if (!jellyfin) throw new Error("Jellyfin not initialized");
 
       // Create API instance for the server
-      const apiInstance = createApiWithCustomHeaders(jellyfin, serverUrl);
+      const apiInstance = createServerApi(jellyfin, serverUrl);
       if (!apiInstance) {
         throw new Error("Failed to create API instance");
       }
@@ -901,13 +892,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
 
         setUser(auth.data.User);
         storage.set("user", JSON.stringify(auth.data.User));
-        setApi(
-          createApiWithCustomHeaders(
-            jellyfin,
-            serverUrl,
-            auth.data.AccessToken,
-          ),
-        );
+        setApi(createServerApi(jellyfin, serverUrl, auth.data.AccessToken));
         storage.set("serverUrl", serverUrl);
         storage.set("token", auth.data.AccessToken);
 
@@ -949,11 +934,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       if (!jellyfin || !api?.accessToken) return;
 
       clearTVDiscoverySafely();
-      const newApi = createApiWithCustomHeaders(
-        jellyfin,
-        newUrl,
-        api.accessToken,
-      );
+      const newApi = createServerApi(jellyfin, newUrl, api.accessToken);
       setApi(newApi);
       // Note: We don't update storage.set("serverUrl") here
       // because we want to keep the original remote URL as the "primary" URL
@@ -983,11 +964,7 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
         const storedUser = getUserFromStorage();
 
         if (serverUrl && token) {
-          const apiInstance = createApiWithCustomHeaders(
-            jellyfin,
-            serverUrl,
-            token,
-          );
+          const apiInstance = createServerApi(jellyfin, serverUrl, token);
           setApi(apiInstance);
 
           if (storedUser?.Id) {

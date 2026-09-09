@@ -1,5 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance } from "axios";
-import { atom, useAtomValue } from "jotai";
+import { atom } from "jotai";
 import { useAtom } from "jotai/index";
 import { inRange } from "lodash";
 import type { User as JellyseerrUser } from "@/utils/jellyseerr/server/entity/User";
@@ -15,10 +15,6 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner-native";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useSettings } from "@/utils/atoms/settings";
-import {
-  customHeadersVersionAtom,
-  getIntegrationHeaders,
-} from "@/utils/customHeaders";
 import type { RTRating } from "@/utils/jellyseerr/server/api/rating/rottentomatoes";
 import {
   IssueStatus,
@@ -168,8 +164,6 @@ const truncateForLog = (value: unknown): string | undefined => {
 
 export class JellyseerrApi {
   axios: AxiosInstance;
-  /** Proxy auth headers for a Jellyseerr behind an access gateway. */
-  private customHeaders: Record<string, string>;
   /** Admin API key: authenticates every call without a session cookie. */
   private apiKey?: string;
   /**
@@ -178,18 +172,13 @@ export class JellyseerrApi {
    */
   actAsUserId?: number;
 
-  constructor(
-    baseUrl: string,
-    customHeaders?: Record<string, string>,
-    apiKey?: string,
-  ) {
+  constructor(baseUrl: string, apiKey?: string) {
     this.axios = axios.create({
       baseURL: baseUrl,
       withCredentials: true,
       withXSRFToken: true,
       xsrfHeaderName: "XSRF-TOKEN",
     });
-    this.customHeaders = customHeaders ?? {};
     this.apiKey = apiKey;
 
     this.setInterceptors();
@@ -546,12 +535,6 @@ export class JellyseerrApi {
 
     this.axios.interceptors.request.use(
       async (config) => {
-        // set() rather than index assignment so axios normalizes the name and
-        // a differently-cased duplicate cannot be emitted twice.
-        for (const [key, value] of Object.entries(this.customHeaders)) {
-          config.headers.set(key, value);
-        }
-
         if (this.apiKey) {
           config.headers.set("X-Api-Key", this.apiKey);
         }
@@ -583,7 +566,6 @@ const jellyseerrUserAtom = atom(storage.get<JellyseerrUser>(JELLYSEERR_USER));
 export const useJellyseerr = () => {
   const { settings, updateSettings } = useSettings();
   const [jellyseerrUser, setJellyseerrUser] = useAtom(jellyseerrUserAtom);
-  const customHeadersVersion = useAtomValue(customHeadersVersionAtom);
   const queryClient = useNetworkAwareQueryClient();
 
   const jellyseerrApi = useMemo(() => {
@@ -594,21 +576,15 @@ export const useJellyseerr = () => {
       jellyseerrUser &&
       (cookies || apiKey)
     ) {
-      const api = new JellyseerrApi(
-        settings.jellyseerrServerUrl,
-        getIntegrationHeaders("jellyseerr"),
-        apiKey,
-      );
+      const api = new JellyseerrApi(settings.jellyseerrServerUrl, apiKey);
       api.actAsUserId = jellyseerrUser.id;
       return api;
     }
     return undefined;
-    // customHeadersVersion: rebuild the client when the headers change.
   }, [
     settings?.jellyseerrServerUrl,
     settings?.jellyseerrApiKey,
     jellyseerrUser,
-    customHeadersVersion,
   ]);
 
   const clearAllJellyseerData = useCallback(async () => {

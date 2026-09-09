@@ -10,7 +10,6 @@ import { toast } from "sonner-native";
 import type { Bitrate } from "@/constants/Playback";
 import useImageStorage from "@/hooks/useImageStorage";
 import { BackgroundDownloader } from "@/modules";
-import { getJellyfinHeadersForUrl } from "@/utils/customHeaders";
 import { getOrSetDeviceId } from "@/utils/device";
 import useDownloadHelper, { estimateDownloadSize } from "@/utils/download";
 import type { DownloadTransport } from "@/utils/jellyfin/media/getStreamUrl";
@@ -204,7 +203,7 @@ export function useDownloadOperations({
           downloadUrl,
           destinationPath,
           activityMetadata,
-          getJellyfinHeadersForUrl(downloadUrl, api?.basePath),
+          undefined,
           { readTimeoutSeconds: transport?.readTimeoutSeconds },
         );
 

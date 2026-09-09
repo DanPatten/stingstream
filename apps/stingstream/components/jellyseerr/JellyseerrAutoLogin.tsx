@@ -3,7 +3,6 @@ import { useEffect, useRef } from "react";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
-import { getIntegrationHeaders } from "@/utils/customHeaders";
 import { writeInfoLog, writeToLog } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
 import { getJellyseerrPassword } from "@/utils/secureCredentials";
@@ -60,10 +59,7 @@ export const JellyseerrAutoLogin: React.FC = () => {
         // No test() first: it toasts on every failure path, and this runs
         // unprompted at launch — login() failing into the catch below is
         // the silent behavior we want.
-        const api = new JellyseerrApi(
-          serverUrl,
-          getIntegrationHeaders("jellyseerr"),
-        );
+        const api = new JellyseerrApi(serverUrl);
         setJellyseerrUser(await api.login(username, password));
         writeInfoLog("Jellyseerr auto-login succeeded");
       } catch (e) {

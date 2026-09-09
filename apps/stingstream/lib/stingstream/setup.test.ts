@@ -129,6 +129,7 @@ describe("getSetupState", () => {
     );
 
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      known: true,
       pending: true,
       loopback: true,
       trustedPeer: true,
@@ -145,6 +146,7 @@ describe("getSetupState", () => {
     );
 
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      known: true,
       pending: true,
       loopback: false,
       trustedPeer: true,
@@ -155,6 +157,7 @@ describe("getSetupState", () => {
     // Showing "create your account" to somebody who already has one is the worse mistake.
     const { impl } = stubFetch(() => json(200, { Pending: "yes" }));
     return expect(getSetupState(ORIGIN, { fetch: impl })).resolves.toEqual({
+      known: true,
       pending: false,
       loopback: false,
       trustedPeer: false,
@@ -170,16 +173,22 @@ describe("getSetupState", () => {
     );
 
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      known: true,
       pending: true,
       loopback: true,
       trustedPeer: true,
     });
   });
 
-  test("404 means not pending — an older node has no setup routes at all", async () => {
+  // `known: false` is the whole point. A 404 has two causes that the status cannot tell apart --
+  // a node too old to have the routes, and a **new** node whose gateway has not registered its
+  // Jellyfin child yet -- and reading the second as "setup is done" is what put an address form
+  // in front of somebody on a cold node. `decidePhase` resolves it from the marker instead.
+  test("a 404 is reported as no answer at all, not as not-pending", async () => {
     const { impl } = stubFetch(() => new Response(null, { status: 404 }));
 
     expect(await getSetupState(ORIGIN, { fetch: impl })).toEqual({
+      known: false,
       pending: false,
       loopback: false,
       trustedPeer: false,
@@ -197,7 +206,12 @@ describe("getSetupState", () => {
 
     expect(
       await getSetupState(ORIGIN, { fetch: impl, retryDelayMs: 0 }),
-    ).toEqual({ pending: true, loopback: false, trustedPeer: true });
+    ).toEqual({
+      known: true,
+      pending: true,
+      loopback: false,
+      trustedPeer: true,
+    });
     expect(calls).toHaveLength(3);
   });
 

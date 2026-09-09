@@ -77,7 +77,7 @@ export const useTrickplay = (item: BaseItemDto) => {
       const batch = urls.slice(i, i + maxConcurrent);
       await Promise.all(
         batch.map(
-          (url) => prefetchServerImage(url, api?.basePath).catch(() => {}), // Ignore errors
+          (url) => prefetchServerImage(url).catch(() => {}), // Ignore errors
         ),
       );
       // Yield to the event loop between batches to avoid blocking

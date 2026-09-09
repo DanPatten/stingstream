@@ -10,20 +10,17 @@ export function normalizeHttpBaseUrl(url: string): string {
 
 /**
  * Whether `url` is served by `baseUrl` — same origin, and below the base path
- * when the base URL has one (a reverse proxy may host Jellyfin under /jellyfin).
- *
- * Custom headers are only attached to URLs that match a configured base, so a
- * poster hosted on TMDB never receives the proxy credentials.
+ * when the base URL has one (a node's gateway hosts Jellyfin under /jellyfin).
  */
 export function isUrlForBaseUrl(url: string, baseUrl: string): boolean {
   if (!url || !baseUrl.trim()) return false;
 
   const normalizedBase = normalizeHttpBaseUrl(baseUrl);
 
-  // Every image in the app runs this, and almost all of them are the server's
-  // own URL with a path appended — which is decidable without parsing. Anything
-  // else (a default port spelled out, a different case, a dot segment that
-  // could climb out of the base path) still goes through the full comparison.
+  // The common case is the server's own URL with a path appended, which is
+  // decidable without parsing. Anything else (a default port spelled out, a
+  // different case, a dot segment that could climb out of the base path) still
+  // goes through the full comparison.
   if (
     url.length > normalizedBase.length &&
     url.startsWith(`${normalizedBase}/`) &&

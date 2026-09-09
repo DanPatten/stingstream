@@ -1,17 +1,4 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  setJellyfinHeaders,
-  stubCustomHeaders,
-} from "@/test-utils/customHeaders";
-import type { CustomHeader } from "@/utils/customHeaders/types";
-
-// checkServer pulls the two helpers through the barrel file, which also
-// re-exports modules with native dependencies (MMKV, SecureStore) — so the
-// barrel is replaced with just the real implementations of what it needs.
-stubCustomHeaders();
-// No proxy headers in these specs, set per test so another file cannot
-// leave its own behind.
-beforeEach(() => setJellyfinHeaders());
 
 // Bun's mock.module retroactively re-links every module already importing the
 // specifier, so a log mock must cover the module's full function surface —
@@ -32,15 +19,6 @@ mock.module("@/utils/log", () => ({
     loggedMessages.push({ level: "ERROR", message });
   },
   readFromLog: () => [],
-}));
-
-const savedHeaders = new Map<string, CustomHeader[]>();
-const persistedHeaders: Array<{ url: string; headers: CustomHeader[] }> = [];
-mock.module("@/utils/secureCredentials", () => ({
-  getServerCustomHeaders: (url: string) => savedHeaders.get(url) ?? [],
-  updateServerCustomHeaders: (url: string, headers: CustomHeader[]) => {
-    persistedHeaders.push({ url, headers });
-  },
 }));
 
 const { checkJellyfinServer, NotAJellyfinServerError, ServerTooOldError } =
@@ -114,15 +92,7 @@ const routes = (impl: {
 beforeEach(() => {
   fetchCalls = [];
   loggedMessages.length = 0;
-  savedHeaders.clear();
-  persistedHeaders.length = 0;
   fetchImpl = networkError;
-});
-
-const header = (key: string, value: string): CustomHeader => ({
-  key,
-  value,
-  enabled: true,
 });
 
 // --- scheme handling -------------------------------------------------------
@@ -198,11 +168,7 @@ describe("checkJellyfinServer probing", () => {
   test("a hanging candidate is aborted after the timeout instead of blocking the fallback", async () => {
     routes({ https: hangUntilAborted, http: async () => okResponse() });
 
-    const result = await checkJellyfinServer(
-      "192.168.1.10:8096",
-      undefined,
-      20,
-    );
+    const result = await checkJellyfinServer("192.168.1.10:8096", 20);
 
     expect(result?.url).toBe("http://192.168.1.10:8096");
     // Probe failures are routine (fallback still succeeds here), so they log
@@ -255,55 +221,6 @@ describe("checkJellyfinServer probing", () => {
     expect(result?.url).toBe("http://192.168.1.10:8096");
   });
 });
-
-// --- custom headers --------------------------------------------------------
-
-describe("checkJellyfinServer custom headers", () => {
-  test("typed headers are sent with the probe and persisted only for the URL that answered", async () => {
-    routes({ https: networkError, http: async () => okResponse() });
-    const typed = [header("CF-Access-Client-Id", "abc")];
-
-    await checkJellyfinServer("192.168.1.10:8096", typed);
-
-    const httpCall = fetchCalls.find((c) => c.url.startsWith("http://"));
-    expect(
-      (httpCall?.init as { headers?: Record<string, string> })?.headers,
-    ).toEqual({ "CF-Access-Client-Id": "abc" });
-    expect(persistedHeaders).toEqual([
-      { url: "http://192.168.1.10:8096", headers: typed },
-    ]);
-  });
-
-  test("saved headers are reused when none are passed, and nothing is re-persisted", async () => {
-    savedHeaders.set("http://192.168.1.10:8096", [
-      header("CF-Access-Client-Id", "saved"),
-    ]);
-    routes({ http: async () => okResponse() });
-
-    await checkJellyfinServer("http://192.168.1.10:8096");
-
-    expect(
-      (fetchCalls[0]?.init as { headers?: Record<string, string> })?.headers,
-    ).toEqual({ "CF-Access-Client-Id": "saved" });
-    expect(persistedHeaders).toHaveLength(0);
-  });
-
-  test("headers that fail to reach the server are not persisted", async () => {
-    routes({});
-
-    await checkJellyfinServer("192.168.1.10:8096", [
-      header("CF-Access-Client-Id", "abc"),
-    ]);
-
-    expect(persistedHeaders).toHaveLength(0);
-  });
-});
-
-// --- Jellyfin under /jellyfin ----------------------------------------------
-// A StingStream node's gateway serves Jellyfin at /jellyfin and answers every path it does not
-// know with its own placeholder page at HTTP 200. Before this, typing the node's own address —
-// the address on its own status screen, and the one anybody would try first — got HTML where the
-// check wanted JSON, and the user was told to check their network connection.
 
 describe("checkJellyfinServer finds Jellyfin under /jellyfin", () => {
   test("an HTML answer at the root is retried one level down, and that base is adopted", async () => {
@@ -408,21 +325,6 @@ describe("checkJellyfinServer finds Jellyfin under /jellyfin", () => {
     ).toBeUndefined();
     expect(fetchCalls.map((c) => c.url)).toEqual([
       "http://192.168.1.10:8096/System/Info/Public",
-    ]);
-  });
-
-  test("headers are carried to the nested probe and persisted against the base that answered", async () => {
-    const typed = [header("CF-Access-Client-Id", "abc")];
-    fetchImpl = async (url) =>
-      url.includes("/jellyfin/") ? okResponse() : htmlResponse();
-
-    await checkJellyfinServer("http://node.local:8890", typed);
-
-    expect(
-      (fetchCalls[1]?.init as { headers?: Record<string, string> })?.headers,
-    ).toEqual({ "CF-Access-Client-Id": "abc" });
-    expect(persistedHeaders).toEqual([
-      { url: "http://node.local:8890/jellyfin", headers: typed },
     ]);
   });
 

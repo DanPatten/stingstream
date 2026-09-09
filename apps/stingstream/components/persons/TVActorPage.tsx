@@ -155,7 +155,7 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
     const performCrossfade = async () => {
       // Disk-only prefetch to avoid pinning large backdrops in memory cache.
       try {
-        await prefetchServerImage(backdropUrl, api?.basePath, "disk");
+        await prefetchServerImage(backdropUrl, "disk");
       } catch {
         // Continue even if prefetch fails
       }

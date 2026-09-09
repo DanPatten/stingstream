@@ -23,7 +23,6 @@ import { useRemoveFromPlaylist } from "@/hooks/usePlaylistMutations";
 import { downloadTrack, getLocalPath } from "@/providers/AudioStorage";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useMusicPlayer } from "@/providers/MusicPlayerProvider";
-import { getJellyfinHeadersForUrl } from "@/utils/customHeaders";
 import { getAudioStreamUrl } from "@/utils/jellyfin/audio/getAudioStreamUrl";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { runtimeTicksToMinutes } from "@/utils/time";
@@ -153,7 +152,6 @@ export default function PlaylistDetailScreen() {
           await downloadTrack(track.Id, result.url, {
             permanent: true,
             container: result.mediaSource?.Container || undefined,
-            headers: getJellyfinHeadersForUrl(result.url, api?.basePath),
           });
         }
       }

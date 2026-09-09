@@ -6,11 +6,7 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal";
-import {
-  jellyfinUrlFor,
-  type NodeContext,
-  useNodeContext,
-} from "@/hooks/useNodeContext";
+import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
 import { signInWithPasskey } from "@/lib/stingstream/passkeysApi";
@@ -18,6 +14,7 @@ import {
   createAdmin,
   getSetupState,
   SetupRequestError,
+  type SetupState,
 } from "@/lib/stingstream/setup";
 import {
   apiAtom,
@@ -25,36 +22,34 @@ import {
   useJellyfin,
   userAtom,
 } from "@/providers/JellyfinProvider";
-import type { CustomHeader } from "@/utils/customHeaders";
 import {
   checkJellyfinServer,
   NotAJellyfinServerError,
+  ServerStartingError,
   ServerTooOldError,
 } from "@/utils/jellyfin/checkServer";
 import type { SavedServer } from "@/utils/secureCredentials";
 import { AuthCard } from "./AuthCard";
-import { ServerForm } from "./ServerForm";
+import { ConnectScreen } from "./ConnectScreen";
+import { decidePhase, type Phase } from "./loginPhase";
+import { ServerStarting } from "./ServerStarting";
 import { SetupAccountForm } from "./SetupAccountForm";
 import { SetupElsewhere } from "./SetupElsewhere";
 import { SignInForm } from "./SignInForm";
 
 /**
- * Which card the one pre-session screen is showing.
+ * How long to keep trying a node that is there but not ready, and how fast to back off.
  *
- * Not routes. The whole flow lives at `/login` and always did; what changes is state, and making
- * it explicit is what stops the address form flashing in front of somebody whose server is the
- * page they are already looking at.
+ * The budget is not a guess: `tools/ui-startup.ps1` allows the node **40 s** to become healthy
+ * with the download managers off and **90 s** with them on, so a browser that gives up sooner is
+ * giving up on a server that is doing exactly what it is supposed to. It used to allow 1.4 s
+ * (three tries, 700 ms apart), which is how a cold node ended up showing an address form.
+ *
+ * The cap matches the `Retry-After: 5` the gateway sends with its own 503.
  */
-type Phase =
-  | "connecting"
-  | "setup"
-  | "setupElsewhere"
-  | "signIn"
-  | "serverForm";
-
-/** How many times to retry the silent auto-connect before falling back to the address form. */
-const AUTO_CONNECT_ATTEMPTS = 3;
-const AUTO_CONNECT_RETRY_MS = 700;
+const AUTO_CONNECT_BUDGET_MS = 90_000;
+const AUTO_CONNECT_FIRST_DELAY_MS = 1_000;
+const AUTO_CONNECT_MAX_DELAY_MS = 5_000;
 
 /**
  * The golden path, and every path that is not it.
@@ -66,6 +61,10 @@ const AUTO_CONNECT_RETRY_MS = 700;
  *
  * Anywhere else — a phone, a television, a bundle on a static host — the address step is the only
  * honest first question, so it is the first screen.
+ *
+ * **A node-served page never sees that step.** Not first, not as a fallback, not under Advanced:
+ * the origin is the server. `decidePhase` in `./loginPhase.ts` is where that rule lives, with the
+ * test that pins it.
  */
 export const LoginScreen: React.FC = () => {
   const { t } = useTranslation();
@@ -95,12 +94,15 @@ export const LoginScreen: React.FC = () => {
 
   // Not served by a node? Then this is a bare app build that has never been pointed anywhere, and
   // the address form is the only honest first card: there is nothing central left to ask who you
-  // are (Part 5). In practice almost nobody arrives here — an invite link carries the address,
-  // LAN discovery finds servers at home, and a remembered server skips it entirely.
-
+  // are (Part 5). On a phone or a television that is the ordinary case; in a browser it means the
+  // bundle came from something that is not a node, which in practice means a dev server.
   const [phase, setPhase] = useState<Phase>(
     nodeContext ? "connecting" : "serverForm",
   );
+  /** Bumped by the Retry button, which is the only thing that re-runs the auto-connect. */
+  const [connectAttempt, setConnectAttempt] = useState(0);
+  /** True once the connect budget is spent, which turns the starting card into an offer to retry. */
+  const [startingStalled, setStartingStalled] = useState(false);
   // Both halves have to say yes -- this browser, and a server with a domain to bind to. Null
   // while it is still being asked, so no link flashes and disappears.
   const passkeys = usePasskeySupport();
@@ -141,11 +143,8 @@ export const LoginScreen: React.FC = () => {
    * `switchServerUrl` looks like the right call and is not: it no-ops before a session exists.
    */
   const connectTo = useCallback(
-    async (url: string, headers?: CustomHeader[]): Promise<string | null> => {
-      const result = await checkJellyfinServer(
-        url.trim().replace(/\/$/, ""),
-        headers,
-      );
+    async (url: string): Promise<string | null> => {
+      const result = await checkJellyfinServer(url.trim().replace(/\/$/, ""));
       if (!result) throw new Error(t("login.could_not_connect_to_server"));
       await setServer({ address: result.url });
       return result.name || null;
@@ -155,9 +154,9 @@ export const LoginScreen: React.FC = () => {
 
   /** The address form's Connect, with the three failures it can report worded for a person. */
   const handleConnect = useCallback(
-    async (url: string, headers?: CustomHeader[]) => {
+    async (url: string) => {
       try {
-        const name = await connectTo(url, headers);
+        const name = await connectTo(url);
         setServerName(name);
         setPhase("signIn");
       } catch (e) {
@@ -169,6 +168,11 @@ export const LoginScreen: React.FC = () => {
           // /jellyfin. "Check your network connection" sends people to look at the wrong thing.
           throw new Error(t("login.not_a_jellyfin_server_description"));
         }
+        if (e instanceof ServerStartingError) {
+          // The address is right and the server said so itself. Blaming the address here is the
+          // mistake this whole part exists to undo.
+          throw new Error(t("login.server_starting_description"));
+        }
         throw e;
       }
     },
@@ -179,60 +183,24 @@ export const LoginScreen: React.FC = () => {
   // Auto-connect + first-run decision
   // ---------------------------------------------------------------------------
 
-  /** Guards against a second run under React 19's development double-invoke. */
+  /**
+   * Guards against a second run under React 19's development double-invoke.
+   *
+   * **Reset in the cleanup**, which is the whole point: StrictMode runs effect → cleanup → effect,
+   * so a guard that is never cleared lets the second run bail while the first run's cleanup has
+   * already cancelled it. Nothing then sets the phase and the card sits on "Connecting…" for ever.
+   */
   const startedRef = useRef(false);
 
-  /**
-   * Which card a node should show, asked of the node itself.
-   *
-   * Returns rather than sets, so the caller can hold the "connecting" card until the connection
-   * is ready too — a sign-in form rendered before `setServer` has landed accepts a password and
-   * then fails with "API not initialized", which is a worse first impression than half a second
-   * of a spinner.
-   */
-  const resolvePhase = useCallback(
-    async (
-      context: NodeContext,
-      connected: boolean,
-    ): Promise<{ phase: Phase; message?: string }> => {
-      // Loopback or a private-network peer gets the account screen; anyone else is sent to
-      // "finish it from a device on your home network" (Dan, 2026-09-07: "localhost only works
-      // on the same PC — by IP is better"). Core's `setup/state` is the authority — it is the
-      // same `SetupGate.IsTrustedPeer` check that actually gates `setup/admin`, run against the
-      // real socket peer rather than a hostname string — so its answer wins whenever the request
-      // succeeds; `context.trustedPeer` (client-derived from this page's own address) is only
-      // the fallback for the one case Core cannot answer at all: unreachable.
-      try {
-        const state = await getSetupState(context.origin);
-        if (!state.pending) {
-          return { phase: connected ? "signIn" : "serverForm" };
-        }
-        return { phase: state.trustedPeer ? "setup" : "setupElsewhere" };
-      } catch {
-        // Nobody answered. The marker's hint is the only thing left, and it is better than
-        // guessing: a pending node with an unreachable Core still must not offer a sign-in card
-        // for an account that does not exist.
-        if (context.setupPending === true) {
-          return {
-            phase: context.trustedPeer ? "setup" : "setupElsewhere",
-            message: t("setup.error_unreachable"),
-          };
-        }
-        return { phase: connected ? "signIn" : "serverForm" };
-      }
-    },
-    [t],
-  );
-
-  // The two callbacks the run below needs, held where a re-render cannot change their identity.
+  // The callbacks the run below needs, held where a re-render cannot change their identity.
   //
   // `useJellyfin()` rebuilds its context value every render, so `connectTo` — which closes over
-  // `setServer` — is a new function on every render, and `resolvePhase` with it. Listing either
-  // in the dependency array below re-runs the effect on every render: the `startedRef` guard then
-  // makes each new run return immediately while its own cleanup cancels the *one* run that was
-  // actually in flight, and the card sits on "Connecting…" for ever. Observed, not theorised.
-  const latest = useRef({ connectTo, resolvePhase });
-  latest.current = { connectTo, resolvePhase };
+  // `setServer` — is a new function on every render. Listing it in the dependency array below
+  // re-runs the effect on every render: the `startedRef` guard then makes each new run return
+  // immediately while its own cleanup cancels the *one* run that was actually in flight, and the
+  // card sits on "Connecting…" for ever. Observed, not theorised.
+  const latest = useRef({ connectTo, t });
+  latest.current = { connectTo, t };
 
   useEffect(() => {
     if (!nodeContext || startedRef.current) return;
@@ -240,47 +208,66 @@ export const LoginScreen: React.FC = () => {
 
     let cancelled = false;
     (async () => {
-      const { connectTo, resolvePhase } = latest.current;
+      const { connectTo, t } = latest.current;
       const target = jellyfinUrlFor(nodeContext);
+      const deadline = Date.now() + AUTO_CONNECT_BUDGET_MS;
 
       // The connection is what makes whichever card lands able to do anything, so it is waited
       // for first; the setup query that follows is one cheap round trip against a node that has
       // just proved it answers.
-      const connecting = (async () => {
-        for (let attempt = 1; attempt <= AUTO_CONNECT_ATTEMPTS; attempt++) {
-          try {
-            return await connectTo(target);
-          } catch {
-            // A node serves its own web bundle from the gateway, which is listening well before
-            // Jellyfin behind it is. Retrying is the difference between the golden path and the
-            // address form on a cold start.
-            if (attempt < AUTO_CONNECT_ATTEMPTS) {
-              await new Promise((r) => setTimeout(r, AUTO_CONNECT_RETRY_MS));
-            }
-          }
+      let name: string | null | undefined;
+      let delay = AUTO_CONNECT_FIRST_DELAY_MS;
+      for (;;) {
+        try {
+          name = await connectTo(target);
+          break;
+        } catch (e) {
+          if (cancelled) return;
+          // A node serves its own web bundle from the gateway, which is listening well before the
+          // Jellyfin behind it is. Say which of the two is happening rather than spinning
+          // silently: "Starting your server" is true, and it is what somebody watching a fresh
+          // install wants to be told.
+          if (e instanceof ServerStartingError) setPhase("starting");
+          if (Date.now() >= deadline) break;
+          await new Promise((r) => setTimeout(r, delay));
+          if (cancelled) return;
+          delay = Math.min(delay * 2, AUTO_CONNECT_MAX_DELAY_MS);
         }
-        return undefined;
-      })();
-
-      const name = await connecting;
+      }
       if (cancelled) return;
 
       // The node's own name wins. Jellyfin's `ServerName` is the machine's hostname on a default
       // install — "Log in to PLEXPC" — and is never shown for a server we know is a node.
       if (!nodeContext.nodeName && name) setServerName(name);
 
-      const decision = await resolvePhase(nodeContext, name !== undefined);
+      // Asked of the node itself, and allowed to come back with nothing: `decidePhase` treats
+      // silence and a 404 the same way, by deferring to the marker.
+      let state: SetupState | null = null;
+      try {
+        state = await getSetupState(nodeContext.origin);
+      } catch {
+        state = null;
+      }
       if (cancelled) return;
-      if (decision.message) setSetupMessage(decision.message);
+
+      const decision = decidePhase({
+        context: nodeContext,
+        connected: name !== undefined,
+        setup: state,
+      });
+      if (decision.unreachable) setSetupMessage(t("setup.error_unreachable"));
+      // Reached only by running out of budget, since a successful connect leaves the loop above.
+      if (decision.phase === "starting") setStartingStalled(true);
       setPhase(decision.phase);
     })();
 
     return () => {
       cancelled = true;
+      startedRef.current = false;
     };
-    // `nodeContext` alone: it is read once at module scope and never changes. Everything else the
-    // run needs comes from `latest`, above.
-  }, [nodeContext]);
+    // `nodeContext` never changes — it is read once at module scope. `connectAttempt` is the Retry
+    // button. Everything else the run needs comes from `latest`, above.
+  }, [nodeContext, connectAttempt]);
 
   /** Deep link: `/login?apiUrl=…&username=…&password=…` still works, and still bypasses all this. */
   useEffect(() => {
@@ -407,24 +394,25 @@ export const LoginScreen: React.FC = () => {
     }
   }, [nodeContext, t]);
 
+  /**
+   * Back to the address form, on the surfaces where there is an address to change.
+   *
+   * Passed to `SignInForm` only when **no node served this page**. On a node it is not an escape
+   * hatch behind Advanced, it is not anything: the server is the origin, and offering to change
+   * it offers to type back the address already in the URL bar.
+   */
   const handleUseDifferentServer = useCallback(() => {
     removeServer();
     setServerName(null);
     setPhase("serverForm");
   }, [removeServer]);
 
-  /** Back to the node's own sign-in card, reconnecting the server the user just cleared. */
-  const handleCancelServerForm = useCallback(async () => {
-    if (!nodeContext) return;
+  /** The starting card's Retry: run the whole auto-connect again from the top. */
+  const handleRetryConnect = useCallback(() => {
+    setStartingStalled(false);
     setPhase("connecting");
-    try {
-      const name = await connectTo(jellyfinUrlFor(nodeContext));
-      if (!nodeContext.nodeName && name) setServerName(name);
-      setPhase("signIn");
-    } catch {
-      setPhase("serverForm");
-    }
-  }, [nodeContext, connectTo]);
+    setConnectAttempt((n) => n + 1);
+  }, []);
 
   const handleSignInWithCode = useCallback(async () => {
     try {
@@ -468,6 +456,15 @@ export const LoginScreen: React.FC = () => {
           </View>
         ) : null}
 
+        {phase === "starting" ? (
+          <ServerStarting
+            serverName={serverName}
+            addresses={nodeContext?.addresses ?? []}
+            exhausted={startingStalled}
+            onRetry={handleRetryConnect}
+          />
+        ) : null}
+
         {phase === "setup" ? (
           <SetupAccountForm onSubmit={handleCreateAccount} />
         ) : null}
@@ -484,14 +481,15 @@ export const LoginScreen: React.FC = () => {
         {phase === "signIn" ? (
           <SignInForm
             serverName={serverName}
-            servedByNode={nodeContext !== null}
             keepSignedIn={keepSignedIn}
             onKeepSignedInChange={setKeepSignedIn}
             onSubmit={handleSignIn}
             onSignInWithCode={
               Platform.OS === "web" ? undefined : handleSignInWithCode
             }
-            onUseDifferentServer={handleUseDifferentServer}
+            onUseDifferentServer={
+              nodeContext ? undefined : handleUseDifferentServer
+            }
             onSignInWithPasskey={
               passkeys?.supported ? handleSignInWithPasskey : undefined
             }
@@ -499,13 +497,12 @@ export const LoginScreen: React.FC = () => {
         ) : null}
 
         {phase === "serverForm" ? (
-          <ServerForm
+          <ConnectScreen
             initialUrl={params.apiUrl ?? ""}
             onConnect={handleConnect}
             onQuickLogin={loginWithSavedCredential}
             onPasswordLogin={loginWithPassword}
             onAddAccount={handleAddAccount}
-            onCancel={nodeContext ? handleCancelServerForm : undefined}
           />
         ) : null}
       </AuthCard>

@@ -256,7 +256,8 @@ keyed on `api?.basePath` — "which server?" and then username/password — and 
 `LoginScreen.tsx`, a state machine over `connecting | setup | setupElsewhere | signIn | serverForm`
 with one card component per state (`AuthCard`, `SetupAccountForm`, `SetupElsewhere`, `SignInForm`,
 `ServerForm`). `app/login.tsx` still dispatches TV → `TVLogin` and everything else → the new
-screen; there is no new route and no new tab group.
+screen; there is no new route and no new tab group. `ServerForm.tsx` has since become
+`ConnectScreen.tsx` and the state machine gained a `starting` phase — see the next section.
 
 Three things changed behaviour, not just appearance:
 
@@ -265,6 +266,7 @@ Three things changed behaviour, not just appearance:
   it synchronously in `hooks/useNodeContext.ts`, connects to that node, and shows a card. An app
   built by anyone else, served by anything else, or running on a phone still starts at the address
   form. `EXPO_PUBLIC_STINGSTREAM_NODE_URL` stands in for the marker under Metro and on emulators.
+  **This was true as written and false in practice until Part 6** — see below.
 - **Every failure is inline.** The five `Alert.alert` call sites in the old screen (and the three
   in `PreviousServersList.tsx`) drew *nothing at all* on react-native-web, so a wrong password in a
   browser did nothing visible whatsoever. They are `FormError` and toasts now.
@@ -273,6 +275,46 @@ Three things changed behaviour, not just appearance:
   `authorizeQuickConnect` call, same Jellyfin feature underneath), and the `home.settings.
   quick_connect.*` keys are replaced by `home.settings.link_device.*`. On a phone login the
   "Sign in with a code" text link remains.
+
+### The address form, and finding a server — Part 6
+
+**"A node-served web build never shows the address step" was the intent from v0.2.0 and did not
+hold.** On a cold node — the case every new install passes through — the auto-connect gave the
+server 1.4 s, read the gateway's honest `503 jellyfin is Starting` as *"that is not a StingStream
+server"*, and fell through to **"Connect to your server"**: an address field, on a page the node
+itself had served, offering a saved entry for the address already in the URL bar.
+
+What changed:
+
+- **`decidePhase` (`components/login/loginPhase.ts`) is now the only thing that picks a card**, it
+  is pure, and it is pinned by `loginPhase.test.ts`. With a node marker present it cannot return
+  the address form at all. A server that has not answered yet is a new `starting` phase — a card
+  that says the server is coming up and keeps trying — never a question.
+- **The connect budget matches the server's.** 90 s with backoff to 5 s (the gateway's own
+  `Retry-After`), rather than three tries 700 ms apart, because `ui-startup.ps1` allows the node
+  40–90 s to become healthy.
+- **`ServerStartingError`** joins `NotAJellyfinServerError` in `utils/jellyfin/checkServer.ts`:
+  502/503/504 mean "there, not ready", which is not a fact about the address.
+- **A 404 from `setup/state` is no longer read as "setup is done".** `SetupState` gained `known`.
+  A gateway that has not registered its Jellyfin child yet 404s, and that used to be
+  indistinguishable from a node too old to have the routes. The marker's `setupPending` decides
+  now; an old node has no such field, so its behaviour is unchanged.
+- **`ServerForm.tsx` → `ConnectScreen.tsx`**, reshaped after Home Assistant (Dan: *"mimic how home
+  assistant does this for the experience"*): saved servers first, then the network searched
+  automatically with what it finds listed by name, and **"Enter an address instead"** as the
+  secondary action rather than the opening question. `PreviousServersList` renders only there, so
+  it is gone from the web path entirely.
+- **The port is optional when you do type an address.** `typedAddressCandidates`
+  (`utils/serverUrl/nodeCandidates.ts`) assumes 8790 for a bare LAN address or `.local` name and
+  tries it first; a real domain is tried as typed first and 8790 only as a fallback.
+- **The node answers discovery itself** on UDP 7359 (`gateway::discovery`), wire-compatible with
+  Jellyfin's `AutoDiscoveryHost`, advertising the **gateway's** address and port. Jellyfin's own
+  responder stays off — it would advertise its loopback port. Bind failure is a warning: port 7359
+  is shared, and a stock Jellyfin on the same machine holds it.
+- **Removed keys**: `login.connect_to_server` and `server.enter_url_to_jellyfin_server`. The
+  `SignInForm` "Advanced → use a different server" disclosure is gone on a node-served page; the
+  plain link remains where there is an address to change. `login.server_address_hint` no longer
+  shows a port.
 
 Anything importing `@/components/login/Login`, `@/components/settings/QuickConnect`, or a
 `home.settings.quick_connect.*` / `login.change_server` / `login.username_required` /

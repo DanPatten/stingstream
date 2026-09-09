@@ -5,10 +5,6 @@ import type {
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { atom } from "jotai";
-import {
-  setJellyfinHeaders,
-  stubCustomHeaders,
-} from "@/test-utils/customHeaders";
 import { stubReactNative } from "@/test-utils/reactNative";
 
 // --- Module-boundary stubs (React Native / Expo can't load under bun:test) ---
@@ -17,10 +13,6 @@ mock.module("expo", () => ({
   // codecSupport probes the native MPV module; under bun:test there is none.
   requireOptionalNativeModule: () => null,
 }));
-stubCustomHeaders();
-// No proxy headers in these specs, set per test so another file cannot
-// leave its own behind.
-beforeEach(() => setJellyfinHeaders());
 mock.module("@/providers/JellyfinProvider", () => ({
   apiAtom: atom<Api | null>(null),
 }));
@@ -114,7 +106,7 @@ describe("downloadTrickplayImages", () => {
       [0, 1, 2, 3].map((index) => ({
         url: `https://jellyfin.example.com/Videos/item-1/Trickplay/320/${index}.jpg?ApiKey=SECRET_TOKEN`,
         destination: `file:///documents/some_movie__trickplay/${index}.jpg`,
-        options: {},
+        options: undefined,
       })),
     );
   });

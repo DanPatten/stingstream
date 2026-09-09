@@ -7,13 +7,12 @@ import type { ServerProbe } from "../types";
  * host is up and speaking HTTP at this protocol/port, which is enough to pick
  * https vs http. It cannot detect a "wrong service".
  */
-export const reachabilityProbe: ServerProbe = async (url, signal, headers) => {
+export const reachabilityProbe: ServerProbe = async (url, signal) => {
   try {
     await axios.get(url, {
       signal,
       timeout: 8000,
       validateStatus: () => true, // any status = the server answered
-      headers,
     });
     return { status: "ok" };
   } catch (error) {

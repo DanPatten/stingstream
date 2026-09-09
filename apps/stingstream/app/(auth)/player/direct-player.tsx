@@ -69,7 +69,6 @@ import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
 import { getSubtitlesForItem } from "@/utils/atoms/downloadedSubtitles";
 import { getActivePlayerType, useSettings } from "@/utils/atoms/settings";
-import { getJellyfinHeadersForUrl } from "@/utils/customHeaders";
 import { isExpectedError } from "@/utils/errors";
 import { getDefaultPlaySettings } from "@/utils/jellyfin/getDefaultPlaySettings";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
@@ -976,7 +975,6 @@ export default function DirectPlayerPage() {
           ? item.SeasonName
           : undefined,
       artworkUri: artworkUri || undefined,
-      artworkHeaders: getJellyfinHeadersForUrl(artworkUri, api.basePath),
     };
   }, [item, api]);
 
@@ -1041,14 +1039,6 @@ export default function DirectPlayerPage() {
       if (api?.accessToken && !isRemoteStream) {
         headers.Authorization = `MediaBrowser Token="${api.accessToken}"`;
       }
-
-      // Custom proxy auth headers, but only when the stream really comes from
-      // the Jellyfin server: MPV applies headers to every request it makes, so
-      // sending them with a remote/external stream would leak them.
-      Object.assign(
-        headers,
-        getJellyfinHeadersForUrl(stream.url, api?.basePath) ?? {},
-      );
 
       // Add any required headers from the media source (e.g., for external/remote streams)
       if (stream?.requiredHttpHeaders) {

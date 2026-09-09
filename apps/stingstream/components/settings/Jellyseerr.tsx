@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
-import { useIntegrationHeaders } from "@/hooks/useIntegrationHeaders";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
@@ -21,7 +20,6 @@ import { SettingSwitch } from "../common/SettingSwitch";
 import { Text } from "../common/Text";
 import { ListGroup } from "../list/ListGroup";
 import { ListItem } from "../list/ListItem";
-import { CustomHeaderSelector } from "./CustomHeaderSelector";
 
 export const JellyseerrSettings = () => {
   const { jellyseerrUser, setJellyseerrUser, clearAllJellyseerData } =
@@ -58,9 +56,6 @@ export const JellyseerrSettings = () => {
     settings?.jellyseerrServerUrl ?? undefined,
   );
 
-  const { headers: customHeaders, resolveOptions } =
-    useIntegrationHeaders("jellyseerr");
-
   const loginToJellyseerrMutation = useMutation({
     mutationFn: async () => {
       // Everything thrown in this mutation is a user-facing outcome of what
@@ -84,7 +79,6 @@ export const JellyseerrSettings = () => {
         const resolved = await resolveServerUrl(
           jellyseerrServerUrl,
           jellyseerrProbe,
-          { headers: customHeaders },
         );
         if (!resolved.ok)
           throw markExpectedError(new Error("Invalid server url"));
@@ -98,11 +92,7 @@ export const JellyseerrSettings = () => {
         ? settings?.jellyseerrApiKey
         : jellyseerrApiKeyInput.trim() || undefined;
 
-      const jellyseerrTempApi = new JellyseerrApi(
-        finalUrl,
-        customHeaders,
-        apiKey,
-      );
+      const jellyseerrTempApi = new JellyseerrApi(finalUrl, apiKey);
       const testResult = await jellyseerrTempApi.test();
       if (!testResult.isValid)
         throw markExpectedError(new Error("Invalid server url"));
@@ -256,7 +246,6 @@ export const JellyseerrSettings = () => {
                     "home.settings.plugins.jellyseerr.server_url_placeholder",
                   )}
                   editable={!urlLocked && !loginToJellyseerrMutation.isPending}
-                  resolveOptions={resolveOptions}
                 />
                 {urlLocked && (
                   <Text className='text-xs text-red-600 mb-2'>
@@ -266,11 +255,6 @@ export const JellyseerrSettings = () => {
               </View>
             </View>
 
-            <CustomHeaderSelector
-              integrationKey='jellyseerr'
-              title={t("custom_headers.title")}
-              description={t("custom_headers.integration_description")}
-            />
             <View>
               {apiKeyLocked ? (
                 <Text className='text-xs opacity-50 mb-2'>

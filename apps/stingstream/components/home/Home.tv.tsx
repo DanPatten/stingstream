@@ -142,7 +142,7 @@ export const Home = () => {
       // far past TVImageBudget.diskOnlyAboveBytes and must never take a slot
       // in the memory cache. Disk is fast enough for the crossfade.
       try {
-        await prefetchServerImage(backdropUrl, api?.basePath, "disk");
+        await prefetchServerImage(backdropUrl, "disk");
       } catch {
         // Continue even if prefetch fails
       }

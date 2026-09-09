@@ -291,7 +291,7 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
       // out of the memory cache avoids bloat when the user cycles through
       // hero items quickly.
       try {
-        await prefetchServerImage(backdropUrl, api?.basePath, "disk");
+        await prefetchServerImage(backdropUrl, "disk");
       } catch {
         // Continue even if prefetch fails
       }

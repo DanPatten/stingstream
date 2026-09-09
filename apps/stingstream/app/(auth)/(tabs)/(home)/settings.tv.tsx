@@ -16,7 +16,6 @@ import { TVPINEntryModal } from "@/components/login/TVPINEntryModal";
 import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
 import type { TVOptionItem } from "@/components/tv";
 import {
-  TVCustomHeadersSection,
   TVLogoutButton,
   TVSectionHeader,
   TVSettingsOptionButton,
@@ -54,7 +53,6 @@ import {
   useSettings,
   VideoPlayer,
 } from "@/utils/atoms/settings";
-import { INTEGRATION_CONFIG_KEY_PREFIX } from "@/utils/customHeaders";
 import { ORIGINAL_LANGUAGE } from "@/utils/jellyfin/serverVersion";
 import { storage } from "@/utils/mmkv";
 import { scaleSize } from "@/utils/scaleSize";
@@ -307,12 +305,7 @@ export default function SettingsTV() {
               ];
               const allKeys = storage.getAllKeys();
               for (const key of allKeys) {
-                // The per-integration header configs are settings, not cache —
-                // clearing them would silently drop the user's proxy auth.
-                if (
-                  !keysToKeep.includes(key) &&
-                  !key.startsWith(INTEGRATION_CONFIG_KEY_PREFIX)
-                ) {
+                if (!keysToKeep.includes(key)) {
                   storage.remove(key);
                 }
               }
@@ -1502,9 +1495,6 @@ export default function SettingsTV() {
             onPress={handleShowPlaybackPolicy}
             isFirst={false}
           />
-
-          {/* Custom proxy auth headers for Jellyfin and each integration */}
-          <TVCustomHeadersSection serverUrl={storage.getString("serverUrl")} />
 
           {/* Storage Section */}
           <TVSectionHeader title={t("home.settings.storage.storage_title")} />

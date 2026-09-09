@@ -1,10 +1,8 @@
-import { useAtomValue } from "jotai";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, useWindowDimensions } from "react-native";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
-import { useHeadersForUrl } from "@/hooks/useHeadersForUrl";
 import { useHeroItems } from "@/hooks/useHeroItems";
 import {
   type HeroCarouselItem,
@@ -12,7 +10,6 @@ import {
   HeroCarouselView,
   isHeroCarouselAvailable,
 } from "@/modules";
-import { apiAtom } from "@/providers/JellyfinProvider";
 import { getItemNavigation } from "../common/TouchableItemRouter";
 import { HeroSpotlight } from "./HeroSpotlight";
 
@@ -47,13 +44,11 @@ const heroMetrics = (windowWidth: number) => {
  * localized strings and hands back item ids.
  */
 export const HomeHeroCarousel = () => {
-  const api = useAtomValue(apiAtom);
   const router = useRouter();
   const { t } = useTranslation();
   const lightHapticFeedback = useHaptic("light");
   const { width: windowWidth } = useWindowDimensions();
   const metrics = useMemo(() => heroMetrics(windowWidth), [windowWidth]);
-  const imageHeaders = useHeadersForUrl(api?.basePath);
 
   // Hooks cannot be called conditionally, so the switch happens on the way
   // out. The native branch is the only one that reads any of this.
@@ -110,7 +105,6 @@ export const HomeHeroCarousel = () => {
   return (
     <HeroCarouselView
       items={items}
-      imageHeaders={imageHeaders}
       filterSections={filterSections}
       filterLabel={t("home.hero.filter")}
       onItemPress={handleItemPress}

@@ -4,10 +4,6 @@ import type {
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { Directory, File, Paths } from "expo-file-system";
-import {
-  getJellyfinHeadersForUrl,
-  optionsWithOptionalHeaders,
-} from "@/utils/customHeaders";
 import { getItemImage } from "@/utils/getItemImage";
 import { getAuthHeaders } from "@/utils/jellyfin/jellyfin";
 import { getExternalSubtitleUrl } from "@/utils/jellyfin/subtitleUtils";
@@ -53,14 +49,7 @@ export async function downloadTrickplayImages(
     }
 
     downloadPromises.push(
-      File.downloadFileAsync(
-        url,
-        destination,
-        optionsWithOptionalHeaders(
-          {},
-          getJellyfinHeadersForUrl(url, api.basePath),
-        ),
-      )
+      File.downloadFileAsync(url, destination)
         .then(() => {
           totalSize += destination.size;
         })
@@ -122,16 +111,13 @@ export async function downloadSubtitles(
     }
 
     // No Jellyfin credentials on a URL the server does not host.
-    const proxyHeaders = getJellyfinHeadersForUrl(url, api.basePath);
-    const headers = subtitle.IsExternalUrl
-      ? proxyHeaders
-      : { ...proxyHeaders, ...getAuthHeaders(api) };
+    const headers = subtitle.IsExternalUrl ? undefined : getAuthHeaders(api);
 
     try {
       await File.downloadFileAsync(
         url,
         destination,
-        optionsWithOptionalHeaders({}, headers),
+        headers ? { headers } : {},
       );
       subtitle.DeliveryUrl = destination.uri;
     } catch (error) {

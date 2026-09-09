@@ -57,6 +57,17 @@ export interface SetupState {
    * it client-side (`NodeContext.trustedPeer`) whenever this endpoint has actually answered.
    */
   trustedPeer: boolean;
+  /**
+   * Whether the node actually answered the question.
+   *
+   * False when the route 404s, which has two causes that cannot be told apart from the status: a
+   * node old enough to have no `setup` routes at all, and a **new** node whose gateway has not yet
+   * registered the Jellyfin child it proxies to (`gateway/mod.rs` answers `404 jellyfin is not
+   * configured` until it has). Reading the second of those as "setup is done" is what put the
+   * address form in front of somebody on a cold node, so the answer is no longer inferred here.
+   * The caller decides, and on a node it has a better source: the marker's own `setupPending`.
+   */
+  known: boolean;
 }
 
 /**
@@ -240,11 +251,17 @@ async function fetchSetupState(
     fetchImpl,
   );
 
-  // A **404 means not pending**, deliberately: an older node has no `setup` routes at all, and
-  // the only sane reading of "this node has never heard of first-run setup" is that its account
-  // already exists. Anything else strands a working server behind a screen it cannot satisfy.
+  // A 404 is **not an answer**, and used to be read as one. See `SetupState.known`: a caller with
+  // a node marker resolves it from that, and a caller without one falls back to the old reading —
+  // "this node has never heard of first-run setup, so its account already exists" — which is still
+  // right for the genuinely-old node this branch was written for.
   if (response.status === 404) {
-    return { pending: false, loopback: false, trustedPeer: false };
+    return {
+      pending: false,
+      loopback: false,
+      trustedPeer: false,
+      known: false,
+    };
   }
 
   if (!response.ok) {
@@ -260,6 +277,7 @@ async function fetchSetupState(
 
   const loopback = body?.Loopback === true;
   return {
+    known: true,
     pending: body?.Pending === true,
     loopback,
     // `TrustedPeer` is newer than `Loopback` — a node running an older Core answers with

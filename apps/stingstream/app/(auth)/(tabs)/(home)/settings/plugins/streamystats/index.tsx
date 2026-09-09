@@ -16,9 +16,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { CustomHeaderSelector } from "@/components/settings/CustomHeaderSelector";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
-import { useIntegrationHeaders } from "@/hooks/useIntegrationHeaders";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
 import { useSettings } from "@/utils/atoms/settings";
@@ -35,8 +33,7 @@ export default function StreamystatsPage() {
 
   // Local state for all editable fields
   const [url, setUrl] = useState<string>(settings?.streamyStatsServerUrl || "");
-  const { resolveOptions } = useIntegrationHeaders("streamystats");
-  const urlResolver = useServerUrlResolver(reachabilityProbe, resolveOptions);
+  const urlResolver = useServerUrlResolver(reachabilityProbe);
   const [useForSearch, setUseForSearch] = useState<boolean>(
     settings?.searchEngine === "Streamystats",
   );
@@ -199,12 +196,6 @@ export default function StreamystatsPage() {
             )}
           </Text>
         </Text>
-
-        <CustomHeaderSelector
-          integrationKey='streamystats'
-          title={t("custom_headers.title")}
-          description={t("custom_headers.integration_description")}
-        />
 
         <ListGroup
           title={t("home.settings.plugins.streamystats.features_title")}

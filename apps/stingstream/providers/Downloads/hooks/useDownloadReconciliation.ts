@@ -3,7 +3,6 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 import type { ActiveDownload } from "@/modules";
 import { BackgroundDownloader } from "@/modules";
-import { getHeadersForUrl } from "@/utils/customHeaders";
 import { logAndCaptureError } from "@/utils/log";
 import {
   finalizePendingDownload,
@@ -52,13 +51,10 @@ function jobFromRecord(
 }
 
 /**
- * Hands a record back to the native queue, with the headers it has to be sent
- * with. Returns whether the record survived — a failed re-enqueue drops it.
+ * Hands a record back to the native queue. Returns whether the record survived
+ * — a failed re-enqueue drops it.
  */
-async function reEnqueue(
-  record: PendingDownload,
-  headers?: Record<string, string>,
-): Promise<boolean> {
+async function reEnqueue(record: PendingDownload): Promise<boolean> {
   try {
     const destinationPath = uriToFilePath(
       new File(Paths.document, record.videoFileName).uri,
@@ -67,7 +63,7 @@ async function reEnqueue(
       record.inputUrl,
       destinationPath,
       record.activityMetadata,
-      headers,
+      undefined,
       { readTimeoutSeconds: record.readTimeoutSeconds },
     );
     if (taskId !== -1) {
@@ -133,26 +129,8 @@ export function useDownloadReconciliation({
         const nativeTask = nativeByItemId.get(record.itemId);
 
         if (nativeTask?.state === "queued") {
-          // A queued task hasn't sent its request yet, and the headers it was
-          // enqueued with are gone (they must not be written to the App Group
-          // container). Behind a gateway it would start and 403, so it is
-          // re-armed with them; without headers it can simply carry on.
-          const headers = getHeadersForUrl(record.inputUrl, {});
-          if (!headers) {
-            console.log(
-              `[RECONCILE] Still queued natively: ${record.item.Name}`,
-            );
-            restored.push(jobFromRecord(record, "queued"));
-            continue;
-          }
-
-          console.log(
-            `[RECONCILE] Re-arming queued download with headers: ${record.item.Name}`,
-          );
-          BackgroundDownloader.cancelQueuedDownload(record.inputUrl);
-          if (await reEnqueue(record, headers)) {
-            restored.push(jobFromRecord(record, "queued"));
-          }
+          console.log(`[RECONCILE] Still queued natively: ${record.item.Name}`);
+          restored.push(jobFromRecord(record, "queued"));
           continue;
         }
 
@@ -180,7 +158,7 @@ export function useDownloadReconciliation({
           // Backstop: native lost the queued item (Android queue dies with the process; on iOS
           // this only fires if the persisted queue failed to restore).
           console.log(`[RECONCILE] Re-enqueueing: ${record.item.Name}`);
-          if (await reEnqueue(record, getHeadersForUrl(record.inputUrl, {}))) {
+          if (await reEnqueue(record)) {
             restored.push(jobFromRecord(record, "queued"));
           }
           continue;

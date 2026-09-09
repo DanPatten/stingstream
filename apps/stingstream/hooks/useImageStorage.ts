@@ -1,15 +1,8 @@
 import { File, Paths } from "expo-file-system";
-import { useAtomValue } from "jotai";
 import { useCallback } from "react";
-import { apiAtom } from "@/providers/JellyfinProvider";
-import {
-  getJellyfinHeadersForUrl,
-  optionsWithOptionalHeaders,
-} from "@/utils/customHeaders";
 import { storage } from "@/utils/mmkv";
 
 const useImageStorage = () => {
-  const api = useAtomValue(apiAtom);
   const saveBase64Image = useCallback(async (base64: string, key: string) => {
     try {
       // Save the base64 string to storage
@@ -24,31 +17,25 @@ const useImageStorage = () => {
    * expo-file-system instead of fetch+Blob+FileReader: the latter silently
    * resolves to an empty payload under RN's New Architecture.
    */
-  const image2Base64 = useCallback(
-    async (url?: string | null) => {
-      if (!url) return null;
+  const image2Base64 = useCallback(async (url?: string | null) => {
+    if (!url) return null;
 
-      const headers = getJellyfinHeadersForUrl(url, api?.basePath);
-      const tmpFile = new File(
-        Paths.cache,
-        `img-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`,
-      );
-      try {
-        const downloaded = await File.downloadFileAsync(
-          url,
-          tmpFile,
-          optionsWithOptionalHeaders({ idempotent: true }, headers),
-        );
-        return await downloaded.base64();
-      } catch (error) {
-        console.warn("Error fetching image:", error);
-        return null;
-      } finally {
-        if (tmpFile.exists) tmpFile.delete();
-      }
-    },
-    [api?.basePath],
-  );
+    const tmpFile = new File(
+      Paths.cache,
+      `img-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`,
+    );
+    try {
+      const downloaded = await File.downloadFileAsync(url, tmpFile, {
+        idempotent: true,
+      });
+      return await downloaded.base64();
+    } catch (error) {
+      console.warn("Error fetching image:", error);
+      return null;
+    } finally {
+      if (tmpFile.exists) tmpFile.delete();
+    }
+  }, []);
 
   const saveImage = useCallback(
     async (key?: string | null, imageUrl?: string | null) => {

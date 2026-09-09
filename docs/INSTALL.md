@@ -19,10 +19,10 @@ running Jellyfin, Radarr, Sonarr, NZBGet and the StingStream mesh behind a singl
 3. It installs to `%ProgramFiles%\StingStream`, creates `%ProgramData%\StingStream` as the data
    directory, registers and starts **StingStream** as a Windows service, opens TCP 8790 in Windows
    Firewall, and adds a Start Menu shortcut.
-4. Open the Start Menu shortcut, or go to <http://localhost:8790> — first run creates the Jellyfin
-   administrator account for you; watch the shortcut's target page or the log for the generated
-   password (`%ProgramData%\StingStream\logs\stingstream.jsonl`) if you land on a login screen with
-   nothing else to go on.
+4. Open the Start Menu shortcut, or go to <http://localhost:8790>. There is nothing to type in but
+   the account you want: the page comes from the node, so it connects to itself and shows **Create
+   your StingStream account**. On a first run it may say "Starting your server" for up to a minute
+   or two while the media server behind the gateway comes up — that screen moves on by itself.
 
 **Silent install** (for automation): `StingStream-Setup-<version>-win-x64.exe /VERYSILENT
 /NORESTART /SUPPRESSMSGBOXES` — the same switches winget uses (`deploy/windows/winget/`).
@@ -175,6 +175,12 @@ gaps and what Dan needs to provide" for the concrete unblock.
 
 ## Android
 
+**Connecting the app to your server**: open it and it searches the network you are on, then lists
+what it finds by name — tap yours. If nothing appears (a guest network that blocks broadcasts, or a
+server somewhere else), choose **Enter an address instead** and type the machine's address. The
+port is optional: `192.168.1.20` and `attic.local` both work, and so does a full
+`https://media.example.com` if you have put a domain in front of your node.
+
 Not distributed through this document — `docs/APP-RELEASE.md` owns Android identity, signing and
 the Play Store listing. `.github/workflows/release.yml` attaches whichever unsigned APK/AAB
 `app.yml`'s own build most recently produced (best-effort; may be absent from a given release) as a
@@ -195,6 +201,11 @@ convenience for testing, never as the intended install path — signing stays lo
 
 A firewall rule (or `-p`/port mapping) only matters for reaching the node from **another** machine.
 `http://localhost:8790` always works locally with no firewall involved.
+
+**UDP 7359** is worth opening alongside it if you want phones and televisions to *find* this node
+rather than be told its address: the gateway answers Jellyfin's own discovery broadcast there with
+its own address and port, which is what fills the "On your network" list in the app. Nothing breaks
+without it — typing the address still works — and the Windows installer opens TCP 8790 only.
 
 ## The update check
 

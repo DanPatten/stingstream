@@ -18,8 +18,6 @@ export interface ResolveOptions {
   timeoutMs?: number;
   /** Abort the whole resolution (cancels every in-flight probe). */
   signal?: AbortSignal;
-  /** Custom proxy auth headers to send with each probe. */
-  headers?: Record<string, string>;
 }
 
 // Order in which to surface a failure when no candidate validated:
@@ -41,7 +39,7 @@ export async function resolveServerUrl(
   probe: ServerProbe,
   options: ResolveOptions = {},
 ): Promise<ResolveResult> {
-  const { timeoutMs = 5000, signal, headers } = options;
+  const { timeoutMs = 5000, signal } = options;
 
   if (!input.trim()) return { ok: false, reason: "empty" };
   if (signal?.aborted) return { ok: false, reason: "cancelled" };
@@ -55,7 +53,7 @@ export async function resolveServerUrl(
   // http fallback would otherwise add its full timeout to a successful
   // https resolution).
   const probes = candidates.map((url) =>
-    runProbe(url, probe, timeoutMs, signal, headers),
+    runProbe(url, probe, timeoutMs, signal),
   );
   const outcomes: ServerProbeOutcome[] = [];
   for (let i = 0; i < probes.length; i++) {
@@ -88,7 +86,6 @@ async function runProbe(
   probe: ServerProbe,
   timeoutMs: number,
   parentSignal?: AbortSignal,
-  headers?: Record<string, string>,
 ): Promise<ServerProbeOutcome> {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -96,7 +93,7 @@ async function runProbe(
   const timer = setTimeout(abort, timeoutMs);
 
   try {
-    return await probe(url, controller.signal, headers);
+    return await probe(url, controller.signal);
   } catch {
     return { status: "unreachable" };
   } finally {
