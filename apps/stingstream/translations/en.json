@@ -2003,7 +2003,7 @@
     "new": "Invite someone",
     "new_description": "They open the link and choose a password. It works until you delete it.",
     "username": "Username",
-    "username_placeholder": "mum",
+    "username_placeholder": "Enter a name...",
     "libraries": "What they can watch",
     "libraries_hint": "Pick at least one. They will see these and nothing else.",
     "libraries_none": "This server has no libraries yet.",

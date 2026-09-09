@@ -13,6 +13,7 @@ import {
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { LibraryPicker } from "../shared/LibraryPicker";
+import { useChosenLibraries } from "../shared/useChosenLibraries";
 import { FormCard } from "./FormCard";
 import { InviteCard } from "./InviteCard";
 
@@ -39,11 +40,15 @@ export function CreateGroupScreen() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<string[]>([]);
   const create = useCreateMeshGroup();
   const libraries = useInviteLibraries();
   const share = useSetSharedLibraries();
   const mesh = useMesh();
+
+  const available = libraries.data ?? [];
+  // Every library ticked to begin with; unticking is the edit. See the hook for why that is a UI
+  // default and leaves the server's own share-nothing default alone.
+  const { chosen, toggle } = useChosenLibraries(available);
 
   // Both halves, because an invite to a share of nothing is worse than no invite: it looks like it
   // worked and produces an empty library on the other server.
@@ -119,15 +124,9 @@ export function CreateGroupScreen() {
             {t("sharing.link_libraries_hint")}
           </Text>
           <LibraryPicker
-            available={libraries.data ?? []}
+            available={available}
             selected={chosen}
-            onToggle={(id) =>
-              setChosen((current) =>
-                current.includes(id)
-                  ? current.filter((existing) => existing !== id)
-                  : [...current, id],
-              )
-            }
+            onToggle={toggle}
             loading={libraries.isPending}
             disabled={create.isPending || share.isPending}
           />

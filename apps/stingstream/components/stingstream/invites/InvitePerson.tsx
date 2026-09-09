@@ -17,6 +17,7 @@ import {
   type MintedInvite,
 } from "@/lib/stingstream/invitesApi";
 import { LibraryPicker } from "../shared/LibraryPicker";
+import { useChosenLibraries } from "../shared/useChosenLibraries";
 
 /**
  * Inviting somebody to watch, from wherever the question was asked.
@@ -107,22 +108,18 @@ const MintInviteDialog: React.FC<{
   const mint = useMintInvite();
 
   const [username, setUsername] = useState("");
-  const [chosen, setChosen] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const available = useMemo(() => libraries.data ?? [], [libraries.data]);
-
-  const toggle = useCallback((id: string) => {
-    setChosen((current) =>
-      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-    );
-  }, []);
+  // Everything ticked to begin with; unticking is the edit. See the hook for why that is a UI
+  // default and not a server one.
+  const { chosen, toggle, reset: resetChosen } = useChosenLibraries(available);
 
   const reset = useCallback(() => {
     setUsername("");
-    setChosen([]);
+    resetChosen();
     setError(null);
-  }, []);
+  }, [resetChosen]);
 
   const submit = useCallback(() => {
     setError(null);
