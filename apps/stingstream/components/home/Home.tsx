@@ -27,6 +27,7 @@ import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrol
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations";
 import { MediaListSection } from "@/components/medialists/MediaListSection";
+import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -153,6 +154,35 @@ const HomeMobile = () => {
     () => data?.filter((l) => !settings?.hiddenLibraries?.includes(l.Id!)),
     [data, settings?.hiddenLibraries],
   );
+
+  const isAdmin = useIsStingStreamAdmin();
+
+  /**
+   * Does this server hold anything at all?
+   *
+   * Every row on this page renders nothing when its own query comes back empty, so a server with
+   * libraries and no files in them produced a **completely blank page** — Dan: *"skeleton state
+   * doesnt make sense when theres no content"*. Neither the skeleton nor the rows were wrong on
+   * their own; what was missing was anybody asking the question the page turns on.
+   *
+   * One count rather than watching the rows: a row being empty is not the same as the library
+   * being empty (Continue watching is empty for everybody on day one), and `TotalRecordCount` with
+   * `limit: 1` is a cheap, unambiguous answer to the question actually being asked.
+   */
+  const { data: itemCount } = useQuery({
+    queryKey: ["home", "itemCount", user?.Id],
+    queryFn: async () => {
+      const response = await getItemsApi(api!).getItems({
+        userId: user?.Id,
+        recursive: true,
+        includeItemTypes: ["Movie", "Series"],
+        limit: 1,
+      });
+      return response.data.TotalRecordCount ?? 0;
+    },
+    enabled: !!api && !!user?.Id,
+    staleTime: 60 * 1000,
+  });
 
   const collections = useMemo(() => {
     const allow = ["movies", "tvshows"];
@@ -569,6 +599,40 @@ const HomeMobile = () => {
         <HomeRowSkeleton />
         <HomeRowSkeleton />
         <HomeRowSkeleton />
+      </PageContainer>
+    );
+
+  // Nothing to show, and something to do about it. Drawn only once the count has actually come
+  // back, so a slow answer shows the rows filling in rather than flashing "empty" at somebody
+  // whose library is fine.
+  if (itemCount === 0)
+    return (
+      <PageContainer width='settings'>
+        <EmptyState
+          icon='library'
+          title={t("home.empty_title")}
+          detail={
+            isAdmin ? t("home.empty_detail") : t("home.empty_detail_guest")
+          }
+          action={
+            isAdmin
+              ? {
+                  label: t("home.empty_add_media"),
+                  icon: "manage",
+                  onPress: () => router.push("/settings/admin"),
+                }
+              : undefined
+          }
+        />
+        <Button
+          variant={isAdmin ? "ghost" : "primary"}
+          size={isAdmin ? "sm" : "lg"}
+          icon='requests'
+          justify='center'
+          onPress={() => router.push("/(auth)/(tabs)/(requests)")}
+        >
+          {t("home.empty_request")}
+        </Button>
       </PageContainer>
     );
 

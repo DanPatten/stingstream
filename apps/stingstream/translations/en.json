@@ -159,6 +159,11 @@
   },
   "home": {
     "checking_server_connection": "Checking server connection...",
+    "empty_title": "Nothing to watch yet",
+    "empty_detail": "Copy films and shows into your media folders and scan for them, or ask for something and let StingStream fetch it.",
+    "empty_detail_guest": "Nothing has been shared with you yet. You can ask for something, and whoever runs this server decides.",
+    "empty_add_media": "Add media",
+    "empty_request": "Request something",
     "no_internet": "No internet",
     "no_items": "No items",
     "no_internet_message": "No worries, you can still watch\ndownloaded content.",
