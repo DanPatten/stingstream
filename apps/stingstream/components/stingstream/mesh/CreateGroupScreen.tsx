@@ -6,22 +6,31 @@ import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import { useCreateMeshGroup } from "@/lib/stingstream/mesh";
+import { useInviteLibraries } from "@/lib/stingstream/invites";
+import {
+  useCreateMeshGroup,
+  useSetSharedLibraries,
+} from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { LibraryPicker } from "../shared/LibraryPicker";
 import { FormCard } from "./FormCard";
 import { InviteCard } from "./InviteCard";
 
 /**
- * Create a group, then show the invite so it can be handed on straight away.
+ * Invite another server owner: what to call them, what they get, then the link.
  *
- * Two stages rather than a modal that closes: a group with no other members does nothing at all,
- * and the invite is the only thing that changes that.
+ * Two stages rather than a modal that closes, because a link with nobody on the other end does
+ * nothing at all and the invite is the only thing that changes that.
  *
- * **One question, and it is the name.** This screen has been through a coordinator picker, a
- * free-text address field and a Public/Private radio, and every one of them asked the person
- * creating a group to make a networking decision they had no basis for. The server it uses is this
- * node's sharing server, which arrives already set; changing it is a settings job, under Advanced
- * on the Sharing screen, where somebody who wants it will go looking.
+ * **Two questions, and neither is about networking.** This screen has been through a coordinator
+ * picker, a free-text address field and a Public/Private radio, every one of which asked somebody
+ * to make a decision they had no basis for. What is left is a name for the person and the
+ * libraries they get — the same pair a person invite asks, with the same control, because it is
+ * the same question asked of a different audience.
+ *
+ * The libraries are chosen **here** rather than afterwards for a reason worth keeping: a link
+ * publishes nothing until somebody picks, so a create screen that did not ask would hand out an
+ * invite to an empty share and leave the owner to discover why later.
  */
 export function CreateGroupScreen() {
   const { t } = useTranslation();
@@ -30,15 +39,23 @@ export function CreateGroupScreen() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
   const create = useCreateMeshGroup();
+  const libraries = useInviteLibraries();
+  const share = useSetSharedLibraries();
   const mesh = useMesh();
 
-  const ready = name.trim().length > 0;
+  // Both halves, because an invite to a share of nothing is worse than no invite: it looks like it
+  // worked and produces an empty library on the other server.
+  const ready = name.trim().length > 0 && chosen.length > 0;
 
   const onCreate = async () => {
     setError(null);
     try {
       const group = await create.mutateAsync({ name: name.trim() });
+      // Before the invite is shown, so the link is never handed out ahead of the choice it
+      // depends on.
+      await share.mutateAsync({ group: group.group, libraries: chosen });
       setCreated({ id: group.group, name: group.name });
       // The phone joins the new group as a light member straight away, so the very first thing
       // played from it goes peer to peer rather than through the server.
@@ -93,6 +110,28 @@ export function CreateGroupScreen() {
             }
           />
 
+          <View style={{ height: 20 }} />
+
+          <Text variant='caption' tone='secondary' weight='medium'>
+            {t("sharing.link_libraries_title")}
+          </Text>
+          <Text variant='caption' tone='tertiary' style={{ marginBottom: 8 }}>
+            {t("sharing.link_libraries_hint")}
+          </Text>
+          <LibraryPicker
+            available={libraries.data ?? []}
+            selected={chosen}
+            onToggle={(id) =>
+              setChosen((current) =>
+                current.includes(id)
+                  ? current.filter((existing) => existing !== id)
+                  : [...current, id],
+              )
+            }
+            loading={libraries.isPending}
+            disabled={create.isPending || share.isPending}
+          />
+
           <FormError message={error} />
 
           <View style={{ height: 20 }} />
@@ -100,7 +139,7 @@ export function CreateGroupScreen() {
           <Button
             onPress={onCreate}
             disabled={!ready}
-            loading={create.isPending}
+            loading={create.isPending || share.isPending}
             hasTVPreferredFocus={Platform.isTV && ready}
           >
             {t("sharing.create_submit")}
