@@ -67,6 +67,11 @@ public sealed class SettingsController : StingStreamControllerBase
         [FromQuery] bool sync,
         CancellationToken cancellationToken)
     {
+        // The library list is not this endpoint's to write, and an app build from before it
+        // existed sends a body without it — which deserializes to an empty list and would delete
+        // every library on the node. Libraries are edited through LibrariesController.
+        SharedSettings.PreserveServerOwned(settings, _store.Get());
+
         var saved = await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
 
         // Before the sync: if the torrent engine was just turned off, the arrs should not be told

@@ -107,12 +107,14 @@ describe("buildSettingsSearchIndex", () => {
 
   test("the switch that turns downloading on is reachable by search", () => {
     // Every "Downloading is not set up on this server." notice in the app is
-    // trying to reach one control. It was indexed by neither its page nor its
-    // own name until now, so a reader who took the sentence at its word and
-    // typed "downloading" into Settings got nothing back.
-    const entry = index(admin).find((e) => e.id === "downloading");
-    expect(entry?.categoryKey).toBe("downloading");
-    expect(entry?.href).toBe("/settings/downloading?focus=downloading");
+    // trying to reach one control, and that control is now a library's switch:
+    // turning a library on is what starts the manager that fills it. A reader
+    // who takes the sentence at its word and types "downloading" has to land
+    // there, which is a property of the keywords rather than of the id.
+    const entry = index(admin).find((e) => e.id === "libraries");
+    expect(entry?.categoryKey).toBe("storage");
+    expect(entry?.href).toBe("/settings/storage?focus=libraries");
+    expect(entry?.keywords).toContain("downloading");
   });
 
   test("a control can point at a page other than its own category", () => {
@@ -138,18 +140,18 @@ describe("searchSettings", () => {
   test("the words somebody types when nothing is downloading", () => {
     // The reader's vocabulary, not ours: they have just been told downloading
     // is off, so "enable" and "turn on" are as likely as the noun itself.
-    expect(find(admin, "downloading")[0]).toBe("downloading");
-    expect(find(admin, "usenet")).toContain("downloading");
+    expect(find(admin, "downloading")[0]).toBe("libraries");
+    expect(find(admin, "usenet")).toContain("download-clients");
     // Whole phrases, because `score` matches the trimmed query as one string
     // against each keyword rather than word by word — so "enable downloading"
     // finds nothing unless somebody wrote that phrase down. "not set up" is
     // the literal sentence the notice shows, which is what a reader who was
     // just told to do something about it has in front of them to copy.
-    expect(find(admin, "enable")).toContain("downloading");
-    expect(find(admin, "turn on")).toContain("downloading");
-    expect(find(admin, "enable downloading")[0]).toBe("downloading");
-    expect(find(admin, "turn on downloading")[0]).toBe("downloading");
-    expect(find(admin, "not set up")[0]).toBe("downloading");
+    expect(find(admin, "enable")).toContain("libraries");
+    expect(find(admin, "turn on")).toContain("libraries");
+    expect(find(admin, "enable downloading")[0]).toBe("libraries");
+    expect(find(admin, "turn on downloading")[0]).toBe("libraries");
+    expect(find(admin, "not set up")[0]).toBe("libraries");
   });
 
   test("a label beats a keyword", () => {

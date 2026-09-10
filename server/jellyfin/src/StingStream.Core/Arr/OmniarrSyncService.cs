@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
+using StingStream.Core.Library;
 
 namespace StingStream.Core.Arr;
 
@@ -134,26 +135,32 @@ public sealed class OmniarrSyncService
         CancellationToken ct)
     {
         var runtime = _factory.Runtime;
-        // Radarr gets the movies folder and Sonarr the TV one. Neither ever gets the other's, and
-        // neither ever gets the federated pointer tree -- both apps treat .strm as a video
+        // Radarr gets the film folders and Sonarr the series ones. Neither ever gets the other's,
+        // and neither ever gets the federated pointer tree -- both apps treat .strm as a video
         // extension, so a root folder over it would have them try to manage other nodes' files.
-        var path = client.Kind == ArrKind.Radarr
-            ? Coalesce(shared.RootFolders.Movies, runtime?.Paths.MediaMovies)
-            : Coalesce(shared.RootFolders.Tv, runtime?.Paths.MediaTv);
+        //
+        // Every folder of the matching type, not just the one new imports land in: a title already
+        // sitting on a second drive has to be manageable, and an app that does not know a folder
+        // reports the wrong free space for anything in it. Which one receives new titles is
+        // `RootFolderResolver.ForDownloads`, decided per request rather than here.
+        var kind = client.Kind == ArrKind.Radarr
+            ? RootFolderResolver.LibraryKind.Movies
+            : RootFolderResolver.LibraryKind.Tv;
+        var paths = RootFolderResolver.AllLocal(shared, runtime?.Paths, kind);
 
-        if (string.IsNullOrWhiteSpace(path))
+        if (paths.Count == 0)
         {
             status.Detail.Add("root folder: skipped (no path configured and no runtime.json)");
             return;
         }
 
-        System.IO.Directory.CreateDirectory(path);
-        var added = await client.EnsureRootFolderAsync(path, ct).ConfigureAwait(false);
-        status.Detail.Add(added ? $"root folder: added {path}" : $"root folder: {path} already present");
+        foreach (var path in paths)
+        {
+            System.IO.Directory.CreateDirectory(path);
+            var added = await client.EnsureRootFolderAsync(path, ct).ConfigureAwait(false);
+            status.Detail.Add(added ? $"root folder: added {path}" : $"root folder: {path} already present");
+        }
     }
-
-    private static string Coalesce(string? preferred, string? fallback)
-        => !string.IsNullOrWhiteSpace(preferred) ? preferred : fallback ?? string.Empty;
 
     // --- download clients --------------------------------------------------
 

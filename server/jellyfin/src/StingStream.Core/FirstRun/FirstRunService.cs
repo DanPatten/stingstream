@@ -207,18 +207,23 @@ public sealed class FirstRunService : BackgroundService
         await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
         await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
 
+        // Every start, and above the first-run gate on purpose. It is derived from the settings and
+        // idempotent -- when nothing has changed it compares what is there against what should be
+        // and does nothing -- but when a folder *has* changed it is the only thing that moves the
+        // library to it. Leaving it behind the gate is what made setting a path appear to work and
+        // then not take effect until the node was re-wired from scratch.
+        //
+        // The materializer calls it too, because on a node whose first run failed halfway it may be
+        // the one that gets there first.
+        var layout = await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        report.Steps.AddRange(layout.Steps);
+        report.Ok &= layout.Ok;
+
         if (!firstRun)
         {
             report.Steps.Add("already wired: refreshed the arrs' view of this run's ports only");
             return report;
         }
-
-        // Movies, TV Shows and Recordings. Idempotent and derived from state, so unlike the
-        // administrator above it is safe to call again -- the materializer calls it too, because
-        // on a node whose first run failed halfway it may be the one that gets there first.
-        var layout = await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
-        report.Steps.AddRange(layout.Steps);
-        report.Ok &= layout.Ok;
 
         // Build whatever the node already holds, so a re-wired node has an inventory immediately.
         try
@@ -400,27 +405,24 @@ public sealed class FirstRunService : BackgroundService
         FirstRunReport report,
         CancellationToken cancellationToken)
     {
-        var settings = _settings.Get();
-        var changed = false;
-
-        if (string.IsNullOrWhiteSpace(settings.RootFolders.Movies))
+        // `SettingsStore.Get` applies the library migration in memory on every read, so all that is
+        // left here is writing the result down the first time it actually converts something.
+        //
+        // The paths inside it are deliberately left empty when nobody has chosen one: an empty
+        // folder list means "follow the supervisor's data directory", and filling it in here would
+        // freeze one boot's answer into the database, turning a derived default into a setting the
+        // reader never made. That is the property that keeps "the default is set at setup" true.
+        var settings = _settings.Get(out var migrated);
+        if (!migrated)
         {
-            settings.RootFolders.Movies = runtime.Paths.MediaMovies;
-            changed = true;
+            return;
         }
 
-        if (string.IsNullOrWhiteSpace(settings.RootFolders.Tv))
-        {
-            settings.RootFolders.Tv = runtime.Paths.MediaTv;
-            changed = true;
-        }
-
-        if (changed)
-        {
-            await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
-            report.Steps.Add(
-                $"settings: root folders default to {settings.RootFolders.Movies} and {settings.RootFolders.Tv}");
-        }
+        await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+        report.Steps.Add(
+            "settings: libraries seeded ("
+            + string.Join(", ", settings.Libraries.Select(l => l.Name))
+            + ")");
     }
 
     // --- subtitles ---------------------------------------------------------

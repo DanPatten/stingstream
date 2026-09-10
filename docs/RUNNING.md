@@ -437,6 +437,15 @@ nzbget = 6789
 infinidysk = false  # a later milestone
 ```
 
+`radarr` and `sonarr` are also written from the app, and only from one place: a library's switch on
+Settings → Libraries. Turning the Movies library on is what starts the movie manager, because "does
+this server hold films" and "does it go and get them" were never two questions.
+`LibrariesController` writes the settings row and this file together for that reason; the supervisor
+notices within five seconds and starts or stops the child with no restart. Editing the file here by
+hand still works and still wins, and the library row then disagrees with it until somebody presses
+the switch — which writes the file whether or not the row already agreed, so the switch is always a
+way out.
+
 ### `runtime.json`
 
 The supervisor's contract with everything else on the node, rewritten on every start: the ports

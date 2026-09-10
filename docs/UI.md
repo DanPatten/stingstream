@@ -13,9 +13,9 @@ involve.
 | Screen | Where | Visible on | Admin only? |
 |---|---|---|---|
 | Downloads | new tab `(downloads)` | phone, web | yes |
-| Films & series (the arr library, and the downloading switch) | Settings → Downloading → Films & series | phone, web | yes |
-| Indexers & engines · Quality & formats · Files & naming | Settings → Downloading, one category each | phone, web | yes |
-| Storage & libraries · Transcoding & hardware · Network & remote access · Notifications | Settings → Server administration, one category each | phone, web | yes |
+| Indexers & engines · Quality & formats · Files & naming | Settings → Getting titles, one category each | phone, web | yes |
+| Libraries (what this server holds, whether it runs each one, and where it writes) | Settings → Libraries | phone, web | yes |
+| Transcoding & hardware · Network & remote access · Notifications | Settings → Server administration, one category each | phone, web | yes |
 | Users & access | Settings → Users & access (`/users` redirects) | phone, web | yes |
 | Logs & status | Settings → Logs & status | phone, web | yes |
 | Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
@@ -45,13 +45,22 @@ restructure is named after them:
 2. **One row did far too much.** *Server settings* was a single click through to six unrelated
    pages, and its subtitle had to list all six. They are five categories with addresses of their
    own now: Media services, Quality & formats, Storage & libraries, Files & naming, Notifications.
-4. **Getting hold of something was filed as maintenance.** The four categories that answer "how
-   does something this server does not have get here" — Films & series, Indexers & engines,
-   Quality & formats, Files & naming — sat among eleven server-maintenance rows under *Server
-   administration*. They are their own group, **Downloading**, because they are a subject somebody
-   sits down to configure rather than part of the machine. Films & series leads it: it carries the
-   switch that decides whether any of the rest does anything, and a node with downloading off is
-   the one state where every other category in the group is inert.
+4. **Getting hold of something was filed as maintenance.** The categories that answer "how does
+   something this server does not have get here" — Indexers & engines, Quality & formats, Files &
+   naming — sat among eleven server-maintenance rows under *Server administration*. They are their
+   own group because they are a subject somebody sits down to configure rather than part of the
+   machine.
+
+   The switch that decides whether any of them does anything is **not** in that group, and that is
+   the correction of 2026-09-10. It was a Downloading page of its own, three switches with no
+   visible relationship to the folders their downloads land in, while Storage & libraries next door
+   asked the same question twice more: a pair of blank "root folder" boxes and a read-only list of
+   the libraries those folders were already in. Dan: *"I still see root folders and libraries, I
+   dont want both"*, and *"if you can have a library then you can download too, unified that with
+   the downloading settings"*. So there is one **Libraries** page: one row per library, each with
+   the switch that runs it and the folder it writes to. A library's switch is its manager's switch,
+   written by one endpoint (`LibrariesController`) so the two cannot drift. Usenet went to Indexers
+   & engines, where it merged with the toggle already there that meant almost the same thing.
 
 3. **Sharing described itself conversationally** — "Other people who run StingStream", "Streams go
    through your server on the web" — without saying whether it linked servers or routed clients.
@@ -262,8 +271,9 @@ feature with no endpoint — there is simply no such feature on these screens an
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
 | Server settings → Download clients | embedded-engine toggles, DHT, categories, housekeeping, and **your own external clients** — add, test, remove, pushed into both arrs |
 | Server settings → Quality profiles | the default-profile-name field, and **full CRUD across both apps**: create, edit qualities and cutoff, delete |
-| Server settings → Root folders / Naming / Notifications (incl. extra webhooks) | full CRUD |
-| Admin → Users / Libraries / Transcoding / Logs | all of it (Jellyfin's own API) |
+| Server settings → Naming / Notifications (incl. extra webhooks) | full CRUD |
+| Settings → Libraries | one row per library: the **switch that runs it** (and starts its manager), the **folder it writes to**, and a **scan** for the whole server. Switching one off keeps every file: `PUT /libraries/{id}` writes the settings row and `config.toml` together, and `LibraryLayoutService` withdraws the library from the media server's view without touching disk |
+| Admin → Users / Transcoding / Logs | all of it (Jellyfin's own API) |
 | Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count); side door candidates + a live per-candidate reachability/DNS-rebinding test (M5, `components/stingstream/node/SideDoorSection.tsx`, `docs/APP-RELEASE.md` §8), and **per-child version numbers** |
 | Group → Coordinator | **change it after creation**, with M3c's live `/healthz` validation; every member follows over gossip |
 

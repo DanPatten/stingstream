@@ -93,11 +93,25 @@ function Get-ComponentState {
     param([Parameter(Mandatory)][string[]]$Paths)
 
     $parts = [System.Collections.Generic.List[string]]::new()
-    $parts.Add((& git -C $Repo rev-parse HEAD 2>$null))
 
-    # --porcelain lists staged, unstaged and untracked paths under these directories. Build
-    # outputs are gitignored, so this sees source and nothing else.
-    $dirty = & git -C $Repo status --porcelain -- @Paths 2>$null
+    # Windows PowerShell turns *anything* a native command writes to stderr into an error record,
+    # and `$ErrorActionPreference = 'Stop'` at the top of this file then makes it terminating --
+    # `2>$null` redirects the stream but does not stop the record being raised. git writes ordinary
+    # warnings there, so a working tree holding one CRLF file that .gitattributes wants as LF was
+    # enough to end this script at "Working out what changed", with the warning printed as though
+    # it were the failure.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $parts.Add((& git -C $Repo rev-parse HEAD 2>$null))
+
+        # --porcelain lists staged, unstaged and untracked paths under these directories. Build
+        # outputs are gitignored, so this sees source and nothing else.
+        $dirty = & git -C $Repo status --porcelain -- @Paths 2>$null
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
     foreach ($line in ($dirty | Sort-Object)) {
         if (-not $line) { continue }
         $relative = $line.Substring(3).Trim('"')

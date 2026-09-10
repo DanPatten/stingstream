@@ -38,7 +38,36 @@ public sealed class SharedSettings
     /// </remarks>
     public List<ExternalDownloadClientSettings> ExternalDownloadClients { get; set; } = new();
 
+    /// <summary>
+    /// Superseded by <see cref="Libraries"/>, and kept only so an unmigrated <c>core.db</c> still
+    /// deserializes.
+    /// </summary>
+    /// <remarks>
+    /// The whole document is stored as one JSON blob, so removing this property would silently
+    /// drop the paths of any node that has not been through <see cref="LibraryMigration"/> yet.
+    /// <see cref="LibraryMigration.Apply"/> is the only thing that may read it.
+    /// </remarks>
+    [Obsolete("Migrated into Libraries; read only by LibraryMigration.")]
     public RootFolderSettings RootFolders { get; set; } = new();
+
+    /// <summary>
+    /// Every library this node has: what it is called, what type it is, and which folders on this
+    /// machine hold it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the single answer to "where does media live", replacing the two boxes that used to
+    /// be Root folders. A reader sets a folder on a library and that is the whole story: the arrs
+    /// are given it as a root folder, Jellyfin is given it as a library location, and the federated
+    /// pointer tree is attached beside it without ever being shown.
+    /// </para>
+    /// <para>
+    /// <b>Server-owned.</b> <c>PUT /Settings</c> replaces the whole document, so an older app build
+    /// that does not know about this property would otherwise blank it. See
+    /// <see cref="PreserveServerOwned"/>. Library edits go through <c>LibrariesController</c>.
+    /// </para>
+    /// </remarks>
+    public List<LibrarySettings> Libraries { get; set; } = new();
 
     public NamingSettings Naming { get; set; } = new();
 
@@ -66,12 +95,38 @@ public sealed class SharedSettings
     {
         Indexers = new List<IndexerSettings>(),
         DownloadClients = new DownloadClientSettings(),
-        RootFolders = new RootFolderSettings(),
         Naming = new NamingSettings(),
         Notifications = new NotificationSettings(),
         Revision = 1,
         UpdatedAt = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
     };
+
+    /// <summary>
+    /// Copy the properties only the server may change from <paramref name="stored"/> onto
+    /// <paramref name="incoming"/>, before an incoming document is saved.
+    /// </summary>
+    /// <param name="incoming">The document the caller sent. Mutated in place.</param>
+    /// <param name="stored">What is currently in <c>core.db</c>.</param>
+    /// <returns><paramref name="incoming"/>, for chaining.</returns>
+    /// <remarks>
+    /// <c>PUT /Settings</c> replaces the whole document rather than patching it, which is fine for
+    /// everything a settings screen owns and wrong for anything it does not know about. An app
+    /// build from before <see cref="Libraries"/> existed sends a body with no <c>libraries</c>
+    /// property; deserialization gives it an empty list; saving that would delete every library on
+    /// the node, and the next <c>EnsureAsync</c> would have nothing to rebuild from.
+    /// <para>
+    /// So library edits go through <c>LibrariesController</c> and this is the guard that keeps the
+    /// general settings endpoint from touching them.
+    /// </para>
+    /// </remarks>
+    public static SharedSettings PreserveServerOwned(SharedSettings incoming, SharedSettings stored)
+    {
+        ArgumentNullException.ThrowIfNull(incoming);
+        ArgumentNullException.ThrowIfNull(stored);
+
+        incoming.Libraries = stored.Libraries;
+        return incoming;
+    }
 
     /// <summary>Find an indexer by its identifier.</summary>
     public IndexerSettings? Indexer(string id)
@@ -260,6 +315,151 @@ public sealed class RootFolderSettings
 
     /// <summary>Absolute path. Empty means "use the supervisor's <c>media/TV</c>".</summary>
     public string Tv { get; set; } = string.Empty;
+}
+
+
+/// <summary>The collection types a StingStream library may be.</summary>
+/// <remarks>
+/// Two, and this is a floor rather than a starting point. <c>LibraryLayoutService.BuildOptions</c>
+/// is tuned for these two, <c>FederatedLayout</c> routes these two plus recordings,
+/// <c>InventoryService.BuildItemKey</c> classifies on them, and neither arr understands anything
+/// else. A <c>music</c> library would be accepted here and then quietly do nothing: no federation,
+/// no imports, no requests. Refusing it is the honest answer.
+/// </remarks>
+public static class LibraryTypes
+{
+    /// <summary>Films. Radarr's root folders, Jellyfin's <c>movies</c> collection type.</summary>
+    public const string Movies = "movies";
+
+    /// <summary>Series. Sonarr's root folders, Jellyfin's <c>tvshows</c> collection type.</summary>
+    public const string TvShows = "tvshows";
+
+    /// <summary>Whether a submitted type is one this node can actually run.</summary>
+    /// <param name="type">The candidate.</param>
+    /// <returns><c>true</c> when it is supported.</returns>
+    public static bool IsSupported(string? type)
+        => string.Equals(type, Movies, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(type, TvShows, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>One library: a name, a type, and the folders on this node that hold it.</summary>
+/// <remarks>
+/// <para>
+/// <b>Movies and TV Shows are built in</b> (<see cref="Builtin"/>) and cannot be renamed or
+/// removed. That is not tidiness: titles arriving from other servers merge into the local library
+/// of the same name, so those two names are effectively part of the wire contract between nodes.
+/// Dan, 2026-09-10: <i>"you cannot rename Movies or TV shows - those are set always and shared
+/// between servers always merge on these."</i>
+/// </para>
+/// <para>
+/// <b><see cref="Paths"/> is a list, and one library is the right home for a second drive</b> --
+/// not a second library. Only one collection folder per type can host the federated pointer tree,
+/// because Jellyfin keys a series on its provider id plus the ids of the collection folders it
+/// belongs to, so a peer's copy merges with the local one only while both sit in a single folder.
+/// A second Movies-typed *library* would therefore receive neither peers' titles nor new imports.
+/// A second *folder* on the Movies library gets both. See <c>LibraryLayoutService</c>.
+/// </para>
+/// </remarks>
+public sealed class LibrarySettings
+{
+    /// <summary>Stable identity, surviving renames and path changes.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>What the reader sees, and what titles from other servers merge on.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The directory name Jellyfin actually gave the virtual folder. Server-owned.
+    /// </summary>
+    /// <remarks>
+    /// Only the display name by coincidence: <c>AddVirtualFolder</c> runs a name through
+    /// <c>GetValidFilename</c> and appends a digit on collision, so "TV Shows" can land as
+    /// "TV Shows2". <c>AddMediaPath</c> and <c>RemoveMediaPath</c> both key on this, not on
+    /// <see cref="Name"/>.
+    /// </remarks>
+    public string FolderName { get; set; } = string.Empty;
+
+    /// <summary>One of <see cref="LibraryTypes"/>. Immutable once the library exists.</summary>
+    /// <remarks>
+    /// The collection type is a marker file written once by <c>AddVirtualFolder</c>, and nothing on
+    /// <c>ILibraryManager</c> rewrites it. Changing it means removing the library and adding it
+    /// again.
+    /// </remarks>
+    public string Type { get; set; } = LibraryTypes.Movies;
+
+    /// <summary>
+    /// The folders on this node holding it, in the order they should be listed. Empty means "use
+    /// the supervisor's default for <see cref="Type"/>".
+    /// </summary>
+    /// <remarks>
+    /// Empty is carried rather than resolved so that a node which has never been edited keeps
+    /// following its data directory. Resolving it once at migration would freeze whatever the path
+    /// happened to be that day, which is how "the default is set at setup" quietly stops being
+    /// true.
+    /// </remarks>
+    public List<string> Paths { get; set; } = new();
+
+    /// <summary>
+    /// Whether this node runs the library at all. Off is the owner saying "not on this server".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the switch that used to be Settings → Downloading, and it is deliberately the same
+    /// switch: if a node holds a library of films it can fetch films, and if it does not it cannot.
+    /// Two controls for one question is what made the old pair of screens read as unrelated.
+    /// </para>
+    /// <para>
+    /// <b>Off keeps everything.</b> No file is deleted. The Jellyfin library is withdrawn from
+    /// view, the manager for that type is stopped, and this node stops materializing peers'
+    /// pointers into it. Switching it back on re-adds the same paths, and because Jellyfin derives
+    /// an item's id from its path, the items come back with the ids they had — watched state and
+    /// resume positions included.
+    /// </para>
+    /// <para>
+    /// Distinct from <see cref="Hidden"/>, which is presentation only: a hidden library still
+    /// imports, still federates, and still costs a manager. Off is the absence of all three.
+    /// </para>
+    /// </remarks>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Hidden from every reader on this node.</summary>
+    /// <remarks>
+    /// Presentation, not permission. A hidden library still receives imports, still federates, and
+    /// is still visible to anything talking to the media server directly. Who may see what is
+    /// invites, and the copy must not claim otherwise.
+    /// </remarks>
+    public bool Hidden { get; set; }
+
+    /// <summary>Movies and TV Shows: never renamed, never removed.</summary>
+    public bool Builtin { get; set; }
+
+    /// <summary>
+    /// Whether this node owns the folders. False for a library that only exists elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// <c>Recordings</c> is the one today: it holds only peers' pointers, so there is no folder of
+    /// yours to edit and nothing of yours to delete. Its only stored state is
+    /// <see cref="Hidden"/>.
+    /// </remarks>
+    public bool Managed { get; set; } = true;
+
+    /// <summary>The Jellyfin collection folder's id, in <c>"N"</c> format. Server-owned.</summary>
+    /// <remarks>
+    /// The format matters: <c>SharedLibraryStore</c> persists shared-library choices as <c>"N"</c>
+    /// strings and the picker compares them with a plain equality check, so a differently formatted
+    /// id here means the tick boxes silently never match.
+    /// </remarks>
+    public string JellyfinItemId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Exactly the locations this node last wrote into the virtual folder. Server-owned.
+    /// </summary>
+    /// <remarks>
+    /// The whole safety story for removal. Reconciliation only ever removes a location it finds
+    /// here, so a folder somebody added by hand outside StingStream is left alone rather than
+    /// silently reverted on the next start.
+    /// </remarks>
+    public List<string> ManagedLocations { get; set; } = new();
 }
 
 /// <summary>File and folder naming, pushed to both apps' <c>/api/v3/config/naming</c>.</summary>

@@ -136,14 +136,6 @@ export function buildSettingsCategories(
   // can be pasted.
   const downloading: SettingsCategory[] = isAdmin
     ? [
-        // First, and deliberately: it is the only one of the five that can be
-        // *off*, and the answer to "why is none of this doing anything".
-        //
-        // A page of its own rather than a section on top of the library, which
-        // is where it used to sit. That page then had a Movies/TV shows tab bar
-        // scoping the whole of it while the switch above the bar governed both
-        // tabs, so the two halves read as one confused screen.
-        category("downloading", "/settings/downloading", "download", t),
         category("services", "/settings/services", "services", t),
         category("quality", "/settings/quality", "quality", t),
         category("files", "/settings/files", "files", t),

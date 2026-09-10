@@ -739,24 +739,20 @@ public sealed class PinService : BackgroundService
     /// </remarks>
     private string Root(bool isMovies)
     {
-        string? configured = null;
+        var kind = isMovies
+            ? Library.RootFolderResolver.LibraryKind.Movies
+            : Library.RootFolderResolver.LibraryKind.Tv;
+
         try
         {
-            var shared = _settings.Get().RootFolders;
-            configured = isMovies ? shared.Movies : shared.Tv;
+            return Library.RootFolderResolver.ForDownloads(_settings.Get(), _runtime.Current?.Paths, kind);
         }
         catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
         {
-            _logger.LogDebug(ex, "Could not read the root folders; using the supervisor's");
+            _logger.LogDebug(ex, "Could not read the libraries; using the supervisor's paths");
+            var paths = _runtime.Current?.Paths;
+            return (isMovies ? paths?.MediaMovies : paths?.MediaTv) ?? string.Empty;
         }
-
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return configured;
-        }
-
-        var paths = _runtime.Current?.Paths;
-        return (isMovies ? paths?.MediaMovies : paths?.MediaTv) ?? string.Empty;
     }
 
     private long FreeSpace(string path)

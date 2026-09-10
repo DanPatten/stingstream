@@ -122,14 +122,9 @@ const CONTROLS: Control[] = [
   { id: "download-clients", category: "services" },
   { id: "arr-sync", category: "services" },
 
-  // Downloading. Its own category, and the one every "downloading is not set
-  // up" notice is trying to reach.
-  { id: "downloading", category: "downloading" },
-
-  // Movies & TV shows
-
-  // Storage & libraries
-  { id: "root-folders", category: "storage" },
+  // Libraries. One row per library, each carrying the switch every "downloading
+  // is not set up" notice is trying to reach: turning a library on is what
+  // starts the manager that fills it.
   { id: "libraries", category: "storage" },
   { id: "scan-delay", category: "storage" },
   { id: "scan-concurrency", category: "storage" },

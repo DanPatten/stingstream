@@ -176,10 +176,14 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   on that title's own page (`components/stingstream/arr/ManageTitleSheet.tsx`, offered only
   when `useArrTitle` finds a row, so a title held by another node offers nothing), and the
   same sheet on its request row (`arr/ManageTitleAction.tsx`) for the window before a file
-  lands and the title has a page at all. The
-  switches that decide whether this node fetches anything at all are Settings → Downloading
-  (`app/(auth)/(tabs)/(home)/settings/downloading`). Its components live in
+  lands and the title has a page at all. Its components live in
   `components/stingstream/arr/`.
+- There is no Downloading page either. Whether this node fetches a kind of title is a
+  library's own switch, on Settings → Libraries
+  (`components/stingstream/settings/LibrariesSection.tsx` over `lib/stingstream/libraries.ts`),
+  beside the folder that library writes to: turning Movies on is what starts the movie
+  manager. One endpoint writes both halves, so they cannot drift. Usenet is not about a
+  library and lives under Indexers & engines.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
   navigation.

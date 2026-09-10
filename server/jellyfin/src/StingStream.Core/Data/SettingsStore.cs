@@ -34,7 +34,29 @@ public sealed class SettingsStore
     /// configured. Never returns <see langword="null"/>: a node with no settings still has to be
     /// able to run its first-run wiring.
     /// </summary>
-    public SharedSettings Get()
+    /// <returns>The settings, with any pending in-memory migration already applied.</returns>
+    /// <remarks>
+    /// <see cref="LibraryMigration"/> runs here rather than as a startup step so that every reader
+    /// sees the current shape from its very first read, whatever order services happen to start in
+    /// and whether or not anything has written to <c>core.db</c> yet. It is a pure in-memory
+    /// transform; persisting it is <c>FirstRunService</c>'s job.
+    /// </remarks>
+    public SharedSettings Get() => Get(out _);
+
+    /// <summary>The current shared settings, saying whether reading them converted anything.</summary>
+    /// <param name="migrated">
+    /// <see langword="true"/> when this read turned an older document into the current shape, so
+    /// the caller may want to persist it. Nothing has been written yet either way.
+    /// </param>
+    /// <returns>The settings.</returns>
+    public SharedSettings Get(out bool migrated)
+    {
+        var settings = Load();
+        migrated = LibraryMigration.Apply(settings);
+        return settings;
+    }
+
+    private SharedSettings Load()
     {
         try
         {

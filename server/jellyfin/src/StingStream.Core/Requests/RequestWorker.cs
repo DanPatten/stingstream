@@ -12,6 +12,7 @@ using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.Inventory;
+using StingStream.Core.Library;
 using StingStream.Core.Mesh;
 using StingStream.Core.Playback;
 
@@ -135,12 +136,15 @@ public sealed class RequestWorker : BackgroundService
     /// <summary>When this node last asked an indexer about each request it is fulfilling.</summary>
     private readonly Dictionary<string, DateTime> _lastSearch = new(StringComparer.Ordinal);
 
+    private readonly RequestWithdrawal _withdrawal;
+
     private string _nodeId = string.Empty;
     private string _nodeName = string.Empty;
 
     public RequestWorker(
         RequestStore store,
         RequestNotifier notifier,
+        RequestWithdrawal withdrawal,
         IRequestMesh requestMesh,
         IMeshClient mesh,
         ArrClientFactory arrs,
@@ -152,6 +156,7 @@ public sealed class RequestWorker : BackgroundService
     {
         _store = store;
         _notifier = notifier;
+        _withdrawal = withdrawal;
         _requestMesh = requestMesh;
         _mesh = mesh;
         _arrs = arrs;
@@ -253,6 +258,11 @@ public sealed class RequestWorker : BackgroundService
     {
         await PublishApprovedAsync(group, report, cancellationToken).ConfigureAwait(false);
         await AdoptForeignAsync(group, report, cancellationToken).ConfigureAwait(false);
+
+        // Adoption's mirror image: a request whose origin has withdrawn it stops being in the
+        // group's list, and this is where a volunteer that is grabbing it finds that out and stops.
+        report.Dropped += await _withdrawal.DropWithdrawnAsync(group, cancellationToken)
+            .ConfigureAwait(false);
         await ClaimAndFulfilAsync(group, capability, report, cancellationToken).ConfigureAwait(false);
         await WatchAsync(group, report, cancellationToken).ConfigureAwait(false);
     }
@@ -285,10 +295,10 @@ public sealed class RequestWorker : BackgroundService
 
         var movieIndexers = settings.Indexers.Any(i => i.Enabled && i.ForMovies);
         var tvIndexers = settings.Indexers.Any(i => i.Enabled && i.ForSeries);
-        var movieRoot = !string.IsNullOrWhiteSpace(settings.RootFolders.Movies)
-            || !string.IsNullOrWhiteSpace(runtime?.Paths.MediaMovies);
-        var tvRoot = !string.IsNullOrWhiteSpace(settings.RootFolders.Tv)
-            || !string.IsNullOrWhiteSpace(runtime?.Paths.MediaTv);
+        var movieRoot = !string.IsNullOrWhiteSpace(
+            RootFolderResolver.ForDownloads(settings, runtime?.Paths, RootFolderResolver.LibraryKind.Movies));
+        var tvRoot = !string.IsNullOrWhiteSpace(
+            RootFolderResolver.ForDownloads(settings, runtime?.Paths, RootFolderResolver.LibraryKind.Tv));
 
         capability.CanFulfilMovies = movieIndexers
             && movieRoot
@@ -790,7 +800,10 @@ public sealed class RequestWorker : BackgroundService
 
         var body = lookup.DeepClone().AsObject();
         body["qualityProfileId"] = profile;
-        body["rootFolderPath"] = RootFolder(settings.RootFolders.Movies, _runtime.Current?.Paths.MediaMovies);
+        body["rootFolderPath"] = RootFolderResolver.ForDownloads(
+            settings,
+            _runtime.Current?.Paths,
+            RootFolderResolver.LibraryKind.Movies);
         body["monitored"] = true;
         body["minimumAvailability"] = "released";
         body["tags"] = new JsonArray();
@@ -838,7 +851,10 @@ public sealed class RequestWorker : BackgroundService
 
         var body = lookup.DeepClone().AsObject();
         body["qualityProfileId"] = profile;
-        body["rootFolderPath"] = RootFolder(settings.RootFolders.Tv, _runtime.Current?.Paths.MediaTv);
+        body["rootFolderPath"] = RootFolderResolver.ForDownloads(
+            settings,
+            _runtime.Current?.Paths,
+            RootFolderResolver.LibraryKind.Tv);
         body["monitored"] = true;
         body["seasonFolder"] = true;
         body["seriesType"] = "standard";
@@ -1073,9 +1089,6 @@ public sealed class RequestWorker : BackgroundService
             season["monitored"] = seasons.Count == 0 ? number > 0 : seasons.Contains(number);
         }
     }
-
-    private string RootFolder(string? configured, string? fallback)
-        => !string.IsNullOrWhiteSpace(configured) ? configured : fallback ?? string.Empty;
 
     private async Task CheckDeadlineAsync(
         string group,
@@ -1330,6 +1343,9 @@ public sealed class RequestPassReport
 
     /// <summary>Requests from other nodes taken into the local store this pass.</summary>
     public int Adopted { get; set; }
+
+    /// <summary>Requests whose origin withdrew them, dropped and cancelled this pass.</summary>
+    public int Dropped { get; set; }
 
     /// <summary>Requests this node started grabbing this pass.</summary>
     public int Grabbed { get; set; }

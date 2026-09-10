@@ -12,14 +12,15 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * the switch that starts them, and the only page that can fix this, so it is the honest
  * destination.
  *
- * It used to be `/settings/library?focus=downloading`, back when the switch was a section on top of
- * the arr library and the link had to scroll the page to it. The switch has its own page now, and
- * that library screen no longer exists at all, so there is nothing left to focus.
+ * It has been three places. `/settings/library?focus=downloading` when the switch was a section on
+ * top of the arr library; `/settings/downloading` when it had a page of its own; and Libraries now
+ * that a library's switch *is* its manager's switch. Each move was the same correction: send the
+ * reader to the control, not to a page that mentions it.
  *
  * Not "Indexers & engines": that page administers indexers and download clients, which are what a
  * manager uses once it exists. It never mentions the managers themselves.
  */
-export const REQUESTS_SETUP_ROUTE = "/settings/downloading";
+export const REQUESTS_SETUP_ROUTE = "/settings/storage?focus=libraries";
 
 /**
  * "Requests are not set up on this server."
@@ -57,10 +58,9 @@ export function RequestsNotSetUp() {
       action={
         canOpenSettings
           ? {
-              // Named after the page it opens. `FindSection`'s empty state now points somewhere
-              // else — a title search could not find is added by hand on Movies & TV shows — so
-              // these two are no longer one destination under two names.
-              label: t("home.settings.sections.downloading"),
+              // Named after the page it opens, and it lands on the Libraries section with the
+              // switch ringed: turning a library on is what starts the manager behind requests.
+              label: t("home.settings.nav.storage"),
               icon: "settings",
               onPress: () => router.push(REQUESTS_SETUP_ROUTE),
             }

@@ -598,6 +598,36 @@ public sealed class FederatedLibraryService : BackgroundService
         return labels;
     }
 
+    /// <summary>Whether the library an entry of this shape would land in is switched on.</summary>
+    /// <param name="isRecording">The entry is a DVR recording.</param>
+    /// <param name="isEpisode">The entry is an episode of a series.</param>
+    /// <returns><c>true</c> when this node should materialize it.</returns>
+    /// <remarks>
+    /// Read from the settings rather than passed in, because the three answers are per type and
+    /// this is the one place that knows which type an entry became. A node whose migration has not
+    /// run has no rows and materializes everything, which is what it did before any of this
+    /// existed.
+    /// </remarks>
+    private bool LibraryEnabled(bool isRecording, bool isEpisode)
+    {
+        var settings = _settings.Get();
+        if (settings.Libraries.Count == 0)
+        {
+            return true;
+        }
+
+        if (isRecording)
+        {
+            return LibraryLayoutPlan.Recordings(settings)?.Enabled != false;
+        }
+
+        var type = isEpisode ? LibraryTypes.TvShows : LibraryTypes.Movies;
+        return settings.Libraries.Any(
+            l => l.Managed
+                 && l.Enabled
+                 && string.Equals(l.Type, type, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task<FederatedPointer?> WritePointerAsync(
         string root,
         string group,
@@ -614,6 +644,14 @@ public sealed class FederatedLibraryService : BackgroundService
             && entry.Metadata.Season is not null
             && entry.Metadata.Episode is not null
             && !string.IsNullOrWhiteSpace(entry.Metadata.SeriesName);
+
+        // A library the owner switched off is not a library this node materializes into. Without
+        // this, pointers would keep arriving in a folder no library holds any more, and switching
+        // it back on would present a pile of titles the reader never saw arrive.
+        if (!LibraryEnabled(isRecording, isEpisode))
+        {
+            return null;
+        }
 
         var libraryRoot = Path.Combine(
             root,

@@ -8,7 +8,8 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius } from "@/constants/theme";
+import { Pill } from "@/components/common/Pill";
+import { radius, space } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
   type ConnectivityTestResult,
@@ -19,6 +20,11 @@ import {
   useExternalDownloadClients,
   useTestExternalDownloadClient,
 } from "@/lib/stingstream/hooks";
+import {
+  useDownloading,
+  useDownloadingHealth,
+  useSaveDownloading,
+} from "@/lib/stingstream/downloading";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
@@ -100,8 +106,14 @@ export function DownloadClientsSection({
       <View style={{ height: 12 }} />
 
       <ListGroup title={t("server_settings.usenet_engine_group_title")}>
-        <ToggleRow
-          title={t("server_settings.enabled_label")}
+        {/*
+          One switch, two things, and that is the point of it being here. Usenet used to be a row
+          on the Downloading page starting the NZBGet process, and a separate Enabled toggle on
+          this page registering NZBGet with the managers. Their own doc comments claimed they meant
+          the same thing; they did not, and a reader who found one of them had no way to know the
+          other existed. `UsenetRow` sets both, and shows what is actually running.
+        */}
+        <UsenetRow
           value={draft.UsenetEnabled ?? false}
           onValueChange={(v) => set("UsenetEnabled", v, { now: true })}
         />
@@ -521,3 +533,81 @@ const emptyClient: ExternalDownloadClientSettings = {
   RemoveCompletedDownloads: true,
   RemoveFailedDownloads: true,
 };
+
+/**
+ * Usenet: the engine process, and whether the managers are told about it.
+ *
+ * Two switches meant one thing here until 2026-09-10. `config.toml`'s `[children] nzbget` decides
+ * whether the process runs at all, and `DownloadClients.UsenetEnabled` decides whether Radarr and
+ * Sonarr are handed it as a download client. Off in the first and on in the second is a manager
+ * pointed at a port with nothing behind it; the reverse is a running engine nothing ever uses.
+ * Neither is a state anybody chose, so this writes both.
+ *
+ * The pill is the same intent-versus-fact split the libraries use: NZBGet starts within a few
+ * seconds of the file changing, which is longer than the press.
+ */
+function UsenetRow({
+  value,
+  onValueChange,
+}: {
+  value: boolean;
+  onValueChange: (v: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
+  const downloading = useDownloading();
+  const saveDownloading = useSaveDownloading();
+  const health = useDownloadingHealth("usenet");
+
+  // The process switch is the one that can fail on its own -- an unmanaged node has no
+  // `config.toml` to write -- so it is what the row reads back, falling back to the settings flag
+  // while that answer is still on its way.
+  const on = downloading.data?.usenet ?? value;
+
+  const change = async (next: boolean) => {
+    onValueChange(next);
+    try {
+      await saveDownloading.mutateAsync({ usenet: next });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("server_settings.save_error"),
+      );
+    }
+  };
+
+  const status = (() => {
+    if (!on || health.state === undefined) return null;
+    if (health.state === "healthy") {
+      return { label: t("libraries.state_running"), tone: "success" as const };
+    }
+    if (health.state === "starting") {
+      return { label: t("libraries.state_starting"), tone: "neutral" as const };
+    }
+    return { label: t("libraries.state_failed"), tone: "danger" as const };
+  })();
+
+  return (
+    <ListItem
+      title={t("server_settings.enabled_label")}
+      subtitle={
+        on && health.state !== "healthy" && health.error
+          ? health.error
+          : undefined
+      }
+    >
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: space["2"] }}
+      >
+        {status ? (
+          <Pill label={status.label} tone={status.tone} size='sm' />
+        ) : null}
+        <SettingSwitch
+          value={on}
+          disabled={saveDownloading.isPending}
+          onValueChange={(next) => void change(next)}
+          trackColor={{ true: accent[500] }}
+        />
+      </View>
+    </ListItem>
+  );
+}

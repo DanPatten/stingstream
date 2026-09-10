@@ -64,17 +64,19 @@ describe("buildSettingsCategories", () => {
     ]);
   });
 
-  test("getting hold of something is its own group, not four rows of admin", () => {
+  test("getting hold of something is its own group, not rows of admin", () => {
     // The ones that answer "how does something I do not have get here" left
     // `administration` together: that group is the machine, this one is a
-    // subject somebody sits down to configure. Downloading leads because it is
-    // the only one that can be switched off, which makes it the answer to
-    // "why is none of the rest of this doing anything".
+    // subject somebody sits down to configure.
+    //
+    // The switch that decides whether any of it does anything is not in this
+    // group at all any more. It is a library's own switch, on Libraries, next
+    // to the folder that library writes to -- because "can this server have
+    // films" and "where do the films go" were never two questions.
     const downloading = buildSettingsCategories(admin, t).find(
       (group) => group.key === "downloading",
     );
     expect(downloading?.categories.map((item) => item.key)).toEqual([
-      "downloading",
       "services",
       "quality",
       "files",

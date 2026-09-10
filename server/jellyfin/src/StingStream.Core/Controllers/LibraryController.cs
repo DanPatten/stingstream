@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
+using StingStream.Core.Library;
 
 namespace StingStream.Core.Controllers;
 
@@ -405,7 +406,7 @@ public sealed class LibraryController : StingStreamControllerBase
 
             var body = lookup.DeepClone().AsObject();
             body["qualityProfileId"] = profileId.Value;
-            body["rootFolderPath"] = RootFolder(request.RootFolderPath, shared.RootFolders.Movies, isMovies: true);
+            body["rootFolderPath"] = RootFolder(request.RootFolderPath, shared, RootFolderResolver.LibraryKind.Movies);
             body["monitored"] = request.Monitored;
             body["minimumAvailability"] = request.MinimumAvailability;
             body["tags"] = new JsonArray();
@@ -499,7 +500,7 @@ public sealed class LibraryController : StingStreamControllerBase
 
             var body = lookup.DeepClone().AsObject();
             body["qualityProfileId"] = profileId.Value;
-            body["rootFolderPath"] = RootFolder(request.RootFolderPath, shared.RootFolders.Tv, isMovies: false);
+            body["rootFolderPath"] = RootFolder(request.RootFolderPath, shared, RootFolderResolver.LibraryKind.Tv);
             body["monitored"] = request.Monitored;
             body["seasonFolder"] = request.SeasonFolder;
             body["seriesType"] = request.SeriesType;
@@ -1101,21 +1102,15 @@ public sealed class LibraryController : StingStreamControllerBase
 
     // --- helpers -----------------------------------------------------------
 
-    private string RootFolder(string? requested, string? configured, bool isMovies)
-    {
-        if (!string.IsNullOrWhiteSpace(requested))
-        {
-            return requested;
-        }
-
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return configured;
-        }
-
-        var paths = _runtime.Current?.Paths;
-        return (isMovies ? paths?.MediaMovies : paths?.MediaTv) ?? string.Empty;
-    }
+    /// <summary>Where to put a title being added, explicit request winning over the default.</summary>
+    /// <param name="requested">A folder the caller named, if it named one.</param>
+    /// <param name="shared">The shared settings.</param>
+    /// <param name="kind">Films or series.</param>
+    /// <returns>An absolute path, or empty when nothing can answer.</returns>
+    private string RootFolder(string? requested, SharedSettings shared, RootFolderResolver.LibraryKind kind)
+        => !string.IsNullOrWhiteSpace(requested)
+            ? requested
+            : RootFolderResolver.ForDownloads(shared, _runtime.Current?.Paths, kind);
 
     private static Task SearchAsync(
         ArrClient client,

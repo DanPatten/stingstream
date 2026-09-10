@@ -316,6 +316,14 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    `Recordings` stays a third library, and only because its folder shape suits neither of the other
    two (see "DVR recordings" below).
    The federated tree is never an arr root folder, since both arrs treat `.strm` as video.
+
+   **Each of the three can be switched off** (`LibrarySettings.Enabled`, 2026-09-10), and off means
+   the owner saying "not on this server": the library is withdrawn from the media server's view,
+   the manager that fills it is stopped through `config.toml`, and the materializer stops writing
+   pointers into it. Nothing on disk is touched, and because Jellyfin derives an item id from its
+   path, switching one back on returns the items with the ids they had — watched state included.
+   The pointer tree follows: `LibraryLayoutPlan.Host` picks a library of that type that is still
+   on, so switching off the built-in one hands the tree to another rather than stranding it.
 2. **Metadata: on for the library, off per item.** The merged library keeps its internet fetchers —
    empty `TypeOptions`, which is the server-defaults path — because it holds films this node
    downloaded and a person expects those to have posters. Each materialized `.nfo` instead carries
