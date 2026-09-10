@@ -9,6 +9,7 @@ import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
+import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
   type MemberRequest,
   RequestFinishedError,
@@ -16,10 +17,12 @@ import {
   requestTitle,
   searchAction,
   toRequestCard,
+  useCanApproveRequests,
   useCreateRequest,
   useDeleteRequest,
   useSetRequestSeasons,
 } from "@/lib/stingstream/requests";
+import { ManageTitleFields } from "../arr/ManageTitleFields";
 import { confirmDestructive } from "../shared/confirm";
 import { requestMadeToast } from "./requestMadeToast";
 import {
@@ -83,6 +86,7 @@ export function RequestSheet({
   const [seasons, setSeasons] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const create = useCreateRequest();
+  const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
   const remove = useDeleteRequest();
   const editing = existing ?? null;
@@ -118,6 +122,19 @@ export function RequestSheet({
     setSeasons(current.length > 0 ? current : allSeasons(total));
     setError(null);
   }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
+
+  // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
+  // own queries off when it has nothing to ask about.
+  const providerId = result
+    ? result.kind === "series"
+      ? result.tvdbId
+      : result.tmdbId
+    : 0;
+  const managed = useArrTitle(
+    result?.kind === "series" ? "series" : "movie",
+    providerId || undefined,
+    isAdmin && !!result,
+  );
 
   if (!shown) return null;
 
@@ -299,6 +316,35 @@ export function RequestSheet({
 
         {isSeries ? (
           <SeasonPicker value={seasons} onChange={setSeasons} total={total} />
+        ) : null}
+
+        {/*
+          What this server does about the title, on the same sheet as what was asked for. It was a
+          second button on the row — "Manage on this server" — beside Edit and Delete, which is
+          three controls for one title and a name nobody had to learn. Only when this node's own
+          manager tracks it: a request another node is fulfilling, or one still waiting for
+          approval, has nothing here to change.
+        */}
+        {editingNow && managed.row ? (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: color.border.subtle,
+              marginTop: 16,
+              paddingTop: 8,
+            }}
+          >
+            <ManageTitleFields
+              kind={shown.kind === "series" ? "series" : "movie"}
+              providerId={providerId}
+              title={requestTitle(shown)}
+              monitored={managed.row.monitored ?? false}
+              profileName={managed.profileName}
+              active={!!result}
+              onDone={onClose}
+              onRemovedWithFiles={onClose}
+            />
+          </View>
         ) : null}
 
         <FormError message={error} />

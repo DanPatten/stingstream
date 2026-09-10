@@ -507,7 +507,8 @@ public sealed class RequestWorker : BackgroundService
             }
             else
             {
-                await KeepFulfillingAsync(row, cancellationToken).ConfigureAwait(false);
+                await KeepFulfillingAsync(group, row, home, report, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             return;
@@ -546,7 +547,8 @@ public sealed class RequestWorker : BackgroundService
                 && c.State is not (ClaimStates.Released or ClaimStates.Failed)) ?? false;
             if (stillClaimed)
             {
-                await KeepFulfillingAsync(row, cancellationToken).ConfigureAwait(false);
+                await KeepFulfillingAsync(group, row, home, report, cancellationToken)
+                    .ConfigureAwait(false);
                 await CheckDeadlineAsync(group, row, view!, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -633,16 +635,43 @@ public sealed class RequestWorker : BackgroundService
            || DateTime.UtcNow - made.ToUniversalTime() >= VolunteerDelay;
 
     /// <summary>
-    /// Keep a grab this node owns moving: monitor the seasons that were asked for, and search.
+    /// Keep a grab this node owns moving, or give up on it if this node no longer can.
     /// </summary>
-    /// <remarks>
-    /// Only series need this. A film is one item: Radarr's add-time search has something to search
-    /// for the moment the movie exists, so there is nothing to come back for.
-    /// </remarks>
-    private Task KeepFulfillingAsync(RequestRow row, CancellationToken cancellationToken)
-        => string.Equals(row.Kind, "series", StringComparison.Ordinal)
-            ? EnsureSeriesSearchAsync(row, cancellationToken)
-            : Task.CompletedTask;
+    private async Task KeepFulfillingAsync(
+        string group,
+        RequestRow row,
+        FulfilCapability home,
+        RequestPassReport report,
+        CancellationToken cancellationToken)
+    {
+        // Capability is checked on the way in, at `GrabAsync`, and it can go away afterwards: an
+        // indexer is removed, or its last one starts failing. Nothing re-checked it, so a request
+        // that had reached `fulfilling` sat there saying "StingStream is searching for a release"
+        // for as long as the node lived, on a server with nowhere to search. Dan, looking at two of
+        // them beside a "No indexers configured" banner: *"this says downloading which isnt true..
+        // we dont have an indexer configured."*
+        //
+        // Failing it says the true thing and puts the row where a person can act on it: a failed
+        // request is offered again rather than waited on.
+        if (!home.CanFulfil(row.Kind))
+        {
+            await FailAsync(
+                    group,
+                    row,
+                    "No node in the group can grab this: none has an indexer for it with room to spare.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            report.Failed++;
+            return;
+        }
+
+        // Only series need the rest. A film is one item: Radarr's add-time search has something to
+        // search for the moment the movie exists, so there is nothing to come back for.
+        if (string.Equals(row.Kind, "series", StringComparison.Ordinal))
+        {
+            await EnsureSeriesSearchAsync(row, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Add the title to this node's arr, monitored, and start a search.</summary>
     private async Task GrabAsync(

@@ -342,6 +342,7 @@ const page: React.FC = () => {
         providerId={tvdbId}
         title={item.Name ?? ""}
         monitored={managed.row.monitored ?? false}
+        profileName={managed.profileName}
         visible={managing}
         onClose={() => setManaging(false)}
         // The show and its files are gone; this page is showing something that

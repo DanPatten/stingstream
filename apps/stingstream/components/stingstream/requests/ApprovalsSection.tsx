@@ -9,7 +9,6 @@ import {
   useDecideRequest,
   useRequests,
 } from "@/lib/stingstream/requests";
-import { ManageTitleAction } from "../arr/ManageTitleAction";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestsErrorState } from "./RequestsErrorState";
 
@@ -134,7 +133,6 @@ export function ApprovalsSection() {
                     stops asking, or changes the quality it is looking for. Draws nothing when this
                     node's manager never took the title.
                   */}
-                  <ManageTitleAction request={request} />
                 </>
               }
             />

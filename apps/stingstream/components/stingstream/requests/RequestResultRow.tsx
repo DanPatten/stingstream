@@ -172,32 +172,20 @@ export function RequestResultRow({
         <View style={{ flexDirection: "row", marginTop: 10 }}>
           {/*
             With a request already open the pill above carries the state and this becomes the thing
-            to do about it: Edit for a show, whose seasons can change, and Delete for a film, which
-            has nothing else to decide.
+            to do about it. Edit for both kinds now: a film used to get Delete here, on the grounds
+            that seasons were the only editable thing and a film has none, but the sheet carries
+            what this server does about the title too — monitoring, quality, removal — and a film
+            has all of those. Deleting the request is inside the sheet, where it sits next to what
+            it would undo.
 
-            Delete is drawn exactly as My requests draws it — `danger`, the trash glyph, the word
-            Delete — because it is the same act on the same request, and a destructive control that
-            looks like an ordinary one on this screen and like a red one on that screen teaches the
-            reader nothing. Edit stays secondary: managing something you already asked for is not
-            the action this screen is for.
+            Secondary rather than primary: managing something you already asked for is not the
+            action this screen is for.
           */}
           <Button
             testID='requests-result-request'
-            variant={
-              action.intent !== "manage"
-                ? "primary"
-                : result.kind === "series"
-                  ? "secondary"
-                  : "danger"
-            }
+            variant={action.intent === "manage" ? "secondary" : "primary"}
             size='sm'
-            icon={
-              action.intent !== "manage"
-                ? "requests"
-                : result.kind === "series"
-                  ? "settings"
-                  : "delete"
-            }
+            icon={action.intent === "manage" ? "settings" : "requests"}
             disabled={action.disabled}
             loading={pending}
             onPress={onPress}
@@ -208,9 +196,7 @@ export function RequestResultRow({
             })}
           >
             {action.intent === "manage"
-              ? result.kind === "series"
-                ? t("requests.edit_button")
-                : t("common.delete")
+              ? t("requests.edit_button")
               : action.label}
           </Button>
         </View>

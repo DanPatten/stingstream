@@ -95,35 +95,6 @@ export function FindSection({ term = "" }: { term?: string }) {
   const remove = useDeleteRequest();
 
   /**
-   * Drop a request from the row it was made on.
-   *
-   * The same confirmation, the same words and the same toast as the Delete on My requests, because
-   * it is the same act on the same row: one screen calling it Delete and the other Withdraw would
-   * be two names for one thing. A film only; a show is deleted from inside its own sheet, where the
-   * seasons it covers are visible and dropping the lot is plainly the bigger of the two choices on
-   * offer.
-   */
-  const withdraw = async (result: RequestSearchResult) => {
-    if (!result.requestId) return;
-    const title = requestTitle(result);
-    const ok = await confirmDestructive(
-      t("requests.delete_confirm_title", { title }),
-      t("requests.delete_confirm_detail"),
-      t("common.delete"),
-    );
-    if (!ok) return;
-    setSubmitting(result.itemKey);
-    try {
-      await remove.mutateAsync(result.requestId);
-      toast.success(t("requests.delete_success", { title }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(null);
-    }
-  };
-
-  /**
    * Do the thing the row's button says.
    *
    * Four cases, and `searchAction` has already worked out which. A movie goes straight to the node:
@@ -131,20 +102,18 @@ export function FindSection({ term = "" }: { term?: string }) {
    * with a second Request button on it. A TV show opens the sheet, because which seasons to ask for
    * is a real choice — an empty selection means all of them, and that default is worth showing
    * rather than assuming silently. A title with a request already open is managed instead of asked
-   * for again: a show reopens the sheet with the seasons it currently covers, and a film, which has
-   * nothing to edit, is withdrawn after a confirmation.
+   * for again: both kinds reopen the sheet on what the request currently covers, and deleting it is
+   * one of the things the sheet offers.
    *
    * A poster on the feed goes through the same four cases. A title must not mean one thing as a
    * tile and another as a row.
    */
   const act = async (result: RequestSearchResult) => {
     const action = searchAction(result);
+    // Anything already asked for opens the sheet, whatever kind it is: that is where the seasons,
+    // what this server does about the title, and deleting the request all live.
     if (action.intent === "manage") {
-      if (result.kind === "series") {
-        setPicking(result);
-        return;
-      }
-      await withdraw(result);
+      setPicking(result);
       return;
     }
     if (result.kind === "series") {

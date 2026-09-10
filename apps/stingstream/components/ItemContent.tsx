@@ -360,6 +360,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         providerId={tmdbId}
         title={item.Name ?? ""}
         monitored={managed.row.monitored ?? false}
+        profileName={managed.profileName}
         visible={managing}
         onClose={() => setManaging(false)}
         // The film and its files are gone; the page is showing something that
