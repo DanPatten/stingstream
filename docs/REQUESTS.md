@@ -438,9 +438,16 @@ plugin built before `CanSearch` existed — the same trap as any stale `-Private
 `.claude/skills/reload-node`). Re-measured the same day against a node carrying the current
 `StingStream.Core`: `/requests/search?q=` answers **503**, and the gate draws.
 
+The administrator's button goes to Settings → Films & series, and since the downloading switch
+landed that is a destination rather than a restatement: the page carries the control that turns
+the managers on, and the supervisor starts them without a restart (`supervisor::downloading`). It
+used to lead to the same sentence again over a page whose own advice — "an administrator can
+enable it in Server settings" — named a screen that had not existed since the settings tree was
+rebuilt into categories.
+
 Find's empty state still covers a real no-match, which is a different thing: results came back and
 none of them were it. `requests.discover_empty_detail` says so, and its administrator-only button
-goes to the same Settings → Movie & series managers screen, so one problem never leads two ways.
+goes to the same screen, so one problem never leads two ways.
 
 TV still has its own Discover section, because the TV search screen is a separate screen with a
 separate input and no top bar to share.

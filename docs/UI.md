@@ -13,9 +13,9 @@ involve.
 | Screen | Where | Visible on | Admin only? |
 |---|---|---|---|
 | Downloads | new tab `(downloads)` | phone, web | yes |
-| Movie & series managers (the arr library) | Settings → Movie & series managers | phone, web | yes |
-| Media services · Quality & formats · Files & naming · Notifications | Settings, one category each | phone, web | yes |
-| Storage & libraries · Transcoding & hardware · Network & remote access | Settings, one category each | phone, web | yes |
+| Films & series (the arr library, and the downloading switch) | Settings → Downloading → Films & series | phone, web | yes |
+| Indexers & engines · Quality & formats · Files & naming | Settings → Downloading, one category each | phone, web | yes |
+| Storage & libraries · Transcoding & hardware · Network & remote access · Notifications | Settings → Server administration, one category each | phone, web | yes |
 | Users & access | Settings → Users & access (`/users` redirects) | phone, web | yes |
 | Logs & status | Settings → Logs & status | phone, web | yes |
 | Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
@@ -45,6 +45,14 @@ restructure is named after them:
 2. **One row did far too much.** *Server settings* was a single click through to six unrelated
    pages, and its subtitle had to list all six. They are five categories with addresses of their
    own now: Media services, Quality & formats, Storage & libraries, Files & naming, Notifications.
+4. **Getting hold of something was filed as maintenance.** The four categories that answer "how
+   does something this server does not have get here" — Films & series, Indexers & engines,
+   Quality & formats, Files & naming — sat among eleven server-maintenance rows under *Server
+   administration*. They are their own group, **Downloading**, because they are a subject somebody
+   sits down to configure rather than part of the machine. Films & series leads it: it carries the
+   switch that decides whether any of the rest does anything, and a node with downloading off is
+   the one state where every other category in the group is inert.
+
 3. **Sharing described itself conversationally** — "Other people who run StingStream", "Streams go
    through your server on the web" — without saying whether it linked servers or routed clients.
    It is one page called **Servers**, holding this device's mesh status, the servers this one pools
