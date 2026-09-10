@@ -29,6 +29,33 @@ Read it before the first commit in a session. The two that catch people first:
   one invocation. A broad add sweeps up another session's in-flight work and publishes it under
   your name at a moment its author did not choose.
 
+## Finishing means committed and pushed
+
+**Committing and pushing your own work is the last step of doing it, not a separate request.** When
+a piece of work is finished, commit it and push to `master` without being asked. Finished work left
+sitting in the working tree is invisible to everyone else and one stray command in another session
+away from gone, and the person who would have to reconstruct it is not the one who left it there.
+
+Finished means finished: it builds, whatever you touched passes (`cargo clippy --workspace
+--all-targets -- -D warnings`, `bun run typecheck`, `bun test`), the workspace is not left broken
+for anyone else (CONTRIBUTING rule 2), and any line in this file or in `docs/**` that your change
+made untrue is fixed in the same commit. Work still in flight stays uncommitted; say so rather than
+committing half of it.
+
+The staging discipline does not relax — it is what makes committing-by-default safe:
+
+- `git add <explicit file paths>` for the files you changed. Never `git add -A`, never `git add .`,
+  never a directory.
+- Then read `git diff --cached --stat` and the diff itself, and confirm every staged hunk is yours.
+  A file you edited can also hold somebody else's half-finished change. If a hunk is not yours,
+  leave that file out of the commit and say which one and why.
+- Stage and commit in one invocation, then `git push`.
+
+Everything else in git stays read-only and asked-for-first: `checkout`, `restore`, `switch`,
+`reset`, `revert`, `clean`, `stash`, `merge`, `rebase`, `cherry-pick`, anything `--force`. Undo your
+own edits by hand, with an editor. If a push is rejected because `master` moved, stop and ask — the
+fix is a write.
+
 ## Seeing a change actually run
 
 **Use the [`reload-node`](.claude/skills/reload-node/SKILL.md) skill.** It is the single procedure
@@ -136,6 +163,35 @@ are the honest ones and should stay: `ArrClientFactory`, `radarr`/`sonarr` in `c
 Dan, 2026-09-09, on finding "Create in both apps" on the quality screen: *"NEVER say create in both
 apps — StingStream is a single app and the combination of sonarr/radarr should never be referenced
 as such."*
+
+## The voice of user-facing copy
+
+StingStream should read like a product people pay for: plain, calm, professional. This binds the
+same surfaces as the rule above. `apps/stingstream/translations/en.json`, toasts, empty states,
+button labels, confirmation dialogs, and any error text that reaches a screen. It does not bind
+code, comments, logs, `docs/**` or this file.
+
+- **The best copy is no copy.** Text is the last resort, not the first. Before writing a sentence
+  onto a screen, ask whether an icon, a familiar control, sensible defaults, disabled states,
+  placeholder text, or the layout itself could carry the same meaning. Explain only what a person
+  genuinely cannot work out from the interface.
+- **Lean on the patterns people already know.** Settings rows with toggles, a search field with a
+  magnifier, a kebab menu, an inline validation message under the field, a tooltip on hover, an
+  empty state with one action button. These are the conventions every SaaS product shares, and a
+  reader arrives already fluent in them. A paragraph explaining a control is usually a sign the
+  control is wrong, not that the paragraph is missing.
+- **No em dashes.** Use a full stop, a comma, a colon, or brackets. Two short sentences almost
+  always beat one sentence carrying a dashed aside. `apps/stingstream/brand.test.ts` fails on one
+  in `en.json`; the other locales are their translators' own business.
+- **Say what happened, then what to do about it.** "A first run can take a few minutes. Try again,
+  or check that StingStream is running on your server." The reasoning behind a rule belongs in a
+  comment or in `docs/**`, never on the screen.
+- **Second person, active voice, present tense.** "Your server has not answered yet", not "The
+  server could not be reached".
+- **No jokes, no apologies, no exclamation marks, no scare quotes, and nothing chatty.** Never
+  editorialise about the software's own behaviour.
+- **One idea per string.** If a message needs three clauses to be true, the screen probably needs a
+  title and a line, not a longer sentence.
 
 ## Where things are documented
 
