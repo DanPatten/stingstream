@@ -90,18 +90,15 @@ export function RequestSheet({
   /**
    * The button says what pressing it will ask for.
    *
-   * A bare "Request" under a row of chips leaves the reader checking the chips again to find out
-   * what they are about to get, which is the doubt the chips were meant to remove. Three shapes,
-   * because "Request 1 seasons" is not English and "Request 6 seasons" hides that six *is* all of
-   * them.
+   * A bare "Request" under a row of squares leaves the reader checking the squares again to find
+   * out what they are about to get, which is the doubt the squares were meant to remove. Short,
+   * because the sheet is narrow and the button sits beside Cancel: "Request all" or "Request (3)",
+   * not a sentence naming every season.
    */
   const submitLabel = () => {
     if (action.disabled) return action.label;
     if (nothingChosen) return t("requests.request_button");
-    if (seasons.length === total)
-      return t("requests.request_all_seasons", { count: total });
-    if (seasons.length === 1)
-      return t("requests.request_one_season", { n: seasons[0] });
+    if (seasons.length === total) return t("requests.request_all_seasons");
     return t("requests.request_n_seasons", { count: seasons.length });
   };
 

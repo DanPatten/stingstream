@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
-import { Checkbox } from "@/components/common/Checkbox";
-import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { REQUEST_SEASON_FALLBACK } from "@/constants/Requests";
-import { motion, radius, rgba, webFocusRing } from "@/constants/theme";
+import { motion, radius, webFocusRing } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import type { RequestSearchResult } from "@/lib/stingstream/requestsApi";
 
 /**
- * Which seasons to ask for: a Select all checkbox, and one chip per season.
+ * Which seasons to ask for: a Select all action, and one square per season.
  *
  * Three shapes came before it and each made the reader work to say the ordinary thing. Twenty
  * numbered chips, so a nine-season show took nine presses to mean "all of it". Then Sonarr's own
@@ -18,16 +16,18 @@ import type { RequestSearchResult } from "@/lib/stingstream/requestsApi";
  * "All seasons" chip sitting in the row with the numbers, which is what this fixes:
  *
  * * **A bulk action is not a choice among the things it acts on.** Styled as a pill beside 1..6 it
- *   read as a seventh season rather than as Select all, so it is a checkbox above the row now,
- *   which is the shape every list of tickboxes already uses for the same job.
- * * **Selected must not look like the submit button.** Everything was solid accent at once — the
- *   chips, and the Request button under them — so a full row said "selected", "disabled" and "this
- *   is just what chips look like" equally well. Solid accent is reserved for the one control that
- *   submits; a chosen season is a tinted, accent-bordered chip with a tick, and an unchosen one is
- *   charcoal with a quiet border. Dan, 2026-09-10, on the version before this: *"'All seasons' is
- *   styled as a pill button alongside individual season numbers, making it look like an
- *   independent choice rather than a bulk action... It is also visually identical to the primary
- *   Request CTA."*
+ *   read as a seventh season rather than as Select all, so it is a text action in the header now —
+ *   Select all, or Clear all once everything is on. A checkbox was the first attempt and sat too
+ *   large and too high beside a row of small squares.
+ * * **Selected must not look like the submit button, and must not look like an icon.** Everything
+ *   was solid accent at once — the chips and the Request button under them — so a full row said
+ *   "selected", "disabled" and "this is just what chips look like" equally well. Then a tick
+ *   inside a round chip turned a season number into a glyph. The fill does the work now: a chosen
+ *   season is the text colour inverted, an unchosen one is transparent with a faint edge, and
+ *   solid accent stays with the control that submits. Dan, 2026-09-10: *"cramming a checkmark into
+ *   a round circle makes it look like an icon rather than a season number."*
+ * * **Rounded squares, not capsules.** 36x36 frames one digit and two equally well; a pill has to
+ *   grow sideways for the second and the row stops lining up.
  *
  * Two things about the value, both from what the node does with the answer:
  *
@@ -60,6 +60,9 @@ export const allSeasons = (total: number): number[] =>
  */
 export const seasonsForRequest = (value: number[], total: number): number[] =>
   value.length === total ? [] : value;
+
+/** One season square. Frames a single digit and two the same, which a capsule cannot. */
+const SEASON_CHIP = 36;
 
 const isWeb = Platform.OS === "web";
 
@@ -97,7 +100,7 @@ export function SeasonPicker({
           {t("requests.seasons_label")}
         </Text>
         <SelectAll
-          checked={all}
+          all={all}
           onPress={() => onChange(all ? [] : allSeasons(total))}
         />
       </View>
@@ -128,63 +131,49 @@ export function SeasonPicker({
 }
 
 /**
- * The bulk action, deliberately not a chip.
+ * The bulk action, as a text action rather than a control with a box round it.
  *
- * A checkbox and its word, so it reads as "this does something to the row below" rather than as
- * one more thing to choose between. Unticking it clears the selection, which is why the label
- * never changes to "Deselect all": the box's own state already says which way pressing it goes.
+ * It says what pressing it does rather than carrying a state of its own, which is why the word
+ * changes: Select all while some are off, Clear all once they are all on. A checkbox here read as
+ * a fourth kind of control on a small sheet that already has chips, a Cancel and a submit.
  */
-function SelectAll({
-  checked,
-  onPress,
-}: {
-  checked: boolean;
-  onPress: () => void;
-}) {
+function SelectAll({ all, onPress }: { all: boolean; onPress: () => void }) {
   const { t } = useTranslation();
   const [focused, setFocused] = useState(false);
+  const label = all
+    ? t("requests.seasons_clear_all")
+    : t("requests.seasons_select_all");
 
   return (
     <Pressable
       onPress={onPress}
-      accessibilityRole='checkbox'
-      accessibilityState={{ checked }}
-      accessibilityLabel={t("requests.seasons_select_all")}
+      accessibilityRole='button'
+      accessibilityLabel={label}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       testID='requests-seasons-select-all'
       style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingVertical: 4,
-          paddingHorizontal: 4,
-          borderRadius: radius.sm,
-        },
+        { paddingVertical: 2, paddingHorizontal: 4, borderRadius: radius.xs },
         isWeb
-          ? ({
-              cursor: "pointer",
-              ...webFocusRing(focused),
-            } as ViewStyle)
+          ? ({ cursor: "pointer", ...webFocusRing(focused) } as ViewStyle)
           : null,
       ]}
     >
-      <Checkbox checked={checked} size={18} />
-      <Text variant='caption' weight='semibold' tone='secondary'>
-        {t("requests.seasons_select_all")}
+      <Text variant='caption' weight='semibold' tone='accent'>
+        {label}
       </Text>
     </Pressable>
   );
 }
 
 /**
- * One season.
+ * One season: a 36x36 rounded square with a number in it.
  *
- * Outlined rather than filled, so a row of them cannot be mistaken for a row of buttons: the only
- * solid accent in this sheet is the control that submits it. Chosen is the accent at
- * `Pill`'s own soft alpha with the accent's border and a tick; unchosen is the surface one step up
- * from the sheet with a quiet edge.
+ * Chosen inverts — the text colour becomes the fill and the page colour becomes the number — which
+ * is the loudest a control can be without borrowing the accent the submit button owns. Unchosen is
+ * transparent with a faint edge, so an untouched row reads as an outline of choices rather than as
+ * six disabled buttons. No tick: the fill already says it, and a glyph crowded into a 36px square
+ * beside a digit reads as an icon rather than as a season.
  */
 function SeasonChip({
   season,
@@ -196,7 +185,7 @@ function SeasonChip({
   onPress: () => void;
 }) {
   const { t } = useTranslation();
-  const { color, accent } = useTheme();
+  const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -213,25 +202,23 @@ function SeasonChip({
       onBlur={() => setFocused(false)}
       style={[
         {
-          flexDirection: "row",
           alignItems: "center",
-          gap: 5,
-          minHeight: 36,
-          minWidth: 40,
           justifyContent: "center",
-          paddingHorizontal: selected ? 10 : 14,
-          borderRadius: radius.pill,
+          height: SEASON_CHIP,
+          minWidth: SEASON_CHIP,
+          paddingHorizontal: 6,
+          borderRadius: radius.md,
           borderWidth: 1,
           borderColor: selected
-            ? accent[500]
+            ? color.text.primary
             : hovered && isWeb
               ? color.border.strong
               : color.border.subtle,
           backgroundColor: selected
-            ? rgba(accent[500], 0.16)
+            ? color.text.primary
             : hovered && isWeb
-              ? color.bg["3"]
-              : color.bg["2"],
+              ? color.bg["2"]
+              : "transparent",
         },
         isWeb
           ? ({
@@ -242,11 +229,14 @@ function SeasonChip({
           : null,
       ]}
     >
-      {selected ? <Icon name='check' size={13} color={accent[500]} /> : null}
       <Text
         variant='caption'
-        weight='semibold'
-        tone={selected ? "accent" : "secondary"}
+        weight='bold'
+        tone={selected ? "primary" : "tertiary"}
+        // The inverse of the page, so a filled square reads as "on" without spending the accent
+        // that belongs to the submit button. `tone` has no name for it: it is the background
+        // colour used as ink.
+        style={selected ? { color: color.bg["0"] } : undefined}
       >
         {season}
       </Text>
