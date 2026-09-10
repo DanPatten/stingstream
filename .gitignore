@@ -43,6 +43,11 @@ third_party/pebble/bin/
 # === secrets, worktrees, ui-loop/tmp/locks scratch — all git-ignored, none of it committed. ===
 .local/
 
+# === Playwright MCP scratch: the page snapshots and screenshots an agent writes while driving ===
+# === the web app (docs/UI-LOOP.md). One file per navigation, regenerated every run, and nothing ===
+# === in the tree ever reads one back — committing them only makes the tree dirty on every loop. ===
+.playwright-mcp/
+
 # === Editors / OS ===
 .idea/
 .vscode/*
