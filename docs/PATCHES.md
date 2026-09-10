@@ -162,19 +162,35 @@ full of one-interface files is the smaller change.
 ### 8. `Emby.Server.Implementations/Library/MediaSourceManager.cs` — call the decorator
 
 Four small edits, all one seam: a `using`, a nullable field, an **optional** constructor parameter
-(`IMediaSourceDecorator mediaSourceDecorator = null` — Microsoft's DI honours a default value for a
-service it cannot resolve, so a stock build with nothing registered is unaffected), and the call
-itself at the end of `GetPlaybackMediaSources`:
+(`Lazy<IMediaSourceDecorator> mediaSourceDecorator = null` — Microsoft's DI honours a default value
+for a service it cannot resolve, so a stock build with nothing registered is unaffected), and the
+call itself at the end of `GetPlaybackMediaSources`:
 
 ```csharp
 var sorted = SortMediaSources(list, preferredId).ToArray();
-if (_mediaSourceDecorator is null)
+var decorator = _mediaSourceDecorator?.Value;
+if (decorator is null)
 {
     return sorted;
 }
 
-return await _mediaSourceDecorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
+return await decorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
 ```
+
+**Why `Lazy<>`, and do not undo it.** A decorator runs at the end of playback resolution, so it may
+legitimately depend on the rest of the server — and ours does, transitively reaching
+`IMediaSourceManager` itself: `FederatedSourceDecorator` → `LocalSourceFactory` →
+`IInventoryService` → `IMediaSourceManager`. Injected eagerly, that is a dependency cycle. Microsoft's
+DI cannot detect it, because the edge that closes the loop is the factory-lambda registration in
+`StingStreamCoreExtensions` and a lambda is opaque to the call-site graph. So instead of throwing
+"a circular dependency was detected", the resolver recurses until `StackGuard.RunOnEmptyStack`
+begins handing each near-overflow to a fresh thread and blocking on it.
+
+The symptom is nasty enough to be worth recognising: the node wedges partway through
+`ApplicationHost.InitializeServices`, sits at **0% CPU**, writes **no further line** to
+`jellyfin.jsonl` after the last database migration, and **never times out** — the supervisor just
+reports `jellyfin` unhealthy with `HTTP 503` forever, and `-Fresh` reproduces it every time.
+Resolving on first use breaks the cycle for this decorator and for any future one.
 
 **Why here and not in the API layer.** `GetPlaybackMediaSources` is the single funnel that both
 `MediaInfoHelper` (PlaybackInfo, what the client sees) and `StreamingHelpers` (every streaming and

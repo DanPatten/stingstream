@@ -147,8 +147,15 @@ public static class StingStreamCoreExtensions
         // can compare them instead of assuming local always wins.
         services.AddSingleton<LocalSourceFactory>();
         services.AddSingleton<FederatedSourceDecorator>();
-        services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator>(
-            sp => sp.GetRequiredService<FederatedSourceDecorator>());
+        // Registered as Lazy<>, which MediaSourceManager takes and only unwraps when it actually
+        // decorates. The decorator reaches IMediaSourceManager transitively (via
+        // LocalSourceFactory -> IInventoryService), so injecting it eagerly closes a cycle --
+        // invisible to Microsoft's DI, because this factory lambda is the edge that closes it, and
+        // therefore a silent hang during service construction rather than an error. See the
+        // remarks on MediaSourceManager._mediaSourceDecorator.
+        services.AddSingleton<Lazy<MediaBrowser.Controller.Library.IMediaSourceDecorator>>(
+            sp => new Lazy<MediaBrowser.Controller.Library.IMediaSourceDecorator>(
+                sp.GetRequiredService<FederatedSourceDecorator>));
 
         // ...and again, on the way out. MediaInfoController re-sorts the sources *after* the
         // decorator has run, floating "the source belonging to the queried item" to the front --

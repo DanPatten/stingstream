@@ -64,7 +64,19 @@ namespace Emby.Server.Implementations.Library
         /// build, because nothing registers one. See <see cref="IMediaSourceDecorator"/> and
         /// <c>docs/PATCHES.md</c>.
         /// </summary>
-        private readonly IMediaSourceDecorator _mediaSourceDecorator;
+        /// <remarks>
+        /// Deliberately <see cref="Lazy{T}"/>, and this is load-bearing. A decorator sits at the
+        /// end of playback resolution, so it is free to depend on the rest of the server — and
+        /// StingStream's does, transitively reaching <see cref="IMediaSourceManager"/> itself
+        /// (decorator -> LocalSourceFactory -> IInventoryService -> IMediaSourceManager). Injected
+        /// eagerly that is a cycle, and because the edge back to the decorator is a factory lambda
+        /// registration, Microsoft's DI cannot see it: instead of throwing "a circular dependency
+        /// was detected" it recurses until StackGuard starts handing each near-overflow to a fresh
+        /// thread and blocking on it. The result is a server that wedges during service
+        /// construction at 0% CPU, logs nothing after the last migration, and never times out.
+        /// Resolving on first use instead breaks the cycle for this decorator and any future one.
+        /// </remarks>
+        private readonly Lazy<IMediaSourceDecorator> _mediaSourceDecorator;
 
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
@@ -86,7 +98,7 @@ namespace Emby.Server.Implementations.Library
             IDirectoryService directoryService,
             IMediaStreamRepository mediaStreamRepository,
             IMediaAttachmentRepository mediaAttachmentRepository,
-            IMediaSourceDecorator mediaSourceDecorator = null)
+            Lazy<IMediaSourceDecorator> mediaSourceDecorator = null)
         {
             _appHost = appHost;
             _itemRepo = itemRepo;
@@ -206,7 +218,7 @@ namespace Emby.Server.Implementations.Library
             // and slow, because the probe is `ffprobe` in its own process and the pointer's host
             // only resolves inside this one. See IMediaSourceDecorator.ShouldSkipRemoteProbe.
             if (allowMediaProbe && mediaSources[0].Type != MediaSourceType.Placeholder
-                && _mediaSourceDecorator?.ShouldSkipRemoteProbe(mediaSources) != true
+                && _mediaSourceDecorator?.Value.ShouldSkipRemoteProbe(mediaSources) != true
                 && ((item.MediaType == MediaType.Video && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Video))
                     || (item.MediaType == MediaType.Audio && mediaSources[0].MediaStreams.All(i => i.Type != MediaStreamType.Audio))))
             {
@@ -264,12 +276,13 @@ namespace Emby.Server.Implementations.Library
             // ffmpeg will be handed. This is the single funnel both PlaybackInfo and the streaming
             // endpoints go through, which is why the hook is here and not in the API layer. See
             // IMediaSourceDecorator and docs/PATCHES.md.
-            if (_mediaSourceDecorator is null)
+            var decorator = _mediaSourceDecorator?.Value;
+            if (decorator is null)
             {
                 return sorted;
             }
 
-            return await _mediaSourceDecorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
+            return await decorator.DecorateAsync(item, user, sorted, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc />>
