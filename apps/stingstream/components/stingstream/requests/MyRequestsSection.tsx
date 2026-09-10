@@ -16,6 +16,7 @@ import {
   useRequests,
 } from "@/lib/stingstream/requests";
 import { confirmDestructive } from "../shared/confirm";
+import { ManageTitleAction } from "../arr/ManageTitleAction";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
@@ -162,6 +163,12 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
                     >
                       {t("common.delete")}
                     </Button>
+                    {/*
+                      Draws nothing unless this node's manager is tracking the title. Delete above
+                      withdraws the *request*; this is the only thing in the app that can undo the
+                      add itself while the title has no library page of its own to carry it.
+                    */}
+                    <ManageTitleAction request={request} />
                   </>
                 )
               }

@@ -255,7 +255,8 @@ feature with no endpoint — there is simply no such feature on these screens an
 | Area | Live |
 |---|---|
 | A title's own page → Manage on this server | **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation. Offered only when this node's manager tracks the title (`useArrTitle`) |
-| Requests → Find | **search-as-you-type add** (`/requests/search` over `/movies/lookup`, `/series/lookup`), with **add-by-id** kept as an escape hatch behind the no-match empty state |
+| A request row → Manage on this server | the same sheet, on the card in My requests and on a failed row in Approvals, for the window between asked-for and arrived when there is no library page yet |
+| Requests → Find | **search-as-you-type add** (`/requests/search` over `/movies/lookup`, `/series/lookup`), with **add-by-id** kept as an escape hatch behind the no-match empty state: it resolves `tmdb:550` to a title and files an ordinary request |
 | Requests → Activity | Queue (both apps), **History** merged and paged, and **Upcoming** — the merged calendar grouped by day, week/month window |
 | Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
@@ -280,6 +281,12 @@ or a show's own page (`arr/ManageTitleSheet.tsx`, one component for both kinds, 
 TVDB id the `PATCH` and `DELETE` endpoints already take). A person removing a film looks at the
 film. `useArrTitle` decides whether the row appears at all: on a pooled library most of what is on
 screen is held by another node and tracked by no manager here.
+
+**A title has no page until a file lands**, though, and the sheet is needed most before that: an
+add nobody wanted is noticed while it is still downloading. So `arr/ManageTitleAction.tsx` hangs
+the same sheet off the request card as well (`docs/REQUESTS.md` §9), where it self-gates the same
+way, and the app's only other way in — Add by id — files a request precisely so that everything it
+adds has a row to hang it off.
 
 **What went with it** is the only view of everything the managers track, a title added but never
 downloaded included. That is not a hole because every add now files a request, so a title on its way

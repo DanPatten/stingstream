@@ -71,17 +71,55 @@ public sealed class TmdbCatalog
     /// </remarks>
     private const int PagesPerFeed = 3;
 
+    /// <summary>How many titles the provider puts on a page. Their number, not ours.</summary>
+    private const int PageSize = 20;
+
     /// <summary>
-    /// The vote floor under which a rating means nothing.
+    /// How many votes a film needs before its rating is allowed to mean "of all time".
     /// </summary>
     /// <remarks>
-    /// Load-bearing, not a nicety. Ordering by rating without it answers "the best films ever made"
-    /// with nine-vote curiosities sitting at 10.0, because that is what an unbounded average does.
+    /// <para>
+    /// The single most load-bearing number in this file, and it was measured rather than guessed.
+    /// An unbounded average answers "the best films ever made" with nine-vote curiosities sitting
+    /// at 10.0. Raising the floor to 300 was not enough either: at that level the answer was six
+    /// films from the current year that nobody has heard of, because a few hundred early votes on
+    /// something new out-average a classic every time.
+    /// </para>
+    /// <para>
+    /// Measured against the live provider, ordering by rating: at 1000 the list still opened with
+    /// two titles from this year ahead of <em>The Shawshank Redemption</em>; at 3000 one; at
+    /// <strong>5000</strong> it is Shawshank, <em>The Godfather</em>, <em>The Godfather Part II</em>
+    /// and <em>12 Angry Men</em>, which is the list somebody asking the question has in mind.
+    /// Higher starts excluding older films that are genuinely canonical and simply have fewer
+    /// voters.
+    /// </para>
+    /// <para>
+    /// <strong>Their own top-rated endpoint does not do this for you.</strong> It looked like the
+    /// obvious answer and it is the same raw average at a low threshold: measured the same day, it
+    /// opened with the same three unknowns from this year.
+    /// </para>
     /// </remarks>
-    private const int MovieVoteFloor = 300;
+    private const int MovieVoteFloor = 5000;
 
-    /// <summary>The same floor for series, which have fewer voters per title.</summary>
-    private const int SeriesVoteFloor = 200;
+    /// <summary>
+    /// The same floor for series, which have far fewer voters per title.
+    /// </summary>
+    /// <remarks>
+    /// Measured the same way: at 400 the list opened with three shows nobody has heard of, and at
+    /// 1000 it is <em>Breaking Bad</em>, <em>Avatar: The Last Airbender</em>, <em>Arcane</em> and
+    /// <em>Chernobyl</em>. Raising it further changed nothing, so it stays where the answer settled.
+    /// </remarks>
+    private const int SeriesVoteFloor = 1000;
+
+    /// <summary>
+    /// A modest floor under the orders that are not about rating at all.
+    /// </summary>
+    /// <remarks>
+    /// "Release date" over the whole catalogue is otherwise a list of festival documentaries with
+    /// no votes at all, which is a true answer to the query and a useless screen. Low enough that
+    /// it only excludes titles nobody has seen.
+    /// </remarks>
+    private const int ObscurityFloor = 50;
 
     /// <summary>How many series ids are translated at once.</summary>
     private const int IdConcurrency = 6;
@@ -156,9 +194,13 @@ public sealed class TmdbCatalog
             // Two lists become one. Films and series are fetched separately because the provider has
             // no combined endpoint, and a hard films-then-series boundary halfway down a grid with
             // no section headings reads as a rendering fault rather than as an order.
+            //
+            // Cut back to one feed's worth afterwards rather than by fetching half of each: taking
+            // the best sixty of a hundred and twenty is what makes All a mix of the best of both,
+            // where thirty films and thirty shows would be a quota.
             if (wantMovies && wantSeries)
             {
-                results = Order(results, query);
+                results = Order(results, query).Take(PagesPerFeed * PageSize).ToList();
             }
 
             return Dedupe(results);
@@ -321,7 +363,7 @@ public sealed class TmdbCatalog
         var first = ((Math.Max(query.Page, 1) - 1) * PagesPerFeed) + 1;
         for (var page = first; page < first + PagesPerFeed; page++)
         {
-            var body = await GetAsync(DiscoverPath(query, isMovie, wanted, page), _feedTtl, cancellationToken)
+            var body = await GetAsync(FeedPath(query, isMovie, wanted, page), _feedTtl, cancellationToken)
                 .ConfigureAwait(false);
             if (body?["results"] is not JsonArray entries || entries.Count == 0)
             {
@@ -441,27 +483,61 @@ public sealed class TmdbCatalog
         return map;
     }
 
-    private static string DiscoverPath(
+    /// <summary>
+    /// The provider path one page of a feed comes from.
+    /// </summary>
+    /// <param name="query">What the screen asked for.</param>
+    /// <param name="isMovie">Films or series.</param>
+    /// <param name="genreIds">The provider's ids for the genre names chosen, already resolved.</param>
+    /// <param name="page">One-based.</param>
+    /// <returns>The path and query string, without the key.</returns>
+    /// <remarks>
+    /// <para>
+    /// One query shape for every feed, deliberately. Their own <c>top_rated</c> endpoint was the
+    /// obvious way to answer "the best ever made" and is not one: it is the same raw average at a
+    /// low vote threshold, it opened with the same unrecognisable titles from this year, and it
+    /// accepts neither a genre nor a year, so it would have answered only the unnarrowed case
+    /// anyway. The floor is what makes that list right, and it belongs on every path to it.
+    /// </para>
+    /// <para>
+    /// Public and static so the query it builds can be pinned by a test. Every choice in here is
+    /// invisible in the result: a bad floor looks exactly like a good one, it is just the wrong
+    /// films.
+    /// </para>
+    /// </remarks>
+    public static string FeedPath(
         TmdbBrowseQuery query,
         bool isMovie,
         IReadOnlyList<int> genreIds,
         int page)
     {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(genreIds);
+
+        var pageParam = "page=" + page.ToString(CultureInfo.InvariantCulture);
+        var allTime = string.Equals(query.Sort, "top_rated", StringComparison.OrdinalIgnoreCase);
         var path = isMovie ? "/discover/movie" : "/discover/tv";
         var parts = new List<string>
         {
             "include_adult=false",
             "language=en-US",
             "sort_by=" + SortParam(query.Sort, query.Order, isMovie),
-            "page=" + page.ToString(CultureInfo.InvariantCulture),
+            pageParam,
         };
 
-        // Both directions need the floor, not just the default one: ascending by rating without it
-        // is the same nine-vote curiosities from the other end.
-        if (string.Equals(query.Sort, "top_rated", StringComparison.OrdinalIgnoreCase))
+        // Both directions need the rating floor, not just the default one: ascending by rating
+        // without it is the same nine-vote curiosities from the other end.
+        if (allTime)
         {
-            var floor = isMovie ? MovieVoteFloor : SeriesVoteFloor;
-            parts.Add("vote_count.gte=" + floor.ToString(CultureInfo.InvariantCulture));
+            parts.Add("vote_count.gte="
+                + (isMovie ? MovieVoteFloor : SeriesVoteFloor).ToString(CultureInfo.InvariantCulture));
+        }
+        else if (!string.IsNullOrEmpty(query.Sort)
+                 && !string.Equals(query.Sort, "popular", StringComparison.OrdinalIgnoreCase))
+        {
+            // Popularity needs no floor of its own: it is already a measure of how many people are
+            // looking at something.
+            parts.Add("vote_count.gte=" + ObscurityFloor.ToString(CultureInfo.InvariantCulture));
         }
 
         if (genreIds.Count > 0)

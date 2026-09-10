@@ -36,11 +36,17 @@ const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
 /**
  * Which seasons, and a "held by …" notice when a member already has it.
  *
- * **TV shows only.** It used to open for anything: poster, year, overview, a season picker for a
- * series, and a Request button. For a movie that was the row it was opened from, drawn again at a
- * larger size, with a second button also called Request — asking for a film meant pressing Request
- * twice to say one thing. `FindSection` submits a movie straight from its row now, and opens this
- * only when there is genuinely something to choose.
+ * **Opened from a row only when there is something to choose, and from a poster always.** It used
+ * to open for anything, and that was wrong for a *row*: the sheet was the row it was opened from,
+ * drawn again at a larger size, with a second button also called Request, so asking for a film
+ * meant pressing Request twice to say one thing. A row still submits a film directly.
+ *
+ * A poster is the opposite case. A tile is artwork and a title, the overview is not on it, and the
+ * press target is the whole card rather than a button labelled with what it will do, so a tap
+ * that spent a group download outright would be one mis-aimed thumb away on a grid of sixty. From
+ * the catalogue the sheet is where a film is read and then asked for, which is also why the season
+ * picker is drawn only for a series: a film has nothing to pick, and a row of twenty numbered
+ * squares over one is an invitation to wonder what it means.
  *
  * The poster and the blurb went with it for a while, on the reasoning that the row behind the sheet
  * already shows both. They are back: the sheet covers that row, and a title, a year and six numbered
@@ -117,6 +123,7 @@ export function RequestSheet({
 
   const total = seasonTotal(shown);
   const action = searchAction(shown);
+  const isSeries = shown.kind === "series";
   // Editing needs *both* halves to still agree that there is a request to edit. `existing` comes
   // from the member's own list and `action` from the node's annotation on the search result, and a
   // request can finish while the sheet is open -- a node with no indexer fails one within seconds.
@@ -142,6 +149,9 @@ export function RequestSheet({
     // Editing says Save, not Request: the request exists, and "Request all" on a row that is
     // already awaiting approval would read as asking for it a second time.
     if (editingNow) return t("requests.save_button");
+    // A film has no seasons, so it has only ever meant one thing. Below the editing case on
+    // purpose: a film whose request is open is being changed, not asked for again.
+    if (!isSeries) return t("requests.request_button");
     if (seasons.length === total) return t("requests.request_all_seasons");
     return t("requests.request_n_seasons", { count: seasons.length });
   };
@@ -287,7 +297,9 @@ export function RequestSheet({
           </View>
         ) : null}
 
-        <SeasonPicker value={seasons} onChange={setSeasons} total={total} />
+        {isSeries ? (
+          <SeasonPicker value={seasons} onChange={setSeasons} total={total} />
+        ) : null}
 
         <FormError message={error} />
       </View>

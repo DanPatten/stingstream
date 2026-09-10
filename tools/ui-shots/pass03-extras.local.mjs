@@ -79,10 +79,17 @@ async function run() {
     if (await t(page, "sharing-create").count()) { await t(page, "sharing-create").first().click(); await settle(1200); await shot(page, `sharing-create-${vp.name}`); await page.goBack().catch(() => {}); await settle(800); }
     if (await t(page, "sharing-join").count()) { await t(page, "sharing-join").first().click(); await settle(1200); await shot(page, `sharing-join-${vp.name}`); }
 
-    // Requests search + sheet
+    // Requests: My requests, then Find -- the catalogue feed, its filter bar, and a search.
+    // `?tab=find` on purpose: a bare /requests opens on My requests, which has no search box, so
+    // this step used to report "requests-search not found" on every run.
     await goto(page, ref, "/requests", "requests"); await shot(page, `requests-${vp.name}`);
+    await goto(page, ref, "/requests?tab=find", "requests-find"); await settle(4000); await shot(page, `requests-discover-${vp.name}`);
+    if (!(await t(page, "requests-filter-bar").count())) note("requests", vp.name, "missing", "requests-filter-bar not found");
+    const dc = t(page, "requests-card").first();
+    if (await dc.count()) { await dc.click(); await settle(1500); await shot(page, `requests-sheet-${vp.name}`); await page.keyboard.press("Escape"); await settle(600); }
+    else note("requests", vp.name, "missing", "no requests-card on the feed (no outbound internet? the catalogue is upstream)");
     const rs = t(page, "requests-search");
-    if (await rs.count()) { await rs.first().fill("Sintel"); await settle(4000); await shot(page, `requests-results-${vp.name}`); const rc = t(page, "requests-card").first(); if (await rc.count()) { await rc.click(); await settle(1500); await shot(page, `requests-sheet-${vp.name}`); await page.keyboard.press("Escape"); } else note("requests", vp.name, "missing", "no requests-card after search (arrs off? expected: search may need arrs)"); } else note("requests", vp.name, "missing", "requests-search not found");
+    if (await rs.count()) { await rs.first().fill("Sintel"); await settle(4000); await shot(page, `requests-results-${vp.name}`); if (!(await t(page, "requests-result-row").count())) note("requests", vp.name, "missing", "no requests-result-row after search (arrs off? expected: search needs a manager)"); } else note("requests", vp.name, "missing", "requests-search not found");
 
     // Admin surfaces (arrs off -> not-set-up states)
     for (const [p, n] of [["/manage", "manage"], ["/transfers", "transfers"], ["/settings/server", "server-settings"], ["/settings/admin", "users-libraries"], ["/settings/node", "server-status"]]) { await goto(page, ref, p, n); await shot(page, `${n}-${vp.name}`); }

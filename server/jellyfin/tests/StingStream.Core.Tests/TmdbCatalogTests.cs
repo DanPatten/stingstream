@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using StingStream.Core.Requests;
@@ -127,6 +128,108 @@ public sealed class TmdbCatalogTests
     public void SortsMapOntoTheProvidersVocabulary(string? sort, string order, bool isMovie, string expected)
     {
         Assert.Equal(expected, TmdbCatalog.SortParam(sort, order, isMovie));
+    }
+
+    /// <summary>
+    /// "The best ever made" is a vote floor, and the floor is the whole feature.
+    /// </summary>
+    /// <remarks>
+    /// Measured against the live provider rather than reasoned about. Ordering by rating at a floor
+    /// of 1000 votes opened with two films from the current year ahead of <em>The Shawshank
+    /// Redemption</em>; at 5000 the list is Shawshank, <em>The Godfather</em> and <em>12 Angry
+    /// Men</em>. Their own top-rated endpoint was tried first and is the same raw average at a low
+    /// threshold, opening with the same unknowns, which is why every path to an all-time list goes
+    /// through the floor instead.
+    /// </remarks>
+    [Fact]
+    public void AnAllTimeListIsHeldToAMeasuredVoteFloor()
+    {
+        var films = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "top_rated" },
+            true,
+            Array.Empty<int>(),
+            1);
+
+        Assert.StartsWith("/discover/movie?", films, StringComparison.Ordinal);
+        Assert.Contains("sort_by=vote_average.desc", films, StringComparison.Ordinal);
+        Assert.Contains("vote_count.gte=5000", films, StringComparison.Ordinal);
+
+        var series = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "top_rated" },
+            false,
+            Array.Empty<int>(),
+            1);
+
+        Assert.StartsWith("/discover/tv?", series, StringComparison.Ordinal);
+        Assert.Contains("vote_count.gte=1000", series, StringComparison.Ordinal);
+    }
+
+    /// <summary>The floor holds from the other end too, and narrowing does not lift it.</summary>
+    [Fact]
+    public void TheFloorSurvivesBothAFilterAndAReversal()
+    {
+        var narrowed = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "top_rated", Year = 1999 },
+            true,
+            new[] { 27 },
+            1);
+
+        Assert.Contains("vote_count.gte=5000", narrowed, StringComparison.Ordinal);
+        Assert.Contains("with_genres=27", narrowed, StringComparison.Ordinal);
+        Assert.Contains("primary_release_year=1999", narrowed, StringComparison.Ordinal);
+
+        // Ascending by rating without the floor is the same nine-vote curiosities from the other
+        // end, so it is not an exception.
+        var worst = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "top_rated", Order = "asc" },
+            true,
+            Array.Empty<int>(),
+            1);
+
+        Assert.Contains("sort_by=vote_average.asc", worst, StringComparison.Ordinal);
+        Assert.Contains("vote_count.gte=5000", worst, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Release date and title carry a small floor; popularity carries none.
+    /// </summary>
+    /// <remarks>
+    /// Ordering the whole catalogue by release date without one answers with festival documentaries
+    /// nobody has voted on: a true answer to the query and a useless screen. Popularity is already
+    /// a measure of how many people are looking, so a floor under it would be a second opinion
+    /// about the same thing.
+    /// </remarks>
+    [Fact]
+    public void OnlyTheOrdersThatNeedAFloorCarryOne()
+    {
+        var newest = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "newest" },
+            true,
+            Array.Empty<int>(),
+            1);
+        Assert.Contains("vote_count.gte=50", newest, StringComparison.Ordinal);
+
+        var popular = TmdbCatalog.FeedPath(
+            new TmdbBrowseQuery { Sort = "popular" },
+            true,
+            Array.Empty<int>(),
+            1);
+        Assert.DoesNotContain("vote_count.gte", popular, StringComparison.Ordinal);
+
+        var byDefault = TmdbCatalog.FeedPath(new TmdbBrowseQuery(), true, Array.Empty<int>(), 1);
+        Assert.DoesNotContain("vote_count.gte", byDefault, StringComparison.Ordinal);
+        Assert.Contains("sort_by=popularity.desc", byDefault, StringComparison.Ordinal);
+        Assert.Contains("page=1", byDefault, StringComparison.Ordinal);
+    }
+
+    /// <summary>A family server's landing page, so this is not negotiable.</summary>
+    [Fact]
+    public void EveryQueryExcludesAdultTitles()
+    {
+        Assert.Contains(
+            "include_adult=false",
+            TmdbCatalog.FeedPath(new TmdbBrowseQuery(), true, Array.Empty<int>(), 1),
+            StringComparison.Ordinal);
     }
 
     private static JsonObject Movie() => new()

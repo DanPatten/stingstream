@@ -18,6 +18,7 @@ import {
   stateTone,
   titleKey,
   toCounts,
+  toDiscoverPage,
   toNotification,
   toPolicy,
   toRequest,
@@ -143,6 +144,49 @@ describe("reading what the node sent", () => {
     });
     expect(r.availableInGroup).toBe(true);
     expect(r.holders).toEqual(["loft"]);
+  });
+
+  test("a search result carries what the filter bar narrows by", () => {
+    const r = toSearchResult({
+      Kind: "movie",
+      Title: "Blade Runner",
+      TmdbId: 78,
+      ItemKey: "movie:tmdb:78",
+      Genres: ["Science Fiction", "Drama"],
+      Rating: 8.1,
+      Popularity: 41.2,
+      Runtime: 117,
+    });
+    expect(r.genres).toEqual(["Science Fiction", "Drama"]);
+    expect(r.rating).toBe(8.1);
+    expect(r.popularity).toBe(41.2);
+    expect(r.runtime).toBe(117);
+  });
+
+  test("a result from a node that sends none of that reads as no genre, not every genre", () => {
+    // An empty list is what `applyRequestFilters` needs to see. `undefined` would be a result the
+    // genre chip could not decide about, and the tempting decision -- keep it -- is the one that
+    // makes a genre filter quietly match a title with no genre at all.
+    const bare = toSearchResult({
+      Kind: "movie",
+      Title: "Old node",
+      TmdbId: 1,
+    });
+    expect(bare.genres).toEqual([]);
+    expect(bare.rating).toBeUndefined();
+    expect(bare.popularity).toBeUndefined();
+    expect(bare.runtime).toBeUndefined();
+  });
+
+  test("a page of the catalogue carries its results and its genre options", () => {
+    const page = toDiscoverPage({
+      Results: [{ Kind: "movie", Title: "Blade Runner", TmdbId: 78 }],
+      Page: 1,
+      Genres: ["Action", "Drama"],
+    });
+    expect(page.results.map((r) => r.title)).toEqual(["Blade Runner"]);
+    expect(page.genres).toEqual(["Action", "Drama"]);
+    expect(page.page).toBe(1);
   });
 });
 

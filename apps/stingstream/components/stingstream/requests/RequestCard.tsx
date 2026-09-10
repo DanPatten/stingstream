@@ -153,7 +153,16 @@ export function RequestCard({
           {when}
         </Text>
         {actions ? (
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+          // Wrapping, because the set is not fixed: a row can carry Edit, Delete and Manage at
+          // once, and three buttons beside a 92px poster do not fit a phone on one line.
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 8,
+              marginTop: 10,
+            }}
+          >
             {actions}
           </View>
         ) : null}

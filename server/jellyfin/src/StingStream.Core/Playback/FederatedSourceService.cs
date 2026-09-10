@@ -190,13 +190,10 @@ public sealed class FederatedSourceService
 
             foreach (var entry in snapshot.Index)
             {
-                var wanted = InventoryKeys.IsEpisode(entry.ItemKey)
-                    ? InventoryKeys.SeriesOf(entry.ItemKey) + ":"
-                    : entry.ItemKey;
+                var episode = InventoryKeys.IsEpisode(entry.ItemKey);
+                var wanted = BucketOf(entry.ItemKey);
 
-                if (!(InventoryKeys.IsEpisode(entry.ItemKey)
-                        ? wantedSeries.Contains(wanted)
-                        : wantedMovies.Contains(wanted)))
+                if (!(episode ? wantedSeries.Contains(wanted) : wantedMovies.Contains(wanted)))
                 {
                     continue;
                 }
@@ -213,6 +210,22 @@ public sealed class FederatedSourceService
 
         return found;
     }
+
+    /// <summary>
+    /// Which caller's key an index entry answers to.
+    /// </summary>
+    /// <param name="itemKey">An entry's own item key.</param>
+    /// <returns>The series prefix for an episode, and the key itself for anything else.</returns>
+    /// <remarks>
+    /// The whole reason <see cref="CandidatesForKeysAsync"/> costs the size of the index rather than
+    /// the size of the index times the number of titles asked about: an episode is bucketed onto the
+    /// series it belongs to, once, instead of being tested against every prefix in the question.
+    /// Public and static because it is the one rule in there worth a test that needs no mesh.
+    /// </remarks>
+    public static string BucketOf(string itemKey)
+        => InventoryKeys.IsEpisode(itemKey)
+            ? InventoryKeys.SeriesOf(itemKey) + ":"
+            : itemKey;
 
     /// <summary>One group's index and peer table, cached for a few seconds.</summary>
     private async Task<Snapshot?> SnapshotAsync(string group, CancellationToken cancellationToken)

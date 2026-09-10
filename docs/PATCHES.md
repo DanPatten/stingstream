@@ -321,6 +321,19 @@ file is handed to the existing four-component formula as an ordinary candidate w
 zero RTT and a throughput no encode saturates. A new `local` path value would have obliged the same
 new case in the Rust twin, which is deliberately unchanged.
 
+### Not a patch, but a deliberate deviation: `StingStream.Core` references `MediaBrowser.Providers`
+
+`StingStream.Core.csproj` references `MediaBrowser.Providers` for exactly one thing: the TMDb
+metadata provider's API key, which the Find screen's catalogue reads so that a server does not have
+to be given a second one for the same service it already fetches its library metadata from
+(`TmdbUtils.ApiKey`, and `Plugin.Instance.Configuration.TmdbApiKey` where an administrator has set
+their own). `TmdbCatalog` resolves the two in the same order `TmdbClientManager` does.
+
+No cycle and no deploy weight: `MediaBrowser.Providers` references Common, Controller and Model,
+which are the same three `StingStream.Core` already referenced, and `Jellyfin.Server` ships it
+regardless. The alternative was to copy the key constant into StingStream and let the two drift the
+first time upstream rotated it.
+
 ### Not a patch, but a deliberate deviation: analyzer settings
 
 `server/jellyfin/Directory.Build.props` sets `TreatWarningsAsErrors=true` and, in Debug,

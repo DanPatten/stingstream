@@ -331,6 +331,7 @@ see `APP-MESH.md` §6).
 | `POST` | `/requests/{id}/retry` | **admin** | Put a failed request back in the queue. |
 | `GET` | `/requests/counts` | member | Badge counts for the navigation bar. |
 | `GET` | `/requests/search?q=&kind=` | member | TMDB/TVDB lookup through the node's arrs, annotated with the group's holdings. |
+| `GET` | `/requests/discover?kind=&sort=&order=&genres=&year=&page=` | member | The catalogue: what is popular now, or the best ever made, annotated the same way. |
 | `GET` | `/requests/policy?group=` | member | The group's policy. Readable by everyone — it changes what the Request button should say. |
 | `PUT` | `/requests/policy` | **admin** | Set it. 400 on an unknown auto-approve mode, with the allowed list. |
 | `GET` | `/requests/users` | **admin** | Every member, with trust, quota and this week's usage. |
@@ -398,21 +399,75 @@ feature is that somebody who cannot administer the node can still ask it for som
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
 
-**Find is the only way a title is added.** It was not, for a while: Settings → Movies & TV shows
-carried a search-and-add form of its own, over a list of everything the managers tracked. That was
-the same lookup and the same add without the group dedupe, the quota or the approval, and a second
-settings row that read as a second place to ask for a film, so it went (2026-09-10). What was not
-duplicated went with it to the title it was about: monitoring, quality profile and remove are the
-overflow menu on a film's or a show's own page. The one thing Find keeps from that screen is the
-**Add by id** escape hatch, behind the no-match empty state and offered only to an administrator:
-a lookup that cannot name a title still accepts its TMDB or TVDB id, and that add is deliberately
-outside the request machinery, which is the point of it.
+**A request is the only way a title is added.** It was not, for a while: Settings → Movies & TV
+shows carried a search-and-add form of its own, over a list of everything the managers tracked.
+That was the same lookup and the same add without the group dedupe, the quota or the approval, and
+a second settings row that read as a second place to ask for a film, so it went (2026-09-10). What
+was not duplicated went with it to the title it was about: monitoring, quality profile and remove
+are the overflow menu on a film's or a show's own page.
 
-**Find is where asking happens, and it is the first tab.** One box asks the node, which asks both
-managers, and the answers come back films first with All / Films / Series chips to narrow — the
-chip is a real re-query on `?kind=`, which is one lookup the node does not have to make. Results
-are rows rather than poster tiles: a search for a common word is a dozen sequels and re-releases
-whose posters are near-identical, and the overview is the only thing that tells them apart.
+**Add by id** survives from that screen, behind Find's no-match empty state and offered only to an
+administrator: search-by-title needs a metadata provider to answer with something recognisable, and
+`?term=tmdb:550` is a lookup the managers can always answer. It resolves the id to a real title and
+then files an ordinary request with it — the direct add it replaced left a title tracked by the
+server and named nowhere in the app, no request row and no library page, so nothing to press to
+undo it. On a node with no indexer that now shows as a request that could not be filled, with
+Retry, rather than a title silently sitting in the manager.
+
+**A request row carries the manage actions while it is the only handle on the title.**
+`arr/ManageTitleAction.tsx` puts the same sheet on the card in My requests and on a failed row in
+Approvals, for an administrator, and draws nothing unless this node's manager is actually tracking
+that title. Between "asked for" and "arrived" there is no library page to carry them, and that is
+exactly the window in which somebody notices they asked for the wrong thing: withdrawing the
+request does not help, because `DELETE /requests/{id}` drops the row and leaves the manager
+tracking the title, by design.
+
+**Find is where asking happens, and it is the first tab.** With nothing typed it opens on the
+catalogue — the sixty most popular titles, or the best ever made — as a poster grid. One box asks
+the node, which asks both managers, and the answers come back films first as rows: a search for a
+common word is a dozen sequels and re-releases whose posters are near-identical, and the overview is
+the only thing that tells them apart. A curated feed is the opposite, sixty unrelated titles nobody
+reads sixty blurbs of, so it is posters.
+
+**One filter bar over both halves**, and it is the library's own: `FilterButton`, `FilterChip`,
+`FilterSheetContent` and the Clear chip, in `RequestFilterBar`. Genres · Years · Availability · Sort
+by · Sort order, led by the All / Films / Series chips, which now choose what the feed is made of as
+well as narrowing a search (the kind chip is still a real re-query on `?kind=`, which is one lookup
+the node does not have to make). Three of a library's chips are missing and one is new, and each
+difference is a question a catalogue cannot answer: **Tags** are a librarian's labels on files they
+hold; **Filter by** is played, unplayed, favourite and resumable, all facts about watching
+something, and its place is taken by **Availability** — in your group, not in your group, already
+requested; and **Sort by** is short, because a catalogue can be ordered by attention, rating,
+release and name but not by date added or play count.
+
+**Where the narrowing happens differs between the two halves, and one function holds both rules**
+(`applyRequestFilters`, in `requestsApi.ts`). The feed hands genre, year and order to the node, so
+its sixty really are the top sixty of that slice rather than the top sixty of everything with the
+rest thrown away. A search narrows what came back, because re-asking the catalogue with the typed
+term would be a different search rather than a narrower one. The default sort deliberately does not
+reorder a search: its own order is relevance, and sorting by popularity the moment the screen opened
+would push the show somebody typed the name of below a dozen films that outrank it.
+
+**A poster opens the sheet; a row's button submits.** A row's button is labelled with what pressing
+it will do. A tile is artwork and a title, the overview is not on it, and the whole card is the
+target — so a tap that spent a group download outright would be one mis-aimed thumb away on a grid
+of sixty. From the catalogue a film opens `RequestSheet` (poster, overview, one Request button, no
+season picker) and Request is a deliberate second press. A title that already has a request open
+behaves exactly as its row does either way.
+
+**The catalogue is TMDB, and search is still the arrs.** They answer different questions. The arrs
+answer "is there a title called this", which is right for a search and useless to somebody who does
+not yet know what they want, and neither can be asked what is worth watching: Radarr has a popular
+list, Sonarr has nothing of the sort, and neither has an all-time rating list. `TmdbCatalog` asks
+the metadata provider directly, with the key the server already carries for its own library metadata
+(`docs/PATCHES.md`). Every call and the whole pass are capped, pages are cached for six hours, and
+**a provider that will not answer is not a 503** — the endpoint returns an empty page and the screen
+keeps the search box it has always had. A series is dropped unless its TVDB id resolves, because
+every series item key is built from that id and a shared zero would make untranslated shows report
+each other's holders.
+
+This replaces six public-domain titles offered as example searches, which stood in for a feed
+because no endpoint answered either question at the time.
 
 This was not always so. F-73 moved asking to the **Search** tab, where one box ran the library
 search and this catalogue search at once and grouped the answers as "In your library" and "Not in
@@ -494,7 +549,10 @@ none of them were it. `requests.discover_empty_detail` says so, and its administ
 goes to the same screen, so one problem never leads two ways.
 
 TV still has its own Discover section, because the TV search screen is a separate screen with a
-separate input and no top bar to share.
+separate input and no top bar to share. It draws the same catalogue feed, which is the one thing a
+ten-foot screen is better at than a phone, and no filter bar: those chips open a sheet, and a
+television filters through `TVFilterButton` and its own full-screen picker. Worth doing, and worth
+doing properly rather than by dropping a phone control onto a remote control.
 
 On TV the tab is present but Approvals and Policy are dropped: approving on a remote control is
 worse than doing it on the phone that is already in the room. Item details on TV gain one button —
@@ -505,8 +563,10 @@ key and therefore nothing to look up, dedupe against or ask an arr for.
 
 Files: `apps/stingstream/lib/stingstream/requestsApi.ts` (types, shaping, presentation, plain
 fetch — no React, so `bun:test` can load it), `lib/stingstream/requests.ts` (React Query),
-`components/stingstream/requests/**` (`FindSection.tsx` and `RequestResultRow.tsx` are the search;
-`DiscoverSection.tsx` is the television's), `app/(auth)/(tabs)/(requests)/**`.
+`components/stingstream/requests/**` (`FindSection.tsx` is the screen, `RequestResultRow.tsx` the
+search rows and `RequestDiscoverGrid.tsx` the feed; `DiscoverSection.tsx` is the television's),
+`components/filters/RequestFilterBar.tsx`, `app/(auth)/(tabs)/(requests)/**`. On the node:
+`Requests/TmdbCatalog.cs`.
 
 ---
 

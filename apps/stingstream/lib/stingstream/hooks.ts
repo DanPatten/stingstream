@@ -271,45 +271,16 @@ export function useMovies(enabled = true) {
     enabled: enabled && !!client && arrReady === "ready",
     retry: false,
     // The whole tracked list, and `useArrTitle` asks for it from every film and
-    // series page an administrator opens. Without this, walking a library
-    // refetches it per navigation to answer a question — is this title tracked,
-    // and how — whose answer changes when somebody adds or removes something,
-    // not while a page is being read. The mutations below invalidate it.
-    staleTime: 5 * 60_000,
-  });
-}
-
-export interface AddMovieInput {
-  tmdbId: number;
-  monitored?: boolean;
-  searchOnAdd?: boolean;
-  qualityProfileName?: string;
-  rootFolderPath?: string;
-  minimumAvailability?: string;
-}
-
-export function useAddMovie() {
-  const client = useStingStreamClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: AddMovieInput) => {
-      const { data, error } = await client!.POST("/stingstream/api/v1/movies", {
-        body: {
-          TmdbId: input.tmdbId,
-          Monitored: input.monitored ?? true,
-          SearchOnAdd: input.searchOnAdd ?? false,
-          QualityProfileName: input.qualityProfileName || undefined,
-          RootFolderPath: input.rootFolderPath || undefined,
-          MinimumAvailability: input.minimumAvailability || undefined,
-        },
-      });
-      if (error) throw error;
-      return data as unknown as ArrMovie;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.movies });
-      queryClient.invalidateQueries({ queryKey: keys.queue });
-    },
+    // series page an administrator opens, and from every request row. Without
+    // this, walking a library refetches it per navigation.
+    //
+    // A minute rather than longer, because the thing it answers — does this
+    // node manage this title — changes *without* a mutation from this app to
+    // invalidate on: a request is granted here and the title appears in the
+    // manager seconds later, when a worker on this node or another one gets to
+    // it. Five minutes of that is a Manage button that is simply missing from
+    // the row somebody is looking at.
+    staleTime: 60_000,
   });
 }
 
@@ -328,45 +299,7 @@ export function useSeries(enabled = true) {
     enabled: enabled && !!client && arrReady === "ready",
     retry: false,
     // Same reason as `useMovies`.
-    staleTime: 5 * 60_000,
-  });
-}
-
-export interface AddSeriesInput {
-  tvdbId: number;
-  monitored?: boolean;
-  searchOnAdd?: boolean;
-  qualityProfileName?: string;
-  rootFolderPath?: string;
-  seasonFolder?: boolean;
-  seriesType?: string;
-  monitor?: string;
-}
-
-export function useAddSeries() {
-  const client = useStingStreamClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: AddSeriesInput) => {
-      const { data, error } = await client!.POST("/stingstream/api/v1/series", {
-        body: {
-          TvdbId: input.tvdbId,
-          Monitored: input.monitored ?? true,
-          SearchOnAdd: input.searchOnAdd ?? false,
-          QualityProfileName: input.qualityProfileName || undefined,
-          RootFolderPath: input.rootFolderPath || undefined,
-          SeasonFolder: input.seasonFolder ?? true,
-          SeriesType: input.seriesType || undefined,
-          Monitor: input.monitor || undefined,
-        },
-      });
-      if (error) throw error;
-      return data as unknown as ArrSeries;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: keys.series });
-      queryClient.invalidateQueries({ queryKey: keys.queue });
-    },
+    staleTime: 60_000,
   });
 }
 

@@ -9,6 +9,7 @@ import {
   useDecideRequest,
   useRequests,
 } from "@/lib/stingstream/requests";
+import { ManageTitleAction } from "../arr/ManageTitleAction";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestsErrorState } from "./RequestsErrorState";
 
@@ -115,17 +116,26 @@ export function ApprovalsSection() {
               key={request.id}
               request={request}
               actions={
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  icon='refresh'
-                  disabled={decide.isPending}
-                  onPress={() =>
-                    act(request.id, "retry", requestTitle(request))
-                  }
-                >
-                  {t("common.retry")}
-                </Button>
+                <>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    icon='refresh'
+                    disabled={decide.isPending}
+                    onPress={() =>
+                      act(request.id, "retry", requestTitle(request))
+                    }
+                  >
+                    {t("common.retry")}
+                  </Button>
+                  {/*
+                    A request fails *after* the title was added, often enough: the manager has it,
+                    monitored, with nothing to grab. Retry asks again; this is how the same person
+                    stops asking, or changes the quality it is looking for. Draws nothing when this
+                    node's manager never took the title.
+                  */}
+                  <ManageTitleAction request={request} />
+                </>
               }
             />
           ))}

@@ -174,7 +174,9 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   adding a title is Requests → Find, and what this server does about one title it already
   tracks — monitoring, quality profile, remove with or without files — is the overflow menu
   on that title's own page (`components/stingstream/arr/ManageTitleSheet.tsx`, offered only
-  when `useArrTitle` finds a row, so a title held by another node offers nothing). The
+  when `useArrTitle` finds a row, so a title held by another node offers nothing), and the
+  same sheet on its request row (`arr/ManageTitleAction.tsx`) for the window before a file
+  lands and the title has a page at all. The
   switches that decide whether this node fetches anything at all are Settings → Downloading
   (`app/(auth)/(tabs)/(home)/settings/downloading`). Its components live in
   `components/stingstream/arr/`.
