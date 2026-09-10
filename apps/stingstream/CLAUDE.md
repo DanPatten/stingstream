@@ -258,6 +258,18 @@ import { apiAtom } from "@/providers/JellyfinProvider";
   `expo-image`. It is a pass-through today — it used to attach the custom proxy auth
   headers, which are gone — and is kept as one name so there is a single place to change
   if server images ever need special handling again.
+- **Settings save themselves. No Save button.** A settings pane drafts with
+  `components/stingstream/settings/useAutosave.ts`: a switch is sent the moment it is flipped
+  (`{ now: true }`), a field a second after the last keystroke, and whatever is still pending is
+  flushed when the screen unmounts. `SaveStatus` says a change is in flight; the outcome is a
+  toast, bottom right. The exceptions are the two places a click really is the decision: a
+  password change, and a dialog that creates something. Dan: *"no save buttons in settings please
+  unless its SUPER critical change, but for 95% no save - changes are auto applied"*.
+- **One text field.** Everything typed into goes through `@/components/common/Input`, which owns
+  the box, the hover tint and the focused border. A settings row uses `TextFieldRow`, which wraps
+  it. A bare `TextInput` reads as a printed value rather than a control, which is the bug this
+  rule exists to stop. The bottom sheets are the one exception, since `BottomSheetTextInput` is
+  what keeps the keyboard and the sheet in step.
 - Conventional Commits for commits and PR titles: `feat(scope):`, `fix(scope):`,
   `chore(scope):`. CI validates the PR title.
 

@@ -1,7 +1,7 @@
 import { useNavigation } from "expo-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, ScrollView, TextInput, View } from "react-native";
+import { Linking, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
 import { HeaderButton } from "@/components/common/HeaderButton";
@@ -10,6 +10,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { TextFieldRow } from "@/components/stingstream/settings/fields";
 import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
@@ -107,36 +108,30 @@ function MarlinSearchPage() {
         </ListGroup>
 
         <ListGroup className='mt-2'>
-          <ListItem
+          <TextFieldRow
             title={t("home.settings.plugins.marlin_search.url")}
             disabledByAdmin={marlinUrlLocked}
-          >
-            <TextInput
-              editable={!marlinUrlLocked && settings.searchEngine === "Marlin"}
-              className='text-white text-right flex-1'
-              placeholder={t(
-                "home.settings.plugins.marlin_search.server_url_placeholder",
-              )}
-              value={value}
-              keyboardType='url'
-              returnKeyType='done'
-              autoCapitalize='none'
-              textContentType='URL'
-              onChangeText={(text) => {
-                setValue(text);
-                // Editing invalidates the previous resolution status.
-                urlResolver.reset();
-              }}
-              onBlur={() => {
-                const candidate = value.trim();
-                if (candidate) {
-                  urlResolver.resolve(candidate).then((r) => {
-                    if (r.ok) setValue(r.url);
-                  });
-                }
-              }}
-            />
-          </ListItem>
+            editable={settings.searchEngine === "Marlin"}
+            placeholder={t(
+              "home.settings.plugins.marlin_search.server_url_placeholder",
+            )}
+            value={value}
+            keyboardType='url'
+            autoCapitalize='none'
+            onChangeText={(text) => {
+              setValue(text);
+              // Editing invalidates the previous resolution status.
+              urlResolver.reset();
+            }}
+            onBlur={() => {
+              const candidate = value.trim();
+              if (candidate) {
+                urlResolver.resolve(candidate).then((r) => {
+                  if (r.ok) setValue(r.url);
+                });
+              }
+            }}
+          />
         </ListGroup>
         <ServerUrlStatusText state={urlResolver} className='mt-1 px-4' />
 

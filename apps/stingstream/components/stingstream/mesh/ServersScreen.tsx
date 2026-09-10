@@ -46,7 +46,9 @@ import { LinkRequests } from "./LinkRequests";
  *    your own server submits the link request by itself, so that block was a second way to ask a
  *    question already asked. `docs/INVITES.md` §11.
  * 5. *"Add a simple Add server button to link another server - must be done through a user"* —
- *    `AddServerButton`, which goes to the one place a link can start.
+ *    `InviteUserButton`, which goes to the one place a link can start. It says *Invite user*
+ *    rather than *Add server* on Dan's word, because inviting the person is literally the act:
+ *    there is no server to add until somebody signs in with theirs.
  *
  * ## What a member sees
  *
@@ -126,7 +128,7 @@ function ServerList({ peers }: { peers: readonly MeshNodePeer[] }) {
     <View testID='sharing-servers'>
       {/* No heading of its own. The pane above already says *Servers*, over a page that is a list
           of them — Dan, seeing the word twice down the same column: *"why do I see servers listed
-          twice like that"*. `Add server` moved up beside the pane's title, which is where the
+          twice like that"*. `Invite user` moved up beside the pane's title, which is where the
           Users screen puts `Invite` too. */}
       <ListGroup>
         {rows.map((row) => (
@@ -159,9 +161,13 @@ function ServerList({ peers }: { peers: readonly MeshNodePeer[] }) {
  * list should do what the rest of the settings list does, and leaving the app entirely is the
  * unusual act that deserves its own small control.
  *
- * **This server's row goes to the dashboard**, per *"This server settings just takes you to home
- * dashboard"*. It has no link of its own either: "open this server" is the page you are already
- * standing on, and two controls with one destination is the redundancy this page keeps shedding.
+ * **This server's row goes to its own settings page**, which is where its name is changed — Dan:
+ * *"change Servers -> This server to link to its own settings page where you can change the server
+ * name"*. It went to the home dashboard before that, which made the one server whose settings the
+ * reader certainly holds the only row on the page that managed nothing.
+ *
+ * It still has no link of its own: "open this server" is the app you are already standing in, and
+ * two controls with one destination is the redundancy this page keeps shedding.
  */
 function ServerListRow({ row }: { row: ServerRow }) {
   const { t } = useTranslation();
@@ -184,7 +190,7 @@ function ServerListRow({ row }: { row: ServerRow }) {
 
   const manage = () => {
     if (row.isThisServer) {
-      router.replace("/");
+      router.push("/settings/servers/this");
       return;
     }
     if (row.group) router.push(`/settings/servers/${row.group}`);
@@ -228,27 +234,29 @@ function ServerListRow({ row }: { row: ServerRow }) {
 }
 
 /**
- * The one way to add a server.
+ * The one way to add a server: invite the person who runs it.
  *
- * Dan: *"Add a simple Add server button to link another server - must be done through a user"*. It
- * is a link to Users & access rather than a form, because that is literally where the act happens:
- * you invite the **person** who runs the other server, they sign in here with it, and the ask
- * arrives above. There is no address to type and no code to paste — `docs/INVITES.md` §11 has why
- * that is the only shape this can take.
+ * Dan: *"Add a simple Add server button to link another server - must be done through a user"*,
+ * and then *"instead of '+ Add server' change to Invite user"*. It is a link to Users & access
+ * rather than a form, because that is literally where the act happens: you invite the **person**
+ * who runs the other server, they sign in here with it, and the ask arrives above. There is no
+ * address to type and no code to paste — `docs/INVITES.md` §11 has why that is the only shape this
+ * can take, and it is why the button now says what it actually does rather than promising a form
+ * that adds a server.
  */
-export function AddServerButton() {
+export function InviteUserButton() {
   const { t } = useTranslation();
   const router = useRouter();
 
   return (
     <Button
-      testID='sharing-add-server'
+      testID='sharing-invite-user'
       variant='primary'
       size='sm'
-      icon='add'
+      icon='invite'
       onPress={() => router.push("/settings/users")}
     >
-      {t("sharing.add_server")}
+      {t("sharing.invite_user")}
     </Button>
   );
 }

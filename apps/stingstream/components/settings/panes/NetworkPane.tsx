@@ -1,17 +1,17 @@
 import type { NetworkConfiguration } from "@jellyfin/sdk/lib/generated-client/models";
 import { getNodeBaseUrl } from "@stingstream/api-client";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import {
-  SaveBar,
+  SaveStatus,
   TextFieldRow,
   ToggleRow,
 } from "@/components/stingstream/settings/fields";
+import { useAutosave } from "@/components/stingstream/settings/useAutosave";
 import { QueryState } from "@/components/stingstream/shared/ScreenState";
 import { space } from "@/constants/theme";
 import {
@@ -45,35 +45,35 @@ export const NetworkPane: React.FC = () => {
   const { t } = useTranslation();
   const query = useNetworkConfiguration();
   const update = useUpdateNetworkConfiguration();
-  const [draft, setDraft] = useState<NetworkConfiguration | null>(null);
+  const {
+    draft,
+    set: edit,
+    saving,
+  } = useAutosave({
+    value: query.data,
+    save: async (next) => {
+      try {
+        // The whole document, never a patch: `updateNamedConfiguration` replaces,
+        // so a partial body resets every field it does not name.
+        await update.mutateAsync(next);
+        toast.success(t("home.settings.network.saved"));
+      } catch (e) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : t("home.settings.network.save_failed"),
+        );
+      }
+    },
+  });
 
-  // Seeded once, then owned by the form: re-seeding on every refetch would
-  // throw away half-typed edits the moment react-query revalidated.
-  useEffect(() => {
-    if (query.data && !draft) setDraft(query.data);
-  }, [query.data, draft]);
-
-  const dirty =
-    !!draft && JSON.stringify(draft) !== JSON.stringify(query.data ?? null);
-
+  // A switch is the decision itself, so it is sent at once; a field is still being typed, so it
+  // waits for the pause `useAutosave` counts out.
   const set = <K extends keyof NetworkConfiguration>(
     key: K,
     value: NetworkConfiguration[K],
-  ) => setDraft((d) => (d ? { ...d, [key]: value } : d));
-
-  const save = async () => {
-    if (!draft) return;
-    try {
-      // The whole document, never a patch: `updateNamedConfiguration` replaces,
-      // so a partial body resets every field it does not name.
-      await update.mutateAsync(draft);
-      toast.success(t("home.settings.network.saved"));
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : t("home.settings.network.save_failed"),
-      );
-    }
-  };
+    options?: { now?: boolean },
+  ) => edit((d) => ({ ...d, [key]: value }), options);
 
   return (
     <SettingsPane
@@ -100,13 +100,15 @@ export const NetworkPane: React.FC = () => {
                     title={t("home.settings.network.enable_remote_title")}
                     subtitle={t("home.settings.network.enable_remote_detail")}
                     value={draft.EnableRemoteAccess ?? true}
-                    onValueChange={(v) => set("EnableRemoteAccess", v)}
+                    onValueChange={(v) =>
+                      set("EnableRemoteAccess", v, { now: true })
+                    }
                   />
                   <ToggleRow
                     title={t("home.settings.network.upnp_title")}
                     subtitle={t("home.settings.network.upnp_detail")}
                     value={draft.EnableUPnP ?? false}
-                    onValueChange={(v) => set("EnableUPnP", v)}
+                    onValueChange={(v) => set("EnableUPnP", v, { now: true })}
                   />
                   <TextFieldRow
                     title={t("home.settings.network.public_port_title")}
@@ -148,13 +150,13 @@ export const NetworkPane: React.FC = () => {
                     title={t("home.settings.network.enable_https_title")}
                     subtitle={t("home.settings.network.enable_https_detail")}
                     value={draft.EnableHttps ?? false}
-                    onValueChange={(v) => set("EnableHttps", v)}
+                    onValueChange={(v) => set("EnableHttps", v, { now: true })}
                   />
                   <ToggleRow
                     title={t("home.settings.network.require_https_title")}
                     subtitle={t("home.settings.network.require_https_detail")}
                     value={draft.RequireHttps ?? false}
-                    onValueChange={(v) => set("RequireHttps", v)}
+                    onValueChange={(v) => set("RequireHttps", v, { now: true })}
                   />
                   <TextFieldRow
                     title={t("home.settings.network.certificate_title")}
@@ -175,12 +177,7 @@ export const NetworkPane: React.FC = () => {
                 </ListGroup>
               </FocusTarget>
 
-              <SaveBar
-                dirty={dirty}
-                saving={update.isPending}
-                onDiscard={() => setDraft(query.data ?? null)}
-                onSave={save}
-              />
+              <SaveStatus saving={saving} />
             </View>
           ) : null}
         </QueryState>

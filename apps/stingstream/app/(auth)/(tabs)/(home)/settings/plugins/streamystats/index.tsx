@@ -1,13 +1,7 @@
 import { useNavigation } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Linking,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Linking, ScrollView, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
 import { HeaderButton } from "@/components/common/HeaderButton";
@@ -16,6 +10,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { TextFieldRow } from "@/components/stingstream/settings/fields";
 import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
@@ -154,36 +149,29 @@ function StreamystatsPage() {
     >
       <View className='px-4 pt-4'>
         <ListGroup className='flex-1'>
-          <ListItem
+          <TextFieldRow
             title={t("home.settings.plugins.streamystats.url")}
             disabledByAdmin={isUrlLocked}
-          >
-            <TextInput
-              editable={!isUrlLocked}
-              className='text-white text-right flex-1'
-              placeholder={t(
-                "home.settings.plugins.streamystats.server_url_placeholder",
-              )}
-              value={effectiveUrl}
-              keyboardType='url'
-              returnKeyType='done'
-              autoCapitalize='none'
-              textContentType='URL'
-              onChangeText={(text) => {
-                setUrl(text);
-                // Editing invalidates the previous resolution status.
-                urlResolver.reset();
-              }}
-              onBlur={() => {
-                const candidate = url.trim();
-                if (candidate) {
-                  urlResolver.resolve(candidate).then((r) => {
-                    if (r.ok) setUrl(r.url);
-                  });
-                }
-              }}
-            />
-          </ListItem>
+            placeholder={t(
+              "home.settings.plugins.streamystats.server_url_placeholder",
+            )}
+            value={effectiveUrl}
+            keyboardType='url'
+            autoCapitalize='none'
+            onChangeText={(text) => {
+              setUrl(text);
+              // Editing invalidates the previous resolution status.
+              urlResolver.reset();
+            }}
+            onBlur={() => {
+              const candidate = url.trim();
+              if (candidate) {
+                urlResolver.resolve(candidate).then((r) => {
+                  if (r.ok) setUrl(r.url);
+                });
+              }
+            }}
+          />
         </ListGroup>
         <View className='px-4 mt-1'>
           <ServerUrlStatusText state={urlResolver} />

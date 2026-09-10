@@ -344,6 +344,17 @@ export default function IndexLayout() {
           headerShadowVisible: false,
         }}
       />
+      {/* This server's own page. Its title is the row you pressed to get here, not *Servers*:
+          the stack behind it already says that. */}
+      <Stack.Screen
+        name='settings/servers/this'
+        options={{
+          title: t("sharing.this_server"),
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
       <Stack.Screen
         name='settings/servers/[group]'
         options={{

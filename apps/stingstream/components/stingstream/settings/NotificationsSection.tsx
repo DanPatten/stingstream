@@ -10,7 +10,8 @@ import { ListItem } from "@/components/list/ListItem";
 import { radius, tokens } from "@/constants/theme";
 import type { NotificationSettings } from "@/lib/stingstream/hooks";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
-import { SaveBar, ToggleRow } from "./fields";
+import { SaveStatus, ToggleRow } from "./fields";
+import { useAutosave } from "./useAutosave";
 
 export function NotificationsSection({
   value,
@@ -22,10 +23,25 @@ export function NotificationsSection({
   saving: boolean;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(value);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
+  const {
+    draft,
+    set,
+    saving: sending,
+  } = useAutosave({
+    value,
+    save: async (next) => {
+      try {
+        await onSave(next);
+        toast.success(t("server_settings.notifications_save_success"));
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t("server_settings.save_error"),
+        );
+      }
+    },
+  });
 
   const events: { key: keyof NotificationSettings; label: string }[] = [
     { key: "OnGrab", label: t("server_settings.notifications_on_grab") },
@@ -35,6 +51,8 @@ export function NotificationsSection({
     { key: "OnDelete", label: t("server_settings.notifications_on_delete") },
   ];
 
+  if (!draft) return null;
+
   return (
     <View>
       <ScreenHeaderRow title={t("server_settings.notifications_title")} />
@@ -42,14 +60,18 @@ export function NotificationsSection({
         <ToggleRow
           title={t("server_settings.notifications_enabled_title")}
           value={draft.WebhookEnabled ?? false}
-          onValueChange={(v) => setDraft((d) => ({ ...d, WebhookEnabled: v }))}
+          onValueChange={(v) =>
+            set((d) => ({ ...d, WebhookEnabled: v }), { now: true })
+          }
         />
         {events.map((e) => (
           <ToggleRow
             key={e.key}
             title={e.label}
             value={(draft[e.key] as boolean) ?? false}
-            onValueChange={(v) => setDraft((d) => ({ ...d, [e.key]: v }))}
+            onValueChange={(v) =>
+              set((d) => ({ ...d, [e.key]: v }), { now: true })
+            }
           />
         ))}
       </ListGroup>
@@ -71,10 +93,13 @@ export function NotificationsSection({
                 : t("server_settings.notifications_disabled_label")
             }
             onPress={() =>
-              setDraft((d) => ({
-                ...d,
-                Extra: (d.Extra ?? []).filter((_, idx) => idx !== i),
-              }))
+              set(
+                (d) => ({
+                  ...d,
+                  Extra: (d.Extra ?? []).filter((_, idx) => idx !== i),
+                }),
+                { now: true },
+              )
             }
             textColor='red'
           >
@@ -116,19 +141,22 @@ export function NotificationsSection({
               toast.error(t("server_settings.notifications_url_required"));
               return;
             }
-            setDraft((d) => ({
-              ...d,
-              Extra: [
-                ...(d.Extra ?? []),
-                {
-                  Id: `${Date.now()}`,
-                  Name: newName.trim() || newUrl.trim(),
-                  Url: newUrl.trim(),
-                  Method: 1,
-                  Enabled: true,
-                },
-              ],
-            }));
+            set(
+              (d) => ({
+                ...d,
+                Extra: [
+                  ...(d.Extra ?? []),
+                  {
+                    Id: `${Date.now()}`,
+                    Name: newName.trim() || newUrl.trim(),
+                    Url: newUrl.trim(),
+                    Method: 1,
+                    Enabled: true,
+                  },
+                ],
+              }),
+              { now: true },
+            );
             setNewName("");
             setNewUrl("");
           }}
@@ -137,23 +165,7 @@ export function NotificationsSection({
         </Button>
       </View>
 
-      <SaveBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(value)}
-        onSave={async () => {
-          try {
-            await onSave(draft);
-            toast.success(t("server_settings.notifications_save_success"));
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("server_settings.save_error"),
-            );
-          }
-        }}
-      />
+      <SaveStatus saving={saving || sending} />
     </View>
   );
 }

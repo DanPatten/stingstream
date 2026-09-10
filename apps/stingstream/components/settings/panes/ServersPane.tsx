@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import {
-  AddServerButton,
+  InviteUserButton,
   ServersScreen,
 } from "@/components/stingstream/mesh/ServersScreen";
 import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
@@ -24,7 +24,7 @@ export const ServersPane: React.FC = () => {
       detail={t("home.settings.nav.servers_hint")}
       // Beside the title, because the list below no longer carries a heading of its own to hang it
       // from — two *Servers* headings down one column was the thing being fixed.
-      accessory={isAdmin ? <AddServerButton /> : null}
+      accessory={isAdmin ? <InviteUserButton /> : null}
     >
       <ServersScreen />
     </SettingsPane>

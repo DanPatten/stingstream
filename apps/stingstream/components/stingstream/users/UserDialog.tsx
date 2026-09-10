@@ -10,6 +10,11 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { useInviteLibraries } from "@/lib/stingstream/invites";
 import {
+  sameUser,
+  useRequestUsers,
+  useSaveRequestUser,
+} from "@/lib/stingstream/requests";
+import {
   useServerOwner,
   useServerUsers,
   useSetUserDisabled,
@@ -60,6 +65,12 @@ export const UserDialog: React.FC<{
   const setPassword = useSetUserPassword();
   const setDisabled = useSetUserDisabled();
 
+  // Trust is a *requests* property, kept on the node's request policy rather than on the Jellyfin
+  // account, so it comes from its own list. Same switch as the one on Request policy, on purpose:
+  // whoever is looking at an account here should not have to go and find the other screen.
+  const requestUsers = useRequestUsers();
+  const saveRequestUser = useSaveRequestUser();
+
   // Read back out of the list rather than held as a snapshot: every action in here invalidates it,
   // and a dialog showing the state from before its own last press is the bug this avoids.
   const user = useMemo(
@@ -100,6 +111,17 @@ export const UserDialog: React.FC<{
   /** `null` when the switch is usable; otherwise which of the three rules is holding it. */
   const adminBlock = adminChangeBlocked(user, me, users.data, owner.data);
 
+  // Absent on a server with requests turned off, and absent for an account the request policy has
+  // never heard of. Either way there is nothing to toggle, so the row does not appear.
+  // `sameUser` rather than `===`: the two lists carry the same GUID in different formats.
+  const requestUser = useMemo(
+    () =>
+      requestUsers.data?.find((candidate) =>
+        sameUser(candidate.userId, userId ?? undefined),
+      ),
+    [requestUsers.data, userId],
+  );
+
   const toggleLibrary = (id: string) => {
     if (!user?.Id || !user.Policy) return;
     const next = selected.includes(id)
@@ -119,6 +141,20 @@ export const UserDialog: React.FC<{
           toast.error(e.message);
         },
       },
+    );
+  };
+
+  const toggleTrusted = (trusted: boolean) => {
+    if (!requestUser || requestUser.isAdministrator) return;
+    saveRequestUser.mutate(
+      {
+        userId: requestUser.userId,
+        trusted,
+        // Their own quota is edited on Request policy. Sending it back unchanged keeps this
+        // switch from quietly resetting it.
+        weeklyQuota: requestUser.weeklyQuota,
+      },
+      { onError: (e) => toast.error(e.message) },
     );
   };
 
@@ -253,35 +289,46 @@ export const UserDialog: React.FC<{
         <Section title={t("users.account_title")}>
           {/* All that is left in here: what this account *is*. Resetting a password and locking
               somebody out are things you *do*, and they are in the action row now. */}
-          <View
+          <ToggleRow
             testID='user-toggle-administrator'
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text variant='body'>{t("users.administrator")}</Text>
-              <Text variant='caption' tone='tertiary' style={{ marginTop: 2 }}>
-                {adminBlock === "owner"
-                  ? t("users.administrator_locked_owner")
-                  : adminBlock === "self"
-                    ? t("users.administrator_locked_self")
-                    : adminBlock === "last-administrator"
-                      ? t("users.administrator_locked_last")
-                      : isAdmin
-                        ? t("users.administrator_on_hint")
-                        : t("users.administrator_off_hint")}
-              </Text>
+            label={t("users.administrator")}
+            hint={
+              adminBlock === "owner"
+                ? t("users.administrator_locked_owner")
+                : adminBlock === "self"
+                  ? t("users.administrator_locked_self")
+                  : adminBlock === "last-administrator"
+                    ? t("users.administrator_locked_last")
+                    : isAdmin
+                      ? t("users.administrator_on_hint")
+                      : t("users.administrator_off_hint")
+            }
+            value={isAdmin}
+            disabled={!!adminBlock || savePolicy.isPending}
+            onValueChange={toggleAdministrator}
+          />
+
+          {/* The same switch as the one on Request policy, so an account can be trusted from
+              either place. Missing entirely on a server with requests turned off. An
+              administrator is auto-approved under every policy, so theirs is on and fixed. */}
+          {requestUser ? (
+            <View style={{ marginTop: 16 }}>
+              <ToggleRow
+                testID='user-toggle-trusted'
+                label={t("users.trusted")}
+                hint={
+                  isAdmin
+                    ? t("users.trusted_administrator")
+                    : requestUser.trusted
+                      ? t("users.trusted_on_hint")
+                      : t("users.trusted_off_hint")
+                }
+                value={isAdmin || requestUser.trusted}
+                disabled={isAdmin || saveRequestUser.isPending}
+                onValueChange={toggleTrusted}
+              />
             </View>
-            <SettingSwitch
-              value={isAdmin}
-              disabled={!!adminBlock || savePolicy.isPending}
-              onValueChange={toggleAdministrator}
-            />
-          </View>
+          ) : null}
 
           {/* Only when the button in the action row cannot be used. A greyed button with no
               reason reads as a fault; a working one says what it does on its face. */}
@@ -295,6 +342,38 @@ export const UserDialog: React.FC<{
     </Dialog>
   );
 };
+
+/** A labelled switch with the reason for its state under it. */
+const ToggleRow: React.FC<{
+  testID: string;
+  label: string;
+  hint: string;
+  value: boolean;
+  disabled: boolean;
+  onValueChange: (value: boolean) => void;
+}> = ({ testID, label, hint, value, disabled, onValueChange }) => (
+  <View
+    testID={testID}
+    style={{
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    }}
+  >
+    <View style={{ flex: 1 }}>
+      <Text variant='body'>{label}</Text>
+      <Text variant='caption' tone='tertiary' style={{ marginTop: 2 }}>
+        {hint}
+      </Text>
+    </View>
+    <SettingSwitch
+      value={value}
+      disabled={disabled}
+      onValueChange={onValueChange}
+    />
+  </View>
+);
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,

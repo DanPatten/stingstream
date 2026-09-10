@@ -2,13 +2,13 @@ import type { EncodingOptions } from "@jellyfin/sdk/lib/generated-client/models"
 import { getConfigurationApi } from "@jellyfin/sdk/lib/utils/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import { apiAtom } from "@/providers/JellyfinProvider";
-import { SaveBar, TextFieldRow, ToggleRow } from "../settings/fields";
+import { SaveStatus, TextFieldRow, ToggleRow } from "../settings/fields";
+import { useAutosave } from "../settings/useAutosave";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
 
@@ -16,7 +16,6 @@ export function TranscodingSection() {
   const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<EncodingOptions | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["stingstream", "jellyfin-encoding-config"],
@@ -28,10 +27,6 @@ export function TranscodingSection() {
     },
     enabled: !!api,
   });
-
-  useEffect(() => {
-    if (data && !draft) setDraft(data);
-  }, [data, draft]);
 
   const save = useMutation({
     mutationFn: async (next: EncodingOptions) => {
@@ -52,7 +47,10 @@ export function TranscodingSection() {
       ),
   });
 
-  const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(data);
+  const { draft, set, saving } = useAutosave<EncodingOptions>({
+    value: data,
+    save: (next) => save.mutateAsync(next),
+  });
 
   return (
     <View>
@@ -66,9 +64,7 @@ export function TranscodingSection() {
                 subtitle={t("admin.transcoding_hwaccel_detail")}
                 value={draft.HardwareAccelerationType ?? "none"}
                 onChangeText={(v) =>
-                  setDraft((d) =>
-                    d ? { ...d, HardwareAccelerationType: v as never } : d,
-                  )
+                  set((d) => ({ ...d, HardwareAccelerationType: v as never }))
                 }
               />
               <TextFieldRow
@@ -77,14 +73,10 @@ export function TranscodingSection() {
                 keyboardType='number-pad'
                 value={String(draft.EncodingThreadCount ?? -1)}
                 onChangeText={(v) =>
-                  setDraft((d) =>
-                    d
-                      ? {
-                          ...d,
-                          EncodingThreadCount: Number.parseInt(v, 10) || -1,
-                        }
-                      : d,
-                  )
+                  set((d) => ({
+                    ...d,
+                    EncodingThreadCount: Number.parseInt(v, 10) || -1,
+                  }))
                 }
               />
               <TextFieldRow
@@ -92,30 +84,27 @@ export function TranscodingSection() {
                 subtitle={t("admin.transcoding_temp_path_detail")}
                 value={draft.TranscodingTempPath ?? ""}
                 onChangeText={(v) =>
-                  setDraft((d) => (d ? { ...d, TranscodingTempPath: v } : d))
+                  set((d) => ({ ...d, TranscodingTempPath: v }))
                 }
               />
               <ToggleRow
                 title={t("admin.transcoding_throttle_title")}
                 value={draft.EnableThrottling ?? false}
                 onValueChange={(v) =>
-                  setDraft((d) => (d ? { ...d, EnableThrottling: v } : d))
+                  set((d) => ({ ...d, EnableThrottling: v }), { now: true })
                 }
               />
               <ToggleRow
                 title={t("admin.transcoding_delete_segments_title")}
                 value={draft.EnableSegmentDeletion ?? false}
                 onValueChange={(v) =>
-                  setDraft((d) => (d ? { ...d, EnableSegmentDeletion: v } : d))
+                  set((d) => ({ ...d, EnableSegmentDeletion: v }), {
+                    now: true,
+                  })
                 }
               />
             </ListGroup>
-            <SaveBar
-              dirty={dirty}
-              saving={save.isPending}
-              onDiscard={() => setDraft(data ?? null)}
-              onSave={() => draft && save.mutate(draft)}
-            />
+            <SaveStatus saving={saving} />
           </>
         )}
       </QueryState>

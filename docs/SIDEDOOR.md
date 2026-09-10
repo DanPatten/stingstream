@@ -83,6 +83,15 @@ from a browser was the last thing on a page about federation. `InvitePerson` had
 it with `?advanced=1` to prise the fold open whenever a minted invite turned out to be LAN-only,
 which is the clearest possible evidence it was in the wrong place.
 
+The page itself is a fact and a choice, in that order: the address this server answers on now (a
+LAN one until a domain is set, that domain after), then one row per route — Cloudflare, or your own
+domain. **Neither route leaves anything to fill in on the page.** Each dialog names the server as
+part of its own flow: Cloudflare derives the address from the hostname it is given, and the manual
+route saves the address itself, above the steps that make it resolve. Dan, on the version that had
+an address box sitting between the two: *"the user can EITHER setup cloudflare OR manually set
+their domain ... setting the name should be part of the cloudflare flow. Right now its unclear and
+too much is meshed together"*.
+
 ### Cloudflare Tunnel, set up by the node — the recommended one
 
 An outbound tunnel from the node to Cloudflare, with TLS terminating there. No port forwarding, no
@@ -95,11 +104,11 @@ Cloudflare API token. The node finds which of the hostname's parent zones your a
 creates the tunnel, points a proxied CNAME at `<id>.cfargotunnel.com`, **saves the hostname as this
 node's address**, and keeps the process alive.
 
-That last step is what makes this one setting rather than two. An earlier version of the page had
-"your server's address" and "setting it up" as separate sections, and Dan's read of it was *"its
-confusing to have your server address + setting it up sections - unify that so its the same
-thing"* — they asked the same question twice and nothing said whether answering one meant you
-should also answer the other.
+That last step is what makes this one setting rather than two, and it is why the hostname field
+belongs in the tunnel dialog rather than on the page. An earlier version had "your server's
+address" and "setting it up" as separate sections, and Dan's read of it was *"its confusing to have
+your server address + setting it up sections - unify that so its the same thing"* — they asked the
+same question twice and nothing said whether answering one meant you should also answer the other.
 
 The token needs **Account: Cloudflare Tunnel: Edit** and **Zone: DNS: Edit**. It is spent once and
 never stored — see `sharing::TunnelToken`, and §7 below for what that costs.
@@ -112,8 +121,10 @@ passkey, so it was never an answer to the question this page asks. `TunnelKind::
 the word as "no tunnel" so a node that ran one downgrades quietly.
 
 `cloudflared` is fetched by `third_party/cloudflared/fetch-cloudflared.ps1`, or picked up from
-`PATH` if you already have it. A node without it says so on the page rather than offering a button
-that cannot work.
+`PATH` if you already have it. A node without it fetches one on the first press
+(`sidedoor::cloudflared::ensure`) rather than hiding the row: the answer to "there is no binary" is
+to go and get one, and an installed node has no `third_party/` for a "not installed" message to
+point at anyway.
 
 ### Your own reverse proxy
 
@@ -124,10 +135,11 @@ machine needs an inbound port that actually reaches you.
 
 ### A forwarded port and your own certificate
 
-The Domains page has the instructions behind a button, because none of it is ours to press. Three
-steps, in order, and the third is the one people miss: forwarding a port gets a browser to the node
-and gets it a certificate warning, which is not a working setup — this app needs a secure context
-to sign anybody in.
+The Domains page has the instructions behind the *Point a domain here yourself* row, because none
+of it is ours to press. The domain field is at the top of that dialog and four numbered steps are
+under it, in order, and the last is the one people miss: forwarding a port gets a browser to the
+node and gets it a certificate warning, which is not a working setup — this app needs a secure
+context to sign anybody in.
 
 Carrier-grade NAT is the thing to check first. If the address your router calls external is in
 `10/8`, `172.16/12` or `100.64/10`, no amount of forwarding will help and a tunnel is the only route

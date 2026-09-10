@@ -275,11 +275,19 @@ export function useSetMeshSharingSettings() {
           }),
         }),
       ),
-    onSuccess: (stored) =>
+    onSuccess: (stored) => {
       queryClient.setQueryData(
         [...MESH_QUERY_KEY, "settings", "sharing", base],
         stored,
-      ),
+      );
+      // `GET /mesh/domains` reports this same address, and it is what the Domains page shows at the
+      // top as "your server's address" — the only confirmation there is that a save landed, now
+      // that the field itself lives inside a dialog that closes behind it. Without this the page
+      // said the LAN address for another five seconds and looked like it had ignored the save.
+      queryClient.invalidateQueries({
+        queryKey: [...MESH_QUERY_KEY, "domains", base],
+      });
+    },
   });
 }
 
@@ -302,9 +310,9 @@ export function useMeshDomains() {
         // A server that predates this route answers 404, and the honest render for that is the
         // same as for a server with nothing set up -- it has no tunnel and no certificate we can
         // see. Showing "Something went wrong / GET /domains: 404" instead was the first thing Dan
-        // hit, and it is doubly wrong here: the address field below this reads a different
-        // endpoint and works perfectly well, so an error state would take a working control off
-        // the screen to report that an optional one is unavailable.
+        // hit, and it is doubly wrong here: setting an address by hand goes through
+        // `/settings/sharing`, which such a server answers perfectly well, so an error state would
+        // take a working route off the screen to report that an optional one is unavailable.
         if (/\b404\b/.test((e as Error).message)) return toDomainsStatus({});
         throw e;
       }

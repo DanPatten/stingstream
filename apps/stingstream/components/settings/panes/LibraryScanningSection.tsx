@@ -1,13 +1,12 @@
-import type { ServerConfiguration } from "@jellyfin/sdk/lib/generated-client/models";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import {
-  SaveBar,
+  SaveStatus,
   TextFieldRow,
 } from "@/components/stingstream/settings/fields";
+import { useAutosave } from "@/components/stingstream/settings/useAutosave";
 import { QueryState } from "@/components/stingstream/shared/ScreenState";
 import {
   useServerConfiguration,
@@ -27,27 +26,22 @@ export const LibraryScanningSection: React.FC = () => {
   const { t } = useTranslation();
   const query = useServerConfiguration();
   const update = useUpdateServerConfiguration();
-  const [draft, setDraft] = useState<ServerConfiguration | null>(null);
-
-  useEffect(() => {
-    if (query.data && !draft) setDraft(query.data);
-  }, [query.data, draft]);
-
-  const dirty =
-    !!draft && JSON.stringify(draft) !== JSON.stringify(query.data ?? null);
-
-  const save = async () => {
-    if (!draft) return;
-    try {
-      // The whole document: `updateConfiguration` replaces rather than patches.
-      await update.mutateAsync(draft);
-      toast.success(t("home.settings.storage.saved"));
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : t("home.settings.storage.save_failed"),
-      );
-    }
-  };
+  const { draft, set, saving } = useAutosave({
+    value: query.data,
+    save: async (next) => {
+      try {
+        // The whole document: `updateConfiguration` replaces rather than patches.
+        await update.mutateAsync(next);
+        toast.success(t("home.settings.storage.saved"));
+      } catch (e) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : t("home.settings.storage.save_failed"),
+        );
+      }
+    },
+  });
 
   return (
     <QueryState
@@ -64,11 +58,10 @@ export const LibraryScanningSection: React.FC = () => {
               keyboardType='number-pad'
               value={String(draft.LibraryMonitorDelay ?? 60)}
               onChangeText={(v) =>
-                setDraft((d) =>
-                  d
-                    ? { ...d, LibraryMonitorDelay: Number.parseInt(v, 10) || 0 }
-                    : d,
-                )
+                set((d) => ({
+                  ...d,
+                  LibraryMonitorDelay: Number.parseInt(v, 10) || 0,
+                }))
               }
             />
             <TextFieldRow
@@ -77,24 +70,14 @@ export const LibraryScanningSection: React.FC = () => {
               keyboardType='number-pad'
               value={String(draft.LibraryScanFanoutConcurrency ?? 0)}
               onChangeText={(v) =>
-                setDraft((d) =>
-                  d
-                    ? {
-                        ...d,
-                        LibraryScanFanoutConcurrency:
-                          Number.parseInt(v, 10) || 0,
-                      }
-                    : d,
-                )
+                set((d) => ({
+                  ...d,
+                  LibraryScanFanoutConcurrency: Number.parseInt(v, 10) || 0,
+                }))
               }
             />
           </ListGroup>
-          <SaveBar
-            dirty={dirty}
-            saving={update.isPending}
-            onDiscard={() => setDraft(query.data ?? null)}
-            onSave={save}
-          />
+          <SaveStatus saving={saving} />
         </View>
       ) : null}
     </QueryState>

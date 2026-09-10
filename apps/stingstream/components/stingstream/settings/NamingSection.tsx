@@ -1,11 +1,11 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import type { NamingSettings } from "@/lib/stingstream/hooks";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
-import { SaveBar, TextFieldRow, ToggleRow } from "./fields";
+import { SaveStatus, TextFieldRow, ToggleRow } from "./fields";
+import { useAutosave } from "./useAutosave";
 
 export function NamingSection({
   value,
@@ -17,8 +17,25 @@ export function NamingSection({
   saving: boolean;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(value);
+  const {
+    draft,
+    set,
+    saving: sending,
+  } = useAutosave({
+    value,
+    save: async (next) => {
+      try {
+        await onSave(next);
+        toast.success(t("server_settings.naming_save_success"));
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t("server_settings.save_error"),
+        );
+      }
+    },
+  });
+
+  if (!draft) return null;
 
   return (
     <View>
@@ -27,13 +44,15 @@ export function NamingSection({
         <ToggleRow
           title={t("server_settings.naming_rename_on_import_title")}
           value={draft.RenameOnImport ?? false}
-          onValueChange={(v) => setDraft((d) => ({ ...d, RenameOnImport: v }))}
+          onValueChange={(v) =>
+            set((d) => ({ ...d, RenameOnImport: v }), { now: true })
+          }
         />
         <ToggleRow
           title={t("server_settings.naming_replace_illegal_title")}
           value={draft.ReplaceIllegalCharacters ?? false}
           onValueChange={(v) =>
-            setDraft((d) => ({ ...d, ReplaceIllegalCharacters: v }))
+            set((d) => ({ ...d, ReplaceIllegalCharacters: v }), { now: true })
           }
         />
       </ListGroup>
@@ -42,14 +61,12 @@ export function NamingSection({
         <TextFieldRow
           title={t("server_settings.naming_movie_folder_format_title")}
           value={draft.MovieFolderFormat ?? ""}
-          onChangeText={(v) =>
-            setDraft((d) => ({ ...d, MovieFolderFormat: v }))
-          }
+          onChangeText={(v) => set((d) => ({ ...d, MovieFolderFormat: v }))}
         />
         <TextFieldRow
           title={t("server_settings.naming_movie_file_format_title")}
           value={draft.MovieFormat ?? ""}
-          onChangeText={(v) => setDraft((d) => ({ ...d, MovieFormat: v }))}
+          onChangeText={(v) => set((d) => ({ ...d, MovieFormat: v }))}
         />
       </ListGroup>
       <View style={{ height: 12 }} />
@@ -57,40 +74,20 @@ export function NamingSection({
         <TextFieldRow
           title={t("server_settings.naming_series_folder_format_title")}
           value={draft.SeriesFolderFormat ?? ""}
-          onChangeText={(v) =>
-            setDraft((d) => ({ ...d, SeriesFolderFormat: v }))
-          }
+          onChangeText={(v) => set((d) => ({ ...d, SeriesFolderFormat: v }))}
         />
         <TextFieldRow
           title={t("server_settings.naming_season_folder_format_title")}
           value={draft.SeasonFolderFormat ?? ""}
-          onChangeText={(v) =>
-            setDraft((d) => ({ ...d, SeasonFolderFormat: v }))
-          }
+          onChangeText={(v) => set((d) => ({ ...d, SeasonFolderFormat: v }))}
         />
         <TextFieldRow
           title={t("server_settings.naming_episode_file_format_title")}
           value={draft.EpisodeFormat ?? ""}
-          onChangeText={(v) => setDraft((d) => ({ ...d, EpisodeFormat: v }))}
+          onChangeText={(v) => set((d) => ({ ...d, EpisodeFormat: v }))}
         />
       </ListGroup>
-      <SaveBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(value)}
-        onSave={async () => {
-          try {
-            await onSave(draft);
-            toast.success(t("server_settings.naming_save_success"));
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("server_settings.save_error"),
-            );
-          }
-        }}
-      />
+      <SaveStatus saving={saving || sending} />
     </View>
   );
 }

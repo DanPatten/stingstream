@@ -736,8 +736,24 @@ function Layout() {
                                           }}
                                         />
                                       </Stack>
+                                      {/* Bottom right, not across the top. A toast is a receipt
+                                          for something you just did, and at the top of a settings
+                                          page it landed on the heading of the thing being changed
+                                          — Dan: *"Move the toast show at the top to the bottom
+                                          right corner instead"*. `sonner-native` only positions
+                                          top/bottom, so the corner is the positioner's own box:
+                                          capped width anchored to the right edge on a wide screen,
+                                          and the full width on a phone, where a 460 px column
+                                          pinned right is just a toast with a hole beside it. */}
                                       <Toaster
                                         duration={4000}
+                                        position='bottom-center'
+                                        positionerStyle={{
+                                          width: "100%",
+                                          maxWidth: 460,
+                                          right: 0,
+                                          paddingHorizontal: 16,
+                                        }}
                                         toastOptions={{
                                           style: {
                                             backgroundColor:

@@ -3,34 +3,38 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
+import { ListItem } from "@/components/list/ListItem";
 import { FocusTarget } from "@/components/settings/FocusTarget";
-import { space, tokens } from "@/constants/theme";
+import { space } from "@/constants/theme";
 import { useDeleteMeshTunnel, useMeshDomains } from "@/lib/stingstream/mesh";
 import { hasTunnel } from "@/utils/mesh/domainsStatus";
 import { confirmDestructive } from "../shared/confirm";
-import { DomainAddress } from "./DomainAddress";
 import { DomainsStatus } from "./DomainsStatus";
-import { PortForwardHelp } from "./PortForwardHelp";
+import { ManualDomainDialog } from "./ManualDomainDialog";
 import { TunnelDialog } from "./TunnelDialog";
 
 /**
- * Where people reach this server — one question, so one card.
+ * Where people reach this server: what the address is now, and the two ways to change it.
  *
- * ## What this looked like first, and why it was wrong
+ * ## The shape, and why it is two cards
  *
- * Three blocks: a status, then "Your server's address", then "Setting it up". Dan, on sight:
- * *"Its confusing to have your server address + setting it up sections - unify that so its the
- * same thing"*. He was right, and the reason is worth writing down — those two blocks asked the
- * *same* question twice and then disagreed about who answered it. Setting up a tunnel produces an
- * address; the address field above it was the place to type one in; and nothing on screen said
- * whether doing one meant you should also do the other. So there is one card now: what the address
- * is, and the two ways to end up with a working one.
+ * One card came first, holding a status, an address field and two buttons. Dan: *"the top should
+ * show the current domain (LAN or if set). Then the user can EITHER setup cloudflare OR manually
+ * set their domain ... setting the name should be part of the cloudflare flow. Right now its
+ * unclear and too much is meshed together"*.
  *
- * The Cloudflare path writes the address itself, on the node, at the moment the tunnel is
- * requested (`post_tunnel`) — which is what makes this genuinely one setting rather than two that
- * have to be kept in step by hand.
+ * That names the actual fault. The field was the shared half of two routes that exclude each other,
+ * so the card asked somebody to fill it in *and* offered two buttons that would each fill it in for
+ * them, with nothing saying whether doing one meant they should also do the other. What is here now
+ * is a fact and a choice, in that order:
+ *
+ * - **The address**, which every server has: a LAN one until a domain is set, that domain after.
+ *   Read-only, because it is the outcome of a route rather than a setting of its own.
+ * - **Two rows, one each for the two routes.** Cloudflare, which is a press and a token; or your
+ *   own domain, which is a router, DNS and a certificate. Each opens a dialog that carries the
+ *   whole of its route including naming the server, so neither leaves anything on the page to
+ *   coordinate by hand.
  *
  * ## The two ways, and there are only two
  *
@@ -38,6 +42,10 @@ import { TunnelDialog } from "./TunnelDialog";
  * changes every restart. Dan cut it — *"they either configure a domain manually OR via
  * cloudflare"* — and it is gone from the node too, not merely hidden. An address that cannot be
  * sent to anybody is not an answer to the question this page asks.
+ *
+ * With a tunnel up, the Cloudflare row is replaced by the tunnel itself and its Disconnect. The
+ * manual row stays: moving from a tunnel to your own reverse proxy means setting the address there
+ * first, and disconnecting afterwards.
  */
 export function DomainsScreen() {
   const { t } = useTranslation();
@@ -71,77 +79,67 @@ export function DomainsScreen() {
 
   return (
     <View style={{ gap: space["6"] }}>
-      <FocusTarget
-        id={["public-domain", "cloudflare-tunnel", "domains-status"]}
-      >
+      <FocusTarget id={["public-domain", "domains-status"]}>
         <ListGroup title={t("domains.status_title")}>
           {/* What is true right now, first: a domain that resolves nowhere and a certificate that
-              expired last week both used to look exactly like success from in here. */}
-          <DomainsStatus status={domains.data} />
-
-          <Divider />
-
-          {/* The address itself. Kept editable even while a tunnel is running: somebody moving
-              from a tunnel to their own reverse proxy edits this, and the tunnel is what they
-              disconnect afterwards. */}
-          <View style={{ padding: 16 }}>
-            <DomainAddress />
+              expired last week both used to look exactly like success from in here. Wrapped so the
+              group can draw its hairline onto it -- the rule is cloned onto the child's style, and
+              `DomainsStatus` takes no style of its own. */}
+          <View>
+            <DomainsStatus status={domains.data} />
           </View>
 
-          <Divider />
-
-          <View style={{ padding: 16, gap: space["3"] }}>
-            {running ? (
-              <>
-                <Text variant='caption' tone='secondary'>
-                  {t("domains.tunnel_running")}
-                </Text>
-                <Button
-                  variant='ghost'
-                  icon='close'
-                  onPress={disconnect}
-                  loading={stop.isPending}
-                  testID='domains-tunnel-disconnect'
-                  style={{ alignSelf: "flex-start" }}
-                >
-                  {t("domains.tunnel_disconnect")}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Text variant='caption' tone='tertiary'>
-                  {t("domains.setup_detail")}
-                </Text>
-                <Button
-                  icon='domains'
-                  onPress={() => setSetUpOpen(true)}
-                  testID='domains-tunnel-setup'
-                  style={{ alignSelf: "flex-start" }}
-                >
-                  {t("domains.setup_action")}
-                </Button>
-              </>
-            )}
-
-            {/* Last and quiet: the path for somebody who has already decided. Level with the
-                button above it would present two equal choices where one is a press and the other
-                is an evening. */}
-            <Button
-              variant='ghost'
-              size='sm'
-              icon='info'
-              onPress={() => setManualOpen(true)}
-              testID='domains-manual-help'
-              style={{ alignSelf: "flex-start" }}
+          {running ? (
+            <ListItem
+              icon='domains'
+              title={t("domains.tunnel_row_title")}
+              subtitle={t("domains.tunnel_running")}
             >
-              {t("domains.manual_action")}
-            </Button>
-          </View>
+              <Button
+                variant='ghost'
+                size='sm'
+                onPress={disconnect}
+                loading={stop.isPending}
+                testID='domains-tunnel-disconnect'
+              >
+                {t("domains.tunnel_disconnect")}
+              </Button>
+            </ListItem>
+          ) : null}
+        </ListGroup>
+      </FocusTarget>
+
+      <FocusTarget id={["cloudflare-tunnel"]}>
+        <ListGroup title={t("domains.choose_title")}>
+          {/* Cloudflare first, and only while there is no tunnel: with one up, the row above is
+              this route's state and setting a second tunnel over the top of it is not a thing
+              anybody means to do from here. */}
+          {running ? null : (
+            <ListItem
+              icon='domains'
+              title={t("domains.setup_action")}
+              subtitle={t("domains.setup_detail")}
+              showArrow
+              onPress={() => setSetUpOpen(true)}
+              testID='domains-tunnel-setup'
+            />
+          )}
+
+          {/* The other route, level with it rather than tucked underneath. They are not equally
+              easy, which the subtitles say; they are equally real, which the layout should. */}
+          <ListItem
+            icon='network'
+            title={t("domains.manual_action")}
+            subtitle={t("domains.manual_detail")}
+            showArrow
+            onPress={() => setManualOpen(true)}
+            testID='domains-manual-help'
+          />
         </ListGroup>
       </FocusTarget>
 
       <TunnelDialog visible={setUpOpen} onClose={() => setSetUpOpen(false)} />
-      <PortForwardHelp
+      <ManualDomainDialog
         visible={manualOpen}
         onClose={() => setManualOpen(false)}
         status={domains.data}
@@ -149,13 +147,3 @@ export function DomainsScreen() {
     </View>
   );
 }
-
-/** The hairline `ListGroup` clones onto rows, drawn by hand between blocks that are not rows. */
-const Divider = () => (
-  <View
-    style={{ height: 1, backgroundColor: tokens.color.border.subtle }}
-    // Decoration, and a screen reader reading "horizontal rule" three times on one card is noise.
-    accessibilityElementsHidden
-    importantForAccessibility='no-hide-descendants'
-  />
-);

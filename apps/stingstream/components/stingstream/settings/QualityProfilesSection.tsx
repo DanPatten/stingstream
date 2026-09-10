@@ -20,7 +20,7 @@ import { arrAppLabel } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { SaveBar } from "./fields";
+import { SaveStatus } from "./fields";
 import {
   availableGroups,
   inGroup,
@@ -29,6 +29,7 @@ import {
   type QualityPreset,
   resolvePreset,
 } from "./qualityPresets";
+import { useAutosave } from "./useAutosave";
 
 /**
  * Server settings → Quality profiles. Gap 4 closed.
@@ -57,12 +58,32 @@ export function QualityProfilesSection({
   saving: boolean;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState<QualityProfileView | null>(null);
   const [creating, setCreating] = useState(false);
   const profiles = useQualityProfiles();
   const remove = useDeleteQualityProfile();
-  const dirty = draft !== value;
+
+  // Picking a pill *is* the decision, so it goes at once rather than waiting for a pause that will
+  // never come — there is nothing here anybody types.
+  const {
+    draft,
+    set,
+    saving: sending,
+  } = useAutosave({
+    value,
+    save: async (next) => {
+      try {
+        await onSave(next);
+        toast.success(
+          t("server_settings.quality_profiles_default_saved_toast"),
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t("server_settings.save_error"),
+        );
+      }
+    },
+  });
 
   const del = async (name: string) => {
     const ok = await confirmDestructive(
@@ -189,7 +210,7 @@ export function QualityProfilesSection({
                 key={p.Name}
                 label={p.Name ?? ""}
                 selected={draft === p.Name}
-                onPress={() => setDraft(p.Name ?? "")}
+                onPress={() => set(() => p.Name ?? "", { now: true })}
               />
             ))}
             {(profiles.data ?? []).length === 0 && (
@@ -200,25 +221,7 @@ export function QualityProfilesSection({
           </View>
         </View>
       </ListGroup>
-      <SaveBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(value)}
-        onSave={async () => {
-          try {
-            await onSave(draft);
-            toast.success(
-              t("server_settings.quality_profiles_default_saved_toast"),
-            );
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("server_settings.save_error"),
-            );
-          }
-        }}
-      />
+      <SaveStatus saving={saving || sending} />
     </View>
   );
 }

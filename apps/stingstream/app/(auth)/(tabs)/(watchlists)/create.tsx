@@ -7,12 +7,12 @@ import {
   Platform,
   ScrollView,
   Switch,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
@@ -100,12 +100,10 @@ export default function CreateWatchlistScreen() {
           <Text className='text-sm font-medium text-neutral-400 mb-2'>
             {t("watchlists.name_label")} *
           </Text>
-          <TextInput
+          <Input
             value={name}
             onChangeText={setName}
             placeholder={t("watchlists.name_placeholder")}
-            placeholderTextColor='#6b7280'
-            className='bg-neutral-800 text-white px-4 py-3 rounded-lg text-base'
             autoFocus
           />
         </View>
@@ -115,16 +113,14 @@ export default function CreateWatchlistScreen() {
           <Text className='text-sm font-medium text-neutral-400 mb-2'>
             {t("watchlists.description_label")}
           </Text>
-          <TextInput
+          <Input
             value={description}
             onChangeText={setDescription}
             placeholder={t("watchlists.description_placeholder")}
-            placeholderTextColor='#6b7280'
-            className='bg-neutral-800 text-white px-4 py-3 rounded-lg text-base'
             multiline
             numberOfLines={3}
             textAlignVertical='top'
-            style={{ minHeight: 80 }}
+            style={{ minHeight: 80, alignItems: "flex-start" }}
           />
         </View>
 

@@ -154,57 +154,52 @@ export function RequestPolicySection() {
       <View style={{ height: 24 }} />
 
       <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
-        {t("requests.policy_members_title")}
+        {t("requests.policy_trusted_title")}
       </Text>
       {users.isLoading ? (
         <RequestCardSkeletonList count={3} />
       ) : users.error ? (
         <RequestsErrorState error={users.error} onRetry={users.refetch} />
       ) : (
-        <>
-          <ListGroup>
-            {(users.data ?? []).map((user) =>
-              user.isAdministrator ? (
-                // An administrator can change this policy, so making them wait for an approval
-                // they could grant themselves is theatre — the node auto-approves them under
-                // every mode, and there is no switch to offer.
-                <ListItem
-                  key={user.userId}
-                  title={user.userName}
-                  subtitle={t("requests.policy_admin_row", {
-                    count: user.requestsThisWeek,
-                  })}
-                />
-              ) : (
-                <ListItem
-                  key={user.userId}
-                  title={user.userName}
-                  subtitle={
-                    user.weeklyQuota > 0
-                      ? t("requests.policy_member_row_quota", {
-                          count: user.requestsThisWeek,
-                          quota: user.weeklyQuota,
-                        })
-                      : t("requests.policy_member_row", {
-                          count: user.requestsThisWeek,
-                        })
+        <ListGroup>
+          {(users.data ?? []).map((user) =>
+            user.isAdministrator ? (
+              // An administrator can change this policy, so making them wait for an approval
+              // they could grant themselves is theatre — the node auto-approves them under
+              // every mode, and there is no switch to offer.
+              <ListItem
+                key={user.userId}
+                title={user.userName}
+                subtitle={t("requests.policy_admin_row", {
+                  count: user.requestsThisWeek,
+                })}
+              />
+            ) : (
+              <ListItem
+                key={user.userId}
+                title={user.userName}
+                subtitle={
+                  user.weeklyQuota > 0
+                    ? t("requests.policy_member_row_quota", {
+                        count: user.requestsThisWeek,
+                        quota: user.weeklyQuota,
+                      })
+                    : t("requests.policy_member_row", {
+                        count: user.requestsThisWeek,
+                      })
+                }
+              >
+                <SettingSwitch
+                  value={user.trusted}
+                  disabled={saveUser.isPending}
+                  onValueChange={(v) =>
+                    setTrust(user.userId, user.userName, v, user.weeklyQuota)
                   }
-                >
-                  <SettingSwitch
-                    value={user.trusted}
-                    disabled={saveUser.isPending}
-                    onValueChange={(v) =>
-                      setTrust(user.userId, user.userName, v, user.weeklyQuota)
-                    }
-                  />
-                </ListItem>
-              ),
-            )}
-          </ListGroup>
-          <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
-            {t("requests.policy_trust_hint")}
-          </Text>
-        </>
+                />
+              </ListItem>
+            ),
+          )}
+        </ListGroup>
       )}
     </View>
   );

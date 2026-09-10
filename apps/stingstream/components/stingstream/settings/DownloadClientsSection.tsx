@@ -22,7 +22,8 @@ import {
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { SaveBar, TextFieldRow, ToggleRow } from "./fields";
+import { SaveStatus, TextFieldRow, ToggleRow } from "./fields";
+import { useAutosave } from "./useAutosave";
 
 export function DownloadClientsSection({
   value,
@@ -34,13 +35,33 @@ export function DownloadClientsSection({
   saving: boolean;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(value);
+  const {
+    draft,
+    set: edit,
+    saving: sending,
+  } = useAutosave({
+    value,
+    save: async (next) => {
+      try {
+        await onSave(next);
+        toast.success(t("server_settings.download_clients_save_success"));
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t("server_settings.save_error"),
+        );
+      }
+    },
+  });
 
+  // A switch is a decision, so it goes at once; a field is still being typed, so it waits for the
+  // pause `useAutosave` counts out.
   const set = <K extends keyof DownloadClientSettings>(
     key: K,
     v: DownloadClientSettings[K],
-  ) => setDraft((d) => ({ ...d, [key]: v }));
+    options?: { now?: boolean },
+  ) => edit((d) => ({ ...d, [key]: v }), options);
+
+  if (!draft) return null;
 
   return (
     <View>
@@ -50,18 +71,20 @@ export function DownloadClientsSection({
         <ToggleRow
           title={t("server_settings.enabled_label")}
           value={draft.TorrentsEnabled ?? false}
-          onValueChange={(v) => set("TorrentsEnabled", v)}
+          onValueChange={(v) => set("TorrentsEnabled", v, { now: true })}
         />
         <ToggleRow
           title={t("server_settings.torrent_dht_title")}
           subtitle={t("server_settings.torrent_dht_detail")}
           value={draft.TorrentDhtEnabled ?? false}
-          onValueChange={(v) => set("TorrentDhtEnabled", v)}
+          onValueChange={(v) => set("TorrentDhtEnabled", v, { now: true })}
         />
         <ToggleRow
           title={t("server_settings.torrent_local_peer_discovery_title")}
           value={draft.TorrentLocalPeerDiscovery ?? false}
-          onValueChange={(v) => set("TorrentLocalPeerDiscovery", v)}
+          onValueChange={(v) =>
+            set("TorrentLocalPeerDiscovery", v, { now: true })
+          }
         />
         <TextFieldRow
           title={t("server_settings.torrent_listen_port_title")}
@@ -80,7 +103,7 @@ export function DownloadClientsSection({
         <ToggleRow
           title={t("server_settings.enabled_label")}
           value={draft.UsenetEnabled ?? false}
-          onValueChange={(v) => set("UsenetEnabled", v)}
+          onValueChange={(v) => set("UsenetEnabled", v, { now: true })}
         />
       </ListGroup>
 
@@ -90,12 +113,14 @@ export function DownloadClientsSection({
         <ToggleRow
           title={t("server_settings.remove_completed_title")}
           value={draft.RemoveCompletedDownloads ?? false}
-          onValueChange={(v) => set("RemoveCompletedDownloads", v)}
+          onValueChange={(v) =>
+            set("RemoveCompletedDownloads", v, { now: true })
+          }
         />
         <ToggleRow
           title={t("server_settings.remove_failed_title")}
           value={draft.RemoveFailedDownloads ?? false}
-          onValueChange={(v) => set("RemoveFailedDownloads", v)}
+          onValueChange={(v) => set("RemoveFailedDownloads", v, { now: true })}
         />
       </ListGroup>
 
@@ -103,23 +128,7 @@ export function DownloadClientsSection({
       <ExternalClients />
       <View style={{ height: 8 }} />
 
-      <SaveBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={() => setDraft(value)}
-        onSave={async () => {
-          try {
-            await onSave(draft);
-            toast.success(t("server_settings.download_clients_save_success"));
-          } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("server_settings.save_error"),
-            );
-          }
-        }}
-      />
+      <SaveStatus saving={saving || sending} />
     </View>
   );
 }

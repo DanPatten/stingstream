@@ -1,13 +1,29 @@
 import { useTranslation } from "react-i18next";
-import { TextInput, View } from "react-native";
-import { Button } from "@/components/Button";
+import { View } from "react-native";
+import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListItem } from "@/components/list/ListItem";
-import { resolveTextStyle, tokens } from "@/constants/theme";
+import { tokens } from "@/constants/theme";
 import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
+/** How wide the field is on a desktop-width row, where it sits beside its label. */
+const FIELD_WIDTH = 260;
+
+/**
+ * A settings row whose control is a text field.
+ *
+ * **The field is `components/common/Input`, the same one the sign-in form and every dialog use.**
+ * It used to be a bare `TextInput` with no box at all, which on a settings row is indistinguishable
+ * from a value the page is merely reporting — Dan, on the server name: *"click the input should
+ * highlight it, its not intuative that thats a text input.. can we make sure all text inputs use
+ * the same component and on hover highlights the box"*. `Input` is where the rule, the hover tint
+ * and the focused border live, so a row that draws its own field is a row that quietly opts out of
+ * all three.
+ *
+ * There is no Save button under it. See `useAutosave`.
+ */
 export function TextFieldRow({
   title,
   subtitle,
@@ -15,41 +31,51 @@ export function TextFieldRow({
   onChangeText,
   placeholder,
   keyboardType,
+  editable,
+  autoCapitalize,
+  onBlur,
+  disabledByAdmin = false,
 }: {
   title: string;
   subtitle?: string;
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
-  keyboardType?: "default" | "number-pad";
+  keyboardType?: "default" | "number-pad" | "url";
+  editable?: boolean;
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  onBlur?: () => void;
+  /** Locked by server policy: says so in place of the subtitle, and cannot be typed in. */
+  disabledByAdmin?: boolean;
 }) {
+  const { t } = useTranslation();
   const breakpoint = useBreakpointName();
   const compact = breakpoint === "compact";
+  const detail = disabledByAdmin
+    ? t("home.settings.disabled_by_admin")
+    : subtitle;
 
   const field = (
-    <TextInput
+    <Input
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
-      placeholderTextColor={tokens.color.text.tertiary}
       keyboardType={keyboardType}
-      style={[
-        resolveTextStyle("body", "primary", "regular", breakpoint),
-        compact
-          ? { textAlign: "left", marginTop: 6 }
-          : { textAlign: "right", minWidth: 120 },
-      ]}
+      editable={editable !== false && !disabledByAdmin}
+      autoCapitalize={autoCapitalize}
+      onBlur={onBlur}
+      style={compact ? { marginTop: 8 } : { width: FIELD_WIDTH }}
     />
   );
 
   // On a phone the field goes *under* its label rather than beside it.
   //
   // A `ListItem`'s children sit on the right with no shrink of their own, so a
-  // 120 px field beside "Transcoding temporary path" left the label ellipsised
-  // and the row overflowing at 390 px — confirmed by the screenshot sweep on
-  // Transcoding & hardware and Network & remote access, which between them are
-  // most of these rows. Neither half of a settings field should have to be
-  // guessed at from four surviving characters.
+  // 260 px field beside "Transcoding temporary path" would leave the label
+  // ellipsised and the row overflowing at 390 px — confirmed by the screenshot
+  // sweep on Transcoding & hardware and Network & remote access, which between
+  // them are most of these rows. Neither half of a settings field should have to
+  // be guessed at from four surviving characters.
   if (compact) {
     return (
       <View
@@ -60,14 +86,14 @@ export function TextFieldRow({
         }}
       >
         <Text numberOfLines={2}>{title}</Text>
-        {subtitle ? (
+        {detail ? (
           <Text
             variant='caption'
-            tone='secondary'
+            tone={disabledByAdmin ? "danger" : "secondary"}
             style={{ marginTop: 2 }}
             numberOfLines={3}
           >
-            {subtitle}
+            {detail}
           </Text>
         ) : null}
         {field}
@@ -76,7 +102,11 @@ export function TextFieldRow({
   }
 
   return (
-    <ListItem title={title} subtitle={subtitle}>
+    <ListItem
+      title={title}
+      subtitle={subtitle}
+      disabledByAdmin={disabledByAdmin}
+    >
       {field}
     </ListItem>
   );
@@ -105,32 +135,26 @@ export function ToggleRow({
   );
 }
 
-export function SaveBar({
-  dirty,
-  saving,
-  onSave,
-  onDiscard,
-}: {
-  dirty: boolean;
-  saving: boolean;
-  onSave: () => void;
-  onDiscard: () => void;
-}) {
+/**
+ * What is left of the Save bar: a line that says a change is on its way.
+ *
+ * Settings apply themselves now (`useAutosave`), so the only thing a reader still needs from that
+ * corner of the screen is the gap between "I typed it" and "the server has it" — which on a push
+ * into a download client or an indexer is a real second or two, not a flicker. The success and
+ * failure messages stay toasts, in the bottom right.
+ *
+ * It keeps its height while idle so a settings page does not jump every time somebody edits a
+ * field.
+ */
+export function SaveStatus({ saving }: { saving: boolean }) {
   const { t } = useTranslation();
-  if (!dirty) return null;
   return (
-    <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
-      <Button variant='secondary' style={{ flex: 1 }} onPress={onDiscard}>
-        {t("server_settings.discard_action")}
-      </Button>
-      <Button
-        variant='primary'
-        style={{ flex: 1 }}
-        loading={saving}
-        onPress={onSave}
-      >
-        {t("server_settings.save_action")}
-      </Button>
+    <View style={{ minHeight: 24, justifyContent: "center", paddingLeft: 16 }}>
+      {saving ? (
+        <Text variant='caption' tone='tertiary'>
+          {t("server_settings.saving_status")}
+        </Text>
+      ) : null}
     </View>
   );
 }
