@@ -217,7 +217,13 @@ export function RequestSheet({
           ? [
               {
                 label: t("common.delete"),
-                variant: "ghost" as const,
+                // `danger`, like the same button on My requests. It was ghost, on the idea that
+                // playing it down keeps it away from the one everybody means to press -- but a
+                // destructive control that looks ordinary is the one people press by accident, and
+                // it is the position beside Cancel rather than the colour that keeps it clear of
+                // Save.
+                variant: "danger" as const,
+                icon: "delete" as const,
                 testID: "requests-delete",
                 onPress: withdraw,
                 disabled: busy,

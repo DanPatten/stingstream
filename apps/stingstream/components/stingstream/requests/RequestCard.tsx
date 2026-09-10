@@ -1,5 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  type TextStyle,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Pill, type PillTone } from "@/components/common/Pill";
 import { Skeleton } from "@/components/common/Skeleton";
@@ -28,6 +34,8 @@ const POSTER_WIDTH = 92;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
 const POSTER_RADIUS = radius.sm;
 
+const isWeb = Platform.OS === "web";
+
 /** The absolute fallback for a request too old for "2d ago" to mean anything useful. */
 const onDate = (at: number): string =>
   new Date(at).toLocaleDateString(undefined, {
@@ -48,9 +56,12 @@ const onDate = (at: number): string =>
 export function RequestCard({
   request,
   actions,
+  onOpen,
 }: {
   request: MemberRequest;
   actions?: React.ReactNode;
+  /** Opens the request. The poster and the title carry it; omit to leave them inert. */
+  onOpen?: () => void;
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
@@ -81,14 +92,35 @@ export function RequestCard({
         marginBottom: 8,
       }}
     >
-      <CardArtwork
-        card={card}
-        width={POSTER_WIDTH}
-        height={POSTER_HEIGHT}
-        cornerRadius={POSTER_RADIUS}
-      />
+      {/*
+        The poster and the title open the request, the same as they do on Find. Two targets rather
+        than one wrapper: a `Pressable` around the row renders as a real `<button>` on web, and the
+        action buttons below would then be buttons inside a button, which React refuses to render —
+        `.claude/learned-facts/pressable-listitem-cannot-hold-buttons`.
+      */}
+      <Pressable
+        onPress={onOpen}
+        disabled={!onOpen}
+        accessibilityRole={onOpen ? "button" : undefined}
+        accessibilityLabel={onOpen ? requestTitle(request) : undefined}
+        style={isWeb && onOpen ? ({ cursor: "pointer" } as ViewStyle) : null}
+      >
+        <CardArtwork
+          card={card}
+          width={POSTER_WIDTH}
+          height={POSTER_HEIGHT}
+          cornerRadius={POSTER_RADIUS}
+        />
+      </Pressable>
       <View style={{ flex: 1 }}>
-        <Text variant='body' weight='semibold' numberOfLines={2}>
+        <Text
+          variant='body'
+          weight='semibold'
+          numberOfLines={2}
+          onPress={onOpen}
+          accessibilityRole={onOpen ? "button" : undefined}
+          style={isWeb && onOpen ? ({ cursor: "pointer" } as TextStyle) : null}
+        >
           {requestTitle(request)}
         </Text>
         <View

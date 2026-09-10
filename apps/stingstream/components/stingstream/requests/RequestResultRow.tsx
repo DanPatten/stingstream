@@ -1,5 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  type TextStyle,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Pill } from "@/components/common/Pill";
@@ -18,6 +24,8 @@ import {
 const POSTER_WIDTH = 92;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
 const POSTER_RADIUS = radius.sm;
+
+const isWeb = Platform.OS === "web";
 
 /**
  * One thing you could ask for: poster, title, year, what the group already thinks about it, the
@@ -63,6 +71,7 @@ export function RequestResultRow({
   const card = { ...toRequestCard(result), badgeLabel: null };
   const action = searchAction(result);
   const badge = searchBadgeLabel(result);
+  const openable = action.intent === "manage";
 
   return (
     <View
@@ -77,15 +86,43 @@ export function RequestResultRow({
         marginBottom: 8,
       }}
     >
-      <CardArtwork
-        card={card}
-        width={POSTER_WIDTH}
-        height={POSTER_HEIGHT}
-        cornerRadius={POSTER_RADIUS}
-      />
+      {/*
+        The poster and the title are the second way into the editor, for the reader who reaches for
+        the thing itself rather than for the button beside it. Only when there is a request to edit:
+        a press here on an untouched title would otherwise *make* a request, which is not what
+        clicking a poster means anywhere else.
+
+        Two separate targets rather than one wrapper, and that is not a style choice — a `Pressable`
+        around the whole row renders as a real `<button>` on web and the row's own button would then
+        be a button inside a button, which React refuses to render outright:
+        `.claude/learned-facts/pressable-listitem-cannot-hold-buttons`.
+      */}
+      <Pressable
+        onPress={openable ? onPress : undefined}
+        disabled={!openable}
+        accessibilityRole={openable ? "button" : undefined}
+        accessibilityLabel={openable ? requestTitle(result) : undefined}
+        style={isWeb && openable ? ({ cursor: "pointer" } as ViewStyle) : null}
+      >
+        <CardArtwork
+          card={card}
+          width={POSTER_WIDTH}
+          height={POSTER_HEIGHT}
+          cornerRadius={POSTER_RADIUS}
+        />
+      </Pressable>
 
       <View style={{ flex: 1 }}>
-        <Text variant='body' weight='semibold' numberOfLines={2}>
+        <Text
+          variant='body'
+          weight='semibold'
+          numberOfLines={2}
+          onPress={openable ? onPress : undefined}
+          accessibilityRole={openable ? "button" : undefined}
+          style={
+            isWeb && openable ? ({ cursor: "pointer" } as TextStyle) : null
+          }
+        >
           {requestTitle(result)}
         </Text>
 
@@ -135,15 +172,32 @@ export function RequestResultRow({
         <View style={{ flexDirection: "row", marginTop: 10 }}>
           {/*
             With a request already open the pill above carries the state and this becomes the thing
-            to do about it — Edit for a show, whose seasons can change, Delete for a film, which
-            has nothing else to decide. Delete is the word My requests already uses for this. Secondary rather than primary: managing something you
-            already asked for is not the action this screen is for.
+            to do about it: Edit for a show, whose seasons can change, and Delete for a film, which
+            has nothing else to decide.
+
+            Delete is drawn exactly as My requests draws it — `danger`, the trash glyph, the word
+            Delete — because it is the same act on the same request, and a destructive control that
+            looks like an ordinary one on this screen and like a red one on that screen teaches the
+            reader nothing. Edit stays secondary: managing something you already asked for is not
+            the action this screen is for.
           */}
           <Button
             testID='requests-result-request'
-            variant={action.intent === "manage" ? "secondary" : "primary"}
+            variant={
+              action.intent !== "manage"
+                ? "primary"
+                : result.kind === "series"
+                  ? "secondary"
+                  : "danger"
+            }
             size='sm'
-            icon={action.intent === "manage" ? "settings" : "requests"}
+            icon={
+              action.intent !== "manage"
+                ? "requests"
+                : result.kind === "series"
+                  ? "settings"
+                  : "delete"
+            }
             disabled={action.disabled}
             loading={pending}
             onPress={onPress}

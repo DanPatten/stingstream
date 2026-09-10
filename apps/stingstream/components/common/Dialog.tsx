@@ -10,13 +10,15 @@ import { elevation, radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
 
 export interface DialogAction {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
+  /** A glyph before the label, for an action whose shape is worth recognising — a trash on Delete. */
+  icon?: IconName;
   disabled?: boolean;
   loading?: boolean;
   /** For a screen that needs to find this specific button — a primary submit, say. */
@@ -231,6 +233,7 @@ const DialogBody: React.FC<
               (index === actions.length - 1 ? "primary" : "ghost")
             }
             size='md'
+            icon={action.icon}
             disabled={action.disabled}
             loading={action.loading}
             onPress={action.onPress}
