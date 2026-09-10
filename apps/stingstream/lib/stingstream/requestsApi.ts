@@ -876,6 +876,19 @@ export async function decideRequest(
  *
  * An empty list means every season, the same as everywhere else in this module.
  */
+/**
+ * The request finished before the edit reached it.
+ *
+ * Its own type so a caller can act on it rather than print it. A request finishes on its own -- a
+ * node with no indexer fails one within seconds -- so a sheet opened on an open request can be
+ * saved against a finished one through no fault of the person pressing Save. Showing them "This
+ * request has already finished" is a refusal for something they did not do; asking again, which
+ * reopens the same row, is what they meant.
+ */
+export class RequestFinishedError extends Error {
+  readonly finished = true;
+}
+
 export async function setRequestSeasons(
   apiBaseUrl: string,
   id: string,
@@ -893,6 +906,9 @@ export async function setRequestSeasons(
       body: JSON.stringify({ seasons }),
     },
   );
+  if (res.status === 409) {
+    throw new RequestFinishedError("This request has already finished.");
+  }
   if (!res.ok)
     throw await readRequestsError(res, `PUT /requests/${id}/seasons`);
   return toRequest(await res.json());

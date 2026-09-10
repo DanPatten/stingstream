@@ -185,7 +185,7 @@ public sealed class RequestsController : StingStreamControllerBase
     /// <param name="body">The seasons wanted. Empty means every season.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The updated request.</response>
-    /// <response code="400">The request has already finished, so there is nothing to change.</response>
+    /// <response code="409">The request has already finished, so there is nothing to change.</response>
     /// <response code="404">No such request, or somebody else's.</response>
     /// <returns>The request.</returns>
     /// <remarks>
@@ -202,7 +202,7 @@ public sealed class RequestsController : StingStreamControllerBase
     /// </remarks>
     [HttpPut("{id}/seasons")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RequestRow>> SetSeasons(
         string id,
@@ -216,9 +216,15 @@ public sealed class RequestsController : StingStreamControllerBase
             return NotFound();
         }
 
+        // 409 rather than 400, and the distinction earns its keep: the caller is not malformed, it
+        // is *out of date*. A request finishes on its own -- a node with no indexer fails one within
+        // seconds -- so a sheet opened on an open request can be saved against a finished one
+        // through no fault of the person pressing the button. A status the app can branch on lets it
+        // do the useful thing (ask again, reopening the row) instead of showing them a refusal for
+        // something they did not do.
         if (!RequestStates.IsOpen(row.State))
         {
-            return BadRequest(new { error = "This request has already finished." });
+            return Conflict(new { error = "This request has already finished." });
         }
 
         // Sorted and deduplicated, and season 0 dropped: the specials folder is never what "the

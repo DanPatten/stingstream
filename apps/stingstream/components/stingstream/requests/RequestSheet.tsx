@@ -11,6 +11,7 @@ import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
   type MemberRequest,
+  RequestFinishedError,
   type RequestSearchResult,
   requestTitle,
   searchAction,
@@ -151,19 +152,24 @@ export function RequestSheet({
       // Replacing, not asking again. `useCreateRequest` on an open request *grows* its season list,
       // because a second person asking for season 4 means "and season 4" -- which is the wrong verb
       // for somebody editing their own request down to fewer seasons.
+      const wanted = seasonsForRequest(seasons, total);
       if (editingNow && editing) {
-        await setSeasonsOn.mutateAsync({
-          id: editing.id,
-          seasons: seasonsForRequest(seasons, total),
-        });
-        toast.success(t("requests.toast_saved", { title: shown.title }));
-        onClose();
-        return;
+        try {
+          await setSeasonsOn.mutateAsync({ id: editing.id, seasons: wanted });
+          toast.success(t("requests.toast_saved", { title: shown.title }));
+          onClose();
+          return;
+        } catch (err) {
+          // Anything but "it finished under you" is a real failure and is shown. That one is not:
+          // the row moved on while the sheet was open, and asking again reopens the same row with
+          // the seasons that were just chosen -- which is what Save meant.
+          if (!(err instanceof RequestFinishedError)) throw err;
+        }
       }
       const made = await create.mutateAsync({
         tmdbId: shown.tmdbId || undefined,
         tvdbId: shown.tvdbId || undefined,
-        seasons: seasonsForRequest(seasons, total),
+        seasons: wanted,
         title: shown.title,
         year: shown.year,
         posterUrl: shown.posterUrl,

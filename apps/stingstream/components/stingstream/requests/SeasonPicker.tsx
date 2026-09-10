@@ -89,20 +89,16 @@ export function SeasonPicker({
   return (
     <View
       testID='requests-season-picker'
-      // The inset is on the whole picker, not on the chip row, so the header sits on the same left
-      // edge as season 1 and the same right edge as the last chip. It was on the chips alone, which
-      // put Seasons and Clear all four pixels wide of the row they label.
+      // One inset for the whole picker, so the header and the squares share both edges: Seasons
+      // lines up with season 1, and Select all with the right-hand edge the row is measured to.
       //
-      // Negative margin cancels it again against the dialog's own padding, so the picker still
-      // lines up with the title above it. The four pixels exist for `webFocusRing`, which draws its
-      // outline *outside* the control: without them the ring on the first chip and on Clear all is
-      // sheared off flat against the edge of the card.
-      style={{
-        marginTop: 4,
-        marginHorizontal: -4,
-        paddingHorizontal: 4,
-        paddingVertical: 4,
-      }}
+      // The four pixels are not decoration. `webFocusRing` draws its outline *outside* the control
+      // and the dialog's body is an `overflow: hidden auto` scroller, so anything flush with that
+      // scroller's edge has its ring sheared off flat. This was `marginHorizontal: -4` against the
+      // same padding for a while, on the idea that the picker should still line up with the title
+      // above it -- which cancelled the inset exactly and put the ring back against the edge.
+      // Measured, not guessed: the chip's left edge and the scroller's were the same pixel.
+      style={{ marginTop: 4, paddingHorizontal: 4, paddingVertical: 4 }}
     >
       <View
         style={{
@@ -165,7 +161,9 @@ function SelectAll({ all, onPress }: { all: boolean; onPress: () => void }) {
       onBlur={() => setFocused(false)}
       testID='requests-seasons-select-all'
       style={[
-        { paddingVertical: 2, paddingHorizontal: 4, borderRadius: radius.xs },
+        // No horizontal padding: this sits at the row's right-hand edge, and any of its own would
+        // hold the text short of the edge the squares below are aligned to.
+        { paddingVertical: 2, borderRadius: radius.xs },
         isWeb
           ? ({ cursor: "pointer", ...webFocusRing(focused) } as ViewStyle)
           : null,
@@ -181,11 +179,21 @@ function SelectAll({ all, onPress }: { all: boolean; onPress: () => void }) {
 /**
  * One season: a 36x36 rounded square with a number in it.
  *
- * Chosen inverts — the text colour becomes the fill and the page colour becomes the number — which
- * is the loudest a control can be without borrowing the accent the submit button owns. Unchosen is
- * transparent with a faint edge, so an untouched row reads as an outline of choices rather than as
- * six disabled buttons. No tick: the fill already says it, and a glyph crowded into a 36px square
- * beside a digit reads as an icon rather than as a season.
+ * **Chosen is the accent, solid, because that is what selected means everywhere else in this app**
+ * — `FilterChip` fills the same way, and a reader has already learned it here. Two other fills were
+ * tried and both failed for the same reason: near-white read as *unselected*, because white is this
+ * palette's neutral rather than its selected; and the accent at 18 per cent was a dark tint on a
+ * dark sheet, near enough to the unchosen square to be a guess. What keeps it clear of the submit
+ * button is shape, not colour: a 36px square is not a labelled button, and Select all is a text
+ * action rather than a chip in the row.
+ *
+ * **Both states carry a visible border.** Unchosen was transparent with `border.subtle`, which is
+ * eight per cent white over a near-black sheet — invisible in practice, so the row read as six
+ * floating numbers. `border.strong` and 1.5px give the square an edge in both states, which is
+ * also what makes the selected one legible as a *change* rather than as the only thing there.
+ *
+ * No tick: the fill says it, and a glyph crowded into a 36px square beside a digit reads as an
+ * icon rather than as a season.
  */
 function SeasonChip({
   season,
@@ -197,7 +205,7 @@ function SeasonChip({
   onPress: () => void;
 }) {
   const { t } = useTranslation();
-  const { color } = useTheme();
+  const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -222,15 +230,15 @@ function SeasonChip({
           borderRadius: radius.md,
           borderWidth: 1,
           borderColor: selected
-            ? color.text.primary
+            ? accent[500]
             : hovered && isWeb
-              ? color.border.strong
-              : color.border.subtle,
+              ? color.text.tertiary
+              : color.border.strong,
           backgroundColor: selected
-            ? color.text.primary
+            ? accent[500]
             : hovered && isWeb
-              ? color.bg["2"]
-              : "transparent",
+              ? color.bg["3"]
+              : color.bg["2"],
         },
         isWeb
           ? ({
@@ -244,11 +252,7 @@ function SeasonChip({
       <Text
         variant='caption'
         weight='bold'
-        tone={selected ? "primary" : "tertiary"}
-        // The inverse of the page, so a filled square reads as "on" without spending the accent
-        // that belongs to the submit button. `tone` has no name for it: it is the background
-        // colour used as ink.
-        style={selected ? { color: color.bg["0"] } : undefined}
+        tone={selected ? "onAccent" : "secondary"}
       >
         {season}
       </Text>
