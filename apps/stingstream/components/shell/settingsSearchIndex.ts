@@ -77,7 +77,6 @@ const CONTROLS: Control[] = [
 
   // Interface & display
   { id: "theme", category: "appearance" },
-  { id: "accent", category: "appearance" },
   { id: "app-language", category: "appearance" },
   { id: "home-layout", category: "appearance" },
   { id: "hidden-libraries", category: "appearance" },
@@ -123,10 +122,11 @@ const CONTROLS: Control[] = [
   { id: "download-clients", category: "services" },
   { id: "arr-sync", category: "services" },
 
-  // Films & series
-  // `downloading` first: it is the only control on that page that can be *off*,
-  // and the one every "downloading is not set up" notice is trying to reach.
-  { id: "downloading", category: "arr_library" },
+  // Downloading. Its own category, and the one every "downloading is not set
+  // up" notice is trying to reach.
+  { id: "downloading", category: "downloading" },
+
+  // Movies & TV shows
   { id: "add-title", category: "arr_library" },
   { id: "remove-title", category: "arr_library" },
 

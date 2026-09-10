@@ -596,7 +596,36 @@ public sealed class RequestService
             ItemKey = isMovie
                 ? InventoryKeys.Movie(providerId)
                 : InventoryKeys.SeriesPrefix(providerId),
+            SeasonCount = isMovie ? 0 : SeasonCountOf(entry),
         };
+    }
+
+    /// <summary>
+    /// The highest real season number on a series lookup entry.
+    /// </summary>
+    /// <remarks>
+    /// The highest number rather than the array's length, because season 0 is in there -- the
+    /// specials folder -- and a show can be missing a season from the middle of the list. Both
+    /// would make a count one out, and the app draws one chip per season from it.
+    /// </remarks>
+    private static int SeasonCountOf(JsonObject entry)
+    {
+        if (entry["seasons"] is not JsonArray seasons)
+        {
+            return 0;
+        }
+
+        var highest = 0;
+        foreach (var season in seasons.OfType<JsonObject>())
+        {
+            var number = season["seasonNumber"]?.GetValue<int?>() ?? 0;
+            if (number > highest)
+            {
+                highest = number;
+            }
+        }
+
+        return highest;
     }
 
     /// <summary>

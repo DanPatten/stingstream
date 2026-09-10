@@ -111,8 +111,8 @@ describe("buildSettingsSearchIndex", () => {
     // own name until now, so a reader who took the sentence at its word and
     // typed "downloading" into Settings got nothing back.
     const entry = index(admin).find((e) => e.id === "downloading");
-    expect(entry?.categoryKey).toBe("arr_library");
-    expect(entry?.href).toBe("/settings/library?focus=downloading");
+    expect(entry?.categoryKey).toBe("downloading");
+    expect(entry?.href).toBe("/settings/downloading?focus=downloading");
   });
 
   test("a control can point at a page other than its own category", () => {

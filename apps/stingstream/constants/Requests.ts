@@ -24,6 +24,17 @@ export const REQUEST_SEARCH_DEBOUNCE_MS = 400;
 export const REQUEST_SEARCH_MIN_LENGTH = 3;
 
 /**
+ * How many season chips to draw when the node did not say how many a show has.
+ *
+ * `RequestSearchResult.seasonCount` carries the real number, off the same lookup that produced the
+ * row, so this is only reached on a node built before that field existed. Generous on purpose: the
+ * node ticks only the seasons the series actually has, so offering season 18 of a nine-season show
+ * is harmless (`RequestWorker.ApplySeasons` never finds it) where offering too few would make a
+ * season unrequestable.
+ */
+export const REQUEST_SEASON_FALLBACK = 20;
+
+/**
  * Public-domain titles offered as chips before anything has been typed.
  *
  * These are search *terms*, not library content: pressing one runs a real metadata lookup, so a

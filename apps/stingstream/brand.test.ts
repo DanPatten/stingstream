@@ -19,9 +19,10 @@ const BRAND_RE = /\b(Jellyfin|Streamyfin|Radarr|Sonarr|NZBGet|Emby)\b/i;
 // both apps", "the two apps disagree", "Neither app has one". Dan, 2026-09-09, on finding the
 // first of those on the quality screen -- "StingStream is a single app and the combination of
 // sonarr/radarr should never be referenced as such". A person installed one program; which child
-// process did the work is ours to know. The user-facing split that survives is films vs series,
-// because that is a fact about their library rather than about our processes. See the root
-// CLAUDE.md, "StingStream is one app".
+// process did the work is ours to know. The user-facing split that survives is movies vs TV shows,
+// because that is a fact about their library rather than about our processes. (It read "films vs
+// series" until Dan asked for the American words, 2026-09-10; the split is the same, the two
+// nouns are not our process names either way.) See the root CLAUDE.md, "StingStream is one app".
 //
 // Copy only: code, comments, logs and docs/** keep the honest names.
 const TWO_APPS_RE =

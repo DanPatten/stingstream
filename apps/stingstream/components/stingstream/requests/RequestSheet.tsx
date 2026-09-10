@@ -1,28 +1,38 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
-import { toast } from "sonner-native";
-import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type RequestSearchResult,
   requestTitle,
   searchAction,
-  toRequestCard,
   useCreateRequest,
 } from "@/lib/stingstream/requests";
-import { SeasonPicker } from "./SeasonPicker";
-
-const POSTER_WIDTH = 96;
-const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
+import { requestMadeToast } from "./requestMadeToast";
+import {
+  allSeasons,
+  SeasonPicker,
+  seasonsForRequest,
+  seasonTotal,
+} from "./SeasonPicker";
 
 /**
- * Poster, overview, a "held by ..." notice when a member already has it, a season picker for a
- * series, and the Request button itself — everything Discover's card doesn't have room to say.
+ * Which seasons, and a "held by …" notice when a member already has it.
+ *
+ * **TV shows only.** It used to open for anything: poster, year, overview, a season picker for a
+ * series, and a Request button. For a movie that was the row it was opened from, drawn again at a
+ * larger size, with a second button also called Request — asking for a film meant pressing Request
+ * twice to say one thing. `FindSection` submits a movie straight from its row now, and opens this
+ * only when there is genuinely something to choose.
+ *
+ * The poster and overview went with it for the same reason: the row behind the sheet is already
+ * showing both, and repeating them here was most of what made the sheet read as a duplicate rather
+ * than as a question.
  *
  * `Dialog` already decides card-on-web-wide / bottom-sheet-on-phone (`components/common/Dialog.tsx`),
  * so this component is only ever the title, the body and the actions; nothing here checks the
@@ -39,6 +49,7 @@ export function RequestSheet({
   result: RequestSearchResult | null;
   onClose: () => void;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const [shown, setShown] = useState<RequestSearchResult | null>(null);
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -53,15 +64,28 @@ export function RequestSheet({
   // about must not carry over. Keyed on the item key rather than the whole object — `result` is a
   // fresh array element every time Discover's search results refetch, and a background refetch
   // while the sheet is open for the same title must not wipe out seasons the user already ticked.
+  //
+  // It opens with every season ticked, because a request for a show is almost always a request for
+  // the whole show. `seasonsForRequest` turns that back into the empty list the node reads as "all
+  // of it", so the common case still takes Sonarr's own monitor-all path rather than arriving as
+  // an enumeration.
+  //
+  // Both deps are primitives off `result` rather than `result` itself, which is a fresh array
+  // element on every refetch and would re-run this — wiping the ticks mid-thought.
+  const openedFor = result?.itemKey;
+  const openedSeasons = result?.seasonCount;
   useEffect(() => {
-    setSeasons([]);
+    setSeasons(allSeasons(seasonTotal({ seasonCount: openedSeasons })));
     setError(null);
-  }, [result?.itemKey]);
+  }, [openedFor, openedSeasons]);
 
   if (!shown) return null;
 
-  const isSeries = shown.kind === "series";
+  const total = seasonTotal(shown);
   const action = searchAction(shown);
+  // Nothing ticked is not a request. There is no way to say "no seasons" on the wire — an empty
+  // list means every season — so the button waits rather than sending the opposite of the screen.
+  const nothingChosen = seasons.length === 0;
 
   const submit = async () => {
     setError(null);
@@ -69,26 +93,12 @@ export function RequestSheet({
       const made = await create.mutateAsync({
         tmdbId: shown.tmdbId || undefined,
         tvdbId: shown.tvdbId || undefined,
-        seasons: isSeries ? seasons : undefined,
+        seasons: seasonsForRequest(seasons, total),
         title: shown.title,
         year: shown.year,
         posterUrl: shown.posterUrl,
       });
-      // Three genuinely different outcomes, and calling all of them "requested" would hide the one
-      // that matters: a title the group already had starts no download at all.
-      if (made.state === "available") {
-        toast.success(
-          t("requests.toast_available", { title: requestTitle(made) }),
-        );
-      } else if (made.state === "pending") {
-        toast.success(
-          t("requests.toast_pending", { title: requestTitle(made) }),
-        );
-      } else {
-        toast.success(
-          t("requests.toast_requested", { title: requestTitle(made) }),
-        );
-      }
+      requestMadeToast(made, t);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -112,48 +122,21 @@ export function RequestSheet({
           label: action.disabled ? action.label : t("requests.request_button"),
           testID: "requests-submit",
           onPress: submit,
-          disabled: action.disabled,
+          disabled: action.disabled || nothingChosen,
           loading: create.isPending,
         },
       ]}
     >
       <View testID='requests-sheet'>
-        <View style={{ flexDirection: "row", gap: 16 }}>
-          <CardArtwork
-            card={toRequestCard(shown)}
-            width={POSTER_WIDTH}
-            height={POSTER_HEIGHT}
-            cornerRadius={radius.md}
-          />
-          <View style={{ flex: 1 }}>
-            {shown.year ? (
-              <Text variant='caption' tone='secondary'>
-                {shown.year}
-              </Text>
-            ) : null}
-            {shown.overview ? (
-              <Text
-                variant='body'
-                tone='secondary'
-                numberOfLines={7}
-                style={{ marginTop: 4 }}
-              >
-                {shown.overview}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
         {shown.availableInGroup && shown.holders.length > 0 ? (
           <View
             style={{
               flexDirection: "row",
               alignItems: "flex-start",
               gap: 8,
-              marginTop: 16,
               padding: 12,
               borderRadius: radius.md,
-              backgroundColor: tokens.color.bg["2"],
+              backgroundColor: color.bg["2"],
             }}
           >
             <Icon
@@ -168,9 +151,7 @@ export function RequestSheet({
           </View>
         ) : null}
 
-        {isSeries ? (
-          <SeasonPicker value={seasons} onChange={setSeasons} />
-        ) : null}
+        <SeasonPicker value={seasons} onChange={setSeasons} total={total} />
 
         <FormError message={error} />
       </View>

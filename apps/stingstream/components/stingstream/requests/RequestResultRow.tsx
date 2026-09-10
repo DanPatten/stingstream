@@ -4,7 +4,8 @@ import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type RequestSearchResult,
   requestTitle,
@@ -29,8 +30,14 @@ const POSTER_RADIUS = radius.sm;
  * the overview is the only thing that tells them apart, and a tile has nowhere to put it.
  *
  * `searchAction` decides the button's label and whether it is offered at all, so a row never
- * promises something {@link RequestSheet} would then refuse. `searchBadgeLabel` answers the same
- * question in two words for the pill beside the title.
+ * promises something the node would then refuse. `searchBadgeLabel` answers the same question in
+ * two words for the pill beside the title.
+ *
+ * **The button requests.** It used to open a sheet carrying the same poster, the same overview and
+ * a second button also called Request, so asking for a movie meant pressing Request to reach
+ * Request. A movie is submitted from here now and `pending` draws the spinner; only a TV show
+ * still opens {@link RequestSheet}, because which seasons to ask for is a real choice and this row
+ * has nowhere to put it.
  *
  * The container is a plain `View` and the button is the only control in it — the row itself is not
  * pressable. A `Pressable` wrapping the whole row renders as a real `<button>` on web, and a
@@ -40,11 +47,15 @@ const POSTER_RADIUS = radius.sm;
  */
 export function RequestResultRow({
   result,
+  pending = false,
   onPress,
 }: {
   result: RequestSearchResult;
+  /** This row's own request is in flight. Per row, not per screen: a list of spinners would be a lie. */
+  pending?: boolean;
   onPress: () => void;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   // No corner badge on a 56px thumbnail: `toRequestCard` sizes `badgeLabel` for a grid tile and it
   // spills past the artwork's edge here. The pill beside the title says the same thing legibly —
@@ -62,7 +73,7 @@ export function RequestResultRow({
         gap: 12,
         padding: 12,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         marginBottom: 8,
       }}
     >
@@ -128,6 +139,7 @@ export function RequestResultRow({
             size='sm'
             icon='requests'
             disabled={action.disabled}
+            loading={pending}
             onPress={onPress}
             // A screenful of buttons all reading "Request" is a screenful of controls with the
             // same name; the title is what tells a screen reader which one this is.

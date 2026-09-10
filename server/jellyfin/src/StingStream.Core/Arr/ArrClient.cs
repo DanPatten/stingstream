@@ -139,6 +139,44 @@ public sealed class ArrClient
         return req;
     }
 
+    /// <summary>
+    /// The send itself, with a transport failure turned into an <see cref="ArrApiException"/>.
+    /// </summary>
+    /// <remarks>
+    /// A connection failure is the *ordinary* failure for a minute after downloading is switched
+    /// on: the supervisor wires the child's port and API key as soon as it starts it, but Radarr
+    /// and Sonarr migrate their database before they bind that port, so everything in between is
+    /// refused. Left as a raw <see cref="HttpRequestException"/> it escaped every
+    /// <c>catch (ArrApiException)</c> in the controllers and reached Jellyfin's
+    /// <c>ExceptionMiddleware</c>, which turns anything unhandled into a bare 500 reading "Error
+    /// processing request." -- the least informative sentence available, on the one screen where
+    /// the reader had just pressed the switch that caused it. With no <c>Status</c> it takes the
+    /// existing 503 path instead, and names the child that could not be reached.
+    /// <para>
+    /// <see cref="TaskCanceledException"/> is how <see cref="HttpClient"/>'s own timeout surfaces.
+    /// A caller's real cancellation carries the caller's token, which is what tells the two apart.
+    /// </para>
+    /// </remarks>
+    private async Task<HttpResponseMessage> SendRawAsync(
+        HttpRequestMessage req,
+        HttpMethod method,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new ArrApiException($"{Name} {method} {path} could not be reached: {ex.Message}", ex);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ArrApiException($"{Name} {method} {path} timed out.", ex);
+        }
+    }
+
     private async Task<JsonNode?> SendAsync(
         HttpMethod method,
         string path,
@@ -151,7 +189,7 @@ public sealed class ArrClient
             req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         }
 
-        using var res = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        using var res = await SendRawAsync(req, method, path, cancellationToken).ConfigureAwait(false);
         var text = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
         if (!res.IsSuccessStatusCode)

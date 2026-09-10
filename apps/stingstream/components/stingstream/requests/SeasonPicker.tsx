@@ -1,40 +1,72 @@
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
-import { Button } from "@/components/Button";
-import { Pill } from "@/components/common/Pill";
-import { Text } from "@/components/common/Text";
-import { seasonsLabel } from "@/lib/stingstream/requestsApi";
+import { FilterChip } from "@/components/filters/FilterChip";
+import { REQUEST_SEASON_FALLBACK } from "@/constants/Requests";
+import type { RequestSearchResult } from "@/lib/stingstream/requestsApi";
 
 /**
- * Which seasons of a series to ask for — a row of chips inside `RequestSheet`, not a modal of its
- * own. Nesting a second `Modal`/sheet inside the one `RequestSheet` already is would be two layered
- * overlays on a phone and two centred cards on a desktop; a series request is common enough that
- * its picker belongs in the sheet's own body.
+ * Which seasons to ask for: one row of chips, All seasons first and then every season the show
+ * actually has.
  *
- * Two things about the shape, both learned from what the node does with the answer:
+ * Two shapes came before it and both made the reader work to say the ordinary thing. First it was
+ * twenty numbered chips and nothing else, so asking for a nine-season show meant nine presses to
+ * express "all of it". Then it was Sonarr's own Monitor presets, which named a choice ("First
+ * season") nobody making a *request* wants and hid the seasons behind a third chip. Dan,
+ * 2026-09-10: *"Lets do [All Seasons] [1] [2]... to end. With all seasons being selected by
+ * default."*
  *
- * * **An empty selection means "all of them", and is the default.** It is not the same as "none":
- *   Sonarr's `addOptions.monitor: all` and a per-season tick list are different mechanisms, and
- *   the request carries an empty list precisely so the node can use the first. Somebody who leaves
- *   every chip untouched and presses Request gets the whole show, which is what they would expect.
+ * **All seasons is a select-all, and shows its work.** Pressing it fills every numbered chip
+ * rather than replacing them with one lit chip, and pressing it again empties them — so the row
+ * always says which seasons are going to be asked for, and the shortcut is discoverable without a
+ * "Select all / Deselect all" pair of links announcing itself. Dan: *"when all seasons are
+ * selected actually SELECT all seasons on the right - its a select all/unselect all without
+ * screaming that."*
+ *
+ * Two things about the value, both from what the node does with the answer:
+ *
+ * * **Everything ticked is sent as an empty list.** `seasonsForRequest` does that conversion.
+ *   Sonarr's `addOptions.monitor: all` and a per-season tick list are different mechanisms, and an
+ *   empty list is what lets the node use the first — so "all of it" stays one instruction rather
+ *   than an enumeration that happens to cover everything.
  * * **Season 0 is not offered.** It is the specials folder, and "the whole show" to a person does
  *   not include the Christmas special nobody asked for. The node's `ApplySeasons` agrees.
- *
- * The season *count* is not known here — the request is made from a search result, before anything
- * has been added to Sonarr — so the picker offers a generous fixed range and the node ticks only
- * the seasons the series actually has. Asking for season 12 of a nine-season show is harmless:
- * `ApplySeasons` simply never finds it.
  */
+
+/** How many chips to draw for a show: its real count, or the fallback for a node that did not say. */
+export const seasonTotal = (
+  result: Pick<RequestSearchResult, "seasonCount"> | null | undefined,
+): number =>
+  result?.seasonCount && result.seasonCount > 0
+    ? result.seasonCount
+    : REQUEST_SEASON_FALLBACK;
+
+/** Every season, which is where a fresh sheet starts. */
+export const allSeasons = (total: number): number[] =>
+  Array.from({ length: total }, (_, i) => i + 1);
+
+/**
+ * The list to put on the request.
+ *
+ * Empty when everything is ticked, because that is how the node is told "the whole show" — see the
+ * note above. A caller must not send an empty selection: there is no way to express "none" on the
+ * wire, and `[]` would mean the opposite of what was on screen.
+ */
+export const seasonsForRequest = (value: number[], total: number): number[] =>
+  value.length === total ? [] : value;
+
 export function SeasonPicker({
   value,
   onChange,
-  maxSeason = 20,
+  total,
 }: {
   value: number[];
   onChange: (seasons: number[]) => void;
-  maxSeason?: number;
+  /** How many chips to draw. From {@link seasonTotal}. */
+  total: number;
 }) {
   const { t } = useTranslation();
+  const all = value.length === total;
+
   const toggle = (season: number) =>
     onChange(
       value.includes(season)
@@ -43,42 +75,34 @@ export function SeasonPicker({
     );
 
   return (
-    <View style={{ marginTop: 16 }} testID='requests-season-picker'>
-      <Text variant='caption' weight='semibold'>
-        {seasonsLabel(value)}
-      </Text>
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-          marginTop: 10,
-        }}
-      >
-        {Array.from({ length: maxSeason }, (_, i) => i + 1).map((season) => {
-          const active = value.includes(season);
-          return (
-            <Pill
-              key={season}
-              label={String(season)}
-              tone={active ? "accent" : "neutral"}
-              emphasis={active ? "solid" : "soft"}
-              onPress={() => toggle(season)}
-              accessibilityLabel={t("requests.season_n", { n: season })}
-            />
-          );
-        })}
-      </View>
-      {value.length > 0 ? (
-        <Button
-          variant='ghost'
-          size='sm'
-          onPress={() => onChange([])}
-          style={{ marginTop: 10, alignSelf: "flex-start" }}
-        >
-          {t("requests.seasons_reset")}
-        </Button>
-      ) : null}
+    <View
+      testID='requests-season-picker'
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        // Room for the focus ring, which `webFocusRing` draws *outside* the chip: 2px of outline
+        // 2px clear of the edge. Without it the first chip's ring is sheared off flat against the
+        // dialog's own edge, which reads as a chip that has been cut in half.
+        padding: 4,
+        marginTop: 12,
+      }}
+    >
+      <FilterChip
+        label={t("requests.seasons_all")}
+        active={all}
+        onPress={() => onChange(all ? [] : allSeasons(total))}
+      />
+      {allSeasons(total).map((season) => (
+        <FilterChip
+          key={season}
+          label={String(season)}
+          active={value.includes(season)}
+          onPress={() => toggle(season)}
+          // A row of bare numbers is unreadable to a screen reader, and "3" is not a control name.
+          accessibilityLabel={t("requests.season_n", { n: season })}
+        />
+      ))}
     </View>
   );
 }

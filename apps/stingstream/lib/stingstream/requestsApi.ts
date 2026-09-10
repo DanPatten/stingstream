@@ -167,6 +167,14 @@ export interface RequestSearchResult {
   tmdbId: number;
   tvdbId: number;
   itemKey: string;
+  /**
+   * Seasons this show has, specials excluded. `0` for a movie.
+   *
+   * Optional because the wire may not carry it: a node built before the field existed sends
+   * nothing, and `SeasonPicker` falls back to a fixed range rather than drawing no seasons at all.
+   * Anything through `toSearchResult` always has a number.
+   */
+  seasonCount?: number;
   /** True when a member of the group already holds it at an acceptable quality. */
   availableInGroup: boolean;
   holders: string[];
@@ -278,6 +286,7 @@ export const toSearchResult = (raw: unknown): RequestSearchResult => ({
   tmdbId: field<number>(raw, ...both("tmdbId")) ?? 0,
   tvdbId: field<number>(raw, ...both("tvdbId")) ?? 0,
   itemKey: field<string>(raw, ...both("itemKey")) ?? "",
+  seasonCount: field<number>(raw, ...both("seasonCount")) ?? 0,
   availableInGroup: field<boolean>(raw, ...both("availableInGroup")) ?? false,
   holders: field<string[]>(raw, ...both("holders")) ?? [],
   requestState: field<string>(raw, ...both("requestState")) as

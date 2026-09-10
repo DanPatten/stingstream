@@ -6,24 +6,42 @@ import { useHealthz } from "./status";
 import { unwrap } from "./unwrap";
 
 /**
- * Whether `/healthz` already says a given child (`"radarr"` / `"sonarr"`) is
- * enabled — `true`/`false` once `/healthz` has answered, `undefined` while it
- * is still loading. Movies/series queries wait on this rather than firing and
- * discovering the 503 themselves: a node with no movie manager or no series
- * manager answers every list call with the same "not configured" failure, and
- * `/healthz` already carries that fact.
+ * Whether a given child (`"radarr"` / `"sonarr"`) can answer a list call yet.
+ *
+ * Three answers, because the question has three answers and a boolean could
+ * only carry two:
+ *
+ * * `"off"` — the switch is off. Nothing is coming; say so.
+ * * `"starting"` — the switch is on and the child is not answering *yet*. Hold
+ *   the loader.
+ * * `"ready"` — ask it.
+ *
+ * `undefined` while `/healthz` is still loading, and for a node reached from
+ * off its own machine, which redacts the child list: absence there means "would
+ * not say", not "not running", and `undefined` holds the loader where `"off"`
+ * would tell a remote administrator downloading is not set up on a node that is
+ * downloading perfectly well.
+ *
+ * This gated on `enabled` alone until the middle state existed, and `enabled`
+ * flips true the moment the supervisor wires the child's port and API key —
+ * a minute or so before Radarr or Sonarr finishes migrating its database and
+ * binds that port. Every list call in that window failed, and a connection
+ * failure is not an `ArrApiException`, so it arrived as a bare 500 reading
+ * "Something went wrong / Error processing request." on a page whose switch had
+ * just been turned on. Waiting for `healthy` costs a few seconds of skeleton and
+ * heals by itself on the next healthz poll.
  */
-export function useArrReady(name: "radarr" | "sonarr"): boolean | undefined {
+export type ArrReadiness = "off" | "starting" | "ready";
+
+export function useArrReady(
+  name: "radarr" | "sonarr",
+): ArrReadiness | undefined {
   const healthz = useHealthz();
   const child = healthz.data?.children.find((c) => c.name === name);
   if (!healthz.data) return undefined;
-  // A node reached from off its own machine redacts the child list, so absence
-  // there means "would not say", not "not running". `undefined` — the same
-  // answer as still loading — is the honest one: it holds the loader, where
-  // `false` would tell a remote administrator downloading is not set up on a
-  // node that is downloading perfectly well.
   if (healthz.data.redacted) return undefined;
-  return child?.enabled ?? false;
+  if (!child?.enabled) return "off";
+  return child.state === "healthy" ? "ready" : "starting";
 }
 
 export type SharedSettings = components["schemas"]["SharedSettings"];
@@ -246,11 +264,11 @@ export function useMovies() {
       return ((data ?? (await response.json())) as ArrMovie[]) ?? [];
     },
     // Waits on arrReady rather than firing and handling the failure: a node with
-    // no movie manager answers every /movies call with a 503, and letting the
-    // request go out anyway means three retries (the app's default) and a
-    // console entry for each one, purely to learn something /healthz already
-    // knows for free.
-    enabled: !!client && arrReady === true,
+    // no movie manager answers every /movies call with a 503, and one whose
+    // manager is still starting answers with a 500. Letting the request go out
+    // anyway means three retries (the app's default) and a console entry for
+    // each one, purely to learn something /healthz already knows for free.
+    enabled: !!client && arrReady === "ready",
     retry: false,
   });
 }
@@ -301,7 +319,7 @@ export function useSeries() {
       if (error) throw error;
       return ((data ?? (await response.json())) as ArrSeries[]) ?? [];
     },
-    enabled: !!client && arrReady === true,
+    enabled: !!client && arrReady === "ready",
     retry: false,
   });
 }

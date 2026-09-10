@@ -46,11 +46,16 @@ export function useDownloading() {
 /**
  * What is actually running, per `/healthz`.
  *
+ * `state` is the child's own — `healthy`, `starting`, `unhealthy`, `restarting`, `stopped` — and
  * `undefined` while healthz is still loading, so a caller can tell "not started yet" from "not
- * running" — the difference between a spinner and a problem.
+ * running": the difference between a spinner and a problem.
+ *
+ * It used to also return a `running` boolean that was true for `healthy` *and* `starting`, which
+ * is how a manager three seconds into its first-run migration came to be labelled Running. The
+ * three states are genuinely three, and every caller wanted to draw them differently, so the
+ * boolean is gone.
  */
 export function useDownloadingHealth(key: DownloadingKey): {
-  running: boolean | undefined;
   state: string | undefined;
   error: string | undefined;
 } {
@@ -60,13 +65,14 @@ export function useDownloadingHealth(key: DownloadingKey): {
   // off its own machine does not list its children, so there is nothing to
   // report and a pill claiming "Not running" would be inventing one.
   if (!healthz.data || healthz.data.redacted) {
-    return { running: undefined, state: undefined, error: undefined };
+    return { state: undefined, error: undefined };
   }
   return {
-    running: child?.state === "healthy" || child?.state === "starting",
     state: child?.state,
     // The supervisor puts its refusal here — a manager whose binary is missing, most often — and
-    // it is the only place that says *why* a switch that is on has nothing behind it.
+    // it is the only place that says *why* a switch that is on has nothing behind it. It survives
+    // until the next *successful* probe clears it, so a caller must check `state` before showing
+    // it.
     error: child?.last_error ?? undefined,
   };
 }

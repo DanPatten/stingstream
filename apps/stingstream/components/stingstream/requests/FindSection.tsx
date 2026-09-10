@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, View } from "react-native";
+import { toast } from "sonner-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
 import { Pill } from "@/components/common/Pill";
@@ -16,6 +17,7 @@ import {
   dedupeSearchResults,
   type RequestSearchResult,
   useCanApproveRequests,
+  useCreateRequest,
   useRequestPolicy,
   useRequestSearch,
   useRequests,
@@ -24,7 +26,7 @@ import { RequestCardSkeletonList } from "./RequestCard";
 import { RequestResultRow } from "./RequestResultRow";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
-import { REQUESTS_SETUP_ROUTE } from "./RequestsNotSetUp";
+import { requestMadeToast } from "./requestMadeToast";
 
 /**
  * All, or one kind. The node takes `kind` on `/requests/search` and has since M6; nothing in the
@@ -84,6 +86,43 @@ export function FindSection({ term = "" }: { term?: string }) {
   const [debounced, setDebounced] = useState(term);
   const [kindKey, setKindKey] = useState<KindKey>("all");
   const [picking, setPicking] = useState<RequestSearchResult | null>(null);
+  // Which row is waiting on the node, by item key, so one press spins one button. `create.isPending`
+  // is per-mutation rather than per-row and would spin every button in the list at once.
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const create = useCreateRequest();
+
+  /**
+   * Ask for it.
+   *
+   * A movie goes straight to the node: there is nothing to decide, and the sheet that used to open
+   * here only repeated the row back with a second Request button on it. A TV show opens the sheet,
+   * because which seasons to ask for is a real choice — an empty selection means all of them, and
+   * that default is worth showing rather than assuming silently.
+   */
+  const request = async (result: RequestSearchResult) => {
+    if (result.kind === "series") {
+      setPicking(result);
+      return;
+    }
+    setSubmitting(result.itemKey);
+    try {
+      const made = await create.mutateAsync({
+        tmdbId: result.tmdbId || undefined,
+        tvdbId: result.tvdbId || undefined,
+        title: result.title,
+        year: result.year,
+        posterUrl: result.posterUrl,
+      });
+      requestMadeToast(made, t);
+    } catch (err) {
+      // A toast, where the sheet had a `FormError` under its fields: there is no sheet left to
+      // hold one, and the row itself must not grow a second height depending on whether the last
+      // press worked.
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(null);
+    }
+  };
 
   // Guarded on being different so a re-render cannot push a stale `q` back over what is being
   // typed now. Same shape, and the same reason, as the guard in `SearchField`.
@@ -133,15 +172,15 @@ export function FindSection({ term = "" }: { term?: string }) {
           // Offered only to somebody who can act on it. Two different things land here: a real
           // no-match, and a node whose managers are off — `/requests/search` answers an empty list
           // for the second, not the 503 `RequestsErrorState` handles, which is why the copy has to
-          // cover both. One screen answers both for an administrator: it names which managers this
-          // node runs ("Downloading is not set up on this server."), and it is where a title that
-          // search cannot find gets added by hand.
+          // cover both. Movies & TV shows is the screen for the first and the more likely of the
+          // two now that downloading is on by default: it is where a title search cannot find gets
+          // added by hand, and its own empty state points on to the switch for the second.
           action={
             canAdmin
               ? {
                   label: t("home.settings.sections.arr_library"),
                   icon: "settings",
-                  onPress: () => router.push(REQUESTS_SETUP_ROUTE),
+                  onPress: () => router.push("/settings/library"),
                 }
               : undefined
           }
@@ -154,7 +193,8 @@ export function FindSection({ term = "" }: { term?: string }) {
           <RequestResultRow
             key={result.itemKey || `${result.kind}:${result.title}`}
             result={result}
-            onPress={() => setPicking(result)}
+            pending={submitting === result.itemKey}
+            onPress={() => request(result)}
           />
         ))}
       </View>

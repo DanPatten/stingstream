@@ -314,6 +314,18 @@ public sealed class RequestSearchResult
     /// <summary>The item key, or the series prefix.</summary>
     public string ItemKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// How many seasons this show has, excluding specials. <c>0</c> for a movie, and for a series
+    /// whose lookup did not say.
+    /// </summary>
+    /// <remarks>
+    /// So the app can offer the seasons that exist rather than a fixed range. It costs nothing:
+    /// the season list is already on the lookup entry this result is built from, and it comes down
+    /// the same endpoint a member is allowed to call -- asking Sonarr directly from the app would
+    /// need elevation, which is why the picker used to guess at twenty.
+    /// </remarks>
+    public int SeasonCount { get; set; }
+
     /// <summary>True when a member of the group already holds it at an acceptable quality.</summary>
     public bool AvailableInGroup { get; set; }
 

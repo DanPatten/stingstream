@@ -11,7 +11,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Skeleton, SkeletonText } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
-import { motion, radius, tokens } from "@/constants/theme";
+import { motion, radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import type { ArrMovie, ArrSeries } from "@/lib/stingstream/arr-types";
@@ -58,7 +58,7 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
 
   const rows = (query.data ?? []) as (ArrMovie | ArrSeries)[];
 
-  if (arrReady === false) {
+  if (arrReady === "off") {
     return (
       <View testID={isMovie ? "arr-movies" : "arr-series"}>
         <ScreenHeaderRow
@@ -68,13 +68,9 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
           icon='download'
           title={t("manage.not_set_up_title")}
           detail={t("manage.not_set_up_detail")}
-          // The switch that fixes this is on this same screen, above — so this
-          // points at it rather than navigating anywhere: `?focus=` is what
-          // `FocusTarget` scrolls to and rings. The sentence used to say "turn
-          // it on above" and leave the reader to find it, which is fine on a
-          // short page and useless the moment the list header pushes the switch
-          // off screen. The nonce is what makes a second press work; the
-          // reasoning is on `FocusTarget`.
+          // The switch that fixes this is on Downloading, which is a page of its
+          // own now — so this navigates rather than scrolling to a section that
+          // used to sit above this list on the same screen.
           //
           // No button on a television, matching `RequestsNotSetUp`: the TV
           // settings tree does not carry this page.
@@ -83,11 +79,7 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
               ? undefined
               : {
                   label: t("manage.not_set_up_action"),
-                  onPress: () =>
-                    router.setParams({
-                      focus: "downloading",
-                      focusNonce: String(Date.now()),
-                    }),
+                  onPress: () => router.push("/settings/downloading"),
                 }
           }
         />
@@ -114,7 +106,12 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
       {addOpen && <AddForm kind={kind} onDone={() => setAddOpen(false)} />}
 
       <QueryState
-        isLoading={query.isLoading || arrReady === undefined}
+        // `starting` is a loading state, not an error one: the manager is coming
+        // up and the healthz poll turns the query on by itself a few seconds
+        // later, so the skeleton stays and nobody has to press Try again.
+        isLoading={
+          query.isLoading || arrReady === undefined || arrReady === "starting"
+        }
         error={query.error}
         onRetry={query.refetch}
       >
@@ -161,6 +158,7 @@ function PosterThumb({
   title: string;
   size?: number;
 }) {
+  const { color } = useTheme();
   const height = Math.round(size * 1.5);
   if (!url) {
     return (
@@ -169,7 +167,7 @@ function PosterThumb({
           width: size,
           height,
           borderRadius: radius.sm,
-          backgroundColor: tokens.color.bg["3"],
+          backgroundColor: color.bg["3"],
           alignItems: "center",
           justifyContent: "center",
         }}
@@ -202,7 +200,7 @@ function LibraryRow({
   onToggle: (providerId: number) => void;
 }) {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const update = useUpdateLibraryItem(isMovie ? "movie" : "series");
   const providerId = isMovie
     ? ((row as ArrMovie).tmdbId ?? 0)
@@ -239,7 +237,7 @@ function LibraryRow({
           minHeight: 44,
           paddingVertical: 8,
           paddingHorizontal: 16,
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
         }}
       >
         <Pressable
@@ -343,6 +341,7 @@ function ItemActions({
   title: string;
   onDone: () => void;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const update = useUpdateLibraryItem(kind);
   const remove = useDeleteLibraryItem(kind);
@@ -384,7 +383,7 @@ function ItemActions({
   return (
     <View
       style={{
-        backgroundColor: tokens.color.bg["2"],
+        backgroundColor: color.bg["2"],
         paddingHorizontal: 16,
         paddingVertical: 12,
       }}
@@ -451,7 +450,7 @@ function AddForm({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const isMovie = kind === "movie";
   const [term, setTerm] = useState("");
   const [profile, setProfile] = useState("");
@@ -512,7 +511,7 @@ function AddForm({
     <View
       style={{
         borderRadius: radius.lg,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 16,
         marginBottom: 12,
       }}
@@ -669,7 +668,7 @@ function ProfileChip({
   on: boolean;
   onPress: () => void;
 }) {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -677,7 +676,7 @@ function ProfileChip({
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: radius.pill,
-        backgroundColor: on ? accent[500] : tokens.color.bg["3"],
+        backgroundColor: on ? accent[500] : color.bg["3"],
       }}
     >
       <Text

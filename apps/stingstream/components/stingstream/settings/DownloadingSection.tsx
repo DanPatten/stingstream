@@ -28,9 +28,9 @@ import { EmptyState, LoadingState } from "../shared/ScreenState";
  * this server. An administrator can enable it in Server settings." named a screen that had not
  * existed since the settings tree was rebuilt, so following it landed on nothing at all.
  *
- * It sits at the top of Films & series because that is the first thing in the group and the page
- * a reader arrives at from the Requests notice, and because a switch is a poor fit for anywhere
- * else: it is not a preference, it decides what the server *runs*.
+ * It is the whole of `/settings/downloading`, the first page in the group and the one a reader
+ * arrives at from the Requests notice. A switch is a poor fit for anywhere else: it is not a
+ * preference, it decides what the server *runs*.
  */
 export function DownloadingSection() {
   const { t } = useTranslation();
@@ -100,6 +100,13 @@ export function DownloadingSection() {
  * change, because the supervisor notices the file on its own timer and a manager takes a moment to
  * come up — and they disagree permanently when something is wrong, which is the case worth
  * designing for: a switch that silently sprang back would leave a reader with no idea why.
+ *
+ * The three states are the child's three states, and they used to be two. `running` collapsed
+ * `healthy` and `starting` into one boolean, so a manager still doing its first-run database
+ * migration read **Running** — beside the connection error its own health probe had just recorded,
+ * because the subtitle showed `last_error` whether or not the child had since answered. One row
+ * said the thing was up, working and broken at the same time. `starting` is its own pill now, and
+ * the error is shown only while the child is not healthy.
  */
 function DownloadingRow({
   which,
@@ -118,27 +125,40 @@ function DownloadingRow({
 
   const status = (() => {
     if (!value) return null;
-    if (health.running === undefined) return null;
-    if (health.running) {
+    if (health.state === undefined) return null;
+    if (health.state === "healthy") {
       return {
         label: t("downloading.state_running"),
         tone: "success" as const,
       };
     }
-    // On, and not running. Either it is still starting -- the supervisor's own tick is up to five
-    // seconds -- or it cannot, and `last_error` is the only place that says which.
+    // On, and not answering yet. A manager's first run migrates its database before it binds a
+    // port, which takes longer than the supervisor's five-second tick, so this is the ordinary
+    // state for a minute after the switch goes on rather than a fault.
+    if (health.state === "starting") {
+      return {
+        label: t("downloading.state_starting"),
+        tone: "neutral" as const,
+      };
+    }
     return {
-      label: health.error
-        ? t("downloading.state_failed")
-        : t("downloading.state_starting"),
-      tone: health.error ? ("danger" as const) : ("neutral" as const),
+      label: t("downloading.state_failed"),
+      tone: "danger" as const,
     };
   })();
 
   return (
     <ListItem
       title={t(`downloading.${which}_title`)}
-      subtitle={health.error ?? t(`downloading.${which}_detail`)}
+      // `last_error` is what the *last* probe said, and a child that has since answered still
+      // carries it until the next healthy tick clears it. Showing it under a healthy manager put
+      // a connection failure under a Running pill, so it is offered only when the child is not
+      // healthy -- which is the only time it explains anything.
+      subtitle={
+        health.state !== "healthy" && health.error
+          ? health.error
+          : t(`downloading.${which}_detail`)
+      }
     >
       <View
         style={{ flexDirection: "row", alignItems: "center", gap: space["2"] }}

@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { View } from "react-native";
 import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
-import { tokens } from "@/constants/theme";
+import { motion } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
 import { CardPlaceholderTile } from "./CardPlaceholderTile";
@@ -37,7 +38,15 @@ export const CardArtwork: React.FC<Props> = ({
   edgeProgress = false,
   overlay,
 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
+  // Keyed on the URL rather than held as a boolean, so a card recycled by a
+  // virtualised list onto a different item starts covered again instead of
+  // showing the previous poster's "loaded" as if it were this one's.
+  const [settled, setSettled] = useState<string | null>(null);
+  const [broken, setBroken] = useState<string | null>(null);
+  const imageUrl =
+    card.imageUrl && card.imageUrl !== broken ? card.imageUrl : null;
+  const covered = !!imageUrl && settled !== imageUrl;
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const unplayed = card.unplayedCount ?? 0;
   const badgeLabel =
@@ -52,26 +61,63 @@ export const CardArtwork: React.FC<Props> = ({
         borderRadius: cornerRadius,
         overflow: "hidden",
         borderWidth: 0.5,
-        borderColor: tokens.color.border.subtle,
+        borderColor: color.border.subtle,
+        // The ground every poster fades up from. Without it the box is whatever
+        // is behind the card, so a slow poster read as a hole in the layout.
+        backgroundColor: color.bg["2"],
       }}
     >
-      {card.imageUrl ? (
+      {imageUrl ? (
         <Image
           id={card.id}
-          source={{ uri: card.imageUrl }}
+          source={{ uri: imageUrl }}
           cachePolicy='memory-disk'
           contentFit='cover'
+          // No `placeholder`: `card.placeholder` is a content-type glyph for the
+          // tile below, not a blurhash, and `CardData` carries no blurhash —
+          // half these posters come from TMDB, which does not publish one.
+          transition={motion.base}
           accessibilityLabel={card.imageAlt ?? card.title}
+          onLoad={() => setSettled(imageUrl)}
+          // A poster that 404s keeps its cover and becomes the placeholder tile,
+          // which is a deliberate thing to look at rather than a broken-image
+          // glyph with the title spelled out beside it.
+          onError={() => setBroken(imageUrl)}
           style={{ width: "100%", height: "100%" }}
         />
       ) : (
         <CardPlaceholderTile
-          title={card.title}
           placeholder={card.placeholder}
           width={width}
           accessibilityLabel={card.imageAlt ?? card.title}
         />
       )}
+
+      {/*
+        Held over the image until it has actually loaded.
+
+        On web `accessibilityLabel` becomes the `<img alt>`, and a browser paints
+        that text inside the image box for as long as there is nothing to draw —
+        so a 56x84 poster in Requests spent its whole load spelling out "The Lord
+        of the Rings: The Fellowship of the Ring" in wrapped four-point words.
+        The alt text has to stay; it is what a screen reader reads. Covering it
+        is the fix, and the cover is the same colour as the box, so what a person
+        sees is an empty poster that fills in rather than a paragraph that
+        vanishes.
+      */}
+      {covered ? (
+        <View
+          pointerEvents='none'
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: color.bg["2"],
+          }}
+        />
+      ) : null}
 
       {overlay}
 

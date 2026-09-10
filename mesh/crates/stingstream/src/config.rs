@@ -265,7 +265,13 @@ impl Default for ChildrenConfig {
             jellyfin: true,
             radarr: true,
             sonarr: true,
-            nzbget: true,
+            // Off, unlike the two managers above it. Usenet is a paid subscription and a set of
+            // server credentials nobody has yet on a first run, so a node that started nzbget by
+            // default would run a process that can only fail, and put a red row on the one
+            // settings page a new administrator is most likely to open. BitTorrent needs no
+            // account, so the default path works out of the box and this switch is what somebody
+            // turns on once they have somewhere to turn it on *for*.
+            nzbget: false,
             mesh: true,
             infinidysk: false,
         }
@@ -549,7 +555,10 @@ embedded = false
         assert_eq!(cfg.preferred_port("sonarr"), 8989);
         assert_eq!(cfg.preferred_port("mesh"), 8791);
         assert_eq!(cfg.preferred_port("nope"), 0);
-        assert!(cfg.child_enabled("nzbget"));
+        assert!(cfg.child_enabled("radarr"));
+        assert!(cfg.child_enabled("sonarr"));
+        // Usenet needs an account before it can do anything; see ChildrenConfig::default.
+        assert!(!cfg.child_enabled("nzbget"));
         assert!(cfg.child_enabled("mesh"));
         assert!(!cfg.child_enabled("nope"));
     }

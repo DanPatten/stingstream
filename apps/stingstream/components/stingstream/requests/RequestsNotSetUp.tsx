@@ -5,18 +5,21 @@ import useRouter from "@/hooks/useAppRouter";
 import { useCanApproveRequests } from "@/lib/stingstream/requests";
 
 /**
- * Where an administrator goes to find out which managers this node runs.
+ * Where an administrator goes to turn downloading on.
  *
  * Requests can only look a title up through Radarr and Sonarr (`RequestService.CanSearch`), so a
- * node with neither running cannot answer anything on this screen. "Movie & series managers" is the
- * screen that names them and says so in as many words ("Downloading is not set up on this server."),
- * which makes it the honest destination — and it is already where `FindSection` sends an
- * administrator from its empty state, so the same problem does not lead two ways.
+ * node with neither running cannot answer anything on this screen. Downloading is the page holding
+ * the switch that starts them, and the only page that can fix this, so it is the honest
+ * destination.
  *
- * Not "Media services": that page administers indexers and download clients, which are what a
- * manager uses once it exists. It never mentions the two managers themselves.
+ * It used to be `/settings/library?focus=downloading`, back when the switch was a section on top of
+ * the library and the link had to scroll the page to it. The switch has its own page now, so there
+ * is nothing left to focus.
+ *
+ * Not "Indexers & engines": that page administers indexers and download clients, which are what a
+ * manager uses once it exists. It never mentions the managers themselves.
  */
-export const REQUESTS_SETUP_ROUTE = "/settings/library?focus=downloading";
+export const REQUESTS_SETUP_ROUTE = "/settings/downloading";
 
 /**
  * "Requests are not set up on this server."
@@ -54,9 +57,10 @@ export function RequestsNotSetUp() {
       action={
         canOpenSettings
           ? {
-              // The same label as the button `FindSection` shows for the same node, because it is
-              // the same destination: two names for one screen reads as two screens.
-              label: t("home.settings.sections.arr_library"),
+              // Named after the page it opens. `FindSection`'s empty state now points somewhere
+              // else — a title search could not find is added by hand on Movies & TV shows — so
+              // these two are no longer one destination under two names.
+              label: t("home.settings.sections.downloading"),
               icon: "settings",
               onPress: () => router.push(REQUESTS_SETUP_ROUTE),
             }

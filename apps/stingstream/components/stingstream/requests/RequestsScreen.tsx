@@ -29,6 +29,7 @@ import { ActivitySection } from "../arr/ActivitySection";
 import { ApprovalsSection } from "./ApprovalsSection";
 import { DiscoverSection } from "./DiscoverSection";
 import { FindSection } from "./FindSection";
+import { IndexerNotice } from "./IndexerNotice";
 import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
@@ -408,6 +409,12 @@ export function RequestsScreen({
 
   return (
     <PageContainer width='media'>
+      {/*
+        Above the tabs, because it is true of every one of them: a request made from Find, a row
+        waiting in My requests and a queue in Activity are all waiting on the same indexer. It
+        renders nothing at all unless there is something wrong and the reader can fix it.
+      */}
+      <IndexerNotice />
       <View testID='requests-tabs'>
         <Tabs
           segments={segments}

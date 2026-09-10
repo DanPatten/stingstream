@@ -136,8 +136,14 @@ export function buildSettingsCategories(
   // can be pasted.
   const downloading: SettingsCategory[] = isAdmin
     ? [
-        // First, and deliberately: it is the only one of the four that can be
+        // First, and deliberately: it is the only one of the five that can be
         // *off*, and the answer to "why is none of this doing anything".
+        //
+        // A page of its own rather than a section on top of the library, which
+        // is where it used to sit. That page then had a Movies/TV shows tab bar
+        // scoping the whole of it while the switch above the bar governed both
+        // tabs, so the two halves read as one confused screen.
+        category("downloading", "/settings/downloading", "download", t),
         category("arr_library", "/settings/library", "library", t),
         category("services", "/settings/services", "services", t),
         category("quality", "/settings/quality", "quality", t),
@@ -202,6 +208,18 @@ export const flattenCategories = (
 ): SettingsCategory[] => groups.flatMap((group) => group.categories);
 
 /**
+ * A pathname reduced to the thing routes are compared by.
+ *
+ * Drops the query (the settings search navigates with `?focus=<id>` on the
+ * end) and any trailing slash, so `/settings/network/` and
+ * `/settings/network` are one page rather than two. Exported because two
+ * rules ask this question now: which row lights, and what clicking that row
+ * should do. They have to agree.
+ */
+export const settingsPath = (pathname: string): string =>
+  pathname.split("?")[0]?.replace(/\/+$/, "") ?? "";
+
+/**
  * The category a route belongs to, for lighting the navigation column.
  *
  * Longest match wins, so `/settings/servers/join` lights Servers rather than
@@ -213,8 +231,54 @@ export const categoryForRoute = (
   groups: SettingsCategoryGroup[],
   pathname: string,
 ): SettingsCategory | undefined => {
-  const path = pathname.split("?")[0]?.replace(/\/+$/, "") ?? "";
+  const path = settingsPath(pathname);
   return flattenCategories(groups)
     .filter((item) => path === item.route || path.startsWith(`${item.route}/`))
     .sort((a, b) => b.route.length - a.route.length)[0];
+};
+
+/** What a click on a category row should do from where the reader is now. */
+export type SettingsNavIntent = "none" | "navigate" | "replace";
+
+/**
+ * What clicking a category row means from the page you are on.
+ *
+ * The column lights a row for a whole subtree -- `/settings/servers/this` is
+ * Servers -- and that is right. It is also what made the row *unclickable*:
+ * the press handler compared the lit key with the clicked key and returned, so
+ * from a drill-in the way back up was the one link on the page that did
+ * nothing. `WebShellLayout` had already settled this for the application
+ * sidebar: "already there" means exactly there, not somewhere in this tab.
+ * Lighting is a prefix; clicking is an address.
+ *
+ * - `none` -- the row's own URL, allowing for a trailing slash and the
+ *   search's `?focus=`. The only honest no-op.
+ * - `navigate` -- you are inside the category, asking to go back up to it. Not
+ *   `replace`: the root is normally already below you in the stack (you pushed
+ *   your way down), and react-navigation pops back to it rather than stacking
+ *   a second copy, so one Back still leaves settings instead of landing on the
+ *   URL you just left. On a pasted deep link the root is not in the stack and
+ *   `navigate` pushes, which is what a link click should do.
+ * - `replace` -- a different category. Categories are siblings of one screen
+ *   and `replace` is what keeps them one screen deep. `navigate` cannot be
+ *   used here: a sibling is not in the stack either, so it would push, and six
+ *   of those is the six-stacked-screens bug `SettingsNav` records.
+ *
+ * `insideCategory` is the column's own answer to "is this row lit", which is
+ * broader than the URL: `/settings/logs` declares itself About by its
+ * `categoryKey`, and About is one push below it, so that click is a walk back
+ * up too.
+ */
+export const settingsNavIntent = (
+  route: string,
+  pathname: string,
+  insideCategory = false,
+): SettingsNavIntent => {
+  const target = settingsPath(route);
+  const path = settingsPath(pathname);
+  if (path === target) return "none";
+  // The trailing slash is load-bearing: `/settings/server` is a redirect stub
+  // living next door to `/settings/servers`, and a bare prefix test eats it.
+  if (insideCategory || path.startsWith(`${target}/`)) return "navigate";
+  return "replace";
 };

@@ -6,6 +6,8 @@ import {
   buildSettingsCategories,
   categoryForRoute,
   flattenCategories,
+  settingsNavIntent,
+  settingsPath,
 } from "./buildSettingsCategories";
 
 // The rules of the Settings screen, which is the only part of it with rules in
@@ -63,15 +65,16 @@ describe("buildSettingsCategories", () => {
   });
 
   test("getting hold of something is its own group, not four rows of admin", () => {
-    // The four that answer "how does something I do not have get here" left
+    // The ones that answer "how does something I do not have get here" left
     // `administration` together: that group is the machine, this one is a
-    // subject somebody sits down to configure. Films & series leads because it
-    // is the only one that can be switched off, which makes it the answer to
+    // subject somebody sits down to configure. Downloading leads because it is
+    // the only one that can be switched off, which makes it the answer to
     // "why is none of the rest of this doing anything".
     const downloading = buildSettingsCategories(admin, t).find(
       (group) => group.key === "downloading",
     );
     expect(downloading?.categories.map((item) => item.key)).toEqual([
+      "downloading",
       "arr_library",
       "services",
       "quality",
@@ -246,5 +249,123 @@ describe("the hints fit the column they are drawn in", () => {
     )) {
       expect(item.label.length).toBeLessThanOrEqual(28);
     }
+  });
+});
+
+describe("settingsPath", () => {
+  test("a query and a trailing slash are not a different page", () => {
+    expect(settingsPath("/settings/network")).toBe("/settings/network");
+    expect(settingsPath("/settings/network/")).toBe("/settings/network");
+    expect(settingsPath("/settings/network//")).toBe("/settings/network");
+    expect(
+      settingsPath("/settings/transcoding?focus=hardware-acceleration"),
+    ).toBe("/settings/transcoding");
+    expect(settingsPath("/settings/transcoding/?focus=x")).toBe(
+      "/settings/transcoding",
+    );
+    expect(settingsPath("")).toBe("");
+    expect(settingsPath("/")).toBe("");
+  });
+});
+
+describe("settingsNavIntent", () => {
+  // Which row is *lit* is a prefix match, and that is right: /settings/servers/this
+  // is Servers. Clicking it used to be answered the same way, so on every page
+  // inside a category the row that should walk you back up was the one dead link
+  // on the screen. Lighting is a prefix; clicking is an address.
+  const groups = buildSettingsCategories(admin, t);
+
+  test("a page inside a category walks back up to it", () => {
+    // The reported bug, in one line: standing on This server, Servers did nothing.
+    expect(
+      settingsNavIntent("/settings/servers", "/settings/servers/this"),
+    ).toBe("navigate");
+    expect(
+      settingsNavIntent("/settings/servers", "/settings/servers/join"),
+    ).toBe("navigate");
+    expect(
+      settingsNavIntent("/settings/servers", "/settings/servers/abc123"),
+    ).toBe("navigate");
+    expect(
+      settingsNavIntent(
+        "/settings/appearance",
+        "/settings/appearance/hide-libraries",
+      ),
+    ).toBe("navigate");
+    expect(
+      settingsNavIntent("/settings/plugins", "/settings/plugins/marlin-search"),
+    ).toBe("navigate");
+  });
+
+  test("no category is a dead row from a page inside it", () => {
+    // The sweep, so a category added later cannot reintroduce this one page at a
+    // time -- the same reason NoSeatFacesAwayFromItsTable sweeps every room.
+    for (const item of flattenCategories(groups)) {
+      expect({
+        key: item.key,
+        intent: settingsNavIntent(item.route, `${item.route}/anything`),
+      }).toEqual({ key: item.key, intent: "navigate" });
+      expect(settingsNavIntent(item.route, `${item.route}/a/b`)).toBe(
+        "navigate",
+      );
+      expect(settingsNavIntent(item.route, `${item.route}/a?focus=x`)).toBe(
+        "navigate",
+      );
+    }
+  });
+
+  test("the row's own URL is the only no-op", () => {
+    expect(settingsNavIntent("/settings/servers", "/settings/servers")).toBe(
+      "none",
+    );
+    expect(settingsNavIntent("/settings/network", "/settings/network/")).toBe(
+      "none",
+    );
+    expect(
+      settingsNavIntent(
+        "/settings/transcoding",
+        "/settings/transcoding?focus=hardware-acceleration",
+      ),
+    ).toBe("none");
+  });
+
+  test("a different category replaces, so six of them are never six screens", () => {
+    // Categories are siblings of one screen. `navigate` would push here, because
+    // a sibling is not in the stack -- which is the six-stacked-screens bug
+    // `SettingsNav` records.
+    expect(
+      settingsNavIntent("/settings/playback", "/settings/servers/this"),
+    ).toBe("replace");
+    expect(settingsNavIntent("/settings/about", "/settings/profile")).toBe(
+      "replace",
+    );
+    expect(settingsNavIntent("/settings/profile", "/settings")).toBe("replace");
+  });
+
+  test("a shared prefix is not the same tree", () => {
+    // `/settings/server` is a redirect stub living next door to
+    // `/settings/servers`; a bare startsWith would swallow it.
+    expect(settingsNavIntent("/settings/server", "/settings/servers")).toBe(
+      "replace",
+    );
+    expect(settingsNavIntent("/settings/servers", "/settings/server")).toBe(
+      "replace",
+    );
+  });
+
+  test("a page that declares itself part of a category counts as inside it", () => {
+    // `/settings/logs` is About's by its own `categoryKey`, and About is one push
+    // below it, so that click is a walk back up too -- which the URL alone cannot
+    // see.
+    expect(settingsNavIntent("/settings/about", "/settings/logs", true)).toBe(
+      "navigate",
+    );
+    expect(settingsNavIntent("/settings/about", "/settings/logs")).toBe(
+      "replace",
+    );
+    // ...and the row you are standing on stays a no-op regardless.
+    expect(settingsNavIntent("/settings/about", "/settings/about", true)).toBe(
+      "none",
+    );
   });
 });

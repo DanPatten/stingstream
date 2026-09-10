@@ -126,6 +126,72 @@ public sealed class StatusController : StingStreamControllerBase
         return result;
     }
 
+    /// <summary>Whether this node has anywhere left to search.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">What the indexers are doing.</response>
+    /// <returns>Configured and enabled counts, and whatever the managers are complaining about.</returns>
+    /// <remarks>
+    /// Requests is where somebody finds out that asking for a title will achieve nothing, and there
+    /// are two ways for that to be true: nothing is configured to search, or everything configured
+    /// has stopped answering. Neither is visible on that screen otherwise -- a search still returns
+    /// results, because those come from TMDB rather than from an indexer, so a request goes in,
+    /// finds nowhere to look and simply never arrives.
+    /// <para>
+    /// The counts are ours; <c>Failing</c> is the managers' own opinion. Radarr and Sonarr already
+    /// track per-indexer failures and raise a health check when they have given up on one, which is
+    /// a far better answer than probing each indexer from here would be: it is the state that
+    /// actually decides whether a grab is attempted, and it costs one request per manager.
+    /// </para>
+    /// </remarks>
+    [HttpGet("indexers")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IndexerHealth>> Indexers(CancellationToken cancellationToken)
+    {
+        var configured = _settings.Get().Indexers;
+        var health = new IndexerHealth
+        {
+            Configured = configured.Count,
+            Enabled = configured.Count(i => i.Enabled),
+        };
+
+        foreach (var client in _arrs.CreateAll())
+        {
+            try
+            {
+                var entries = await client.ListAsync("health", cancellationToken).ConfigureAwait(false);
+                foreach (var entry in entries)
+                {
+                    // Every indexer check upstream raises is named IndexerSomethingCheck --
+                    // IndexerStatusCheck for "they are all failing", IndexerRssCheck,
+                    // IndexerSearchCheck, IndexerLongTermStatusCheck. Matching the prefix rather
+                    // than the four names means a new one upstream is picked up rather than missed
+                    // silently, and nothing else in the health list starts that way.
+                    var source = entry["source"]?.GetValue<string>() ?? string.Empty;
+                    if (!source.StartsWith("Indexer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var message = entry["message"]?.GetValue<string>();
+                    if (!string.IsNullOrWhiteSpace(message) && !health.Failing.Contains(message))
+                    {
+                        health.Failing.Add(message);
+                    }
+                }
+
+                health.Answered = true;
+            }
+            catch (ArrApiException)
+            {
+                // A manager that is off or still starting has no opinion, and an empty `Failing`
+                // from a manager that never answered must not read as "everything is fine" --
+                // `Answered` is how the caller tells those apart.
+            }
+        }
+
+        return health;
+    }
+
     /// <summary>
     /// Re-run first-run wiring.
     /// </summary>
@@ -141,6 +207,28 @@ public sealed class StatusController : StingStreamControllerBase
         [FromQuery] bool force,
         CancellationToken cancellationToken)
         => await _firstRun.RunAsync(cancellationToken, force).ConfigureAwait(false);
+}
+
+/// <summary>Whether this node has anywhere to search, and whether it still works.</summary>
+public sealed class IndexerHealth
+{
+    /// <summary>How many indexers are configured on this node, enabled or not.</summary>
+    public int Configured { get; set; }
+
+    /// <summary>How many of those are switched on.</summary>
+    public int Enabled { get; set; }
+
+    /// <summary>
+    /// True when at least one manager answered.
+    /// </summary>
+    /// <remarks>
+    /// An empty <see cref="Failing"/> means "no complaints" only if somebody was there to complain.
+    /// A node whose managers are still starting would otherwise look perfectly healthy.
+    /// </remarks>
+    public bool Answered { get; set; }
+
+    /// <summary>The managers' own indexer health messages, deduplicated.</summary>
+    public List<string> Failing { get; set; } = new();
 }
 
 /// <summary>The node's StingStream status.</summary>

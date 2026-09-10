@@ -298,6 +298,15 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
+        name='settings/downloading'
+        options={{
+          title: t("home.settings.sections.downloading"),
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
         name='settings/library'
         options={{
           title: t("home.settings.sections.arr_library"),
