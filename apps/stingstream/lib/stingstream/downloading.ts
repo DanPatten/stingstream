@@ -56,7 +56,10 @@ export function useDownloadingHealth(key: DownloadingKey): {
 } {
   const healthz = useHealthz();
   const child = healthz.data?.children.find((c) => c.name === CHILD_FOR[key]);
-  if (!healthz.data) {
+  // `redacted` for the same reason as the loading case: a node answering from
+  // off its own machine does not list its children, so there is nothing to
+  // report and a pill claiming "Not running" would be inventing one.
+  if (!healthz.data || healthz.data.redacted) {
     return { running: undefined, state: undefined, error: undefined };
   }
   return {

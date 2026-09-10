@@ -68,6 +68,8 @@
     "server_settings.quality_profiles_groups_allowed_other",
     "server_status.child_restarts_one",
     "server_status.child_restarts_other",
+    "server_status.children_redacted_one",
+    "server_status.children_redacted_other",
     "transfers.eta_days_one",
     "transfers.eta_days_other",
     "transfers.eta_hours_one",

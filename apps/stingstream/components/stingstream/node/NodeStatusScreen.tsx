@@ -154,14 +154,31 @@ export function NodeStatusScreen() {
           <View style={{ height: 16 }} />
 
           <ScreenHeaderRow title={t("server_status.children_section_title")} />
-          <View
-            testID='server-status-cards'
-            style={{ flexDirection: "row", flexWrap: "wrap" }}
-          >
-            {healthz.data.children.map((child) => (
-              <ChildCard key={child.name} child={child} status={status.data} />
-            ))}
-          </View>
+          {/*
+            A node answering from off its own machine reports how many children
+            it runs but not which, so there are no cards to draw. Saying that
+            beats an empty row, which reads as a node running nothing.
+          */}
+          {healthz.data.redacted ? (
+            <Text variant='caption' tone='secondary'>
+              {t("server_status.children_redacted", {
+                count: healthz.data.childCount,
+              })}
+            </Text>
+          ) : (
+            <View
+              testID='server-status-cards'
+              style={{ flexDirection: "row", flexWrap: "wrap" }}
+            >
+              {healthz.data.children.map((child) => (
+                <ChildCard
+                  key={child.name}
+                  child={child}
+                  status={status.data}
+                />
+              ))}
+            </View>
+          )}
           <Text variant='caption' tone='secondary' style={{ marginTop: -4 }}>
             {t("server_status.version_unknown_hint")}
           </Text>

@@ -17,6 +17,12 @@ export function useArrReady(name: "radarr" | "sonarr"): boolean | undefined {
   const healthz = useHealthz();
   const child = healthz.data?.children.find((c) => c.name === name);
   if (!healthz.data) return undefined;
+  // A node reached from off its own machine redacts the child list, so absence
+  // there means "would not say", not "not running". `undefined` — the same
+  // answer as still loading — is the honest one: it holds the loader, where
+  // `false` would tell a remote administrator downloading is not set up on a
+  // node that is downloading perfectly well.
+  if (healthz.data.redacted) return undefined;
   return child?.enabled ?? false;
 }
 

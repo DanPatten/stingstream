@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNodeBaseUrl } from "./client";
+import { type HealthzResponse, normalizeHealthz } from "./healthzShape";
 
 /**
  * `/healthz` is a gateway-level endpoint, not part of StingStream.Core's
@@ -16,42 +17,8 @@ import { useNodeBaseUrl } from "./client";
  * (Jellyfin-authenticated, same as everything else this app calls).
  */
 
-export interface HealthzChild {
-  name: string;
-  enabled: boolean;
-  state: string;
-  port: number;
-  pid?: number;
-  restarts: number;
-  base_url: string;
-  healthy_since?: string;
-  last_exit?: string;
-  /**
-   * Why this child is not running, when the supervisor knows. A missing binary, or a refusal to
-   * start something `config.toml` asked for. Absent whenever there is nothing to say, which is
-   * most of the time.
-   */
-  last_error?: string;
-  /**
-   * The build this child is running, probed by the supervisor when the child
-   * first becomes healthy (M4.5). Absent when the child is disabled, has never
-   * answered, or has no way to be asked — all real states, not errors.
-   */
-  version?: string | null;
-}
-
-export interface HealthzResponse {
-  status: string;
-  node: {
-    id: string;
-    name: string;
-    dev: boolean;
-    first_run: boolean;
-    data_dir: string;
-  };
-  gateway: { port: number };
-  children: HealthzChild[];
-}
+export type { HealthzChild, HealthzResponse } from "./healthzShape";
+export { normalizeHealthz } from "./healthzShape";
 
 export function useHealthz() {
   const nodeBaseUrl = useNodeBaseUrl();
@@ -64,7 +31,7 @@ export function useHealthz() {
       if (!res.ok && res.status !== 503) {
         throw new Error(`GET /healthz -> ${res.status}`);
       }
-      return res.json();
+      return normalizeHealthz(await res.json());
     },
     enabled: !!nodeBaseUrl,
     refetchInterval: 5000,
