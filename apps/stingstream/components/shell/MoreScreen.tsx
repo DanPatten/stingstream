@@ -17,7 +17,7 @@ import { buildMoreItems, type SidebarItem } from "./buildSidebarItems";
  *
  * Pass-01 F-08: the bottom bar had grown to seven tabs and truncated every
  * label. Five is the most a 360 dp bar can spell out, so Favorites, Watchlists,
- * Manage, Transfers, Sharing and Settings live here instead — the same rows the
+ * Transfers, Sharing and Settings live here instead — the same rows the
  * desktop sidebar carries, from the same `buildMoreItems` rules, so the two
  * navigators cannot disagree about who sees what.
  *

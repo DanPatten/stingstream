@@ -3,104 +3,16 @@ import { useAtomValue } from "jotai";
 import type { StyleProp, TextStyle } from "react-native";
 import { DEFAULT_ACCENT, type TextTone, toneColor } from "@/constants/theme";
 import { effectiveSettingsAtom } from "@/utils/atoms/settings";
+import { ICONS, type IconName } from "./iconNames";
 
 /**
- * One icon set, named for what an icon *means*.
+ * One glyph, named for what it *means*.
  *
- * The fork mixes Feather, Ionicons and MaterialIcons, sometimes three glyphs
- * from three families in one row — which is why six icons side by side never
- * looked like a set. Everything outside a native header now comes from here;
- * headers keep `HeaderIcon`, which resolves to the platform's own symbol set.
- *
- * Semantic names, not visual ones: swapping the glyph for "watchlist" is a
- * one-line change here rather than a hunt through call sites. Ionicons ships
- * with `@expo/vector-icons` as a bundled font, so this renders identically on
- * web, Android and Android TV with nothing fetched at runtime.
+ * The registry itself lives in `iconNames.ts` — see the note there — and is
+ * re-exported from here because that is where every call site already looks
+ * for `IconName`.
  */
-const ICONS = {
-  // Navigation
-  home: "home",
-  search: "search",
-  library: "library",
-  favorite: "heart",
-  watchlist: "bookmark",
-  requests: "ticket",
-  manage: "options",
-  transfers: "swap-vertical",
-  settings: "settings",
-  sharing: "git-network",
-  devices: "phone-portrait",
-
-  // Playback
-  play: "play",
-  pause: "pause",
-  cast: "tv",
-  download: "download",
-
-  // Actions
-  info: "information-circle",
-  /** The sidebar's collapse control. Three lines, because that is what people reach for. */
-  menu: "menu",
-  more: "ellipsis-horizontal",
-  check: "checkmark",
-  /**
-   * A radio, for a row that is one of a set.
-   *
-   * The old coordinator picker drew its own with the bare characters `●` and `○`, which sit on the
-   * text baseline, take the font's own metrics and line up with nothing beside them. These are the
-   * same glyphs every other control in the app is drawn from.
-   */
-  radioOn: "radio-button-on",
-  radioOff: "radio-button-off",
-  close: "close",
-  link: "link",
-  share: "share-social",
-  invite: "person-add",
-  leave: "exit",
-  refresh: "refresh",
-  sort: "funnel",
-  filter: "options",
-  add: "add",
-  edit: "pencil",
-  delete: "trash",
-  /** Setting somebody else's password, on the Users screen. */
-  key: "key",
-  /**
-   * Turning an account off and back on.
-   *
-   * A pair rather than one glyph that toggles: the button says what pressing it
-   * does, and "disable" and "enable" are opposite enough that the same icon for
-   * both reads as a state badge instead of an action.
-   */
-  block: "ban",
-  unblock: "checkmark-circle-outline",
-
-  // Direction
-  chevronRight: "chevron-forward",
-  chevronLeft: "chevron-back",
-  chevronDown: "chevron-down",
-  chevronUp: "chevron-up",
-
-  // Identity and status
-  user: "person-circle",
-  /**
-   * The accounts on this server, as a section.
-   *
-   * Distinct from `user`, which is one person — an avatar fallback, the
-   * administrators-only notice. A sidebar row that says "everybody" wants the
-   * plural glyph.
-   */
-  users: "people",
-  signOut: "log-out",
-  warning: "warning",
-  error: "alert-circle",
-  success: "checkmark-circle",
-} satisfies Record<string, keyof typeof Ionicons.glyphMap>;
-
-export type IconName = keyof typeof ICONS;
-
-/** Every semantic name, for a picker or a test that walks the set. */
-export const ICON_NAMES = Object.keys(ICONS) as IconName[];
+export { ICON_NAMES, ICONS, type IconName } from "./iconNames";
 
 export interface IconProps {
   name: IconName;

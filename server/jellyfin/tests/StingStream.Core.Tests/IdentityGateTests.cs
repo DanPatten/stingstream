@@ -203,6 +203,80 @@ public class IdentityGateTests
             IdentityGate.LinkKey(node.ToUpperInvariant(), " u1 "));
     }
 
+    [Fact]
+    public void ACompleteCredentialIsReadBackCleaned()
+    {
+        var read = IdentityGate.ReadCredential("  s4lt ", " v3r1f ", 100_000);
+        Assert.NotNull(read);
+        Assert.Equal("s4lt", read!.Value.Salt);
+        Assert.Equal("v3r1f", read.Value.Verifier);
+        Assert.Equal(100_000, read.Value.Iterations);
+    }
+
+    [Fact]
+    public void HalfACredentialIsNoCredential()
+    {
+        // A salt with no verifier is a password nobody can reproduce; a verifier with no round
+        // count cannot be derived again once the client's default moves. Either half would leave
+        // somebody holding an account they can never sign in to, and the account gets created
+        // either way -- so a partial has to read as "an older client sent none".
+        Assert.Null(IdentityGate.ReadCredential("s4lt", null, 100_000));
+        Assert.Null(IdentityGate.ReadCredential(null, "v3r1f", 100_000));
+        Assert.Null(IdentityGate.ReadCredential("s4lt", "v3r1f", null));
+        Assert.Null(IdentityGate.ReadCredential("   ", "v3r1f", 100_000));
+        Assert.Null(IdentityGate.ReadCredential("s4lt", "   ", 100_000));
+    }
+
+    [Fact]
+    public void ARoundCountOutsideTheBoundsIsRefused()
+    {
+        // The count comes off the wire and is handed back to whoever asks how to sign in, so an
+        // absurd one is a way to make every client burn a minute of CPU on a sign-in that was
+        // never going to work.
+        Assert.Null(IdentityGate.ReadCredential("s4lt", "v3r1f", 0));
+        Assert.Null(
+            IdentityGate.ReadCredential("s4lt", "v3r1f", IdentityGate.MinPasswordIterations - 1));
+        Assert.Null(
+            IdentityGate.ReadCredential("s4lt", "v3r1f", IdentityGate.MaxPasswordIterations + 1));
+        Assert.NotNull(
+            IdentityGate.ReadCredential("s4lt", "v3r1f", IdentityGate.MinPasswordIterations));
+        Assert.NotNull(
+            IdentityGate.ReadCredential("s4lt", "v3r1f", IdentityGate.MaxPasswordIterations));
+    }
+
+    [Fact]
+    public void AnAccountWithASaltIsDescribedAsDerived()
+    {
+        var described = IdentityGate.DescribeSignIn("s4lt", 100_000);
+        Assert.True(described.Derived);
+        Assert.Equal("s4lt", described.Salt);
+        Assert.Equal(100_000, described.Iterations);
+    }
+
+    [Fact]
+    public void EverythingElseIsDescribedIdentically()
+    {
+        // The whole shape of this endpoint. It is answered anonymously, so anything that varied
+        // with whether the username exists would be a way to find out who has an account here: an
+        // ordinary account, an account nobody holds, and a linked account an administrator has
+        // reset all have to come back the same.
+        foreach (var (salt, rounds) in new (string?, int)[]
+                 {
+                     (null, 0),
+                     (string.Empty, 0),
+                     ("   ", 100_000),
+                     ("s4lt", 0),
+                     ("s4lt", IdentityGate.MinPasswordIterations - 1),
+                     ("s4lt", IdentityGate.MaxPasswordIterations + 1),
+                 })
+        {
+            var described = IdentityGate.DescribeSignIn(salt, rounds);
+            Assert.False(described.Derived);
+            Assert.Equal(string.Empty, described.Salt);
+            Assert.Equal(0, described.Iterations);
+        }
+    }
+
     private static string NodeId()
         => Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 }

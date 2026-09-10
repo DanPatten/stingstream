@@ -170,7 +170,7 @@ export const Tabs: React.FC<TabsProps> = ({
   );
 };
 
-/** The strip Manage, Server settings and Admin put their `Tabs` in. */
+/** The strip Server settings, Admin and the arr library put their `Tabs` in. */
 export const TabsBar: React.FC<TabsProps> = (props) => {
   const { name } = useBreakpoint();
   const mode = props.layout ?? tabsLayoutFor(name);

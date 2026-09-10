@@ -6,7 +6,7 @@
  * 1. The server being signed in to sends the browser to the person's *own* server:
  *    `https://my-server/authorize#aud=…&nonce=…&return=…`
  * 2. Their own server, once it has signed the statement, sends them back:
- *    `https://their-server/join#assertion=…`
+ *    `https://their-server/join#assertion=…&salt=…&verifier=…&kdf=…`
  *
  * ## Why a redirect and not a cross-origin call
  *
@@ -16,6 +16,11 @@
  * password on its own origin, where it belongs, and it is what Dan described: *"they can do that
  * later in settings pretty easily by entering the URL of their instance and then going to an auth
  * flow"*.
+ *
+ * It is also what makes the second hop safe to carry a credential at all. What comes back is not
+ * the password but a PBKDF2 of it, derived on the origin the password was typed on and usable only
+ * on the server that asked — Dan: *"without the OTHER server knowing what that user's password is
+ * but it still can validate it"*.
  *
  * ## Why the fragment
  *
@@ -127,25 +132,80 @@ export const parseAuthorizeRequest = (
 };
 
 /**
+ * What comes back with the assertion so the other server can check this person's password later.
+ *
+ * Derived on the page that asked for it, from a password typed on its own origin — the other server
+ * is handed the result and never the password. `utils/identity/verifier.ts` has the shape of it.
+ */
+export interface ReturnCredential {
+  /** The salt the verifier was derived with, for that server to keep. */
+  salt: string;
+  /** PBKDF2 of their password, which becomes their password on the server they are joining. */
+  verifier: string;
+  /** How many rounds produced it, so a future change to the default cannot lock anybody out. */
+  iterations: number;
+}
+
+/**
  * Build the link that sends somebody back, with the signed assertion.
  *
  * `link` comes back as well as going out: the page that asked the question was replaced by a
- * navigation to another origin, so the answer has to be carried rather than remembered.
+ * navigation to another origin, so the answer has to be carried rather than remembered. The
+ * credential rides the same way and for the same reason, and is the one thing here that does not
+ * expire — which is why the page that reads it drops it out of the address bar straight away.
  */
 export const buildReturnUrl = (
   returnTo: string,
   assertion: string,
-  link?: boolean,
+  extras: {
+    /** Whether they also asked for the two servers to be linked. */
+    link?: boolean;
+    /**
+     * The invite that started this, handed straight back.
+     *
+     * **Without this the first sign-in can never succeed.** A genuine assertion from a server the
+     * target has never heard of proves who somebody is and grants nothing — `IdentityGate`
+     * requires a live invite the first time — and the page holding that invite was replaced by a
+     * navigation to another origin, so nothing on the far side remembers it. It goes out in the
+     * request and has to come back in the answer.
+     */
+    invite?: string;
+    /** The salt and derived password, so this person can sign in here without their server. */
+    credential?: ReturnCredential;
+  } = {},
 ): string | null => {
   const target = returnTo?.trim();
   if (!target || !assertion?.trim()) return null;
   // Anything already in the fragment belongs to the page that sent us here and has been consumed;
   // replacing it is what keeps a stale nonce from being read back as a fresh one.
   const base = target.split("#")[0];
+  // All three or none: a salt without a verifier is a password nobody can reproduce, and a verifier
+  // without its round count cannot be checked again after the default moves. Read out first rather
+  // than tested in place, so what is sent is exactly what was checked.
+  const salt = extras.credential?.salt.trim() ?? "";
+  const verifier = extras.credential?.verifier.trim() ?? "";
+  const rounds = extras.credential?.iterations ?? 0;
+  const complete =
+    salt.length > 0 &&
+    verifier.length > 0 &&
+    Number.isInteger(rounds) &&
+    rounds > 0;
   return `${base}#${encodePairs([
     ["assertion", assertion.trim()],
-    ["link", link ? "1" : undefined],
+    ["link", extras.link ? "1" : undefined],
+    ["invite", extras.invite?.trim() || undefined],
+    ["salt", complete ? salt : undefined],
+    ["verifier", complete ? verifier : undefined],
+    ["kdf", complete ? String(rounds) : undefined],
   ])}`;
+};
+
+/** Read the invite token back out of the return fragment. */
+export const parseReturnInvite = (
+  fragment: string | null | undefined,
+): string | null => {
+  if (!fragment) return null;
+  return decodePairs(fragment).invite || null;
 };
 
 /** Read a signed assertion out of a fragment. */
@@ -155,6 +215,29 @@ export const parseAssertion = (
   if (!fragment) return null;
   const parts = decodePairs(fragment);
   return parts.assertion || null;
+};
+
+/**
+ * Read the password credential out of a fragment, or null when it carries none.
+ *
+ * Null rather than a partial: an older client's return leg has no credential at all, and the server
+ * still knows what to do with that — the account keeps a password nobody knows, exactly as before.
+ */
+export const parseReturnCredential = (
+  fragment: string | null | undefined,
+): ReturnCredential | null => {
+  if (!fragment) return null;
+  const parts = decodePairs(fragment);
+  const iterations = Number.parseInt(parts.kdf ?? "", 10);
+  if (
+    !parts.salt ||
+    !parts.verifier ||
+    !Number.isInteger(iterations) ||
+    iterations < 1
+  ) {
+    return null;
+  }
+  return { salt: parts.salt, verifier: parts.verifier, iterations };
 };
 
 /** Whether the assertion coming back also asked for the two servers to be linked. */
@@ -176,6 +259,26 @@ export const fragmentFromLocation = (): string | null => {
   const location = (globalThis as { location?: { hash?: string } }).location;
   const hash = location?.hash;
   return hash && hash.length > 1 ? hash : null;
+};
+
+/**
+ * Drop the fragment out of the address bar, keeping the page where it is.
+ *
+ * The return leg carries a credential that does not expire — it becomes this person's password on
+ * this server — so unlike the assertion beside it, leaving it in the browser's history would be
+ * leaving a credential lying about. Called before the sign-in rather than after: a failed one is
+ * exactly when somebody goes back through their history.
+ *
+ * A no-op off the web, where there is no address bar and nothing kept one.
+ */
+export const clearFragment = (): void => {
+  const scope = globalThis as {
+    history?: { replaceState?: (a: unknown, b: string, c: string) => void };
+    location?: { pathname?: string; search?: string };
+  };
+  const here = `${scope.location?.pathname ?? ""}${scope.location?.search ?? ""}`;
+  if (!here) return;
+  scope.history?.replaceState?.(null, "", here);
 };
 
 /** This page's own URL with the fragment removed — where to be sent back to. */

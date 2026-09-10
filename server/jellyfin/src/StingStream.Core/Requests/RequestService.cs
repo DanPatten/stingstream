@@ -438,6 +438,26 @@ public sealed class RequestService
     }
 
     /// <summary>
+    /// Whether this node can look anything up at all.
+    /// </summary>
+    /// <returns><c>true</c> when at least one of the two managers is configured and keyed.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="SearchAsync"/> answers an empty list for a node with neither manager configured,
+    /// which on the wire is indistinguishable from "nothing matched" — and the app, reasonably,
+    /// draws the same empty state for both. The result was a Requests screen that looked broken
+    /// rather than unset-up: no results, no error, and nothing to act on. A caller that can tell
+    /// the two apart can say which it is.
+    /// </para>
+    /// <para>
+    /// One manager is enough. A node with Radarr and no Sonarr can still be asked for films, and
+    /// refusing the whole search because half of it is missing would take away the half that works.
+    /// </para>
+    /// </remarks>
+    public bool CanSearch()
+        => _arrs.Create(ArrKind.Radarr) is not null || _arrs.Create(ArrKind.Sonarr) is not null;
+
+    /// <summary>
     /// Search TMDB and TVDB for something to request, and say what the group already has.
     /// </summary>
     /// <param name="term">What the person typed.</param>

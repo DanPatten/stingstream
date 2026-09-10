@@ -1,0 +1,7 @@
+- generic [active] [ref=f10e1]:
+  - generic [ref=f10e22]:
+    - generic [ref=f10e23]: This invite cannot be used
+    - generic [ref=f10e24]: That sign-in has already been used or has expired. Try again.
+    - button "Go to sign in" [ref=f10e25] [cursor=pointer]
+  - generic [aria-hidden]:
+    - generic: StingStream

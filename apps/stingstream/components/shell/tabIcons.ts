@@ -34,7 +34,6 @@ export const TAB_KEYS = [
   "(favorites)",
   "(watchlists)",
   "(libraries)",
-  "(manage)",
   "(downloads)",
   "(requests)",
   "(custom-links)",
@@ -54,7 +53,6 @@ const TAB_ICONS: Record<TabKey, IconName> = {
   "(libraries)": "library",
   "(custom-links)": "link",
   "(requests)": "requests",
-  "(manage)": "manage",
   "(downloads)": "transfers",
   // Not a gear: on a phone this group is the "More" tab, and the settings row
   // is one line inside the list it shows. See `MoreScreen.tsx`.
@@ -78,7 +76,6 @@ const TAB_TEST_IDS: Record<TabKey, string> = {
   "(libraries)": "tab-library",
   "(custom-links)": "tab-custom-links",
   "(requests)": "tab-requests",
-  "(manage)": "tab-manage",
   "(downloads)": "tab-transfers",
   "(settings)": "tab-more",
 };
@@ -98,7 +95,6 @@ const TAB_LABEL_KEYS: Record<TabKey, string> = {
   "(libraries)": "tabs.library",
   "(custom-links)": "tabs.custom_links",
   "(requests)": "tabs.requests",
-  "(manage)": "tabs.manage",
   "(downloads)": "tabs.transfers",
   "(settings)": "tabs.more",
 };
@@ -124,7 +120,6 @@ const TAB_PATHS: Record<TabKey, string> = {
   "(favorites)": "/favorites",
   "(watchlists)": "/watchlists",
   "(libraries)": "/library",
-  "(manage)": "/manage",
   "(downloads)": "/transfers",
   "(requests)": "/requests",
   "(custom-links)": "/links",
@@ -146,7 +141,6 @@ export const tabPath = (routeName: string): string =>
 const BEHIND_MORE: readonly TabKey[] = [
   "(favorites)",
   "(watchlists)",
-  "(manage)",
   "(downloads)",
   "(custom-links)",
 ];

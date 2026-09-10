@@ -1,72 +1,78 @@
-import { t } from "i18next";
-import { useAtom } from "jotai";
+import { useAtomValue } from "jotai";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Input } from "@/components/common/Input";
 import { PageContainer } from "@/components/common/PageContainer";
-import { Pill } from "@/components/common/Pill";
+import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { AboutSection } from "@/components/settings/AboutSection";
-import { AppLanguageSelector } from "@/components/settings/AppLanguageSelector";
-import { LinkDevice } from "@/components/settings/LinkDevice";
-import { PasskeysSection } from "@/components/settings/PasskeysSection";
 import { ProfileHeader } from "@/components/settings/ProfileHeader";
-import { StorageSettings } from "@/components/settings/StorageSettings";
+import { SettingsOverview } from "@/components/settings/SettingsOverview";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import {
-  buildSettingsGroups,
-  type SettingsRow,
-} from "@/components/shell/buildSettingsSections";
-import { useMeshSummary } from "@/components/stingstream/mesh/DeviceMeshSection";
+  buildSettingsCategories,
+  type SettingsCategory,
+} from "@/components/shell/buildSettingsCategories";
+import {
+  buildSettingsSearchIndex,
+  searchSettings,
+} from "@/components/shell/settingsSearchIndex";
+import { settingsTwoPane } from "@/constants/Settings";
+import { space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
-import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { userAtom } from "@/providers/JellyfinProvider";
 
-// TV-specific settings component
+// TV keeps its own settings screen entirely — see `docs/conventions/tv.md`.
 const SettingsTV = Platform.isTV ? require("./settings.tv").default : null;
 
-// Mobile settings component
+/**
+ * `/settings` — the category list, or the two-pane overview.
+ *
+ * Above `SETTINGS_TWO_PANE_MIN_WIDTH` this is `SettingsShell` with no category
+ * chosen: the column on the left, and an overview on the right saying who you
+ * are signed in as and what the scope badges mean. That overview is what
+ * answers the complaint this restructure started from — a 960 px list centred
+ * in a 1440 px window, with the right two-thirds of the screen empty.
+ *
+ * Below it, the shell draws nothing and this is the list it always was, only
+ * grouped by domain instead of by "General / Sharing / Server" and with a
+ * search box over it. The top bar does not exist at that width, so the box has
+ * to be here; above it the same index is reachable from the top bar, which
+ * pivots to "Search settings…" on any settings route.
+ */
 function SettingsMobile() {
+  const { isWebWide, width } = useBreakpoint();
+
+  return (
+    <SettingsShell>
+      {settingsTwoPane(width, isWebWide) ? (
+        <ScrollView contentInsetAdjustmentBehavior='automatic'>
+          <SettingsOverview />
+        </ScrollView>
+      ) : (
+        <CategoryList />
+      )}
+    </SettingsShell>
+  );
+}
+
+/** The compact list: profile, a search box, then the categories in groups. */
+const CategoryList: React.FC = () => {
+  const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [user] = useAtom(userAtom);
-  const { logout } = useJellyfin();
-  const meshSummary = useMeshSummary();
-  const isWeb = Platform.OS === "web";
+  const user = useAtomValue(userAtom);
+  const [term, setTerm] = useState("");
 
-  // The embedded mesh has no web build at all, so `meshSummary`'s own "Not on this platform" is
-  // technically true but reads like an error. Web streams always go through the home server one
-  // way or another, so say that instead of describing what is missing.
-  const deviceStatus = isWeb
-    ? t("home.settings.sections.this_device_web")
-    : meshSummary;
+  const groups = useMemo(() => buildSettingsCategories(user, t), [user, t]);
+  const index = useMemo(() => buildSettingsSearchIndex(user, t), [user, t]);
+  const matches = useMemo(() => searchSettings(index, term), [index, term]);
+  const searching = term.trim().length > 0;
 
-  // Which rows this account gets is a rule, and it lives in one tested place —
-  // `components/shell/buildSettingsSections.ts`, the way the sidebar's rows do.
-  const groups = buildSettingsGroups(user, t);
-
-  const renderRow = (row: SettingsRow) => {
-    if (row.kind === "deviceStatus") {
-      return isWeb ? (
-        // The web fallback is a full sentence, not a badge — a `Pill` truncated the row's own
-        // title to fit it (confirmed live at 390px) where `subtitle` just wraps under it, which
-        // is what it is for.
-        <ListItem key={row.key} title={row.label} subtitle={deviceStatus} />
-      ) : (
-        <ListItem key={row.key} title={row.label}>
-          <Pill label={deviceStatus} tone='neutral' />
-        </ListItem>
-      );
-    }
-    return (
-      <ListItem
-        key={row.key}
-        testID={row.testID}
-        onPress={() => router.push(row.route as never)}
-        showArrow
-        title={row.label}
-        subtitle={row.detail}
-      />
-    );
-  };
+  const open = (route: string) => router.navigate(route as never);
 
   return (
     <ScrollView
@@ -78,7 +84,6 @@ function SettingsMobile() {
     >
       <PageContainer width='settings'>
         <View
-          className='flex flex-col'
           style={{
             paddingTop: Platform.OS === "android" ? 10 : 16,
             paddingBottom: 32,
@@ -86,57 +91,78 @@ function SettingsMobile() {
         >
           <ProfileHeader />
 
-          {groups.map((group) => (
-            <View
-              key={group.key}
-              className={group.key === "general" ? "mt-2 mb-4" : "mb-4"}
-              testID={group.testID}
-            >
-              {group.key === "general" && (
-                <View className='mb-4'>
-                  <AppLanguageSelector />
+          <View style={{ marginTop: space["4"] }}>
+            <Input
+              testID='settings-search'
+              icon='search'
+              value={term}
+              onChangeText={setTerm}
+              placeholder={t("home.settings.search.placeholder")}
+              accessibilityLabel={t("home.settings.search.placeholder")}
+              autoCorrect={false}
+            />
+          </View>
+
+          {searching ? (
+            <View testID='settings-search-results' style={{ marginTop: 16 }}>
+              {matches.length === 0 ? (
+                <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
+                  <Text variant='body' tone='secondary'>
+                    {t("home.settings.search.no_results")}
+                  </Text>
+                  <Text
+                    variant='caption'
+                    tone='tertiary'
+                    style={{ marginTop: 4 }}
+                  >
+                    {t("home.settings.search.no_results_detail")}
+                  </Text>
                 </View>
-              )}
-              <ListGroup title={group.title}>
-                {group.rows.map(renderRow)}
-              </ListGroup>
-              {/* Downloads and app-storage usage do not exist on web — nothing here is ever
-                  downloaded to a browser, so the row and its "delete all" action make no sense
-                  there. */}
-              {group.key === "general" && !isWeb && (
-                <View className='mt-4'>
-                  <StorageSettings />
-                </View>
+              ) : (
+                <ListGroup title={t("home.settings.search.results_label")}>
+                  {matches.map((entry) => (
+                    <ListItem
+                      key={entry.id}
+                      testID={`settings-search-result-${entry.id}`}
+                      title={entry.label}
+                      subtitle={entry.categoryLabel}
+                      showArrow
+                      onPress={() => open(entry.href)}
+                    />
+                  ))}
+                </ListGroup>
               )}
             </View>
-          ))}
-
-          <View className='mb-4' testID='settings-section-account'>
-            <LinkDevice className='mb-4' />
-            {/* Draws nothing unless this browser and this server can both do a passkey, so a phone
-                and a server without a domain never see a section they cannot use. */}
-            <PasskeysSection className='mb-4' />
-            <ListGroup title={t("home.settings.sections.account")}>
-              <ListItem
-                testID='settings-sign-out'
-                textColor='red'
-                onPress={() => logout()}
-                title={t("home.settings.sections.sign_out")}
-              />
-            </ListGroup>
-          </View>
-
-          <View testID='settings-section-about'>
-            <AboutSection />
-          </View>
+          ) : (
+            groups.map((group, groupIndex) => (
+              <View
+                key={group.key}
+                testID={group.testID}
+                style={{ marginTop: groupIndex === 0 ? 16 : 24 }}
+              >
+                <ListGroup title={group.title}>
+                  {group.categories.map((category: SettingsCategory) => (
+                    <ListItem
+                      key={category.key}
+                      testID={category.testID}
+                      icon={category.icon}
+                      title={category.label}
+                      subtitle={category.detail}
+                      showArrow
+                      onPress={() => open(category.route)}
+                    />
+                  ))}
+                </ListGroup>
+              </View>
+            ))
+          )}
         </View>
       </PageContainer>
     </ScrollView>
   );
-}
+};
 
 export default function settings() {
-  // Use TV settings component on TV platforms
   if (Platform.isTV && SettingsTV) {
     return <SettingsTV />;
   }

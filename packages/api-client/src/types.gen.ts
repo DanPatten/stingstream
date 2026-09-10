@@ -207,12 +207,63 @@ export interface paths {
         post?: never;
         /**
          * Stop a remote identity signing in here.
-         * @description <b>The account stays.</b> Removing the link takes away the only way in — the account has a
-         *                 password nobody knows — so this is closer to disabling somebody than to tidying a table, and
+         * @description <b>The account stays.</b> Removing the link stops them signing in with their own server, so
+         *                 this is closer to disabling somebody than to tidying a table, and
          *                 what they watched and where they got to is still theirs. Deleting the account itself is the
          *                 Users screen's job, and is a separate decision.
          */
         delete: operations["Identity_StingStreamIdentityUnlink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/identity/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the password you use on this server.
+         * @description For somebody whose account came from another server and who has since changed their password
+         *     there: the two are no longer in step, and this is what puts them back without needing an
+         *     administrator. <b>What arrives is the derived value and never the password</b>, the same rule
+         *     as the sign-in itself.
+         *
+         *     Always the caller's own account, read from the session rather than from the body — a user id
+         *     somebody typed is a user id somebody chose.
+         */
+        post: operations["Identity_StingStreamSetLinkedPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/identity/password/derivation/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a linked account sign in with an ordinary password again.
+         * @description Called by the Users screen straight after an administrator resets somebody's password.
+         *     Jellyfin now holds a hash of what they typed, so a client still deriving against the old
+         *     salt would send something that cannot match — and Jellyfin locks an account after three of
+         *     those. Clearing it is what makes the reset a way in rather than a way out.
+         *
+         *     Administrator, because resetting a password is, and a no-op for an ordinary account.
+         */
+        post: operations["Identity_StingStreamClearPasswordDerivation"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -231,10 +282,39 @@ export interface paths {
          * Sign in with an assertion your own server made.
          * @description Ends at `AuthenticateDirect` rather than `AuthenticateNewSession`, the same as the
          *     passkey route: there is no password to check, because the proof already happened when the
-         *     other server signed the assertion. The account created by this path has a password nobody
-         *     knows, so `AuthenticateNewSession` could never succeed for it anyway.
+         *     other server signed the assertion. The password the account ends up with was derived on the
+         *     caller's own origin and arrives already derived, so there is nothing here to check it
+         *     against and nothing here that has ever seen the password itself.
          */
         post: operations["Identity_StingStreamIdentitySignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/identity/signin-method": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * How to send a password for one username.
+         * @description <b>Anonymous, because the caller is by definition somebody who has not signed in yet.</b>
+         *                 An account that arrived from another server signs in with a value derived from its password
+         *                 rather than the password itself, and its client cannot derive that without the salt — so the
+         *                 salt has to be gettable without a session. It is not a secret; what it buys is that one
+         *                 server's derived password is useless on another.
+         *
+         *     A username nobody holds, an ordinary account and a linked account whose password has been
+         *                 reset all answer identically, so this is not a way to find out who has an account here.
+         *                 What it does tell somebody already holding a username is that it came from elsewhere.
+         */
+        post: operations["Identity_StingStreamSignInMethod"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2854,6 +2934,11 @@ export interface components {
             /** @description The build this child is running, when it will say. */
             Version?: string | null;
         };
+        /** @description Turning one linked account back into an ordinary-password one. */
+        ClearDerivationRequest: {
+            /** @description The local account whose password an administrator has just reset. */
+            UserId?: string | null;
+        };
         /** @description Client capabilities dto. */
         ClientCapabilitiesDto: {
             /** @description Gets or sets the list of playable media types. */
@@ -3692,6 +3777,15 @@ export interface components {
             InviteToken?: string | null;
             /** @description Also ask for the two servers to be linked. */
             RequestLink?: boolean;
+            /** @description The salt their own server derived StingStream.Core.Identity.IdentitySignInRequest.Verifier with. */
+            Salt?: string | null;
+            /** @description PBKDF2 of their password, which becomes their password here. */
+            Verifier?: string | null;
+            /**
+             * Format: int32
+             * @description The round count that produced it.
+             */
+            Iterations?: number | null;
         };
         /** @enum {string} */
         ImageOrientation: "TopLeft" | "TopRight" | "BottomRight" | "BottomLeft" | "LeftTop" | "RightTop" | "RightBottom" | "LeftBottom";
@@ -6071,6 +6165,18 @@ export interface components {
              */
             MessageType: "SessionsStop";
         };
+        /** @description Setting the derived password for the account you are signed in as. */
+        SetLinkedPasswordRequest: {
+            /** @description The new salt. */
+            Salt?: string | null;
+            /** @description PBKDF2 of the new password, derived with it. */
+            Verifier?: string | null;
+            /**
+             * Format: int32
+             * @description The round count that produced it.
+             */
+            Iterations?: number | null;
+        };
         /** @description Choose which libraries a link gets. */
         SetSharedLibrariesRequest: {
             /** @description The whole list. Empty shares nothing, which is also the default for a new link. */
@@ -6143,6 +6249,23 @@ export interface components {
              */
             Revision?: number;
             UpdatedAt?: string;
+        };
+        /** @description Asking how to sign in as one username. */
+        SignInMethodRequest: {
+            /** @description The username being signed in as. */
+            Username?: string | null;
+        };
+        /** @description How a client should send a password for one username. */
+        SignInMethodResponse: {
+            /** @description Whether the password must be derived before it is sent. */
+            Derived?: boolean;
+            /** @description The salt to derive it with, when it must be. */
+            Salt?: string;
+            /**
+             * Format: int32
+             * @description The round count to derive it with, when it must be.
+             */
+            Iterations?: number;
         };
         /** @description What the app posts to start a session. */
         StartWatchRequest: {
@@ -7875,6 +7998,119 @@ export interface operations {
             };
         };
     };
+    Identity_StingStreamSetLinkedPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The salt, the derived password and the round count. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SetLinkedPasswordRequest"];
+                "text/json": components["schemas"]["SetLinkedPasswordRequest"];
+                "application/*+json": components["schemas"]["SetLinkedPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description It is set. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was incomplete, or this is not a linked account. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Identity_StingStreamClearPasswordDerivation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The account whose password was just reset. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ClearDerivationRequest"];
+                "text/json": components["schemas"]["ClearDerivationRequest"];
+                "application/*+json": components["schemas"]["ClearDerivationRequest"];
+            };
+        };
+        responses: {
+            /** @description Done, or there was nothing to do. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Identity_StingStreamIdentitySignIn: {
         parameters: {
             query?: never;
@@ -7908,6 +8144,60 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IdentityError"];
                 };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Identity_StingStreamSignInMethod: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The username. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SignInMethodRequest"];
+                "text/json": components["schemas"]["SignInMethodRequest"];
+                "application/*+json": components["schemas"]["SignInMethodRequest"];
+            };
+        };
+        responses: {
+            /** @description What to send. Never whether the username exists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInMethodResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Forbidden */
             403: {

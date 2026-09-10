@@ -1,0 +1,10 @@
+- generic [active] [ref=f14e1]:
+  - generic [ref=f14e25]:
+    - generic [ref=f14e26]:
+      - generic [ref=f14e27]: Sign in with your own server
+      - generic [ref=f14e28]: You will sign in there, not here.
+    - textbox "your-server.example.com" [ref=f14e31]
+    - button "Continue to my server" [disabled]
+    - button "Back" [ref=f14e33] [cursor=pointer]
+  - generic [aria-hidden]:
+    - generic: StingStream

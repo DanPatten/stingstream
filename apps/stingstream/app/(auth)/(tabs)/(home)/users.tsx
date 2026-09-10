@@ -1,37 +1,16 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
-import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
-import { UsersScreen } from "@/components/stingstream/users/UsersScreen";
-import { INVITES_QUERY_KEY } from "@/lib/stingstream/invites";
-import { SERVER_USERS_QUERY_KEY } from "@/lib/stingstream/serverUsers";
+import { Redirect } from "expo-router";
 
 /**
- * `/users` — a section of its own rather than a settings sub-page.
+ * `/users` is Settings -> Users & access now.
  *
- * It has one address, unlike Sharing before it, which answered to both
- * `/sharing` and `/settings/groups` and so could light two different sidebar
- * rows depending on how you arrived.
+ * It was promoted to a section of its own when it stopped being a tab inside Sharing, and that was
+ * right at the time: who can sign in is the question administrators arrive with most. It is still
+ * that question, but it is a question about configuring the server rather than about browsing it,
+ * and a sidebar row a member never sees is a row that only says "you are not an administrator".
+ *
+ * The address stays as a redirect because it has been in the sidebar, in the phone's More list and
+ * in the screenshot flows, and a URL that used to work should not simply stop.
  */
-export default function UsersPage() {
-  const [refreshing, setRefreshing] = useState(false);
-  const queryClient = useQueryClient();
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // Both halves of the list: the accounts and the invitations nobody has opened.
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: SERVER_USERS_QUERY_KEY }),
-      queryClient.invalidateQueries({ queryKey: INVITES_QUERY_KEY }),
-    ]);
-    setRefreshing(false);
-  };
-
-  return (
-    <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <RequiresAdmin>
-        <UsersScreen />
-      </RequiresAdmin>
-    </RefreshScreen>
-  );
+export default function UsersMoved() {
+  return <Redirect href='/settings/users' />;
 }

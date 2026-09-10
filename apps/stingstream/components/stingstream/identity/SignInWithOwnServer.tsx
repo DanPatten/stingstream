@@ -1,4 +1,3 @@
-import { getNodeBaseUrl } from "@stingstream/api-client";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
@@ -7,11 +6,11 @@ import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { requestChallenge } from "@/lib/stingstream/identityApi";
+import { probeCandidate } from "@/lib/stingstream/sidedoor";
 import {
   buildAuthorizeUrl,
   returnTargetFromLocation,
 } from "@/utils/identity/handoff";
-import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
 
 /**
  * "I already run StingStream" — the start of signing in with your own server.
@@ -23,9 +22,9 @@ import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
  * 1. **This** server (the one being signed in to) is asked for a nonce, and answers with its own
  *    node id as well. That id is what the assertion gets bound to, and it is why an assertion
  *    handed to one server is worthless at any other.
- * 2. The address somebody types is resolved the same way the sign-in screen resolves one —
- *    `checkJellyfinServer` over `typedAddressCandidates`' forgiving list — so a missing scheme or
- *    port is not a dead end.
+ * 2. The address somebody types is resolved by asking it for `/sidedoor/v1/hello` — HTTPS first,
+ *    then plain HTTP — so a missing scheme is not a dead end. `resolveOwnServer` below says why it
+ *    is that route and not the one the sign-in screen uses.
  * 3. The browser **leaves**, to their own server's `/authorize`.
  *
  * ## Why it leaves rather than posting
@@ -39,6 +38,48 @@ import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
  * Everything in both hops rides in the URL fragment, which a browser never sends. See
  * `utils/identity/handoff.ts`.
  */
+/**
+ * Turn what somebody typed into the origin of their node, or null.
+ *
+ * **`/sidedoor/v1/hello`, not `/System/Info/Public`.** This probe is cross-origin by construction —
+ * the page was served by the server being *joined*, and it is asking about a different one — and a
+ * node answers no other route to another origin. `checkJellyfinServer` was used here first and
+ * could never have worked outside a test where both were the same host: the browser blocked it on
+ * CORS before the node ever saw it. The side door exists for exactly this question
+ * (`docs/SIDEDOOR.md` §4).
+ *
+ * HTTPS first, then plain HTTP, unless they typed a scheme themselves. A bare `host:port` on a LAN
+ * is the common case and is almost never HTTPS; a domain almost always is.
+ */
+const resolveOwnServer = async (typed: string): Promise<string | null> => {
+  const bare = typed.replace(/\/+$/, "");
+  const candidates = /^https?:\/\//i.test(bare)
+    ? [bare]
+    : [`https://${bare}`, `http://${bare}`];
+
+  for (const url of candidates) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    // No expected node id: nobody has told us which node lives there, and the answer is what
+    // tells us it is a node at all.
+    const outcome = await probeCandidate(
+      {
+        kind: "own",
+        host: parsed.hostname,
+        port: Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80),
+        url,
+      },
+      "",
+    );
+    if (outcome.ok) return url;
+  }
+  return null;
+};
+
 export const SignInWithOwnServer: React.FC<{
   /** This server's origin — the one being signed in to. */
   nodeOrigin: string;
@@ -79,15 +120,15 @@ export const SignInWithOwnServer: React.FC<{
       // anybody anywhere, and the error belongs on the screen they are still looking at.
       const challenge = await requestChallenge(nodeOrigin);
 
-      const found = await checkJellyfinServer(typed);
+      const found = await resolveOwnServer(typed);
       if (!found) {
         setError(t("identity.own_server_not_found"));
         return;
       }
 
-      // Their node's root, not its Jellyfin path: `/authorize` is served by the gateway at the
-      // top level, the same as `/join`.
-      const url = buildAuthorizeUrl(getNodeBaseUrl(found.url), {
+      // Already their node's root: `/authorize` is served by the gateway at the top level, the
+      // same as `/join`, and the side door answers there too.
+      const url = buildAuthorizeUrl(found, {
         audience: challenge.audience,
         nonce: challenge.nonce,
         returnTo: returnTargetFromLocation() ?? nodeOrigin,

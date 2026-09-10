@@ -3,6 +3,7 @@ import type {
   UserPolicy,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { getUserApi } from "@jellyfin/sdk/lib/utils/api";
+import { getNodeBaseUrl } from "@stingstream/api-client";
 import {
   type UseQueryResult,
   useMutation,
@@ -10,6 +11,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
+import { clearPasswordDerivation } from "@/lib/stingstream/identityApi";
 import { apiAtom } from "@/providers/JellyfinProvider";
 
 /**
@@ -65,7 +67,16 @@ const useUsersApi = () => {
   return { api, invalidate };
 };
 
-/** Set somebody else's password. `ResetPassword: false` means "use `NewPw`", not "clear it". */
+/**
+ * Set somebody else's password. `ResetPassword: false` means "use `NewPw`", not "clear it".
+ *
+ * An account that arrived from another server signs in with a value derived from its password
+ * rather than the password itself, so a reset here has to say so — otherwise the client would go
+ * on deriving against a salt that no longer matches anything and the person would be locked out by
+ * an administrator trying to let them in. Clearing it makes the account an ordinary one, which is
+ * what a reset means. A no-op for everybody else, and never fatal: the password *was* changed, and
+ * failing the mutation afterwards would say otherwise.
+ */
 export function useSetUserPassword() {
   const { api } = useUsersApi();
   return useMutation<void, Error, { userId: string; password: string }>({
@@ -73,6 +84,47 @@ export function useSetUserPassword() {
       await getUserApi(api!).updateUserPassword({
         userId,
         updateUserPassword: { ResetPassword: false, NewPw: password },
+      });
+
+      const nodeOrigin = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
+      if (nodeOrigin) {
+        try {
+          await clearPasswordDerivation(nodeOrigin, userId, api?.accessToken);
+        } catch {
+          // Logged nowhere and shown nowhere on purpose: the only account this can matter for is
+          // one an administrator is already looking at, and the Users screen says who came from
+          // where. Retrying the reset fixes it.
+        }
+      }
+    },
+  });
+}
+
+/**
+ * Change your own password.
+ *
+ * Not `useSetUserPassword` with a different argument. That one is an administrator resetting
+ * somebody else's, and it says `ResetPassword: false` with no old password because an elevated
+ * caller does not need one; this one sends `CurrentPw`, because Jellyfin will not let an
+ * unelevated account change its own password without proof it knows the old one.
+ *
+ * It also does **not** clear the linked-password derivation. That call exists so an administrator's
+ * reset cannot lock out an account whose password lives on another server — but an account in that
+ * state should never reach this mutation at all: the Profile pane asks
+ * `fetchSignInMethod` first and offers a sentence instead of a form when the answer is "derived",
+ * because the password really is set somewhere else. See `docs/INVITES.md` §11c.
+ */
+export function useChangeMyPassword() {
+  const { api } = useUsersApi();
+  return useMutation<
+    void,
+    Error,
+    { userId: string; currentPassword: string; password: string }
+  >({
+    mutationFn: async ({ userId, currentPassword, password }) => {
+      await getUserApi(api!).updateUserPassword({
+        userId,
+        updateUserPassword: { CurrentPw: currentPassword, NewPw: password },
       });
     },
   });

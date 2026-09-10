@@ -1,0 +1,7 @@
+- generic [active] [ref=f24e1]:
+  - generic [ref=f24e14]:
+    - generic [ref=f24e15]: Something went wrong
+    - generic [ref=f24e16]: Cannot read properties of undefined (reading 'menu')
+    - generic [ref=f24e17] [cursor=pointer]: Retry
+  - generic [aria-hidden]:
+    - generic: StingStream

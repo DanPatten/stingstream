@@ -111,7 +111,7 @@ export function useTabRootScreenOptions(): ICommonScreenOptions {
 /**
  * The extra options for a tab root that the More list opens.
  *
- * Favorites, Watchlists, Manage, Transfers and Custom links lost their tab
+ * Favorites, Watchlists, Transfers and Custom links lost their tab
  * buttons to F-08's five-icon bar, so on a phone they are reached from More and
  * nowhere else — and being tab roots, the native stack gives them no back
  * button. This puts one there. On web wide they are sidebar rows with no header

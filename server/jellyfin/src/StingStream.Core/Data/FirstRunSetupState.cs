@@ -30,6 +30,22 @@ public sealed class FirstRunSetupState
     /// <summary>True while the first account has still to be created.</summary>
     public bool Pending { get; set; }
 
+    /// <summary>The account that claimed this server at first run, in <c>N</c> format.</summary>
+    /// <remarks>
+    /// <b>The owner, and it never moves.</b> Dan: <em>"cannot be changed and is the first admin
+    /// setup, no transfer support and they are always an admin"</em>. Recorded the moment
+    /// <c>setup/admin</c> claims the bootstrap account, because that is the only moment anything
+    /// knows which account it was: <c>IUserManager.GetFirstUser</c> is an unordered
+    /// <c>FirstOrDefault</c>, so it happens to answer correctly today and is not something to build
+    /// a permanent fact on.
+    /// <para>
+    /// Empty on a node set up before this existed. <see cref="FirstRun.SetupGate.ChooseOwner"/>
+    /// falls back to the first account there and it is then written down, so the answer stops being
+    /// a guess after the first time anybody asks.
+    /// </para>
+    /// </remarks>
+    public string OwnerUserId { get; set; } = string.Empty;
+
     /// <summary>
     /// The stored document, or a not-pending default when the node has never written one.
     /// </summary>
@@ -54,6 +70,41 @@ public sealed class FirstRunSetupState
     /// <param name="pending">The new value.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task.</returns>
+    /// <remarks>
+    /// Read before it is written, because this document now holds a second thing. Rebuilding it
+    /// from the one field the caller knows about would drop <see cref="OwnerUserId"/> — and the
+    /// call that closes setup runs immediately after the call that records the owner.
+    /// </remarks>
     public static Task SetAsync(SettingsStore settings, bool pending, CancellationToken cancellationToken = default)
-        => settings.PutDocumentAsync(StorageKey, new FirstRunSetupState { Pending = pending }, cancellationToken);
+    {
+        var current = Get(settings);
+        current.Pending = pending;
+        return settings.PutDocumentAsync(StorageKey, current, cancellationToken);
+    }
+
+    /// <summary>Record which account owns this server. Only ever written once.</summary>
+    /// <param name="settings">The settings store.</param>
+    /// <param name="ownerUserId">The account, in <c>N</c> format.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <b>Refuses to overwrite an owner that is already recorded.</b> There is no transfer, so the
+    /// only ways this could be called twice are a repeated first run or a bug, and both should
+    /// leave the original answer standing.
+    /// </remarks>
+    public static Task SetOwnerAsync(
+        SettingsStore settings,
+        string ownerUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var current = Get(settings);
+        if (!string.IsNullOrWhiteSpace(current.OwnerUserId)
+            || string.IsNullOrWhiteSpace(ownerUserId))
+        {
+            return Task.CompletedTask;
+        }
+
+        current.OwnerUserId = ownerUserId.Trim();
+        return settings.PutDocumentAsync(StorageKey, current, cancellationToken);
+    }
 }

@@ -13,6 +13,7 @@ import { HeaderButton } from "@/components/common/HeaderButton";
 import { Text } from "@/components/common/Text";
 import { FilterButton } from "@/components/filters/FilterButton";
 import { Loader } from "@/components/Loader";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import { LogLevel, useLog, writeErrorLog } from "@/utils/log";
 
 // Conditionally import expo-sharing only on non-TV platforms
@@ -111,106 +112,113 @@ export default function Page() {
   }, [share, loading]);
 
   return (
-    <ScrollView
-      // Like the sibling settings pages, let iOS auto-inset the content below the
-      // transparent header (no manual header-height math). The filter bar is a
-      // sticky header so it stays pinned just under the header while logs scroll.
-      contentInsetAdjustmentBehavior='automatic'
-      stickyHeaderIndices={[0]}
-      contentContainerStyle={{ paddingBottom: insets.bottom }}
-    >
-      <View className='flex flex-row justify-end py-2 px-4 space-x-2 bg-black'>
-        <FilterButton
-          id={orderFilterId}
-          queryKey='log'
-          queryFn={async () => ["asc", "desc"]}
-          set={(values) => setOrder(values[0])}
-          values={[order]}
-          title={t("library.filters.sort_order")}
-          renderItemLabel={(order) => t(`library.filters.${order}`)}
-        />
-        <FilterButton
-          id={levelsFilterId}
-          queryKey='log'
-          queryFn={async () => defaultLevels}
-          set={setLevels}
-          values={levels}
-          title={t("home.settings.logs.level")}
-          renderItemLabel={(level) => level}
-          multiple={true}
-        />
-      </View>
-      <View className='flex flex-col space-y-2 px-4'>
-        {filteredLogs?.map((log, index) => (
-          <View className='bg-neutral-900 rounded-xl p-3' key={index}>
-            <TouchableOpacity
-              disabled={!log.data}
-              onPress={() =>
-                setState((v) => ({
-                  ...v,
-                  [log.timestamp]: !v[log.timestamp],
-                }))
-              }
-            >
-              <View className='flex flex-row justify-between'>
-                <Text
-                  className={`mb-1
+    // Lights About rather than a category of its own: this is what *this copy of
+    // the app* recorded on this device, which every account has. The server's own
+    // log files are Logs & status, behind the administrator gate.
+    <SettingsShell categoryKey='about'>
+      <ScrollView
+        // Like the sibling settings pages, let iOS auto-inset the content below the
+        // transparent header (no manual header-height math). The filter bar is a
+        // sticky header so it stays pinned just under the header while logs scroll.
+        contentInsetAdjustmentBehavior='automatic'
+        stickyHeaderIndices={[0]}
+        contentContainerStyle={{ paddingBottom: insets.bottom }}
+      >
+        <View className='flex flex-row justify-end py-2 px-4 space-x-2 bg-black'>
+          <FilterButton
+            id={orderFilterId}
+            queryKey='log'
+            queryFn={async () => ["asc", "desc"]}
+            set={(values) => setOrder(values[0])}
+            values={[order]}
+            title={t("library.filters.sort_order")}
+            renderItemLabel={(order) => t(`library.filters.${order}`)}
+          />
+          <FilterButton
+            id={levelsFilterId}
+            queryKey='log'
+            queryFn={async () => defaultLevels}
+            set={setLevels}
+            values={levels}
+            title={t("home.settings.logs.level")}
+            renderItemLabel={(level) => level}
+            multiple={true}
+          />
+        </View>
+        <View className='flex flex-col space-y-2 px-4'>
+          {filteredLogs?.map((log, index) => (
+            <View className='bg-neutral-900 rounded-xl p-3' key={index}>
+              <TouchableOpacity
+                disabled={!log.data}
+                onPress={() =>
+                  setState((v) => ({
+                    ...v,
+                    [log.timestamp]: !v[log.timestamp],
+                  }))
+                }
+              >
+                <View className='flex flex-row justify-between'>
+                  <Text
+                    className={`mb-1
                       ${log.level === "INFO" && "text-blue-500"}
                       ${log.level === "ERROR" && "text-red-500"}
                       ${log.level === "DEBUG" && "text-purple-500"}
                     `}
-                >
-                  {log.level}
-                </Text>
-
-                <Text className='text-xs'>
-                  {new Date(log.timestamp).toLocaleString()}
-                </Text>
-              </View>
-              <Text className='text-xs'>{log.message}</Text>
-              {/* Keep the whole collapsed row tappable: the hint lives inside
-                  the toggle so tapping it expands too. */}
-              {log.data && !state[log.timestamp] && (
-                <Text className='text-xs mt-0.5'>
-                  {t("home.settings.logs.click_for_more_info")}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            {log.data && (
-              <Collapsible collapsed={!state[log.timestamp]}>
-                <View className='mt-2 flex flex-col space-y-2'>
-                  <ScrollView
-                    className='rounded-xl'
-                    style={codeBlockStyle}
-                    nestedScrollEnabled
                   >
-                    {/* Only the raw payload is selectable (per request); the
-                        header/message stay tap-to-toggle. */}
-                    <Text selectable>{JSON.stringify(log.data, null, 2)}</Text>
-                  </ScrollView>
-                  {!Platform.isTV && (
-                    <TouchableOpacity
-                      onPress={() => copyLog(log)}
-                      className='flex flex-row items-center self-end px-2 py-1'
-                    >
-                      <Ionicons name='copy-outline' size={16} color='white' />
-                      <Text className='text-xs ml-1'>
-                        {t("home.settings.logs.copy")}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                    {log.level}
+                  </Text>
+
+                  <Text className='text-xs'>
+                    {new Date(log.timestamp).toLocaleString()}
+                  </Text>
                 </View>
-              </Collapsible>
-            )}
-          </View>
-        ))}
-        {filteredLogs?.length === 0 && (
-          <Text className='opacity-50'>
-            {t("home.settings.logs.no_logs_available")}
-          </Text>
-        )}
-      </View>
-    </ScrollView>
+                <Text className='text-xs'>{log.message}</Text>
+                {/* Keep the whole collapsed row tappable: the hint lives inside
+                  the toggle so tapping it expands too. */}
+                {log.data && !state[log.timestamp] && (
+                  <Text className='text-xs mt-0.5'>
+                    {t("home.settings.logs.click_for_more_info")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {log.data && (
+                <Collapsible collapsed={!state[log.timestamp]}>
+                  <View className='mt-2 flex flex-col space-y-2'>
+                    <ScrollView
+                      className='rounded-xl'
+                      style={codeBlockStyle}
+                      nestedScrollEnabled
+                    >
+                      {/* Only the raw payload is selectable (per request); the
+                        header/message stay tap-to-toggle. */}
+                      <Text selectable>
+                        {JSON.stringify(log.data, null, 2)}
+                      </Text>
+                    </ScrollView>
+                    {!Platform.isTV && (
+                      <TouchableOpacity
+                        onPress={() => copyLog(log)}
+                        className='flex flex-row items-center self-end px-2 py-1'
+                      >
+                        <Ionicons name='copy-outline' size={16} color='white' />
+                        <Text className='text-xs ml-1'>
+                          {t("home.settings.logs.copy")}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </Collapsible>
+              )}
+            </View>
+          ))}
+          {filteredLogs?.length === 0 && (
+            <Text className='opacity-50'>
+              {t("home.settings.logs.no_logs_available")}
+            </Text>
+          )}
+        </View>
+      </ScrollView>
+    </SettingsShell>
   );
 }

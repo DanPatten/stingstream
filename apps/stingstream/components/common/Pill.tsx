@@ -30,6 +30,8 @@ export interface PillProps {
   disabled?: boolean;
   /** Screen-reader label when `label` alone is not the whole story. */
   accessibilityLabel?: string;
+  /** For the screenshot sweep’s test-id contract — see `docs/UI-LOOP.md`. */
+  testID?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -50,6 +52,7 @@ export const Pill: React.FC<PillProps> = ({
   onPress,
   disabled = false,
   accessibilityLabel,
+  testID,
   style,
 }) => {
   const { accent } = useTheme();
@@ -125,11 +128,16 @@ export const Pill: React.FC<PillProps> = ({
   );
 
   if (!onPress) {
-    return <View style={[box, style]}>{content}</View>;
+    return (
+      <View testID={testID} style={[box, style]}>
+        {content}
+      </View>
+    );
   }
 
   return (
     <Pressable
+      testID={testID}
       accessibilityRole='button'
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled }}

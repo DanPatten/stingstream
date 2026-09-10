@@ -1,0 +1,69 @@
+- generic [ref=f1e14]:
+  - navigation [ref=f1e15]:
+    - button "Expand the sidebar" [ref=f1e18] [cursor=pointer]:
+      - generic [ref=f1e19]: 
+    - generic [ref=f1e21]:
+      - link "Home" [ref=f1e23] [cursor=pointer]:
+        - generic [ref=f1e24]: 
+      - generic [ref=f1e25]:
+        - link "Movies" [active] [ref=f1e27] [cursor=pointer]:
+          - generic [ref=f1e29]: 
+        - link "TV Shows" [ref=f1e30] [cursor=pointer]:
+          - generic [ref=f1e31]: 
+      - generic [ref=f1e32]:
+        - link "Favorites" [ref=f1e33] [cursor=pointer]:
+          - generic [ref=f1e34]: 
+        - link "Requests" [ref=f1e35] [cursor=pointer]:
+          - generic [ref=f1e36]: 
+        - link "Users" [ref=f1e37] [cursor=pointer]:
+          - generic [ref=f1e38]: 
+        - link "Manage" [ref=f1e39] [cursor=pointer]:
+          - generic [ref=f1e40]: 
+        - link "Transfers" [ref=f1e41] [cursor=pointer]:
+          - generic [ref=f1e42]: 
+        - link "Sessions" [ref=f1e43] [cursor=pointer]:
+          - generic [ref=f1e44]: 
+    - generic [ref=f1e45]:
+      - link "Settings" [ref=f1e46] [cursor=pointer]:
+        - generic [ref=f1e47]: 
+      - button "repro" [ref=f1e50] [cursor=pointer]:
+        - generic [ref=f1e51]: R
+    - generic: Movies
+  - generic [ref=f1e53]:
+    - generic [ref=f1e54]:
+      - generic [ref=f1e55]:
+        - button "Back" [ref=f1e330] [cursor=pointer]:
+          - generic [ref=f1e331]: 
+        - generic [ref=f1e58]: Movies
+      - generic [ref=f1e61]:
+        - generic [ref=f1e62]: 
+        - textbox "Search..." [ref=f1e63]
+      - button "Watch together" [ref=f1e66] [cursor=pointer]:
+        - generic [ref=f1e67]: 
+    - generic [ref=f1e69]:
+      - generic [ref=f1e317]:
+        - generic [ref=f1e318]:
+          - generic [ref=f1e319]: 
+          - generic [ref=f1e321]: Nothing to watch yet
+          - generic [ref=f1e322]: Copy films and shows into your media folders and scan for them, or ask for something and let StingStream fetch it.
+          - button [ref=f1e332] [cursor=pointer]:
+            - generic [ref=f1e324]: 
+            - generic [ref=f1e325]: Add media
+        - button [ref=f1e333] [cursor=pointer]:
+          - generic [ref=f1e327]: 
+          - generic [ref=f1e328]: Request something
+      - generic [ref=f1e100]:
+        - generic [ref=f1e334]:
+          - button "Genres" [disabled]:
+            - generic [ref=f1e336]: 
+          - button "Years" [disabled]:
+            - generic [ref=f1e338]: 
+          - button "Tags" [disabled]:
+            - generic [ref=f1e340]: 
+          - button "Filter by" [ref=f1e341] [cursor=pointer]:
+            - generic [ref=f1e343]: 
+          - button "Sort by" [ref=f1e344] [cursor=pointer]:
+            - generic [ref=f1e346]: 
+          - button "Sort order" [ref=f1e347] [cursor=pointer]:
+            - generic [ref=f1e349]: 
+        - generic [ref=f1e118]: No results

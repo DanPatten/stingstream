@@ -1,0 +1,38 @@
+- generic [ref=f4e63]:
+  - navigation [ref=f4e64]:
+    - generic [ref=f4e65]:
+      - button "Collapse the sidebar" [ref=f4e67] [cursor=pointer]:
+        - generic [ref=f4e68]: 
+      - link "Home" [ref=f4e69] [cursor=pointer]
+    - generic [ref=f4e76]:
+      - link "Home" [ref=f4e78] [cursor=pointer]:
+        - generic [ref=f4e80]: 
+      - generic [ref=f4e82]:
+        - link "Favorites" [ref=f4e83] [cursor=pointer]:
+          - generic [ref=f4e84]: 
+        - link "Requests" [ref=f4e86] [cursor=pointer]:
+          - generic [ref=f4e87]: 
+        - link "Users" [ref=f4e89] [cursor=pointer]:
+          - generic [ref=f4e90]: 
+        - link "Transfers" [ref=f4e92] [cursor=pointer]:
+          - generic [ref=f4e93]: 
+        - link "Sessions" [ref=f4e95] [cursor=pointer]:
+          - generic [ref=f4e96]: 
+    - generic [ref=f4e98]:
+      - link "Settings" [ref=f4e99] [cursor=pointer]:
+        - generic [ref=f4e100]: 
+      - button "reviewer" [ref=f4e104] [cursor=pointer]:
+        - generic [ref=f4e105]: R
+        - generic [ref=f4e108]: 
+  - generic [ref=f4e109]:
+    - generic [ref=f4e110]:
+      - generic [ref=f4e111]: Home
+      - generic [ref=f4e115]:
+        - generic [ref=f4e116]: 
+        - textbox "Search..." [ref=f4e117]
+      - button "Watch together" [ref=f4e120] [cursor=pointer]:
+        - generic [ref=f4e121]: 
+    - generic [ref=f4e131]:
+      - progressbar "Loading" [ref=f4e134]
+      - progressbar "Loading" [ref=f4e161]
+      - progressbar "Loading" [ref=f4e188]

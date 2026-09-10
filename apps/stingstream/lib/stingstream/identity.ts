@@ -1,4 +1,7 @@
-import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
+import {
+  getNodeBaseUrl,
+  getStingStreamApiBaseUrl,
+} from "@stingstream/api-client";
 import {
   type UseQueryResult,
   useMutation,
@@ -13,11 +16,13 @@ import {
   fetchLinkRequests,
   fetchLinks,
   fetchMyLinkRequest,
+  fetchSignInMethod,
   type LinkedIdentity,
   type LinkRequestSummary,
   type MyLinkRequest,
   removeLink,
   requestLink,
+  type SignInMethod,
 } from "./identityApi";
 
 /**
@@ -132,5 +137,33 @@ export function useRemoveLinkedIdentity() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: IDENTITY_QUERY_KEY });
     },
+  });
+}
+
+/**
+ * Whether this account signs in with an ordinary password on this server, or with a value derived
+ * from one it set somewhere else.
+ *
+ * The Profile pane asks before it offers to change a password, because for a linked account there
+ * is nothing here to change: it signs in with `PBKDF2(password)` against a salt this server holds,
+ * and the password itself belongs to the server the account came from
+ * (`providers/JellyfinProvider.tsx`'s `secretToSend`, `docs/INVITES.md` §11c).
+ *
+ * `retry: false` on purpose. `fetchSignInMethod` throws rather than guessing when it cannot get a
+ * definite answer, and three silent retries of a question whose failure mode is "offer the wrong
+ * form" is three chances to look like a hang instead of one honest error.
+ */
+export function useMySignInMethod(): UseQueryResult<SignInMethod> {
+  const api = useAtomValue(apiAtom);
+  const user = useAtomValue(userAtom);
+  const nodeOrigin = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
+
+  return useQuery({
+    queryKey: [...IDENTITY_QUERY_KEY, "sign-in-method", user?.Name],
+    queryFn: () =>
+      fetchSignInMethod(nodeOrigin as string, user?.Name as string),
+    enabled: Boolean(nodeOrigin && user?.Name),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 }

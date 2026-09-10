@@ -13,6 +13,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Keyboard, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Button } from "@/components/Button";
 import { CardRow } from "@/components/cards/CardRow";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Icon } from "@/components/common/Icon";
@@ -28,21 +29,13 @@ import {
 } from "@/components/jellyseerr/JellyseerrIndexPage";
 import { DiscoverFilters } from "@/components/search/DiscoverFilters";
 import { SearchPeopleRow } from "@/components/search/SearchPeopleRow";
-import { SearchRequestSection } from "@/components/search/SearchRequestSection";
-import { SearchSectionTitle } from "@/components/search/SearchSectionTitle";
 import { TVSearchPage } from "@/components/search/TVSearchPage";
-import { RequestSheet } from "@/components/stingstream/requests/RequestSheet";
 import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { useCatalogueSearch } from "@/hooks/useCatalogueSearch";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
-import {
-  libraryMatchKeys,
-  type RequestSearchResult,
-  toRequestCard,
-} from "@/lib/stingstream/requestsApi";
+import { shouldOfferRequest } from "@/lib/stingstream/requestsApi";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
@@ -430,51 +423,42 @@ export default function SearchPage() {
     for (const query of failedLibraryQueries) void query.refetch();
   }, [failedLibraryQueries]);
 
-  // --- the other half of the same search ---------------------------------
+  // --- when to offer to go and ask ---------------------------------------
   //
-  // One box, two catalogues: Jellyfin for what this server holds, the node's
-  // own requests search for what it does not. Only films and series go into
-  // the dedupe keys — an episode's title and ids are the episode's own and
-  // could neither match nor usefully exclude a catalogue result.
-  const libraryKeys = useMemo(
+  // Search answers with the library and nothing else. It used to answer with a
+  // second section of things the server does *not* have, each a poster whose
+  // Request button appeared only under a pointer, and the whole section drew
+  // nothing at all when the node's lookup came back empty — so on a node whose
+  // managers were not configured there was no section, no error, and no way to
+  // ask. Asking lives on the Requests tab now, and this screen's job is to
+  // hand over to it at the moment somebody wants it.
+  //
+  // Only films and series are compared: an episode's `Name` is the episode's
+  // own, so "Pilot" would count as an exact match for a search for a show
+  // called Pilot and silently withdraw the offer.
+  const offerRequest = useMemo(
     () =>
-      libraryMatchKeys([
+      // The television has its own search screen and its own way of asking
+      // (`TVSearchPage`, `TVRequestButton`), so it never offers this.
+      !Platform.isTV &&
+      shouldOfferRequest(debouncedSearch, [
         ...(moviesQuery.data ?? []),
         ...(seriesQuery.data ?? []),
       ]),
-    [moviesQuery.data, seriesQuery.data],
-  );
-  // The television has its own search screen and its own way of asking (see
-  // `TVSearchPage`), so it is handed an empty term and never runs either call.
-  const catalogue = useCatalogueSearch(
-    Platform.isTV ? "" : debouncedSearch,
-    libraryKeys,
+    [debouncedSearch, moviesQuery.data, seriesQuery.data],
   );
 
-  /** The result whose request sheet is open, for either section. */
-  const [picking, setPicking] = useState<RequestSearchResult | null>(null);
-
-  const memberCards = useMemo(
-    () => catalogue.heldByMember.map(toRequestCard),
-    [catalogue.heldByMember],
-  );
-  const memberByCardId = useMemo(
-    () =>
-      new Map(
-        catalogue.heldByMember.map((result) => [
-          toRequestCard(result).id,
-          result,
-        ]),
-      ),
-    [catalogue.heldByMember],
-  );
-  const pickMemberCard = useCallback(
-    (id: string) => {
-      const result = memberByCardId.get(id);
-      if (result) setPicking(result);
-    },
-    [memberByCardId],
-  );
+  const goAndAsk = useCallback(() => {
+    // `/requests`, the section's own named route, not the group path: the group
+    // path renders Requests but leaves the address bar on `/`, which is
+    // pass-02's F-20 all over again. `replace`, not `push`, because Requests is
+    // a tab root like this one and the shell is one Stack of the tab groups —
+    // pushing would put a back step between the two halves of one errand.
+    router.replace({
+      pathname: "/requests",
+      params: { q: debouncedSearch.trim(), tab: "find" },
+    });
+  }, [debouncedSearch, router]);
 
   // TV item press handler
   const handleItemPress = useCallback(
@@ -643,27 +627,10 @@ export default function SearchPage() {
     { key: "Discover", label: t("search.discover") },
   ];
 
-  // Whether the catalogue half has anything to say. It draws nothing at all
-  // otherwise: a server with no requests feature, a node whose downloaders are
-  // not configured, and a search that genuinely matched nothing new all arrive
-  // here empty, and none of them is worth a box on a screen that has just
-  // shown the user what it *did* find.
-  const showRequestSection =
-    !catalogue.unavailable &&
-    (catalogue.loading || catalogue.requestable.length > 0);
-  const showMemberRow = memberCards.length > 0;
-  // Every row inside it hides itself when it has nothing, so without this the
-  // whole section would collapse to a heading with a void under it — which is
-  // exactly what a search matching only titles this server does not have would
-  // produce.
-  const showLibrarySection =
-    libraryLoading || !noLibraryResults || showMemberRow;
-  // The library rows carry their own headings ("Movies", "Series"), so the
-  // section label above them only earns its space once there is a second
-  // section to tell it apart from.
-  const showSectionTitles = showRequestSection || showMemberRow;
-  const nothingAnywhere =
-    noLibraryResults && !showMemberRow && catalogue.requestable.length === 0;
+  // Every row hides itself when it has nothing, so without this the section
+  // would collapse to a heading with a void under it — which is exactly what a
+  // search matching only titles this server does not have would produce.
+  const showLibrarySection = libraryLoading || !noLibraryResults;
 
   const libraryContent =
     debouncedSearch.length === 0 ? (
@@ -735,23 +702,23 @@ export default function SearchPage() {
           ) : null}
         </View>
       </View>
-    ) : !libraryLoading &&
-      !hasLibraryError &&
-      !catalogue.loading &&
-      nothingAnywhere ? (
+    ) : !libraryLoading && !hasLibraryError && noLibraryResults ? (
       <View testID='search-empty'>
         <EmptyState
           icon='search'
           title={`${t("search.no_results_found_for")} "${debouncedSearch}"`}
-          // No "ask for it" button any more: the section above this one *is*
-          // the asking, so an empty state that offers to take you elsewhere to
-          // do it would be sending you back to a screen that no longer has it.
-          // Without requests on this server there is nothing to offer at all,
-          // and saying so plainly beats a button that leads to a 503.
-          detail={
-            catalogue.unavailable
-              ? t("search.no_results_not_in_library")
-              : t("search.no_results_detail")
+          detail={t("search.no_results_detail")}
+          // Nothing here at all is the clearest case there is for asking, so
+          // the offer *is* the empty state's action rather than a second
+          // control under it.
+          action={
+            offerRequest
+              ? {
+                  label: t("search.request_term", { term: debouncedSearch }),
+                  icon: "requests",
+                  onPress: goAndAsk,
+                }
+              : undefined
           }
         />
       </View>
@@ -773,9 +740,6 @@ export default function SearchPage() {
         ) : null}
         {showLibrarySection ? (
           <View testID='search-library-section'>
-            {showSectionTitles ? (
-              <SearchSectionTitle title={t("search.in_your_library")} />
-            ) : null}
             <CardRow
               title={t("search.movies")}
               items={moviesQuery.data}
@@ -838,29 +802,33 @@ export default function SearchPage() {
               loading={playlistsQuery.isFetching}
               hideIfEmpty
             />
-            {/*
-              Not in *this* server's library, but somebody in the group has
-              it — which makes it something to watch, not something to ask
-              for. It belongs on this side of the line under a heading that
-              says where it is coming from; pressing one opens the same sheet,
-              which names the holder and offers no download.
-            */}
-            <CardRow
-              title={t("search.available_from_member")}
-              cards={memberCards}
-              kind='portrait'
-              onPressId={pickMemberCard}
-              hideIfEmpty
-            />
           </View>
         ) : null}
 
-        {showRequestSection ? (
-          <SearchRequestSection
-            results={catalogue.requestable}
-            loading={catalogue.loading}
-            onPressResult={setPicking}
-          />
+        {/*
+          Results, but not the ones that were asked for — "aliens" answered
+          with "Alien". The library gave what it had; this says the rest of the
+          question can still be put to the group.
+        */}
+        {offerRequest ? (
+          <View
+            style={{
+              paddingHorizontal: gutter,
+              paddingTop: 8,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+            }}
+          >
+            <Button
+              testID='search-request-cta'
+              variant='ghost'
+              size='sm'
+              icon='requests'
+              onPress={goAndAsk}
+            >
+              {t("search.request_term", { term: debouncedSearch })}
+            </Button>
+          </View>
         ) : null}
       </View>
     );
@@ -966,13 +934,6 @@ export default function SearchPage() {
         {searchType === "Discover" && showDiscoverTab
           ? discoverContent
           : libraryContent}
-
-        {/*
-          One sheet for both sections, mounted here rather than inside either
-          of them: it renders nothing until something is picked, and a copy per
-          section would mean two `Dialog`s racing to be the one on screen.
-        */}
-        <RequestSheet result={picking} onClose={() => setPicking(null)} />
       </PageContainer>
     </ScrollView>
   );

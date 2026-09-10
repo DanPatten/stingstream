@@ -22,6 +22,8 @@ import { authHeaders, readError } from "./meshApi";
 const CHALLENGE_PATH = "/stingstream/api/v1/identity/challenge";
 const VOUCH_PATH = "/stingstream/api/v1/identity/vouch";
 const SIGNIN_PATH = "/stingstream/api/v1/identity/signin";
+const METHOD_PATH = "/stingstream/api/v1/identity/signin-method";
+const PASSWORD_PATH = "/stingstream/api/v1/identity/password";
 
 /** How long one call gets before it is called unreachable. */
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -245,6 +247,12 @@ export async function signInWithAssertion(
     assertion: string;
     inviteToken?: string | null;
     requestLink?: boolean;
+    /** The salt their own server derived the verifier with, for this one to keep. */
+    salt?: string | null;
+    /** PBKDF2 of their password. Becomes their password here; this server never sees the real one. */
+    verifier?: string | null;
+    /** The round count that produced it. */
+    iterations?: number | null;
   },
   options: IdentityRequestOptions = {},
 ): Promise<IdentitySession> {
@@ -255,6 +263,11 @@ export async function signInWithAssertion(
       Assertion: input.assertion,
       InviteToken: input.inviteToken ?? null,
       RequestLink: input.requestLink === true,
+      // All three or none. The server treats a partial as none and keeps generating a password
+      // nobody knows, which is the old behaviour and the safe one.
+      Salt: input.salt ?? null,
+      Verifier: input.verifier ?? null,
+      Iterations: input.iterations ?? null,
     }),
     fetchImpl,
   );
@@ -466,5 +479,151 @@ export async function declineLinkRequest(
   );
   if (!res.ok && res.status !== 404) {
     throw await readError(res, "POST /identity/link-requests/decline");
+  }
+}
+
+/**
+ * How this server wants a password sent for one username.
+ *
+ * `derived` is true only for an account that arrived from another server. Everything else — an
+ * ordinary account, a username nobody holds, a server that has never heard of this endpoint —
+ * answers the same `{ derived: false }`, so this cannot be used to find out who has an account
+ * here. What it does say, to somebody already holding a username, is that it came from elsewhere.
+ */
+export interface SignInMethod {
+  derived: boolean;
+  salt: string;
+  iterations: number;
+}
+
+const PLAIN: SignInMethod = { derived: false, salt: "", iterations: 0 };
+
+/**
+ * Ask, before sending anything, what to send.
+ *
+ * **A failure here is not a `false`.** Falling back to the password on a timeout would put the
+ * plaintext on the wire for exactly the account that must never send it, so only a definite answer
+ * — including a `404` from a server with no such endpoint, which is every plain Jellyfin — settles
+ * this. Anything else throws and the sign-in stops.
+ */
+export async function fetchSignInMethod(
+  nodeOrigin: string,
+  username: string,
+  options: IdentityRequestOptions = {},
+): Promise<SignInMethod> {
+  const fetchImpl = options.fetch ?? fetch;
+  const response = await request(
+    `${origin(nodeOrigin)}${METHOD_PATH}`,
+    jsonPost({ Username: username }),
+    fetchImpl,
+  );
+
+  // Not this server's endpoint. An ordinary Jellyfin, or a node older than this feature.
+  if (response.status === 404 || response.status === 405) return PLAIN;
+
+  if (!response.ok) {
+    throw new IdentityRequestError(
+      response.status >= 500 ? "unreachable" : "server",
+      (await refusalSentence(response)) ??
+        "That server could not start a sign-in right now.",
+    );
+  }
+
+  const body = (await response.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  if (body?.Derived !== true) return PLAIN;
+
+  const salt = typeof body.Salt === "string" ? body.Salt : "";
+  const iterations =
+    typeof body.Iterations === "number" ? Math.trunc(body.Iterations) : 0;
+  if (!salt || iterations < 1) {
+    // Said "derived" and then did not say with what. Refusing beats deriving from a guess, which
+    // would fail authentication and look like a wrong password.
+    throw new IdentityRequestError(
+      "server",
+      "That server's answer was incomplete.",
+    );
+  }
+
+  return { derived: true, salt, iterations };
+}
+
+/**
+ * Set the password you use on *this* server, when your account came from another one.
+ *
+ * Takes the derived value, never the password — the same rule as the sign-in itself. Needs your own
+ * session here, and only ever changes your own account: this is what a linked account does after
+ * changing its password at home, since the two are no longer in step.
+ */
+export async function setLinkedPassword(
+  nodeOrigin: string,
+  input: { salt: string; verifier: string; iterations: number },
+  accessToken: string | null | undefined,
+  options: IdentityRequestOptions = {},
+): Promise<void> {
+  const fetchImpl = options.fetch ?? fetch;
+  const response = await request(
+    `${origin(nodeOrigin)}${PASSWORD_PATH}`,
+    {
+      ...jsonPost({
+        Salt: input.salt,
+        Verifier: input.verifier,
+        Iterations: input.iterations,
+      }),
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        ...authHeaders(accessToken),
+      },
+    },
+    fetchImpl,
+  );
+
+  if (!response.ok) {
+    throw new IdentityRequestError(
+      "refused",
+      (await refusalSentence(response)) ??
+        "That password could not be changed.",
+    );
+  }
+}
+
+/**
+ * Make a linked account sign in with an ordinary password again. Administrator only.
+ *
+ * Called after a password reset on the Users screen. Without it the client would keep deriving
+ * against a salt the new password was never run through, and the reset would lock the person out
+ * rather than let them in.
+ */
+export async function clearPasswordDerivation(
+  nodeOrigin: string,
+  userId: string,
+  accessToken: string | null | undefined,
+  options: IdentityRequestOptions = {},
+): Promise<void> {
+  const fetchImpl = options.fetch ?? fetch;
+  const response = await request(
+    `${origin(nodeOrigin)}${PASSWORD_PATH}/derivation/clear`,
+    {
+      ...jsonPost({ UserId: userId }),
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        ...authHeaders(accessToken),
+      },
+    },
+    fetchImpl,
+  );
+
+  // A node that has never heard of this is a node with no linked accounts to spoil.
+  if (response.status === 404 || response.status === 405) return;
+
+  if (!response.ok) {
+    throw new IdentityRequestError(
+      "server",
+      (await refusalSentence(response)) ?? "That account could not be updated.",
+    );
   }
 }

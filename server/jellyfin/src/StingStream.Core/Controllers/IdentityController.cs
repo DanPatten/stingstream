@@ -142,8 +142,9 @@ public sealed class IdentityController : ControllerBase
     /// <remarks>
     /// Ends at <c>AuthenticateDirect</c> rather than <c>AuthenticateNewSession</c>, the same as the
     /// passkey route: there is no password to check, because the proof already happened when the
-    /// other server signed the assertion. The account created by this path has a password nobody
-    /// knows, so <c>AuthenticateNewSession</c> could never succeed for it anyway.
+    /// other server signed the assertion. The password the account ends up with was derived on the
+    /// caller's own origin and arrives already derived, so there is nothing here to check it
+    /// against and nothing here that has ever seen the password itself.
     /// </remarks>
     [HttpPost("signin", Name = "StingStreamIdentitySignIn")]
     [AllowAnonymous]
@@ -158,7 +159,11 @@ public sealed class IdentityController : ControllerBase
             request?.InviteToken,
             DateTimeOffset.UtcNow,
             cancellationToken,
-            request?.RequestLink ?? false).ConfigureAwait(false);
+            request?.RequestLink ?? false,
+            IdentityGate.ReadCredential(
+                request?.Salt,
+                request?.Verifier,
+                request?.Iterations)).ConfigureAwait(false);
 
         if (user is null)
         {
@@ -184,6 +189,103 @@ public sealed class IdentityController : ControllerBase
 
         _logger.LogInformation("{User} signed in from another server", user.Username);
         return result;
+    }
+
+    /// <summary>How to send a password for one username.</summary>
+    /// <param name="request">The username.</param>
+    /// <response code="200">What to send. Never whether the username exists.</response>
+    /// <returns>The method.</returns>
+    /// <remarks>
+    /// <b>Anonymous, because the caller is by definition somebody who has not signed in yet.</b>
+    /// An account that arrived from another server signs in with a value derived from its password
+    /// rather than the password itself, and its client cannot derive that without the salt — so the
+    /// salt has to be gettable without a session. It is not a secret; what it buys is that one
+    /// server's derived password is useless on another.
+    /// <para>
+    /// A username nobody holds, an ordinary account and a linked account whose password has been
+    /// reset all answer identically, so this is not a way to find out who has an account here.
+    /// What it does tell somebody already holding a username is that it came from elsewhere.
+    /// </para>
+    /// </remarks>
+    [HttpPost("signin-method", Name = "StingStreamSignInMethod")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<SignInMethodResponse> SignInMethod(
+        [FromBody] SignInMethodRequest request)
+        => Ok(_identity.DescribeSignIn(request?.Username));
+
+    /// <summary>Set the password you use on this server.</summary>
+    /// <param name="request">The salt, the derived password and the round count.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">It is set.</response>
+    /// <response code="400">The request was incomplete, or this is not a linked account.</response>
+    /// <returns>Nothing.</returns>
+    /// <remarks>
+    /// For somebody whose account came from another server and who has since changed their password
+    /// there: the two are no longer in step, and this is what puts them back without needing an
+    /// administrator. <b>What arrives is the derived value and never the password</b>, the same rule
+    /// as the sign-in itself.
+    /// <para>
+    /// Always the caller's own account, read from the session rather than from the body — a user id
+    /// somebody typed is a user id somebody chose.
+    /// </para>
+    /// </remarks>
+    [HttpPost("password", Name = "StingStreamSetLinkedPassword")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(IdentityError), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult> SetPassword(
+        [FromBody] SetLinkedPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User?.FindFirst("Jellyfin-UserId")?.Value ?? string.Empty;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return BadRequest(new IdentityError { Error = "Sign in first." });
+        }
+
+        var credential = IdentityGate.ReadCredential(
+            request?.Salt,
+            request?.Verifier,
+            request?.Iterations);
+        if (credential is null)
+        {
+            return BadRequest(new IdentityError { Error = "That password could not be used." });
+        }
+
+        var problem = await _identity
+            .SetDerivedPasswordAsync(userId, credential.Value, cancellationToken)
+            .ConfigureAwait(false);
+
+        return problem is null
+            ? NoContent()
+            : BadRequest(new IdentityError { Error = problem });
+    }
+
+    /// <summary>Make a linked account sign in with an ordinary password again.</summary>
+    /// <param name="request">The account whose password was just reset.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">Done, or there was nothing to do.</response>
+    /// <returns>Nothing.</returns>
+    /// <remarks>
+    /// Called by the Users screen straight after an administrator resets somebody's password.
+    /// Jellyfin now holds a hash of what they typed, so a client still deriving against the old
+    /// salt would send something that cannot match — and Jellyfin locks an account after three of
+    /// those. Clearing it is what makes the reset a way in rather than a way out.
+    /// <para>
+    /// Administrator, because resetting a password is, and a no-op for an ordinary account.
+    /// </para>
+    /// </remarks>
+    [HttpPost("password/derivation/clear", Name = "StingStreamClearPasswordDerivation")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult> ClearDerivation(
+        [FromBody] ClearDerivationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _identity
+            .ClearDerivedPasswordAsync(request?.UserId ?? string.Empty, cancellationToken)
+            .ConfigureAwait(false);
+        return NoContent();
     }
 
     /// <summary>Ask for the server you run to be linked with this one.</summary>
@@ -309,8 +411,8 @@ public sealed class IdentityController : ControllerBase
     /// <response code="404">There was no such link.</response>
     /// <returns>Nothing.</returns>
     /// <remarks>
-    /// <b>The account stays.</b> Removing the link takes away the only way in — the account has a
-    /// password nobody knows — so this is closer to disabling somebody than to tidying a table, and
+    /// <b>The account stays.</b> Removing the link stops them signing in with their own server, so
+    /// this is closer to disabling somebody than to tidying a table, and
     /// what they watched and where they got to is still theirs. Deleting the account itself is the
     /// Users screen's job, and is a separate decision.
     /// </remarks>

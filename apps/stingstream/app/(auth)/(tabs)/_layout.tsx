@@ -107,10 +107,10 @@ function TVTabLayout() {
             label: t("tabs.library"),
             icon: "library" as const,
           },
-          // Requests is the one StingStream tab a non-administrator gets, so unlike Manage and
-          // Downloads it is here on TV too. The screen itself drops Approvals and Policy on a
-          // television: approving on a remote control is worse than doing it on the phone that is
-          // already in the room.
+          // Requests is the one StingStream tab a non-administrator gets, so unlike Transfers it
+          // is here on TV too. The screen itself drops the elevated sections on a television:
+          // approving on a remote control is worse than doing it on the phone that is already in
+          // the room.
           {
             key: "(requests)",
             label: t("tabs.requests"),
@@ -253,12 +253,12 @@ export default function TabLayout() {
   const { t } = useTranslation();
   const { isCompact, width } = useBreakpoint();
   const { accent } = useTheme();
-  // Who sees Manage, Transfers, Watchlists and Custom links is no longer a
-  // question this file answers. Those four groups are behind More on every
-  // phone and narrow window, and `buildMoreItems` applies the gates that used
-  // to live in the `tabBarItemHidden` lines below — the administrator one
-  // included (every Manage and Transfers endpoint requires Jellyfin's
-  // RequiresElevation policy; see docs/UI-API-GAPS.md).
+  // Who sees Transfers, Watchlists and Custom links is no longer a question
+  // this file answers. Those three groups are behind More on every phone and
+  // narrow window, and `buildMoreItems` applies the gates that used to live in
+  // the `tabBarItemHidden` lines below — the administrator one included (every
+  // Transfers endpoint requires Jellyfin's RequiresElevation policy; see
+  // docs/UI-API-GAPS.md).
 
   // Must be called before any conditional return (rules of hooks)
   useTVHomeBackHandler();
@@ -283,9 +283,13 @@ export default function TabLayout() {
   /*
     The bar Dan reviewed had seven tabs on a 390 px phone and truncated every
     one of them ("Favor…", "Man…", "Dow…") — pass-01 F-08. Five stay: Home,
-    Search, Library, Requests and More. The other five groups keep their routes
+    Search, Library, Requests and More. The other four groups keep their routes
     and their screens and lose only their buttons (`tabBarItemHidden`), and the
     More tab lists them; see `components/shell/MoreScreen.tsx`.
+
+    Manage is not among them any more. Its queue, history and calendar are
+    Requests → Activity, and its Radarr/Sonarr library is Settings → Radarr &
+    Sonarr; the group is gone rather than hidden.
 
     The declaration order below is the navigator's route order, and `TAB_KEYS`
     is a copy of it that the sidebar and the two tab bars read; keep the two in
@@ -387,21 +391,6 @@ export default function TabLayout() {
               Platform.OS === "android"
                 ? (_e) => require("@/assets/icons/rectangle.stack.fill.png")
                 : (_e) => ({ sfSymbol: "rectangle.stack.fill" }),
-          }}
-        />
-        <NativeTabs.Screen
-          name='(manage)'
-          options={{
-            title: t("tabs.manage"),
-            // Behind More, and only for an administrator — see the note on
-            // `isStingStreamAdmin` above, which is now enforced by
-            // `buildMoreItems` instead of by this line.
-            tabBarItemHidden: true,
-            tabBarButtonTestID: tabTestID("(manage)"),
-            tabBarIcon:
-              Platform.OS === "android"
-                ? (_e) => require("@/assets/icons/manage.sliders.png")
-                : (_e) => ({ sfSymbol: "slider.horizontal.3" }),
           }}
         />
         <NativeTabs.Screen

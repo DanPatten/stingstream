@@ -7,6 +7,10 @@ import { Input } from "@/components/common/Input";
 import { Pill } from "@/components/common/Pill";
 import { SkeletonGrid } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
+import {
+  REQUEST_EXAMPLE_SEARCHES,
+  REQUEST_SEARCH_DEBOUNCE_MS,
+} from "@/constants/Requests";
 import { maxWidth as MAX_WIDTHS } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
@@ -17,25 +21,6 @@ import {
 } from "@/lib/stingstream/requests";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
-
-/** Every keystroke here costs the node two metadata lookups and a group-index scan per result.
- * Long enough that typing a title is one search, short enough not to feel stuck. */
-const SEARCH_DEBOUNCE_MS = 400;
-
-/** Public-domain titles. These are search *terms*, not library content: pressing one runs a real
- * Radarr/Sonarr metadata lookup, so a chip finds whatever the node's indexers actually return.
- * They were originally picked to match the media WP-TOOLS seeded into a test node; that seeder was
- * removed on 2026-09-09 (see docs/UI-LOOP.md), so a chip is no longer guaranteed to hit something
- * already in the library. Six, per the design: enough to suggest a spread of films and one series
- * without turning the empty state into a wall of buttons. */
-const EXAMPLE_SEARCHES = [
-  "Sintel",
-  "Big Buck Bunny",
-  "Nosferatu",
-  "The Beverly Hillbillies",
-  "Tears of Steel",
-  "Elephants Dream",
-];
 
 /**
  * Find something to ask for — **on a television only**, since F-73.
@@ -70,7 +55,10 @@ export function DiscoverSection() {
   const search = useRequestSearch(debounced);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(term), SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(
+      () => setDebounced(term),
+      REQUEST_SEARCH_DEBOUNCE_MS,
+    );
     return () => clearTimeout(timer);
   }, [term]);
 
@@ -110,11 +98,17 @@ export function DiscoverSection() {
         returnKeyType='search'
       />
 
-      {policy.data && policy.data.autoApprove !== "everyone" ? (
+      {/*
+        Only when *every* request waits for somebody. The other half of this — "…unless you are
+        trusted" — said nothing a member could act on: they cannot see whether they are trusted, so
+        it warned everybody about a queue most of them never enter, above a search they had not run
+        yet. Under a `trusted` policy the answer arrives where it is certain instead: the toast on
+        Request says "waiting for approval" when the node held it, and the row turns to "Awaiting
+        approval" as the request lands.
+      */}
+      {policy.data?.autoApprove === "admins_only" ? (
         <Text variant='caption' tone='secondary' style={{ marginTop: 10 }}>
-          {policy.data.autoApprove === "admins_only"
-            ? t("requests.policy_hint_admins_only")
-            : t("requests.policy_hint_trusted")}
+          {t("requests.policy_hint_admins_only")}
         </Text>
       ) : null}
 
@@ -136,7 +130,7 @@ export function DiscoverSection() {
               paddingHorizontal: 24,
             }}
           >
-            {EXAMPLE_SEARCHES.map((example) => (
+            {REQUEST_EXAMPLE_SEARCHES.map((example) => (
               <Pill
                 key={example}
                 label={example}

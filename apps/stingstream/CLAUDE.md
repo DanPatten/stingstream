@@ -164,11 +164,15 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
 **Navigation**
 - File based routing under `app/`.
 - Tab groups: `(home)`, `(search)`, `(favorites)`, `(libraries)`, `(watchlists)`,
-  `(custom-links)`, `(settings)`, `(manage)`, `(downloads)`, `(requests)`. `(manage)` and
-  `(downloads)` are administrator-only and hidden on TV; `(requests)` is visible to every
-  member and present on TV, with its Approvals and Policy sections dropped there. Routes
+  `(custom-links)`, `(settings)`, `(downloads)`, `(requests)`. `(downloads)` is
+  administrator-only and hidden on TV; `(requests)` is visible to every member and present
+  on TV, with its elevated sections (Approvals, Activity, Policy) dropped there. Routes
   shared by several tabs live in the combined group
   `(home,libraries,search,favorites,watchlists)`.
+- There is no `(manage)` group. It was folded into Requests: the arr queue, history and
+  calendar are Requests → Activity, and the arr library is Settings → Movie & series
+  managers (`app/(auth)/(tabs)/(home)/settings/library`). Its components live in
+  `components/stingstream/arr/`.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
   navigation.

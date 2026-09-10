@@ -1,29 +1,9 @@
-import { Platform, ScrollView, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MediaProvider } from "@/components/settings/MediaContext";
-import { SubtitleToggles } from "@/components/settings/SubtitleToggles";
-import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
+import { Redirect } from "expo-router";
 
-export default function AudioSubtitlesPage() {
-  useDismissKeyboardOnLeave();
-  const insets = useSafeAreaInsets();
-
-  return (
-    <ScrollView
-      contentInsetAdjustmentBehavior='automatic'
-      contentContainerStyle={{
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-      }}
-    >
-      <View
-        className='p-4 flex flex-col'
-        style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
-      >
-        <MediaProvider>
-          <SubtitleToggles className='mb-4' />
-        </MediaProvider>
-      </View>
-    </ScrollView>
-  );
+/**
+ * Folded into Playback & subtitles, which gathered the four playback pages into one page of
+ * sections. Nothing about the controls changed; they are one click closer.
+ */
+export default function Moved() {
+  return <Redirect href='/settings/playback?tab=audio' />;
 }

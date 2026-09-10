@@ -9,7 +9,7 @@ import { headerTarget } from "./headerTarget";
 /**
  * The way back out of a group the More list opened.
  *
- * Favorites, Watchlists, Manage, Transfers and Custom links are tab *roots*, so
+ * Favorites, Watchlists, Transfers and Custom links are tab *roots*, so
  * a native stack draws no back button for them — and on a phone their tab
  * button is hidden (F-08), which leaves the screen with no visible way back at
  * all. On compact they are only ever reached from More, so the chevron goes

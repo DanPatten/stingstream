@@ -36,6 +36,26 @@ public sealed class LinkedIdentity
 
     /// <summary>When it was last used to sign in.</summary>
     public DateTimeOffset? LastSeenAt { get; set; }
+
+    /// <summary>The salt their client derives this account's password with, or empty.</summary>
+    /// <remarks>
+    /// <b>Not a secret, and handed to anybody who asks how to sign in as this username</b> — a
+    /// client that cannot learn it cannot derive the value, and then nobody could sign in at all.
+    /// What it buys is that one server's derived password is useless on another, and that a stolen
+    /// one cannot be turned back into a password cheaply.
+    /// <para>
+    /// Empty means the account signs in with an ordinary password: everything created before this
+    /// existed, and anything an administrator has since reset.
+    /// </para>
+    /// </remarks>
+    public string PasswordSalt { get; set; } = string.Empty;
+
+    /// <summary>How many PBKDF2 rounds produced it, or zero.</summary>
+    /// <remarks>
+    /// Stored rather than assumed, so raising the client's default cannot lock out everybody who
+    /// linked before the change.
+    /// </remarks>
+    public int PasswordIterations { get; set; }
 }
 
 /// <summary>One server asking to be linked with this one.</summary>
@@ -205,6 +225,70 @@ public sealed class IdentitySignInRequest
     /// link itself: only an administrator here decides which servers join their group.
     /// </remarks>
     public bool RequestLink { get; set; }
+
+    /// <summary>The salt their own server derived <see cref="Verifier"/> with.</summary>
+    public string? Salt { get; set; }
+
+    /// <summary>PBKDF2 of their password, which becomes their password here.</summary>
+    /// <remarks>
+    /// <b>This is not their password and this server never learns it.</b> Dan:
+    /// <em>"we need to do this without the OTHER server knowing what that user's password is but it
+    /// still can validate it"</em>. Their client derives this on their own origin, from a password
+    /// typed there, and Jellyfin hashes what arrives with its own KDF before storing it.
+    /// <para>
+    /// Absent -- from an older client, or from one that could not derive -- means the account keeps
+    /// a password nobody knows, which is what this path did before and is the safe reading.
+    /// </para>
+    /// </remarks>
+    public string? Verifier { get; set; }
+
+    /// <summary>The round count that produced it.</summary>
+    public int? Iterations { get; set; }
+}
+
+/// <summary>How a client should send a password for one username.</summary>
+/// <remarks>
+/// Answered anonymously, because it has to be: the client asking is the one that has not signed in
+/// yet. An ordinary account and a username nobody holds answer identically, so this cannot be used
+/// to find out who has an account here.
+/// </remarks>
+public sealed class SignInMethodResponse
+{
+    /// <summary>Whether the password must be derived before it is sent.</summary>
+    public bool Derived { get; set; }
+
+    /// <summary>The salt to derive it with, when it must be.</summary>
+    public string Salt { get; set; } = string.Empty;
+
+    /// <summary>The round count to derive it with, when it must be.</summary>
+    public int Iterations { get; set; }
+}
+
+/// <summary>Asking how to sign in as one username.</summary>
+public sealed class SignInMethodRequest
+{
+    /// <summary>The username being signed in as.</summary>
+    public string? Username { get; set; }
+}
+
+/// <summary>Setting the derived password for the account you are signed in as.</summary>
+public sealed class SetLinkedPasswordRequest
+{
+    /// <summary>The new salt.</summary>
+    public string? Salt { get; set; }
+
+    /// <summary>PBKDF2 of the new password, derived with it.</summary>
+    public string? Verifier { get; set; }
+
+    /// <summary>The round count that produced it.</summary>
+    public int? Iterations { get; set; }
+}
+
+/// <summary>Turning one linked account back into an ordinary-password one.</summary>
+public sealed class ClearDerivationRequest
+{
+    /// <summary>The local account whose password an administrator has just reset.</summary>
+    public string? UserId { get; set; }
 }
 
 /// <summary>One remote identity holding an account here, for the administrator's list.</summary>

@@ -42,14 +42,6 @@ export interface SignInFormProps {
    */
   onSignInWithPasskey?: () => Promise<void>;
   /**
-   * Sign in with an account held on a different StingStream server.
-   *
-   * The way back in for somebody who accepted an invite here with their own server rather than by
-   * choosing a password: that account has no password, so this is not one of several ways in for
-   * them, it is the only one.
-   */
-  onSignInWithOwnServer?: () => void;
-  /**
    * Clears the connected server and goes back to the address form.
    *
    * Passed **only** where changing the address means something: a phone or a television, which
@@ -74,7 +66,6 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   onKeepSignedInChange,
   onSignInWithCode,
   onSignInWithPasskey,
-  onSignInWithOwnServer,
   onUseDifferentServer,
 }) => {
   const { t } = useTranslation();
@@ -288,24 +279,6 @@ export const SignInForm: React.FC<SignInFormProps> = ({
         >
           <Text variant='body' tone='accent'>
             {t("login.sign_in_with_code")}
-          </Text>
-        </FocusPressable>
-      ) : null}
-
-      {/* Last of the alternatives, and deliberately so: it is the least common way in and the only
-          one that sends somebody to a different origin. For an account created by a cross-server
-          invite it is not an alternative at all — that account has no password — which is why it
-          says "my own server" rather than anything about signing in differently. */}
-      {onSignInWithOwnServer ? (
-        <FocusPressable
-          testID='login-sign-in-with-own-server'
-          onPress={onSignInWithOwnServer}
-          accessibilityRole='button'
-          disabled={busy}
-          style={{ paddingVertical: 14, alignSelf: "center" }}
-        >
-          <Text variant='body' tone={busy ? "tertiary" : "accent"}>
-            {t("identity.join_own_server_action")}
           </Text>
         </FocusPressable>
       ) : null}

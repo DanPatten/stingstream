@@ -47,6 +47,21 @@ import { userAtom } from "@/providers/JellyfinProvider";
 // in the `(libraries)` and `(watchlists)` layouts.
 export const unstable_settings = { anchor: "index" };
 
+/**
+ * What a settings sub-page's native header looks like.
+ *
+ * The same three lines were repeated on twenty-odd `Stack.Screen`s, and the
+ * settings restructure was about to make it thirty. Only the title varies, and
+ * only below 768 px does any of it render at all — `useStackScreenOptions`
+ * hides every stack header on web-wide, where the top bar says where you are.
+ */
+const settingsScreen = (title: string) => ({
+  title,
+  headerBlurEffect: "none" as const,
+  headerTransparent: Platform.OS === "ios",
+  headerShadowVisible: false,
+});
+
 export default function IndexLayout() {
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
@@ -258,7 +273,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/server'
         options={{
-          title: "Server settings",
+          title: t("home.settings.nav.services"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -267,7 +282,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='users'
         options={{
-          title: "Users",
+          title: t("home.settings.nav.users"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -276,7 +291,16 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/admin'
         options={{
-          title: "Libraries & transcoding",
+          title: t("home.settings.nav.storage"),
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name='settings/library'
+        options={{
+          title: t("home.settings.sections.arr_library"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -285,7 +309,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/node'
         options={{
-          title: "Server status",
+          title: t("home.settings.nav.diagnostics"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -294,7 +318,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/servers'
         options={{
-          title: "Servers",
+          title: t("home.settings.nav.servers"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -305,7 +329,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/my-server'
         options={{
-          title: "My server",
+          title: t("identity.my_server_title"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -314,7 +338,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/servers/create'
         options={{
-          title: "Invite a server owner",
+          title: t("sharing.create_group_button"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -323,7 +347,7 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/servers/join'
         options={{
-          title: "Accept an invite",
+          title: t("sharing.join_group_button"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -332,11 +356,55 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/servers/[group]'
         options={{
-          title: "Sharing with",
+          title: t("sharing.servers_title"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
         }}
+      />
+      <Stack.Screen
+        name='settings/profile'
+        options={settingsScreen(t("home.settings.nav.profile"))}
+      />
+      <Stack.Screen
+        name='settings/playback'
+        options={settingsScreen(t("home.settings.nav.playback"))}
+      />
+      <Stack.Screen
+        name='settings/about'
+        options={settingsScreen(t("home.settings.nav.about"))}
+      />
+      <Stack.Screen
+        name='settings/users'
+        options={settingsScreen(t("home.settings.nav.users"))}
+      />
+      <Stack.Screen
+        name='settings/services'
+        options={settingsScreen(t("home.settings.nav.services"))}
+      />
+      <Stack.Screen
+        name='settings/storage'
+        options={settingsScreen(t("home.settings.nav.storage"))}
+      />
+      <Stack.Screen
+        name='settings/quality'
+        options={settingsScreen(t("home.settings.nav.quality"))}
+      />
+      <Stack.Screen
+        name='settings/files'
+        options={settingsScreen(t("home.settings.nav.files"))}
+      />
+      <Stack.Screen
+        name='settings/notifications'
+        options={settingsScreen(t("home.settings.nav.notifications"))}
+      />
+      <Stack.Screen
+        name='settings/transcoding'
+        options={settingsScreen(t("home.settings.nav.transcoding"))}
+      />
+      <Stack.Screen
+        name='settings/diagnostics'
+        options={settingsScreen(t("home.settings.nav.diagnostics"))}
       />
       {Object.entries(nestedTabPageScreenOptions).map(([name, options]) => (
         <Stack.Screen key={name} name={name} options={options} />

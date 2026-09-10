@@ -276,9 +276,10 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 | Library | `/library` | `04-library-movies` stays a best-effort text click after it |
 | Settings | `/settings` | |
 | Requests | `/requests` -- **and** a nav click | Both paths, on purpose: `08-requests` navigates by URL, then *also* clicks `tab-requests` (the compact bar at <768px, the desktop sidebar row at >=768px -- same testID, `tabTestID()` is shared) and checks the URL again. Requests was pass-02's worst F-20/F-21 case, so this screen keeps double-checking it. |
-| Users | `/users` -- **and** a nav click | Same "both paths" treatment as Requests. No compact-bar tab of its own: at <768px reached via `tab-more` -> `more-users` inside `more-screen`; at >=768px a direct sidebar row, `tab-users`. Administrator-only on both surfaces, unlike the Sharing row it replaced. |
+| Users | `/settings/users` -- **and** a nav click | A settings category since 2026-09-09, not a section: the click is on `settings-nav-users`, which is the category column's row at >=1024px and the settings list's row below that. `/users` is kept as a redirect. |
+| Settings categories | `/settings/<key>` | `11-settings-transcoding`, `11b-settings-network`, `11c-settings-playback`, `11d-settings-servers` -- the four panes worth a shot: the one people confuse with a client setting, the one that gained real controls, the one carrying the "This device" badge, and the three old Sharing rows folded into one. |
 | Search | `/search` | |
-| Manage | `/manage` | |
+| ~~Manage~~ | gone -- folded into Requests | |
 | Transfers | `/transfers` | |
 | Favorites | `/favorites` | New this pass (`14-favorites`) |
 | More | `/more` | New this pass (`13-more`), **390px only** -- the "More" screen is a compact-only concept (`buildMoreItems`); at >=768px the same rows are direct sidebar items and there is nothing distinct to shoot |
@@ -420,8 +421,14 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `login-username` / `login-password` / `login-submit` | Sign-in form fields + submit | WP3 | **Landed** |
 | `tab-home` / `tab-search` / `tab-library` / `tab-requests` / `tab-more` | Compact bottom tab bar (`shell-tabbar`, <768px) and desktop sidebar (`buildSidebarItems.ts`, >=768px) -- same testID, shared via `tabTestID()` | WP1 | **Landed** 2026-09-06 (`dbdee21`). The old auto-assigned `tab-(home)`-style ids (literal Expo Router group names) are gone; querying for one now finds nothing. |
 | `tab-favorites` / `tab-watchlists` / `tab-custom-links` / `tab-manage` / `tab-transfers` | Same shared `tabTestID()` ids -- desktop sidebar rows, and (for the ones not on the compact bar) rows inside the phone's `more-screen` too | WP1 | **Landed** |
-| `tab-users` / `tab-settings` | Desktop sidebar-only rows (>=768px) for Users/Settings, which are not tab groups | WP1 | **Landed** (`tab-users` replaced `tab-sharing` 2026-09-09) |
-| `more-users` / `more-settings` / `more-sessions` | Phone-only `more-screen` rows (<768px) for the same three destinations. `more-users` is administrator-only, so a member's More screen has neither it nor an admin group | WP1 | **Landed** (`more-users` replaced `more-sharing` 2026-09-09) |
+| `tab-settings` | The sidebar's Settings row (>=768px), which is not a tab group | WP1 | **Landed** |
+| `more-settings` / `more-sessions` | The same two rows on the phone's `more-screen` (<768px). `more-sessions` is also the sidebar's row for Sessions at >=768px | WP1 | **Landed** |
+| ~~`tab-users`~~ / ~~`more-users`~~ | **Gone 2026-09-09.** Users is a settings category (`/settings/users`, `settings-nav-users`); `/users` is a redirect. Querying for either id now finds nothing | — | Removed |
+| `settings-nav` / `settings-nav-<key>` | The settings category column (>=1024px) and its rows — the same ids appear as the compact settings list's rows, since both are built by `buildSettingsCategories` | WP10 | **Landed** 2026-09-09 |
+| `settings-pane` / `settings-overview` | The detail half of the two-pane layout, and what it shows before a category is picked | WP10 | **Landed** 2026-09-09 |
+| `settings-scope` | The "This device" / "Your account" / "Whole server" badge at the top of every pane | WP10 | **Landed** 2026-09-09 |
+| `settings-search` / `settings-search-results` / `settings-search-result-<id>` | The top bar's box in its settings mode (and the compact list's own box), its result panel, and one result row | WP10 | **Landed** 2026-09-09 |
+| `settings-focus-<id>` | A block the search can jump to and ring — `?focus=<id>` | WP10 | **Landed** 2026-09-09 |
 | `shell-tabbar` | The compact bottom tab bar's own container | WP1 | **Landed** |
 | `more-screen` | The phone "More" screen's container | WP1 | **Landed** |
 | `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron | WP1 | **Landed** |

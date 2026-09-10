@@ -5,25 +5,28 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { AuthCard } from "@/components/login/AuthCard";
-import { tokens } from "@/constants/theme";
-import { useNodeContext } from "@/hooks/useNodeContext";
+import { IDENTITY_KDF_ITERATIONS } from "@/constants/Values";
+import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { vouchForMe } from "@/lib/stingstream/identityApi";
-import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
+import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import {
   buildReturnUrl,
   fragmentFromLocation,
   parseAuthorizeRequest,
 } from "@/utils/identity/handoff";
+import { deriveVerifier, newSalt } from "@/utils/identity/verifier";
+import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
+import { storage } from "@/utils/mmkv";
 
 /**
  * `/authorize` — somebody else's server is asking this one to say who you are.
  *
  * This is the middle of the cross-server sign-in, and it runs on **your own** server. Another
- * server sent you here with its node id and a nonce; this page signs you in if you are not
- * already, shows you which server is asking, and — only when you press the button — has this node
- * sign a short statement and sends you back with it.
+ * server sent you here with its node id and a nonce; you sign in, and this node signs a short
+ * statement saying who you are and sends you back with it.
  *
  * ## Why the page exists at all
  *
@@ -31,6 +34,26 @@ import {
  * posting your credentials to yours, which needs your node to accept credentialed cross-origin
  * requests from anywhere, and asks somebody to type their password into a page a stranger's
  * machine served.
+ *
+ * ## Why it asks for the password even when you are already signed in
+ *
+ * Because the password is the input to something, not just a check. The other server needs a way to
+ * let you back in when this one is off, and what it gets is `PBKDF2(password)` derived right here —
+ * `utils/identity/verifier.ts`. Built from a password that was never confirmed, it would be a
+ * password nobody could reproduce, so this authenticates first and derives from what worked.
+ *
+ * This also replaced a bounce to `/login`, which lost the fragment on the way and left the request
+ * unfinishable.
+ *
+ * ## The copy
+ *
+ * A title, one line, two fields, a button — the shape every sign-in and link page in this app
+ * uses. The wording is a consent screen's, not a challenge's: it said *"Prove who you are"* over
+ * *"Sign in, and {{server}} will be told your name. Not your password."* until Dan called it out —
+ * *"isnt professional and doesnt match AAA software linking screens"*. Both faults are worth naming
+ * so they do not come back: an imperative that reads as an accusation, and a defensive sentence
+ * fragment about what is *not* sent. What a reader needs is what happens if they continue, said
+ * once and calmly, which is what the two strings say now.
  *
  * ## What it is careful about
  *
@@ -40,8 +63,7 @@ import {
  *   did it on arrival would be a page that could be triggered by a link. The audience is named on
  *   screen before anything is signed.
  * * **This route lives outside `(auth)`**, like `/join`, and is exempted by name in
- *   `useProtectedRoute`. Somebody arriving here may have no session on this server yet, and the
- *   guard's other half would bounce a signed-in visitor to Home and tear the screen down.
+ *   `useProtectedRoute`.
  */
 export default function AuthorizePage() {
   const { t } = useTranslation();
@@ -49,31 +71,63 @@ export default function AuthorizePage() {
   const nodeContext = useNodeContext();
   const user = useAtomValue(userAtom);
   const api = useAtomValue(apiAtom);
+  const { login, setServer } = useJellyfin();
 
   // During render, not in an effect. See the note above.
   const [request] = useState(() =>
     parseAuthorizeRequest(fragmentFromLocation()),
   );
 
+  const [username, setUsername] = useState(user?.Name ?? "");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const serverName =
+    request?.serverName ?? t("identity.authorize_other_server");
+
   const approve = useCallback(async () => {
     if (!request || !nodeContext || busy) return;
+    if (!username.trim() || !password) return;
     setBusy(true);
     setError(null);
     try {
+      // Pointed at this server before it can hold a session on it — the same step `/join` takes.
+      if (!api?.basePath) {
+        const found = await checkJellyfinServer(jellyfinUrlFor(nodeContext));
+        if (!found) throw new Error(t("login.could_not_connect_to_server"));
+        await setServer({ address: found.url });
+      }
+
+      // Always, session or not: this is what proves the password the verifier is about to be built
+      // from is really theirs.
+      await login(username.trim(), password);
+
+      // Read back rather than taken from `api`, which is the value this render closed over and is
+      // one state update behind the line above.
+      const token = storage.getString("token");
+      if (!token) throw new Error(t("identity.authorize_failed"));
+
+      const salt = await newSalt();
+      const verifier = await deriveVerifier(
+        password,
+        salt,
+        IDENTITY_KDF_ITERATIONS,
+      );
+
       const signed = await vouchForMe(
         nodeContext.origin,
         { audience: request.audience, nonce: request.nonce },
-        api?.accessToken,
+        token,
       );
 
-      const back = buildReturnUrl(
-        request.returnTo,
-        signed.assertion,
-        request.link,
-      );
+      const back = buildReturnUrl(request.returnTo, signed.assertion, {
+        link: request.link,
+        // Straight back out. The far side needs it to admit somebody for the first time, and the
+        // page that held it is gone.
+        invite: request.invite,
+        credential: { salt, verifier, iterations: IDENTITY_KDF_ITERATIONS },
+      });
       if (!back) {
         setError(t("identity.authorize_nowhere_to_return"));
         return;
@@ -94,7 +148,17 @@ export default function AuthorizePage() {
     } finally {
       setBusy(false);
     }
-  }, [api?.accessToken, busy, nodeContext, request, t]);
+  }, [
+    api?.basePath,
+    busy,
+    login,
+    nodeContext,
+    password,
+    request,
+    setServer,
+    t,
+    username,
+  ]);
 
   // A link whose fragment did not survive being pasted, or somebody who typed the path.
   if (!request) {
@@ -113,32 +177,6 @@ export default function AuthorizePage() {
           style={{ marginTop: 20 }}
         >
           {t("identity.authorize_go_home")}
-        </Button>
-      </AuthCard>
-    );
-  }
-
-  // Not signed in *here* yet. Sent to the ordinary sign-in rather than given a second login form:
-  // this is their own server, the fragment survives the round trip because the browser keeps it
-  // across a same-origin navigation back, and one login screen is one login screen.
-  if (!user?.Id) {
-    return (
-      <AuthCard>
-        <Text variant='title' weight='bold'>
-          {t("identity.authorize_title")}
-        </Text>
-        <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-          {t("identity.authorize_sign_in_first", {
-            server: request.serverName ?? t("identity.authorize_other_server"),
-          })}
-        </Text>
-        <Button
-          variant='primary'
-          size='lg'
-          onPress={() => router.replace("/login")}
-          style={{ marginTop: 20 }}
-        >
-          {t("identity.authorize_sign_in")}
         </Button>
       </AuthCard>
     );
@@ -165,30 +203,39 @@ export default function AuthorizePage() {
         {t("identity.authorize_title")}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-        {t("identity.authorize_body", {
-          server: request.serverName ?? t("identity.authorize_other_server"),
-          name: user.Name ?? "",
-        })}
+        {t("identity.authorize_body", { server: serverName })}
       </Text>
 
-      {/* What is actually being handed over, in the order somebody would ask. Naming the audience
-          is the whole reason this is a screen and not a redirect. */}
-      <View
-        style={{
-          marginTop: 16,
-          padding: 12,
-          borderRadius: 12,
-          backgroundColor: tokens.color.bg["2"],
-          gap: 6,
-        }}
-      >
-        <Text variant='caption' tone='tertiary' weight='medium'>
-          {t("identity.authorize_shares_title")}
-        </Text>
-        <Text variant='body'>{t("identity.authorize_shares_body")}</Text>
-        <Text variant='caption' tone='tertiary' style={{ marginTop: 4 }}>
-          {t("identity.authorize_not_shared")}
-        </Text>
+      <View style={{ marginTop: 24, gap: 12 }}>
+        <Input
+          testID='identity-authorize-username'
+          aria-label={t("login.username_placeholder")}
+          placeholder={t("login.username_placeholder")}
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize='none'
+          autoCorrect={false}
+          autoComplete='username'
+          textContentType='username'
+          returnKeyType='next'
+          maxLength={500}
+          editable={!busy}
+        />
+        <Input
+          testID='identity-authorize-password'
+          aria-label={t("login.password_placeholder")}
+          placeholder={t("login.password_placeholder")}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoCapitalize='none'
+          autoComplete='current-password'
+          textContentType='password'
+          returnKeyType='go'
+          maxLength={500}
+          editable={!busy}
+          onSubmitEditing={() => void approve()}
+        />
       </View>
 
       <FormError message={error} />
@@ -198,16 +245,14 @@ export default function AuthorizePage() {
         variant='primary'
         size='lg'
         loading={busy}
-        disabled={busy}
+        disabled={busy || !username.trim() || !password}
         onPress={() => void approve()}
         style={{ marginTop: 20 }}
       >
         {busy ? (
           <ActivityIndicator />
         ) : (
-          t("identity.authorize_approve", {
-            server: request.serverName ?? t("identity.authorize_other_server"),
-          })
+          t("identity.authorize_approve", { server: serverName })
         )}
       </Button>
       <Button

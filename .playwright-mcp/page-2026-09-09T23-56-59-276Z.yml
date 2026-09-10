@@ -1,0 +1,49 @@
+- generic [ref=e50]:
+  - navigation [ref=e51]:
+    - button "Expand the sidebar" [ref=e54] [cursor=pointer]:
+      - generic [ref=e55]: 
+    - generic [ref=e57]:
+      - link "Home" [ref=e59] [cursor=pointer]:
+        - generic [ref=e61]: 
+      - generic [ref=e62]:
+        - link "Movies" [ref=e64] [cursor=pointer]:
+          - generic [ref=e65]: 
+        - link "TV Shows" [ref=e66] [cursor=pointer]:
+          - generic [ref=e67]: 
+      - generic [ref=e68]:
+        - link "Favorites" [ref=e69] [cursor=pointer]:
+          - generic [ref=e70]: 
+        - link "Requests" [ref=e71] [cursor=pointer]:
+          - generic [ref=e72]: 
+        - link "Users" [ref=e73] [cursor=pointer]:
+          - generic [ref=e74]: 
+        - link "Manage" [ref=e75] [cursor=pointer]:
+          - generic [ref=e76]: 
+        - link "Transfers" [ref=e77] [cursor=pointer]:
+          - generic [ref=e78]: 
+        - link "Sessions" [ref=e79] [cursor=pointer]:
+          - generic [ref=e80]: 
+    - generic [ref=e81]:
+      - link "Settings" [ref=e82] [cursor=pointer]:
+        - generic [ref=e83]: 
+      - button "repro" [ref=e86] [cursor=pointer]:
+        - generic [ref=e87]: R
+  - generic [ref=e89]:
+    - generic [ref=e90]:
+      - generic [ref=e91]: Home
+      - generic [ref=e95]:
+        - generic [ref=e96]: 
+        - textbox "Search..." [ref=e97]
+      - button "Watch together" [ref=e100] [cursor=pointer]:
+        - generic [ref=e101]: 
+    - generic [ref=e111]:
+      - generic [ref=e112]:
+        - generic [ref=e113]: 
+        - generic [ref=e115]: Nothing to watch yet
+        - generic [ref=e116]: Copy films and shows into your media folders and scan for them, or ask for something and let StingStream fetch it.
+        - button " Add media" [ref=e117] [cursor=pointer]:
+          - generic [ref=e118]: 
+          - generic [ref=e119]: Add media
+      - button " Request something" [ref=e120] [cursor=pointer]:
+        - generic [ref=e121]: 
+        - generic [ref=e122]: Request something

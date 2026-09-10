@@ -12,8 +12,10 @@
 // TODO(WP1): RESOLVED (2026-09-06, master dbdee21). WP1 landed real per-section URLs and a clean
 // testID contract, replacing both of the things pass-02's TODO was waiting on:
 //   - Every section now has its own URL, not just Home and Settings: `/`, `/search`, `/library`,
-//     `/favorites`, `/watchlists`, `/requests`, `/manage`, `/transfers`, `/links`, `/more`,
-//     `/users`, `/settings`, `/sessions`. `/home` redirects to `/`. Every route group's `index`
+//     `/favorites`, `/watchlists`, `/requests`, `/transfers`, `/links`, `/more`,
+//     `/settings` (and its categories, `/settings/<key>`), `/sessions`. `/home` redirects to
+//     `/`, and so do `/manage` (folded into Requests) and `/users` (a settings category since
+//     the sidebar's three bands landed). Every route group's `index`
 //     used to collide at `/` (F-20/F-21: `/requests` etc. fell through to a `(libraries)/[id]`
 //     catch-all and spun, hammering the server with a ~400-request storm) -- confirmed live this
 //     pass that direct navigation to all of the above now lands on the right screen, not the
@@ -29,20 +31,21 @@
 //     apps/stingstream/components/shell/buildSidebarItems.ts (buildSidebarItems, read-only) to
 //     confirm this before relying on it elsewhere: `tabItem()` is the one place both navigators'
 //     rows come from.
-//   - Users and Settings are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
-//     they get their own testIDs per surface instead of a shared `tabTestID()`: the desktop
-//     sidebar's rows are `tab-users`/`tab-settings` (buildSidebarItems, visible at
-//     `isWebWide` i.e. >=768px); the compact "More" screen's rows are `more-users`/
-//     `more-settings`/`more-sessions` (buildMoreItems, reached via `tab-more` -> `more-screen`,
-//     <768px only -- Sessions has no sidebar row at all; on web wide it is a header button
-//     instead, out of scope for this pass). Users replaced Sharing on both surfaces when the
-//     account list was promoted out of `/settings/admin`, and unlike Sharing it is
-//     administrator-only in More as well as in the sidebar, so a member's More screen has neither
-//     row. Favorites/Watchlists/Custom-links/Manage/Transfers DO share `tabTestID()` with the
+//   - Settings and Sessions are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
+//     they get their own testIDs instead of a shared `tabTestID()`: `tab-settings` and
+//     `more-sessions`, both of which appear in the desktop sidebar (buildSidebarItems, >=768px)
+//     AND in the compact "More" screen (buildMoreItems, reached via `tab-more` -> `more-screen`,
+//     <768px). Favorites/Watchlists/Custom-links/Transfers DO share `tabTestID()` with the
 //     sidebar even inside the More screen (`tab-favorites`, `tab-watchlists`,
-//     `tab-custom-links`, `tab-manage`, `tab-transfers`) -- only Users/Settings/Sessions get the
-//     `more-*` prefix, because only those three are not one of the ten TAB_KEYS. See NAV, below,
-//     for the concrete map this file uses.
+//     `tab-custom-links`, `tab-transfers`). See NAV, below, for the concrete map.
+//   - `tab-users` and `more-users` are **gone**, and querying for either now finds nothing.
+//     Users is a settings category (`settings-nav-users`, `/settings/users`); `/users` is kept
+//     as a redirect. The desktop sidebar's own bands are browse (unlabelled), Requests (a rule,
+//     no heading) and an administrator-only "Server" band holding Transfers and Sessions -- a
+//     member's sidebar is browse and Requests and nothing else.
+//   - The settings navigation has a testID per category, `settings-nav-<key>`, and it is the
+//     same id in the >=1024px category column and in the compact settings list. See
+//     SETTINGS_NAV, below.
 //
 // The breakpoint that decides sidebar-vs-compact-bar is 768px (apps/stingstream/hooks/
 // useBreakpoint.ts: `compact` < 768 <= `medium` < 1280 <= `expanded`) -- so of this file's three
@@ -190,13 +193,20 @@ const URLS = {
   favorites: "/favorites",
   watchlists: "/watchlists",
   requests: "/requests",
-  manage: "/manage",
   transfers: "/transfers",
   links: "/links",
   more: "/more",
-  users: "/users",
   settings: "/settings",
   sessions: "/sessions",
+  // Settings categories. Users moved here from `/users` (still a redirect) when the sidebar's
+  // three bands landed: it is something an administrator configures, not something a viewer
+  // browses, and a sidebar row a member never sees only ever says "you are not an administrator".
+  settingsUsers: "/settings/users",
+  settingsProfile: "/settings/profile",
+  settingsPlayback: "/settings/playback",
+  settingsServers: "/settings/servers",
+  settingsTranscoding: "/settings/transcoding",
+  settingsNetwork: "/settings/network",
 };
 
 /**
@@ -216,11 +226,25 @@ const NAV = {
   more: { compact: "tab-more" },
   favorites: { more: "tab-favorites", wide: "tab-favorites" },
   watchlists: { more: "tab-watchlists", wide: "tab-watchlists" },
-  manage: { more: "tab-manage", wide: "tab-manage" },
   transfers: { more: "tab-transfers", wide: "tab-transfers" },
-  users: { more: "more-users", wide: "tab-users" },
   settings: { more: "more-settings", wide: "tab-settings" },
-  sessions: { more: "more-sessions" }, // web-wide: a header button, not a sidebar row -- not driven here.
+  // A sidebar row at every width since pass-03 F-72, and a More row on a phone; the desktop
+  // sidebar's own admin band carries it beside Transfers.
+  sessions: { more: "more-sessions", wide: "more-sessions" },
+};
+
+/**
+ * The settings category column (>=1024px), and the same categories as rows on the compact
+ * settings list. Both are built by `buildSettingsCategories`, so the testID is the same at every
+ * width: `settings-nav-<key>`.
+ */
+const SETTINGS_NAV = {
+  settingsProfile: "settings-nav-profile",
+  settingsPlayback: "settings-nav-playback",
+  settingsServers: "settings-nav-servers",
+  settingsUsers: "settings-nav-users",
+  settingsTranscoding: "settings-nav-transcoding",
+  settingsNetwork: "settings-nav-network",
 };
 
 const isWebWide = (viewportWidth) => viewportWidth >= WEB_WIDE_MIN;
@@ -422,14 +446,16 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
-      // Same "both paths" treatment as Requests. Users has no compact-bar tab of its own: at
-      // <768px it is reached via tab-more -> more-users; at >=768px it is a direct sidebar row
-      // (tab-users). navigateViaNav() picks the right one for this viewport.
+      // Users is a settings category now (`/settings/users`), not a section of its own, so the
+      // "both paths" treatment is a direct URL plus a click on its row in the settings navigation
+      // -- the category column at >=1024px, the settings list below that. Same testID either way.
+      // `/users` is kept as a redirect and is checked separately, below.
       id: "09-users",
       requiresAuth: true,
-      navigate: async (page, ctx) => {
-        await gotoUrl(page, base, "users");
-        await navigateViaNav(page, base, ctx.viewportWidth, "users");
+      navigate: async (page) => {
+        await gotoUrl(page, base, "settingsUsers");
+        await gotoUrl(page, base, "settings");
+        await clickNav(page, SETTINGS_NAV.settingsUsers, URLS.settingsUsers);
       },
     },
     {
@@ -440,10 +466,38 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
-      id: "11-manage",
+      // The old `/manage` tab, replaced by the settings categories that took its place: the two
+      // panes worth shooting are the one people confuse with a client setting (Transcoding &
+      // hardware, badged "Whole server") and the one that gained real controls (Network & remote
+      // access).
+      id: "11-settings-transcoding",
       requiresAuth: true,
       navigate: async (page) => {
-        await gotoUrl(page, base, "manage");
+        await gotoUrl(page, base, "settingsTranscoding");
+      },
+    },
+    {
+      id: "11b-settings-network",
+      requiresAuth: true,
+      navigate: async (page) => {
+        await gotoUrl(page, base, "settingsNetwork");
+      },
+    },
+    {
+      // Playback & subtitles: the four playback pages gathered into one, and the pane that carries
+      // the "This device" badge the whole scope-isolation change is about.
+      id: "11c-settings-playback",
+      requiresAuth: true,
+      navigate: async (page) => {
+        await gotoUrl(page, base, "settingsPlayback");
+      },
+    },
+    {
+      // Servers: the three old Sharing rows folded into one page.
+      id: "11d-settings-servers",
+      requiresAuth: true,
+      navigate: async (page) => {
+        await gotoUrl(page, base, "settingsServers");
       },
     },
     {

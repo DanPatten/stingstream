@@ -1,0 +1,15 @@
+- generic [active] [ref=f16e1]:
+  - generic [ref=f16e23]:
+    - generic [ref=f16e24]: Sign in
+    - generic [ref=f16e25]: to Loft
+    - generic [ref=f16e26]:
+      - textbox "Username" [ref=f16e29]
+      - generic [ref=f16e30]:
+        - textbox "Password" [ref=f16e33]
+        - button "Show password" [ref=f16e34] [cursor=pointer]:
+          - generic [ref=f16e35]: 
+    - switch "Keep me signed in" [ref=f16e36] [cursor=pointer]:
+      - switch [checked] [ref=f16e40]
+    - button "Sign in" [disabled]
+  - generic [aria-hidden]:
+    - generic: StingStream

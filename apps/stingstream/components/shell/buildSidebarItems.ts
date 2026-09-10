@@ -51,17 +51,18 @@ export interface SidebarItem {
   testID: string;
   route: SidebarRoute;
   /**
-   * `replace` for a tab root — the shell is a single `Stack` of the ten tab
+   * `replace` for a tab root — the shell is a single `Stack` of the nine tab
    * groups, so switching tabs replaces rather than stacking them — and `push`
    * for a row that opens a page inside one.
    */
   navigate: "replace" | "push";
-  /** The tab group this row lights up for, when it is one of the ten. */
+  /** The tab group this row lights up for, when it is one of the nine. */
   tab?: TabKey;
   /**
    * A more specific match than the tab: every one of these segments must be in
-   * the current route for the row to be the active one. Users lives inside
-   * the `(home)` stack, so without this it would light Home instead of itself.
+   * the current route for the row to be the active one. Settings and Sessions
+   * live inside the `(home)` stack, so without this they would light Home
+   * instead of themselves.
    */
   match?: string[];
   /** A library row's id, matched against the `[libraryId]` route param. */
@@ -69,9 +70,24 @@ export interface SidebarItem {
 }
 
 export interface SidebarSection {
-  key: "primary" | "libraries" | "secondary" | "footer";
+  key: "primary" | "requests" | "server" | "footer";
   /** Rendered as a small caps label above the rows; absent means no heading. */
   title?: string;
+  /**
+   * A hairline above the section instead of a heading.
+   *
+   * Every band below the first one is drawn this way, and none of them carries
+   * a heading. Requests has nothing sensible to call it: a heading reading
+   * "Requests" over a single row reading "Requests" is noise, and the words that
+   * cover both it and browsing ("Content", "Engagement") name a taxonomy rather
+   * than a place. The administrator band had "SERVER" briefly and lost it for a
+   * related reason — one word in a column of three bands reads as a label for
+   * everything under it. Dan: "just a separator".
+   *
+   * What the rules are for is that these are not browsing, so they must not run
+   * on from the block above.
+   */
+  divider?: boolean;
   items: SidebarItem[];
 }
 
@@ -149,8 +165,8 @@ const sessionsItem = (t: Translate): SidebarItem => ({
  * The sidebar, in order, for one user on one node.
  *
  * `views` is `getUserViewsApi().getUserViews()`; pass `undefined` while it is
- * still in flight and the Libraries section is simply absent, which is what the
- * sidebar should show rather than an empty heading.
+ * still in flight and the browse block is just Home and Favorites, which is
+ * what the sidebar should show rather than a row of placeholders.
  */
 export function buildSidebarItems(
   user: UserDto | null | undefined,
@@ -182,70 +198,67 @@ export function buildSidebarItems(
   const showWatchlists =
     Boolean(settings?.streamyStatsServerUrl) && !settings?.hideWatchlistsTab;
 
-  const secondary: SidebarItem[] = [
+  // Browse, in one block with no heading over it.
+  //
+  // Dan, on why: "users instinctively understand that the top items are core
+  // media discovery and playback — labelling it WATCH or LIBRARIES is
+  // redundant." The libraries used to carry a heading of their own, which on a
+  // node holding the usual two views meant a word above two rows that already
+  // said what they were.
+  const browse: SidebarItem[] = [
+    tabItem("(home)", t, {
+      // The one section that cannot use its public URL. Every tab group has an `index`, so
+      // every group defines `/` -- and `replace("/")` resolves *within the group you are
+      // already in*. Pressing Home from a library therefore landed on `(libraries)/index`, the
+      // library grid, with the sidebar still lighting the library you came from. Dan: "Oh
+      // clicking home is what that is doing". The fully qualified path is unambiguous and the
+      // address bar still reads `/`, which is Home's real address.
+      route: { pathname: "/(auth)/(tabs)/(home)/" },
+    }),
+    ...libraries,
     tabItem("(favorites)", t),
     ...(showWatchlists ? [tabItem("(watchlists)", t)] : []),
     ...(settings?.showCustomMenuLinks ? [tabItem("(custom-links)", t)] : []),
-    tabItem("(requests)", t),
-    // Users replaced Sharing here, and it is a promotion rather than a rename: the account list
-    // used to be a tab inside `/settings/admin`, two clicks behind a screen about transcode
-    // throttling, while the row in this position showed a screen that was half accounts and half
-    // mesh groups. Every query behind it is elevated -- `GET /Users`, `GET /invites` and
-    // `POST /Users/{id}/Policy` all require Jellyfin's RequiresElevation -- so a client who opened
-    // it got a permission error over an otherwise empty page. Same gate as Manage and Transfers
-    // below, and for the same reason: a tab that can only fail is worse than no tab.
-    ...(isAdmin
-      ? [
-          {
-            key: "users",
-            label: t("shell.users"),
-            icon: { set: "semantic" as const, name: "users" as const },
-            testID: "tab-users",
-            route: { pathname: "/users" },
-            navigate: "push" as const,
-            match: ["users"],
-          },
-        ]
-      : []),
-    // Manage, Transfers and Sessions talk to endpoints that require Jellyfin's
+  ];
+
+  return [
+    { key: "primary", items: browse },
+    // Asking for something is not browsing. It gets a band of its own, marked
+    // by a rule rather than a heading — see `divider`.
+    { key: "requests", divider: true, items: [tabItem("(requests)", t)] },
+    // Transfers and Sessions talk to endpoints that require Jellyfin's
     // RequiresElevation policy — a non-administrator who opened them would get
     // a permanently blocked screen, so they are not offered at all. Same gate
     // as the tab bar's `tabBarItemHidden`.
+    //
+    // The whole band is gated rather than its rows: a member sees browse and
+    // Requests and nothing else, which is the entire sidebar they can act on.
+    //
+    // It carried a "SERVER" heading for about an hour. Dan: "lets drop SERVER
+    // title from the sidebar list - just a separator". He is right, and the
+    // reason generalises -- the column has three bands and only one of them
+    // ever had a word over it, which made that word read as a label for the
+    // whole lower half rather than for two rows. Nothing here needs naming: a
+    // member never sees these rows, and an administrator knows what Transfers
+    // and Sessions are.
+    //
+    // Users used to sit above this, and is gone: it is Settings → Users & access
+    // now, beside the other things an administrator configures rather than
+    // beside the things a viewer browses. Manage went earlier, into Requests.
     //
     // Sessions is a *row* rather than a top-bar button as of pass-03 F-72: the
     // top bar's last slot went to Watch together, which is a thing every viewer
     // does, and "who is streaming right now" belongs with the rest of the
     // server's monitoring.
     ...(isAdmin
-      ? [tabItem("(manage)", t), tabItem("(downloads)", t), sessionsItem(t)]
-      : []),
-  ];
-
-  return [
-    {
-      key: "primary",
-      items: [
-        tabItem("(home)", t, {
-          // The one section that cannot use its public URL. Every tab group has an `index`, so
-          // every group defines `/` -- and `replace("/")` resolves *within the group you are
-          // already in*. Pressing Home from a library therefore landed on `(libraries)/index`, the
-          // library grid, with the sidebar still lighting the library you came from. Dan: "Oh
-          // clicking home is what that is doing". The fully qualified path is unambiguous and the
-          // address bar still reads `/`, which is Home's real address.
-          route: { pathname: "/(auth)/(tabs)/(home)/" },
-        }),
-      ],
-    },
-    ...(libraries.length > 0
       ? [
           {
-            key: "libraries" as const,
-            title: t("shell.libraries"),
-            items: libraries,
+            key: "server" as const,
+            divider: true,
+            items: [tabItem("(downloads)", t), sessionsItem(t)],
           },
         ]
       : []),
-    { key: "secondary", items: secondary },
     {
       key: "footer",
       items: [
@@ -285,7 +298,8 @@ export interface MoreGroup {
  * honestly, so everything else moved behind More — the same rows the desktop
  * sidebar lists, in the same order, with the same admin gating, which is why
  * this is built out of `tabItem` next to `buildSidebarItems` rather than as a
- * second opinion about who sees what.
+ * second opinion about who sees what. That includes the absences: Users is a
+ * settings category on both surfaces now, not a row here.
  *
  * Custom links is here for a reason that is easy to miss: it is a tab the user
  * can switch on in Settings, and hiding it from the bar without listing it here
@@ -323,29 +337,16 @@ export function buildMoreItems(
   // (pass-02, cross-cutting rule 3), and Sessions is the one that reads as
   // "about the server" rather than "about this screen". Since pass-03 F-72 it
   // is a sidebar row at every width, so the two lists agree.
-  // Users is in this group rather than beside Settings, where Sharing used to sit, and that is a
-  // gate rather than a tidy-up: the `app` group is drawn for everybody, so a member could reach the
-  // old Sharing row. Every endpoint the Users screen touches is elevated.
-  const admin: SidebarItem[] = [
-    {
-      key: "users",
-      label: t("shell.users"),
-      icon: { set: "semantic", name: "users" },
-      testID: "more-users",
-      route: { pathname: "/users" },
-      navigate: "push",
-      match: ["users"],
-    },
-    tabItem("(manage)", t),
-    tabItem("(downloads)", t),
-    sessionsItem(t),
-  ];
+  // Users is not here either. It moved to Settings → Users & access, which the
+  // `app` group below already reaches for everybody; the gate that used to
+  // justify keeping it in this group now lives on the settings category itself.
+  const admin: SidebarItem[] = [tabItem("(downloads)", t), sessionsItem(t)];
 
   return [
     { key: "browse", title: t("shell.more_browse"), items: browse },
-    // Same gate as the sidebar's: every Manage and Transfers endpoint requires
-    // Jellyfin's RequiresElevation policy, so a member who opened them would
-    // get a permanently blocked screen.
+    // Same gate as the sidebar's: every Transfers and Sessions endpoint
+    // requires Jellyfin's RequiresElevation policy, so a member who opened them
+    // would get a permanently blocked screen.
     ...(isAdmin
       ? [{ key: "admin" as const, title: t("shell.more_admin"), items: admin }]
       : []),
@@ -383,7 +384,7 @@ const SHARED_GROUP_SCREENS = [
 /**
  * Which row is the current one.
  *
- * Three rules, most specific first: an explicit segment match (Users sits
+ * Three rules, most specific first: an explicit segment match (Settings sits
  * inside the `(home)` stack and would otherwise light Home), then the library
  * whose id is in the route, then the tab group the route is in. Ties among
  * segment matches go to the longer match, so `settings/servers` beats

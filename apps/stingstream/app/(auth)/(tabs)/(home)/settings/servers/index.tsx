@@ -1,39 +1,19 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
-import { useState } from "react";
-import { ServersScreen } from "@/components/stingstream/mesh/ServersScreen";
-import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
-import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
-import { MESH_QUERY_KEY } from "@/lib/stingstream/mesh";
-import { useMesh } from "@/providers/MeshProvider";
+import { ServersPane } from "@/components/settings/panes/ServersPane";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 
-export default function ServersPage() {
+export default function ServersSettingsPage() {
   // `?advanced=1` arrives from a minted invite whose link only works on this network: the fix is
   // the address field, which lives inside a collapsed disclosure on this screen. Landing here with
   // it still folded away is the same dead end with an extra step.
   const { advanced } = useLocalSearchParams<{ advanced?: string }>();
-  const [refreshing, setRefreshing] = useState(false);
-  const queryClient = useQueryClient();
-  const mesh = useMesh();
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // Both halves: the home node's view of the groups, and this device's own membership.
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
-      mesh.syncGroups(),
-    ]);
-    setRefreshing(false);
-  };
 
   return (
-    <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      {/* `create` and `join` were gated from the start; the list and the detail
-          page were not, so a pasted URL walked straight past the hidden row into
-          a screen whose every call needs elevation. */}
-      <RequiresAdmin>
-        <ServersScreen openAdvanced={advanced === "1"} />
-      </RequiresAdmin>
-    </RefreshScreen>
+    // Not behind `RequiresAdmin`. The linked-servers block inside is only mounted for an
+    // administrator -- queries included, so a member fires none of the elevated calls -- and what
+    // is left is the server the reader runs themselves, which is theirs to decide about.
+    <SettingsPage categoryKey='servers'>
+      <ServersPane openAdvanced={advanced === "1"} />
+    </SettingsPage>
   );
 }

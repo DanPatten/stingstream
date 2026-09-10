@@ -1,17 +1,10 @@
-import { useLocalSearchParams } from "expo-router";
-import {
-  AdminScreen,
-  sectionFromParam,
-} from "@/components/stingstream/admin/AdminScreen";
-import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
+import { Redirect } from "expo-router";
 
-export default function AdminPage() {
-  // `?section=libraries` from Home's "Add media". Unknown values fall back to Libraries rather
-  // than rendering an empty screen under a segmented control.
-  const { section } = useLocalSearchParams<{ section?: string }>();
-  return (
-    <RequiresAdmin>
-      <AdminScreen initialSection={sectionFromParam(section)} />
-    </RequiresAdmin>
-  );
+/**
+ * "Libraries & transcoding" held three unrelated things and is split in three: libraries are
+ * Storage & libraries, transcoding is Transcoding & hardware, and the server's log files are Logs
+ * & status. This lands on the first of them.
+ */
+export default function Moved() {
+  return <Redirect href='/settings/storage' />;
 }

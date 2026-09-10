@@ -1,0 +1,87 @@
+- generic [ref=f5e14]:
+  - navigation [ref=f5e15]:
+    - generic [ref=f5e16]:
+      - button "Collapse the sidebar" [ref=f5e18] [cursor=pointer]:
+        - generic [ref=f5e19]: 
+      - link "Home" [ref=f5e20] [cursor=pointer]
+    - generic [ref=f5e27]:
+      - link "Home" [ref=f5e29] [cursor=pointer]:
+        - generic [ref=f5e30]: 
+      - generic [ref=f5e32]:
+        - generic [ref=f5e33]: Libraries
+        - link "Movies" [ref=f5e34] [cursor=pointer]:
+          - generic [ref=f5e35]: 
+        - link "TV Shows" [ref=f5e37] [cursor=pointer]:
+          - generic [ref=f5e38]: 
+      - generic [ref=f5e40]:
+        - link "Favorites" [ref=f5e41] [cursor=pointer]:
+          - generic [ref=f5e42]: 
+        - link "Requests" [ref=f5e44] [cursor=pointer]:
+          - generic [ref=f5e46]: 
+        - link "Users" [ref=f5e48] [cursor=pointer]:
+          - generic [ref=f5e49]: 
+        - link "Transfers" [ref=f5e51] [cursor=pointer]:
+          - generic [ref=f5e52]: 
+        - link "Sessions" [ref=f5e54] [cursor=pointer]:
+          - generic [ref=f5e55]: 
+    - generic [ref=f5e57]:
+      - link "Settings" [ref=f5e58] [cursor=pointer]:
+        - generic [ref=f5e59]: 
+      - button "reviewer" [ref=f5e63] [cursor=pointer]:
+        - generic [ref=f5e64]: R
+        - generic [ref=f5e67]: 
+  - generic [ref=f5e68]:
+    - generic [ref=f5e69]:
+      - generic [ref=f5e70]: Settings
+      - generic [ref=f5e76]:
+        - generic [ref=f5e77]: 
+        - textbox "Search..." [ref=f5e78]
+      - button "Watch together" [ref=f5e81] [cursor=pointer]:
+        - generic [ref=f5e82]: 
+    - generic [ref=f5e84]:
+      - generic [ref=f5e162]:
+        - generic [ref=f5e166]:
+          - tab "Movies" [ref=f5e167] [cursor=pointer]
+          - tab "Series" [ref=f5e169] [cursor=pointer]
+        - generic [ref=f5e176]:
+          - generic [ref=f5e177]: Movies
+          - generic [ref=f5e179]:
+            - generic [ref=f5e180]: 
+            - generic [ref=f5e182]: Downloading is not set up on this server.
+            - generic [ref=f5e183]: An administrator can enable it in Server settings.
+      - generic [ref=f5e97]:
+        - generic [ref=f5e100]:
+          - tab [ref=f5e184] [cursor=pointer]:
+            - generic [ref=f5e102]: Find
+          - tab [ref=f5e185] [cursor=pointer]:
+            - generic [ref=f5e104]: My requests
+          - tab [ref=f5e186] [cursor=pointer]:
+            - generic [ref=f5e106]: Alerts
+          - tab [ref=f5e187] [cursor=pointer]:
+            - generic [ref=f5e108]: Approvals
+          - tab [ref=f5e188] [cursor=pointer]:
+            - generic [ref=f5e110]: Activity
+          - tab [ref=f5e189] [cursor=pointer]:
+            - generic [ref=f5e112]: Policy
+        - generic [ref=f5e113]:
+          - generic [ref=f5e115]:
+            - generic [ref=f5e116]: 
+            - textbox [ref=f5e190]:
+              - /placeholder: Search for a film or a series
+              - text: the lord of the rings
+          - generic [ref=f5e118]: Requests wait for an administrator unless you are trusted.
+          - generic [ref=f5e119]:
+            - generic [ref=f5e139]:
+              - button [ref=f5e191] [cursor=pointer]:
+                - generic [ref=f5e141]: All
+              - button [ref=f5e192] [cursor=pointer]:
+                - generic [ref=f5e143]: Films
+              - button [ref=f5e193] [cursor=pointer]:
+                - generic [ref=f5e145]: Series
+            - generic [ref=f5e146]:
+              - generic [ref=f5e147]: 
+              - generic [ref=f5e149]: Nothing found
+              - generic [ref=f5e150]: Nothing matched "the lord of the rings". Try the original title, or a different spelling. If films or series never come back at all, that manager is not set up on this server.
+              - button [active] [ref=f5e194] [cursor=pointer]:
+                - generic [ref=f5e152]: 
+                - generic [ref=f5e153]: Movie & series managers

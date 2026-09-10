@@ -1,25 +1,10 @@
-import { Platform, ScrollView, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
+import { InterfacePane } from "@/components/settings/panes/InterfacePane";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 
-export default function AppearancePage() {
-  const insets = useSafeAreaInsets();
-
+export default function InterfaceSettingsPage() {
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior='automatic'
-      contentContainerStyle={{
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-      }}
-    >
-      <View
-        className='p-4 flex flex-col'
-        style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
-      >
-        <AppearanceSettings />
-        <View className='h-24' />
-      </View>
-    </ScrollView>
+    <SettingsPage categoryKey='appearance'>
+      <InterfacePane />
+    </SettingsPage>
   );
 }

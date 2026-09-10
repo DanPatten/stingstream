@@ -120,14 +120,29 @@ public sealed class RequestsController : StingStreamControllerBase
     /// <param name="kind"><c>movie</c>, <c>series</c>, or omit for both.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The results.</response>
+    /// <response code="503">Neither manager is configured on this node, so nothing can be looked up.</response>
     /// <returns>The results.</returns>
+    /// <remarks>
+    /// The 503 is the difference between "nothing matched" and "I could not look" — two answers
+    /// that are the same empty list on the wire and opposite things to the person who typed. The
+    /// app already reads any 503 from this controller as "requests are not set up on this server"
+    /// and says so instead of drawing an empty result list.
+    /// </remarks>
     [HttpGet("search")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<RequestSearchResult>>> Search(
         [FromQuery] string? q,
         [FromQuery] string? kind,
         CancellationToken cancellationToken)
-        => Ok(await _requests.SearchAsync(q ?? string.Empty, kind, cancellationToken).ConfigureAwait(false));
+    {
+        if (!_requests.CanSearch())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Ok(await _requests.SearchAsync(q ?? string.Empty, kind, cancellationToken).ConfigureAwait(false));
+    }
 
     // --- making ------------------------------------------------------------
 

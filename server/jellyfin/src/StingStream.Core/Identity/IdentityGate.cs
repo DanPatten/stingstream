@@ -295,4 +295,81 @@ public static class IdentityGate
 
         return false;
     }
+
+    /// <summary>The most PBKDF2 rounds this server will record for a derived password.</summary>
+    /// <remarks>
+    /// A ceiling rather than a fixed value, because the number is the client's to choose and it is
+    /// stored so raising the default cannot lock out anybody who linked before the change. The cap
+    /// is here because the round count comes off the wire and is handed back out to whoever asks
+    /// how to sign in -- an absurd one would be a way to make every client burn a minute of CPU on
+    /// a sign-in that was never going to work.
+    /// </remarks>
+    public const int MaxPasswordIterations = 5_000_000;
+
+    /// <summary>The fewest, below which the derivation is not worth doing.</summary>
+    public const int MinPasswordIterations = 1_000;
+
+    /// <summary>
+    /// Whether a sign-in carried a usable derived password, and what to store for it.
+    /// </summary>
+    /// <param name="salt">The salt from the request.</param>
+    /// <param name="verifier">The derived password from the request.</param>
+    /// <param name="iterations">The round count from the request.</param>
+    /// <returns>The three of them, cleaned, or null when there is nothing usable.</returns>
+    /// <remarks>
+    /// <b>All three or none.</b> A salt with no verifier is a password nobody can reproduce; a
+    /// verifier with no round count cannot be derived again once the client's default moves. Either
+    /// half would leave somebody holding an account they can never sign in to, and the account is
+    /// created either way -- so a partial is treated as an older client sending none at all, which
+    /// keeps the password nobody knows and leaves their own server as the way in.
+    /// </remarks>
+    public static (string Salt, string Verifier, int Iterations)? ReadCredential(
+        string? salt,
+        string? verifier,
+        int? iterations)
+    {
+        var cleanSalt = (salt ?? string.Empty).Trim();
+        var cleanVerifier = (verifier ?? string.Empty).Trim();
+        var rounds = iterations ?? 0;
+
+        if (cleanSalt.Length == 0
+            || cleanVerifier.Length == 0
+            || rounds < MinPasswordIterations
+            || rounds > MaxPasswordIterations)
+        {
+            return null;
+        }
+
+        return (cleanSalt, cleanVerifier, rounds);
+    }
+
+    /// <summary>What to tell a client asking how to send a password for one username.</summary>
+    /// <param name="salt">The salt on that account's link row, or null when it has none.</param>
+    /// <param name="iterations">The round count on it.</param>
+    /// <returns>The answer to send.</returns>
+    /// <remarks>
+    /// <b>An ordinary account, an account nobody holds and a linked account that has been reset all
+    /// answer identically.</b> That is the whole shape of it: this is answered anonymously, because
+    /// the client asking has not signed in yet, so anything that varied with whether the username
+    /// exists would be a way to find out who has an account here. What it does tell somebody who
+    /// already holds a username is that it arrived from another server, which is the price of the
+    /// account being usable at all.
+    /// </remarks>
+    public static SignInMethodResponse DescribeSignIn(string? salt, int iterations)
+    {
+        var cleanSalt = (salt ?? string.Empty).Trim();
+        if (cleanSalt.Length == 0
+            || iterations < MinPasswordIterations
+            || iterations > MaxPasswordIterations)
+        {
+            return new SignInMethodResponse { Derived = false };
+        }
+
+        return new SignInMethodResponse
+        {
+            Derived = true,
+            Salt = cleanSalt,
+            Iterations = iterations,
+        };
+    }
 }

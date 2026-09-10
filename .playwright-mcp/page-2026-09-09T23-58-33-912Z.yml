@@ -1,0 +1,187 @@
+- generic [ref=f1e14]:
+  - navigation [ref=f1e15]:
+    - button "Expand the sidebar" [ref=f1e18] [cursor=pointer]:
+      - generic [ref=f1e19]: 
+    - generic [ref=f1e21]:
+      - link "Home" [ref=f1e23] [cursor=pointer]:
+        - generic [ref=f1e24]: 
+      - generic [ref=f1e25]:
+        - link "Movies" [ref=f1e27] [cursor=pointer]:
+          - generic [ref=f1e29]: 
+        - link "TV Shows" [ref=f1e30] [cursor=pointer]:
+          - generic [ref=f1e31]: 
+      - generic [ref=f1e32]:
+        - link "Favorites" [ref=f1e33] [cursor=pointer]:
+          - generic [ref=f1e34]: 
+        - link "Requests" [ref=f1e35] [cursor=pointer]:
+          - generic [ref=f1e36]: 
+        - link "Users" [ref=f1e37] [cursor=pointer]:
+          - generic [ref=f1e38]: 
+        - link "Manage" [ref=f1e39] [cursor=pointer]:
+          - generic [ref=f1e40]: 
+        - link "Transfers" [ref=f1e41] [cursor=pointer]:
+          - generic [ref=f1e42]: 
+        - link "Sessions" [ref=f1e43] [cursor=pointer]:
+          - generic [ref=f1e44]: 
+    - generic [ref=f1e45]:
+      - link "Settings" [active] [ref=f1e46] [cursor=pointer]:
+        - generic [ref=f1e47]: 
+      - button "repro" [ref=f1e50] [cursor=pointer]:
+        - generic [ref=f1e51]: R
+    - generic: Settings
+  - generic [ref=f1e53]:
+    - generic [ref=f1e54]:
+      - generic [ref=f1e55]:
+        - button "Back" [ref=f1e127] [cursor=pointer]:
+          - generic [ref=f1e128]: 
+        - generic [ref=f1e58]: Settings
+      - generic [ref=f1e61]:
+        - generic [ref=f1e62]: 
+        - textbox "Search..." [ref=f1e63]
+      - button "Watch together" [ref=f1e66] [cursor=pointer]:
+        - generic [ref=f1e67]: 
+    - generic [ref=f1e69]:
+      - generic [ref=f1e135]:
+        - generic [ref=f1e136]:
+          - generic [ref=f1e137]: RE
+          - generic [ref=f1e139]:
+            - generic [ref=f1e140]: repro
+            - generic [ref=f1e141]:
+              - generic [ref=f1e142]: Repro
+              - generic [ref=f1e143]: v0.2.0
+        - generic [ref=f1e145]:
+          - generic [ref=f1e148]:
+            - generic [ref=f1e149]: Languages
+            - generic [ref=f1e152]:
+              - generic [ref=f1e153]: App language
+              - generic [ref=f1e157] [cursor=pointer]:
+                - generic [ref=f1e158]: System
+                - generic [ref=f1e159]: 
+          - generic [ref=f1e160]:
+            - generic [ref=f1e161]: General
+            - generic [ref=f1e162]:
+              - button "Appearance " [ref=f1e163] [cursor=pointer]:
+                - generic [ref=f1e164]:
+                  - generic [ref=f1e165]: Appearance
+                  - generic [ref=f1e167]: 
+              - button "Playback & controls " [ref=f1e169] [cursor=pointer]:
+                - generic [ref=f1e170]:
+                  - generic [ref=f1e171]: Playback & controls
+                  - generic [ref=f1e173]: 
+              - button "Audio & subtitles " [ref=f1e175] [cursor=pointer]:
+                - generic [ref=f1e176]:
+                  - generic [ref=f1e177]: Audio & subtitles
+                  - generic [ref=f1e179]: 
+              - button "Music " [ref=f1e181] [cursor=pointer]:
+                - generic [ref=f1e182]:
+                  - generic [ref=f1e183]: Music
+                  - generic [ref=f1e185]: 
+              - button "Network " [ref=f1e187] [cursor=pointer]:
+                - generic [ref=f1e188]:
+                  - generic [ref=f1e189]: Network
+                  - generic [ref=f1e191]: 
+              - button "Plugins " [ref=f1e193] [cursor=pointer]:
+                - generic [ref=f1e194]:
+                  - generic [ref=f1e195]: Plugins
+                  - generic [ref=f1e197]: 
+        - generic [ref=f1e200]:
+          - generic [ref=f1e201]: Sharing
+          - generic [ref=f1e202]:
+            - button "Servers Other people who run StingStream, and this server's own address " [ref=f1e203] [cursor=pointer]:
+              - generic [ref=f1e204]:
+                - generic [ref=f1e205]:
+                  - generic [ref=f1e206]: Servers
+                  - generic [ref=f1e207]: Other people who run StingStream, and this server's own address
+                - generic [ref=f1e208]: 
+            - button "The server I run Share your own StingStream server with this one " [ref=f1e210] [cursor=pointer]:
+              - generic [ref=f1e211]:
+                - generic [ref=f1e212]:
+                  - generic [ref=f1e213]: The server I run
+                  - generic [ref=f1e214]: Share your own StingStream server with this one
+                - generic [ref=f1e215]: 
+            - generic [ref=f1e219]:
+              - generic [ref=f1e220]: This device
+              - generic [ref=f1e221]: Streams go through your server on the web.
+        - generic [ref=f1e223]:
+          - generic [ref=f1e224]: Server
+          - generic [ref=f1e225]:
+            - button "Users Who can sign in, what each of them can watch, and invitations you have sent " [ref=f1e226] [cursor=pointer]:
+              - generic [ref=f1e227]:
+                - generic [ref=f1e228]:
+                  - generic [ref=f1e229]: Users
+                  - generic [ref=f1e230]: Who can sign in, what each of them can watch, and invitations you have sent
+                - generic [ref=f1e231]: 
+            - button "Server settings Indexers, download clients, quality profiles, root folders, naming, notifications " [ref=f1e233] [cursor=pointer]:
+              - generic [ref=f1e234]:
+                - generic [ref=f1e235]:
+                  - generic [ref=f1e236]: Server settings
+                  - generic [ref=f1e237]: Indexers, download clients, quality profiles, root folders, naming, notifications
+                - generic [ref=f1e238]: 
+            - button "Libraries & transcoding Libraries, transcoding, logs " [ref=f1e240] [cursor=pointer]:
+              - generic [ref=f1e241]:
+                - generic [ref=f1e242]:
+                  - generic [ref=f1e243]: Libraries & transcoding
+                  - generic [ref=f1e244]: Libraries, transcoding, logs
+                - generic [ref=f1e245]: 
+            - button "Server status Children, versions, data directory, ports " [ref=f1e247] [cursor=pointer]:
+              - generic [ref=f1e248]:
+                - generic [ref=f1e249]:
+                  - generic [ref=f1e250]: Server status
+                  - generic [ref=f1e251]: Children, versions, data directory, ports
+                - generic [ref=f1e252]: 
+            - button "Logs " [ref=f1e254] [cursor=pointer]:
+              - generic [ref=f1e255]:
+                - generic [ref=f1e256]: Logs
+                - generic [ref=f1e258]: 
+        - generic [ref=f1e260]:
+          - generic [ref=f1e262]:
+            - generic [ref=f1e263]: Link a device
+            - button "Enter the code shown on the other device " [ref=f1e265] [cursor=pointer]:
+              - generic [ref=f1e266]:
+                - generic [ref=f1e267]: Enter the code shown on the other device
+                - generic [ref=f1e269]: 
+          - generic [ref=f1e271]:
+            - generic [ref=f1e272]: Account
+            - button "Sign out" [ref=f1e274] [cursor=pointer]
+        - generic [ref=f1e279]:
+          - generic [ref=f1e280]: About
+          - generic [ref=f1e281]:
+            - generic [ref=f1e283]:
+              - generic [ref=f1e284]: App version
+              - generic [ref=f1e286]: v0.2.0
+            - generic [ref=f1e289]:
+              - generic [ref=f1e290]: Server address
+              - generic [ref=f1e292]: http://127.0.0.1:8797
+            - button "Token Show" [ref=f1e294] [cursor=pointer]:
+              - generic [ref=f1e295]:
+                - generic [ref=f1e296]: Token
+                - generic [ref=f1e298]: Show
+            - button "Take the tour " [ref=f1e301] [cursor=pointer]:
+              - generic [ref=f1e302]:
+                - generic [ref=f1e303]: Take the tour
+                - generic [ref=f1e305]: 
+            - button "Licences " [ref=f1e307] [cursor=pointer]:
+              - generic [ref=f1e308]:
+                - generic [ref=f1e309]: Licences
+                - generic [ref=f1e311]: 
+      - generic [ref=f1e100]:
+        - generic [ref=f1e102]:
+          - button [disabled]:
+            - generic [ref=f1e103]: Genres
+            - generic [ref=f1e104]: 
+          - button [disabled]:
+            - generic [ref=f1e105]: Years
+            - generic [ref=f1e106]: 
+          - button [disabled]:
+            - generic [ref=f1e107]: Tags
+            - generic [ref=f1e108]: 
+          - button [ref=f1e123] [cursor=pointer]:
+            - generic [ref=f1e110]: Filter by
+            - generic [ref=f1e111]: 
+          - button [ref=f1e124] [cursor=pointer]:
+            - generic [ref=f1e113]: Sort by
+            - generic [ref=f1e114]: 
+          - button [ref=f1e125] [cursor=pointer]:
+            - generic [ref=f1e116]: Sort order
+            - generic [ref=f1e117]: 
+        - generic [ref=f1e118]: No results

@@ -99,13 +99,37 @@ public sealed class IdentityStore
                 );
                 """);
 
+            // Additive, nullable, swallowed when already there -- the same shape and the same
+            // reason as `invites.token`: the CREATE above only ever runs on a database that does
+            // not exist yet, and this one is a day old on somebody's disk already.
+            //
+            // Null means "signs in with an ordinary password", which is what every row written
+            // before this did and what an administrator's reset puts a row back to. The safe
+            // reading is the one an upgrade produces by doing nothing.
+            foreach (var column in new[]
+                     {
+                         "ALTER TABLE linked_identities ADD COLUMN password_salt TEXT;",
+                         "ALTER TABLE linked_identities ADD COLUMN password_iterations INTEGER;",
+                     })
+            {
+                try
+                {
+                    CoreDatabase.Execute(c, column);
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException e)
+                    when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Already migrated.
+                }
+            }
+
             _schemaReady = true;
         }
     }
 
     private const string Select =
         "SELECT issuer_node, remote_user, local_user, remote_user_name, issuer_name, created_at, "
-        + "last_seen_at FROM linked_identities";
+        + "last_seen_at, password_salt, password_iterations FROM linked_identities";
 
     /// <summary>Every link, newest first.</summary>
     /// <returns>The rows.</returns>
@@ -165,12 +189,14 @@ public sealed class IdentityStore
                 """
                 INSERT INTO linked_identities
                     (issuer_node, remote_user, local_user, remote_user_name, issuer_name,
-                     created_at, last_seen_at)
-                VALUES ($i, $u, $l, $un, $sn, $ca, $ls)
+                     created_at, last_seen_at, password_salt, password_iterations)
+                VALUES ($i, $u, $l, $un, $sn, $ca, $ls, $ps, $pi)
                 ON CONFLICT(issuer_node, remote_user) DO UPDATE SET
                     remote_user_name = excluded.remote_user_name,
                     issuer_name = excluded.issuer_name,
-                    last_seen_at = excluded.last_seen_at;
+                    last_seen_at = excluded.last_seen_at,
+                    password_salt = excluded.password_salt,
+                    password_iterations = excluded.password_iterations;
                 """,
                 ("$i", row.IssuerNodeId.Trim().ToLowerInvariant()),
                 ("$u", row.RemoteUserId.Trim()),
@@ -178,7 +204,12 @@ public sealed class IdentityStore
                 ("$un", row.RemoteUserName),
                 ("$sn", row.IssuerName),
                 ("$ca", Stamp(row.CreatedAt)),
-                ("$ls", row.LastSeenAt is { } seen ? Stamp(seen) : null)),
+                ("$ls", row.LastSeenAt is { } seen ? Stamp(seen) : null),
+                // Written from the row rather than left alone, so a caller that means to clear the
+                // derivation can. Every caller that does not mean to has read the row first, so
+                // what goes back is what was already there.
+                ("$ps", string.IsNullOrWhiteSpace(row.PasswordSalt) ? null : row.PasswordSalt),
+                ("$pi", row.PasswordIterations > 0 ? row.PasswordIterations.ToString(CultureInfo.InvariantCulture) : null)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -377,5 +408,7 @@ public sealed class IdentityStore
         IssuerName = r.GetString(4),
         CreatedAt = ReadStamp(r.GetString(5)),
         LastSeenAt = r.IsDBNull(6) ? null : ReadStamp(r.GetString(6)),
+        PasswordSalt = r.IsDBNull(7) ? string.Empty : r.GetString(7),
+        PasswordIterations = r.IsDBNull(8) ? 0 : r.GetInt32(8),
     };
 }

@@ -358,17 +358,77 @@ feature is that somebody who cannot administer the node can still ask it for som
 
 | Section | Who sees it |
 |---|---|
+| Find — the search, and the Request button | everyone |
 | My requests — with Withdraw | everyone |
 | Alerts — the polled notification list | everyone |
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
 
-Searching for something to ask for lives in the **Search** tab on phone and web, not here: one box
-runs the library search and this catalogue search at once and groups the answers as "In your
-library" and "Not in your library", with a Request button on every result of the second kind
-(F-73). Two search fields on two screens meant two places to type the same title and two sets of
-results to reconcile. TV still has its own Discover section, because the TV search screen is a
-separate screen with a separate input.
+**Find is where asking happens, and it is the first tab.** One box asks the node, which asks both
+managers, and the answers come back films first with All / Films / Series chips to narrow — the
+chip is a real re-query on `?kind=`, which is one lookup the node does not have to make. Results
+are rows rather than poster tiles: a search for a common word is a dozen sequels and re-releases
+whose posters are near-identical, and the overview is the only thing that tells them apart.
+
+This was not always so. F-73 moved asking to the **Search** tab, where one box ran the library
+search and this catalogue search at once and grouped the answers as "In your library" and "Not in
+your library" — the reasoning being that two search fields on two screens meant two places to type
+the same title. The reasoning was right and the result was not, for three compounding reasons:
+
+* the Request button on a catalogue tile appeared **only under a pointer**, so on a screen whose
+  entire purpose is requesting there was no visible way to request;
+* the catalogue section **drew nothing at all** when the lookup came back empty — deliberately, so
+  that a server without the feature grew no error box — which meant a node whose managers were not
+  configured showed no section, no error and no explanation;
+* and the Requests tab itself was left with an empty state whose only offer was a button that
+  navigated to the other tab, where the above was waiting.
+
+So Find came back, and it owns its own box, at every width. The "two places to type" problem is
+solved the other way round: the shell's top-bar box does not touch this screen at all, so it means
+one thing everywhere — Enter opens the Search tab with what you typed
+(`components/shell/SearchField.tsx`). It did drive Find for a while, on wide web, so that the
+section needed no input of its own; that put the control for one of six tabs *above* the tab bar
+where it read as furniture for all of them, made one box mean two different things depending on the
+page, and reduced Find's empty state to giving directions to a control ("type into the box at the
+top of the screen"), which is a screen admitting its input is in the wrong place. Search, for its
+part, answers with the library and nothing else, and offers `Request "…"` whenever what came back is
+a fuzzy match or no match at all (`shouldOfferRequest`) — which hands the term to Find as `?q=` and
+lands on it directly. Find seeds its box from that param and then keeps its own state: `q` is the
+term you arrived with, not a mirror of the box.
+
+**The open section is in the URL.** `?tab=` names it — `find`, `mine`, `alerts`, `approvals`,
+`activity`, `policy` — so a reload, a bookmark and a link pasted to somebody else all come back to
+the section they named, and Search's `Request "…"` button lands on Find by sending `tab=find`
+beside its `?q=`. A bare `/requests` opens on My requests: opening Requests without naming a
+section is checking on what you already asked for, and landing on Find is always deliberate.
+Pressing a tab writes the param with `setParams`, which react-navigation's web linking turns into a
+`history.replace` — the address bar follows the section, but Back still leaves Requests rather than
+walking its six sections, which is the rule `components/common/Tabs.tsx` states for sections of one
+page. A param naming a section this member cannot see (`?tab=policy` after a demotion, a stale
+link) falls back through `resolveSegment` to a real one rather than leaving the bar with nothing
+selected above a blank page. The mapping is pure and tested:
+`components/stingstream/requests/requestsSections.ts`.
+
+**Landing on Find puts the caret in the box.** The section is mounted only while its tab is open,
+so mounting is landing, and every way of arriving there — the tab, `?tab=find`, the Request button
+— is somebody who came to type. The exception is arriving *with* a term: the box is already filled
+and the results are under it, and on a phone the keyboard would open over the answer.
+
+`GET /requests/search` answers **503** rather than an empty list when it cannot look at all
+(`RequestService.CanSearch()`: neither `ArrClientFactory.Create` returns a client). "Nothing
+matched" and "I could not look" are the same empty list on the wire and opposite things to the
+person who typed; the app reads a 503 from this controller as "requests are not set up on this
+server" and says so instead of drawing an empty list.
+
+That gate is narrower than it sounds, and Find's empty state has to cover the gap. Measured
+2026-09-09 against a ui-loop node whose `[children] radarr/sonarr` are `false`: `/requests/search`
+answered **200 `[]`**, not 503, so the screen showed "Nothing found" rather than "not set up". A
+real no-match and a node whose managers are not running are therefore the same answer here, which
+is why `requests.discover_empty_detail` says both — and why the administrator-only button on that
+state goes to Settings → Movie & series managers, the one screen that distinguishes them.
+
+TV still has its own Discover section, because the TV search screen is a separate screen with a
+separate input and no top bar to share.
 
 On TV the tab is present but Approvals and Policy are dropped: approving on a remote control is
 worse than doing it on the phone that is already in the room. Item details on TV gain one button —
@@ -379,7 +439,8 @@ key and therefore nothing to look up, dedupe against or ask an arr for.
 
 Files: `apps/stingstream/lib/stingstream/requestsApi.ts` (types, shaping, presentation, plain
 fetch — no React, so `bun:test` can load it), `lib/stingstream/requests.ts` (React Query),
-`components/stingstream/requests/**`, `app/(auth)/(tabs)/(requests)/**`.
+`components/stingstream/requests/**` (`FindSection.tsx` and `RequestResultRow.tsx` are the search;
+`DiscoverSection.tsx` is the television's), `app/(auth)/(tabs)/(requests)/**`.
 
 ---
 

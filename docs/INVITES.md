@@ -285,7 +285,14 @@ their own server or create an account — signing in with their own server will 
 login on this new server AND submit a request to link their server to this one."*
 
 So `/join` offers two doors. **Create account** is §9 and §10, unchanged. **I already run
-StingStream** is this section, and it ends with an account here that has no password anybody knows.
+StingStream** is this section.
+
+**It is only on `/join`.** It was on the main login screen too, and it had to be while the account
+it created had a password nobody knew — signing in with your own server was then the only way back
+in, so it needed a permanent door. §11c removed the reason and the door went with it. Dan: *"remove
+the 'Sign in with my own server' option on the main login screen — this is only an option when
+accepting an invitation."* `/login` is no longer a return target for the handoff either; `/join` is
+the only one.
 
 ### What proves who they are
 
@@ -307,9 +314,13 @@ assertion = Sign_homeNodeKey( DOMAIN || { iss, sub, name, server, aud, nonce, ia
 has no built-in Ed25519 and Core already delegates every mesh concern over loopback — two
 implementations of one signature rule is the thing worth avoiding.
 
-**Their server has to be up, every time.** Dan: *"lets just make it so that your server has to be up
-to sign in with it to another server."* That is not enforced anywhere; it falls out, because nobody
-but their node can produce the signature. It is also why there is no key material on any device.
+**Their server has to be up to sign in *with it*.** Dan: *"lets just make it so that your server has
+to be up to sign in with it to another server."* That is not enforced anywhere; it falls out,
+because nobody but their node can produce the signature. It is also why there is no key material on
+any device.
+
+It has to be up **once**, though, not every time — §11c is what changed that, and it is the reason
+the login screen no longer needs a door.
 
 ### Two doors, not one credential
 
@@ -319,9 +330,9 @@ otherwise every StingStream server in the world would accept every other one's u
 `IdentityGate.DecideSignIn` is that rule; after the first time the `linked_identities` row is what
 lets them back in.
 
-**The account gets a random password nobody knows, and that is load-bearing.** Jellyfin
-authenticates a password-less account with an empty password, so leaving it blank would make every
-linked account signable-into by name alone — a far worse door than the one this avoids.
+**The account gets a password, and it is one this server cannot read.** §11c. It is never blank:
+Jellyfin authenticates a password-less account with an empty password, so leaving it blank would
+make every linked account signable-into by name alone — a far worse door than the one this avoids.
 
 The name is theirs, qualified only if it is taken: `sam`, else `sam.loft`. **Not `sam@loft`** —
 `SetupGate.ValidateUsername` allows letters, digits, dots, underscores and dashes and nothing else,
@@ -335,6 +346,77 @@ them back with the assertion in the fragment. The alternative — their node acc
 cross-origin auth from anywhere, with the password typed into a page somebody else's machine served
 — is the thing this shape exists to avoid. `utils/identity/handoff.ts` owns both fragments;
 `/authorize` is exempted in `useProtectedRoute` for both of `/join`'s reasons.
+
+### 11c. The password, which this server never learns
+
+Dan: *"After a user authenticates to another server they can login with that same username/password
+combo going forward even if their server is offline as long as they have logged in at least once
+before"* — and the constraint that shapes all of it: *"we need to do this without the OTHER server
+knowing what that user's password is but it still can validate it."*
+
+Those are only compatible if the password stops being the password before it leaves the device:
+
+```
+salt     = 16 random bytes, made once, on /authorize
+verifier = base64url( PBKDF2-HMAC-SHA256( password, salt, 100 000, 32 ) )
+```
+
+**The verifier is what the account's password here actually is**, and Jellyfin hashes it again with
+its own KDF before storing it. The salt is kept on the `linked_identities` row and handed to anybody
+who asks how to sign in as that username, because a client that cannot learn it cannot derive the
+value — and then nobody could sign in at all. It is not a secret; what it buys is that one server's
+verifier is useless on another, and that a stolen one cannot be turned back into a password cheaply.
+
+`utils/identity/verifier.ts` is the derivation, in two implementations that its test pins against
+each other: `crypto.subtle` in a browser, `@noble/hashes` under Hermes. A phone and the same
+person's browser have to produce the same verifier or one of them cannot sign in.
+
+**Why the password is typed on `/authorize` even when they are already signed in there.** Because it
+is an input, not a check. That page used to bounce a signed-out visitor to `/login` — which dropped
+the fragment and left the request unfinishable — and it had no reason to ask a signed-in one for
+anything. Now it always asks, always authenticates, and derives from what worked: a verifier built
+from a password nobody confirmed is a password nobody can reproduce.
+
+**The order at sign-in.** `loginMutation` asks `POST /identity/signin-method` what to send *before*
+sending anything. A definite answer settles it; a `404` means a plain Jellyfin and the password goes
+as it always did. A timeout does **not** — falling back there would put the plaintext on the wire for
+exactly the account that must never send it, so it fails the sign-in instead.
+
+**And there is no second guess.** Jellyfin locks an account after three failed attempts
+(`UserManager.cs`, `0 => 3`), so retrying with the plaintext when the derived value is refused would
+lock somebody out in two sign-ins. An administrator's reset on the Users screen calls
+`POST /identity/password/derivation/clear` instead, which drops the salt and makes the account an
+ordinary one — otherwise the client would go on deriving against a salt the new password was never
+run through, and the reset would lock the person out rather than let them in.
+
+**Changing it later.** Signing in with their own server again re-derives and re-sets it, so the two
+heal by themselves. When it is only this server's copy that is stale, Settings → *The server I run*
+has one field that does the same thing with no round trip, since the derivation is client-side.
+
+What follows from all of this: **the official Jellyfin app cannot sign in to a linked account.** It
+sends the plaintext, and the plaintext is not what is stored. That is true of any client that is not
+this one.
+
+### 11d. What two real nodes found
+
+None of the four below could be seen on one node, and none of them is a type error. They were found
+by running the flow between two nodes on different ports with a browser, which is the only shape
+that makes the two origins real.
+
+| | |
+|---|---|
+| **The address probe could never work** | `SignInWithOwnServer` resolved what you typed with `checkJellyfinServer`, which asks `/System/Info/Public`. That is a **cross-origin** request — the page was served by the server being joined — and a node sends CORS headers on exactly one route. The browser blocked it before the other node saw it, so the flow died on "Nothing answered at that address" for every address that was actually right. It uses `/sidedoor/v1/hello` now, which exists for this question (`docs/SIDEDOOR.md` §4) |
+| **The invite never came back** | It went out in the `/authorize` fragment and `parseAuthorizeRequest` read it, but `buildReturnUrl` never put it in the answer. So the first sign-in — the only one that needs an invite — always reached `signin` with none, and the person holding a live invite was told to ask for one. It rides back beside the assertion now |
+| **A spent nonce, reported as a dead invite** | The return-leg effect depends on `api?.basePath`, and its own success path changes it by pointing the app at this server. The second run presented the same assertion, was refused because the nonce was spent, and replaced a sign-in that had worked with *"This invite cannot be used"* — the account existed. `presented` is a ref set before the first `await`, so it happens once |
+| **A session granted and thrown away** | `adoptSession` captured `api?.basePath` and returned **silently** when it was null — which is exactly the state on a cold cross-origin landing, before `setServer` has run. The server granted a session, the token went nowhere, and the screen sat on "Opening your invite…" or bounced to the sign-in form with nothing said. It reads `api ?? apiRef.current`, which is what that ref was added for and what `login` already did |
+
+The last two are the same shape as the bug `wasSignedIn` above it was written for, and worth
+remembering as one rule: **on this screen the work is not idempotent** — a nonce is spent and an
+invite is redeemed by the first attempt — so nothing here may run twice, and nothing that has
+already succeeded may be abandoned because the effect was torn down.
+
+`tools/e2e-invite.ps1` is the harness for the password half. The identity half is two `ui-node.ps1`
+nodes on separate ports and data directories, a person invite minted on one, and a browser.
 
 ### Asking to link the two servers
 
@@ -352,5 +434,5 @@ cannot get a different answer by itself.
 |---|---|
 | Mesh | `mesh/crates/stingstream-mesh/src/vouch.rs`, `api.rs` (`/mesh/v1/identity/{assert,verify}`, loopback) |
 | Server | `StingStream.Core/Identity/`, `Controllers/IdentityController.cs` |
-| App | `app/authorize.tsx`, `components/stingstream/identity/`, `lib/stingstream/identity{Api,}.ts`, `utils/identity/handoff.ts` |
-| Tests | `vouch.rs`'s own module, `IdentityGateTests.cs`, `utils/identity/handoff.test.ts` |
+| App | `app/authorize.tsx`, `components/stingstream/identity/`, `lib/stingstream/identity{Api,}.ts`, `utils/identity/{handoff,verifier}.ts` |
+| Tests | `vouch.rs`'s own module, `IdentityGateTests.cs`, `utils/identity/{handoff,verifier}.test.ts` |

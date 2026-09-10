@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import { GroupDetailScreen } from "@/components/stingstream/mesh/GroupDetailScreen";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
@@ -19,17 +20,19 @@ export default function GroupDetailPage() {
   };
 
   return (
-    <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <RequiresAdmin>
-        {group ? (
-          <GroupDetailScreen group={group} />
-        ) : (
-          <EmptyState
-            title='No group'
-            detail='That link is missing a group id.'
-          />
-        )}
-      </RequiresAdmin>
-    </RefreshScreen>
+    <SettingsShell categoryKey='servers'>
+      <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
+        <RequiresAdmin>
+          {group ? (
+            <GroupDetailScreen group={group} />
+          ) : (
+            <EmptyState
+              title='No group'
+              detail='That link is missing a group id.'
+            />
+          )}
+        </RequiresAdmin>
+      </RefreshScreen>
+    </SettingsShell>
   );
 }

@@ -390,7 +390,7 @@ const Page = () => {
     },
     enabled: !!api && !!user?.Id && !!libraryId,
     staleTime: 60 * 1000,
-    // Every path the web app cannot route yet — /requests, /search, /manage —
+    // Every path the web app cannot route yet — /requests, /search —
     // falls through to this screen with its own name as the library id. The
     // server answers 404 immediately and will answer 404 again; retrying turned
     // one wrong URL into a burst of failed requests and a spinner that never

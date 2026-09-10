@@ -9,3 +9,9 @@ export const POSTER_CAROUSEL_HEIGHT = 220;
 // the window height. The ceiling keeps the page visible behind a long list,
 // which is what tells the user the sheet is a layer and not a new screen.
 export const SHEET_MAX_HEIGHT_RATIO = 0.85;
+
+// PBKDF2 rounds used to turn a password into the per-server value a linked account signs in with
+// (`utils/identity/verifier.ts`). Below OWASP's 210k for PBKDF2-SHA256 on purpose: the server
+// hashes the result again with Jellyfin's own KDF before storing it, and this one has to run in
+// pure JavaScript on a television.
+export const IDENTITY_KDF_ITERATIONS = 100_000;

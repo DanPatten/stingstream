@@ -496,20 +496,19 @@ export const selectMine = (
   return requests.filter((r) => sameUser(r.requestedBy, userId));
 };
 
-// --- one search box, two catalogues ---------------------------------------------------------------
+// --- is this the same title? ----------------------------------------------------------------------
 
 /**
- * Search asks two systems at once — Jellyfin for what this server holds, and the node's own
- * `/requests/search` for what TMDB and TheTVDB know about — and the answers have to be reconciled
- * before either is drawn. Everything in this block is that reconciliation, and it lives here rather
- * than in the screen because it is pure and `requestsApi.test.ts` can pin it.
+ * The Requests page asks the node for one term and the node asks *both* arrs, so a title that
+ * exists as a film and as a series — or one film listed under two ids by the same provider — comes
+ * back twice. Everything in this block decides when two answers are the same title, and it lives
+ * here rather than in a component because it is pure and `requestsApi.test.ts` can pin it.
  *
- * The identity of a title is a *set* of keys rather than one id, because the two halves do not
- * always agree on which id they carry: Jellyfin knows a film by whatever the metadata provider
- * wrote into `ProviderIds` (often TMDB and IMDb, sometimes neither), while a series lookup comes
- * back keyed on TheTVDB. Matching on any one of them and calling it a day would list a film in
- * "Not in your library" that is sitting on the shelf a section above it — the single worst thing
- * this screen can do, since the whole promise is "find it, and ask only if it really isn't here".
+ * The identity of a title is a *set* of keys rather than one id, because the sources do not always
+ * agree on which id they carry: a film lookup comes back keyed on TMDB, a series lookup on
+ * TheTVDB, and a Jellyfin item carries whatever the metadata provider wrote into `ProviderIds` —
+ * often TMDB and IMDb, sometimes neither. Matching on any single one of them would list the same
+ * film twice in a row, which is what makes a result list look like it is not to be trusted.
  */
 
 /** Case, punctuation and spacing removed, so "WALL·E" and "Wall-E" are the same title. */
@@ -579,54 +578,50 @@ export interface LibraryIdentity {
 }
 
 /**
- * What the Jellyfin half of the search found, as keys the catalogue half can be tested against.
+ * Whether Search should offer to go and ask for what was typed.
  *
- * Feed it the movie and series results only. An episode's `Name` is the episode's own title and its
- * `ProviderIds` are the episode's, so it can neither match nor usefully exclude a catalogue result,
- * and a collection named after its first film would exclude the film itself.
+ * Search answers with the library and nothing else, so the one thing it cannot do is tell you that
+ * a title exists at all. The offer is the bridge, and the rule for showing it is "a fuzzy match or
+ * no matches": the library came back with nothing, or with things that are *near* what was typed
+ * without being it. Typing "alien" and getting "Alien" back is an answer; typing "aliens" and
+ * getting "Alien" back is a near miss, and a near miss is exactly when somebody wants to ask.
+ *
+ * Compared on the normalised title alone — not title-and-year like {@link titleKey} — because a
+ * person types "wall-e", not "wall-e (2008)", and requiring the year would offer to request
+ * something that is plainly sitting in the results.
+ *
+ * Feed it the movie and series results only, for the same reason {@link searchResultKeys} keeps to
+ * whole titles: an episode's `Name` is the episode's own, so "Pilot" would count as an exact match
+ * for a search for a show called Pilot and silently withdraw the offer.
  */
-export const libraryMatchKeys = (
+export const shouldOfferRequest = (
+  term: string,
   items: readonly LibraryIdentity[],
-): Set<string> => {
-  const keys = new Set<string>();
-  for (const item of items) {
-    for (const [provider, id] of Object.entries(item.ProviderIds ?? {})) {
-      const key = providerKey(provider, id);
-      if (key) keys.add(key);
-    }
-    const kind = item.Type === "Series" ? "series" : "movie";
-    const key = titleKey(kind, item.Name, item.ProductionYear);
-    if (key) keys.add(key);
-  }
-  return keys;
+): boolean => {
+  const wanted = normalisedTitle(term);
+  // Nothing typed is not a fuzzy match, it is no question yet.
+  if (!wanted) return false;
+  return !items.some((item) => normalisedTitle(item.Name) === wanted);
 };
 
-/** The catalogue results, split by what the group can already do about them. */
-export interface CatalogueSections {
-  /**
-   * Somebody in the group holds it. These belong with the library results under an "available from
-   * a member" heading, not among the asks: pressing Request on one starts no download, and finding
-   * that out only afterwards is exactly the confusion `availableInGroup` exists to prevent.
-   */
-  heldByMember: RequestSearchResult[];
-  /** Nobody has it. These are the ones that get a Request button. */
-  requestable: RequestSearchResult[];
-}
-
 /**
- * Catalogue results, minus everything the library search already answered, split into the two
- * sections the screen draws.
+ * Search results as the Find list draws them: each title once, and each annotated with the state of
+ * a request the member has already made for it.
+ *
+ * The node asks both arrs and hands back everything either matched, so a title that exists as a
+ * film and as a series comes back twice, as does one film listed under two ids by the same
+ * provider. Order is the node's — films first — and the first answer for a title wins, so
+ * narrowing to Films or Series never reorders what stays.
  *
  * `myRequests` fills in a `requestState` the node did not send. It normally does send one — the
- * search endpoint annotates every result from its own store — but the annotation is a round trip
- * behind the mutation that created the request, and a poster that still says "Request" for a second
+ * search endpoint annotates every result from its own store — but that annotation is a round trip
+ * behind the mutation that created the request, and a row that still says "Request" for a second
  * after you asked for it reads as a button that did nothing.
  */
-export const splitCatalogueResults = (
+export const dedupeSearchResults = (
   results: readonly RequestSearchResult[],
-  libraryKeys: ReadonlySet<string>,
   myRequests: readonly MemberRequest[] = [],
-): CatalogueSections => {
+): RequestSearchResult[] => {
   const mine = new Map<string, MemberRequest>();
   for (const request of myRequests) {
     for (const key of memberRequestKeys(request)) {
@@ -634,15 +629,11 @@ export const splitCatalogueResults = (
     }
   }
 
-  const heldByMember: RequestSearchResult[] = [];
-  const requestable: RequestSearchResult[] = [];
-  // A movie lookup and a series lookup are two calls against two providers, and a title that
-  // exists as both comes back twice; so does one film listed under two ids by the same provider.
   const seen = new Set<string>();
+  const rows: RequestSearchResult[] = [];
 
   for (const result of results) {
     const keys = searchResultKeys(result);
-    if (keys.some((key) => libraryKeys.has(key))) continue;
     if (keys.some((key) => seen.has(key))) continue;
     for (const key of keys) seen.add(key);
 
@@ -660,14 +651,10 @@ export const splitCatalogueResults = (
       }
     }
 
-    if (known.availableInGroup || known.requestState === "available") {
-      heldByMember.push(known);
-    } else {
-      requestable.push(known);
-    }
+    rows.push(known);
   }
 
-  return { heldByMember, requestable };
+  return rows;
 };
 
 // --- calls --------------------------------------------------------------------------------------

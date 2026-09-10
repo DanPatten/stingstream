@@ -1,0 +1,18 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e40]:
+    - generic [ref=f4e41]: Create your admin account
+    - generic [ref=f4e42]: "This is the account that runs the server: it manages your libraries and decides who else can watch. You can add more people afterwards."
+    - generic [ref=f4e43]:
+      - generic [ref=f4e44]: Server name
+      - textbox "Server name" [ref=f4e47]:
+        - /placeholder: StingStream
+        - text: StingStream
+      - textbox "Username" [ref=f4e50]: reviewer
+      - generic [ref=f4e51]:
+        - textbox "Password" [active] [ref=f4e54]: StingStreamReview1
+        - button "Show password" [ref=f4e55] [cursor=pointer]:
+          - generic [ref=f4e56]: 
+      - generic [ref=f4e57]: At least 8 characters.
+    - button "Create account" [ref=f4e58] [cursor=pointer]
+  - generic [aria-hidden]:
+    - generic: StingStream

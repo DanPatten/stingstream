@@ -2,6 +2,7 @@ import "@/augmentations";
 import { type Api, Jellyfin } from "@jellyfin/sdk";
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getUserApi } from "@jellyfin/sdk/lib/utils/api";
+import { getNodeBaseUrl } from "@stingstream/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import axios, { AxiosError } from "axios";
 import { useSegments } from "expo-router";
@@ -25,9 +26,11 @@ import { toast } from "sonner-native";
 import useRouter from "@/hooks/useAppRouter";
 import { useInterval } from "@/hooks/useInterval";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
+import { fetchSignInMethod } from "@/lib/stingstream/identityApi";
 import { settingsAtom, useSettings } from "@/utils/atoms/settings";
 import { getOrSetDeviceId } from "@/utils/device";
 import { markExpectedError } from "@/utils/errors";
+import { deriveVerifier } from "@/utils/identity/verifier";
 import { createServerApi } from "@/utils/jellyfin/createApi";
 import {
   logAndCaptureError,
@@ -191,6 +194,37 @@ const JellyfinContext = createContext<JellyfinContextValue | undefined>(
   undefined,
 );
 
+/**
+ * What to send in place of the password, decided before a single byte of it leaves.
+ *
+ * An account that arrived from another server signs in with `PBKDF2(password)` and never with the
+ * password — that is what lets that server check it without ever being told it
+ * (`utils/identity/verifier.ts`, `docs/INVITES.md` §11c). Only the server knows which accounts
+ * those are, so it is asked first.
+ *
+ * **A failure to ask throws rather than falling back.** Sending the password because the question
+ * could not be answered would put the plaintext on the wire for exactly the account that must never
+ * send it. A `404` is not a failure: that is an ordinary Jellyfin, and the password goes as always.
+ *
+ * **There is no second attempt with the plaintext either.** Jellyfin locks an account after three
+ * failed sign-ins by default (`UserManager.cs`, `0 => 3`), so a second guess per attempt would lock
+ * somebody out in two. An administrator's reset on the Users screen clears the derivation instead,
+ * which is what turns the account back into an ordinary one.
+ */
+const secretToSend = async (
+  basePath: string | undefined,
+  username: string,
+  password: string,
+): Promise<string> => {
+  const nodeOrigin = basePath ? getNodeBaseUrl(basePath) : null;
+  if (!nodeOrigin) return password;
+
+  const method = await fetchSignInMethod(nodeOrigin, username);
+  return method.derived
+    ? deriveVerifier(password, method.salt, method.iterations)
+    : password;
+};
+
 export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
@@ -309,13 +343,20 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
    */
   const adoptSession = useCallback(
     (accessToken: string, nextUser: UserDto) => {
-      if (!jellyfin || !api?.basePath) return;
+      // `apiRef` as well as `api`, for the reason written above it and for the same caller:
+      // `/join` points the app at this node and adopts a session in the same tick, so the `api`
+      // this closure was built with is still `null`. The guard then returned **silently** — the
+      // server had granted a session, the token was dropped on the floor, and somebody who had
+      // just been given an account landed on the sign-in screen with nothing said. `login` threw
+      // "API not initialized" in the same situation, which is how that one got noticed.
+      const active = api ?? apiRef.current;
+      if (!jellyfin || !active?.basePath) return;
       setUser(nextUser);
-      installApi(createServerApi(jellyfin, api.basePath, accessToken));
+      installApi(createServerApi(jellyfin, active.basePath, accessToken));
       storage.set("token", accessToken);
       storage.set("user", JSON.stringify(nextUser));
     },
-    [api?.basePath, jellyfin],
+    [api, installApi, jellyfin],
   );
 
   // Shared teardown for manual logout AND forced session expiry — keeping it
@@ -622,9 +663,26 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       const active = api ?? apiRef.current;
       if (!active || !jellyfin) throw new Error("API not initialized");
 
+      // See `secretToSend`: for an account that came from another server this is a PBKDF2 of the
+      // password rather than the password, and asking has to succeed before anything is sent.
+      let secret: string;
+      try {
+        secret = await secretToSend(active.basePath, username, password);
+      } catch (e) {
+        throw markExpectedError(
+          new Error(
+            e instanceof Error && e.message
+              ? e.message
+              : t(
+                  "login.an_unexpected_error_occurred_did_you_enter_the_correct_url",
+                ),
+          ),
+        );
+      }
+
       try {
         writeInfoLog(`Login: authenticating against ${active.basePath}`);
-        const auth = await active.authenticateUserByName(username, password);
+        const auth = await active.authenticateUserByName(username, secret);
 
         if (auth.data.AccessToken && auth.data.User) {
           setUser(auth.data.User);
@@ -902,10 +960,14 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
         throw new Error("Failed to create API instance");
       }
 
-      // Authenticate with password
+      // Authenticate with password — derived first where the account calls for it. This path is
+      // the saved-server one and it is somebody re-entering a password, so it needs the same
+      // treatment as the login screen's: see `secretToSend`.
+      const secret = await secretToSend(serverUrl, username, password);
+
       writeInfoLog(`Login (saved server): authenticating against ${serverUrl}`);
       const auth = await apiInstance
-        .authenticateUserByName(username, password)
+        .authenticateUserByName(username, secret)
         .catch((error) => {
           writeToLog(
             axios.isAxiosError(error) &&

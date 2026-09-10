@@ -1,0 +1,7 @@
+- generic [ref=f7e91]:
+  - generic [ref=f7e92]:
+    - generic [ref=f7e93]: Sign in with your own server
+    - generic [ref=f7e94]: You will sign in there, not here.
+  - textbox "your-server.example.com" [ref=f7e97]
+  - button "Continue to my server" [disabled]
+  - button "Back" [ref=f7e99] [cursor=pointer]

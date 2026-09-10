@@ -1,24 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { NodeStatusScreen } from "@/components/stingstream/node/NodeStatusScreen";
-import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
-import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
+import { Redirect } from "expo-router";
 
-export default function NodeStatusPage() {
-  const [refreshing, setRefreshing] = useState(false);
-  const queryClient = useQueryClient();
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ["stingstream"] });
-    setRefreshing(false);
-  };
-
-  return (
-    <RequiresAdmin>
-      <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-        <NodeStatusScreen />
-      </RefreshScreen>
-    </RequiresAdmin>
-  );
+/**
+ * "Server status" and the server log viewer are two tabs of one page now: nobody reads one without
+ * wanting the other, since the status says a child is unhealthy and the log says why.
+ */
+export default function Moved() {
+  return <Redirect href='/settings/diagnostics?tab=status' />;
 }

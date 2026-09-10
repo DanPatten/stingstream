@@ -12,31 +12,62 @@ involve.
 
 | Screen | Where | Visible on | Admin only? |
 |---|---|---|---|
-| Manage (Movies/Series/Calendar/Activity) | new tab `(manage)` | phone, web | yes |
 | Downloads | new tab `(downloads)` | phone, web | yes |
-| Server settings | Settings → Server settings | phone, web | yes |
-| Admin | Settings → Admin | phone, web | yes |
-| Node status | Settings → Node status | phone, web | yes |
-| Requests (My requests / Alerts / Approvals / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
-| Servers (mesh links) | Settings → Servers | phone, web | yes — and the routes are gated, not just the row |
-| My server | Settings → The server I run | phone, web | **no** — the one sharing screen a client keeps |
+| Movie & series managers (the arr library) | Settings → Movie & series managers | phone, web | yes |
+| Media services · Quality & formats · Files & naming · Notifications | Settings, one category each | phone, web | yes |
+| Storage & libraries · Transcoding & hardware · Network & remote access | Settings, one category each | phone, web | yes |
+| Users & access | Settings → Users & access (`/users` redirects) | phone, web | yes |
+| Logs & status | Settings → Logs & status | phone, web | yes |
+| Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
+| Servers (mesh links, and the server you run) | Settings → Servers | phone, web | **no** — but the linked-servers block inside it is only *mounted* for an administrator, so a member fires none of the elevated calls and keeps the half that is theirs |
 
-Finding something to request is not one of those sections: on phone and web it is the Search tab
-itself, which answers one box with two sections — "In your library" (Jellyfin) and "Not in your
-library" (the node's catalogue lookup), each catalogue result carrying a Request action that opens
-the same sheet (F-73). The Requests tab is what happened next. TV keeps its own Discover section,
-since the TV search screen is a different screen with a different input.
+Finding something to request is the Requests tab's own first section, **Find**: one box, films and
+series together, chips to narrow to one, and a Request button on every row. It briefly lived on the
+Search tab instead (F-73) so that one box could answer both halves of "find it, and ask if it isn't
+here"; `docs/REQUESTS.md` §9 records why that was undone and what replaced it. The "one box" part
+survived — the shell's top-bar search field now drives Search **or** Requests, whichever is showing,
+so wide web still has exactly one place to type. Search itself answers with the library alone and
+offers `Request "…"` when the match is fuzzy or absent. TV keeps its own Discover section, since the
+TV search screen is a different screen with a different input and no top bar to share.
 
-**Settings' own rows are built by a pure function now**, `components/shell/buildSettingsSections.ts`,
-the way the sidebar's are — because who sees which row became a rule with several clauses in it.
-Servers, Plugins and Network are administrator-only: each ends at a screen that either needs
-`RequiresElevation` or configures the install rather than this copy of the app, and a row that can
-only fail is worse than no row. Hiding the row is the courtesy; the gate is `RequiresAdmin` (or the
-`adminOnly` wrapper) on the route itself, because a URL can be pasted. **My server** is the
-deliberate exception in the other direction: it is about the server the *reader* runs, so every
-account gets it. See `docs/INVITES.md` §11.
+**Settings is a two-pane application, built from a pure function**,
+`components/shell/buildSettingsCategories.ts`, the way the sidebar's rows are — because who sees
+which category is a rule with several clauses in it. It replaced `buildSettingsSections.ts`, which
+returned a flat list grouped General / Sharing / Server; three things were wrong with that, and the
+restructure is named after them:
 
-All five of the first block are hidden on TV (`tabBarItemHidden: Platform.isTV` on the two tabs; the `settings.tsx`
+1. **The groups mixed scopes.** "General" held both this browser's theme and the server's own
+   network addresses, so nothing on the screen said whether a control changed one viewer's app or
+   everybody's server. Every category now declares a `scope` — `device`, `account` or `server` —
+   and every pane wears it as a badge (`components/settings/ScopeBadge.tsx`). The pair this exists
+   for is a viewer's own playback quality (This device) and `RemoteClientBitrateLimit` (Whole
+   server), which read almost identically and are two categories apart.
+2. **One row did far too much.** *Server settings* was a single click through to six unrelated
+   pages, and its subtitle had to list all six. They are five categories with addresses of their
+   own now: Media services, Quality & formats, Storage & libraries, Files & naming, Notifications.
+3. **Sharing described itself conversationally** — "Other people who run StingStream", "Streams go
+   through your server on the web" — without saying whether it linked servers or routed clients.
+   It is one page called **Servers**, holding this device's mesh status, the servers this one pools
+   libraries with, and the server the reader runs themselves. Dan: *"Just call it Servers, one
+   settings page."*
+
+The gate is unchanged: hiding a category is the courtesy, `RequiresAdmin` (or the `adminOnly`
+wrapper) on the route is the control, because a URL can be pasted. **The server I run** is still the
+deliberate exception in the other direction — it is a block inside Servers rather than a row of its
+own, still ungated, because it is about the server the *reader* runs. See `docs/INVITES.md` §11.
+
+Above 1024 px (`SETTINGS_TWO_PANE_MIN_WIDTH`, `constants/Settings.ts`) the categories are a column
+beside the page; below it they are the list they always were.
+`components/settings/SettingsShell.tsx` is a *component*, not a layout route, for the same reason
+`WebShellLayout` is: there is one navigator at every width.
+
+The top-bar search box pivots on a settings route — same placeholder, different index. It answers
+from `components/shell/settingsSearchIndex.ts`, which lists individual **controls** rather than
+pages, so "nvenc" finds hardware acceleration and "x-forwarded" finds the trusted-proxy field. A
+result navigates with `?focus=<id>`, and `components/settings/FocusTarget.tsx` scrolls that block
+into view and rings it.
+
+All five of the first block are hidden on TV (`tabBarItemHidden: Platform.isTV` on the Downloads tab; the `settings.tsx`
 entries only render inside the phone/web `SettingsMobile` branch, never `settings.tv.tsx`) — TV
 keeps the existing browse/play/requests surface untouched, per the M2 brief. All five are also
 gated behind `user?.Policy?.IsAdministrator` (`components/stingstream/shared/RequiresAdmin.tsx`),
@@ -48,11 +79,22 @@ these screens today. Group and Requests are out of scope for M2 (M3/M6 respectiv
 **Requests (M6) is the exception to all of that, on purpose.** It is the one StingStream tab a
 non-administrator gets, because searching, asking and watching your own requests need nothing but a
 Jellyfin account — the whole point of the feature is that somebody who cannot administer the node
-can still ask it for something. There is no `RequiresAdmin` wrapper on the route; instead the two
-elevated sections (Approvals, Policy) are simply absent from the section bar for everybody else,
-which is better than a screen that answers 403. It is also the one StingStream tab present on TV,
-with those same two sections dropped there: approving a request on a remote control is worse than
-doing it on the phone already in the room. TV item details additionally gain a single
+can still ask it for something. There is no `RequiresAdmin` wrapper on the route; instead the
+elevated sections (Approvals, Activity, Policy) are simply absent from the section bar for everybody
+else, which is better than a screen that answers 403. It is also the one StingStream tab present on
+TV, with those same sections dropped there: approving a request on a remote control is worse than
+doing it on the phone already in the room.
+
+**Manage was folded into it.** Manage was a tab of its own until the sections above grew: it held
+Movies, Series, Calendar and Activity, was administrator-only, and told the same story from the
+other end — a request that is `fulfilling` is a row in the movie manager's queue, so "has it
+arrived yet" meant checking two tabs. Its queue, history and calendar are now one **Activity**
+section here, appended to the bar by the same `canApprove` rule that appends Approvals and Policy;
+its Movies and Series halves went to Settings → Movie & series managers, because adding a title
+directly or deleting one with its files is editing the machinery rather than asking it for
+something. The two-level alternative — an outer Requests/Manage switch above the section bar —
+was rejected: it stacks two identical bars on a 390 px phone, and the outer one would have had a
+single item for every non-administrator. TV item details additionally gain a single
 `TVRequestButton` — "ask for the rest of this", every season, no picker — which renders nothing for
 an item with no TMDB or TVDB id. See `docs/REQUESTS.md`.
 
@@ -68,8 +110,8 @@ Expo Router's route groups (parenthesised segments) don't appear in the URL, so 
 paths collapse the way the table below shows:
 
 ```
-apps/stingstream/app/(auth)/(tabs)/(manage)/_layout.tsx     Stack wrapper, header "Manage"
-apps/stingstream/app/(auth)/(tabs)/(manage)/index.tsx       segmented Movies/Series/Calendar/Activity
+apps/stingstream/app/(auth)/(tabs)/(requests)/_layout.tsx   Stack wrapper, header "Requests"
+apps/stingstream/app/(auth)/(tabs)/(requests)/index.tsx     one section bar, member sections then elevated ones
 
 apps/stingstream/app/(auth)/(tabs)/(downloads)/_layout.tsx
 apps/stingstream/app/(auth)/(tabs)/(downloads)/index.tsx
@@ -77,6 +119,7 @@ apps/stingstream/app/(auth)/(tabs)/(downloads)/index.tsx
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/server/page.tsx   -> /settings/server/page
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/admin/page.tsx    -> /settings/admin/page
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/node/page.tsx     -> /settings/node/page
+apps/stingstream/app/(auth)/(tabs)/(home)/settings/library/index.tsx -> /settings/library
 ```
 
 The last three follow the exact convention every other settings sub-page already uses (e.g.
@@ -87,7 +130,8 @@ but without an explicit `<Stack.Screen>` entry they inherit a blank title).
 
 ### Why two new tabs instead of only settings sub-pages
 
-Manage and Downloads are primary, frequently-used screens (the plan's own wording: "Manage:
+Downloads is a primary, frequently-used screen; Manage was too, until it was folded into Requests
+(see above). M2's wording was "Manage:
 Movies and Series tabs", "Downloads: unified view...") — they got their own bottom-tab route
 groups, built the same way the existing `(favorites)` tab is (a `_layout.tsx` `<Stack>` + an
 `index.tsx`). Server settings, Admin and Node status are occasional/administrative, so they hang
@@ -96,7 +140,7 @@ Streamyfin's own settings sub-pages (network, logs, plugins, ...) are organized.
 
 ### Shared files touched (additive only, per this milestone's path ownership)
 
-- `app/(auth)/(tabs)/_layout.tsx` — two new `<NativeTabs.Screen>` entries (Manage, Downloads), and
+- `app/(auth)/(tabs)/_layout.tsx` — new `<NativeTabs.Screen>` entries (Manage — since removed — and Downloads), and
   in M6 a third (Requests) plus one entry in the Android-TV `TVNavBar` list, since that tab is the
   one non-administrators and televisions both get.
 - `app/(auth)/(tabs)/(home)/_layout.tsx` — three new `<Stack.Screen>` entries for the settings
@@ -179,8 +223,8 @@ Radarr's/Sonarr's JSON straight through, so their real shape is hand-typed (loos
 - `RefreshScreen` — the `ScrollView` + `RefreshControl` + safe-area scaffold every screen renders
   its content inside, wired to a screen-local `onRefresh` that invalidates the `["stingstream"]`
   react-query prefix (or, for Admin, the `["stingstream", "jellyfin-*"]` prefix).
-- `SegmentedControl` / `SegmentedControlBar` — the pill-button row Manage, Server settings and
-  Admin all use to switch sections. Deliberately local `useState`, not a nested router stack or
+- `SegmentedControl` / `SegmentedControlBar` — the pill-button row Server settings, Admin and the
+  arr library all use to switch sections. Deliberately local `useState`, not a nested router stack or
   `@react-navigation/material-top-tabs`: these are flat, same-depth sections of one screen, not
   independently deep-linkable pages.
 - `RequiresAdmin` — the admin gate described above.
@@ -195,9 +239,8 @@ feature with no endpoint — there is simply no such feature on these screens an
 
 | Area | Live |
 |---|---|
-| Manage → Movies/Series | list; **search-as-you-type add** (`/movies/lookup`, `/series/lookup`) with add-by-id kept as an escape hatch; **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation |
-| Manage → Calendar | merged Radarr + Sonarr calendar, grouped by day, week/month window |
-| Manage → Activity | Queue (both apps) and **History**, merged and paged |
+| Settings → Movie & series managers | list; **search-as-you-type add** (`/movies/lookup`, `/series/lookup`) with add-by-id kept as an escape hatch; **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation |
+| Requests → Activity | Queue (both apps), **History** merged and paged, and **Upcoming** — the merged calendar grouped by day, week/month window |
 | Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
 | Server settings → Download clients | embedded-engine toggles, DHT, categories, housekeeping, and **your own external clients** — add, test, remove, pushed into both arrs |
@@ -209,11 +252,11 @@ feature with no endpoint — there is simply no such feature on these screens an
 
 Four things about these screens are worth knowing before reading the code.
 
-**Manage → Movies and Manage → Series are one component.** They were a file each in M2, when both
-only listed and added by id. Now that both do search, a monitor toggle, a profile change and a
-delete, the only differences left are four words and whether a title is keyed on a TMDB or a TVDB
-id — so they are `manage/LibrarySection.tsx` with a `kind`, and `MoviesSection`/`SeriesSection` are
-two-line wrappers that keep the file map above honest.
+**Movies and Series are one component.** They were a file each in M2, when both only listed and
+added by id. Now that both do search, a monitor toggle, a profile change and a delete, the only
+differences left are four words and whether a title is keyed on a TMDB or a TVDB id — so they are
+`arr/LibrarySection.tsx` with a `kind`, which `/settings/library` switches directly. The
+`MoviesSection`/`SeriesSection` wrappers are gone with the tab that named them.
 
 **Core answers PascalCase**, because Swashbuckle reads Jellyfin's own serializer options and
 StingStream's controllers are hosted inside Jellyfin's process. Every property read in
@@ -311,7 +354,7 @@ so out loud (a one-line message to whoever's waiting) rather than assuming they'
 
 ## How to add a screen
 
-1. Decide: does it need its own tab (primary, frequent — like Manage/Downloads), or a settings
+1. Decide: does it need its own tab (primary, frequent — like Requests/Downloads), or a settings
    sub-page (occasional/admin — like Server settings/Admin/Node status)? Follow the file-placement
    pattern in "Where the route files live" above.
 2. If it needs data from `StingStream.Core`: check `packages/api-client/openapi.json` first (or

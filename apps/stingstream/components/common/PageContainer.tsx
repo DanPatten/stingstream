@@ -14,6 +14,8 @@ export interface PageContainerProps {
   /** Skip the left/right gutter — a full-bleed row that scrolls past the edge. */
   bleed?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** For the screenshot sweep’s test-id contract — see `docs/UI-LOOP.md`. */
+  testID?: string;
 }
 
 /**
@@ -32,12 +34,14 @@ export const PageContainer: React.FC<PropsWithChildren<PageContainerProps>> = ({
   width = "media",
   bleed = false,
   style,
+  testID,
   children,
 }) => {
   const { gutter } = useBreakpoint();
 
   return (
     <View
+      testID={testID}
       style={[
         {
           width: "100%",

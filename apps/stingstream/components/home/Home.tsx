@@ -649,31 +649,55 @@ const HomeMobile = () => {
           detail={
             isAdmin ? t("home.empty_detail") : t("home.empty_detail_guest")
           }
-          action={
-            isAdmin
-              ? {
-                  label: t("home.empty_add_media"),
-                  icon: "manage",
-                  // Named rather than left to the default, so this keeps landing on Libraries
-                  // whatever that screen's first tab becomes.
-                  onPress: () =>
-                    router.push({
-                      pathname: "/settings/admin",
-                      params: { section: "libraries" },
-                    }),
-                }
-              : undefined
-          }
+          // Both actions are drawn below as one row, so the state itself stops
+          // at its last line and the gap under it is set here.
+          style={{ paddingBottom: 0 }}
         />
-        <Button
-          variant={isAdmin ? "ghost" : "primary"}
-          size={isAdmin ? "sm" : "lg"}
-          icon='requests'
-          justify='center'
-          onPress={() => router.push("/(auth)/(tabs)/(requests)")}
+        {/*
+          Two halves of the same decision, so they sit side by side rather than
+          one under the other: fill the library yourself, or ask for something.
+          Somebody who cannot add a library gets only the second, as the lone
+          call to action. Wrapping, because two buttons and a phone's gutter do
+          not always fit on one line.
+        */}
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 16,
+          }}
         >
-          {t("home.empty_request")}
-        </Button>
+          {isAdmin ? (
+            <Button
+              variant='secondary'
+              size='sm'
+              icon='manage'
+              justify='center'
+              // Named rather than left to the default, so this keeps landing on Libraries
+              // whatever that screen's first tab becomes.
+              onPress={() =>
+                router.push({
+                  pathname: "/settings/admin",
+                  params: { section: "libraries" },
+                })
+              }
+            >
+              {t("home.empty_add_media")}
+            </Button>
+          ) : null}
+          <Button
+            variant={isAdmin ? "secondary" : "primary"}
+            size={isAdmin ? "sm" : "lg"}
+            icon='requests'
+            justify='center'
+            onPress={() => router.push("/(auth)/(tabs)/(requests)")}
+          >
+            {t("home.empty_request")}
+          </Button>
+        </View>
       </PageContainer>
     );
 

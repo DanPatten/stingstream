@@ -69,7 +69,12 @@ function StatusPill({ tone, label }: { tone: PillTone; label: string }) {
   );
 }
 
-/** The one-line summary the Settings screen shows on its Sharing row. */
+/**
+ * The one-line summary, for a surface with no room for the pill above.
+ *
+ * Only the television reads this now (`settings.tv.tsx`): the phone and web
+ * Settings screen shows `DeviceMeshSection` itself, inside the Servers page.
+ */
 export function useMeshSummary(): string {
   const { t } = useTranslation();
   const { available, running, status, peers } = useMesh();

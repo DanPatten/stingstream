@@ -1,0 +1,15 @@
+- generic [ref=f3e25]:
+  - generic [ref=f3e26]: Sign in
+  - generic [ref=f3e27]: to StingStream
+  - generic [ref=f3e28]:
+    - textbox "Username" [ref=f3e31]: reviewer
+    - generic [ref=f3e32]:
+      - textbox "Password" [ref=f3e35]: StingStreamReview1
+      - button "Show password" [ref=f3e36] [cursor=pointer]:
+        - generic [ref=f3e37]: 
+  - switch "Keep me signed in" [ref=f3e38] [cursor=pointer]:
+    - switch [checked] [ref=f3e42]
+  - alert [ref=f3e46]:
+    - generic [ref=f3e47]: 
+    - generic [ref=f3e48]: Invalid username or password
+  - button "Sign in" [ref=f3e45] [cursor=pointer]

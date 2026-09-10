@@ -160,12 +160,17 @@ public sealed class IdentityService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The account, or a sentence saying why not.</returns>
     /// <param name="requestLink">Also ask for the two servers to be linked.</param>
+    /// <param name="credential">
+    /// The salt and derived password their client made on their own origin, or null. Never their
+    /// password: this server is not told it and does not need to be.
+    /// </param>
     public async Task<(User? User, string? Problem)> SignInAsync(
         string? assertion,
         string? inviteToken,
         DateTimeOffset now,
         CancellationToken cancellationToken,
-        bool requestLink = false)
+        bool requestLink = false,
+        (string Salt, string Verifier, int Iterations)? credential = null)
     {
         MeshVouchClaims? claims;
         try
@@ -212,8 +217,10 @@ public sealed class IdentityService
         }
 
         var result = existing is not null
-            ? await ReturningAsync(existing, claims!, now, cancellationToken).ConfigureAwait(false)
-            : await FirstTimeAsync(claims!, invite!, now, cancellationToken).ConfigureAwait(false);
+            ? await ReturningAsync(existing, claims!, now, credential, cancellationToken)
+                .ConfigureAwait(false)
+            : await FirstTimeAsync(claims!, invite!, now, credential, cancellationToken)
+                .ConfigureAwait(false);
 
         // After the account exists, and never instead of it: a request that failed to record is a
         // question somebody can ask again from Settings, while a sign-in that failed because of one
@@ -241,6 +248,7 @@ public sealed class IdentityService
         LinkedIdentity link,
         MeshVouchClaims claims,
         DateTimeOffset now,
+        (string Salt, string Verifier, int Iterations)? credential,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(link.LocalUserId, out var localId)
@@ -261,6 +269,32 @@ public sealed class IdentityService
         link.RemoteUserName = claims.Name;
         link.IssuerName = claims.Server;
         link.LastSeenAt = now;
+
+        // Signing in with their own server again re-sets the password they use here, which is how
+        // somebody who changed it at home gets the two back in step without anybody's help. Only
+        // when one arrives: a client that sent none must not silently clear what is already stored,
+        // or the way in it did not send would stop working.
+        if (credential is { } fresh)
+        {
+            try
+            {
+                await _users.ChangePassword(Guid.Parse(link.LocalUserId), fresh.Verifier)
+                    .ConfigureAwait(false);
+                link.PasswordSalt = fresh.Salt;
+                link.PasswordIterations = fresh.Iterations;
+            }
+            catch (Exception ex)
+            {
+                // Not fatal, and deliberately so: they have proved who they are and the sign-in
+                // itself is good. What fails is only the shortcut for next time.
+                _logger.LogWarning(
+                    ex,
+                    "Signed {User} in from {Server} but could not refresh their password here",
+                    user.Username,
+                    claims.Server);
+            }
+        }
+
         await _store.SaveAsync(link, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
@@ -275,6 +309,7 @@ public sealed class IdentityService
         MeshVouchClaims claims,
         InviteRow invite,
         DateTimeOffset now,
+        (string Salt, string Verifier, int Iterations)? credential,
         CancellationToken cancellationToken)
     {
         var name = IdentityGate.ChooseUsername(
@@ -300,7 +335,12 @@ public sealed class IdentityService
         try
         {
             created = await _users.CreateUserAsync(name).ConfigureAwait(false);
-            await _users.ChangePassword(created.Id, UnknowablePassword()).ConfigureAwait(false);
+            // Their own derived password when they sent one, and a password nobody knows when they
+            // did not. Never blank either way -- a Jellyfin account with no password authenticates
+            // with an empty one, which would make this account signable-into by name alone.
+            await _users
+                .ChangePassword(created.Id, credential?.Verifier ?? UnknowablePassword())
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -338,6 +378,8 @@ public sealed class IdentityService
                 IssuerName = claims.Server,
                 CreatedAt = now,
                 LastSeenAt = now,
+                PasswordSalt = credential?.Salt ?? string.Empty,
+                PasswordIterations = credential?.Iterations ?? 0,
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -584,6 +626,102 @@ public sealed class IdentityService
         string remoteUserId,
         CancellationToken cancellationToken)
         => _store.DeleteAsync(issuerNodeId, remoteUserId, cancellationToken);
+
+    /// <summary>How a client should send a password for one username.</summary>
+    /// <param name="username">The username being signed in as.</param>
+    /// <returns>The answer, which is the same for everybody who is not a linked account.</returns>
+    /// <remarks>
+    /// <b>Never says whether the username exists.</b> An account nobody holds, an ordinary account
+    /// and a linked account an administrator has reset all come back identical, because this is
+    /// answered anonymously -- the client asking is the one that has not signed in yet.
+    /// </remarks>
+    public SignInMethodResponse DescribeSignIn(string? username)
+    {
+        var name = (username ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            return new SignInMethodResponse { Derived = false };
+        }
+
+        var user = _users.GetUserByName(name);
+        if (user is null)
+        {
+            return new SignInMethodResponse { Derived = false };
+        }
+
+        var link = _store.ForLocalUser(user.Id.ToString("N"));
+        return IdentityGate.DescribeSignIn(link?.PasswordSalt, link?.PasswordIterations ?? 0);
+    }
+
+    /// <summary>Set the derived password for an account that came from another server.</summary>
+    /// <param name="localUserId">The account. Always the caller's own.</param>
+    /// <param name="credential">The salt, derived password and round count.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A sentence saying why not, or null.</returns>
+    /// <remarks>
+    /// The way back for somebody who changed their password on their own server: the two are no
+    /// longer in step, and without this there would be nothing to do about it but ask an
+    /// administrator. What arrives is the derived value, never the password -- the same rule as the
+    /// sign-in itself, and the reason this endpoint can exist at all.
+    /// </remarks>
+    public async Task<string?> SetDerivedPasswordAsync(
+        string localUserId,
+        (string Salt, string Verifier, int Iterations) credential,
+        CancellationToken cancellationToken)
+    {
+        var link = _store.ForLocalUser(localUserId);
+        if (link is null)
+        {
+            // An ordinary account has an ordinary password, and Jellyfin's own screen changes it.
+            return "This account did not arrive from another server.";
+        }
+
+        if (!Guid.TryParse(localUserId, out var id) || _users.GetUserById(id) is null)
+        {
+            return "That account no longer exists.";
+        }
+
+        await _users.ChangePassword(id, credential.Verifier).ConfigureAwait(false);
+
+        link.PasswordSalt = credential.Salt;
+        link.PasswordIterations = credential.Iterations;
+        await _store.SaveAsync(link, cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("{User} changed the password they use here", link.RemoteUserName);
+        return null;
+    }
+
+    /// <summary>Make a linked account sign in with an ordinary password again.</summary>
+    /// <param name="localUserId">The account whose password was just reset.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// Called after an administrator resets a password on the Users screen. Jellyfin now holds a
+    /// hash of what they typed, so a client that went on deriving against the old salt would send
+    /// something that cannot match -- and Jellyfin locks an account after three of those. Clearing
+    /// the salt is what turns the reset into a way in rather than a way out.
+    /// <para>
+    /// A no-op for an ordinary account, which is most of them.
+    /// </para>
+    /// </remarks>
+    public async Task ClearDerivedPasswordAsync(
+        string localUserId,
+        CancellationToken cancellationToken)
+    {
+        var link = _store.ForLocalUser(localUserId);
+        if (link is null || string.IsNullOrEmpty(link.PasswordSalt))
+        {
+            return;
+        }
+
+        link.PasswordSalt = string.Empty;
+        link.PasswordIterations = 0;
+        await _store.SaveAsync(link, cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "{User} signs in with an ordinary password here from now on",
+            link.RemoteUserName);
+    }
 
     /// <summary>
     /// A password nobody will ever know, so password sign-in can never succeed for this account.

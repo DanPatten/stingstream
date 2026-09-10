@@ -1,7 +1,7 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useRouter } from "expo-router";
 import { useAtomValue } from "jotai";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, View } from "react-native";
 import { Button } from "@/components/Button";
@@ -23,8 +23,11 @@ import {
 } from "@/lib/stingstream/invitesApi";
 import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import {
+  clearFragment,
   fragmentFromLocation,
   parseAssertion,
+  parseReturnCredential,
+  parseReturnInvite,
   parseReturnLink,
 } from "@/utils/identity/handoff";
 import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
@@ -73,6 +76,20 @@ export default function JoinFromLinkPage() {
   const [assertion] = useState(() => parseAssertion(fragmentFromLocation()));
   // Their answer to "and link your server?", carried back with the assertion.
   const [wantsLink] = useState(() => parseReturnLink(fragmentFromLocation()));
+  /**
+   * The password credential their own server derived, for this server to keep.
+   *
+   * Read in the same breath as the assertion, and then the whole fragment is dropped out of the
+   * address bar below. Unlike the assertion this one does not expire — it becomes their password
+   * here — so leaving it in the browser's history would be leaving a credential lying about.
+   */
+  const [credential] = useState(() =>
+    parseReturnCredential(fragmentFromLocation()),
+  );
+  /** The invite that started this, handed back by their server with the assertion. */
+  const [returnedInvite] = useState(() =>
+    parseReturnInvite(fragmentFromLocation()),
+  );
 
   const [phase, setPhase] = useState<
     | "checking"
@@ -101,6 +118,19 @@ export default function JoinFromLinkPage() {
   const [invite, setInvite] = useState<InviteDescription | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
+  /**
+   * Whether the assertion below has already been presented.
+   *
+   * **A nonce is spent by the first attempt**, so a second one is refused — and the effect that
+   * presents it depends on `api?.basePath`, which the *success* path changes by pointing the app
+   * at this server. That re-ran it, and the second run replaced a sign-in that had worked with
+   * "this invite cannot be used": the account existed, the person was told it did not.
+   *
+   * A ref rather than state, and set before the first `await`, because two runs of the effect in
+   * the same tick must not both get past it.
+   */
+  const presented = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -109,12 +139,31 @@ export default function JoinFromLinkPage() {
       // below applies: there is no invite to look up, because the invite (if there was one) went
       // out with the request and is coming back inside it.
       if (assertion && nodeContext) {
+        if (presented.current) return;
+        presented.current = true;
         try {
+          // Before the request goes out, not after it comes back: what is in the fragment is this
+          // person's password on this server from here on, and it does not expire.
+          clearFragment();
+
           const session = await signInWithAssertion(nodeContext.origin, {
             assertion,
+            // The invite that started this, come back with the answer. The first sign-in is
+            // refused without it, and this page no longer holds the one it sent.
+            inviteToken: returnedInvite,
             requestLink: wantsLink,
+            salt: credential?.salt,
+            verifier: credential?.verifier,
+            iterations: credential?.iterations,
           });
-          if (cancelled) return;
+
+          // **No `cancelled` check here, and that is the whole point.** The nonce is spent the
+          // moment that call returns, so there is no second attempt to fall back on: abandoning
+          // the work now would leave somebody with an account on this server, no session, and a
+          // spinner. And this effect *does* get torn down mid-flight — `adoptSession` and
+          // `setServer` are rebuilt whenever the provider re-renders, which it does while the
+          // request is in the air. That is what left the screen on "Opening your invite…" after a
+          // sign-in that had already succeeded.
 
           // The app has to be pointed at this server before it can hold a session on it — the same
           // step `handleCreateAccount` takes, for the same reason.
@@ -132,7 +181,8 @@ export default function JoinFromLinkPage() {
           adoptSession(session.accessToken!, session.user as UserDto);
           setPhase("done");
         } catch (e) {
-          if (cancelled) return;
+          // Reported for the same reason the success above is not abandoned: this attempt was the
+          // only one, and a silent spinner is the worst of the three outcomes.
           setProblem(
             e instanceof Error && e.message
               ? e.message
@@ -202,7 +252,9 @@ export default function JoinFromLinkPage() {
     api?.basePath,
     assertion,
     code,
+    credential,
     nodeContext,
+    returnedInvite,
     wantsLink,
     setServer,
     t,

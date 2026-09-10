@@ -13,6 +13,7 @@ import {
   fetchRequestPolicy,
   fetchRequests,
   fetchRequestUsers,
+  type MemberRequest,
   markNotificationsRead,
   type RequestPolicy,
   type RequestState,
@@ -165,9 +166,28 @@ export function useCreateRequest() {
   return useMutation({
     mutationFn: (input: CreateRequestInput) =>
       createRequest(base!, input, token),
-    // The whole request domain, not just the list: a new request changes the counts, and if the
-    // group already had the title it changes what the search results say too.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+    onSuccess: (made) => {
+      // The row that was just pressed has to say so *now*, and say which of the two things
+      // happened: a node that auto-approves starts a download, a node that does not files the
+      // request behind an approval, and only the answer the node sent knows which. Find annotates
+      // its results from the member's own list (`dedupeSearchResults`), and that list is a round
+      // trip behind this mutation — long enough for a successfully pressed button to still read
+      // "Request", which reads as a press that did nothing. Seeding the created request in closes
+      // that gap: `searchAction` turns the row to "Awaiting approval" for a pending one, or
+      // "Already requested" once it is approved, before the refetch below has been anywhere.
+      queryClient.setQueryData<MemberRequest[]>(
+        keys.list(true, undefined),
+        (current) => {
+          if (!current) return [made];
+          return current.some((request) => request.id === made.id)
+            ? current
+            : [made, ...current];
+        },
+      );
+      // The whole request domain, not just the list: a new request changes the counts, and if the
+      // group already had the title it changes what the search results say too.
+      queryClient.invalidateQueries({ queryKey: keys.all });
+    },
   });
 }
 

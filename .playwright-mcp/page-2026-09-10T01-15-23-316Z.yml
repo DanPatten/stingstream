@@ -1,0 +1,69 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e14]:
+    - navigation [ref=f4e15]:
+      - generic [ref=f4e16]:
+        - button "Collapse the sidebar" [ref=f4e18] [cursor=pointer]:
+          - generic [ref=f4e19]: 
+        - link "Home" [ref=f4e20] [cursor=pointer]
+      - generic [ref=f4e27]:
+        - link "Home" [ref=f4e29] [cursor=pointer]:
+          - generic [ref=f4e30]: 
+        - generic [ref=f4e32]:
+          - generic [ref=f4e33]: Libraries
+          - link "Movies" [ref=f4e34] [cursor=pointer]:
+            - generic [ref=f4e35]: 
+          - link "TV Shows" [ref=f4e37] [cursor=pointer]:
+            - generic [ref=f4e38]: 
+        - generic [ref=f4e40]:
+          - link "Favorites" [ref=f4e41] [cursor=pointer]:
+            - generic [ref=f4e42]: 
+          - link "Requests" [ref=f4e44] [cursor=pointer]:
+            - generic [ref=f4e46]: 
+          - link "Users" [ref=f4e48] [cursor=pointer]:
+            - generic [ref=f4e49]: 
+          - link "Transfers" [ref=f4e51] [cursor=pointer]:
+            - generic [ref=f4e52]: 
+          - link "Sessions" [ref=f4e54] [cursor=pointer]:
+            - generic [ref=f4e55]: 
+      - generic [ref=f4e57]:
+        - link "Settings" [ref=f4e58] [cursor=pointer]:
+          - generic [ref=f4e59]: 
+        - button "dan" [ref=f4e63] [cursor=pointer]:
+          - generic [ref=f4e64]: D
+          - generic [ref=f4e67]: 
+    - generic [ref=f4e68]:
+      - generic [ref=f4e69]:
+        - generic [ref=f4e70]: Requests
+        - generic [ref=f4e74]:
+          - generic [ref=f4e75]: 
+          - textbox "Search..." [ref=f4e76]: dune
+        - button "Watch together" [ref=f4e79] [cursor=pointer]:
+          - generic [ref=f4e80]: 
+      - generic [ref=f4e82]:
+        - generic [ref=f4e94]:
+          - generic [ref=f4e95]: 
+          - generic [ref=f4e97]: No results found for "dune"
+          - generic [ref=f4e98]: Nothing in your library matched that.
+          - button [active] [ref=f4e99] [cursor=pointer]:
+            - generic [ref=f4e100]: 
+            - generic [ref=f4e101]: Request "dune"
+        - generic [ref=f4e114]:
+          - generic [ref=f4e117]:
+            - tab "Find" [ref=f4e118] [cursor=pointer]
+            - tab "My requests" [ref=f4e120] [cursor=pointer]
+            - tab "Alerts" [ref=f4e122] [cursor=pointer]
+            - tab "Approvals" [ref=f4e124] [cursor=pointer]
+            - tab "Activity" [ref=f4e126] [cursor=pointer]
+            - tab "Policy" [ref=f4e128] [cursor=pointer]
+          - generic [ref=f4e130]:
+            - generic [ref=f4e131]: Requests wait for an administrator unless you are trusted.
+            - generic [ref=f4e133]:
+              - button "All" [ref=f4e134] [cursor=pointer]
+              - button "Films" [ref=f4e136] [cursor=pointer]
+              - button "Series" [ref=f4e138] [cursor=pointer]
+            - generic [ref=f4e140]:
+              - generic [ref=f4e141]: 
+              - generic [ref=f4e143]: Nothing found
+              - generic [ref=f4e144]: Neither the movie manager nor the series manager found anything for "dune". Both have to be configured on this server for search to work.
+  - generic [aria-hidden]:
+    - generic: StingStream

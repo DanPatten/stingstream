@@ -23,11 +23,14 @@ import {
   stateTone,
 } from "@/lib/stingstream/requestsApi";
 import { scaleSize } from "@/utils/scaleSize";
+import { ActivitySection } from "../arr/ActivitySection";
 import { ApprovalsSection } from "./ApprovalsSection";
 import { DiscoverSection } from "./DiscoverSection";
+import { FindSection } from "./FindSection";
 import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
+import { sectionFromRoute } from "./requestsSections";
 
 /** The same four tones the phone pills use, so a state means one thing everywhere. */
 const TV_TONE_STYLES: Record<
@@ -279,15 +282,35 @@ function TVRequestsScreen() {
  * On TV this renders the read-only half — Discover and My requests — because approving a request
  * and editing a policy on a remote control is worse than doing it on the phone that is already in
  * the room. Same reasoning as the Manage and Downloads tabs being hidden there entirely.
+ *
+ * The open section is the `tab` route param, not component state: a reload, a bookmark, a link
+ * pasted to somebody else and a return to the page all read the URL back, and six sections sharing
+ * one address answer none of them. `onSelectTab` writes it — the page owns the router, as
+ * it does for `q` — and `sectionFromRoute` reads it back, narrowed to the sections this member
+ * actually has.
+ *
+ * `term` is the `q` route param, handed over by Search's `Request "…"` button. It picks Find when
+ * `tab` is silent: somebody who arrives at Requests with a film's name is asking for it, not
+ * filtering their own list.
  */
-export function RequestsScreen() {
+export function RequestsScreen({
+  tab,
+  term = "",
+  onSelectTab,
+}: {
+  tab?: string;
+  term?: string;
+  onSelectTab?: (key: string) => void;
+} = {}) {
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
-  const [section, setSection] = useState("mine");
 
   // Called before the branch so the hooks above run on both platforms; the TV
-  // screen owns its own state because its section list is a different shape.
+  // screen owns its own state because its section list is a different shape,
+  // and because a television has no address bar to match — writing a param on
+  // every pill press would re-render the screen under the focus engine for
+  // nothing (docs/conventions/tv.md).
   if (Platform.isTV) {
     return <TVRequestsScreen />;
   }
@@ -295,18 +318,26 @@ export function RequestsScreen() {
   const pending = counts.data?.pendingApproval ?? 0;
   const unread = counts.data?.unreadNotifications ?? 0;
 
-  // No Discover tab: finding something to ask for is what the search box is
-  // for now (F-73), and a second search field on a second screen was two
-  // places to type the same title into and two sets of results to reconcile.
-  // What is left is the part Search cannot do — what you asked for, what
-  // happened to it, and who decides.
+  // Find is first, and it is the one tab every other entry point aims at. It
+  // was removed once (F-73) in favour of the Search tab answering one box with
+  // both halves, and that left the Requests screen with no way to request at
+  // all: a button that navigated to another tab, where the catalogue results
+  // carried a Request button that only appeared under a pointer and a section
+  // that drew nothing whatever when the node's lookup came back empty. A
+  // screen whose whole purpose is asking has to be able to ask.
   const segments: Segment[] = [
+    { key: "find", label: t("requests.tab_find") },
     { key: "mine", label: t("requests.tab_mine") },
     {
       key: "alerts",
       label: t("requests.tab_alerts"),
       badge: unread > 0 ? unread : undefined,
     },
+    // The elevated half, appended rather than nested. Activity joined it when
+    // the Manage tab was folded in: a request that is `fulfilling` is a row in
+    // Radarr's queue, and checking whether one had landed used to mean visiting
+    // a second tab. `canApprove` is `IsAdministrator`, which is also the gate
+    // every arr endpoint behind Activity requires.
     ...(canApprove
       ? [
           {
@@ -314,10 +345,16 @@ export function RequestsScreen() {
             label: t("requests.tab_approvals"),
             badge: pending > 0 ? pending : undefined,
           },
+          { key: "activity", label: t("requests.tab_activity") },
           { key: "policy", label: t("requests.tab_policy") },
         ]
       : []),
   ];
+
+  // Derived, never held: the URL is the one place the open section is written
+  // down, so there is no second copy to fall out of step with it.
+  const section = sectionFromRoute(segments, tab, term);
+  const select = (key: string) => onSelectTab?.(key);
 
   return (
     <PageContainer width='media'>
@@ -325,15 +362,19 @@ export function RequestsScreen() {
         <Tabs
           segments={segments}
           value={section}
-          onChange={setSection}
+          onChange={select}
           contentInset={0}
           style={{ marginBottom: 16 }}
         />
       </View>
 
-      {section === "mine" && <MyRequestsSection />}
+      {section === "find" && <FindSection term={term} />}
+      {section === "mine" && (
+        <MyRequestsSection onFind={() => select("find")} />
+      )}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
+      {section === "activity" && canApprove && <ActivitySection />}
       {section === "policy" && canApprove && <RequestPolicySection />}
     </PageContainer>
   );

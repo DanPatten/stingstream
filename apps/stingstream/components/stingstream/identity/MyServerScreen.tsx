@@ -1,3 +1,4 @@
+import { useAtomValue } from "jotai";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Platform, View } from "react-native";
@@ -8,7 +9,12 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { radius, tokens } from "@/constants/theme";
+import { IDENTITY_KDF_ITERATIONS } from "@/constants/Values";
+import { useNodeContext } from "@/hooks/useNodeContext";
 import { useMyLinkRequest, useRequestLink } from "@/lib/stingstream/identity";
+import { setLinkedPassword } from "@/lib/stingstream/identityApi";
+import { apiAtom } from "@/providers/JellyfinProvider";
+import { deriveVerifier, newSalt } from "@/utils/identity/verifier";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 
 /**
@@ -36,8 +42,46 @@ export const MyServerScreen: React.FC = () => {
   const request = useMyLinkRequest();
   const ask = useRequestLink();
   const [address, setAddress] = useState("");
+  const [password, setPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const nodeContext = useNodeContext();
+  const api = useAtomValue(apiAtom);
 
   const data = request.data;
+
+  /**
+   * Set the password this account uses on *this* server.
+   *
+   * Derived here and sent derived, so what leaves the device is never the password —
+   * `utils/identity/verifier.ts` has the shape of it, and it is the same value a sign-in sends.
+   */
+  const savePassword = useCallback(async () => {
+    if (!nodeContext || !password || savingPassword) return;
+    setSavingPassword(true);
+    try {
+      const salt = await newSalt();
+      const verifier = await deriveVerifier(
+        password,
+        salt,
+        IDENTITY_KDF_ITERATIONS,
+      );
+      await setLinkedPassword(
+        nodeContext.origin,
+        { salt, verifier, iterations: IDENTITY_KDF_ITERATIONS },
+        api?.accessToken,
+      );
+      setPassword("");
+      toast.success(t("identity.my_server_password_saved"));
+    } catch (e) {
+      toast.error(
+        e instanceof Error && e.message
+          ? e.message
+          : t("identity.my_server_password_failed"),
+      );
+    } finally {
+      setSavingPassword(false);
+    }
+  }, [api?.accessToken, nodeContext, password, savingPassword, t]);
 
   const copy = useCallback(
     async (value: string) => {
@@ -112,6 +156,40 @@ export const MyServerScreen: React.FC = () => {
                         })
               }
             />
+          </ListGroup>
+
+          {/* The password you use *here*. It is derived from the one you use on your own server,
+              so changing it there leaves the two out of step -- and with no way in from the login
+              screen any more, this is the only thing that puts them back. One field, because the
+              server never learns either password and there is nothing to confirm against. */}
+          <ListGroup title={t("identity.my_server_password_title")}>
+            <View style={{ padding: 16, gap: 12 }}>
+              <Text variant='body' tone='secondary'>
+                {t("identity.my_server_password_detail")}
+              </Text>
+              <Input
+                testID='my-server-password'
+                placeholder={t("login.password_placeholder")}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize='none'
+                autoCorrect={false}
+                autoComplete='new-password'
+                maxLength={500}
+                editable={!savingPassword}
+              />
+              <Button
+                testID='my-server-password-save'
+                variant='primary'
+                size='lg'
+                loading={savingPassword}
+                disabled={savingPassword || password.length === 0}
+                onPress={() => void savePassword()}
+              >
+                {t("identity.my_server_password_save")}
+              </Button>
+            </View>
           </ListGroup>
 
           {/* Nothing asked yet, or asked and turned down. Asking again after a decline is allowed

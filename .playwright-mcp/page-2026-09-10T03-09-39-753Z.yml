@@ -1,0 +1,48 @@
+- generic [active] [ref=f30e1]:
+  - generic [ref=f30e14]:
+    - navigation [ref=f30e15]:
+      - button "Expand the sidebar" [ref=f30e18] [cursor=pointer]:
+        - generic [ref=f30e19]: 
+      - generic [ref=f30e21]:
+        - generic [ref=f30e22]:
+          - link "Home" [ref=f30e23] [cursor=pointer]:
+            - generic [ref=f30e25]: 
+          - link "Movies" [ref=f30e26] [cursor=pointer]:
+            - generic [ref=f30e27]: 
+          - link "TV Shows" [ref=f30e28] [cursor=pointer]:
+            - generic [ref=f30e29]: 
+          - link "Favorites" [ref=f30e30] [cursor=pointer]:
+            - generic [ref=f30e31]: 
+        - link "Requests" [ref=f30e34] [cursor=pointer]:
+          - generic [ref=f30e35]: 
+        - generic [ref=f30e36]:
+          - link "Transfers" [ref=f30e38] [cursor=pointer]:
+            - generic [ref=f30e39]: 
+          - link "Sessions" [ref=f30e40] [cursor=pointer]:
+            - generic [ref=f30e41]: 
+      - generic [ref=f30e42]:
+        - link "Settings" [ref=f30e43] [cursor=pointer]:
+          - generic [ref=f30e44]: 
+        - button "sam" [ref=f30e47] [cursor=pointer]:
+          - generic [ref=f30e48]: S
+    - generic [ref=f30e50]:
+      - generic [ref=f30e51]:
+        - generic [ref=f30e52]: Home
+        - generic [ref=f30e56]:
+          - generic [ref=f30e57]: 
+          - textbox "Search..." [ref=f30e58]
+        - button "Watch together" [ref=f30e61] [cursor=pointer]:
+          - generic [ref=f30e62]: 
+      - generic [ref=f30e72]:
+        - generic [ref=f30e73]:
+          - generic [ref=f30e74]: 
+          - generic [ref=f30e76]: Nothing to watch yet
+          - generic [ref=f30e77]: Copy films and shows into your media folders and scan for them, or ask for something and let StingStream fetch it.
+          - button " Add media" [ref=f30e78] [cursor=pointer]:
+            - generic [ref=f30e79]: 
+            - generic [ref=f30e80]: Add media
+        - button " Request something" [ref=f30e81] [cursor=pointer]:
+          - generic [ref=f30e82]: 
+          - generic [ref=f30e83]: Request something
+  - generic [aria-hidden]:
+    - generic: StingStream

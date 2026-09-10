@@ -1,0 +1,11 @@
+- generic [active] [ref=f19e1]:
+  - generic [ref=f19e22]:
+    - generic [ref=f19e23]: Prove who you are
+    - generic [ref=f19e24]: Sign in, and Loft will be told your name. Not your password.
+    - generic [ref=f19e25]:
+      - textbox "Username" [ref=f19e28]: sam
+      - textbox "Password" [ref=f19e31]
+    - button "Continue to Loft" [disabled]
+    - button "Cancel" [ref=f19e33] [cursor=pointer]
+  - generic [aria-hidden]:
+    - generic: StingStream

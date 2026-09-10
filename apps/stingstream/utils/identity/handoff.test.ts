@@ -3,8 +3,11 @@ import {
   AUTHORIZE_PATH,
   buildAuthorizeUrl,
   buildReturnUrl,
+  clearFragment,
   parseAssertion,
   parseAuthorizeRequest,
+  parseReturnCredential,
+  parseReturnInvite,
 } from "./handoff";
 
 // The two fragments the cross-server sign-in hops on. Pure string work, pinned here for the same
@@ -145,5 +148,108 @@ describe("parseAssertion", () => {
     expect(parseAssertion(null)).toBe(null);
     expect(parseAssertion("#")).toBe(null);
     expect(parseAssertion("#nonce=n1")).toBe(null);
+  });
+});
+
+describe("the password credential on the return leg", () => {
+  const CREDENTIAL = { salt: "s4lt", verifier: "v3r1f-_", iterations: 100000 };
+
+  test("round-trips beside the assertion", () => {
+    const url = buildReturnUrl("https://their-server.example/join", "SIGNED", {
+      credential: CREDENTIAL,
+    })!;
+    const fragment = url.slice(url.indexOf("#"));
+    expect(parseAssertion(fragment)).toBe("SIGNED");
+    expect(parseReturnCredential(fragment)).toEqual(CREDENTIAL);
+  });
+
+  test("an older client sends none, and that reads back as none", () => {
+    const url = buildReturnUrl("https://x.example/join", "SIGNED")!;
+    expect(url).toBe("https://x.example/join#assertion=SIGNED");
+    expect(parseReturnCredential(url.slice(url.indexOf("#")))).toBe(null);
+  });
+
+  test("a half-built credential is not sent at all", () => {
+    // A salt with no verifier would be a password nobody can reproduce, and a verifier with no
+    // round count cannot be checked again once the default moves. Both are worse than nothing,
+    // because nothing still leaves the account with a password the server generated.
+    for (const partial of [
+      { salt: "s4lt", verifier: "", iterations: 100000 },
+      { salt: "", verifier: "v", iterations: 100000 },
+      { salt: "s4lt", verifier: "v", iterations: 0 },
+    ]) {
+      const url = buildReturnUrl("https://x.example/join", "SIGNED", {
+        credential: partial,
+      })!;
+      expect(url).toBe("https://x.example/join#assertion=SIGNED");
+    }
+  });
+
+  test("a fragment missing any part of it is null, not a partial", () => {
+    expect(parseReturnCredential("#assertion=S&salt=s4lt")).toBe(null);
+    expect(parseReturnCredential("#assertion=S&salt=s4lt&verifier=v")).toBe(
+      null,
+    );
+    expect(
+      parseReturnCredential("#assertion=S&salt=s4lt&verifier=v&kdf=nope"),
+    ).toBe(null);
+    expect(parseReturnCredential(null)).toBe(null);
+  });
+});
+
+describe("clearFragment", () => {
+  test("puts the path back without the fragment, and does nothing off the web", () => {
+    const scope = globalThis as {
+      history?: unknown;
+      location?: unknown;
+    };
+    const before = { history: scope.history, location: scope.location };
+    const calls: string[] = [];
+    try {
+      scope.history = {
+        replaceState: (_a: unknown, _b: string, url: string) => calls.push(url),
+      };
+      scope.location = { pathname: "/join", search: "?x=1" };
+      clearFragment();
+      expect(calls).toEqual(["/join?x=1"]);
+
+      // No address bar, so nothing to clear and nothing to throw.
+      scope.location = undefined;
+      clearFragment();
+      expect(calls).toEqual(["/join?x=1"]);
+    } finally {
+      scope.history = before.history;
+      scope.location = before.location;
+    }
+  });
+});
+
+describe("the invite on the return leg", () => {
+  // The bug this pins: the invite went out to /authorize and never came back, so a first arrival
+  // reached `signin` with nothing to admit it and was told to ask for an invite link — while
+  // holding one. Found end to end on two nodes, not by a type.
+  test("comes back with the assertion", () => {
+    const out = buildAuthorizeUrl("https://mine.example", {
+      audience: NODE,
+      nonce: "n1",
+      returnTo: "https://theirs.example/join",
+      invite: "INVITE-TOKEN",
+    })!;
+    const request = parseAuthorizeRequest(out.slice(out.indexOf("#")))!;
+    expect(request.invite).toBe("INVITE-TOKEN");
+
+    const back = buildReturnUrl(request.returnTo, "SIGNED", {
+      invite: request.invite,
+    })!;
+    expect(parseReturnInvite(back.slice(back.indexOf("#")))).toBe(
+      "INVITE-TOKEN",
+    );
+  });
+
+  test("a return leg with no invite reads as none", () => {
+    const back = buildReturnUrl("https://x.example/join", "SIGNED")!;
+    expect(parseReturnInvite(back.slice(back.indexOf("#")))).toBe(null);
+    expect(parseReturnInvite("#assertion=S&invite=")).toBe(null);
+    expect(parseReturnInvite(null)).toBe(null);
   });
 });

@@ -46,9 +46,9 @@ const keys = (...args: Parameters<typeof buildSidebarItems>): string[] =>
   flattenSidebar(buildSidebarItems(...args)).map((i) => i.key);
 
 describe("buildSidebarItems", () => {
-  // Users is not here, and that is the point: every query behind it is elevated, so a member who
-  // opened it got "this needs an administrator account on your server" over an otherwise empty
-  // page. A tab that can only fail is worse than no tab.
+  // Browse and Requests is the whole of a member's navigation. Everything elevated is either a
+  // gated band (Transfers, Sessions) or a settings category (Users), so there is no row here that
+  // can only fail -- the rule the sidebar has applied since Manage went.
   test("a plain member gets Home, the personal rows and Settings", () => {
     expect(keys(member, settings(), [], t)).toEqual([
       "(home)",
@@ -58,13 +58,11 @@ describe("buildSidebarItems", () => {
     ]);
   });
 
-  test("an administrator also gets Manage, Transfers and Sessions, last", () => {
+  test("an administrator also gets Transfers and Sessions, last", () => {
     expect(keys(admin, settings(), [], t)).toEqual([
       "(home)",
       "(favorites)",
       "(requests)",
-      "users",
-      "(manage)",
       "(downloads)",
       "sessions",
       "settings",
@@ -128,9 +126,7 @@ describe("buildSidebarItems", () => {
       "(watchlists)": "/watchlists",
       "(custom-links)": "/links",
       "(requests)": "/requests",
-      "(manage)": "/manage",
       "(downloads)": "/transfers",
-      users: "/users",
       settings: "/settings",
     });
   });
@@ -174,16 +170,22 @@ describe("buildSidebarItems / libraries", () => {
     view("l", "Live TV", "livetv"),
   ];
 
+  /**
+   * The library rows, which live inside the unlabelled browse block rather than
+   * a section of their own. They used to carry a "Libraries" heading; on the
+   * usual two-view node that was a word above two rows that already said what
+   * they were.
+   */
   const libraries = (
     overrides: Partial<SidebarSettings> = {},
     items: BaseItemDto[] = views,
   ) =>
-    buildSidebarItems(member, settings(overrides), items, t).find(
-      (section) => section.key === "libraries",
-    );
+    buildSidebarItems(member, settings(overrides), items, t)
+      .find((section) => section.key === "primary")
+      ?.items.filter((item) => item.libraryId !== undefined) ?? [];
 
   test("one row per view, in the server's order, books excluded", () => {
-    expect(libraries()?.items.map((item) => item.label)).toEqual([
+    expect(libraries().map((item) => item.label)).toEqual([
       "Movies",
       "Shows",
       "Songs",
@@ -191,35 +193,45 @@ describe("buildSidebarItems / libraries", () => {
     ]);
   });
 
-  test("the section is titled and sits between Home and the rest", () => {
-    const sections = buildSidebarItems(member, settings(), views, t);
-    expect(sections.map((section) => section.key)).toEqual([
-      "primary",
-      "libraries",
-      "secondary",
-      "footer",
+  test("they sit between Home and Favorites, under no heading", () => {
+    const primary = buildSidebarItems(member, settings(), views, t).find(
+      (section) => section.key === "primary",
+    );
+
+    expect(primary?.title).toBeUndefined();
+    expect(primary?.items.map((item) => item.key)).toEqual([
+      "(home)",
+      "library:m",
+      "library:t",
+      "library:s",
+      "library:l",
+      "(favorites)",
     ]);
-    expect(sections[1]?.title).toBe("shell.libraries");
   });
 
   test("a library the user hid is not a nav item either", () => {
     expect(
-      libraries({ hiddenLibraries: ["m", "l"] })?.items.map((i) => i.key),
+      libraries({ hiddenLibraries: ["m", "l"] }).map((i) => i.key),
     ).toEqual(["library:t", "library:s"]);
   });
 
-  test("no section at all when there is nothing to list", () => {
-    expect(libraries({}, [])).toBeUndefined();
-    expect(libraries({}, [view("a", "Audiobooks", "books")])).toBeUndefined();
-    expect(
-      buildSidebarItems(member, settings(), undefined, t).find(
-        (section) => section.key === "libraries",
-      ),
-    ).toBeUndefined();
+  test("nothing to list leaves Home and Favorites, not an empty heading", () => {
+    const browse = (items: BaseItemDto[] | undefined) =>
+      buildSidebarItems(member, settings(), items, t)
+        .find((section) => section.key === "primary")
+        ?.items.map((item) => item.key);
+
+    expect(browse([])).toEqual(["(home)", "(favorites)"]);
+    expect(browse([view("a", "Audiobooks", "books")])).toEqual([
+      "(home)",
+      "(favorites)",
+    ]);
+    // Still in flight: the query has not answered yet.
+    expect(browse(undefined)).toEqual(["(home)", "(favorites)"]);
   });
 
   test("glyphs come from the collection type, not from one library icon", () => {
-    expect(libraries()?.items.map((item) => item.icon)).toEqual([
+    expect(libraries().map((item) => item.icon)).toEqual([
       { set: "ionicons", name: "film" },
       { set: "ionicons", name: "tv" },
       { set: "ionicons", name: "musical-notes" },
@@ -229,7 +241,7 @@ describe("buildSidebarItems / libraries", () => {
 
   test("music and live TV open their own screens, everything else the grid", () => {
     const routes = Object.fromEntries(
-      (libraries()?.items ?? []).map((item) => [item.key, item.route]),
+      libraries().map((item) => [item.key, item.route]),
     );
 
     expect(routes["library:m"]).toEqual({
@@ -243,6 +255,61 @@ describe("buildSidebarItems / libraries", () => {
     expect(routes["library:l"]).toEqual({
       pathname: "/(auth)/(tabs)/(libraries)/livetv/programs",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The three bands
+// ---------------------------------------------------------------------------
+
+describe("buildSidebarItems / bands", () => {
+  test("a member gets browse and Requests and nothing else", () => {
+    expect(
+      buildSidebarItems(member, settings(), [], t).map((s) => s.key),
+    ).toEqual(["primary", "requests", "footer"]);
+  });
+
+  test("an administrator gets a third band, last before the footer", () => {
+    const sections = buildSidebarItems(admin, settings(), [], t);
+
+    expect(sections.map((s) => s.key)).toEqual([
+      "primary",
+      "requests",
+      "server",
+      "footer",
+    ]);
+
+    const server = sections.find((s) => s.key === "server");
+    expect(server?.items.map((i) => i.key)).toEqual([
+      "(downloads)",
+      "sessions",
+    ]);
+  });
+
+  test("every band is separated by a rule, and none carries a heading", () => {
+    // The administrator band had "SERVER" over it for about an hour. Dan: "lets
+    // drop SERVER title from the sidebar list - just a separator" -- one word
+    // over one band of three reads as a label for the whole lower half.
+    const sections = buildSidebarItems(admin, settings(), [], t);
+
+    expect(sections.filter((s) => s.divider).map((s) => s.key)).toEqual([
+      "requests",
+      "server",
+    ]);
+    for (const section of sections) {
+      expect(section.title).toBeUndefined();
+    }
+  });
+
+  test("Users is offered on neither surface", () => {
+    // It is Settings then Users & access now. Both rows used to point at
+    // "/users", which is a redirect into the settings tree.
+    expect(keys(admin, settings(), [], t)).not.toContain("users");
+    expect(
+      buildMoreItems(admin, settings(), t).flatMap((g) =>
+        g.items.map((i) => i.key),
+      ),
+    ).not.toContain("users");
   });
 });
 
@@ -278,8 +345,10 @@ describe("activeSidebarKey", () => {
     ).toBeUndefined();
   });
 
-  test("Users beats Home, though it lives inside the Home stack", () => {
-    expect(at(["(auth)", "(tabs)", "(home)", "users"])).toBe("users");
+  test("Sessions beats Home, though it lives inside the Home stack", () => {
+    expect(at(["(auth)", "(tabs)", "(home)", "sessions", "index"])).toBe(
+      "sessions",
+    );
   });
 
   test("Settings wins on its own, and loses to the longer match", () => {
@@ -287,6 +356,11 @@ describe("activeSidebarKey", () => {
     expect(
       at(["(auth)", "(tabs)", "(home)", "settings", "network", "page"]),
     ).toBe("settings");
+    // Users is a settings category now rather than a section of its own, so
+    // Settings is the row that lights for it and no second row can claim it.
+    expect(at(["(auth)", "(tabs)", "(home)", "settings", "users"])).toBe(
+      "settings",
+    );
   });
 
   test("a route in no tab at all lights nothing", () => {
@@ -334,9 +408,8 @@ const moreKeys = (...args: Parameters<typeof buildMoreItems>): string[] =>
   buildMoreItems(...args).flatMap((group) => group.items.map((i) => i.key));
 
 describe("buildMoreItems", () => {
-  // Users is not here either, for the same reason it is not in the sidebar: the `app` group is
-  // drawn for everybody, so the old Sharing row was the one place a member could reach an
-  // administrators-only screen. It moved into the gated `admin` group.
+  // The two lists agree about who sees what, which is why they are built next to each other:
+  // `browse` and `app` are drawn for everybody, `admin` only for an administrator.
   test("a member gets Favorites and Settings and no admin group", () => {
     expect(moreKeys(member, settings(), t)).toEqual([
       "(favorites)",
@@ -348,7 +421,7 @@ describe("buildMoreItems", () => {
     ]);
   });
 
-  test("an administrator gets Manage and Transfers, in their own group", () => {
+  test("an administrator gets Transfers and Sessions, in their own group", () => {
     const groups = buildMoreItems(admin, settings(), t);
 
     expect(groups.map((group) => group.key)).toEqual([
@@ -358,7 +431,7 @@ describe("buildMoreItems", () => {
     ]);
     expect(
       groups.find((group) => group.key === "admin")?.items.map((i) => i.key),
-    ).toEqual(["users", "(manage)", "(downloads)", "sessions"]);
+    ).toEqual(["(downloads)", "sessions"]);
   });
 
   test("everything the five-icon bar hides is reachable from here", () => {
@@ -377,7 +450,6 @@ describe("buildMoreItems", () => {
       "(favorites)",
       "(watchlists)",
       "(custom-links)",
-      "(manage)",
       "(downloads)",
     ]) {
       expect(all).toContain(hidden);
@@ -392,7 +464,7 @@ describe("buildMoreItems", () => {
       moreKeys(member, { ...configured, hideWatchlistsTab: true }, t),
     ).not.toContain("(watchlists)");
     expect(moreKeys(member, settings(), t)).not.toContain("(custom-links)");
-    expect(moreKeys(member, settings(), t)).not.toContain("(manage)");
+    expect(moreKeys(member, settings(), t)).not.toContain("(downloads)");
   });
 
   test("rows carry a route and a testID of their own", () => {

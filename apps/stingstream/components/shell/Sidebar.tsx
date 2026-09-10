@@ -47,9 +47,15 @@ interface Props {
  * The one structural idea is that *your libraries are navigation*. On a phone
  * they are a screen you open and then pick from; at 1280 px there is room to
  * list them permanently, so "go to Movies" is one click from anywhere instead
- * of three. Everything else — Home above them, the personal and administrative
- * rows below, Settings and the account pinned to the bottom — arranges itself
- * around that.
+ * of three. Home sits directly above them and Favorites directly below, in the
+ * same unlabelled block, because all four are the same act.
+ *
+ * Below that the column separates rather than groups: a rule marks Requests off
+ * as something you *do* rather than something you browse, and an
+ * administrator's monitoring rows get the one heading in the whole sidebar.
+ * A member sees neither the heading nor the rows — browse and Requests is the
+ * whole of their navigation, which is the point. Settings and the account stay
+ * pinned to the bottom.
  */
 export const Sidebar: React.FC<Props> = ({
   sections,
@@ -95,8 +101,19 @@ export const Sidebar: React.FC<Props> = ({
         showsVerticalScrollIndicator={false}
       >
         {body.map((section, index) => (
-          <View key={section.key} style={{ marginTop: index === 0 ? 0 : 16 }}>
-            <SectionLabel title={section.title} collapsed={collapsed} />
+          // A divider brings 8 px of margin of its own, so a section that draws
+          // one needs less above it than a titled section does.
+          <View
+            key={section.key}
+            style={{
+              marginTop: index === 0 ? 0 : section.divider ? 8 : 16,
+            }}
+          >
+            <SectionLabel
+              title={section.title}
+              divider={section.divider}
+              collapsed={collapsed}
+            />
             {section.items.map((item) => (
               <SidebarItem
                 key={item.key}
@@ -144,29 +161,35 @@ export const Sidebar: React.FC<Props> = ({
   );
 };
 
+/** The rule that stands in for a heading. */
+const SectionRule: React.FC = () => (
+  <View
+    style={{
+      height: 1,
+      marginVertical: 8,
+      marginHorizontal: 8,
+      backgroundColor: tokens.color.border.subtle,
+    }}
+  />
+);
+
 /**
- * A heading above a group of rows, or a rule when there is no room for words.
+ * A heading above a group of rows, or a rule when there is no room for words —
+ * or when there is no word worth writing.
  *
- * The rail has 72 px and no label would survive it, but the grouping still
- * needs to read — so the same separation is drawn rather than written.
+ * Three cases. A titled section draws its title, unless the rail has collapsed
+ * to 72 px, where no label would survive and the same separation is drawn
+ * instead. A section that asks for `divider` draws that rule at every width:
+ * Requests is one row whose only honest heading would repeat its own label, and
+ * an untitled, undivided section would simply run on from the block above it.
  */
-const SectionLabel: React.FC<{ title?: string; collapsed: boolean }> = ({
-  title,
-  collapsed,
-}) => {
-  if (!title) return null;
-  if (collapsed) {
-    return (
-      <View
-        style={{
-          height: 1,
-          marginVertical: 8,
-          marginHorizontal: 8,
-          backgroundColor: tokens.color.border.subtle,
-        }}
-      />
-    );
-  }
+const SectionLabel: React.FC<{
+  title?: string;
+  divider?: boolean;
+  collapsed: boolean;
+}> = ({ title, divider, collapsed }) => {
+  if (!title) return divider ? <SectionRule /> : null;
+  if (collapsed) return <SectionRule />;
   return (
     <Text
       variant='micro'

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  libraryMatchKeys,
+  dedupeSearchResults,
+  type LibraryIdentity,
   type MemberRequest,
   providerKey,
   type RequestSearchResult,
@@ -11,7 +12,7 @@ import {
   searchBadgeLabel,
   seasonsLabel,
   selectMine,
-  splitCatalogueResults,
+  shouldOfferRequest,
   stateLabel,
   stateTone,
   titleKey,
@@ -380,7 +381,7 @@ describe("RequestsUnavailableError", () => {
   });
 });
 
-describe("one search box, two catalogues", () => {
+describe("the same title, answered twice", () => {
   const result = (
     over: Partial<RequestSearchResult> = {},
   ): RequestSearchResult => ({
@@ -431,76 +432,45 @@ describe("one search box, two catalogues", () => {
     );
   });
 
-  test("a film the server already holds is not offered as one to ask for", () => {
-    const keys = libraryMatchKeys([
-      {
-        Type: "Movie",
-        Name: "Alien",
-        ProductionYear: 1979,
-        ProviderIds: { Tmdb: "348" },
-      },
-    ]);
-    const { requestable, heldByMember } = splitCatalogueResults(
-      [
-        result(),
-        result({
-          title: "Aliens",
-          year: 1986,
-          tmdbId: 679,
-          itemKey: "movie:tmdb:679",
-        }),
-      ],
-      keys,
-    );
-    expect(heldByMember).toHaveLength(0);
-    expect(requestable.map((r) => r.title)).toEqual(["Aliens"]);
-  });
-
-  test("a library item with no provider ids still matches on title and year", () => {
-    // The normal state of anything added before its metadata was fetched — and the case that
-    // would otherwise offer a member a download of a film already on the shelf above.
-    const keys = libraryMatchKeys([
-      { Type: "Movie", Name: "alien!", ProductionYear: 1979 },
-    ]);
-    expect(splitCatalogueResults([result()], keys).requestable).toHaveLength(0);
-  });
-
-  test("a series in the library does not swallow a film of the same name", () => {
-    const keys = libraryMatchKeys([
-      { Type: "Series", Name: "Alien", ProductionYear: 1979 },
-    ]);
-    expect(splitCatalogueResults([result()], keys).requestable).toHaveLength(1);
-  });
-
-  test("a title somebody in the group holds belongs with the library, not with the asks", () => {
-    const { heldByMember, requestable } = splitCatalogueResults(
-      [result({ availableInGroup: true, holders: ["loft"] })],
-      new Set(),
-    );
-    expect(requestable).toHaveLength(0);
-    expect(heldByMember).toHaveLength(1);
-    // ...and so does one whose own request already landed.
+  test("the same title answered twice by two lookups is listed once", () => {
+    // A film and a series lookup are two calls against two providers; the film comes back keyed on
+    // TMDB and the series on TheTVDB, and the shared title and year is what ties them together.
     expect(
-      splitCatalogueResults([result({ requestState: "available" })], new Set())
-        .heldByMember,
+      dedupeSearchResults([
+        result(),
+        result({ itemKey: "movie:tvdb:1", tmdbId: 0, tvdbId: 1 }),
+      ]),
     ).toHaveLength(1);
   });
 
-  test("the same title answered twice by two lookups is listed once", () => {
-    const { requestable } = splitCatalogueResults(
-      [result(), result({ itemKey: "movie:tvdb:1", tvdbId: 1 })],
-      new Set(),
-    );
-    expect(requestable).toHaveLength(1);
+  test("two genuinely different films are both kept, in the node's order", () => {
+    const rows = dedupeSearchResults([
+      result(),
+      result({
+        title: "Aliens",
+        year: 1986,
+        tmdbId: 679,
+        itemKey: "movie:tmdb:679",
+      }),
+    ]);
+    expect(rows.map((r) => r.title)).toEqual(["Alien", "Aliens"]);
+  });
+
+  test("a title the group already holds is kept — the row says so, it is not hidden", () => {
+    // The interesting answer is usually "somebody already has this", and dropping the row would
+    // send the member back to searching for something they can already watch.
+    const [only] = dedupeSearchResults([
+      result({ availableInGroup: true, holders: ["loft"] }),
+    ]);
+    expect(only.holders).toEqual(["loft"]);
+    expect(searchAction(only).disabled).toBe(true);
   });
 
   test("a request the member has already made shows as requested before the node says so", () => {
     // The node annotates every result from its own store, but that annotation is a round trip
-    // behind the mutation; a poster still reading "Request" a second after you asked for it
-    // reads as a button that did nothing.
-    const [only] = splitCatalogueResults([result()], new Set(), [
-      request(),
-    ]).requestable;
+    // behind the mutation; a row still reading "Request" a second after you asked for it reads as
+    // a button that did nothing.
+    const [only] = dedupeSearchResults([result()], [request()]);
     expect(only.requestState).toBe("pending");
     expect(only.requestId).toBe("r1");
     expect(searchBadgeLabel(only)).toBe("Requested");
@@ -508,25 +478,64 @@ describe("one search box, two catalogues", () => {
   });
 
   test("the node's own answer wins over the local list", () => {
-    const [only] = splitCatalogueResults(
+    const [only] = dedupeSearchResults(
       [result({ requestState: "failed" })],
-      new Set(),
       [request({ state: "pending" })],
-    ).requestable;
+    );
     expect(only.requestState).toBe("failed");
     // Failed is not a permanent no, so it is offered again.
     expect(searchAction(only).disabled).toBe(false);
   });
+});
 
-  test("an episode's ids are its own, so they never reach the comparison", () => {
-    // `libraryMatchKeys` is fed films and series only; this pins what it does with what it is
-    // given rather than the caller's choice, which is that an episode row would add its own
-    // title and year as if it were a film.
-    expect(libraryMatchKeys([])).toEqual(new Set());
+describe("when Search offers to go and ask", () => {
+  const item = (Name: string, Type = "Movie"): LibraryIdentity => ({
+    Type,
+    Name,
+    ProductionYear: 1979,
+  });
+
+  test("nothing typed is not a fuzzy match, it is no question yet", () => {
+    expect(shouldOfferRequest("", [])).toBe(false);
+    expect(shouldOfferRequest("   ", [item("Alien")])).toBe(false);
+  });
+
+  test("no matches at all is the clearest case for offering", () => {
+    expect(shouldOfferRequest("Dune", [])).toBe(true);
+  });
+
+  test("an exact title match is an answer, so nothing is offered", () => {
+    expect(shouldOfferRequest("Alien", [item("Alien")])).toBe(false);
+  });
+
+  test("case, punctuation and spacing do not make a title a different one", () => {
+    expect(shouldOfferRequest("wall-e", [item("WALL·E")])).toBe(false);
+    expect(shouldOfferRequest("  THE   THING ", [item("The Thing")])).toBe(
+      false,
+    );
+  });
+
+  test("a near miss is exactly when somebody wants to ask", () => {
+    // "Aliens" matched "Alien" — the library answered, but not with what was typed.
+    expect(shouldOfferRequest("Aliens", [item("Alien")])).toBe(true);
+  });
+
+  test("the year is not part of the comparison", () => {
+    // A person types "dune", not "dune (2021)"; requiring the year would offer to request
+    // something that is plainly sitting in the results.
     expect(
-      libraryMatchKeys([
-        { Type: "Movie", Name: "Alien", ProductionYear: null },
+      shouldOfferRequest("Dune", [
+        { Type: "Movie", Name: "Dune", ProductionYear: null },
       ]),
-    ).toEqual(new Set());
+    ).toBe(false);
+  });
+
+  test("one exact match among many near ones is still an answer", () => {
+    expect(
+      shouldOfferRequest("Dune", [
+        item("Dune: Part Two"),
+        item("Dune", "Series"),
+      ]),
+    ).toBe(false);
   });
 });

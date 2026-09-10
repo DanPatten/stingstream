@@ -1,0 +1,43 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e63]:
+    - navigation [ref=f1e64]:
+      - generic [ref=f1e65]:
+        - button "Collapse the sidebar" [ref=f1e67] [cursor=pointer]:
+          - generic [ref=f1e68]: 
+        - link "Home" [ref=f1e69] [cursor=pointer]
+      - generic [ref=f1e76]:
+        - link "Home" [ref=f1e78] [cursor=pointer]:
+          - generic [ref=f1e80]: 
+        - generic [ref=f1e82]:
+          - link "Favorites" [ref=f1e83] [cursor=pointer]:
+            - generic [ref=f1e84]: 
+          - link "Requests" [ref=f1e86] [cursor=pointer]:
+            - generic [ref=f1e87]: 
+          - link "Users" [ref=f1e89] [cursor=pointer]:
+            - generic [ref=f1e90]: 
+          - link "Transfers" [ref=f1e92] [cursor=pointer]:
+            - generic [ref=f1e93]: 
+          - link "Sessions" [ref=f1e95] [cursor=pointer]:
+            - generic [ref=f1e96]: 
+      - generic [ref=f1e98]:
+        - link "Settings" [ref=f1e99] [cursor=pointer]:
+          - generic [ref=f1e100]: 
+        - button "dan" [ref=f1e104] [cursor=pointer]:
+          - generic [ref=f1e105]: D
+          - generic [ref=f1e108]: 
+    - generic [ref=f1e109]:
+      - generic [ref=f1e110]:
+        - generic [ref=f1e111]: Home
+        - generic [ref=f1e115]:
+          - generic [ref=f1e116]: 
+          - textbox "Search..." [ref=f1e117]
+        - button "Watch together" [ref=f1e120] [cursor=pointer]:
+          - generic [ref=f1e121]: 
+      - generic [ref=f1e131]:
+        - progressbar "Loading" [ref=f1e134]
+        - progressbar "Loading" [ref=f1e161]
+        - progressbar "Loading" [ref=f1e188]
+  - 'button "2 Cannot update a component (`WrappedScree" [ref=f1e214] [cursor=pointer]':
+    - generic [ref=f1e215]: "2"
+    - generic [ref=f1e217]: "Cannot update a component (`WrappedScree"
+    - button [ref=f1e218]

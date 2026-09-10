@@ -828,7 +828,7 @@
           "Identity"
         ],
         "summary": "Stop a remote identity signing in here.",
-        "description": "<b>The account stays.</b> Removing the link takes away the only way in — the account has a\r\n            password nobody knows — so this is closer to disabling somebody than to tidying a table, and\r\n            what they watched and where they got to is still theirs. Deleting the account itself is the\r\n            Users screen's job, and is a separate decision.",
+        "description": "<b>The account stays.</b> Removing the link stops them signing in with their own server, so\r\n            this is closer to disabling somebody than to tidying a table, and\r\n            what they watched and where they got to is still theirs. Deleting the account itself is the\r\n            Users screen's job, and is a separate decision.",
         "operationId": "StingStreamIdentityUnlink",
         "parameters": [
           {
@@ -905,13 +905,198 @@
         ]
       }
     },
+    "/stingstream/api/v1/identity/password": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Set the password you use on this server.",
+        "description": "For somebody whose account came from another server and who has since changed their password\r\nthere: the two are no longer in step, and this is what puts them back without needing an\r\nadministrator. <b>What arrives is the derived value and never the password</b>, the same rule\r\nas the sign-in itself.\r\n\r\nAlways the caller's own account, read from the session rather than from the body — a user id\r\nsomebody typed is a user id somebody chose.",
+        "operationId": "StingStreamSetLinkedPassword",
+        "requestBody": {
+          "description": "The salt, the derived password and the round count.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetLinkedPasswordRequest"
+                  }
+                ],
+                "description": "Setting the derived password for the account you are signed in as."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetLinkedPasswordRequest"
+                  }
+                ],
+                "description": "Setting the derived password for the account you are signed in as."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SetLinkedPasswordRequest"
+                  }
+                ],
+                "description": "Setting the derived password for the account you are signed in as."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "It is set."
+          },
+          "400": {
+            "description": "The request was incomplete, or this is not a linked account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/identity/password/derivation/clear": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Make a linked account sign in with an ordinary password again.",
+        "description": "Called by the Users screen straight after an administrator resets somebody's password.\r\nJellyfin now holds a hash of what they typed, so a client still deriving against the old\r\nsalt would send something that cannot match — and Jellyfin locks an account after three of\r\nthose. Clearing it is what makes the reset a way in rather than a way out.\r\n\r\nAdministrator, because resetting a password is, and a no-op for an ordinary account.",
+        "operationId": "StingStreamClearPasswordDerivation",
+        "requestBody": {
+          "description": "The account whose password was just reset.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ClearDerivationRequest"
+                  }
+                ],
+                "description": "Turning one linked account back into an ordinary-password one."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ClearDerivationRequest"
+                  }
+                ],
+                "description": "Turning one linked account back into an ordinary-password one."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ClearDerivationRequest"
+                  }
+                ],
+                "description": "Turning one linked account back into an ordinary-password one."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Done, or there was nothing to do."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/identity/signin": {
       "post": {
         "tags": [
           "Identity"
         ],
         "summary": "Sign in with an assertion your own server made.",
-        "description": "Ends at `AuthenticateDirect` rather than `AuthenticateNewSession`, the same as the\r\npasskey route: there is no password to check, because the proof already happened when the\r\nother server signed the assertion. The account created by this path has a password nobody\r\nknows, so `AuthenticateNewSession` could never succeed for it anyway.",
+        "description": "Ends at `AuthenticateDirect` rather than `AuthenticateNewSession`, the same as the\r\npasskey route: there is no password to check, because the proof already happened when the\r\nother server signed the assertion. The password the account ends up with was derived on the\r\ncaller's own origin and arrives already derived, so there is nothing here to check it\r\nagainst and nothing here that has ever seen the password itself.",
         "operationId": "StingStreamIdentitySignIn",
         "requestBody": {
           "description": "The assertion, and an invite token the first time.",
@@ -968,6 +1153,100 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/identity/signin-method": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "How to send a password for one username.",
+        "description": "<b>Anonymous, because the caller is by definition somebody who has not signed in yet.</b>\r\n            An account that arrived from another server signs in with a value derived from its password\r\n            rather than the password itself, and its client cannot derive that without the salt — so the\r\n            salt has to be gettable without a session. It is not a secret; what it buys is that one\r\n            server's derived password is useless on another.\r\n            \r\nA username nobody holds, an ordinary account and a linked account whose password has been\r\n            reset all answer identically, so this is not a way to find out who has an account here.\r\n            What it does tell somebody already holding a username is that it came from elsewhere.",
+        "operationId": "StingStreamSignInMethod",
+        "requestBody": {
+          "description": "The username.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SignInMethodRequest"
+                  }
+                ],
+                "description": "Asking how to sign in as one username."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SignInMethodRequest"
+                  }
+                ],
+                "description": "Asking how to sign in as one username."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SignInMethodRequest"
+                  }
+                ],
+                "description": "Asking how to sign in as one username."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What to send. Never whether the username exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInMethodResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           },
           "403": {
             "description": "Forbidden"
@@ -11301,6 +11580,18 @@
         "additionalProperties": false,
         "description": "What the node knows about one supervised child. Secrets are never included."
       },
+      "ClearDerivationRequest": {
+        "type": "object",
+        "properties": {
+          "UserId": {
+            "type": "string",
+            "description": "The local account whose password an administrator has just reset.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Turning one linked account back into an ordinary-password one."
+      },
       "ClientCapabilitiesDto": {
         "type": "object",
         "properties": {
@@ -13293,6 +13584,22 @@
           "RequestLink": {
             "type": "boolean",
             "description": "Also ask for the two servers to be linked."
+          },
+          "Salt": {
+            "type": "string",
+            "description": "The salt their own server derived StingStream.Core.Identity.IdentitySignInRequest.Verifier with.",
+            "nullable": true
+          },
+          "Verifier": {
+            "type": "string",
+            "description": "PBKDF2 of their password, which becomes their password here.",
+            "nullable": true
+          },
+          "Iterations": {
+            "type": "integer",
+            "description": "The round count that produced it.",
+            "format": "int32",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -19734,6 +20041,29 @@
         "additionalProperties": false,
         "description": "Sessions stop message."
       },
+      "SetLinkedPasswordRequest": {
+        "type": "object",
+        "properties": {
+          "Salt": {
+            "type": "string",
+            "description": "The new salt.",
+            "nullable": true
+          },
+          "Verifier": {
+            "type": "string",
+            "description": "PBKDF2 of the new password, derived with it.",
+            "nullable": true
+          },
+          "Iterations": {
+            "type": "integer",
+            "description": "The round count that produced it.",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Setting the derived password for the account you are signed in as."
+      },
       "SetSharedLibrariesRequest": {
         "type": "object",
         "properties": {
@@ -19902,6 +20232,38 @@
         },
         "additionalProperties": false,
         "description": "\"Omniarr\": the one settings model StingStream keeps, pushed idempotently into both Radarr and\r\nSonarr through their v3 APIs."
+      },
+      "SignInMethodRequest": {
+        "type": "object",
+        "properties": {
+          "Username": {
+            "type": "string",
+            "description": "The username being signed in as.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Asking how to sign in as one username."
+      },
+      "SignInMethodResponse": {
+        "type": "object",
+        "properties": {
+          "Derived": {
+            "type": "boolean",
+            "description": "Whether the password must be derived before it is sent."
+          },
+          "Salt": {
+            "type": "string",
+            "description": "The salt to derive it with, when it must be."
+          },
+          "Iterations": {
+            "type": "integer",
+            "description": "The round count to derive it with, when it must be.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "How a client should send a password for one username."
       },
       "StartWatchRequest": {
         "type": "object",
