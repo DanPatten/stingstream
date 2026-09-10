@@ -247,6 +247,26 @@ impl Runtime {
     pub fn child(&self, name: &str) -> Option<&ChildRuntime> {
         self.children.get(name)
     }
+
+    /// This child's entry, creating a switched-off one if the file has never carried it.
+    ///
+    /// For `supervisor::downloading`, which fills in a port and a key for a child that has been
+    /// off since the node started. The created entry is exactly what start-up writes for a
+    /// disabled child -- off, port 0, a URL base and nothing else -- so a caller that then fails
+    /// partway leaves the file saying what it said before.
+    pub fn child_mut(&mut self, name: &str) -> &mut ChildRuntime {
+        self.children
+            .entry(name.to_string())
+            .or_insert_with(|| ChildRuntime {
+                enabled: false,
+                port: 0,
+                url_base: format!("/{name}"),
+                base_url: String::new(),
+                api_key: None,
+                username: None,
+                password: None,
+            })
+    }
 }
 
 /// How often [`FirstRunFlag`] will go back to the file while the answer can still change.

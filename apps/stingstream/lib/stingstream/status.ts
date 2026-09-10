@@ -27,6 +27,12 @@ export interface HealthzChild {
   healthy_since?: string;
   last_exit?: string;
   /**
+   * Why this child is not running, when the supervisor knows. A missing binary, or a refusal to
+   * start something `config.toml` asked for. Absent whenever there is nothing to say, which is
+   * most of the time.
+   */
+  last_error?: string;
+  /**
    * The build this child is running, probed by the supervisor when the child
    * first becomes healthy (M4.5). Absent when the child is disabled, has never
    * answered, or has no way to be asked — all real states, not errors.

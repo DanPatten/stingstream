@@ -1,6 +1,6 @@
 //! The supervisor: spawn, monitor, health-check and restart the node's children.
 //!
-//! One task per child runs a loop of *spawn → pump output → wait → back off → respawn*, with a
+//! One task per child runs a loop of *spawn â†’ pump output â†’ wait â†’ back off â†’ respawn*, with a
 //! second task per child polling its health endpoint. A child that stays up longer than
 //! `restart_backoff_reset_secs` has its backoff reset, so a node that crashes once an hour does
 //! not slowly accumulate a ten-minute restart delay.
@@ -9,10 +9,12 @@
 //! still alive after `shutdown_grace_secs` is killed.
 
 pub mod childdef;
+pub mod downloading;
 pub mod health;
 pub mod jobobject;
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -86,44 +88,71 @@ pub fn build_children(
         if !config.child_enabled(name) {
             continue;
         }
-        let Some(child_rt) = runtime.child(name) else {
-            continue;
-        };
-        let def = match *name {
-            "jellyfin" => jellyfin_def(runtime, layout, mode, child_rt.port)?,
-            "radarr" | "sonarr" => arr_def(
-                name,
-                layout,
-                mode,
-                child_rt.port,
-                child_rt.url_base.clone(),
-                child_rt.api_key.clone(),
-            )?,
-            "nzbget" => nzbget_def(runtime, layout, mode, child_rt.port)?,
-            "mesh" => match mesh_def(runtime, mode, child_rt.port) {
-                Some(def) => def,
-                None => {
-                    // Not fatal. M3b embeds the mesh library in this process; until then a node
-                    // whose mesh binary has not been built is still a working single-node server,
-                    // and the gateway answers its mesh routes with a 503 that says so.
-                    tracing::warn!(
-                        "no stingstream-mesh binary found; this node will run without a mesh. \
-                         Build it with `cargo build -p stingstream-mesh`."
-                    );
-                    continue;
-                }
-            },
-            // InfiniDysk is a later milestone; config.toml defaults it off and the loop above
-            // skips it, but an explicitly-enabled one should say why it cannot start.
-            "infinidysk" => anyhow::bail!(
-                "infinidysk is enabled in config.toml but is not supported until a later \
-                 milestone (see docs/ARCHITECTURE.md)"
-            ),
-            _ => continue,
-        };
-        out.push(def);
+        if let Some(def) = build_one(name, config, runtime, layout, mode)? {
+            out.push(def);
+        }
     }
     Ok(out)
+}
+
+/// One child's definition, or `None` when there is deliberately nothing to run.
+///
+/// Split out of [`build_children`] for [`downloading`], which resolves a single child's command
+/// line at the moment somebody turns it on rather than at start-up. Same code either way, which is
+/// the point: a child started an hour in gets the identical argument list, working directory and
+/// environment it would have got at boot.
+///
+/// The `Err` case carries as much weight as the `Ok`. An enabled child whose binary cannot be
+/// found is a misconfiguration, and surfacing that as an error rather than a silent `None` is what
+/// lets a caller refuse to turn on something that would stop the node coming up next time.
+pub fn build_one(
+    name: &str,
+    config: &Config,
+    runtime: &Runtime,
+    layout: &Layout,
+    mode: &Mode,
+) -> Result<Option<ChildDef>> {
+    // Checked here as well as in `build_children`, so that a caller resolving one child on its own
+    // cannot build a definition for something `config.toml` says is off.
+    if !config.child_enabled(name) {
+        return Ok(None);
+    }
+    let Some(child_rt) = runtime.child(name) else {
+        return Ok(None);
+    };
+    let def = match name {
+        "jellyfin" => jellyfin_def(runtime, layout, mode, child_rt.port)?,
+        "radarr" | "sonarr" => arr_def(
+            name,
+            layout,
+            mode,
+            child_rt.port,
+            child_rt.url_base.clone(),
+            child_rt.api_key.clone(),
+        )?,
+        "nzbget" => nzbget_def(runtime, layout, mode, child_rt.port)?,
+        "mesh" => match mesh_def(runtime, mode, child_rt.port) {
+            Some(def) => def,
+            None => {
+                // Not fatal. M3b embeds the mesh library in this process; until then a node
+                // whose mesh binary has not been built is still a working single-node server,
+                // and the gateway answers its mesh routes with a 503 that says so.
+                tracing::warn!(
+                    "no stingstream-mesh binary found; this node will run without a mesh. \
+                     Build it with `cargo build -p stingstream-mesh`."
+                );
+                return Ok(None);
+            }
+        },
+        // InfiniDysk is a later milestone; config.toml defaults it off and the loop above
+        // skips it, but an explicitly-enabled one should say why it cannot start.
+        "infinidysk" => anyhow::bail!(
+            "infinidysk is enabled in config.toml but is not supported until a later \
+             milestone (see docs/ARCHITECTURE.md)"
+        ),
+    _ => return Ok(None),
+    };
+    Ok(Some(def))
 }
 
 fn jellyfin_def(
@@ -319,6 +348,84 @@ fn nzbget_def(
     })
 }
 
+/// Which children have a supervision loop running, and the switch that ends each one.
+///
+/// Every loop used to watch one process-wide shutdown flag, which is all a node needs when the set
+/// of children is decided at start-up and never changes again. [`downloading`] changes it: turning
+/// the film and series managers off has to end *those* loops and leave Jellyfin's alone.
+///
+/// So each loop gets its own flag and this holds the sending half. Global shutdown still works
+/// unchanged, by [`start_one`] mirroring it into every child's flag -- which keeps `supervise_one`
+/// itself none the wiser about there being two ways to stop.
+#[derive(Default)]
+pub struct Running {
+    stops: Mutex<BTreeMap<String, watch::Sender<bool>>>,
+}
+
+impl Running {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Whether a supervision loop for this child is running right now.
+    pub fn contains(&self, name: &str) -> bool {
+        self.stops.lock().expect("running children").contains_key(name)
+    }
+
+    /// End this child's supervision loop, if it has one. `true` if there was one to end.
+    ///
+    /// The loop stops the process the way shutdown does -- asked first, killed after the grace
+    /// period -- and leaves it `Stopped`, so `/healthz` tells the truth without this having to
+    /// write any state of its own.
+    pub fn stop(&self, name: &str) -> bool {
+        let Some(tx) = self.stops.lock().expect("running children").remove(name) else {
+            return false;
+        };
+        let _ = tx.send(true);
+        true
+    }
+
+    fn insert(&self, name: &str, tx: watch::Sender<bool>) {
+        self.stops
+            .lock()
+            .expect("running children")
+            .insert(name.to_string(), tx);
+    }
+}
+
+/// Start one child's supervision loop and register it with `running`.
+///
+/// Used for every child at start-up and for one child at a time by [`downloading`], so there is
+/// exactly one way a child of this node ever gets started.
+pub fn start_one(
+    def: ChildDef,
+    node: Arc<NodeState>,
+    layout: &Layout,
+    running: &Arc<Running>,
+    mut global_shutdown: watch::Receiver<bool>,
+) -> Result<tokio::task::JoinHandle<()>> {
+    let name = def.name.clone();
+    let logger = ChildLogger::open(&name, &layout.child_log(&name))?;
+    let cfg = node.config.supervisor.clone();
+
+    let (stop_tx, stop_rx) = watch::channel(false);
+    // Global shutdown reaches this loop through its own flag. A tiny task rather than a second
+    // receiver inside `supervise_one`: the loop selects on its shutdown flag in three places, and
+    // teaching all three about a second channel is three chances to miss one.
+    {
+        let stop_tx = stop_tx.clone();
+        tokio::spawn(async move {
+            shutdown_requested(&mut global_shutdown).await;
+            let _ = stop_tx.send(true);
+        });
+    }
+    running.insert(&name, stop_tx);
+
+    Ok(tokio::spawn(async move {
+        supervise_one(def, node, logger, cfg, stop_rx).await;
+    }))
+}
+
 /// Run every child until `shutdown` fires.
 ///
 /// Returns when all supervision loops have stopped.
@@ -326,26 +433,30 @@ pub async fn run(
     defs: Vec<ChildDef>,
     node: Arc<NodeState>,
     layout: Layout,
+    running: Arc<Running>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let mut handles = Vec::new();
     for def in defs {
-        let node = node.clone();
-        let logger = ChildLogger::open(&def.name, &layout.child_log(&def.name))?;
-        let shutdown_rx = shutdown.clone();
-        let cfg = node.config.supervisor.clone();
-        handles.push(tokio::spawn(async move {
-            supervise_one(def, node, logger, cfg, shutdown_rx).await;
-        }));
+        handles.push(start_one(
+            def,
+            node.clone(),
+            &layout,
+            &running,
+            shutdown.clone(),
+        )?);
     }
 
-    // Wait for shutdown to be requested, then for every loop to notice.
+    // Wait for shutdown to be requested, then for every loop to notice. Loops started later by
+    // `downloading` are not in `handles`; they see the same flag and stop on their own, and the
+    // process is on its way out by the time it matters.
     shutdown_requested(&mut shutdown).await;
     for h in handles {
         let _ = h.await;
     }
     Ok(())
 }
+
 
 async fn supervise_one(
     def: ChildDef,
@@ -568,7 +679,26 @@ async fn stop_child(name: &str, child: &mut tokio::process::Child, grace: Durati
 
 /// Convenience for `main`: pre-seed every enabled child's own configuration.
 pub fn preseed_all(config: &Config, runtime: &Runtime, layout: &Layout) -> Result<()> {
-    if config.children.jellyfin {
+    for name in CHILD_ORDER {
+        if config.child_enabled(name) {
+            preseed_one(name, config, runtime, layout)?;
+        }
+    }
+    Ok(())
+}
+
+/// Write one child's own configuration file.
+///
+/// Split out of [`preseed_all`] for [`downloading`], and the split is the point rather than a
+/// tidy-up: re-seeding *every* child to start one would rewrite Jellyfin's network settings and
+/// the arrs' config files underneath processes that read them at start-up and own them now.
+pub fn preseed_one(
+    name: &str,
+    config: &Config,
+    runtime: &Runtime,
+    layout: &Layout,
+) -> Result<()> {
+    if name == "jellyfin" {
         if let Some(c) = runtime.child("jellyfin") {
             preseed::jellyfin::preseed(
                 &layout.jellyfin_config(),
@@ -577,11 +707,11 @@ pub fn preseed_all(config: &Config, runtime: &Runtime, layout: &Layout) -> Resul
             )?;
         }
     }
-    for (enabled, kind, dir) in [
-        (config.children.radarr, preseed::arr::ArrKind::Radarr, layout.radarr()),
-        (config.children.sonarr, preseed::arr::ArrKind::Sonarr, layout.sonarr()),
+    for (matches, kind, dir) in [
+        (name == "radarr", preseed::arr::ArrKind::Radarr, layout.radarr()),
+        (name == "sonarr", preseed::arr::ArrKind::Sonarr, layout.sonarr()),
     ] {
-        if !enabled {
+        if !matches {
             continue;
         }
         let Some(c) = runtime.child(kind.name()) else {
@@ -600,7 +730,7 @@ pub fn preseed_all(config: &Config, runtime: &Runtime, layout: &Layout) -> Resul
         };
         preseed::arr::preseed(&dir, &settings)?;
     }
-    if config.children.nzbget {
+    if name == "nzbget" {
         if let Some(c) = runtime.child("nzbget") {
             let mut settings = preseed::nzbget::NzbgetSettings::new(
                 layout.downloads_usenet(),

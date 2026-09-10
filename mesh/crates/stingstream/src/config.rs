@@ -335,15 +335,26 @@ const CONFIG_HEADER: &str = "\
 ";
 
 impl Config {
+    /// Read `config.toml`. Fails if it is absent, unreadable or invalid.
+    ///
+    /// Separate from [`Config::load_or_create`] because `supervisor::downloading` re-reads this
+    /// file every few seconds while the node runs, and "create a default one" is precisely the
+    /// wrong answer there: a file that has momentarily gone (an editor writing through a temp
+    /// file, a half-finished copy) would be replaced by defaults, which on this file means
+    /// silently turning every child back on.
+    pub fn read(path: &Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let cfg: Config = toml::from_str(&text)
+            .with_context(|| format!("parsing {}", path.display()))?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
     /// Load `config.toml`, writing a fully-commented default file if it does not exist yet.
     pub fn load_or_create(path: &Path) -> Result<Self> {
         if path.exists() {
-            let text = std::fs::read_to_string(path)
-                .with_context(|| format!("reading {}", path.display()))?;
-            let cfg: Config = toml::from_str(&text)
-                .with_context(|| format!("parsing {}", path.display()))?;
-            cfg.validate()?;
-            Ok(cfg)
+            Self::read(path)
         } else {
             let cfg = Config::default();
             cfg.write(path)?;

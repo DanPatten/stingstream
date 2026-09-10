@@ -5,6 +5,7 @@ import { View } from "react-native";
 import { FocusTarget } from "@/components/settings/FocusTarget";
 import { SettingsShell } from "@/components/settings/SettingsShell";
 import { LibrarySection } from "@/components/stingstream/arr/LibrarySection";
+import { DownloadingSection } from "@/components/stingstream/settings/DownloadingSection";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { SegmentedControlBar } from "@/components/stingstream/shared/SegmentedControl";
@@ -54,6 +55,17 @@ export default function ArrLibraryPage() {
             />
           </View>
           <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
+            {/*
+              Above the list, and above the segmented control's two halves,
+              because it governs both of them: with downloading off there is no
+              list to show and the page below is a sentence explaining that. It
+              is also where the Requests notice sends an administrator, so it
+              has to be the first thing on the screen rather than something to
+              scroll for.
+            */}
+            <FocusTarget id='downloading'>
+              <DownloadingSection />
+            </FocusTarget>
             {/*
             Keyed on `kind` so switching halves remounts rather than carrying
             the other half's open Add form and expanded row across — the two

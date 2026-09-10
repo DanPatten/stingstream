@@ -1796,7 +1796,7 @@
     "trusted_off": "{{name}} is no longer trusted",
     "unavailable_title": "Requests are not set up on this server.",
     "unavailable_detail": "Ask an administrator to turn requests on for this node.",
-    "unavailable_detail_admin": "Downloading is not turned on for this server, so there is nothing to ask."
+    "unavailable_detail_admin": "Downloading is turned off for this server. Turn it on to ask for things."
   },
   "tv": {
     "now_playing": "Now playing",
@@ -1937,7 +1937,7 @@
     "tab_movies": "Movies",
     "tab_series": "Series",
     "not_set_up_title": "Downloading is not set up on this server.",
-    "not_set_up_detail": "An administrator can enable it in Server settings."
+    "not_set_up_detail": "Turn it on above, and this fills in once it has started."
   },
   "transfers": {
     "action_done": "Done",
@@ -2144,6 +2144,23 @@
     "torrent_listen_port_title": "Listen port",
     "torrent_local_peer_discovery_title": "Local peer discovery",
     "usenet_engine_group_title": "Usenet engine"
+  },
+  "downloading": {
+    "title": "Downloading",
+    "detail": "Whether this server goes and gets things it does not have yet.",
+    "films_title": "Films",
+    "films_detail": "Search for and fetch films.",
+    "series_title": "Series",
+    "series_detail": "Search for and fetch series, episode by episode.",
+    "usenet_title": "Usenet",
+    "usenet_detail": "Fetch over usenet as well as over BitTorrent.",
+    "state_running": "Running",
+    "state_starting": "Starting",
+    "state_failed": "Not running",
+    "turned_on": "Turned on. It takes a few seconds to start.",
+    "turned_off": "Turned off.",
+    "unmanaged_title": "This server does not manage downloading.",
+    "unmanaged_detail": "It was started on its own rather than by StingStream, so there is nothing here to switch."
   },
   "server_status": {
     "available_streams_field": "Available streams",

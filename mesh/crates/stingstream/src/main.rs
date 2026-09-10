@@ -90,7 +90,7 @@ struct Cli {
 
     /// **Development only.** Proxy `/` to a running Metro dev server (`bunx expo start --web
     /// --port 8081` in apps/stingstream) instead of serving a built bundle, so an edit to a
-    /// component is on screen in seconds — hot reload included.
+    /// component is on screen in seconds â€” hot reload included.
     ///
     /// Overrides `gateway.web_dev_server`, which is honoured only in `--dev`. Naming it here works
     /// in either mode, because typing it is an explicit choice. Every other route the gateway
@@ -311,9 +311,24 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
         let node = node.clone();
         let layout = layout.clone();
         let rx = shutdown_rx.clone();
-        Some(tokio::spawn(
-            async move { supervisor::run(defs, node, layout, rx).await },
-        ))
+        // Shared with the reconciler below, which needs to know which children have a supervision
+        // loop and needs a way to end one.
+        let running = supervisor::Running::new();
+
+        // Downloading can be turned on and off while the node runs (`supervisor::downloading`).
+        // Started even when every one of its children is currently on: the point of it is that
+        // `config.toml` can change under a running node, in either direction.
+        tokio::spawn(supervisor::downloading::reconcile_loop(
+            layout.clone(),
+            node.clone(),
+            mode.clone(),
+            running.clone(),
+            shutdown_rx.clone(),
+        ));
+
+        Some(tokio::spawn(async move {
+            supervisor::run(defs, node, layout, running, rx).await
+        }))
     };
 
     // The mesh, in this process, before the gateway binds: /stream/* and /stingstream/mesh/* are
@@ -574,13 +589,13 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
 
     // Whether a browser can reach this node over HTTPS. A report, not a loop: there is no
     // coordinator to register with and no ACME to run any more (Part 5), so the whole answer is
-    // "is TLS on, and is there a certificate in `tls/`?" — which is decided here, once, and
+    // "is TLS on, and is there a certificate in `tls/`?" â€” which is decided here, once, and
     // refreshed by the certificate store when a file appears.
     if config.gateway.tls {
         let info = certs.info();
         if info.is_none() {
             tracing::info!(
-                "HTTPS is on but {}/tls holds no certificate, so this node is serving plain HTTP.                  Put a certificate there, or front the node with a tunnel — see docs/SIDEDOOR.md",
+                "HTTPS is on but {}/tls holds no certificate, so this node is serving plain HTTP.                  Put a certificate there, or front the node with a tunnel â€” see docs/SIDEDOOR.md",
                 data_dir.display()
             );
         }
@@ -778,12 +793,12 @@ fn build_runtime(
 /// What serves the app at `/`: a dev server, a built bundle, or nothing.
 ///
 /// A **dev server** wins when there is one, because asking for it is unambiguous. It is honoured
-/// only in `--dev` or when `--web-dev-server` named it on the command line — an installed server
+/// only in `--dev` or when `--web-dev-server` named it on the command line â€” an installed server
 /// proxying its front page to a laptop somewhere because of a stale `config.toml` is not a mistake
 /// worth leaving available.
 ///
 /// Otherwise `gateway.web_dist` (or `--web-dist`) wins, and failing that the conventional place
-/// for the mode: `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` — which
+/// for the mode: `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` â€” which
 /// is exactly where `bunx expo export --platform web` puts it, so a developer who has built the
 /// app once gets it served with no configuration at all.
 fn resolve_web_dist(config: &Config, mode: &Mode, dev_server_named: bool) -> gateway::WebSource {
