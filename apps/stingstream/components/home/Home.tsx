@@ -11,7 +11,7 @@ import {
   getUserViewsApi,
 } from "@jellyfin/sdk/lib/utils/api";
 import { type QueryFunction, useQuery } from "@tanstack/react-query";
-import { useSegments } from "expo-router";
+import { useFocusEffect, useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -115,19 +115,54 @@ const HomeMobile = () => {
   }, []);
 
   const segments = useSegments();
+
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({
+      y: Platform.isTV ? -152 : -100,
+      animated: true,
+    });
+  }, []);
+
+  /**
+   * Set when "go to the top of Home" arrives while Home is not the screen on
+   * show, and consumed the moment it becomes one.
+   *
+   * Dan: *"clicking home doesn't seem to always work, should take you to the
+   * main dashboard state."* Every emitter fires **before** it navigates —
+   * `WebShellLayout.onSelect`, the brand mark, and the phone tab bar's
+   * `handleTabChange` and `tabPress` all do — so at the instant this listener
+   * runs, `segments` still names the tab being left. The guard below therefore
+   * failed for the one case that matters, pressing Home from somewhere else,
+   * and worked only when you were already on Home. Home kept whatever scroll
+   * offset it had, which on a server with a full library is halfway down a row
+   * of posters and reads as the click having done nothing.
+   *
+   * Deferring to focus rather than simply dropping the guard, because a screen
+   * that is not on show is `display: none` on web, and scrolling an element
+   * with no layout is a no-op the browser silently discards.
+   */
+  const scrollToTopOnFocus = useRef(false);
+
   useEffect(() => {
     const unsubscribe = eventBus.on("scrollToTop", () => {
-      if ((segments as string[])[2] === "(home)")
-        scrollRef.current?.scrollTo({
-          y: Platform.isTV ? -152 : -100,
-          animated: true,
-        });
+      // Every emitter is Home's own, so there is nothing here to filter *for* —
+      // only a question of whether it can be acted on yet.
+      if ((segments as string[])[2] === "(home)") scrollToTop();
+      else scrollToTopOnFocus.current = true;
     });
 
     return () => {
       unsubscribe();
     };
-  }, [segments]);
+  }, [segments, scrollToTop]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!scrollToTopOnFocus.current) return;
+      scrollToTopOnFocus.current = false;
+      scrollToTop();
+    }, [scrollToTop]),
+  );
 
   const {
     data,
