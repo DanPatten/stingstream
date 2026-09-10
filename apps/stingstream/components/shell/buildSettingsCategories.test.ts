@@ -39,25 +39,47 @@ describe("buildSettingsCategories", () => {
     ]);
   });
 
-  test("an administrator gets all three groups, administration last", () => {
-    expect(groupKeys(admin)).toEqual(["you", "servers", "administration"]);
+  test("an administrator gets every group, administration last", () => {
+    expect(groupKeys(admin)).toEqual([
+      "you",
+      "servers",
+      "downloading",
+      "administration",
+    ]);
 
     const administration = buildSettingsCategories(admin, t).find(
       (group) => group.key === "administration",
     );
     expect(administration?.categories.map((item) => item.key)).toEqual([
       "users",
-      "services",
-      "arr_library",
       "storage",
-      "quality",
-      "files",
       "transcoding",
       "network",
       "notifications",
       "plugins",
       "diagnostics",
     ]);
+  });
+
+  test("getting hold of something is its own group, not four rows of admin", () => {
+    // The four that answer "how does something I do not have get here" left
+    // `administration` together: that group is the machine, this one is a
+    // subject somebody sits down to configure. Films & series leads because it
+    // is the only one that can be switched off, which makes it the answer to
+    // "why is none of the rest of this doing anything".
+    const downloading = buildSettingsCategories(admin, t).find(
+      (group) => group.key === "downloading",
+    );
+    expect(downloading?.categories.map((item) => item.key)).toEqual([
+      "arr_library",
+      "services",
+      "quality",
+      "files",
+    ]);
+  });
+
+  test("the downloading group is absent for a member, not empty", () => {
+    expect(groupKeys(member)).not.toContain("downloading");
   });
 
   test("the administration group is absent for a member, not empty", () => {

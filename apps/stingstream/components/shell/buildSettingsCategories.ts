@@ -63,7 +63,7 @@ export interface SettingsCategory {
 }
 
 export interface SettingsCategoryGroup {
-  key: "you" | "servers" | "administration";
+  key: "you" | "servers" | "downloading" | "administration";
   title: string;
   testID: string;
   categories: SettingsCategory[];
@@ -121,6 +121,33 @@ export function buildSettingsCategories(
     category("servers", "/settings/servers", "servers", "server", t),
   ];
 
+  // Everything about getting hold of something the server does not have yet:
+  // what it is fetching, where it looks, how good a copy has to be, and what
+  // the files are called when they land.
+  //
+  // Its own group rather than four more rows under `administration`, which is
+  // where all four used to sit. That group is the machine — accounts, the
+  // network, transcoding, the log — and these four are a *subject*: they are
+  // read together, changed together, and they are the half of the product a
+  // person actually came to configure. Buried among eleven server-maintenance
+  // rows, the one that says whether downloading is even turned on read as
+  // maintenance too, which is how somebody following "Requests are not set up"
+  // arrived at a page that only told them the same thing again.
+  //
+  // Elevated throughout, so a member is offered none of it — same rule as
+  // `administration`, and the routes still carry `RequiresAdmin` because a URL
+  // can be pasted.
+  const downloading: SettingsCategory[] = isAdmin
+    ? [
+        // First, and deliberately: it is the only one of the four that can be
+        // *off*, and the answer to "why is none of this doing anything".
+        category("arr_library", "/settings/library", "library", "server", t),
+        category("services", "/settings/services", "services", "server", t),
+        category("quality", "/settings/quality", "quality", "server", t),
+        category("files", "/settings/files", "files", "server", t),
+      ]
+    : [];
+
   // The whole group, not category by category: every one of these is elevated,
   // so for a member there is nothing left in it to put a heading above.
   const administration: SettingsCategory[] = isAdmin
@@ -129,14 +156,7 @@ export function buildSettingsCategories(
         // It used to be a section of its own in the sidebar, and before that a
         // tab behind a screen about transcode throttling.
         category("users", "/settings/users", "users", "server", t),
-        category("services", "/settings/services", "services", "server", t),
-        // The arr library: adding a film to Radarr directly is editing the
-        // machinery rather than asking it for something, which is why it is
-        // here and the rest of the old Manage tab is Requests -> Activity.
-        category("arr_library", "/settings/library", "library", "server", t),
         category("storage", "/settings/storage", "storage", "server", t),
-        category("quality", "/settings/quality", "quality", "server", t),
-        category("files", "/settings/files", "files", "server", t),
         category(
           "transcoding",
           "/settings/transcoding",
@@ -175,6 +195,12 @@ export function buildSettingsCategories(
       title: t("home.settings.nav.group_servers"),
       testID: "settings-group-servers",
       categories: servers,
+    },
+    {
+      key: "downloading" as const,
+      title: t("home.settings.nav.group_downloading"),
+      testID: "settings-group-downloading",
+      categories: downloading,
     },
     {
       key: "administration" as const,
