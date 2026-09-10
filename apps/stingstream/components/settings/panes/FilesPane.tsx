@@ -19,7 +19,6 @@ export const FilesPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.files")}
-      scope='server'
       detail={t("home.settings.nav.files_hint")}
     >
       <QueryState

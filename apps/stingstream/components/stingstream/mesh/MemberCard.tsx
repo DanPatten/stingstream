@@ -5,12 +5,7 @@ import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { motion, radius, rgba, tokens } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
-import {
-  initials,
-  type MemberRow,
-  pathCategory,
-  rttLabel,
-} from "@/lib/stingstream/mesh";
+import { initials, type MemberRow } from "@/lib/stingstream/mesh";
 
 export interface MemberCardProps {
   row: MemberRow;
@@ -39,28 +34,22 @@ export function MemberCard({
 }: MemberCardProps) {
   const { t } = useTranslation();
   const { accent } = useTheme();
-  const path = pathCategory(row.path);
-  const rtt = rttLabel(row.rttMs);
-
+  // **Removed, offline or online — and nothing about how the bytes get there.** It used to report
+  // "Direct" or "Relayed" with a round-trip time beside it, under a paragraph explaining what a
+  // relay was. Dan: *"The direct vs relayed shit seems completely unnecessary to show or
+  // explain"*. It is a fact about the transport, it changes on its own, and there is nothing the
+  // reader can do about it — `Logs & status` is where a node's plumbing belongs.
   const online = row.online && !row.revoked;
   const tone: PillTone = row.revoked
     ? "danger"
-    : !row.online
-      ? "neutral"
-      : path === "direct"
-        ? "success"
-        : path === "relayed"
-          ? "info"
-          : "neutral";
+    : online
+      ? "success"
+      : "neutral";
   const label = row.revoked
     ? t("sharing.member_removed")
-    : !row.online
-      ? t("sharing.member_offline")
-      : path === "direct"
-        ? t("sharing.member_path_direct")
-        : path === "relayed"
-          ? t("sharing.member_path_relayed")
-          : t("sharing.member_online");
+    : online
+      ? t("sharing.member_online")
+      : t("sharing.member_offline");
 
   return (
     <View
@@ -136,11 +125,6 @@ export function MemberCard({
           }}
         >
           <Pill size='sm' tone={tone} label={label} />
-          {rtt ? (
-            <Text variant='caption' tone='secondary'>
-              {rtt}
-            </Text>
-          ) : null}
         </View>
       </View>
 

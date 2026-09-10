@@ -1941,6 +1941,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Users/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which account owns this server.
+         * @description <b>The account that claimed this server at first run, and it never moves.</b> Dan: <em>"cannot
+         *                 be changed and is the first admin setup, no transfer support and they are always an
+         *                 admin"</em>. There is deliberately no setter here — not an administrator-only one either,
+         *                 because the thing that makes this useful is that no request can change it.
+         *
+         *     Readable by any signed-in account rather than administrators only. Who owns the server is
+         *                 not a secret — the name is in Jellyfin's public user list — and the alternative is a screen
+         *                 that has to be an administrator's before it can say whose server this is.
+         *     A node set up before the owner was recorded answers with its first account and writes that
+         *                 down as it goes, so the answer stops being a guess after the first time it is asked.
+         *                 M:StingStream.Core.FirstRun.SetupGate.ChooseOwner(System.String,System.Boolean,System.String) is the rule.
+         */
+        get: operations["Users_GetOwner"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/watch": {
         parameters: {
             query?: never;
@@ -6016,6 +6046,11 @@ export interface components {
             Name?: string;
             /** @description Gets the endpoint address. */
             EndpointAddress?: string | null;
+        };
+        /** @description Who owns this server. */
+        ServerOwner: {
+            /** @description The owner's Jellyfin user id in `N` format, or empty when there is none. */
+            UserId?: string;
         };
         /** @description Server restarting down message. */
         ServerRestartingMessage: {
@@ -13577,6 +13612,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Users_GetOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The owner's id, or an empty one on a server that somehow has no accounts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerOwner"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {

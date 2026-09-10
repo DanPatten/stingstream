@@ -36,9 +36,17 @@ use serde::{Deserialize, Serialize};
 
 pub mod addrs;
 pub mod certs;
+/// The Cloudflare API calls that create a named tunnel. See [`tunnel`].
+pub mod cloudflare;
+/// Getting the `cloudflared` binary onto this machine, so setting a tunnel up is one press even on
+/// a node that has never seen one.
+pub mod cloudflared;
 /// UPnP / NAT-PMP / PCP. Still here because [`addrs`] uses it to learn this node's public IP,
 /// which the Node status screen shows whether or not anybody is forwarding a port.
 pub mod portmap;
+/// Running `cloudflared` on this node's behalf, so a browser can reach it without anybody
+/// forwarding a port. The reconciler that decides what should be running lives here.
+pub mod tunnel;
 
 use certs::CertInfo;
 

@@ -25,8 +25,8 @@ import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { LibraryPicker } from "../shared/LibraryPicker";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
-import { QueryState } from "../shared/ScreenState";
-import { GroupMembers } from "./GroupMembers";
+import { EmptyState, QueryState } from "../shared/ScreenState";
+import { GroupMembers, RotateSecret } from "./GroupMembers";
 import { InviteCard } from "./InviteCard";
 
 /**
@@ -141,6 +141,31 @@ export function GroupDetailScreen({ group }: { group: string }) {
     );
   }
 
+  // An id that is not one of this server's links.
+  //
+  // `[group]` is the only dynamic segment under `settings/servers`, so it
+  // catches every path that does not match a real file — and when
+  // `settings/servers/create` was deleted, `/settings/servers/create` started
+  // resolving *here*, rendering a management screen for a group called
+  // "create": "Unnamed", nought members, and a live "Rotate secret" button.
+  // Confirmed live before this guard existed.
+  //
+  // A stale bookmark to a link somebody has since left does exactly the same
+  // thing, so this is worth having on its own account. Gated on the query
+  // having actually answered: `undefined` while it is in flight is "not known
+  // yet", not "not there", and the 503 above is neither.
+  if (groups.isSuccess && !info) {
+    return (
+      <PageContainer width='settings'>
+        <EmptyState
+          icon='servers'
+          title={t("sharing.group_not_found_title")}
+          detail={t("sharing.group_not_found_detail")}
+        />
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer width='settings'>
       <QueryState
@@ -191,15 +216,9 @@ export function GroupDetailScreen({ group }: { group: string }) {
 
         {isAdmin && (
           <>
-            <View style={{ height: 16 }} />
-            <Button
-              testID='sharing-invite'
-              variant='primary'
-              icon='invite'
-              onPress={() => setShowInvite(true)}
-            >
-              {t("sharing.invite_button")}
-            </Button>
+            {/* The button moved into the Members heading, where it belongs -- inviting a server
+                adds a member. A full-width primary bar between the libraries and the roster split
+                the page in half and belonged to neither side of it. */}
             <Dialog
               visible={showInvite}
               onClose={() => setShowInvite(false)}
@@ -219,6 +238,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
           groupName={groupName}
           peers={peers.data}
           manageable={manageable}
+          onInvite={isAdmin ? () => setShowInvite(true) : undefined}
         />
 
         <View style={{ height: 20 }} />
@@ -250,6 +270,12 @@ export function GroupDetailScreen({ group }: { group: string }) {
               >
                 {t("sharing.unlink_button")}
               </Button>
+
+              {/* Beside Unlink, because it is the same kind of act: rare, slow, and impossible to
+                  undo. It was a red bar in the middle of the member list. */}
+              {manageable ? (
+                <RotateSecret group={group} groupName={groupName} />
+              ) : null}
             </View>
           )}
         </Disclosure>

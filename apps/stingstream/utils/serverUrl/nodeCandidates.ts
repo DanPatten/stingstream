@@ -9,8 +9,7 @@
  * server where the gateway is not on the default port).
  */
 
-/** The StingStream gateway's default port. */
-const NODE_GATEWAY_PORT = 8790;
+import { NODE_GATEWAY_PORT } from "@/constants/Networking";
 
 /**
  * Expand one discovered server address into the base URLs worth probing, in

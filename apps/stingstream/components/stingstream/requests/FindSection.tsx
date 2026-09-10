@@ -24,6 +24,7 @@ import { RequestCardSkeletonList } from "./RequestCard";
 import { RequestResultRow } from "./RequestResultRow";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
+import { REQUESTS_SETUP_ROUTE } from "./RequestsNotSetUp";
 
 /**
  * All, or one kind. The node takes `kind` on `/requests/search` and has since M6; nothing in the
@@ -140,7 +141,7 @@ export function FindSection({ term = "" }: { term?: string }) {
               ? {
                   label: t("home.settings.sections.arr_library"),
                   icon: "settings",
-                  onPress: () => router.push("/settings/library"),
+                  onPress: () => router.push(REQUESTS_SETUP_ROUTE),
                 }
               : undefined
           }

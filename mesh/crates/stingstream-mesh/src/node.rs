@@ -80,6 +80,9 @@ pub struct MeshNode {
     pub watch: crate::watch::Registry,
     /// Measured clock offset and round trip to each peer, per group, for the watch bridge.
     watch_clocks: Mutex<HashMap<(GroupId, String), crate::watch::Clock>>,
+    /// The live half of the Domains page: what the supervisor last observed about this node's own
+    /// front door, and the Cloudflare token it has not yet spent. See [`crate::sharing::DomainsState`].
+    pub domains: crate::sharing::DomainsState,
     /// This node, as an `Arc`, for the handful of `&self` methods that have to reach one.
     ///
     /// Three things here need `Arc<Self>`: `start_group` (it hands a clone to the gossip loop),
@@ -202,6 +205,7 @@ impl MeshNode {
             watch,
             watch_clocks: Mutex::new(HashMap::new()),
             dht: dht_state,
+            domains: crate::sharing::DomainsState::default(),
             me: std::sync::OnceLock::new(),
         });
         let _ = node.me.set(Arc::downgrade(&node));
@@ -404,6 +408,63 @@ impl MeshNode {
 
 
 
+
+    /// The tunnel this node should be running, as stored.
+    ///
+    /// Desired state only. Whether it is actually up is [`crate::sharing::DomainsState::report`],
+    /// which lives in memory because it is a fact about a running process.
+    pub fn tunnel_settings(&self) -> Result<crate::sharing::TunnelSettings> {
+        let read = |key: &str| -> Result<Option<String>> {
+            Ok(self.db.meta(key)?.filter(|v| !v.trim().is_empty()))
+        };
+        Ok(crate::sharing::TunnelSettings {
+            kind: crate::sharing::TunnelKind::parse(
+                read(crate::sharing::TUNNEL_KIND_KEY)?.as_deref().unwrap_or(""),
+            ),
+            hostname: read(crate::sharing::TUNNEL_HOSTNAME_KEY)?,
+            id: read(crate::sharing::TUNNEL_ID_KEY)?,
+            name: read(crate::sharing::TUNNEL_NAME_KEY)?,
+        })
+    }
+
+    /// Store what the tunnel should be, and hand back what was stored.
+    ///
+    /// Every field written every time, the empty string standing in for absent, for the same
+    /// reason [`Self::set_sharing_settings`] does it: `meta` has no delete, and a partial write
+    /// would leave the hostname of a tunnel somebody just removed lying around to be picked up by
+    /// the next reconcile.
+    pub fn set_tunnel_settings(
+        &self,
+        next: crate::sharing::TunnelSettings,
+    ) -> Result<crate::sharing::TunnelSettings> {
+        let hostname = match (next.kind, next.hostname.as_deref()) {
+            // A named tunnel is the only kind with a hostname to validate. A quick tunnel's name
+            // is assigned by Cloudflare and written back here by the supervisor, so it arrives
+            // already normalised and must not be re-judged.
+            (crate::sharing::TunnelKind::Named, Some(raw)) => {
+                Some(crate::sharing::normalize_tunnel_hostname(raw)?)
+            }
+            (crate::sharing::TunnelKind::Named, None) => {
+                bail!("a named tunnel needs a hostname")
+            }
+            (_, other) => other.map(str::to_string),
+        };
+
+        let stored = crate::sharing::TunnelSettings {
+            kind: next.kind,
+            hostname,
+            id: next.id,
+            name: next.name,
+        };
+        let write = |key: &str, value: Option<&str>| -> Result<()> {
+            self.db.set_meta(key, value.unwrap_or(""))
+        };
+        write(crate::sharing::TUNNEL_KIND_KEY, Some(stored.kind.as_str()))?;
+        write(crate::sharing::TUNNEL_HOSTNAME_KEY, stored.hostname.as_deref())?;
+        write(crate::sharing::TUNNEL_ID_KEY, stored.id.as_deref())?;
+        write(crate::sharing::TUNNEL_NAME_KEY, stored.name.as_deref())?;
+        Ok(stored)
+    }
 
     /// Join a group from an invite code.
     ///

@@ -45,7 +45,7 @@ export const UsersPane: React.FC<{ initialSection?: string }> = ({
   );
 
   return (
-    <SettingsPane title={t("home.settings.nav.users")} scope='server'>
+    <SettingsPane title={t("home.settings.nav.users")}>
       <View testID='settings-users-tabs' style={{ marginBottom: space["4"] }}>
         <TabsBar
           segments={[

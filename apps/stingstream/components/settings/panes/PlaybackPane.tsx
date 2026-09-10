@@ -57,7 +57,7 @@ export const PlaybackPane: React.FC<{ initialSection?: string }> = ({
   );
 
   return (
-    <SettingsPane title={t("home.settings.nav.playback")} scope='device'>
+    <SettingsPane title={t("home.settings.nav.playback")}>
       <View
         testID='settings-playback-tabs'
         style={{ marginBottom: space["4"] }}

@@ -34,6 +34,7 @@ cadence meant knowing both existed, and nothing would have failed if only one ha
 | `constants/TVTypography.ts` | TV type scale and the `useScaledTVTypography` hook |
 | `constants/TVPosterSizes.ts` | TV poster size keys |
 | `constants/Playback.ts` | Playback policy every layer reads: the progress report cadence shared by the JS and native players, and the `BITRATES` ladder |
+| `constants/Networking.ts` | How the app addresses a node: the gateway's default port, shared by the probe candidates and the setup instructions that name it |
 
 Add a new domain file when a group grows its own identity (playback, downloads,
 networking). Do not let `Values.ts` become the place where everything lands.

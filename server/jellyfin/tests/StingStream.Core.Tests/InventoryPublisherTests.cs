@@ -465,6 +465,13 @@ public class InventoryPublisherTests
             string group, string itemKey, string node, int index, CancellationToken cancellationToken)
             => throw Unused();
 
+        public Task<MeshDomains> DomainsAsync(CancellationToken cancellationToken) => throw Unused();
+
+        public Task<MeshDomains> SetTunnelAsync(MeshTunnelRequest request, CancellationToken cancellationToken)
+            => throw Unused();
+
+        public Task<MeshDomains> DeleteTunnelAsync(CancellationToken cancellationToken) => throw Unused();
+
         private static NotSupportedException Unused()
             => new("The inventory publisher does not call this.");
     }

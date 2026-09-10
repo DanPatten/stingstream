@@ -1,3 +1,4 @@
+import { getNodeBaseUrl } from "@stingstream/api-client";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,10 +10,15 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { space } from "@/constants/theme";
-import useRouter from "@/hooks/useAppRouter";
+import { IDENTITY_KDF_ITERATIONS } from "@/constants/Values";
 import { useMySignInMethod } from "@/lib/stingstream/identity";
+import {
+  type SignInMethod,
+  setLinkedPassword,
+} from "@/lib/stingstream/identityApi";
 import { useChangeMyPassword } from "@/lib/stingstream/serverUsers";
-import { useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import { deriveVerifier, newSalt } from "@/utils/identity/verifier";
 import { FocusTarget } from "../FocusTarget";
 import { LinkDevice } from "../LinkDevice";
 import { PasskeysSection } from "../PasskeysSection";
@@ -34,7 +40,7 @@ export const ProfilePane: React.FC = () => {
   const { t } = useTranslation();
 
   return (
-    <SettingsPane title={t("home.settings.nav.profile")} scope='account'>
+    <SettingsPane title={t("home.settings.nav.profile")}>
       <FocusTarget id={["display-name", "avatar"]}>
         <ProfileHeader />
       </FocusTarget>
@@ -65,17 +71,21 @@ export const ProfilePane: React.FC = () => {
 };
 
 /**
- * Changing your own password — or, for an account that came from another
- * server, saying plainly that there is nothing here to change.
+ * Changing your own password, in whichever of the two ways this account has one.
  *
- * A linked account signs in with `PBKDF2(password)` against a salt this server
- * holds; the password itself belongs to the server the account came from. A
- * form here would either fail or, worse, set a second password that the sign-in
- * path never consults. See `useMySignInMethod`.
+ * An account that came from another server signs in with `PBKDF2(password)`
+ * against a salt this server holds, so Jellyfin's own change-password would set
+ * a value the sign-in path never consults. It gets `LinkedPasswordSection`
+ * instead, which derives the same way a sign-in does and posts the result to
+ * `/identity/password`. See `useMySignInMethod` and `docs/INVITES.md` §11c.
+ *
+ * That branch used to be a row pointing at Settings → Servers, where "the
+ * server I run" carried the field. Dan had that block removed as confusing, and
+ * a password is a thing about *you* rather than about a machine — so it lives
+ * here, next to the other one, and there is nowhere left to be sent.
  */
 const PasswordSection: React.FC = () => {
   const { t } = useTranslation();
-  const router = useRouter();
   const user = useAtomValue(userAtom);
   const method = useMySignInMethod();
   const change = useChangeMyPassword();
@@ -86,16 +96,7 @@ const PasswordSection: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   if (method.data?.derived) {
-    return (
-      <ListGroup title={t("home.settings.profile.password_title")}>
-        <ListItem
-          title={t("home.settings.profile.password_elsewhere")}
-          subtitle={t("home.settings.profile.password_elsewhere_detail")}
-          showArrow
-          onPress={() => router.navigate("/settings/servers" as never)}
-        />
-      </ListGroup>
-    );
+    return <LinkedPasswordSection salt={method.data} />;
   }
 
   const submit = async () => {
@@ -184,6 +185,110 @@ const PasswordSection: React.FC = () => {
           variant='primary'
           disabled={!filled}
           loading={change.isPending}
+          onPress={submit}
+        >
+          {t("home.settings.profile.password_save")}
+        </Button>
+      </View>
+    </View>
+  );
+};
+
+/**
+ * The password for an account that arrived from another server.
+ *
+ * One field, not three. There is no current password to confirm — this server has never held one
+ * and cannot check it — and no confirmation field, because what is typed is checked against the
+ * server the account came from every time it is used there: get it wrong here and the sign-in
+ * simply fails, which is the same outcome a mismatched confirmation would produce with more
+ * typing.
+ *
+ * What leaves the device is `PBKDF2(password)` and never the password, derived exactly as a
+ * sign-in derives it. `docs/INVITES.md` §11c.
+ */
+const LinkedPasswordSection: React.FC<{ salt: SignInMethod }> = () => {
+  const { t } = useTranslation();
+  const api = useAtomValue(apiAtom);
+  const nodeOrigin = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
+
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    if (!nodeOrigin || password.length < MIN_PASSWORD_LENGTH) {
+      setError(t("home.settings.profile.password_too_short"));
+      return;
+    }
+    setSaving(true);
+    try {
+      // A fresh salt every time, so a stolen old verifier is worth nothing after a change.
+      const salt = await newSalt();
+      const verifier = await deriveVerifier(
+        password,
+        salt,
+        IDENTITY_KDF_ITERATIONS,
+      );
+      await setLinkedPassword(
+        nodeOrigin,
+        { salt, verifier, iterations: IDENTITY_KDF_ITERATIONS },
+        api?.accessToken,
+      );
+      setPassword("");
+      toast.success(t("home.settings.profile.password_changed"));
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : t("home.settings.profile.password_refused"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View>
+      <Text
+        variant='micro'
+        weight='semibold'
+        tone='tertiary'
+        style={{
+          marginLeft: 16,
+          marginBottom: 6,
+          textTransform: "uppercase",
+          letterSpacing: 0.6,
+        }}
+      >
+        {t("home.settings.profile.password_title")}
+      </Text>
+      <Text
+        variant='caption'
+        tone='secondary'
+        style={{ marginLeft: 16, marginBottom: 8 }}
+      >
+        {t("home.settings.profile.password_linked_detail")}
+      </Text>
+
+      <View style={{ gap: space["2"] }}>
+        <Input
+          testID='profile-linked-password'
+          secureTextEntry
+          autoComplete='new-password'
+          textContentType='newPassword'
+          value={password}
+          onChangeText={setPassword}
+          onSubmitEditing={submit}
+          placeholder={t("home.settings.profile.password_new")}
+          accessibilityLabel={t("home.settings.profile.password_new")}
+          error={error}
+        />
+        <Button
+          testID='profile-linked-password-save'
+          variant='primary'
+          disabled={password.length === 0}
+          loading={saving}
           onPress={submit}
         >
           {t("home.settings.profile.password_save")}

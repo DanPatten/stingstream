@@ -50,13 +50,50 @@ The shape of it, so the rest of this file makes sense:
 
 Nodes are started, stopped and refreshed with `tools/ui-node.ps1`, and **an instance is identified
 by its data directory, not its port** — `-Stop` and `-Fresh` only touch processes whose command line
-names that `-DataDir`. Two instances therefore need two of everything: `-DataDir`, `-PrivateCopy`,
-`-WebDist` and `-Port`. Before starting or stopping anything, list what is already running, because
-other sessions run nodes here too:
+names that `-DataDir`, so every command typed against an instance must carry the same absolute
+`-DataDir` the start command did.
+
+## Two nodes, pinned. Never a third.
+
+**The two local instances already exist. Do not create another one** — not for a screenshot, not to
+check one thing, not a private copy of your own, not "just this once". There are two, they stay up
+between sessions, and everything is done on them:
+
+| | URL | `-DataDir` | `-PrivateCopy` | `-WebDist` |
+|---|---|---|---|---|
+| **node 1** | `http://127.0.0.1:8801` | `.local\e2e-A\data` | `.local\e2e-A\bin` | `.local\ui-loop\web-dist` |
+| **node 2** | `http://127.0.0.1:8802` | `.local\e2e-B\data` | `.local\e2e-B\bin` | `.local\ui-loop\web-dist` |
+
+Paths are shown relative to the repository root; pass them **absolute**
+(`E:\Dan\Documents\Repos\StingStream\...`), because a relative `-DataDir` resolves against the
+shell's current directory and a `-Stop` that misses prints "stopped" having stopped nothing. Both
+nodes share one `-WebDist`, so a single `bunx expo export --platform web --output-dir
+.local\ui-loop\web-dist` refreshes both.
+
+- **8801 and 8802 are the only gateway ports.** One node's worth of work goes to node 1; anything
+  needing a second party — sharing, invites, federation, watch-together — uses node 2 as well.
+  Nothing needs a third.
+- **Always pass `-Port` and `-DataDir` explicitly.** `tools/ui-node.ps1` still defaults to
+  `-Port 8795` and its own `.local\ui-loop\data`, which is *not* the pinned pair — a bare invocation
+  creates exactly the stray instance this rule forbids.
+- **Never invent a new data directory.** The ~40 under `.local\ui-loop\` are dead per-task instances
+  from before this rule. They are the mess it exists to stop, not a pattern to copy.
+- **`tools/e2e-*.ps1` are the one exception, and a narrow one.** They build throwaway nodes under
+  `.local\e2e\` because `e2e-m4` and `e2e-m7` genuinely need three. **They must stop those nodes when
+  they finish.** That is already the default — every harness's `finally` calls `Stop-Tools`.
+  `-KeepRunning` is what leaks a node, so **do not pass it**; if you already have, stop the nodes by
+  their data directories before moving on.
+- **A third node is a rule violation, not a colleague's work.** Before starting or stopping anything,
+  list what is up; if anything other than 8801 and 8802 is running, stop it by its `-DataDir` and say
+  so:
 
 ```powershell
 Get-CimInstance Win32_Process | Where-Object Name -eq 'stingstream.exe' | ForEach-Object { $_.CommandLine }
 ```
+
+Dan, 2026-09-10: *"we keep spinning up new local instances, lets stop that and pin 2 ports going
+forward and NOTHING else, no one is allowed to create new instances, tests must use those 2
+instances."*
 
 ## Building
 

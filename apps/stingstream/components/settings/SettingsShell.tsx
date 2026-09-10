@@ -41,8 +41,9 @@ export const SettingsShell: React.FC<
      * Which category this page belongs to, for lighting its row.
      *
      * Passed explicitly rather than derived, because a page can live *inside* a
-     * category without being it — `/settings/servers/create` is Servers. Left
-     * out on the landing page, which is not a category.
+     * category without being it — `/settings/servers/join` is Servers. Left out
+     * on the compact settings list, which is the navigation rather than a page
+     * inside it.
      */
     categoryKey?: string;
   }>

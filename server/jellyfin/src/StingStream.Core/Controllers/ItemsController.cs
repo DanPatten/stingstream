@@ -38,6 +38,8 @@ public sealed class ItemsController : StingStreamControllerBase
     private readonly PlaybackPolicyStore _policies;
     private readonly LibraryStateStore _state;
     private readonly PinService _pins;
+    private readonly LocalSourceFactory _local;
+    private readonly FederatedStore _federated;
 
     public ItemsController(
         ILibraryManager library,
@@ -45,7 +47,9 @@ public sealed class ItemsController : StingStreamControllerBase
         FederatedSourceService sources,
         PlaybackPolicyStore policies,
         LibraryStateStore state,
-        PinService pins)
+        PinService pins,
+        LocalSourceFactory local,
+        FederatedStore federated)
     {
         _library = library;
         _inventory = inventory;
@@ -53,6 +57,8 @@ public sealed class ItemsController : StingStreamControllerBase
         _policies = policies;
         _state = state;
         _pins = pins;
+        _local = local;
+        _federated = federated;
     }
 
     /// <summary>
@@ -96,17 +102,65 @@ public sealed class ItemsController : StingStreamControllerBase
             ? userId
             : CurrentUserId();
         var chosen = PolicyNames.Parse(policy) ?? _policies.Get(forUser).Parsed();
-        var candidates = await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken).ConfigureAwait(false);
+        var candidates = (await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken)
+            .ConfigureAwait(false)).ToList();
+
+        // The copy on this node's own disk is one of the choices, and has to be scored against the
+        // rest rather than assumed to win. Without it a person who holds a film could never see
+        // "This server" in the list at all -- which reads as the local file not being an option,
+        // when it is usually the best one.
+        var self = await _local.SelfAsync(cancellationToken).ConfigureAwait(false);
+        var localCandidate = _local.FromInventory(itemKey, self.Node, self.NodeName);
+        if (localCandidate is not null)
+        {
+            candidates.Add(localCandidate);
+        }
+
         var ranked = SourceScorer.Rank(candidates, chosen);
 
-        var local = _inventory.ByKey(itemKey);
+        // Which Jellyfin media source each holder's pointer resolved to, so the client can join a
+        // row straight onto a MediaSource rather than inferring it from the node id in a URL.
+        var mediaSourceIds = MediaSourceIds(itemKey);
+
         return new ItemSourcesResponse
         {
             ItemKey = itemKey,
             Policy = PolicyNames.Wire(chosen),
-            HeldLocally = local is not null,
-            Sources = ranked.Select(Present).ToList(),
+            HeldLocally = localCandidate is not null,
+            Sources = ranked.Select(s => Present(s, mediaSourceIds)).ToList(),
         };
+    }
+
+    /// <summary>
+    /// Jellyfin's media-source id for each holder of a title, where this node has an item for it.
+    /// </summary>
+    /// <param name="itemKey">The item key.</param>
+    /// <returns>Node id to media-source id, for the holders that have one.</returns>
+    /// <remarks>
+    /// This is what turns "Play from…" into a single request. A client that has a media-source id
+    /// can hand it straight back as PlaybackInfo's <c>MediaSourceId</c>, which filters the response
+    /// to that one source — so an explicit choice cannot be re-ordered away by the scorer on the
+    /// way out. Without it the client has to match rows to sources by parsing the node id out of
+    /// each pointer URL, which cannot express "the local file" at all.
+    /// </remarks>
+    private Dictionary<string, string> MediaSourceIds(string itemKey)
+    {
+        var byNode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pointer in _federated.All())
+        {
+            if (!string.Equals(pointer.ItemKey, itemKey, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(pointer.StrmPath))
+            {
+                continue;
+            }
+
+            if (_library.FindByPath(pointer.StrmPath, false) is { } item)
+            {
+                byNode[pointer.Node] = item.Id.ToString("N", CultureInfo.InvariantCulture);
+            }
+        }
+
+        return byNode;
     }
 
     /// <summary>
@@ -261,10 +315,16 @@ public sealed class ItemsController : StingStreamControllerBase
         return item is null ? null : InventoryService.BuildItemKey(item);
     }
 
-    private static ScoredSourceResponse Present(ScoredSource scored) => new()
+    private static ScoredSourceResponse Present(
+        ScoredSource scored,
+        IReadOnlyDictionary<string, string> mediaSourceIds) => new()
     {
         Node = scored.Candidate.Node,
         NodeName = scored.Candidate.NodeName,
+        IsLocal = scored.Candidate.IsLocal,
+        MediaSourceId = scored.Candidate.IsLocal
+            ? scored.Candidate.MediaSourceId
+            : mediaSourceIds.TryGetValue(scored.Candidate.Node, out var id) ? id : null,
         Group = scored.Candidate.Group,
         Online = scored.Candidate.Online,
         Resolution = scored.Candidate.Resolution,
@@ -322,6 +382,25 @@ public sealed class ScoredSourceResponse
     public string Node { get; set; } = string.Empty;
 
     public string NodeName { get; set; } = string.Empty;
+
+    /// <summary>True when this is the copy on the caller's own server.</summary>
+    /// <remarks>
+    /// A client cannot work this out from <see cref="Node"/> without knowing its own node id, and
+    /// "This server" is the one row in a "Play from…" list that must never be mislabelled.
+    /// </remarks>
+    public bool IsLocal { get; set; }
+
+    /// <summary>
+    /// Jellyfin's media-source id for this holder's copy, or null when this node has no item for it.
+    /// </summary>
+    /// <remarks>
+    /// Pass it back as PlaybackInfo's <c>MediaSourceId</c> to play this exact copy: Jellyfin filters
+    /// the response down to the source that was asked for, so a deliberate choice cannot be
+    /// re-ordered away by the scorer. Null means this node never materialized a pointer for that
+    /// holder — the source is still real and still playable through <see cref="StreamUrl"/>, but
+    /// there is no local item to name.
+    /// </remarks>
+    public string? MediaSourceId { get; set; }
 
     public string Group { get; set; } = string.Empty;
 

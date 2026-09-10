@@ -3,9 +3,7 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
-import { Text } from "@/components/common/Text";
 import {
   useMeshSharingSettings,
   useSetMeshSharingSettings,
@@ -20,7 +18,7 @@ import {
 } from "./SharingAddress";
 
 /**
- * This server's own address, under **Advanced** on the Sharing screen.
+ * The address people reach this server at.
  *
  * There used to be two fields here: this one, and the address of a *sharing server* that introduced
  * members to each other. That second one is gone with the coordinator — a group needs nothing
@@ -29,17 +27,22 @@ import {
  *
  * What is left is the only address that was ever really a setting, and it is optional. Without one,
  * this server is reachable on its own network and through the StingStream app anywhere; with one,
- * an invite becomes a link somebody can open in a browser from anywhere. Folded away because most
- * people will not have a domain, and the product works without one.
+ * an invite becomes a link somebody can open in a browser from anywhere.
+ *
+ * It was folded into an **Advanced** disclosure at the bottom of Servers, on the reasoning that
+ * most people will not have a domain and the product works without one. Both halves of that were
+ * true and the conclusion was still wrong: this is the one control that decides whether anybody
+ * can reach the server from a browser away from home, and `InvitePerson` had to deep-link to it
+ * with `?advanced=1` to prise the fold open whenever a minted invite turned out to be LAN-only.
+ * It is the second block of its own page now, under the status that says whether it is working.
  */
-export function SharingAddresses() {
+export function DomainAddress() {
   const { t } = useTranslation();
   const settings = useMeshSharingSettings();
   const save = useSetMeshSharingSettings();
 
   const [own, setOwn] = useState<SharingAddressValue>(sharingAddress());
   const [loaded, setLoaded] = useState(false);
-  const [explainerOpen, setExplainerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Seed the field once, from whatever the node holds. Only once: re-seeding on every fetch would
@@ -77,23 +80,16 @@ export function SharingAddresses() {
 
   return (
     <View>
-      <View style={{ marginBottom: 20 }}>
-        <Text variant='caption' tone='secondary' weight='medium'>
-          {t("sharing.own_field_label")}
-        </Text>
-        <Text
-          variant='caption'
-          tone='tertiary'
-          style={{ marginTop: 2, marginBottom: 8 }}
-        >
-          {t("sharing.own_field_hint")}
-        </Text>
+      <View style={{ marginBottom: 16 }}>
+        {/* No label and no preamble. The card is titled "Your server's address", the status above
+            says which address is in use, and this is the box you type one into -- three
+            explanations of the same field was the "overly complicated and verbose" Dan was
+            reading. What the field is *for* is one short line, below, from `SharingAddress`. */}
         <SharingAddress
           value={own}
           onChange={setOwn}
           disabled={save.isPending}
           placeholder={t("sharing.own_field_placeholder")}
-          blankHint={t("sharing.own_field_blank")}
           stored={ownStored}
           testID='sharing-own-address'
         />
@@ -105,51 +101,13 @@ export function SharingAddresses() {
         onPress={onSave}
         disabled={!ready || !changed}
         loading={save.isPending}
-        style={{ marginTop: 4 }}
+        // Sized to its label, not the card. Full width, it was a teal bar dominating a section
+        // whose actual subject is the address above it -- and it is disabled most of the time,
+        // since it only lights up once something has been typed.
+        style={{ alignSelf: "flex-start", marginTop: 4 }}
       >
         {t("sharing.own_save")}
       </Button>
-
-      {/* An icon, because a ghost button with nothing but a label reads as a stray heading rather
-          than something to press — which is exactly how it looked in the audit screenshot. */}
-      <Button
-        variant='ghost'
-        size='sm'
-        icon='info'
-        onPress={() => setExplainerOpen(true)}
-        testID='sharing-address-explainer'
-        style={{ alignSelf: "flex-start", marginTop: 8 }}
-      >
-        {t("sharing.address_learn_more")}
-      </Button>
-
-      <Dialog
-        visible={explainerOpen}
-        onClose={() => setExplainerOpen(false)}
-        title={t("sharing.address_explainer_title")}
-      >
-        <View style={{ gap: 12 }}>
-          <Explains
-            title={t("sharing.address_explainer_own_title")}
-            body={t("sharing.address_explainer_own_body")}
-          />
-          <Explains
-            title={t("sharing.address_explainer_without_title")}
-            body={t("sharing.address_explainer_without_body")}
-          />
-        </View>
-      </Dialog>
     </View>
   );
 }
-
-const Explains = ({ title, body }: { title: string; body: string }) => (
-  <View style={{ gap: 4 }}>
-    <Text variant='body' weight='semibold'>
-      {title}
-    </Text>
-    <Text variant='caption' tone='secondary'>
-      {body}
-    </Text>
-  </View>
-);

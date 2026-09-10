@@ -63,8 +63,19 @@ export const ICONS = {
   radioOff: "radio-button-off",
   close: "close",
   link: "link",
+  /** Leaves the app: a box with an arrow going out of it, the web's own "new window". */
+  openExternal: "open-outline",
   share: "share-social",
   invite: "person-add",
+  /**
+   * Watching something with other people.
+   *
+   * Not `invite`: that glyph is a person with a `+` on them, which is the
+   * picture of *adding an account*, and on the top bar — where the button
+   * carries no label — that is the only thing it can be read as. Two people
+   * side by side is the room, not the paperwork of joining one.
+   */
+  watchTogether: "people",
   leave: "exit",
   refresh: "refresh",
   sort: "funnel",
@@ -92,7 +103,7 @@ export const ICONS = {
 
   // Settings categories
   //
-  // One glyph each, and all distinct: the settings navigation lists fourteen
+  // One glyph each, and all distinct: the settings navigation lists every one
   // of them in a column, which is exactly the case where a repeated icon stops
   // being shorthand and starts being noise (the same reason library rows use
   // raw Ionicons rather than one "library" glyph -- see `tabIcons.ts`).
@@ -106,6 +117,10 @@ export const ICONS = {
   files: "document-text",
   transcoding: "hardware-chip",
   network: "globe",
+  // Not another globe: `network` owns that one, and Network and Domains sit in
+  // the same navigation column. A cloud is also the shape of the thing this page
+  // sets up.
+  domains: "cloud",
   notifications: "notifications",
   plugins: "extension-puzzle",
   diagnostics: "pulse",

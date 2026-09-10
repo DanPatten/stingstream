@@ -17,7 +17,10 @@ import type { IconName } from "@/components/common/iconNames";
  *
  * 1. **The groups mixed scopes.** "General" held both this browser's theme and
  *    the server's own network addresses, so nothing on the screen said whether
- *    a control changed one viewer's app or everybody's server. See `scope`.
+ *    a control changed one viewer's app or everybody's server. The *groups* are
+ *    what say it now — You, Servers, Server administration. A per-page badge
+ *    saying the same thing again was removed on Dan's word: *"delete all
+ *    setting pages badges everywhere"*.
  * 2. **One row did far too much.** *Server settings* was a single click through
  *    to six unrelated pages, and its subtitle listed all six ("Indexers,
  *    download clients, quality profiles, root folders, naming, notifications"),
@@ -34,20 +37,6 @@ import type { IconName } from "@/components/common/iconNames";
  * a URL can be pasted.
  */
 
-/**
- * Who a setting is for — the answer the old screen never gave.
- *
- * `device` is this browser or this app install (MMKV, `settingsAtom`); it
- * follows nobody to another machine. `account` is the reader's own account on
- * this server, and follows them everywhere they sign in. `server` is everyone.
- *
- * The distinction is not academic: a viewer capping *their* playback quality
- * and an administrator capping *every remote viewer's* bitrate are two controls
- * that read almost identically and live two categories apart, and mistaking one
- * for the other is the single most common thing people got wrong here.
- */
-export type SettingsScope = "device" | "account" | "server";
-
 export interface SettingsCategory {
   /** Stable identity: React keys, `testID`s, and the search index's own rows. */
   key: string;
@@ -57,7 +46,6 @@ export interface SettingsCategory {
   /** Its address. One category, one URL; see the note on `/users` below. */
   route: string;
   icon: IconName;
-  scope: SettingsScope;
   /** `settings-nav-<key>`, so a screenshot pass can click a category by name. */
   testID: string;
 }
@@ -75,7 +63,6 @@ const category = (
   key: string,
   route: string,
   icon: IconName,
-  scope: SettingsScope,
   t: Translate,
 ): SettingsCategory => ({
   key,
@@ -83,7 +70,6 @@ const category = (
   detail: t(`home.settings.nav.${key}_hint`),
   route,
   icon,
-  scope,
   testID: `settings-nav-${key}`,
 });
 
@@ -101,24 +87,35 @@ export function buildSettingsCategories(
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
   const you: SettingsCategory[] = [
-    category("profile", "/settings/profile", "profile", "account", t),
+    category("profile", "/settings/profile", "profile", t),
     // The route keeps its old name. "Appearance" was too narrow for what the
     // page holds (it also carries the app language and the home layout), but
     // renaming the URL would break every bookmark and every pinned screenshot
     // route for a label change.
-    category("appearance", "/settings/appearance", "display", "device", t),
-    category("playback", "/settings/playback", "playback", "device", t),
-    category("about", "/settings/about", "info", "device", t),
+    category("appearance", "/settings/appearance", "display", t),
+    category("playback", "/settings/playback", "playback", t),
+    category("about", "/settings/about", "info", t),
   ];
 
-  // Its own group of one, and deliberately not folded into `you` or gated into
-  // `administration`. Federation is neither a preference nor purely an
-  // administrator's business: the page shows this server and the servers it is
-  // linked to (an administrator's half) *and* lets somebody who runs their own
-  // node ask to link it (everybody's half, which used to be the separate row
-  // "The server I run"). Dan asked for exactly one page here.
+  // Deliberately not folded into `you` or gated into `administration`.
+  // Federation is neither a preference nor purely an administrator's business:
+  // Servers shows this server and the servers it is linked to (an
+  // administrator's half) *and* lets somebody who runs their own node ask to
+  // link it (everybody's half, which used to be the separate row "The server I
+  // run"), so a member sees it.
+  //
+  // Domains is the other half of the same subject and is elevated throughout —
+  // every call behind it needs `RequiresElevation` — so it follows the rule in
+  // this file's header rather than the group it sits in, and a member is not
+  // offered it. It was a collapsed "Advanced" disclosure at the bottom of
+  // Servers until it grew tunnel setup; the address field inside it is the one
+  // control that decides whether anybody can reach this server from a browser
+  // away from home, which is not a thing to hide behind a fold.
   const servers: SettingsCategory[] = [
-    category("servers", "/settings/servers", "servers", "server", t),
+    category("servers", "/settings/servers", "servers", t),
+    ...(isAdmin
+      ? [category("domains", "/settings/domains", "domains", t)]
+      : []),
   ];
 
   // Everything about getting hold of something the server does not have yet:
@@ -141,10 +138,10 @@ export function buildSettingsCategories(
     ? [
         // First, and deliberately: it is the only one of the four that can be
         // *off*, and the answer to "why is none of this doing anything".
-        category("arr_library", "/settings/library", "library", "server", t),
-        category("services", "/settings/services", "services", "server", t),
-        category("quality", "/settings/quality", "quality", "server", t),
-        category("files", "/settings/files", "files", "server", t),
+        category("arr_library", "/settings/library", "library", t),
+        category("services", "/settings/services", "services", t),
+        category("quality", "/settings/quality", "quality", t),
+        category("files", "/settings/files", "files", t),
       ]
     : [];
 
@@ -155,31 +152,18 @@ export function buildSettingsCategories(
         // First, because who can get in is the question people arrive with.
         // It used to be a section of its own in the sidebar, and before that a
         // tab behind a screen about transcode throttling.
-        category("users", "/settings/users", "users", "server", t),
-        category("storage", "/settings/storage", "storage", "server", t),
-        category(
-          "transcoding",
-          "/settings/transcoding",
-          "transcoding",
-          "server",
-          t,
-        ),
-        category("network", "/settings/network", "network", "server", t),
+        category("users", "/settings/users", "users", t),
+        category("storage", "/settings/storage", "storage", t),
+        category("transcoding", "/settings/transcoding", "transcoding", t),
+        category("network", "/settings/network", "network", t),
         category(
           "notifications",
           "/settings/notifications",
           "notifications",
-          "server",
           t,
         ),
-        category("plugins", "/settings/plugins", "plugins", "server", t),
-        category(
-          "diagnostics",
-          "/settings/diagnostics",
-          "diagnostics",
-          "server",
-          t,
-        ),
+        category("plugins", "/settings/plugins", "plugins", t),
+        category("diagnostics", "/settings/diagnostics", "diagnostics", t),
       ]
     : [];
 
@@ -220,7 +204,7 @@ export const flattenCategories = (
 /**
  * The category a route belongs to, for lighting the navigation column.
  *
- * Longest match wins, so `/settings/servers/create` lights Servers rather than
+ * Longest match wins, so `/settings/servers/join` lights Servers rather than
  * matching nothing, and a category whose route is a prefix of another's cannot
  * steal it. The `?` guard matters because the search results navigate with a
  * `?focus=` query on the end.

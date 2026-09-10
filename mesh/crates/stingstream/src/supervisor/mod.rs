@@ -1,6 +1,6 @@
 //! The supervisor: spawn, monitor, health-check and restart the node's children.
 //!
-//! One task per child runs a loop of *spawn â†’ pump output â†’ wait â†’ back off â†’ respawn*, with a
+//! One task per child runs a loop of *spawn → pump output → wait → back off → respawn*, with a
 //! second task per child polling its health endpoint. A child that stays up longer than
 //! `restart_backoff_reset_secs` has its backoff reset, so a node that crashes once an hour does
 //! not slowly accumulate a ten-minute restart delay.
@@ -97,10 +97,10 @@ pub fn build_children(
 
 /// One child's definition, or `None` when there is deliberately nothing to run.
 ///
-/// Split out of [`build_children`] for [`downloading`], which resolves a single child's command
-/// line at the moment somebody turns it on rather than at start-up. Same code either way, which is
-/// the point: a child started an hour in gets the identical argument list, working directory and
-/// environment it would have got at boot.
+/// Split out of [`build_children`] for [`crate::supervisor::downloading`], which resolves a single
+/// child's command line at the moment somebody turns it on rather than at start-up. Same code
+/// either way, which is the point: a child started an hour in gets the identical argument list,
+/// working directory and environment it would have got at boot.
 ///
 /// The `Err` case carries as much weight as the `Ok`. An enabled child whose binary cannot be
 /// found is a misconfiguration, and surfacing that as an error rather than a silent `None` is what
@@ -150,7 +150,7 @@ pub fn build_one(
             "infinidysk is enabled in config.toml but is not supported until a later \
              milestone (see docs/ARCHITECTURE.md)"
         ),
-    _ => return Ok(None),
+        _ => return Ok(None),
     };
     Ok(Some(def))
 }
@@ -457,7 +457,6 @@ pub async fn run(
     Ok(())
 }
 
-
 async fn supervise_one(
     def: ChildDef,
     node: Arc<NodeState>,
@@ -595,7 +594,12 @@ async fn wait_or_shutdown(shutdown: &mut watch::Receiver<bool>, delay: Duration)
     }
 }
 
-fn spawn(def: &ChildDef, logger: &ChildLogger) -> Result<tokio::process::Child> {
+/// Start a child, with its output pumped into `logger`.
+///
+/// `pub(crate)` for the tunnel reconciler, which resolves its own `ChildDef` at the moment somebody
+/// presses a button rather than at start-up, but must start the process exactly the way every other
+/// child is started. See `sidedoor::tunnel`.
+pub(crate) fn spawn(def: &ChildDef, logger: &ChildLogger) -> Result<tokio::process::Child> {
     let mut cmd = tokio::process::Command::new(&def.program);
     cmd.args(&def.args)
         .stdin(Stdio::null())
@@ -631,7 +635,11 @@ fn spawn(def: &ChildDef, logger: &ChildLogger) -> Result<tokio::process::Child> 
 }
 
 /// Ask a child to stop, then insist.
-async fn stop_child(name: &str, child: &mut tokio::process::Child, grace: Duration) {
+///
+/// `pub(crate)` for the tunnel reconciler, which supervises `cloudflared` itself (its command line
+/// is not known until somebody presses a button) but must stop it exactly the way every other
+/// child is stopped. See `sidedoor::tunnel`.
+pub(crate) async fn stop_child(name: &str, child: &mut tokio::process::Child, grace: Duration) {
     let Some(pid) = child.id() else {
         return;
     };

@@ -78,7 +78,6 @@ export const NetworkPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.network")}
-      scope='server'
       detail={t("home.settings.nav.network_hint")}
     >
       <CurrentAddresses />
@@ -188,10 +187,7 @@ export const NetworkPane: React.FC = () => {
       </View>
 
       <View style={{ marginTop: space["6"] }}>
-        <ScopedBlock
-          title={t("home.settings.network.this_app_title")}
-          scope='device'
-        >
+        <ScopedBlock title={t("home.settings.network.this_app_title")}>
           <LocalNetworkSettings />
         </ScopedBlock>
       </View>

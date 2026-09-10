@@ -37,7 +37,6 @@ export const TranscodingPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.transcoding")}
-      scope='server'
       detail={t("home.settings.nav.transcoding_hint")}
     >
       <FocusTarget

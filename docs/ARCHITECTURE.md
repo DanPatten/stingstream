@@ -56,6 +56,26 @@ had a chance to stop being useful.
 
 ---
 
+## Legal posture
+
+Content-agnostic, and deliberately so. The position is the one Radarr and Sonarr hold, and it rests
+on facts about what ships rather than on a disclaimer:
+
+- **No sources ship.** `SharedSettings.CreateDefault()` has an empty indexer list, the arr sync is a
+  projection of that list that returns early when it is empty, and NZBGet is preseeded with no news
+  server at all. Every indexer and provider is something the user adds by hand.
+- **Nothing names or implies a source of copyrighted material** — not in the UI, the docs, the
+  README or the store listing. `deploy/play/README.md` is where this was first written down; it
+  applies repo-wide, and the acceptance harnesses honour it too (a loopback Torznab stub and a
+  self-hosted tracker, never a real indexer).
+- **The download engines are general-purpose tools.** A BitTorrent client and a Usenet client are
+  lawful software; what they are pointed at is the user's decision and the user's responsibility.
+- **Groups are private.** Invite-only, no public directory, no discovery, nothing leaves a group.
+  `docs/SECURITY.md` §1 is the threat model that follows from it.
+- **StingStream provides no content.** It plays and shares media the user already has.
+
+---
+
 ## Decisions locked in with Dan
 
 | Topic | Decision |
@@ -90,9 +110,8 @@ Verified 2026-09-04 unless marked otherwise.
   (`rollForward: latestMinor`); resolved by installing SDK `10.0.400` via winget (see "Milestones"
   → M0). Build result: **succeeded**, 215 warnings (pre-existing upstream code-analysis warnings,
   not introduced by us), 0 errors.
-- **Remote-backed items in Jellyfin are proven.** The debrid ecosystem (Zurg, jf-resolve,
-  JellyGrail, Jellyfin-Xtream-Library) runs large libraries where every item is a `.strm` file
-  pointing at an HTTP URL, with `.nfo` sidecars for metadata. Jellyfin groups same-folder files
+- **Remote-backed items in Jellyfin are proven.** Large Jellyfin libraries are run this way today,
+  where every item is a `.strm` file pointing at an HTTP URL, with `.nfo` sidecars for metadata. Jellyfin groups same-folder files
   named `Title (Year) - Label.ext` as **alternate versions** of one movie, which is how one title
   held by several nodes becomes one item with several MediaSources. Multi-version support for
   *episodes* **was verified in M3b and works**: two `.strm` files for one episode in one season
@@ -284,7 +303,7 @@ source selection.
 ### Federated library (the merge mechanism)
 
 Each node turns the group index into real items in its **own** Jellyfin, so every native feature
-works unchanged. Proven pattern from the debrid ecosystem; implemented in `StingStream.Core`
+works unchanged. Proven pattern for remote-backed libraries; implemented in `StingStream.Core`
 (`src/StingStream.Core/Federated/`, landed in M3b).
 
 1. **Shared libraries.** Two Jellyfin libraries per node, `Shared Movies` and `Shared TV`, backed
@@ -605,8 +624,7 @@ three still stand.
    (`downloadClients.torrentDhtEnabled`, plus `torrentLocalPeerDiscovery` and
    `torrentListenPort`). Joining the public BitTorrent DHT announces the node to strangers, which
    is not something a media server should do the first time it starts because someone installed
-   it. Private trackers forbid it outright. Local peer discovery stays on, because it is
-   LAN-scoped.
+   it. Local peer discovery stays on, because it is LAN-scoped.
 3. **Windows children get no graceful stop until M8.** Killing the supervisor on Windows orphans
    its children: there is no portable equivalent of SIGTERM for another process, and the console
    control events that come closest cannot be sent to a process in a different console group.
@@ -1720,7 +1738,7 @@ machine. The table is in the M8b report.
 
 - **Coupling to Jellyfin internals** for the federated library (library manager, item repository,
   PlaybackInfo). Mitigated by using the standard `.strm`/`.nfo` resolver path for the items
-  themselves, which has been stable for years and is exercised by the debrid ecosystem; only
+  themselves, which has been stable for years and is exercised by every remote-backed library; only
   enrichment and MediaSource ordering touch internals, and both are listed in `docs/PATCHES.md`.
 - ~~**Episode multi-version support** may be missing or partial on the vendored Jellyfin.~~
   **Closed in M3b:** verified working, with the check kept in `tools/e2e-m3.ps1` so an upstream pull
@@ -1761,4 +1779,5 @@ machine. The table is in the M8b report.
   `PATH` (see "Facts" above) — resolved, no longer a risk.
 - **Name** — `.com`/`.net` status and trademark clearance for StingStream are unverified; Dan to
   check before registering or publishing store listings.
-- **Legal posture** — content-agnostic, private groups only, no public directory by decision.
+- **Legal posture** — content-agnostic, private groups only, no public directory by decision. The
+  full position, and the facts about the shipped defaults it rests on, is "Legal posture" above.

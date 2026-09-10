@@ -95,5 +95,11 @@ public class FederatedProbeTests
     /// anything has been asked of the mesh.
     /// </summary>
     private static FederatedSourceDecorator Decorator()
-        => new(null!, null!, null!, null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<FederatedSourceDecorator>.Instance);
+        => new(
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FederatedSourceDecorator>.Instance);
 }

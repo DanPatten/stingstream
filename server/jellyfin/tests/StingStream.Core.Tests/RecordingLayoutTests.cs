@@ -1,12 +1,13 @@
 using System.Collections.Generic;
 using StingStream.Core.Federated;
+using StingStream.Core.Library;
 using StingStream.Core.Mesh;
 using Xunit;
 
 namespace StingStream.Core.Tests;
 
 /// <summary>
-/// Where a federated DVR recording lands, and why it is not in Shared Movies.
+/// Where a federated DVR recording lands, and why it is not among the films.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -129,9 +130,16 @@ public class RecordingLayoutTests
     }
 
     /// <summary>
-    /// The three libraries are distinct directories. A recording landing in Shared Movies would be
-    /// asked to agree on a year it does not have.
+    /// The three federated trees are distinct directories, and recordings still have one of their
+    /// own.
     /// </summary>
+    /// <remarks>
+    /// The movies and tv trees became second media paths of the ordinary <c>Movies</c> and
+    /// <c>TV Shows</c> libraries, so a peer's copy of a film can be a version of this node's. The
+    /// recordings tree did not, and that is the point of this test: a recording landing among the
+    /// films would be asked to agree on a year it does not have, and one landing among the series
+    /// would be asked for an <c>SxxEyy</c> it does not have either. It stays a library of its own.
+    /// </remarks>
     [Fact]
     public void Recordings_have_their_own_library_and_directory()
     {
@@ -143,12 +151,19 @@ public class RecordingLayoutTests
         };
         Assert.Equal(3, directories.Count);
 
-        var libraries = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+        Assert.NotEqual(LibraryLayoutService.RecordingsLibrary, LibraryLayoutService.MoviesLibrary);
+        Assert.NotEqual(LibraryLayoutService.RecordingsLibrary, LibraryLayoutService.TvLibrary);
+
+        // And it is not called "Shared" anything. There is no shared-versus-not-shared distinction
+        // left in the product, and a library named for one would be the last place it survived.
+        foreach (var name in new[]
+                 {
+                     LibraryLayoutService.MoviesLibrary,
+                     LibraryLayoutService.TvLibrary,
+                     LibraryLayoutService.RecordingsLibrary,
+                 })
         {
-            FederatedLayout.MoviesLibrary,
-            FederatedLayout.TvLibrary,
-            FederatedLayout.RecordingsLibrary,
-        };
-        Assert.Equal(3, libraries.Count);
+            Assert.DoesNotContain("shared", name, System.StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

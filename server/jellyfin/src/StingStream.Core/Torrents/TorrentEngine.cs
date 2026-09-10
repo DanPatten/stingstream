@@ -39,6 +39,10 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     private readonly IHttpClientFactory _httpFactory;
 
     private readonly SemaphoreSlim _mutex = new(1, 1);
+
+    // Serializes ApplySettingsAsync only. Deliberately not _mutex: RestoreAsync takes that one on
+    // the way up, so reusing it here would deadlock a re-enable.
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly ConcurrentDictionary<string, TorrentRecord> _records =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -70,6 +74,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_settings.Get().DownloadClients.TorrentsEnabled)
+        {
+            // Off has to mean off. Until this check existed the engine started regardless, and
+            // the setting only decided whether OmniarrSyncService registered it with the arrs --
+            // so turning it off left a listening, peer-exchanging client running.
+            _logger.LogInformation("Torrent engine is disabled in settings; not starting");
+            return;
+        }
+
         var runtime = _runtimeProvider.Current;
         var root = runtime?.Paths.DownloadsTorrents;
         if (string.IsNullOrWhiteSpace(root))
@@ -150,12 +163,52 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         _logger.LogInformation("Torrent engine stopped");
     }
 
+    /// <summary>
+    /// Start or stop the engine so it matches <see cref="DownloadClientSettings.TorrentsEnabled"/>.
+    /// </summary>
+    /// <remarks>
+    /// Called after a settings write, so the toggle takes effect on the spot rather than at the
+    /// next restart. Going down disposes the <see cref="ClientEngine"/> rather than only stopping
+    /// it: a later re-enable builds a fresh one, and two of them would both hold a listen port.
+    /// </remarks>
+    public async Task ApplySettingsAsync(CancellationToken cancellationToken)
+    {
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var enabled = _settings.Get().DownloadClients.TorrentsEnabled;
+            if (enabled == IsRunning)
+            {
+                return;
+            }
+
+            if (enabled)
+            {
+                await StartAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await StopAsync(cancellationToken).ConfigureAwait(false);
+            _engine?.Dispose();
+            _engine = null;
+
+            // core.db stays the record of what is queued; RestoreAsync reads it back on the way
+            // up. Clearing the mirror keeps IsRunning and List() from disagreeing while it is off.
+            _records.Clear();
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
         _engine?.Dispose();
         _engine = null;
         _mutex.Dispose();
+        _lifecycle.Dispose();
     }
 
     /// <summary>Re-add every torrent recorded in <c>core.db</c>, so a restart is invisible to the arrs.</summary>

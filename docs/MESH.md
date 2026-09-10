@@ -209,12 +209,31 @@ have been written into both.
 
 ### Where people reach this node
 
-One per-node setting, in the `meta` table, read and written through
-`GET`/`PUT /mesh/v1/settings/sharing`:
+Per-node settings, in the `meta` table. The address is read and written through
+`GET`/`PUT /mesh/v1/settings/sharing`; the tunnel keys through
+`GET /mesh/v1/domains` and `POST`/`DELETE /mesh/v1/domains/tunnel`:
 
 | Key | Meaning |
 |---|---|
 | `sharing.public_address` | A domain pointed at this node. What invite links are built from, and what passkeys are bound to (`docs/PASSKEYS` lives in `SECURITY.md`'s route table). |
+| `tunnel.kind` | `none` or `named` — whether this node should be running a Cloudflare Tunnel. |
+| `tunnel.hostname` | The name the tunnel answers on. Also written to `sharing.public_address` when the tunnel is set up, because they are the same address. |
+| `tunnel.id` | Cloudflare's id for a `named` tunnel, so it can be named again for a clean-up. |
+| `tunnel.name` | What the tunnel is called in the Cloudflare dashboard. |
+
+**The tunnel keys are desired state, not observed state.** Whether it is actually up is a fact
+about a running process, held in memory (`sharing::DomainsState`) and reported by the supervisor on
+its reconcile tick — a node restarted mid-tunnel must come up claiming nothing rather than
+insisting on a tunnel that is not running.
+
+**There is deliberately no key for the Cloudflare API token.** It grants `Zone:DNS:Edit` on
+somebody's real domain and `meta` is a plain table that every backup copies, so it lives in memory
+between the request that sets it and the reconcile that spends it, and then it is gone.
+`docs/SIDEDOOR.md` §7 has what that costs.
+
+`tunnel.kind` also parses the retired `quick` — Cloudflare's account-free tunnel, dropped because
+its address changed on every restart — as `none`, so a node that ran one stops it and comes up
+rather than refusing to start.
 
 **Per node, not per group** — the difference matters. In a group where one member has a domain and
 another has none, a link the first mints must point at the first's server and a link the second
@@ -1120,12 +1139,16 @@ where the direct path is expected, and that is a manual check rather than a CI o
 
 ## 9. Open items
 
-* **A Cloudflare token.** The Lite-mode side door needs a zone-scoped `Zone:DNS:Edit` token in
-  `STINGSTREAM_DNS_TOKEN`, and a domain whose DNS lives at Cloudflare. Until then the provider stays
-  `none` and the side door is Full-mode-only.
-* **The node half of the side door shipped in M3d** — ACME client, `portmapper`, rustls on the
-  gateway, the `stingstream/tcp/1` handler and connection racing in the web bundle. See
-  `docs/SIDEDOOR.md`, and `tools/e2e-sidedoor.ps1` for the end-to-end run against a local Pebble.
+* ~~**A Cloudflare token.**~~ **Closed, and not the way it was written.** This described a
+  `STINGSTREAM_DNS_TOKEN` environment variable feeding ACME DNS-01 through a coordinator's zone —
+  all of which Part 5 deleted. A Cloudflare token is now something an *administrator* pastes into
+  Settings → Domains for their own domain, used once to create a tunnel and never stored, and no
+  token of Dan's is involved in anybody else's node. `docs/SIDEDOOR.md` §3.
+* ~~**The node half of the side door shipped in M3d**~~ — ACME client, `portmapper`, rustls on the
+  gateway, the `stingstream/tcp/1` handler and connection racing in the web bundle. **Half of this
+  is gone**: the ACME client went with the coordinator, `stingstream/tcp/1` is retired (§3), and
+  `tools/e2e-sidedoor.ps1` no longer exists. What survives is rustls on the gateway, the first-byte
+  TLS sniff, and the client's probe. See `docs/SIDEDOOR.md`.
 * **Group content encryption covers gossip and rendezvous, not the peer protocol's payloads**, which
   ride iroh's own encryption between two authenticated members. That is the right boundary, and it
   means **a member is trusted with everything the group holds** — which is not a bug and is not

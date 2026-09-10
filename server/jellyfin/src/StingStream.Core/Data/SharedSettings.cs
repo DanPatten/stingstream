@@ -163,7 +163,7 @@ public sealed class IndexerSettings
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Torznab base URL, e.g. <c>http://127.0.0.1:9117/api/v2.0/indexers/x/results/torznab</c>.</summary>
+    /// <summary>Torznab base URL, e.g. <c>https://indexer.example/api</c>.</summary>
     public string BaseUrl { get; set; } = string.Empty;
 
     /// <summary>Path appended to <see cref="BaseUrl"/>. Torznab's convention is <c>/api</c>.</summary>
@@ -384,6 +384,28 @@ public sealed class FederatedSettings
 
     /// <summary>Fetch artwork from the holding node over the mesh.</summary>
     public bool FetchImages { get; set; } = true;
+
+    /// <summary>
+    /// Materialize a peer's copy of a title this node already holds, as another version of it.
+    /// </summary>
+    /// <remarks>
+    /// On by default, and it is what makes "play the best copy" mean anything: without it a local
+    /// 1080p rip hides a friend's 2160p entirely, because the 4K copy never becomes an item at all.
+    /// Turning it off restores the older behaviour — the local file wins and the remote copy stays
+    /// in the index for dedupe, pin and same-hash failover only — which is the right answer for a
+    /// node with a very large library that does not want a pointer per peer per title on its disk.
+    /// </remarks>
+    public bool MergePeerVersions { get; set; } = true;
+
+    /// <summary>How many pointer files one pass may write before leaving the rest to the next.</summary>
+    /// <remarks>
+    /// A node joining a group whose members hold thousands of titles it also holds would otherwise
+    /// write every pointer, and run a targeted library refresh for every folder, in a single pass.
+    /// The pass is idempotent and runs every <see cref="PollIntervalSeconds"/>, so a budget spreads
+    /// that first burst over a few minutes rather than blocking the node for one long one. Zero or
+    /// less means no budget.
+    /// </remarks>
+    public int MaxWritesPerPass { get; set; } = 500;
 
     /// <summary>
     /// Copy every film the group holds into this node's own Movies folder.

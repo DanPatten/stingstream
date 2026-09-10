@@ -115,6 +115,16 @@ public static class NfoWriter
 
             WriteProviderIds(writer, entry, seriesLevel: true);
             Element(writer, "tag", FederatedTag);
+
+            // Deliberately *not* locked, unlike the movie and episode files.
+            //
+            // A series is a folder, not one holder's file, and the two series items -- this node's
+            // and the one materialized from a peer -- collapse by presentation key rather than by
+            // version link, so Jellyfin picks between them on `Min(Id)`: whichever wins is the page
+            // a person reads. This file carries a name, genres and provider ids but no artwork and
+            // no plot, because the mesh publishes those per episode; locking it would leave whoever
+            // lost the coin toss looking at a series with no overview and no chance of getting one.
+            // Letting Jellyfin look a series up is what it already does for a local one.
             writer.WriteEndElement();
         });
     }
@@ -194,7 +204,35 @@ public static class NfoWriter
         // The tag is how the lifecycle finds federated items again: a Jellyfin query by tag is
         // cheap, and walking the federated folders and mapping paths back to items is not.
         Element(writer, "tag", FederatedTag);
+        WriteLock(writer);
     }
+
+    /// <summary>
+    /// Cut this item off from the internet, whatever its library is set to.
+    /// </summary>
+    /// <param name="writer">The XML writer.</param>
+    /// <remarks>
+    /// <para>
+    /// Jellyfin's NFO parser reads <c>lockdata</c> into <c>BaseItem.IsLocked</c>, and
+    /// <c>MetadataService</c> then skips every remote metadata provider on the same refresh it read
+    /// the file in. That is the whole mechanism, and it is per <em>item</em> — which is what this
+    /// needs to be now that a pointer shares a library with files this node downloaded and expects
+    /// posters for. The library-wide lever, an empty <c>TypeOptions</c> allow-list, would turn the
+    /// internet off for those too; see <see cref="Library.LibraryLayoutService.BuildOptions"/>.
+    /// </para>
+    /// <para>
+    /// The holder already looked all of this up and published it. Asking TMDB again on every node
+    /// in the group would be slower, ruder, and would produce a <em>different</em> answer per node,
+    /// so the same title would drift apart across the group for no gain at all.
+    /// </para>
+    /// <para>
+    /// It does not stop remote <em>image</em> providers, which never consult <c>IsLocked</c>. That
+    /// is left alone deliberately: it only fires for an image kind the holder did not publish, the
+    /// file lands in Jellyfin's own metadata folder rather than in the federated tree, and the
+    /// result is a peer's title that looks finished rather than blank.
+    /// </para>
+    /// </remarks>
+    private static void WriteLock(XmlWriter writer) => Element(writer, "lockdata", "true");
 
     /// <summary>
     /// Write provider ids in both the modern and the legacy spelling.

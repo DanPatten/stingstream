@@ -2,21 +2,14 @@ import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { Image } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import { useAtomValue } from "jotai";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Platform,
-  Pressable,
-  type StyleProp,
-  View,
-  type ViewStyle,
-} from "react-native";
+import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Icon } from "@/components/common/Icon";
-import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
-import { radius, rgba, tokens } from "@/constants/theme";
+import { rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import {
   useDeleteInvite,
@@ -25,11 +18,16 @@ import {
   useInvites,
 } from "@/lib/stingstream/invites";
 import type { MintedInvite } from "@/lib/stingstream/invitesApi";
-import { useDeleteUser, useServerUsers } from "@/lib/stingstream/serverUsers";
+import {
+  useDeleteUser,
+  useServerOwner,
+  useServerUsers,
+} from "@/lib/stingstream/serverUsers";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
 import { LinkedIdentities } from "../identity/LinkedIdentities";
 import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
+import { ActionRow } from "../shared/ActionRow";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
@@ -75,6 +73,7 @@ export function UsersScreen() {
   const link = useInviteLink();
   const removeInvite = useDeleteInvite();
   const removeUser = useDeleteUser();
+  const owner = useServerOwner();
 
   const [inviting, setInviting] = useState(false);
   const [showing, setShowing] = useState<MintedInvite | null>(null);
@@ -83,8 +82,8 @@ export function UsersScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const rows = useMemo(
-    () => buildUserRows(users.data, invites.data, me?.Id),
-    [users.data, invites.data, me?.Id],
+    () => buildUserRows(users.data, invites.data, me?.Id, owner.data),
+    [users.data, invites.data, me?.Id, owner.data],
   );
 
   /**
@@ -176,6 +175,7 @@ export function UsersScreen() {
                   key={row.key}
                   user={row.user}
                   isSelf={row.isSelf}
+                  isOwner={row.isOwner}
                   serverAddress={api?.basePath}
                   libraries={libraries.data}
                   busy={busy}
@@ -217,12 +217,22 @@ export function UsersScreen() {
 const AccountRow: React.FC<{
   user: UserDto;
   isSelf: boolean;
+  isOwner: boolean;
   serverAddress?: string;
   libraries: { id: string; name: string }[] | undefined;
   busy: boolean;
   onPress: () => void;
   onDelete: () => void;
-}> = ({ user, isSelf, serverAddress, libraries, busy, onPress, onDelete }) => {
+}> = ({
+  user,
+  isSelf,
+  isOwner,
+  serverAddress,
+  libraries,
+  busy,
+  onPress,
+  onDelete,
+}) => {
   const { t } = useTranslation();
   const disabled = Boolean(user.Policy?.IsDisabled);
   const isAdmin = Boolean(user.Policy?.IsAdministrator);
@@ -238,7 +248,9 @@ const AccountRow: React.FC<{
           : t("users.library_count", { count: access.count });
 
   const subtitle = [
-    isAdmin ? t("users.administrator") : null,
+    // "Owner" instead of "Administrator", not as well as: an owner is always an administrator, so
+    // the pair would say one thing twice and bury the half that is not obvious.
+    isOwner ? t("users.owner") : isAdmin ? t("users.administrator") : null,
     disabled ? t("users.disabled") : null,
     user.HasPassword ? null : t("users.no_password"),
     accessLabel,
@@ -247,7 +259,7 @@ const AccountRow: React.FC<{
     .join(" • ");
 
   return (
-    <RowShell
+    <ActionRow
       testID='users-account'
       title={user.Name ?? t("users.unnamed")}
       subtitle={subtitle}
@@ -256,8 +268,10 @@ const AccountRow: React.FC<{
       actions={
         <DeleteAction
           label={t("users.delete")}
-          // You cannot delete yourself; the server refuses and the app should not offer it.
-          disabled={busy || isSelf}
+          // You cannot delete yourself; the server refuses and the app should not offer it. Nor
+          // the owner: ownership does not transfer, so deleting that account would be the one way
+          // to change who this server belongs to.
+          disabled={busy || isSelf || isOwner}
           onPress={onDelete}
         />
       }
@@ -277,7 +291,7 @@ const PendingRow: React.FC<{
   const { t } = useTranslation();
 
   return (
-    <RowShell
+    <ActionRow
       testID='users-pending'
       title={name}
       // An administrator invite names no libraries, so without saying so the row would read
@@ -367,87 +381,6 @@ const DeleteAction: React.FC<{
         }
       />
     </Pressable>
-  );
-};
-
-/**
- * A row whose label opens one thing and whose icon does another.
- *
- * **Not `ListItem`.** A pressable `ListItem` renders a real `<button>` on the web, and the row
- * action is a button too — nesting them is invalid HTML, which React says out loud (*"<button>
- * cannot contain a nested <button>"*, seen live on this screen at 1440) and which flattens the
- * whole row into one control for a screen reader. So the label and the action are **siblings**: one
- * `Pressable` holding the avatar and the text, the button beside it.
- *
- * The metrics are `ListItem`'s, deliberately — the 44 px floor, the 16 px gutter, the same hover
- * and pressed tints — because this sits in a `ListGroup` next to rows that are `ListItem`s and a
- * row that is nearly the same is worse than one that is either identical or clearly different.
- * `style` is accepted and applied because `ListGroup` clones the hairline separator onto it.
- */
-const RowShell: React.FC<{
-  testID: string;
-  title: string;
-  subtitle: string;
-  leading: ReactNode;
-  actions: ReactNode;
-  onPress: () => void;
-  style?: StyleProp<ViewStyle>;
-}> = ({ testID, title, subtitle, leading, actions, onPress, style }) => {
-  const states = usePressableStates();
-
-  return (
-    <View
-      testID={testID}
-      style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          minHeight: 44,
-          paddingVertical: Platform.OS === "android" ? 6 : 8,
-          paddingHorizontal: 16,
-          backgroundColor: states.pressed
-            ? tokens.color.bg["3"]
-            : states.hovered
-              ? tokens.color.bg["2"]
-              : tokens.color.bg["1"],
-        },
-        style,
-      ]}
-    >
-      <Pressable
-        accessibilityRole='button'
-        onPress={onPress}
-        {...states.handlers}
-        style={[
-          {
-            flex: 1,
-            flexDirection: "row",
-            alignItems: "center",
-            minHeight: tokens.control.minTouchTarget,
-            borderRadius: radius.sm,
-          },
-          states.webStyle,
-        ]}
-      >
-        {leading}
-        <View style={{ flexShrink: 1, marginLeft: 12 }}>
-          <Text numberOfLines={1}>{title}</Text>
-          <Text
-            variant='caption'
-            tone='secondary'
-            numberOfLines={2}
-            style={{ marginTop: 2 }}
-          >
-            {subtitle}
-          </Text>
-        </View>
-      </Pressable>
-      <View
-        style={{ flexDirection: "row", alignItems: "center", flexShrink: 0 }}
-      >
-        {actions}
-      </View>
-    </View>
   );
 };
 

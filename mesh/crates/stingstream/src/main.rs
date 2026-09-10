@@ -90,7 +90,7 @@ struct Cli {
 
     /// **Development only.** Proxy `/` to a running Metro dev server (`bunx expo start --web
     /// --port 8081` in apps/stingstream) instead of serving a built bundle, so an edit to a
-    /// component is on screen in seconds â€” hot reload included.
+    /// component is on screen in seconds — hot reload included.
     ///
     /// Overrides `gateway.web_dev_server`, which is honoured only in `--dev`. Naming it here works
     /// in either mode, because typing it is an explicit choice. Every other route the gateway
@@ -527,34 +527,43 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     // that knows the address and port a browser should use. On a timer because the answer changes
     // -- a laptop moves network, a VPN comes up -- and `LanAddresses` already re-derives it on its
     // own TTL, so this is a cheap idempotent write of what is usually the same record.
+    // Since the Domains page it also *reads back* what the owner asked for and makes it so, which
+    // is what turns "run these four cloudflared commands" into a button. `sidedoor::tunnel` has
+    // the whole argument for why the desired state lives in the mesh and the process lives here.
     let side_door_publisher = {
-        let addresses = gateway::LanAddresses::new(&config.gateway.bind, config.gateway.port);
         let port = rt.mesh.api_port;
         let enabled = config.children.mesh && port != 0;
-        let mut rx = shutdown_rx.clone();
+        // Nothing is resolved or fetched here. `sidedoor::cloudflared::ensure` runs on the tick
+        // that needs a binary, so a node that never sets up a tunnel never downloads one -- and
+        // the button works on a node that has never seen `cloudflared`, which is the point.
+        let reconciler = sidedoor::tunnel::Reconciler {
+            http: reqwest::Client::new(),
+            url: format!("http://127.0.0.1:{port}/mesh/v1/settings/sidedoor"),
+            addresses: gateway::LanAddresses::new(&config.gateway.bind, config.gateway.port),
+            certs: certs.clone(),
+            node: node.clone(),
+            gateway_port: config.gateway.port,
+            tls_enabled: config.gateway.tls,
+            node_id: mesh_node_id.clone().unwrap_or_default(),
+            https_port: config.gateway.https_port,
+            logger: logging::ChildLogger::open(
+                sidedoor::tunnel::CHILD,
+                &layout.child_log(sidedoor::tunnel::CHILD),
+            )
+            .context("opening cloudflared's log")?,
+            data_dir: data_dir.clone(),
+            repo_root: mode.repo_root().map(|p| p.to_path_buf()),
+            install_root: mode.install_root().map(|p| p.to_path_buf()),
+            shutdown_grace: std::time::Duration::from_secs(
+                config.supervisor.shutdown_grace_secs,
+            ),
+        };
+        let rx = shutdown_rx.clone();
         tokio::spawn(async move {
             if !enabled {
                 return;
             }
-            let client = reqwest::Client::new();
-            let url = format!("http://127.0.0.1:{port}/mesh/v1/settings/sidedoor");
-            loop {
-                let body = serde_json::json!({ "lan_urls": addresses.get().as_ref() });
-                match client.put(&url).json(&body).send().await {
-                    // A 404 is an older mesh that has no such route, and nothing to complain
-                    // about on every tick.
-                    Ok(r) if r.status().is_success() || r.status().as_u16() == 404 => {}
-                    Ok(r) => tracing::debug!(status = %r.status(), "publishing this node's address"),
-                    Err(e) => tracing::debug!(error = %e, "publishing this node's address"),
-                }
-                tokio::select! {
-                    _ = rx.changed() => break,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
-                }
-                if *rx.borrow() {
-                    break;
-                }
-            }
+            sidedoor::tunnel::run(reconciler, rx).await;
         })
     };
 
@@ -589,16 +598,23 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
 
     // Whether a browser can reach this node over HTTPS. A report, not a loop: there is no
     // coordinator to register with and no ACME to run any more (Part 5), so the whole answer is
-    // "is TLS on, and is there a certificate in `tls/`?" â€” which is decided here, once, and
+    // "is TLS on, and is there a certificate in `tls/`?" — which is decided here, once, and
     // refreshed by the certificate store when a file appears.
     if config.gateway.tls {
         let info = certs.info();
         if info.is_none() {
             tracing::info!(
-                "HTTPS is on but {}/tls holds no certificate, so this node is serving plain HTTP.                  Put a certificate there, or front the node with a tunnel â€” see docs/SIDEDOOR.md",
+                "HTTPS is on but {}/tls holds no certificate, so this node is serving plain HTTP.                  Put a certificate there, or front the node with a tunnel — see docs/SIDEDOOR.md",
                 data_dir.display()
             );
         }
+        // `None` here and filled in by the reconciler, not left empty forever.
+        //
+        // This ran before the mesh child is reachable, so the address genuinely is not knowable
+        // yet -- but the argument was hard-coded, so `/healthz`'s `side_door.public_address` was
+        // empty on every node that had one set. Silently, because nothing read it until the
+        // Domains page did. `sidedoor::tunnel::run` now re-sets this on every tick with what the
+        // mesh reports, which also keeps it true when somebody changes the address later.
         node.side_door.set(sidedoor::SideDoorStatus::from_certificate(
             mesh_node_id.clone().unwrap_or_default(),
             config.gateway.https_port,
@@ -793,12 +809,12 @@ fn build_runtime(
 /// What serves the app at `/`: a dev server, a built bundle, or nothing.
 ///
 /// A **dev server** wins when there is one, because asking for it is unambiguous. It is honoured
-/// only in `--dev` or when `--web-dev-server` named it on the command line â€” an installed server
+/// only in `--dev` or when `--web-dev-server` named it on the command line — an installed server
 /// proxying its front page to a laptop somewhere because of a stale `config.toml` is not a mistake
 /// worth leaving available.
 ///
 /// Otherwise `gateway.web_dist` (or `--web-dist`) wins, and failing that the conventional place
-/// for the mode: `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` â€” which
+/// for the mode: `<install>/web` for an installed node, `apps/stingstream/dist` in `--dev` — which
 /// is exactly where `bunx expo export --platform web` puts it, so a developer who has built the
 /// app once gets it served with no configuration at all.
 fn resolve_web_dist(config: &Config, mode: &Mode, dev_server_named: bool) -> gateway::WebSource {

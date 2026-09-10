@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import { ScopeBadge } from "@/components/settings/ScopeBadge";
 import { elevation, radius, tokens, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
@@ -252,7 +251,6 @@ const ResultRow: React.FC<{
       {/* The badge earns its place here more than anywhere else: a result list
           is where "Playback quality on this device" and "Limit for viewers
           outside the house" end up two rows apart. */}
-      <ScopeBadge scope={entry.scope} />
     </Pressable>
   );
 };

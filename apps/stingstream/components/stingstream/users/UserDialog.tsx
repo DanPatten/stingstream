@@ -10,6 +10,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { useInviteLibraries } from "@/lib/stingstream/invites";
 import {
+  useServerOwner,
   useServerUsers,
   useSetUserDisabled,
   useSetUserPassword,
@@ -52,6 +53,7 @@ export const UserDialog: React.FC<{
   const { t } = useTranslation();
   const me = useAtomValue(userAtom);
   const users = useServerUsers();
+  const owner = useServerOwner();
   const libraries = useInviteLibraries();
 
   const savePolicy = useSetUserPolicy();
@@ -95,8 +97,8 @@ export const UserDialog: React.FC<{
    */
   const cannotDisable = isSelf || isAdmin;
 
-  /** `null` when the switch is usable; otherwise which of the two rules is holding it. */
-  const adminBlock = adminChangeBlocked(user, me, users.data);
+  /** `null` when the switch is usable; otherwise which of the three rules is holding it. */
+  const adminBlock = adminChangeBlocked(user, me, users.data, owner.data);
 
   const toggleLibrary = (id: string) => {
     if (!user?.Id || !user.Policy) return;
@@ -263,13 +265,15 @@ export const UserDialog: React.FC<{
             <View style={{ flex: 1 }}>
               <Text variant='body'>{t("users.administrator")}</Text>
               <Text variant='caption' tone='tertiary' style={{ marginTop: 2 }}>
-                {adminBlock === "self"
-                  ? t("users.administrator_locked_self")
-                  : adminBlock === "last-administrator"
-                    ? t("users.administrator_locked_last")
-                    : isAdmin
-                      ? t("users.administrator_on_hint")
-                      : t("users.administrator_off_hint")}
+                {adminBlock === "owner"
+                  ? t("users.administrator_locked_owner")
+                  : adminBlock === "self"
+                    ? t("users.administrator_locked_self")
+                    : adminBlock === "last-administrator"
+                      ? t("users.administrator_locked_last")
+                      : isAdmin
+                        ? t("users.administrator_on_hint")
+                        : t("users.administrator_off_hint")}
               </Text>
             </View>
             <SettingSwitch

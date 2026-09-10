@@ -202,4 +202,37 @@ public static class SetupGate
     /// <returns>One sentence for the user, or <see langword="null"/>.</returns>
     public static string? Validate(string? username, string? password)
         => ValidateUsername(username) ?? ValidatePassword(password);
+
+    /// <summary>Which account owns this server.</summary>
+    /// <param name="recorded">What first run wrote down, or empty.</param>
+    /// <param name="recordedStillExists">Whether that account is still on this server.</param>
+    /// <param name="firstAccount">The first account this server has, for a node with no record.</param>
+    /// <returns>The owner's id, or <see langword="null"/> when there is nothing to point at.</returns>
+    /// <remarks>
+    /// <b>Ownership does not move.</b> Dan: <em>"cannot be changed and is the first admin setup, no
+    /// transfer support and they are always an admin"</em>. So the recorded answer wins whenever it
+    /// still names somebody, and nothing here can promote a different account.
+    /// <para>
+    /// The fallback exists for one case and no other: a node set up before the record existed. Its
+    /// first account <em>is</em> the one first run claimed, because that is what
+    /// <c>setup/admin</c> renames. Writing it down at that point is what makes it stop being a
+    /// guess.
+    /// </para>
+    /// <para>
+    /// <b>A recorded owner that no longer exists falls back rather than answering nobody.</b> The
+    /// account should be undeletable, so this is a state that ought not to arise — and if it has,
+    /// a server with no owner at all is the worse of the two answers.
+    /// </para>
+    /// </remarks>
+    public static string? ChooseOwner(string? recorded, bool recordedStillExists, string? firstAccount)
+    {
+        var trimmed = (recorded ?? string.Empty).Trim();
+        if (trimmed.Length > 0 && recordedStillExists)
+        {
+            return trimmed;
+        }
+
+        var fallback = (firstAccount ?? string.Empty).Trim();
+        return fallback.Length > 0 ? fallback : null;
+    }
 }

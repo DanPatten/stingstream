@@ -8850,6 +8850,65 @@
         ]
       }
     },
+    "/stingstream/api/v1/Users/owner": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Which account owns this server.",
+        "description": "<b>The account that claimed this server at first run, and it never moves.</b> Dan: <em>\"cannot\r\n            be changed and is the first admin setup, no transfer support and they are always an\r\n            admin\"</em>. There is deliberately no setter here — not an administrator-only one either,\r\n            because the thing that makes this useful is that no request can change it.\r\n            \r\nReadable by any signed-in account rather than administrators only. Who owns the server is\r\n            not a secret — the name is in Jellyfin's public user list — and the alternative is a screen\r\n            that has to be an administrator's before it can say whose server this is.\r\nA node set up before the owner was recorded answers with its first account and writes that\r\n            down as it goes, so the answer stops being a guess after the first time it is asked.\r\n            M:StingStream.Core.FirstRun.SetupGate.ChooseOwner(System.String,System.Boolean,System.String) is the rule.",
+        "operationId": "GetOwner",
+        "responses": {
+          "200": {
+            "description": "The owner's id, or an empty one on a server that somehow has no accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerOwner"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/watch": {
       "get": {
         "tags": [
@@ -19516,6 +19575,17 @@
         },
         "additionalProperties": false,
         "description": "The server discovery info model."
+      },
+      "ServerOwner": {
+        "type": "object",
+        "properties": {
+          "UserId": {
+            "type": "string",
+            "description": "The owner's Jellyfin user id in `N` format, or empty when there is none."
+          }
+        },
+        "additionalProperties": false,
+        "description": "Who owns this server."
       },
       "ServerRestartingMessage": {
         "type": "object",

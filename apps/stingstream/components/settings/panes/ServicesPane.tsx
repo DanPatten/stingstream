@@ -31,7 +31,6 @@ export const ServicesPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.services")}
-      scope='server'
       detail={t("home.settings.nav.services_hint")}
     >
       <QueryState

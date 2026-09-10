@@ -81,8 +81,8 @@ public class InventoryScopeTests
 
     /// <summary>
     /// The rule is "a file this node can serve", not "not in the federated library". A
-    /// <c>.strm</c> anyone wrote — a debrid user's own library, say — is sixty bytes of URL, and
-    /// handing that to a peer that asked for a film is wrong however it got there.
+    /// <c>.strm</c> anyone wrote — a user's own remote-backed library, say — is sixty bytes of
+    /// URL, and handing that to a peer that asked for a film is wrong however it got there.
     /// </summary>
     [Fact]
     public void A_pointer_file_is_excluded_wherever_it_came_from()

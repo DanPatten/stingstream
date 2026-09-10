@@ -205,8 +205,9 @@ const fromLocalSource = (
     // There is no hop to measure, and a menu that prints "0 ms" next to a local file invites the
     // reading that it was measured and came back fast.
     rttMs: null,
-    // The local file has no entry in the scored list to take a hash from, so the ETag is the only
-    // way "the copy on your server is the same file as the one on Dan's" can ever be known.
+    // From the ETag rather than from the scored list, because the MediaSource is the authority on
+    // a file this server actually holds. It is what "the copy on your server is the same file as
+    // the one on Dan's" is decided on, which is what makes a mid-film failover silent.
     fileHash: normaliseHash(fileHashFromETag(mediaSource.ETag)),
   };
 };
@@ -311,6 +312,11 @@ export const comparator =
  * `bestOnlineSource` is the server's answer and is taken as-is when the two policies agree —
  * it saw scoring inputs the client never receives. When they disagree the client re-sorts, because
  * the whole point of a per-device policy is that this device gets what it asked for.
+ *
+ * The server's pick is joined by `mediaSourceId` first and by node id only as a fallback. Node id
+ * alone cannot express the local copy — the local row carries `node: null`, so before the server
+ * started naming media sources the copy on your own server could never be badged Recommended even
+ * when it was the server's own answer.
  */
 const recommendedMediaSourceId = (
   ordered: readonly SourceChoice[],
@@ -322,16 +328,29 @@ const recommendedMediaSourceId = (
 
   if (response && response.policy === policy) {
     const best = bestOnlineSource(response);
-    const match = best
-      ? playable.find((c) => c.node?.toLowerCase() === best.node.toLowerCase())
-      : undefined;
+    const match = best ? matchChoice(playable, best) : undefined;
     if (match) return match.mediaSourceId;
-    // The server's pick has no MediaSource on this node (the local copy is the usual reason, since
-    // a title held here is never materialized as a pointer). Falling through to the client
-    // ordering below keeps the badge on a row that exists.
+    // The server's pick has no MediaSource on this node — a holder whose pointer was never
+    // materialized. Falling through to the client ordering keeps the badge on a row that exists.
   }
 
   return playable[0].mediaSourceId;
+};
+
+/** The row a scored source refers to: by media-source id, else by node, else the local row. */
+const matchChoice = (
+  playable: readonly SourceChoice[],
+  source: ItemSource,
+): SourceChoice | undefined => {
+  if (source.mediaSourceId) {
+    const byId = playable.find((c) => c.mediaSourceId === source.mediaSourceId);
+    if (byId) return byId;
+  }
+
+  if (source.isLocal) return playable.find((c) => c.local);
+  return playable.find(
+    (c) => c.node?.toLowerCase() === source.node.toLowerCase(),
+  );
 };
 
 // --- presentation ----------------------------------------------------------------------------

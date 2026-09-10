@@ -1,4 +1,5 @@
 import type { UserPolicy } from "@jellyfin/sdk/lib/generated-client/models";
+import { sameUserId } from "@/lib/stingstream/serverOwner";
 import type { PickableLibrary } from "../shared/LibraryPicker";
 
 /**
@@ -107,8 +108,14 @@ export function policyForSelection(
  * says why — a control that disappears reads as a fault, which is the same call `cannotDisable`
  * already makes in `UserDialog`.
  *
- * Two rules, and both are about not ending up with a server nobody can administer:
+ * Three rules. The first is about who this server belongs to; the other two are about not ending
+ * up with a server nobody can administer:
  *
+ * - **The owner is always an administrator.** The account that claimed the server at first run
+ *   cannot be demoted by anybody, itself included. Dan: *"cannot be changed and is the first admin
+ *   setup, no transfer support and they are always an admin"*. Checked before the two below
+ *   because it is the reason worth showing: "you cannot demote yourself" would be true of an owner
+ *   looking at their own account and would say the wrong thing about why.
  * - **You cannot demote yourself.** The server does not stop you, and that is exactly the problem:
  *   it is one tap, it is silent, and the screen you would use to undo it is the screen you just
  *   locked yourself out of.
@@ -118,7 +125,7 @@ export function policyForSelection(
  * Promoting has no rule. Handing somebody administration is a decision, not a hazard, and the one
  * screen that can make it is already administrator-only.
  */
-export type AdminChangeBlock = "self" | "last-administrator";
+export type AdminChangeBlock = "owner" | "self" | "last-administrator";
 
 export function adminChangeBlocked(
   target: { Id?: string | null; Policy?: UserPolicy | null } | null | undefined,
@@ -127,8 +134,15 @@ export function adminChangeBlocked(
     | readonly { Id?: string | null; Policy?: UserPolicy | null }[]
     | null
     | undefined,
+  ownerId?: string | null,
 ): AdminChangeBlock | null {
   if (!target?.Id) return null;
+
+  // Before the promotion check, not after: an owner is an administrator by definition, and one
+  // who has somehow been demoted must read as locked rather than as a free promotion — the switch
+  // would then offer to grant something that was never theirs to lose.
+  if (sameUserId(ownerId, target.Id)) return "owner";
+
   // Promotion is never blocked.
   if (!target.Policy?.IsAdministrator) return null;
 

@@ -29,8 +29,13 @@ people. Every part of it depended on somebody running a coordinator with an auth
 DNS-provider token; Dan's shared one never got a domain, so in practice **it was never on**.
 
 Part 5 deleted the coordinator, and the honest consequence is that a node can no longer obtain a
-certificate by itself: there is nobody to publish a DNS-01 challenge and no zone to put a name in.
-What is left is the part that never needed a server.
+*certificate* by itself: there is nobody to publish a DNS-01 challenge and no zone to put a name
+in. What is left is the part that never needed a server.
+
+A node can nonetheless get itself a working HTTPS address, which is what people actually wanted
+from all of the above — by running a Cloudflare Tunnel, where the certificate is Cloudflare's
+problem and the node needs no inbound address, no zone and no ACME client. §3 covers it. That is
+the whole of what the coordinator was for, done with none of the infrastructure.
 
 ## 2. What a node does now
 
@@ -69,26 +74,64 @@ Binding it needs privileges on Unix; a node that cannot simply logs and carries 
 
 ## 3. Getting a certificate
 
-Two ways, and neither involves anything we run.
+Three ways. The first one the node does for you; the other two you do yourself.
 
-### Cloudflare Tunnel — the recommended one
+All of it lives on one page — **Settings → Domains**, in the Servers group, administrator-only.
+Before that it was a collapsed *Advanced* disclosure at the bottom of Settings → Servers holding a
+single address field, which meant the one control deciding whether anybody could reach the server
+from a browser was the last thing on a page about federation. `InvitePerson` had to deep-link into
+it with `?advanced=1` to prise the fold open whenever a minted invite turned out to be LAN-only,
+which is the clearest possible evidence it was in the wrong place.
+
+### Cloudflare Tunnel, set up by the node — the recommended one
 
 An outbound tunnel from the node to Cloudflare, with TLS terminating there. No port forwarding, no
 inbound address at all, and it works behind carrier-grade NAT — which a great many home connections
 are, and which no amount of port mapping can fix. Free for this.
 
-```
-cloudflared tunnel login
-cloudflared tunnel create stingstream
-cloudflared tunnel route dns stingstream media.example.com
-cloudflared tunnel run --url http://127.0.0.1:8790 stingstream
-```
+This used to be four commands to type. The node runs `cloudflared` itself now, as a supervised
+process with a log file under `logs/` like every other child. Two fields: a hostname, and a
+Cloudflare API token. The node finds which of the hostname's parent zones your account holds,
+creates the tunnel, points a proxied CNAME at `<id>.cfargotunnel.com`, **saves the hostname as this
+node's address**, and keeps the process alive.
 
-Then set **Settings → Sharing → your server's address** to `https://media.example.com`. Nothing goes
-in `tls/`: the node keeps speaking plain HTTP on loopback and the tunnel is what the internet sees.
+That last step is what makes this one setting rather than two. An earlier version of the page had
+"your server's address" and "setting it up" as separate sections, and Dan's read of it was *"its
+confusing to have your server address + setting it up sections - unify that so its the same
+thing"* — they asked the same question twice and nothing said whether answering one meant you
+should also answer the other.
 
-Caddy and nginx in front of the node are the same shape with the reverse proxy on your own machine,
-and they need an inbound port that actually reaches you.
+The token needs **Account: Cloudflare Tunnel: Edit** and **Zone: DNS: Edit**. It is spent once and
+never stored — see `sharing::TunnelToken`, and §7 below for what that costs.
+
+There was briefly a second flavour: Cloudflare's account-free `quick` tunnel, on a
+`*.trycloudflare.com` name reassigned on every start. Dan cut it on sight — *"they either configure
+a domain manually OR via cloudflare"* — and it is gone from the node too, not merely hidden from
+the page. An address that changes every restart cannot be sent to anybody and cannot carry a
+passkey, so it was never an answer to the question this page asks. `TunnelKind::parse` still reads
+the word as "no tunnel" so a node that ran one downgrades quietly.
+
+`cloudflared` is fetched by `third_party/cloudflared/fetch-cloudflared.ps1`, or picked up from
+`PATH` if you already have it. A node without it says so on the page rather than offering a button
+that cannot work.
+
+### Your own reverse proxy
+
+Caddy, nginx, or a tunnel you run yourself. TLS terminates there, nothing goes in `tls/`, and the
+node keeps speaking plain HTTP on loopback — exactly the same shape as the tunnel above, with the
+proxy on your own machine. Set the address on the Domains page and you are done. A proxy on another
+machine needs an inbound port that actually reaches you.
+
+### A forwarded port and your own certificate
+
+The Domains page has the instructions behind a button, because none of it is ours to press. Three
+steps, in order, and the third is the one people miss: forwarding a port gets a browser to the node
+and gets it a certificate warning, which is not a working setup — this app needs a secure context
+to sign anybody in.
+
+Carrier-grade NAT is the thing to check first. If the address your router calls external is in
+`10/8`, `172.16/12` or `100.64/10`, no amount of forwarding will help and a tunnel is the only route
+that works.
 
 ### Your own certificate
 
@@ -186,5 +229,16 @@ is a question its owner answers by opening the link.
   a name or a certificate — which is part of why a tunnel is the recommended path.
 * **The private key never leaves the node.** That was the one change this design made to Plex's
   when a coordinator existed, and it survives trivially now that nothing else is involved.
+* **Neither does the Cloudflare API token, and that has a visible consequence.** It grants
+  `Zone:DNS:Edit` on somebody's real domain, so it is held in memory only, spent by the first
+  reconcile that needs it, and gone — never written to `meta`, never readable back over the API.
+  Two things follow, both deliberate. **Disconnecting a tunnel cannot delete anything at
+  Cloudflare**: the tunnel and its DNS record stay in the owner's account, because there is no
+  credential left to authenticate a delete with. And **a node restarted after a tunnel was created
+  cannot bring it back on its own** — it reports that it needs setting up again rather than looping
+  against an API it has no token for. The first is paid for by *upserting* the DNS record on
+  creation, so setting the same hostname up again overwrites the leftover record instead of
+  colliding with it. The alternative — a live credential for somebody's DNS zone sitting in a plain
+  table in `mesh.db` that every backup copies — is a far worse trade than either.
 * **`stingstream/tcp/1` is retired.** The ALPN that carried a coordinator's SNI passthrough is
   gone from both ends; `docs/MESH.md` §3 records it.

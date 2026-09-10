@@ -303,6 +303,137 @@ export const toSharingSettings = (raw: unknown): MeshSharingSettings => {
   };
 };
 
+/**
+ * Whether this node is running a Cloudflare Tunnel.
+ *
+ * `named` is a tunnel on a domain its owner controls, which is the only kind there is. There was
+ * briefly a `quick` one — Cloudflare's account-free tunnel, on a `*.trycloudflare.com` name
+ * reassigned on every restart. Dan cut it: *"they either configure a domain manually OR via
+ * cloudflare"*. An address that changes every restart cannot be sent to anybody and cannot carry a
+ * passkey, so it was never an answer to the question this page asks.
+ */
+export type MeshTunnelKind = "none" | "named";
+
+/**
+ * Four states rather than a boolean, because "you have not set this up", "it is coming up" and "it
+ * is broken" send somebody to three different places. `SideDoorStatus` on the node splits `off`
+ * from `no_certificate` for the same reason.
+ */
+export type MeshTunnelState = "off" | "starting" | "connected" | "error";
+
+/** What the node is running, and where it got to. */
+export interface MeshTunnelStatus {
+  kind: MeshTunnelKind;
+  state: MeshTunnelState;
+  /** The name the tunnel answers on. */
+  hostname: string | null;
+  /** Why it is starting or broken, in words, straight from the node. */
+  detail: string | null;
+  /**
+   * Whether `cloudflared` is actually on this machine.
+   *
+   * Reported rather than assumed so the page can say "install this" instead of offering a button
+   * that fails: a node built without the fetch script having run has no tunnel to offer, and that
+   * is a sentence, not an error.
+   */
+  binaryPresent: boolean;
+}
+
+/** Whether the gateway is serving TLS itself, mirroring `SideDoorStatus::state` on the node. */
+export type MeshHttpsState = "off" | "no_certificate" | "ready";
+
+/** The certificate in `$STINGSTREAM_DATA/tls/`, when there is one. */
+export interface MeshCertificate {
+  names: string[];
+  /** RFC 3339, or `null` if the node could read the chain but not a validity window. */
+  expires: string | null;
+}
+
+/**
+ * Everything the Domains page reports — `GET /mesh/domains`.
+ *
+ * One document rather than a read per fact, and an *authenticated* one. The same information is in
+ * `/healthz`, but the node redacts that for anybody calling from off-machine (it otherwise carries
+ * child ports and the data directory), so a browser reaching this server through the very tunnel
+ * this page sets up would see a hollowed-out version of the page that set it up.
+ */
+export interface MeshDomainsStatus {
+  /** The address invite links are built from, as the node stores it. */
+  publicAddress: string | null;
+  https: MeshHttpsState;
+  certificate: MeshCertificate | null;
+  /**
+   * This node's address as the world sees it, when the port mapper could learn one.
+   *
+   * Shown for the benefit of somebody forwarding a port by hand — it is the number they type into
+   * their router — and `null` behind carrier-grade NAT, which is itself the answer to why the
+   * forwarding never worked.
+   */
+  publicIp: string | null;
+  /** Plain-HTTP URLs this node answers on inside the house. */
+  lanUrls: string[];
+  tunnel: MeshTunnelStatus;
+}
+
+const TUNNEL_KINDS: MeshTunnelKind[] = ["none", "named"];
+const TUNNEL_STATES: MeshTunnelState[] = [
+  "off",
+  "starting",
+  "connected",
+  "error",
+];
+const HTTPS_STATES: MeshHttpsState[] = ["off", "no_certificate", "ready"];
+
+/**
+ * A value this build has never heard of reads as the quietest option, never as a thrown decode.
+ *
+ * A node one version ahead may name a state that did not exist when this app was built, and the
+ * honest render for that is the same as for a node with nothing set up. Refusing to decode would
+ * take the address field down with it, and that is the part that always works.
+ */
+const oneOf = <T extends string>(
+  allowed: T[],
+  raw: unknown,
+  name: string,
+  fallback: T,
+): T => {
+  const value = field<string>(raw, ...both(name));
+  return allowed.includes(value as T) ? (value as T) : fallback;
+};
+
+export const toTunnelStatus = (raw: unknown): MeshTunnelStatus => ({
+  kind: oneOf(TUNNEL_KINDS, raw, "kind", "none"),
+  state: oneOf(TUNNEL_STATES, raw, "state", "off"),
+  hostname: field<string>(raw, ...both("hostname"))?.trim() || null,
+  detail: field<string>(raw, ...both("detail"))?.trim() || null,
+  binaryPresent: field<boolean>(raw, ...both("binaryPresent")) ?? false,
+});
+
+export const toDomainsStatus = (raw: unknown): MeshDomainsStatus => {
+  const certificate = field<unknown>(raw, ...both("certificate"));
+  return {
+    publicAddress: field<string>(raw, ...both("publicAddress"))?.trim() || null,
+    https: oneOf(HTTPS_STATES, raw, "https", "off"),
+    certificate: certificate
+      ? {
+          names: field<string[]>(certificate, ...both("names")) ?? [],
+          expires:
+            field<string>(certificate, ...both("expires"))?.trim() || null,
+        }
+      : null,
+    publicIp: field<string>(raw, ...both("publicIp"))?.trim() || null,
+    lanUrls: field<string[]>(raw, ...both("lanUrls")) ?? [],
+    tunnel: toTunnelStatus(field<unknown>(raw, ...both("tunnel")) ?? {}),
+  };
+};
+
+/** What the page sends to start a tunnel. The token is write-only and never comes back. */
+export interface MeshTunnelRequest {
+  kind: "named";
+  hostname: string;
+  apiToken: string;
+}
+
 // --- the Group screen's member management, decided here so it can be tested ---------------------
 //
 // Everything below shapes what the member list shows and what it is allowed to offer. It lives in
@@ -371,7 +502,15 @@ export const memberRoster = (
 
   const rows: MemberRow[] =
     members && members.length > 0
-      ? members.map((m) => ({ ...m, ...links.get(m.node.toLowerCase()) }))
+      ? members.map((m) => ({
+          ...m,
+          ...links.get(m.node.toLowerCase()),
+          // **This server is online by definition**: you are talking to it. The mesh tracks
+          // liveness by peer connection and holds none to itself, so the roster reported this node
+          // as offline on the very screen it was serving. Dan: *"Why does this server say offline
+          // when im on the fucking server"*.
+          online: m.isSelf ? true : m.online,
+        }))
       : (peers ?? []).map((p) => ({
           node: p.node,
           nodeName: p.nodeName,

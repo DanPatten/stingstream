@@ -27,14 +27,10 @@ import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
-import { SourceChooserButton } from "@/components/stingstream/sources/SourceChooserButton";
+import { SourceSelector } from "@/components/stingstream/sources/SourceSelector";
 import { type Bitrate } from "@/constants/Playback";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
-import {
-  usePreferredSourcePreselect,
-  useSourceChoices,
-} from "@/hooks/useItemSources";
 import { useOrientation } from "@/hooks/useOrientation";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
@@ -155,21 +151,6 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     [itemWithSources],
   );
 
-  usePreferredSourcePreselect(itemWithSources, {
-    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
-    onPreselect: preselectSource,
-    enabled: !isOffline,
-  });
-
-  // Whether "Play from…" has anything to offer. `SourceChooserButton` asks the
-  // same question and renders nothing when the answer is no; asking it here as
-  // well is what keeps the *row* from being an empty label beside an invisible
-  // control. React Query dedupes the two on one key, so it is one request.
-  const { hasChoice } = useSourceChoices(itemWithSources, {
-    currentMediaSourceId: selectedOptions?.mediaSource?.Id,
-    enabled: !isOffline,
-  });
-
   // The header used to carry five unnamed icon buttons — download, remote
   // session, watched, favourite, watchlist — squeezed into a bar that also
   // holds the back arrow and the title (pass-02 F-24). Every one of them is now
@@ -259,25 +240,10 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       });
     }
 
-    // WP-PLAYER's chooser, only when the title is federated and more than one
-    // node actually holds it. On a single-server library the question ("which
-    // of your servers?") does not exist, and a permanently dead row is worse
-    // than no row.
-    if (hasChoice && !isOffline) {
-      actions.push({
-        key: "play-from",
-        icon: "sharing",
-        label: t("player.source.play_from"),
-        description: t("player.source.play_from_description"),
-        trailing: (
-          <SourceChooserButton
-            item={itemWithSources}
-            currentMediaSourceId={selectedOptions.mediaSource?.Id}
-            onSelect={preselectSource}
-          />
-        ),
-      });
-    }
+    // "Play from…" is not in here any more. Which server a title comes from is the question this
+    // page most needs to answer on a library spread across several machines, and it is now said
+    // out loud under the Play button by `SourceSelector` rather than hidden behind a "…". The
+    // Versions row above stays: which *file* and which *server* are different questions.
 
     if (isAdmin && !isOffline) {
       actions.push({
@@ -297,8 +263,6 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     isAdmin,
     settings.hideRemoteSessionButton,
     refreshMetadata,
-    hasChoice,
-    preselectSource,
     t,
   ]);
 
@@ -310,11 +274,23 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       streams={streams}
       meta={<Ratings item={item} />}
       actions={
-        <ActionRow
-          item={item}
-          selectedOptions={selectedOptions}
-          moreActions={moreActions}
-        />
+        <>
+          <ActionRow
+            item={item}
+            selectedOptions={selectedOptions}
+            moreActions={moreActions}
+          />
+          {/* Directly under Play, because it says what Play is about to do. It draws nothing at
+              all when only one copy exists, which is most libraries. */}
+          {!isOffline ? (
+            <SourceSelector
+              item={itemWithSources}
+              currentMediaSourceId={selectedOptions.mediaSource?.Id}
+              onSelect={preselectSource}
+              style={{ marginTop: 12 }}
+            />
+          ) : null}
+        </>
       }
     />
   );

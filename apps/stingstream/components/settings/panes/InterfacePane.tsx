@@ -20,7 +20,6 @@ export const InterfacePane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.appearance")}
-      scope='device'
       detail={t("home.settings.nav.appearance_hint")}
     >
       <FocusTarget id='app-language'>

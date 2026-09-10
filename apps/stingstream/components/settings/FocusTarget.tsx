@@ -14,6 +14,9 @@ import { useTheme } from "@/hooks/useTheme";
  * the hardware-acceleration toggle" — on a page with five groups of rows, the
  * other half is saying which one.
  *
+ * A screen can also point at its own block, which is what `?focusNonce=` is
+ * for — see the comment on `targetToken` below.
+ *
  * ## Why it scrolls itself instead of being scrolled
  *
  * The alternative is threading a `ScrollView` ref from `RefreshScreen` down
@@ -46,7 +49,10 @@ export const FocusTarget: React.FC<
   }>
 > = ({ id, children }) => {
   const { accent } = useTheme();
-  const { focus } = useLocalSearchParams<{ focus?: string }>();
+  const { focus, focusNonce } = useLocalSearchParams<{
+    focus?: string;
+    focusNonce?: string;
+  }>();
   const ref = useRef<View>(null);
   const [lit, setLit] = useState(false);
 
@@ -54,8 +60,16 @@ export const FocusTarget: React.FC<
     focus !== undefined &&
     (Array.isArray(id) ? id.includes(focus) : id === focus);
 
+  // One value standing for "this run of being targeted", so the effect below has a single
+  // dependency that changes when it should re-fire. Arriving from the settings search sets
+  // `?focus=` once and never touches it again, so `focus` alone is enough there. A button on the
+  // *same* page as its target is the case that needs the nonce: pressing it a second time asks for
+  // the same id, which does not change `focus`, so without this the ring and the scroll happen once
+  // and every later press does nothing.
+  const targetToken = targeted ? (focusNonce ?? "1") : null;
+
   useEffect(() => {
-    if (!targeted) return;
+    if (targetToken === null) return;
 
     setLit(true);
     if (Platform.OS === "web") {
@@ -71,7 +85,7 @@ export const FocusTarget: React.FC<
       SETTINGS_FOCUS_HIGHLIGHT_MS,
     );
     return () => clearTimeout(timeout);
-  }, [targeted]);
+  }, [targetToken]);
 
   return (
     <View

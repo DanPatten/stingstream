@@ -92,8 +92,14 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   if (onPress)
     return (
       <Pressable
-        accessibilityRole='button'
-        accessibilityState={{ disabled: isDisabled }}
+        // A row is a button unless the caller says otherwise. `LibraryPicker`'s rows are
+        // checkboxes, and a row that announces itself as a button says nothing about whether it is
+        // ticked -- these arrived through `ViewProps` and were silently dropped here before.
+        accessibilityRole={viewProps.accessibilityRole ?? "button"}
+        accessibilityState={{
+          disabled: isDisabled,
+          ...viewProps.accessibilityState,
+        }}
         disabled={isDisabled}
         onPress={onPress}
         {...states.handlers}

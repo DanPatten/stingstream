@@ -336,18 +336,9 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/servers/create'
-        options={{
-          title: t("sharing.create_group_button"),
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
-      <Stack.Screen
         name='settings/servers/join'
         options={{
-          title: t("sharing.join_group_button"),
+          title: t("sharing.join_title"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
@@ -405,6 +396,10 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/diagnostics'
         options={settingsScreen(t("home.settings.nav.diagnostics"))}
+      />
+      <Stack.Screen
+        name='settings/domains'
+        options={settingsScreen(t("home.settings.nav.domains"))}
       />
       {Object.entries(nestedTabPageScreenOptions).map(([name, options]) => (
         <Stack.Screen key={name} name={name} options={options} />

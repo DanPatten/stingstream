@@ -85,7 +85,7 @@ export const WatchTogetherButton: React.FC = () => {
         }
       >
         <Icon
-          name='invite'
+          name='watchTogether'
           size={20}
           color={inARoom ? accent[500] : tokens.color.text.secondary}
         />
@@ -215,7 +215,7 @@ const WatchTogetherDialog: React.FC<{
       <View style={{ gap: space["4"] }} testID='watch-together-body'>
         {nothing ? (
           <EmptyState
-            icon='invite'
+            icon='watchTogether'
             title={t("shell.watch_together_empty")}
             detail={t("shell.watch_together_empty_detail")}
           />

@@ -15,7 +15,7 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   buildSourceChoices,
@@ -128,53 +128,3 @@ export const useSourceChoices = (
   return { ...result, choices, hasChoice: choices.length > 1 };
 };
 
-/**
- * Before anything plays: adopt the holder *this device's* policy would pick.
- *
- * A federated title's `MediaSources` arrive in the order the node materialized them, which is the
- * order the **node's** policy produced. A phone set to "Best quality" on a server set to "Speed
- * first" would therefore open the details page with the fastest copy already selected and no sign
- * that the setting it was given had been ignored — pressing Play would honour the server.
- *
- * So when the two policies disagree, the recommendation moves the selection once. Once, and keyed
- * to the item and the policy: a source the user then picks by hand must survive every re-render,
- * and flipping the policy in the chooser is a new question that deserves a new answer.
- */
-export const usePreferredSourcePreselect = (
-  item: BaseItemDto | null | undefined,
-  options: {
-    currentMediaSourceId?: string | null;
-    /** Called with the `MediaSourceInfo.Id` to adopt. Never called with the current one. */
-    onPreselect: (mediaSourceId: string) => void;
-    enabled?: boolean;
-  },
-): void => {
-  const { currentMediaSourceId, onPreselect, enabled = true } = options;
-  const { choices, data, policy } = useSourceChoices(item, {
-    currentMediaSourceId,
-    enabled,
-  });
-
-  // Latest callback without making the effect depend on its identity, which would re-run the
-  // pre-selection on every parent render.
-  const onPreselectRef = useRef(onPreselect);
-  onPreselectRef.current = onPreselect;
-
-  const appliedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!enabled || !data || !item?.Id) return;
-    // The server ranked under the same policy this device asked for, so its order already is the
-    // answer. Touching the selection here would only fight the user.
-    if (data.policy === policy) return;
-
-    const token = `${item.Id}:${policy}`;
-    if (appliedRef.current === token) return;
-
-    const recommended = choices.find((choice) => choice.recommended);
-    if (!recommended || recommended.disabled) return;
-    appliedRef.current = token;
-    if (recommended.mediaSourceId === currentMediaSourceId) return;
-    onPreselectRef.current(recommended.mediaSourceId);
-  }, [enabled, data, policy, choices, currentMediaSourceId, item?.Id]);
-};

@@ -17,7 +17,6 @@ export const NotificationsPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.notifications")}
-      scope='server'
       detail={t("home.settings.nav.notifications_hint")}
     >
       <QueryState

@@ -1,7 +1,7 @@
 /**
  * The rules the Sharing address field is judged by: what may be saved, and what gets stored.
  *
- * Split out of `components/stingstream/mesh/SharingAddress.tsx` for the reason `meshApi.ts` is
+ * Split out of `components/stingstream/domains/SharingAddress.tsx` for the reason `meshApi.ts` is
  * split out of `mesh.ts` — `bun:test` cannot load anything that reaches `react-native`, and these
  * are the functions where a mistake is invisible. A screen that says one thing while the node
  * stores another is precisely the failure this rework exists to remove, and it is not the kind of

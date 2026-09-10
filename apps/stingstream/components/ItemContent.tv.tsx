@@ -48,7 +48,7 @@ import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useImageColorsReturn } from "@/hooks/useImageColorsReturn";
-import { useSourceChoices } from "@/hooks/useItemSources";
+import { useSourceSelection } from "@/hooks/useSourceSelection";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
@@ -381,23 +381,30 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
     // WP-PLAYER: "Play from…" — which of your servers streams this title. A different question
     // from the media-source picker above it, which is about which *file*: two rows here can be the
     // same encode on two machines, and the one worth choosing is the one that starts fastest.
-    const { choices: sourceChoices, hasChoice: canChooseSource } =
-      useSourceChoices(itemWithSources ?? item, {
-        currentMediaSourceId: selectedOptions?.mediaSource?.Id,
-      });
+    const sourceSelection = useSourceSelection(itemWithSources ?? item, {
+      currentMediaSourceId: selectedOptions?.mediaSource?.Id,
+      onSelectMediaSource: (mediaSourceId) => {
+        const source = mediaSources.find((s) => s.Id === mediaSourceId);
+        // Through the same handler the file picker uses, so the audio and subtitle defaults are
+        // re-resolved against the source actually chosen.
+        if (source) handleMediaSourceChangeRef.current?.(source);
+      },
+    });
+    const canChooseSource = sourceSelection.hasChoice;
     const { showSourceChooser } = useTVSourceChooser();
 
     const handleOpenSourceChooser = useCallback(() => {
       showSourceChooser({
-        choices: sourceChoices,
-        onSelect: (mediaSourceId) => {
-          const source = mediaSources.find((s) => s.Id === mediaSourceId);
-          // Through the same handler the file picker uses, so the audio and subtitle defaults are
-          // re-resolved against the source actually chosen.
-          if (source) handleMediaSourceChangeRef.current?.(source);
-        },
+        menu: sourceSelection.menu,
+        autoTarget: sourceSelection.autoTarget,
+        onSelect: sourceSelection.choose,
       });
-    }, [showSourceChooser, sourceChoices, mediaSources]);
+    }, [
+      showSourceChooser,
+      sourceSelection.menu,
+      sourceSelection.autoTarget,
+      sourceSelection.choose,
+    ]);
 
     // Quality/bitrate options for selector
     const qualityOptions: TVOptionItem<Bitrate>[] = useMemo(() => {
@@ -556,10 +563,9 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
       return videoStream?.DisplayTitle || source.Name || t("item_card.video");
     }, [selectedOptions?.mediaSource, t]);
 
-    const selectedSourceLabel = useMemo(() => {
-      const current = sourceChoices.find((c) => c.current) ?? sourceChoices[0];
-      return current?.nodeName ?? t("player.source.play_from");
-    }, [sourceChoices, t]);
+    // "Auto" until a server is pinned, and then that server's name — the same words the phone's
+    // collapsed control uses, from the same function.
+    const selectedSourceLabel = sourceSelection.label;
 
     const selectedQualityLabel = useMemo(() => {
       return selectedOptions?.bitrate?.key || t("item_card.quality");

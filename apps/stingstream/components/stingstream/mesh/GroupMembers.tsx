@@ -46,12 +46,15 @@ export function GroupMembers({
   groupName,
   peers,
   manageable,
+  onInvite,
 }: {
   group: string;
   groupName: string;
   peers: readonly MeshNodePeer[] | undefined;
   /** `canManageMembers(isAdmin, Platform.isTV)`, decided by the screen above. */
   manageable: boolean;
+  /** Opens the invite dialog. Absent for anybody who may not add a member. */
+  onInvite?: () => void;
 }) {
   const { t } = useTranslation();
   // Passing null when the group cannot be managed disables the query outright, so a
@@ -59,14 +62,13 @@ export function GroupMembers({
   // fires one at all, management being phone/web-only across this app.
   const members = useNodeMeshMembers(manageable ? group : null);
   const remove = useRemoveMeshMember();
-  const rotate = useRotateGroupSecret();
 
   const rows = useMemo(
     () => memberRoster(members.data?.members, peers),
     [members.data, peers],
   );
 
-  const busy = remove.isPending || rotate.isPending;
+  const busy = remove.isPending;
 
   // Which member the pending removal is about. Taken from the mutation's own variables rather than
   // a second piece of state, so it cannot drift out of step with whether the call is still running.
@@ -114,56 +116,31 @@ export function GroupMembers({
     [group, groupName, manageable, remove, t],
   );
 
-  const onRotate = useCallback(() => {
-    void (async () => {
-      try {
-        const rotation = await confirmedAction<MeshRotation>({
-          allowed: manageable,
-          confirm: () =>
-            confirmDestructive(
-              t("sharing.rotate_secret_title", {
-                group: groupName || group,
-              }),
-              t("sharing.rotate_secret_warning"),
-              t("sharing.rotate_secret_confirm"),
-            ),
-          act: () => rotate.mutateAsync(group),
-        });
-        if (rotation) {
-          toast.success(
-            t("sharing.rotate_secret_result", {
-              count: rotation.reached.length,
-            }),
-          );
-        }
-      } catch (error) {
-        toast.error((error as Error).message);
-      }
-    })();
-  }, [group, groupName, manageable, rotate, t]);
-
-  const secretLine = useMemo(() => {
-    if (!members.data) return null;
-    const { epoch, rotatedAt } = members.data;
-    const age = ageOf(rotatedAt);
-    if (!age) {
-      return t("sharing.secret_never_rotated", { epoch });
-    }
-    return age.token
-      ? t("sharing.secret_rotated", { when: age.token, epoch })
-      : t("sharing.secret_rotated_on", { date: onDate(age.at), epoch });
-  }, [members.data, t]);
-
   return (
     <View>
-      <SectionHeader title={t("sharing.members_title")} />
-      <Text
-        variant='caption'
-        tone='secondary'
-        style={{ paddingHorizontal: 4, marginBottom: 12, marginTop: -4 }}
+      {/* No explanatory paragraph. It described what "direct" and "relayed" meant, and neither the
+          words nor the distinction are on screen any more. */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
       >
-        {t("sharing.members_hint")}
-      </Text>
+        <SectionHeader title={t("sharing.members_title")} />
+        {onInvite ? (
+          <Button
+            testID='sharing-invite'
+            variant='secondary'
+            size='sm'
+            icon='invite'
+            onPress={onInvite}
+          >
+            {t("sharing.invite_button")}
+          </Button>
+        ) : null}
+      </View>
 
       {rows.map((row) => (
         <MemberCard
@@ -236,29 +213,91 @@ export function GroupMembers({
               </Text>
             </View>
           )}
-
-          {secretLine && (
-            <Text
-              variant='caption'
-              tone='secondary'
-              style={{ marginTop: 12, paddingHorizontal: 4 }}
-            >
-              {secretLine}
-            </Text>
-          )}
-
-          <View style={{ height: 8 }} />
-
-          <Button
-            variant='danger'
-            onPress={onRotate}
-            loading={rotate.isPending}
-            disabled={busy}
-          >
-            {t("sharing.rotate_secret")}
-          </Button>
         </>
       )}
+    </View>
+  );
+}
+
+/**
+ * Rotating the group secret — the destructive half of managing a link.
+ *
+ * **Its own component so it can live under Advanced.** It used to sit at the bottom of the member
+ * list as a full-width red button with a line about epochs above it, which put the rarest and least
+ * reversible thing on the page in the middle of the most ordinary one. Dan: *"this UI is
+ * confusing.. too much going on not good separation"*. The roster is a thing to read; this is a
+ * thing to do once a year, and it belongs beside Unlink.
+ *
+ * It asks for the roster again rather than being handed it: React Query serves both callers from
+ * one cache entry, and the alternative is threading two more props through a component that no
+ * longer has anything to do with rotation.
+ */
+export function RotateSecret({
+  group,
+  groupName,
+}: {
+  group: string;
+  groupName: string;
+}) {
+  const { t } = useTranslation();
+  const members = useNodeMeshMembers(group);
+  const rotate = useRotateGroupSecret();
+
+  const onRotate = useCallback(() => {
+    void (async () => {
+      try {
+        const rotation = await confirmedAction<MeshRotation>({
+          allowed: true,
+          confirm: () =>
+            confirmDestructive(
+              t("sharing.rotate_secret_title", { group: groupName || group }),
+              t("sharing.rotate_secret_warning"),
+              t("sharing.rotate_secret_confirm"),
+            ),
+          act: () => rotate.mutateAsync(group),
+        });
+        if (rotation) {
+          toast.success(
+            t("sharing.rotate_secret_result", {
+              count: rotation.reached.length,
+            }),
+          );
+        }
+      } catch (error) {
+        toast.error((error as Error).message);
+      }
+    })();
+  }, [group, groupName, rotate, t]);
+
+  const secretLine = useMemo(() => {
+    if (!members.data) return null;
+    const { epoch, rotatedAt } = members.data;
+    const age = ageOf(rotatedAt);
+    if (!age) return t("sharing.secret_never_rotated", { epoch });
+    return age.token
+      ? t("sharing.secret_rotated", { when: age.token, epoch })
+      : t("sharing.secret_rotated_on", { date: onDate(age.at), epoch });
+  }, [members.data, t]);
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      {secretLine && (
+        <Text
+          variant='caption'
+          tone='secondary'
+          style={{ marginBottom: 8, paddingHorizontal: 4 }}
+        >
+          {secretLine}
+        </Text>
+      )}
+      <Button
+        variant='danger'
+        onPress={onRotate}
+        loading={rotate.isPending}
+        disabled={rotate.isPending}
+      >
+        {t("sharing.rotate_secret")}
+      </Button>
     </View>
   );
 }

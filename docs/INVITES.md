@@ -128,6 +128,16 @@ a confirmation — the question was already asked and answered on the form — i
 after, when the link is on screen and about to be pasted somewhere. Single use is the only thing
 standing behind it.
 
+**One account is never either of them: the owner.** The account that claimed the server at first
+run is marked *Owner* on the Users screen instead of *Administrator*, its administrator switch is
+locked, and it cannot be deleted. Dan: *"cannot be changed and is the first admin setup, no
+transfer support and they are always an admin"*. `setup/admin` writes the id down as it claims the
+account — `IUserManager.GetFirstUser` is an unordered `FirstOrDefault`, so it answers correctly
+today by accident and is not a thing to rest a permanent fact on — and `GET /users/owner` reads it
+back. There is no setter at any level, which is the property worth having: nothing can move it.
+`SetupGate.ChooseOwner` is the rule, and a node set up before the id existed falls back to its first
+account and records that.
+
 **Changing it afterwards is the Users screen's job, not this one.** `UserDialog` has an
 Administrator switch, guarded by `adminChangeBlocked`: you cannot demote yourself, and you cannot
 demote the last administrator. Demoting writes `EnableAllFolders = false` with an empty list, so a

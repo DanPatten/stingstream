@@ -953,7 +953,6 @@ export const Controls: FC<Props> = ({
           visible={sourceChooserOpen}
           onClose={closeSourceChooser}
           item={item}
-          choices={sourceChoices}
           currentMediaSourceId={mediaSource?.Id}
           onSelect={handleSwitchMediaSource}
         />

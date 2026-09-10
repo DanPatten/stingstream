@@ -2,12 +2,12 @@
  * "Play from…" on phone and web.
  *
  * The mesh has had a complete source-selection data layer since M4 and no screen: the only way to
- * influence which node a federated title streams from was to change the node's own policy. This is
- * that screen — every holder, what each one would give you, and one tap to move.
+ * influence which node a title streams from was to change the node's own policy. This is that
+ * screen — Auto, every holder, what each one would give you, and one tap to move.
  *
  * Presented through `Dialog` (WP0) rather than `PlatformDropdown`, which the other pickers use:
  * `PlatformDropdown`'s option shape is a label and a radio dot, and a row here has to carry a
- * subtitle and up to three badges, plus a header control above the list. `Dialog` also gets the
+ * subtitle and up to three badges, plus a control below the first row. `Dialog` also gets the
  * surface right on its own — a centred card on a desktop browser, the same bottom sheet as
  * everything else on a phone.
  */
@@ -22,14 +22,18 @@ import { Pill } from "@/components/common/Pill";
 import { Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
-import { useSourceChoices } from "@/hooks/useItemSources";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  useSourceSelection,
+  type UseSourceSelectionResult,
+} from "@/hooks/useSourceSelection";
 import {
   formatSourceChoice,
   type PlaybackPolicy,
   type SourceChoice,
   type SourceChoiceLabels,
 } from "@/lib/stingstream/sourceChooser";
+import { AUTO_KEY } from "@/lib/stingstream/sourceSelection";
 import { useSettings } from "@/utils/atoms/settings";
 
 export interface SourceChooserSheetProps {
@@ -39,19 +43,24 @@ export interface SourceChooserSheetProps {
   item?: BaseItemDto | null;
   currentMediaSourceId?: string | null;
   /**
-   * Rows the caller has already built. The in-player chooser passes these because the player needs
-   * the same list to decide whether the pill is even a button; leaving it out makes the sheet fetch
-   * its own, which is what the pre-play button wants.
+   * A selection the caller has already resolved. The details page and the player both need it for
+   * their own controls, so they pass theirs in rather than having the sheet resolve a second one
+   * from the same query — two `resolve` calls over one list can only ever agree, but two *pins*
+   * held in two `useState`s could drift after a tap.
    */
-  choices?: readonly SourceChoice[];
+  selection?: UseSourceSelectionResult;
+  /**
+   * Where a pick goes when the sheet resolves its own selection — the in-player chooser, whose
+   * switch tears down mpv and re-enters the route, so it cannot simply set a piece of state.
+   * Ignored when `selection` is passed, because that caller has already wired its own.
+   */
+  onSelect?: (mediaSourceId: string) => void;
   /**
    * What the badge on the current row says. "Playing" inside the player, "Selected" before
    * anything has started — nothing is playing on a details page, and saying so is a small lie the
    * user notices.
    */
   currentLabel?: string;
-  /** Called with the chosen `MediaSourceInfo.Id`. Never called for the row already playing. */
-  onSelect: (mediaSourceId: string) => void;
 }
 
 /** The chooser's own copy of the route colours, so a row's dot matches the player's pill. */
@@ -68,32 +77,25 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
   onClose,
   item,
   currentMediaSourceId,
-  choices: providedChoices,
-  currentLabel,
+  selection: provided,
   onSelect,
+  currentLabel,
 }) => {
   const { t } = useTranslation();
   const { settings, updateSettings } = useSettings();
   const [pressed, setPressed] = useState<string | null>(null);
 
-  const fetched = useSourceChoices(item, {
+  const fetched = useSourceSelection(item, {
     currentMediaSourceId,
-    enabled: visible && !providedChoices,
+    onSelectMediaSource: onSelect,
+    enabled: visible && !provided,
   });
-  const choices = providedChoices ?? fetched.choices;
-  const isLoading = !providedChoices && fetched.isLoading;
+  const selection = provided ?? fetched;
+  const isLoading = !provided && fetched.isLoading;
 
   const labels: SourceChoiceLabels = useMemo(
-    () => ({
-      direct: t("player.source.direct"),
-      relayed: t("player.source.relayed"),
-      connecting: t("player.source.connecting"),
-      offline: t("player.source.offline"),
-      recommended: t("player.source.recommended"),
-      sameFile: t("player.source.same_file"),
-      playing: currentLabel ?? t("player.source.playing"),
-    }),
-    [t, currentLabel],
+    () => ({ ...selection.labels, playing: currentLabel ?? selection.labels.playing }),
+    [selection.labels, currentLabel],
   );
 
   // The short spellings, not the settings page's "Fastest source" / "Best quality": a segmented
@@ -106,13 +108,13 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
     [t],
   );
 
+  const choose = selection.choose;
   const handleSelect = useCallback(
-    (choice: SourceChoice) => {
-      if (choice.disabled || choice.current) return;
+    (key: string) => {
       onClose();
-      onSelect(choice.mediaSourceId);
+      choose(key);
     },
-    [onClose, onSelect],
+    [onClose, choose],
   );
 
   return (
@@ -123,54 +125,167 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
       description={t("player.source.play_from_description")}
     >
       <View testID='player-source-chooser'>
-        {/* The tab is the setting, not a filter on the list: flipping it changes what this device
-            asks the node for and what every future "Play" honours. */}
-        <Tabs
-          segments={segments}
-          value={settings.playbackPolicy}
-          onChange={(key) =>
-            updateSettings({ playbackPolicy: key as PlaybackPolicy })
-          }
-          contentInset={0}
-          style={{ marginBottom: 12 }}
-        />
-
-        {isLoading && choices.length === 0 ? (
+        {isLoading && selection.choices.length === 0 ? (
           <View style={{ paddingVertical: 32, alignItems: "center" }}>
             <ActivityIndicator />
           </View>
-        ) : choices.length === 0 ? (
+        ) : selection.choices.length === 0 ? (
           <EmptyState
             icon='sharing'
             title={t("player.source.none_title")}
             detail={t("player.source.none_description")}
           />
         ) : (
-          choices.map((choice) => (
-            <SourceRow
-              key={choice.mediaSourceId}
-              choice={choice}
-              labels={labels}
-              pressed={pressed === choice.mediaSourceId}
-              onPressIn={() => setPressed(choice.mediaSourceId)}
-              onPressOut={() => setPressed(null)}
-              onPress={() => handleSelect(choice)}
-            />
-          ))
+          selection.menu.map((row) =>
+            row.choice === null ? (
+              <View key={row.key}>
+                <AutoRow
+                  selected={row.selected}
+                  target={selection.autoTarget}
+                  pressed={pressed === AUTO_KEY}
+                  onPressIn={() => setPressed(AUTO_KEY)}
+                  onPressOut={() => setPressed(null)}
+                  onPress={() => handleSelect(AUTO_KEY)}
+                />
+                {/* Under Auto rather than at the top of the sheet, because it is Auto's own
+                    setting: it decides what "the best copy" means, and it changes nothing at all
+                    while a specific server is pinned. It is still the device-wide setting every
+                    future Play honours, which is why it stays visible either way. */}
+                <Text
+                  variant='caption'
+                  tone='tertiary'
+                  style={{ marginTop: 4, marginBottom: 6, marginLeft: 12 }}
+                >
+                  {t("player.source.auto_prefers")}
+                </Text>
+                <Tabs
+                  segments={segments}
+                  value={settings.playbackPolicy}
+                  onChange={(key) =>
+                    updateSettings({ playbackPolicy: key as PlaybackPolicy })
+                  }
+                  contentInset={0}
+                  style={{ marginBottom: 12 }}
+                />
+              </View>
+            ) : (
+              <View key={row.key}>
+                <SourceRow
+                  choice={row.choice}
+                  labels={labels}
+                  selected={row.selected}
+                  pressed={pressed === row.key}
+                  onPressIn={() => setPressed(row.key)}
+                  onPressOut={() => setPressed(null)}
+                  onPress={() => handleSelect(row.key)}
+                />
+                {row.selected ? (
+                  <Text
+                    variant='caption'
+                    tone='secondary'
+                    style={{ marginTop: -2, marginBottom: 8, marginLeft: 12 }}
+                  >
+                    {t("player.source.pinned_note")}
+                  </Text>
+                ) : null}
+              </View>
+            ),
+          )
         )}
       </View>
     </Dialog>
   );
 };
 
-const SourceRow: FC<{
-  choice: SourceChoice;
-  labels: SourceChoiceLabels;
+/** Auto: the row that means "decide for me", and says what that comes to right now. */
+const AutoRow: FC<{
+  selected: boolean;
+  target: string | null;
   pressed: boolean;
   onPress: () => void;
   onPressIn: () => void;
   onPressOut: () => void;
-}> = ({ choice, labels, pressed, onPress, onPressIn, onPressOut }) => {
+}> = ({ selected, target, pressed, onPress, onPressIn, onPressOut }) => {
+  const { t } = useTranslation();
+  const { accent } = useTheme();
+  const subtitle = target
+    ? t("player.source.auto_now", { source: target })
+    : t("player.source.auto_nothing");
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole='button'
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${t("player.source.auto")}, ${subtitle}`}
+      style={[
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 12,
+          paddingHorizontal: 12,
+          borderRadius: radius.md,
+          marginBottom: 6,
+          backgroundColor: pressed ? tokens.color.bg["3"] : tokens.color.bg["2"],
+          borderWidth: 1,
+          borderColor: selected ? accent[500] : "transparent",
+        },
+        Platform.OS === "web" ? ({ cursor: "pointer" } as never) : null,
+      ]}
+    >
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: radius.pill,
+          backgroundColor: target
+            ? tokens.color.state.success
+            : tokens.color.text.tertiary,
+          marginRight: 12,
+        }}
+      />
+      <View style={{ flex: 1 }}>
+        <Text variant='body' weight='semibold' numberOfLines={1}>
+          {t("player.source.auto")}
+        </Text>
+        <Text variant='caption' tone='secondary' numberOfLines={2}>
+          {subtitle}
+        </Text>
+      </View>
+      {selected ? (
+        <View
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: radius.pill,
+            backgroundColor: accent[500],
+            marginLeft: 8,
+          }}
+        />
+      ) : null}
+    </Pressable>
+  );
+};
+
+const SourceRow: FC<{
+  choice: SourceChoice;
+  labels: SourceChoiceLabels;
+  selected: boolean;
+  pressed: boolean;
+  onPress: () => void;
+  onPressIn: () => void;
+  onPressOut: () => void;
+}> = ({
+  choice,
+  labels,
+  selected,
+  pressed,
+  onPress,
+  onPressIn,
+  onPressOut,
+}) => {
   const { accent } = useTheme();
   const { title, subtitle, badges } = formatSourceChoice(choice, labels);
 
@@ -181,10 +296,7 @@ const SourceRow: FC<{
       onPressOut={onPressOut}
       disabled={choice.disabled}
       accessibilityRole='button'
-      accessibilityState={{
-        disabled: choice.disabled,
-        selected: choice.current,
-      }}
+      accessibilityState={{ disabled: choice.disabled, selected }}
       accessibilityLabel={[title, subtitle, ...badges]
         .filter(Boolean)
         .join(", ")}
@@ -200,7 +312,7 @@ const SourceRow: FC<{
             ? tokens.color.bg["3"]
             : tokens.color.bg["2"],
           borderWidth: 1,
-          borderColor: choice.current ? accent[500] : "transparent",
+          borderColor: selected ? accent[500] : "transparent",
           opacity: choice.disabled ? 0.5 : 1,
         },
         Platform.OS === "web" && !choice.disabled
@@ -252,7 +364,7 @@ const SourceRow: FC<{
           </View>
         ) : null}
       </View>
-      {choice.current ? (
+      {selected ? (
         <View
           style={{
             width: 10,

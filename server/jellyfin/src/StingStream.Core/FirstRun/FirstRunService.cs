@@ -6,8 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StingStream.Core.Arr;
@@ -48,7 +46,6 @@ public sealed class FirstRunService : BackgroundService
     private readonly SettingsStore _settings;
     private readonly OmniarrSyncService _sync;
     private readonly TorrentEngine _torrents;
-    private readonly ILibraryManager _library;
     private readonly IUserManager _users;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly IInventoryService _inventory;
@@ -56,6 +53,7 @@ public sealed class FirstRunService : BackgroundService
     private readonly ArrClientFactory _arrs;
     private readonly MediaBrowser.Common.Updates.IInstallationManager _installs;
     private readonly MediaBrowser.Common.Plugins.IPluginManager _plugins;
+    private readonly StingStream.Core.Library.LibraryLayoutService _layout;
 
     public FirstRunService(
         ILogger<FirstRunService> logger,
@@ -64,14 +62,14 @@ public sealed class FirstRunService : BackgroundService
         SettingsStore settings,
         OmniarrSyncService sync,
         TorrentEngine torrents,
-        ILibraryManager library,
         IUserManager users,
         IServerConfigurationManager serverConfig,
         IInventoryService inventory,
         System.Net.Http.IHttpClientFactory httpFactory,
         ArrClientFactory arrs,
         MediaBrowser.Common.Updates.IInstallationManager installs,
-        MediaBrowser.Common.Plugins.IPluginManager plugins)
+        MediaBrowser.Common.Plugins.IPluginManager plugins,
+        StingStream.Core.Library.LibraryLayoutService layout)
     {
         _logger = logger;
         _runtime = runtime;
@@ -79,7 +77,6 @@ public sealed class FirstRunService : BackgroundService
         _settings = settings;
         _sync = sync;
         _torrents = torrents;
-        _library = library;
         _users = users;
         _serverConfig = serverConfig;
         _inventory = inventory;
@@ -87,6 +84,7 @@ public sealed class FirstRunService : BackgroundService
         _arrs = arrs;
         _installs = installs;
         _plugins = plugins;
+        _layout = layout;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -215,9 +213,12 @@ public sealed class FirstRunService : BackgroundService
             return report;
         }
 
-        // Genuinely once-only, like the administrator above: creating a library a second time
-        // would be wrong, not merely wasteful.
-        await EnsureLibrariesAsync(runtime, report, cancellationToken).ConfigureAwait(false);
+        // Movies, TV Shows and Recordings. Idempotent and derived from state, so unlike the
+        // administrator above it is safe to call again -- the materializer calls it too, because
+        // on a node whose first run failed halfway it may be the one that gets there first.
+        var layout = await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        report.Steps.AddRange(layout.Steps);
+        report.Ok &= layout.Ok;
 
         // Build whatever the node already holds, so a re-wired node has an inventory immediately.
         try
@@ -569,109 +570,6 @@ public sealed class FirstRunService : BackgroundService
         report.Steps.Add(
             $"torrent categories: {settings.DownloadClients.TorrentMovieCategory}, "
             + $"{settings.DownloadClients.TorrentTvCategory} under {_torrents.Root}");
-    }
-
-    // --- Jellyfin libraries ------------------------------------------------
-
-    private async Task EnsureLibrariesAsync(
-        NodeRuntime runtime,
-        FirstRunReport report,
-        CancellationToken cancellationToken)
-    {
-        var settings = _settings.Get();
-        var movies = Coalesce(settings.RootFolders.Movies, runtime.Paths.MediaMovies);
-        var tv = Coalesce(settings.RootFolders.Tv, runtime.Paths.MediaTv);
-
-        await EnsureLibraryAsync("Movies", CollectionTypeOptions.movies, movies, report, cancellationToken)
-            .ConfigureAwait(false);
-        await EnsureLibraryAsync("TV Shows", CollectionTypeOptions.tvshows, tv, report, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    private static string Coalesce(string? preferred, string? fallback)
-        => !string.IsNullOrWhiteSpace(preferred) ? preferred : fallback ?? string.Empty;
-
-    private async Task EnsureLibraryAsync(
-        string name,
-        CollectionTypeOptions collectionType,
-        string path,
-        FirstRunReport report,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            report.Steps.Add($"library {name}: skipped (no path)");
-            return;
-        }
-
-        Directory.CreateDirectory(path);
-
-        var existing = _library.GetVirtualFolders();
-        var already = existing.FirstOrDefault(f =>
-            string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)
-            || (f.Locations?.Any(l => PathsEqual(l, path)) ?? false));
-        if (already is not null)
-        {
-            report.Steps.Add($"library {name}: already exists");
-            return;
-        }
-
-        try
-        {
-            var options = new LibraryOptions
-            {
-                PathInfos = new[] { new MediaPathInfo(path) },
-                EnableRealtimeMonitor = true,
-                // Metadata comes from the arrs' own naming plus the server's own providers --
-                // TMDB, TVDB, OMDb -- exactly as a stock install would do it. The federated Shared
-                // libraries are the ones that turn internet lookups off and read NFOs only.
-                //
-                // **Leaving TypeOptions empty is what keeps the providers on**, and it is worth
-                // saying so because the API reads as if the opposite were true. `LibraryOptions`
-                // still carries an `EnableInternetProviders` bool, so `GET Library/VirtualFolders`
-                // reports `EnableInternetProviders: false` for these two libraries and looks like a
-                // node that will never fetch a poster. That field is `[Obsolete]` upstream ("Disable
-                // remote providers in TypeOptions instead") and has **no reader anywhere in the
-                // server** -- it is a leftover the DTO still serializes. What decides is
-                // `BaseItemManager.IsMetadataFetcherEnabled`: given a `TypeOptions` entry for the
-                // item's type it treats that entry's `MetadataFetchers` as an *allow-list*, and
-                // given none -- which is what an empty array yields, since `GetTypeOptions` returns
-                // null -- it falls back to the server's own metadata options, which disable
-                // nothing. So an explicit allow-list here would be the thing that turned the
-                // internet off, which is exactly how `FederatedLibraryService.BuildLibraryOptions`
-                // turns it off on purpose.
-                //
-                // Verified on a running node rather than reasoned about: a film dropped into this
-                // library came back with its TMDB and IMDb ids, a poster, a logo, a thumb, a
-                // backdrop and its overview.
-                SaveLocalMetadata = false,
-            };
-            await _library.AddVirtualFolder(name, collectionType, options, refreshLibrary: true)
-                .ConfigureAwait(false);
-            report.Steps.Add($"library {name}: created at {path}");
-            _logger.LogInformation("Created Jellyfin library {Name} at {Path}", name, path);
-        }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
-        {
-            _logger.LogError(ex, "Could not create the {Name} library", name);
-            report.Steps.Add($"library {name}: failed ({ex.Message})");
-            report.Ok = false;
-        }
-
-        // AddVirtualFolder's own refresh is fire-and-forget; nothing to await here.
-        await Task.CompletedTask.ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-    }
-
-    private static bool PathsEqual(string? a, string? b)
-    {
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        static string Norm(string s) => s.TrimEnd('/', '\\').Replace('\\', '/');
-        return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase);
     }
 
     // --- arrs --------------------------------------------------------------

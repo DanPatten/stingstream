@@ -4,7 +4,7 @@ import type {
   MediaSourceInfo,
   MediaStream,
 } from "@jellyfin/sdk/lib/generated-client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { BITRATES } from "@/constants/Playback";
@@ -44,17 +44,13 @@ export const MediaSourceButton: React.FC<Props> = ({
     text: tokens.color.text.primary,
   };
 
-  useEffect(() => {
-    const firstMediaSource = item?.MediaSources?.[0];
-    if (!firstMediaSource) return;
-    setSelectedOptions((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        mediaSource: firstMediaSource,
-      };
-    });
-  }, [item, setSelectedOptions]);
+  // There used to be an effect here that forced `MediaSources[0]` onto the selection whenever the
+  // item's identity changed. It was redundant — `useDefaultPlaySettings` already seeds the
+  // selection from the same source — and, being mounted for as long as the "…" menu's action list
+  // exists, it re-ran and won every time `itemWithSources` re-resolved. That made it a race
+  // against the deliberate choices this component sits beside: a server pinned in "Play from…"
+  // survived until the next refetch and then silently reverted to whatever the node had ranked
+  // first, which is indistinguishable from the pin not working.
 
   const getMediaSourceDisplayName = useCallback((source: MediaSourceInfo) => {
     const videoStream = source.MediaStreams?.find((x) => x.Type === "Video");

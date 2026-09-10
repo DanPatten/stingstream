@@ -12,6 +12,7 @@ import { Skeleton, SkeletonText } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { motion, radius, tokens } from "@/constants/theme";
+import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import type { ArrMovie, ArrSeries } from "@/lib/stingstream/arr-types";
 import { formatBytes, posterUrl } from "@/lib/stingstream/arr-types";
@@ -43,6 +44,7 @@ import { EmptyState, QueryState } from "../shared/ScreenState";
  */
 export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
   const { t } = useTranslation();
+  const router = useRouter();
   const isMovie = kind === "movie";
   // /healthz already knows whether this node runs a movie manager or a series
   // manager; waiting on it rather than firing the list call anyway means a node
@@ -66,6 +68,28 @@ export function LibrarySection({ kind }: { kind: "movie" | "series" }) {
           icon='download'
           title={t("manage.not_set_up_title")}
           detail={t("manage.not_set_up_detail")}
+          // The switch that fixes this is on this same screen, above — so this
+          // points at it rather than navigating anywhere: `?focus=` is what
+          // `FocusTarget` scrolls to and rings. The sentence used to say "turn
+          // it on above" and leave the reader to find it, which is fine on a
+          // short page and useless the moment the list header pushes the switch
+          // off screen. The nonce is what makes a second press work; the
+          // reasoning is on `FocusTarget`.
+          //
+          // No button on a television, matching `RequestsNotSetUp`: the TV
+          // settings tree does not carry this page.
+          action={
+            Platform.isTV
+              ? undefined
+              : {
+                  label: t("manage.not_set_up_action"),
+                  onPress: () =>
+                    router.setParams({
+                      focus: "downloading",
+                      focusNonce: String(Date.now()),
+                    }),
+                }
+          }
         />
       </View>
     );

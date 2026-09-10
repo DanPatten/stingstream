@@ -132,6 +132,24 @@ public interface IMeshClient
         CancellationToken cancellationToken);
 
 
+    /// <summary>Whether a browser can reach this node, and how.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The status, with an empty tunnel when nothing is set up.</returns>
+    Task<MeshDomains> DomainsAsync(CancellationToken cancellationToken);
+
+    /// <summary>Ask this node to run a Cloudflare Tunnel.</summary>
+    /// <param name="request">Which kind, and the hostname and token a named one needs.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The status, which will say <c>starting</c>.</returns>
+    Task<MeshDomains> SetTunnelAsync(
+        MeshTunnelRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>Stop this node's tunnel and forget it.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The status, with the tunnel off.</returns>
+    Task<MeshDomains> DeleteTunnelAsync(CancellationToken cancellationToken);
+
     /// <summary>Every member of a group, removed ones included.</summary>
     /// <param name="group">The group id, hex.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -599,6 +617,43 @@ public sealed class MeshClient : IMeshClient
         return await ReadAsync<MeshSharingSettings>(response, cancellationToken).ConfigureAwait(false);
     }
 
+
+    /// <inheritdoc />
+    public async Task<MeshDomains> DomainsAsync(CancellationToken cancellationToken)
+        => await TryGetAsync<MeshDomains>("/mesh/v1/domains", cancellationToken)
+                .ConfigureAwait(false)
+            // A node too old to know the route is not an error to show anybody: it has no tunnel
+            // and no certificate, which is exactly what an empty object says.
+            ?? new MeshDomains();
+
+    /// <inheritdoc />
+    public async Task<MeshDomains> SetTunnelAsync(
+        MeshTunnelRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PostAsJsonAsync(
+                "/mesh/v1/domains/tunnel",
+                request,
+                MeshJson.Options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "setting up the tunnel", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshDomains>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<MeshDomains> DeleteTunnelAsync(CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http
+            .DeleteAsync("/mesh/v1/domains/tunnel", cancellationToken)
+            .ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "disconnecting the tunnel", cancellationToken)
+            .ConfigureAwait(false);
+        return await ReadAsync<MeshDomains>(response, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public async Task<MeshMembers?> MembersAsync(string group, CancellationToken cancellationToken)

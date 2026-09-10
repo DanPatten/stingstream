@@ -1,10 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
-import { Icon } from "@/components/common/Icon";
+import { Checkbox } from "@/components/common/Checkbox";
 import { Text } from "@/components/common/Text";
 import { ListItem } from "@/components/list/ListItem";
-import { tokens } from "@/constants/theme";
-import { useTheme } from "@/hooks/useTheme";
 import { LoadingState } from "./ScreenState";
 
 /** A library, by whichever name the endpoint that listed it uses. */
@@ -70,22 +68,20 @@ const LibraryChoice: React.FC<{
   selected: boolean;
   disabled: boolean;
   onToggle: () => void;
-}> = ({ library, selected, disabled, onToggle }) => {
-  // The accent is a user setting, so it is read rather than named -- a hard-coded teal is wrong
-  // for anybody who picked violet or amber in Appearance.
-  const { accent } = useTheme();
-  return (
-    <ListItem
-      title={library.name}
-      disabled={disabled}
-      onPress={onToggle}
-      iconAfter={
-        <Icon
-          name={selected ? "radioOn" : "radioOff"}
-          size={20}
-          color={selected ? accent[500] : tokens.color.text.tertiary}
-        />
-      }
-    />
-  );
-};
+}> = ({ library, selected, disabled, onToggle }) => (
+  <ListItem
+    title={library.name}
+    disabled={disabled}
+    onPress={onToggle}
+    // The row *is* the checkbox, so it says so: a screen reader announces the library's name and
+    // whether it is ticked, and the box beside it is decorative.
+    //
+    // `aria-checked` as well as `accessibilityState`, because this build of react-native-web maps
+    // the role and drops the state — the row came out as a checkbox that never said whether it was
+    // ticked. The first is what the web reads, the second is what a phone reads.
+    accessibilityRole='checkbox'
+    accessibilityState={{ checked: selected, disabled }}
+    aria-checked={selected}
+    iconAfter={<Checkbox checked={selected} disabled={disabled} />}
+  />
+);

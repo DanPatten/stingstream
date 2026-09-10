@@ -81,3 +81,48 @@ describe("buildUserRows", () => {
     expect(buildUserRows(null, null, null)).toEqual([]);
   });
 });
+
+describe("the owner", () => {
+  const account = (id: string, name: string) => ({ Id: id, Name: name });
+
+  test("is marked, and only on that row", () => {
+    const rows = buildUserRows(
+      [account("owner-id", "dan"), account("other-id", "sam")],
+      [],
+      "other-id",
+      "owner-id",
+    );
+    expect(rows.map((r) => (r.kind === "account" ? r.isOwner : null))).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  test("is recognised whichever way the id is spelled", () => {
+    // The owner comes from StingStream's own route and the row from `GET /Users`; Jellyfin hands
+    // GUIDs back in whichever shape the serialiser felt like, so a plain string compare is a bug
+    // waiting for the one server that dashes one and not the other.
+    const rows = buildUserRows(
+      [account("A4D809DC-5B3B-4072-9937-B55B8622BF85", "dan")],
+      [],
+      null,
+      "a4d809dc5b3b40729937b55b8622bf85",
+    );
+    expect(rows[0].kind === "account" && rows[0].isOwner).toBe(true);
+  });
+
+  test("nobody is the owner when the server did not say", () => {
+    // An older node, or a lookup that failed. A badge that fails to appear is a smaller mistake
+    // than one that appears on the wrong person.
+    for (const ownerId of [undefined, null, ""]) {
+      const rows = buildUserRows([account("a", "dan")], [], null, ownerId);
+      expect(rows[0].kind === "account" && rows[0].isOwner).toBe(false);
+    }
+  });
+
+  test("owning and being yourself are independent", () => {
+    const rows = buildUserRows([account("me", "dan")], [], "me", "me");
+    expect(rows[0].kind === "account" && rows[0].isSelf).toBe(true);
+    expect(rows[0].kind === "account" && rows[0].isOwner).toBe(true);
+  });
+});

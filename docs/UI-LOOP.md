@@ -425,7 +425,7 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `more-settings` / `more-sessions` | The same two rows on the phone's `more-screen` (<768px). `more-sessions` is also the sidebar's row for Sessions at >=768px | WP1 | **Landed** |
 | ~~`tab-users`~~ / ~~`more-users`~~ | **Gone 2026-09-09.** Users is a settings category (`/settings/users`, `settings-nav-users`); `/users` is a redirect. Querying for either id now finds nothing | — | Removed |
 | `settings-nav` / `settings-nav-<key>` | The settings category column (>=1024px) and its rows — the same ids appear as the compact settings list's rows, since both are built by `buildSettingsCategories` | WP10 | **Landed** 2026-09-09 |
-| `settings-pane` / `settings-overview` | The detail half of the two-pane layout, and what it shows before a category is picked | WP10 | **Landed** 2026-09-09 |
+| `settings-pane` | The detail half of the two-pane layout. There is no landing pane: at >=1024px `/settings` redirects to the first category, the way a desktop settings app opens on a real page | WP10 | **Landed** 2026-09-09 |
 | `settings-scope` | The "This device" / "Your account" / "Whole server" badge at the top of every pane | WP10 | **Landed** 2026-09-09 |
 | `settings-search` / `settings-search-results` / `settings-search-result-<id>` | The top bar's box in its settings mode (and the compact list's own box), its result panel, and one result row | WP10 | **Landed** 2026-09-09 |
 | `settings-focus-<id>` | A block the search can jump to and ring — `?focus=<id>` | WP10 | **Landed** 2026-09-09 |

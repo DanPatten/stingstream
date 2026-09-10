@@ -22,7 +22,6 @@ export const QualityPane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.quality")}
-      scope='server'
       detail={t("home.settings.nav.quality_hint")}
     >
       <QueryState

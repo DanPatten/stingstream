@@ -16,7 +16,7 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * Not "Media services": that page administers indexers and download clients, which are what a
  * manager uses once it exists. It never mentions the two managers themselves.
  */
-export const REQUESTS_SETUP_ROUTE = "/settings/library";
+export const REQUESTS_SETUP_ROUTE = "/settings/library?focus=downloading";
 
 /**
  * "Requests are not set up on this server."

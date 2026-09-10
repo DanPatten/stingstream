@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { ICON_NAMES } from "@/components/common/iconNames";
+import en from "@/translations/en.json";
 import {
   buildSettingsCategories,
   categoryForRoute,
@@ -103,8 +104,22 @@ describe("buildSettingsCategories", () => {
       const group = buildSettingsCategories(user, t).find(
         (g) => g.key === "servers",
       );
-      expect(group?.categories.map((c) => c.key)).toEqual(["servers"]);
+      expect(group?.categories.map((c) => c.key)).toContain("servers");
     }
+  });
+
+  test("Domains sits beside Servers, and only for an administrator", () => {
+    // Same group, because it is the same subject: where people reach this
+    // server. Administrator-only anyway, because every call behind it needs
+    // elevation -- a row that can only fail is worse than no row.
+    const groupFor = (user: UserDto) =>
+      buildSettingsCategories(user, t)
+        .find((g) => g.key === "servers")
+        ?.categories.map((c) => c.key);
+
+    expect(groupFor(admin)).toEqual(["servers", "domains"]);
+    expect(groupFor(member)).toEqual(["servers"]);
+    expect(categoryKeys(member)).not.toContain("domains");
   });
 
   test("every category has a unique route inside /settings", () => {
@@ -119,30 +134,20 @@ describe("buildSettingsCategories", () => {
       expect(route.startsWith("/settings/")).toBe(true);
   });
 
-  test("every category names a real glyph and a scope", () => {
+  test("every category names a real glyph", () => {
     for (const item of flattenCategories(buildSettingsCategories(admin, t))) {
       expect(ICON_NAMES).toContain(item.icon);
-      expect(["device", "account", "server"]).toContain(item.scope);
       expect(item.testID).toBe(`settings-nav-${item.key}`);
     }
   });
 
   test("no two categories share a glyph", () => {
-    // Fourteen rows in one column: a repeated icon there stops being shorthand
-    // and starts being noise.
+    // Every row in one column: a repeated icon there stops being shorthand and
+    // starts being noise.
     const icons = flattenCategories(buildSettingsCategories(admin, t)).map(
       (item) => item.icon,
     );
     expect(new Set(icons).size).toBe(icons.length);
-  });
-
-  test("everything an administrator configures is server-scoped", () => {
-    const administration = buildSettingsCategories(admin, t).find(
-      (group) => group.key === "administration",
-    );
-    for (const item of administration?.categories ?? []) {
-      expect(item.scope).toBe("server");
-    }
   });
 
   test("a label and its hint are two different strings", () => {
@@ -165,7 +170,7 @@ describe("categoryForRoute", () => {
   });
 
   test("a page inside a category still lights it", () => {
-    expect(at("/settings/servers/create")).toBe("servers");
+    expect(at("/settings/servers/join")).toBe("servers");
     expect(at("/settings/appearance/hide-libraries")).toBe("appearance");
   });
 
@@ -191,5 +196,55 @@ describe("categoryForRoute", () => {
         "/settings/transcoding",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("the hints fit the column they are drawn in", () => {
+  // Read the real catalogue, not an echo of the key: the rule is about the
+  // words, and `home.settings.nav.storage_hint` is longer than any sentence.
+  const real = (key: string): string => {
+    const value = key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          node && typeof node === "object"
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        en,
+      );
+    return typeof value === "string" ? value : key;
+  };
+
+  /**
+   * Dan's rule, in one number: *"if an elipsise is needed your description is
+   * too long"*.
+   *
+   * The navigation column is `SETTINGS_NAV_WIDTH` wide, less 22 px of padding,
+   * an 18 px glyph and a 10 px gap — about 238 px of text, over the two lines
+   * `SettingsNavItem` allows, at the `micro` size. 40 characters is comfortably
+   * inside that at every breakpoint and leaves a translator some room; the
+   * longest hint in English is 33.
+   */
+  const MAX_HINT = 40;
+
+  test("no category hint can reach an ellipsis", () => {
+    for (const item of flattenCategories(
+      buildSettingsCategories(admin, real),
+    )) {
+      expect({ key: item.key, length: item.detail.length }).toEqual({
+        key: item.key,
+        length: Math.min(item.detail.length, MAX_HINT),
+      });
+    }
+  });
+
+  test("every label is short enough to read at a glance", () => {
+    // Two lines are allowed here too, but a label is a name and a name that
+    // needs two lines is a description wearing a label's clothes.
+    for (const item of flattenCategories(
+      buildSettingsCategories(admin, real),
+    )) {
+      expect(item.label.length).toBeLessThanOrEqual(28);
+    }
   });
 });

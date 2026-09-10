@@ -83,6 +83,15 @@ public sealed class SourceCandidate
 
     /// <summary>Jellyfin's media-source id for this version, when the candidate came from an item.</summary>
     public string? MediaSourceId { get; set; }
+
+    /// <summary>True when this is the copy on this node's own disk.</summary>
+    /// <remarks>
+    /// The scorer ignores it — a local file competes on the same four components as everybody else,
+    /// and <see cref="LocalSourceFactory"/> is what fills those in honestly. It is here so the
+    /// "Play from…" list and the decision log can say <em>which</em> row is this server, which is
+    /// otherwise only inferable from the node id.
+    /// </remarks>
+    public bool IsLocal { get; set; }
 }
 
 /// <summary>A scored candidate, with the reasons a person can read.</summary>

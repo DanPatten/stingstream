@@ -31,33 +31,32 @@ namespace StingStream.Core.Federated;
 /// </remarks>
 public static class FederatedLayout
 {
-    /// <summary>Subdirectory of the federated root that backs the Shared Movies library.</summary>
+    /// <summary>
+    /// Subdirectory of the federated root that is the second media path of the Movies library.
+    /// </summary>
+    /// <remarks>
+    /// The second path of <em>the</em> Movies library, not a library of its own. A peer's copy of a
+    /// film has to be a version of the same Jellyfin item as this node's copy, and Jellyfin only
+    /// merges two items when they share a collection folder — see
+    /// <see cref="Library.LibraryLayoutService"/>.
+    /// </remarks>
     public const string MoviesDirectory = "movies";
 
-    /// <summary>Subdirectory of the federated root that backs the Shared TV library.</summary>
+    /// <summary>Subdirectory of the federated root that is the second media path of TV Shows.</summary>
     public const string TvDirectory = "tv";
 
-    /// <summary>Subdirectory of the federated root that backs the Shared Recordings library.</summary>
-    public const string RecordingsDirectory = "recordings";
-
-    /// <summary>Name of the Jellyfin library holding federated movies.</summary>
-    public const string MoviesLibrary = "Shared Movies";
-
-    /// <summary>Name of the Jellyfin library holding federated series.</summary>
-    public const string TvLibrary = "Shared TV";
-
-    /// <summary>Name of the Jellyfin library holding federated DVR recordings.</summary>
+    /// <summary>Subdirectory of the federated root that backs the Recordings library.</summary>
     /// <remarks>
-    /// A third library rather than a corner of the other two, because a recording without provider
-    /// ids fits neither shape. `Shared Movies` needs the year in both the folder and the filename
-    /// and needs every holder to agree on it, which a recording whose `ProductionYear` is absent
-    /// cannot do; `Shared TV` groups on a parsed `SxxEyy`, which a recording named by its air date
-    /// does not have. Forcing either would produce items that silently fail to group -- one film in
-    /// two folders, or an episode that never joins its series. See
-    /// <see cref="Inventory.InventoryService.BuildItemKey"/> for the identity half of the same
-    /// argument.
+    /// The one federated tree that is still a library of its own, because a recording without
+    /// provider ids fits neither of the other two layouts. The movie layout needs the year in both
+    /// the folder and the filename and needs every holder to agree on it, which a recording whose
+    /// `ProductionYear` is absent cannot do; the TV layout groups on a parsed `SxxEyy`, which a
+    /// recording named by its air date does not have. Forcing either would produce items that
+    /// silently fail to group -- one film in two folders, or an episode that never joins its
+    /// series. See <see cref="Inventory.InventoryService.BuildItemKey"/> for the identity half of
+    /// the same argument.
     /// </remarks>
-    public const string RecordingsLibrary = "Shared Recordings";
+    public const string RecordingsDirectory = "recordings";
 
     /// <summary>
     /// The label that distinguishes one holder's copy from another's in a filename.

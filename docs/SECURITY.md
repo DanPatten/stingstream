@@ -50,6 +50,21 @@ your shelves, do not put their node in your group.
   the fact that you streamed forty gigabytes from a particular node on a Friday night is not.
 * **What the content is.** StingStream is content-agnostic by decision (`ARCHITECTURE.md`).
 
+### 1.4 The mainline DHT, and what it is used for
+
+A node joins the BitTorrent mainline DHT by default (`[discovery] mainline_dht`, on in
+`DiscoveryConfig::default`). It is worth being precise about what that does, because the sentence
+reads worse than the fact.
+
+The DHT is used here as an **address book, not a content index**. `iroh_mainline_address_lookup`
+publishes a BEP-44 mutable item keyed on the node's own `SecretKey` — the pkarr pattern — whose
+value is this node's own network addresses, and resolves the same for peers it already knows about.
+It never announces an infohash, never calls `get_peers`, and neither learns nor advertises anything
+about what any node holds. Turning it off costs discovery speed, not privacy of the library.
+
+The torrent engine's DHT is a different setting and a different thing: that one *is* content
+discovery, and it is **off** by default (`downloadClients.torrentDhtEnabled`).
+
 ---
 
 ## 2. Findings, fixed
@@ -165,6 +180,7 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/requests/counts`, `/search`, `/policy` (GET), `/notifications`, `/notifications/read` | GET/POST | Member |
 | `/stingstream/api/v1/requests/{id}/{approve,decline,retry}`, `/policy` (PUT), `/users`, `/users/{id}`, `/pass` | POST/PUT/GET | Admin |
 | `/stingstream/api/v1/users/{id}/playback-policy` | GET, PUT | Self or Admin |
+| `/stingstream/api/v1/users/owner` | GET | Any signed-in account. Which account claimed this server at first run — **read only, and there is deliberately no setter at any level**: ownership does not transfer, so the property worth having is that no request can move it. Not restricted to administrators because the owner's name is already in Jellyfin's public user list, and the alternative is a screen that must be an administrator's before it can say whose server this is. A node set up before the id was recorded answers with its first account and writes that down, so the answer stops being a guess after the first ask |
 | `/stingstream/api/v1/watch`, `/watch/{s}`, `/watch/{s}/{join,attach,leave}` | GET, POST | Member |
 | `/stingstream/api/v1/library/*`, `/movies`, `/series`, `/calendar`, `/history`, `/queue` | all | Admin |
 | `/stingstream/api/v1/settings/*`, `/sync` | all | Admin |
@@ -228,6 +244,21 @@ handshake first; a light node refuses the content routes outright.
 | Arr webhook token | 256 | Derived from `runtime.json` | With `runtime.json` |
 | Radarr / Sonarr / NZBGet credentials | 256 | `runtime.json`, 0600 on Unix | On `runtime.json` rewrite |
 | TLS private key, ACME account key | — | `$STINGSTREAM_DATA/tls/`, 0600 on Unix | ACME renewal at 60 days |
+| Cloudflare API token | — | **Nowhere. In memory only** | The reconcile that spends it |
+| Cloudflare tunnel run token | — | In memory, as a child process argument | With the process |
+
+**The Cloudflare API token is never persisted, and that is a design constraint rather than an
+oversight.** Settings → Domains asks for one to create a tunnel; it carries `Zone:DNS:Edit` on a
+real domain, so it is held in a mutex on the node (`sharing::TunnelToken`), taken by the first
+supervisor reconcile that needs it, and cleared. It is write-only over the API: no endpoint returns
+it, and it appears in no log — a tunnel's *run* token is a command-line argument, so every path
+that reports one goes through `tunnel::without_token` first.
+
+Two consequences, both accepted deliberately. Disconnecting a tunnel cannot delete it or its DNS
+record at Cloudflare, because no credential remains to authenticate that; the record is instead
+*overwritten* on the next setup, so reusing a hostname works. And a node restarted after a tunnel
+was created cannot restart the tunnel — it reports that it needs setting up again. The alternative,
+a live DNS-edit credential sitting in `mesh.db` where every backup copies it, is worse than both.
 
 **Invite codes are single use and do not expire.** An invite is
 `base58check(version ‖ group id ‖ token ‖ group name ‖ inviter address)`. The token is 256 bits of

@@ -132,7 +132,6 @@ inside Jellyfin's own HTTP clients (see `StingStreamLocalHandler`), and ffmpeg d
 
 The two remaining clauses cover the case the `.strm` clause existed for — a pointer nothing has read
 yet, which has no video stream and so still probes — without re-probing one that has been read.
-Debrid users get the same improvement for free.
 
 **Upstream-pull risk:** low but real. If the surrounding method is rewritten, re-apply by deleting
 the `.strm` clause again. `tools/e2e-m3.ps1`'s "Jellyfin on A streams the federated movie" step is

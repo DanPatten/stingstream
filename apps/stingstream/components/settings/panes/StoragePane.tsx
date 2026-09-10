@@ -25,7 +25,6 @@ export const StoragePane: React.FC = () => {
   return (
     <SettingsPane
       title={t("home.settings.nav.storage")}
-      scope='server'
       detail={t("home.settings.nav.storage_hint")}
     >
       <QueryState

@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { clearPasswordDerivation } from "@/lib/stingstream/identityApi";
+import { fetchServerOwner } from "@/lib/stingstream/serverOwner";
 import { apiAtom } from "@/providers/JellyfinProvider";
 
 /**
@@ -44,6 +45,33 @@ export function useServerUsers(enabled = true): UseQueryResult<UserDto[]> {
     queryKey: SERVER_USERS_QUERY_KEY,
     queryFn: async () => (await getUserApi(api!).getUsers()).data,
     enabled: !!api && enabled,
+  });
+}
+
+/** Query key for {@link useServerOwner}. */
+export const SERVER_OWNER_QUERY_KEY = ["stingstream", "server-owner"] as const;
+
+/**
+ * Which account owns this server.
+ *
+ * The account that claimed it at first run. **It never changes**, which is why this is cached with
+ * no expiry and never invalidated by anything on the Users screen: there is no transfer, so the
+ * only thing that could move it is a bug.
+ *
+ * Readable by any signed-in account, unlike the user list beside it, so this needs no `enabled`
+ * flag — a member's screen can say whose server this is without being an administrator's.
+ */
+export function useServerOwner(): UseQueryResult<string | null> {
+  const api = useAtomValue(apiAtom);
+  return useQuery({
+    queryKey: SERVER_OWNER_QUERY_KEY,
+    queryFn: async () => {
+      const nodeOrigin = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
+      if (!nodeOrigin) return null;
+      return await fetchServerOwner(nodeOrigin, api?.accessToken);
+    },
+    enabled: !!api,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 

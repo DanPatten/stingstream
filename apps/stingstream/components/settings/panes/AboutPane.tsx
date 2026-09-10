@@ -25,7 +25,7 @@ export const AboutPane: React.FC = () => {
   const isWeb = Platform.OS === "web";
 
   return (
-    <SettingsPane title={t("home.settings.nav.about")} scope='device'>
+    <SettingsPane title={t("home.settings.nav.about")}>
       <FocusTarget id='app-version'>
         <AboutSection />
       </FocusTarget>

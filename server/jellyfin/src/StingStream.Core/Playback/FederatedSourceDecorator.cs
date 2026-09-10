@@ -65,6 +65,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     private readonly PlaybackPolicyStore _policies;
     private readonly INodeRuntimeProvider _runtime;
     private readonly StreamUrlSigner _signer;
+    private readonly LocalSourceFactory _local;
     private readonly ILogger<FederatedSourceDecorator> _logger;
 
     public FederatedSourceDecorator(
@@ -72,12 +73,14 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
         PlaybackPolicyStore policies,
         INodeRuntimeProvider runtime,
         StreamUrlSigner signer,
+        LocalSourceFactory local,
         ILogger<FederatedSourceDecorator> logger)
     {
         _sources = sources;
         _policies = policies;
         _runtime = runtime;
         _signer = signer;
+        _local = local;
         _logger = logger;
     }
 
@@ -241,9 +244,77 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
             Apply(source, scored, policy, parsed, gateway);
         }
 
+        await ScoreLocalAsync(sources, federated, scores, policy, cancellationToken).ConfigureAwait(false);
+
         var ordered = Order(sources, scores);
         Log(label, policy, ordered, scores);
         return ordered;
+    }
+
+    /// <summary>
+    /// Score the copy on this node's own disk alongside the peers' copies of the same title.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the half of "play the best copy" that used to be missing. A local file and a peer's
+    /// only ever appeared on one item once locally-held titles started being materialized, and
+    /// until then the local one was pinned to the front unconditionally — which would now mean a
+    /// 1080p rip silently beating the 2160p a viewer had chosen Quality first to get.
+    /// </para>
+    /// <para>
+    /// The item key comes from the federated pointers beside it, which is the only thing that knows
+    /// what title these sources are copies of: a local <c>MediaSourceInfo</c> carries a path and a
+    /// codec and nothing that identifies the film. Every pointer on one item names the same key by
+    /// construction, so the first is as good as any.
+    /// </para>
+    /// <para>
+    /// The local source is scored but never <see cref="Apply"/>-ed: there is no URL to sign, no
+    /// <c>EncoderPath</c> to rewrite because ffmpeg can open the file itself, and no direct-play
+    /// veto, because a local read always fits and whether the *client* can play it is Jellyfin's
+    /// own <c>StreamBuilder</c>'s question rather than this one's.
+    /// </para>
+    /// </remarks>
+    private async Task ScoreLocalAsync(
+        IReadOnlyList<MediaSourceInfo> sources,
+        List<(MediaSourceInfo Source, StreamRef? Parsed)> federated,
+        Dictionary<string, ScoredSource> scores,
+        PlaybackPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        var itemKey = federated.Count > 0 ? federated[0].Parsed?.ItemKey : null;
+        var federatedRoot = _runtime.Current?.Paths.Federated;
+        (string Node, string NodeName)? self = null;
+
+        foreach (var source in sources)
+        {
+            if (source.Id is not null && scores.ContainsKey(source.Id))
+            {
+                continue;
+            }
+
+            self ??= await _local.SelfAsync(cancellationToken).ConfigureAwait(false);
+            var candidate = _local.FromMediaSource(
+                source,
+                itemKey,
+                self.Value.Node,
+                self.Value.NodeName,
+                federatedRoot);
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            scores[source.Id ?? LocalSourceFactory.LocalNodeMarker] = SourceScorer.Score(candidate, policy);
+
+            // The local file's own BLAKE3, in the same weak-ETag spelling the federated sources
+            // carry. It is what lets a client tell "the same bytes elsewhere, resume silently" from
+            // "a different encode, restart at 00:41:12" -- so if the local disk drops out mid-film,
+            // a peer holding an identical copy can continue it by byte offset.
+            if (!string.IsNullOrWhiteSpace(candidate.FileHash))
+            {
+                source.ETag = string.Create(CultureInfo.InvariantCulture, $"W/\"b3-{candidate.FileHash}\"");
+            }
+        }
     }
 
     /// <summary>Stamp one federated source with everything the scoring pass learned.</summary>
@@ -321,34 +392,48 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     /// Put the sources in the order the app should offer them.
     /// </summary>
     /// <remarks>
-    /// Anything that is not a federated pointer keeps its position at the front, in the order
-    /// Jellyfin's own sort produced: a local file is always the best source there is, and a version
-    /// the user explicitly opened has already been floated to the top by
-    /// <c>SetAlternateVersionResumeStates</c>. Only the federated ones are re-ordered among
-    /// themselves.
+    /// <para>
+    /// Every source that could be scored is ordered by score, <em>the local file included</em>. It
+    /// used to be pinned to the front on the grounds that a local file is always the best source
+    /// there is, which stopped being true the moment a peer's 2160p became another version of the
+    /// same item: under Quality first the viewer has asked for the 4K, and under Speed first a link
+    /// measured able to carry it should be allowed to win. Local still wins by a wide margin
+    /// whenever the alternative is a relayed or unmeasured peer — see
+    /// <see cref="LocalSourceFactory"/> for the arithmetic.
+    /// </para>
+    /// <para>
+    /// What keeps its position at the front is what could <em>not</em> be scored: a live stream, a
+    /// placeholder, a source with no id. That is the old behaviour for exactly the cases the old
+    /// rule was really written for.
+    /// </para>
     /// </remarks>
     private static IReadOnlyList<MediaSourceInfo> Order(
         IReadOnlyList<MediaSourceInfo> sources,
         IReadOnlyDictionary<string, ScoredSource> scores)
     {
-        var local = new List<MediaSourceInfo>();
-        var remote = new List<(MediaSourceInfo Source, double Score)>();
-        foreach (var source in sources)
+        var unscored = new List<MediaSourceInfo>();
+        var scored = new List<(MediaSourceInfo Source, double Score, int Index)>();
+        for (var i = 0; i < sources.Count; i++)
         {
-            if (source.Id is not null && scores.TryGetValue(source.Id, out var scored))
+            var source = sources[i];
+            if (source.Id is not null && scores.TryGetValue(source.Id, out var value))
             {
-                remote.Add((source, scored.Score));
+                scored.Add((source, value.Score, i));
             }
             else
             {
-                local.Add(source);
+                unscored.Add(source);
             }
         }
 
-        // Stable within a score, so the answer does not move about between two identical holders.
+        // Stable within a score -- ties break on the position Jellyfin's own sort produced -- so
+        // the answer does not move about between two identical holders from one call to the next.
         var ordered = new List<MediaSourceInfo>(sources.Count);
-        ordered.AddRange(local);
-        ordered.AddRange(remote.OrderByDescending(r => r.Score).Select(r => r.Source));
+        ordered.AddRange(unscored);
+        ordered.AddRange(scored
+            .OrderByDescending(s => s.Score)
+            .ThenBy(s => s.Index)
+            .Select(s => s.Source));
         return ordered;
     }
 

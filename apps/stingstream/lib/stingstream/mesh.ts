@@ -15,8 +15,10 @@ import {
   type MeshNodePeer,
   type MeshNodeStatus,
   type MeshSharingSettings,
+  type MeshTunnelRequest,
   MeshUnavailableError,
   readError,
+  toDomainsStatus,
   toGroup,
   toInvite,
   toJoin,
@@ -278,6 +280,91 @@ export function useSetMeshSharingSettings() {
         [...MESH_QUERY_KEY, "settings", "sharing", base],
         stored,
       ),
+  });
+}
+
+/**
+ * Everything the Domains page shows — `GET /mesh/domains`.
+ *
+ * Polled only while a tunnel is coming up. A tunnel takes a few seconds to register with
+ * Cloudflare and the page has to show that happening; once it settles nothing changes the answer
+ * except somebody on this screen, so a standing poll would be a request every few seconds for a
+ * document already on screen.
+ */
+export function useMeshDomains() {
+  const { base, authed, request } = useMeshApi();
+  return useQuery({
+    queryKey: [...MESH_QUERY_KEY, "domains", base],
+    queryFn: async () => {
+      try {
+        return toDomainsStatus(await request<unknown>("/domains"));
+      } catch (e) {
+        // A server that predates this route answers 404, and the honest render for that is the
+        // same as for a server with nothing set up -- it has no tunnel and no certificate we can
+        // see. Showing "Something went wrong / GET /domains: 404" instead was the first thing Dan
+        // hit, and it is doubly wrong here: the address field below this reads a different
+        // endpoint and works perfectly well, so an error state would take a working control off
+        // the screen to report that an optional one is unavailable.
+        if (/\b404\b/.test((e as Error).message)) return toDomainsStatus({});
+        throw e;
+      }
+    },
+    enabled: authed,
+    refetchInterval: (query) =>
+      query.state.data?.tunnel.state === "starting" ? 2_000 : false,
+    staleTime: 5_000,
+    retry: 1,
+  });
+}
+
+/**
+ * Start a tunnel — `POST /mesh/domains/tunnel`.
+ *
+ * The answer seeds the cache directly rather than invalidating, so the page reaches `starting` on
+ * the same render the button stops spinning. A quick tunnel also rewrites this node's public
+ * address, so the sharing settings the address field reads go stale here too.
+ */
+export function useSetMeshTunnel() {
+  const { base, request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (next: MeshTunnelRequest) =>
+      toDomainsStatus(
+        await request<unknown>("/domains/tunnel", {
+          method: "POST",
+          body: JSON.stringify(next),
+        }),
+      ),
+    onSuccess: (status) => {
+      queryClient.setQueryData([...MESH_QUERY_KEY, "domains", base], status);
+      queryClient.invalidateQueries({
+        queryKey: [...MESH_QUERY_KEY, "settings", "sharing", base],
+      });
+    },
+  });
+}
+
+/**
+ * Stop a tunnel and forget it — `DELETE /mesh/domains/tunnel`.
+ *
+ * For a named tunnel the node also removes the tunnel and its DNS record, so pressing this and
+ * setting the same hostname up again works. Without that the second attempt collides with the
+ * first tunnel's CNAME and fails for a reason nobody could see from this screen.
+ */
+export function useDeleteMeshTunnel() {
+  const { base, request } = useMeshApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      toDomainsStatus(
+        await request<unknown>("/domains/tunnel", { method: "DELETE" }),
+      ),
+    onSuccess: (status) => {
+      queryClient.setQueryData([...MESH_QUERY_KEY, "domains", base], status);
+      queryClient.invalidateQueries({
+        queryKey: [...MESH_QUERY_KEY, "settings", "sharing", base],
+      });
+    },
   });
 }
 

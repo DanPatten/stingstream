@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using StingStream.Core.Arr;
 using StingStream.Core.Data;
+using StingStream.Core.Torrents;
 
 namespace StingStream.Core.Controllers;
 
@@ -29,12 +30,18 @@ public sealed class SettingsController : StingStreamControllerBase
     private readonly SettingsStore _store;
     private readonly OmniarrSyncService _sync;
     private readonly ArrClientFactory _factory;
+    private readonly TorrentEngine _torrents;
 
-    public SettingsController(SettingsStore store, OmniarrSyncService sync, ArrClientFactory factory)
+    public SettingsController(
+        SettingsStore store,
+        OmniarrSyncService sync,
+        ArrClientFactory factory,
+        TorrentEngine torrents)
     {
         _store = store;
         _sync = sync;
         _factory = factory;
+        _torrents = torrents;
     }
 
     /// <summary>The current shared settings.</summary>
@@ -61,6 +68,11 @@ public sealed class SettingsController : StingStreamControllerBase
         CancellationToken cancellationToken)
     {
         var saved = await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+
+        // Before the sync: if the torrent engine was just turned off, the arrs should not be told
+        // to register a client that is on its way down.
+        await _torrents.ApplySettingsAsync(cancellationToken).ConfigureAwait(false);
+
         if (sync)
         {
             await _sync.SyncAllAsync(_interactiveTimeout, cancellationToken).ConfigureAwait(false);

@@ -62,6 +62,8 @@ const source = (over: Partial<ItemSource> & { node: string }): ItemSource => ({
   measured: true,
   reasons: [],
   streamUrl: streamUrl(over.node),
+  isLocal: false,
+  mediaSourceId: null,
   ...over,
 });
 
@@ -478,5 +480,117 @@ describe("formatSourceChoice", () => {
     expect(formatBitrate(800_000)).toBe("800 kb/s");
     expect(formatBitrate(0)).toBeNull();
     expect(formatBitrate(null)).toBeNull();
+  });
+});
+
+describe("a local file and a peer's copy on one item", () => {
+  // Before locally-held titles were materialized these two could not appear together: a title was
+  // either on this server or in the group, never both. Every assertion here is about the case that
+  // used not to exist.
+
+  test("quality_first lets a peer's 2160p beat the local 1080p", () => {
+    const choices = build(
+      [localSource("local", 1080), meshSource("ms-a", NODE_A)],
+      response(
+        [source({ node: NODE_A, nodeName: "Attic", height: 2160, rttMs: 18 })],
+        "quality_first",
+      ),
+      "quality_first",
+    );
+
+    expect(choices[0].local).toBe(false);
+    expect(choices[0].nodeName).toBe("Attic");
+  });
+
+  test("speed_first keeps the local file even against a direct 2160p at 1 ms", () => {
+    // Route outranks everything under speed_first, and nothing outranks having no hop at all.
+    const choices = build(
+      [localSource("local", 720), meshSource("ms-a", NODE_A)],
+      response([
+        source({
+          node: NODE_A,
+          nodeName: "Attic",
+          height: 2160,
+          rttMs: 1,
+          path: "direct",
+        }),
+      ]),
+    );
+
+    expect(choices[0].local).toBe(true);
+  });
+
+  test("one item, one local row and one row per holder", () => {
+    const choices = build(
+      [localSource("local"), meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
+      response([
+        source({ node: NODE_A, nodeName: "Attic" }),
+        source({ node: NODE_B, nodeName: "Loft" }),
+      ]),
+    );
+
+    expect(choices).toHaveLength(3);
+    expect(choices.filter((c) => c.local)).toHaveLength(1);
+    expect(choices.filter((c) => c.route === "local")).toHaveLength(1);
+  });
+
+  test("the local row can be Recommended when the server picked it", () => {
+    // The server names the media source now, so its pick joins exactly. Joining on node id alone
+    // could never land on the local row, which carries no node id at all — so before this the copy
+    // on your own server could never wear the badge even when it was the server's own answer.
+    const choices = build(
+      [localSource("local", 2160), meshSource("ms-a", NODE_A)],
+      response([
+        source({
+          node: "local",
+          nodeName: "This server",
+          isLocal: true,
+          mediaSourceId: "local",
+          height: 2160,
+        }),
+        source({ node: NODE_A, nodeName: "Attic", height: 1080 }),
+      ]),
+    );
+
+    expect(choices.find((c) => c.recommended)?.local).toBe(true);
+  });
+
+  test("…and by the isLocal flag alone when the media source id is missing", () => {
+    const choices = build(
+      [localSource("local", 2160), meshSource("ms-a", NODE_A)],
+      response([
+        source({ node: "local", nodeName: "This server", isLocal: true, height: 2160 }),
+        source({ node: NODE_A, nodeName: "Attic", height: 1080 }),
+      ]),
+    );
+
+    expect(choices.find((c) => c.recommended)?.local).toBe(true);
+  });
+
+  test("a peer's pick still joins by node id when it names no media source", () => {
+    const choices = build(
+      [localSource("local"), meshSource("ms-a", NODE_A)],
+      response([
+        source({ node: NODE_A, nodeName: "Attic", height: 2160 }),
+        source({ node: "local", nodeName: "This server", isLocal: true }),
+      ], "quality_first"),
+      "quality_first",
+    );
+
+    expect(choices.find((c) => c.recommended)?.nodeName).toBe("Attic");
+  });
+
+  test("the local copy is marked as the same file when a peer holds identical bytes", () => {
+    // The direction that matters for a mid-film failover off a local disk: the app has to know
+    // there are identical bytes elsewhere before it can resume by offset rather than restarting.
+    const local = { ...localSource("local"), ETag: 'W/"b3-abc123"' };
+    const choices = build(
+      [local, meshSource("ms-a", NODE_A)],
+      response([source({ node: NODE_A, nodeName: "Attic", fileHash: "ABC123" })]),
+      "speed_first",
+      "local",
+    );
+
+    expect(choices.find((c) => c.nodeName === "Attic")?.sameFileAsCurrent).toBe(true);
   });
 });

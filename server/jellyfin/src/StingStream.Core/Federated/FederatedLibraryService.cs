@@ -26,17 +26,23 @@ namespace StingStream.Core.Federated;
 /// </summary>
 /// <remarks>
 /// This is the merge mechanism. Instead of proxying another server's API, each node writes the
-/// titles its peers hold into two of its *own* libraries as <c>.strm</c> pointer files with
-/// <c>.nfo</c> sidecars and real artwork, so every native Jellyfin feature — search, collections,
-/// watched state, SyncPlay, the clients themselves — works on a peer's film exactly as it does on
-/// a local one, with nothing to keep in step with upstream. The pattern is proven: the whole
-/// debrid ecosystem runs libraries of hundreds of thousands of items this way.
+/// titles its peers hold into its *own* libraries as <c>.strm</c> pointer files with <c>.nfo</c>
+/// sidecars and real artwork, so every native Jellyfin feature — search, collections, watched
+/// state, SyncPlay, the clients themselves — works on a peer's film exactly as it does on a local
+/// one, with nothing to keep in step with upstream. The pattern is proven: remote-backed libraries
+/// of hundreds of thousands of items run this way.
+///
+/// The pointers go into the <em>same</em> <c>Movies</c> and <c>TV Shows</c> as this node's own
+/// files (<see cref="Library.LibraryLayoutService"/>), because Jellyfin only ever merges two items
+/// that share a collection folder. That is what makes a peer's 2160p another version of the film
+/// on this node's disk rather than a second entry in a second library — and it is why a title held
+/// locally is materialized too, which it was not before.
 ///
 /// One pass is a set comparison:
 ///
-/// 1. Read the merged index for every group, drop this node's own rows and anything it already
-///    holds locally (the local file wins; the remote copy is still in the index for pin, dedupe
-///    and M4's failover).
+/// 1. Read the merged index for every group and drop this node's own rows. A title this node also
+///    holds is kept: <see cref="VersionMerger"/> links the two items afterwards, and the scorer
+///    decides which copy plays.
 /// 2. Write, update or delete pointer files so the tree on disk matches.
 /// 3. Refresh only the folders that changed, resolving downwards through
 ///    <see cref="IPathRefresher"/> rather than triggering a library scan.
@@ -64,6 +70,9 @@ public sealed class FederatedLibraryService : BackgroundService
     private readonly IMediaStreamRepository _mediaStreams;
     private readonly INodeRuntimeProvider _runtime;
     private readonly SettingsStore _settings;
+    private readonly LibraryLayoutService _layout;
+    private readonly ILibraryMonitor _monitor;
+    private readonly VersionMerger _merger;
     private readonly ILogger<FederatedLibraryService> _logger;
 
     /// <summary>
@@ -89,6 +98,9 @@ public sealed class FederatedLibraryService : BackgroundService
         IMediaStreamRepository mediaStreams,
         INodeRuntimeProvider runtime,
         SettingsStore settings,
+        LibraryLayoutService layout,
+        ILibraryMonitor monitor,
+        VersionMerger merger,
         ILogger<FederatedLibraryService> logger)
     {
         _mesh = mesh;
@@ -99,6 +111,9 @@ public sealed class FederatedLibraryService : BackgroundService
         _mediaStreams = mediaStreams;
         _runtime = runtime;
         _settings = settings;
+        _layout = layout;
+        _monitor = monitor;
+        _merger = merger;
         _logger = logger;
     }
 
@@ -186,12 +201,39 @@ public sealed class FederatedLibraryService : BackgroundService
     public async Task<FederatedReport> RunPassAsync(CancellationToken cancellationToken)
     {
         await _pass.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var root = FederatedRoot();
         try
         {
+            // Hold the file watcher off the federated tree for the duration of the pass.
+            //
+            // The pointers now live in the same libraries as this node's own files, and those
+            // libraries are monitored in real time so that a film copied into the Movies folder by
+            // hand still appears. That watcher also sees every .strm, .tmp, .nfo and poster this
+            // pass writes -- thousands of them on a first pass -- and turns each into a debounced
+            // refresh of a folder the pass is already refreshing itself, through IPathRefresher and
+            // more precisely.
+            //
+            // ReportFileSystemChangeBeginning ignores the path *and its whole subtree*, which is
+            // upstream's own mechanism for exactly this (it is what the library scanner uses), so
+            // one call covers everything below the federated root. Its Complete counterpart lifts
+            // the ignore 45 seconds later, which is longer than the poll interval -- so in practice
+            // the tree stays ignored while the service is running and un-ignores itself shortly
+            // after it stops. That is the intent, not an accident of the timing.
+            if (root is not null)
+            {
+                _monitor.ReportFileSystemChangeBeginning(root);
+            }
+
             return await RunPassCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
+            if (root is not null)
+            {
+                // refreshPath: false -- this pass has already refreshed precisely what it touched.
+                _monitor.ReportFileSystemChangeComplete(root, false);
+            }
+
             _pass.Release();
         }
     }
@@ -232,7 +274,7 @@ public sealed class FederatedLibraryService : BackgroundService
             return report;
         }
 
-        await EnsureLibrariesAsync(root, cancellationToken).ConfigureAwait(false);
+        await EnsureLibrariesAsync(cancellationToken).ConfigureAwait(false);
 
         var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
         var selfNode = status?.Node ?? string.Empty;
@@ -242,6 +284,12 @@ public sealed class FederatedLibraryService : BackgroundService
         var desired = new Dictionary<(string Group, string ItemKey, string Node), MeshIndexEntry>();
         var online = new Dictionary<(string Group, string Node), bool>();
         var groupIds = new HashSet<string>(StringComparer.Ordinal);
+
+        // Item keys this node holds a real file for *and* a peer also holds. Their pointers are
+        // written without artwork: the local item is the one a person reads, and pulling a poster
+        // per peer over somebody else's uplink for a tile nothing will ever draw is the expensive
+        // half of a pass.
+        var alsoHeldLocally = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var group in groups)
         {
@@ -274,16 +322,28 @@ public sealed class FederatedLibraryService : BackgroundService
                     continue;
                 }
 
-                if (localKeys.Contains(entry.ItemKey))
-                {
-                    // The local file wins in v1. The remote copy stays in the index for dedupe,
-                    // pin and M4's same-hash failover; it just does not become an item here.
-                    continue;
-                }
-
                 if (string.IsNullOrWhiteSpace(entry.ItemKey))
                 {
                     continue;
+                }
+
+                var heldLocally = localKeys.Contains(entry.ItemKey);
+                if (heldLocally && !settings.MergePeerVersions)
+                {
+                    // The old behaviour, kept as a setting rather than as the rule: a node with a
+                    // large library on a slow disk can decline the extra pointers without leaving
+                    // the group. The remote copy is still in the index for dedupe, pin and
+                    // same-hash failover; it just does not become a version here.
+                    continue;
+                }
+
+                if (heldLocally)
+                {
+                    // A peer's copy of a title this node already holds is written too, and that is
+                    // the point of the whole change: a local 1080p and a friend's 2160p have to be
+                    // two versions of one film, not one film and one absence. VersionMerger links
+                    // the two Jellyfin items afterwards; the scorer decides which one plays.
+                    alsoHeldLocally.Add(entry.ItemKey);
                 }
 
                 desired[(group.Group, entry.ItemKey, entry.Node)] = entry;
@@ -310,9 +370,10 @@ public sealed class FederatedLibraryService : BackgroundService
                 continue;
             }
 
-            // The holder no longer advertises it, or this node now holds it locally. Either way
-            // the pointer is wrong now, not in seven days: an item that plays nothing is worse
-            // than one that is missing.
+            // The holder no longer advertises it. That is wrong now, not in seven days: an item
+            // that plays nothing is worse than one that is missing. (Note that this node coming to
+            // hold the title itself is no longer one of the reasons -- a peer's copy stays as
+            // another version of it.)
             await RemovePointerAsync(pointer, report, cancellationToken).ConfigureAwait(false);
             touched.Add(pointer.Folder);
         }
@@ -397,9 +458,26 @@ public sealed class FederatedLibraryService : BackgroundService
         // labels per title rather than per pointer is the only place the collision is visible.
         var labels = AssignLabels(desired);
 
+        // How many pointers this pass may write.
+        //
+        // A node that joins a group of three people who between them hold what it already holds
+        // goes from nothing to thousands of pointers in one pass, and each one costs a targeted
+        // refresh. The pass is idempotent and runs every fifteen seconds, so stopping at a budget
+        // spreads that over a few minutes instead of blocking the node for one long one; the
+        // remainder is simply picked up next time.
+        var budget = settings.MaxWritesPerPass > 0 ? settings.MaxWritesPerPass : int.MaxValue;
+
         foreach (var ((group, itemKey, node), entry) in desired)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (report.Written >= budget)
+            {
+                _logger.LogInformation(
+                    "Wrote this pass's budget of {Budget} pointers; the rest follow on the next pass",
+                    budget);
+                break;
+            }
+
             byKey.TryGetValue((group, itemKey, node), out var existing);
 
             // Rewrite when the record moved on, when the files are gone, or when this is new. The
@@ -425,6 +503,7 @@ public sealed class FederatedLibraryService : BackgroundService
                             ? label
                             : FederatedLayout.VersionLabel(entry.NodeName, entry.Node, entry.Media.Resolution),
                         settings,
+                        alsoHeldLocally.Contains(itemKey),
                         cancellationToken)
                     .ConfigureAwait(false);
                 if (pointer is not null)
@@ -449,6 +528,13 @@ public sealed class FederatedLibraryService : BackgroundService
         report.Folders.AddRange(touched);
         await RefreshAsync(report, cancellationToken).ConfigureAwait(false);
         await EnrichAsync(desired, online, cancellationToken).ConfigureAwait(false);
+
+        // Last, because it needs the items the refresh above created: a peer's copy of a film this
+        // node also holds becomes a *version* of it rather than a second entry.
+        var merge = await _merger.ReconcileAsync(cancellationToken).ConfigureAwait(false);
+        report.Merged = merge.Merged;
+        report.Unmerged = merge.Unmerged;
+
         Record(report);
         return report;
     }
@@ -520,6 +606,7 @@ public sealed class FederatedLibraryService : BackgroundService
         Dictionary<string, string> titleOwners,
         string label,
         FederatedSettings settings,
+        bool heldLocally,
         CancellationToken cancellationToken)
     {
         var isRecording = FederatedLayout.IsRecording(entry.ItemKey);
@@ -632,12 +719,22 @@ public sealed class FederatedLibraryService : BackgroundService
             NfoWriter.WriteMovie(Path.Combine(titleFolder, "movie.nfo"), entry);
         }
 
-        if (settings.FetchImages)
+        // Artwork, but not for a title this node already holds a real file of.
+        //
+        // This is the expensive half of a pass -- poster, fanart, logo, banner and landscape per
+        // title, and the whole series set on top, all pulled over the holder's uplink. For a title
+        // held locally none of it is ever drawn: VersionMerger makes the local item the primary,
+        // so its own artwork is what every tile and every detail page uses, and the pointer exists
+        // only to be a second source to play from. The NFO is still written, because without
+        // provider ids on it the item cannot be matched up at all.
+        if (settings.FetchImages && !heldLocally)
         {
             await FetchImagesAsync(group, entry, folder, titleFolder, fileBase, isEpisode, cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        // Subtitles are fetched either way: a sidecar is tens of kilobytes, is fetched once, and is
+        // needed the moment somebody switches to this holder's copy.
         if (Settings2().Subtitles.FetchFromPeers)
         {
             await FetchSubtitlesAsync(group, entry, folder, fileBase, cancellationToken)
@@ -1333,129 +1430,32 @@ public sealed class FederatedLibraryService : BackgroundService
     // --- libraries ---------------------------------------------------------
 
     /// <summary>
-    /// Create the two Shared libraries, once.
+    /// Make sure the libraries this pass is about to write into exist.
     /// </summary>
     /// <remarks>
-    /// Their options are the whole reason they are separate libraries rather than extra folders in
-    /// Movies and TV Shows:
-    ///
-    /// * Every remote metadata and image fetcher is off. The holder already looked all of this up
-    ///   and published it; asking TMDB again on every node in the group would be slower, ruder, and
-    ///   would produce a *different* answer per node.
-    /// * The NFO reader is first, so the sidecars are authoritative.
-    /// * There are no metadata savers, because Jellyfin writes NFOs back on every item update and
-    ///   would otherwise overwrite the materializer's files with its own.
-    ///
-    /// They are also never arr root folders: both Radarr and Sonarr treat <c>.strm</c> as a video
-    /// file, and pointing one at these folders would have it "import" a peer's pointer.
+    /// <para>
+    /// The layout itself belongs to <see cref="LibraryLayoutService"/>, which the first-run wiring
+    /// also calls. Either can be the first to run on a given start — the wiring waits for this
+    /// server's own HTTP surface and then for Radarr and Sonarr, while a pass starts as soon as the
+    /// mesh answers — so both ask, and the call is idempotent.
+    /// </para>
+    /// <para>
+    /// The guard is only there to keep the ask off the hot path once it has succeeded; it is
+    /// cleared on failure so the next pass tries again. There is no <c>Shared Movies</c> to create
+    /// any more: peers' pointers go into the same <c>Movies</c> and <c>TV Shows</c> as this node's
+    /// own files, which is what lets a peer's copy of a film become another version of it rather
+    /// than a second entry in a second library.
+    /// </para>
     /// </remarks>
-    private async Task EnsureLibrariesAsync(string root, CancellationToken cancellationToken)
+    private async Task EnsureLibrariesAsync(CancellationToken cancellationToken)
     {
         if (_librariesEnsured)
         {
             return;
         }
 
-        _librariesEnsured = true;
-
-        await EnsureLibraryAsync(
-                FederatedLayout.MoviesLibrary,
-                CollectionTypeOptions.movies,
-                Path.Combine(root, FederatedLayout.MoviesDirectory),
-                cancellationToken)
-            .ConfigureAwait(false);
-        await EnsureLibraryAsync(
-                FederatedLayout.TvLibrary,
-                CollectionTypeOptions.tvshows,
-                Path.Combine(root, FederatedLayout.TvDirectory),
-                cancellationToken)
-            .ConfigureAwait(false);
-        // DVR recordings the metadata providers could not identify (M7). `CollectionTypeOptions
-        // .movies` rather than a mixed library: the resolver's multi-version grouping is what makes
-        // two nodes' recordings of one broadcast a single item with two sources, and it only runs
-        // for a typed library.
-        await EnsureLibraryAsync(
-                FederatedLayout.RecordingsLibrary,
-                CollectionTypeOptions.movies,
-                Path.Combine(root, FederatedLayout.RecordingsDirectory),
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    private async Task EnsureLibraryAsync(
-        string name,
-        CollectionTypeOptions collectionType,
-        string path,
-        CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(path);
-
-        var existing = _library.GetVirtualFolders();
-        if (existing.Any(f =>
-                string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)
-                || (f.Locations?.Any(l => SamePath(l, path)) ?? false)))
-        {
-            return;
-        }
-
-        try
-        {
-            await _library.AddVirtualFolder(name, collectionType, BuildLibraryOptions(path), refreshLibrary: false)
-                .ConfigureAwait(false);
-            _logger.LogInformation("Created the {Name} library at {Path}", name, path);
-        }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
-        {
-            _logger.LogError(ex, "Could not create the {Name} library at {Path}", name, path);
-            _librariesEnsured = false;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-    }
-
-    /// <summary>Library options that read NFOs and never touch the internet.</summary>
-    /// <param name="path">The physical folder.</param>
-    /// <returns>The options.</returns>
-    public static LibraryOptions BuildLibraryOptions(string path) => new()
-    {
-        PathInfos = new[] { new MediaPathInfo(path) },
-        EnableRealtimeMonitor = false,
-        SaveLocalMetadata = false,
-        // `MetadataSavers = []` is not cosmetic. Jellyfin runs its savers on every item update, and
-        // a saver would rewrite the .nfo this node just materialized -- with Jellyfin's own view of
-        // the item, which is derived from that same .nfo, so it would drift a little every pass.
-        MetadataSavers = Array.Empty<string>(),
-        // The NFO reader, by the name every reader in MediaBrowser.XbmcMetadata reports
-        // (BaseNfoSaver.SaverName). Ordinal, case-sensitive: "nfo" would not match.
-        LocalMetadataReaderOrder = new[] { "Nfo" },
-        DisabledSubtitleFetchers = Array.Empty<string>(),
-        SubtitleFetcherOrder = Array.Empty<string>(),
-        // Episodes of one series held by different peers must land under one series, which is what
-        // Jellyfin's automatic grouping does.
-        EnableAutomaticSeriesGrouping = true,
-        EnableChapterImageExtraction = false,
-        ExtractChapterImagesDuringLibraryScan = false,
-        EnableTrickplayImageExtraction = false,
-        ExtractTrickplayImagesDuringLibraryScan = false,
-        EnableLUFSScan = false,
-        // An empty MetadataFetchers/ImageFetchers list is an *allow-list*, so this is what actually
-        // turns the internet providers off -- and only a type that has a TypeOptions entry is
-        // covered, which is why every type that can appear in these libraries gets one.
-        TypeOptions = new[]
-        {
-            "Movie", "Series", "Season", "Episode", "Video", "BoxSet",
-        }.Select(t => new TypeOptions { Type = t }).ToArray(),
-    };
-
-    private static bool SamePath(string? a, string? b)
-    {
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
-        static string Norm(string s) => s.Replace('\\', '/').TrimEnd('/');
-        return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase);
+        var report = await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        _librariesEnsured = report.Ok;
     }
 }
 
@@ -1469,6 +1469,12 @@ public sealed class FederatedReport
     public int WentOffline { get; set; }
 
     public int CameBack { get; set; }
+
+    /// <summary>Titles whose local copy and a peer's became versions of one item.</summary>
+    public int Merged { get; set; }
+
+    /// <summary>Federated items that stopped being a version of a local one.</summary>
+    public int Unmerged { get; set; }
 
     /// <summary>
     /// True when the pass did nothing because the mesh could not be read.

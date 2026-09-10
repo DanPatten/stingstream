@@ -181,6 +181,41 @@ describe("memberRoster", () => {
     ...over,
   });
 
+  test("this server is online, because you are talking to it", () => {
+    // The mesh tracks liveness by peer connection and holds none to itself, so the roster reported
+    // this node as offline on the very screen it was serving. Dan: *"Why does this server say
+    // offline when im on the fucking server"*.
+    const rows = memberRoster(
+      [
+        {
+          node: "self1111",
+          nodeName: "Loft",
+          online: false,
+          isSelf: true,
+          revoked: false,
+        },
+      ],
+      [],
+    );
+    expect(rows[0]?.online).toBe(true);
+  });
+
+  test("and every other member is reported as the mesh found them", () => {
+    const rows = memberRoster(
+      [
+        {
+          node: "other222",
+          nodeName: "Sams Server",
+          online: false,
+          isSelf: false,
+          revoked: false,
+        },
+      ],
+      [],
+    );
+    expect(rows[0]?.online).toBe(false);
+  });
+
   test("joins the link detail onto the roster, matching node ids case-insensitively", () => {
     const rows = memberRoster(
       [

@@ -317,6 +317,88 @@ public sealed class MeshSharingSettings
 
 }
 
+/// <summary><c>GET /mesh/v1/domains</c> — whether a browser can reach this node, and how.</summary>
+/// <remarks>
+/// One document rather than a read per fact, and an authenticated one. The same information is in
+/// the node's <c>/healthz</c>, but that is redacted for off-machine callers because it carries
+/// child ports and the data directory — so a browser reaching this server through the very tunnel
+/// the Domains page set up would see a hollowed-out version of the page that set it up.
+/// </remarks>
+public sealed class MeshDomains
+{
+    /// <summary>The domain pointed at this node, origin only. Null when unset.</summary>
+    public string? PublicAddress { get; set; }
+
+    /// <summary>Whether the gateway serves TLS itself: <c>off</c>, <c>no_certificate</c> or <c>ready</c>.</summary>
+    public string Https { get; set; } = "off";
+
+    /// <summary>The certificate in the node's <c>tls/</c> directory, when there is one.</summary>
+    public MeshCertificate? Certificate { get; set; }
+
+    /// <summary>This node's address as the world sees it, when it could learn one.</summary>
+    public string? PublicIp { get; set; }
+
+    /// <summary>Plain-HTTP URLs this node answers on inside the house.</summary>
+    public IReadOnlyList<string> LanUrls { get; set; } = Array.Empty<string>();
+
+    /// <summary>The tunnel this node is running, if any.</summary>
+    public MeshTunnel Tunnel { get; set; } = new();
+}
+
+/// <summary>A loaded TLS certificate, as the Domains page reports it.</summary>
+public sealed class MeshCertificate
+{
+    /// <summary>Every DNS name the certificate covers.</summary>
+    public IReadOnlyList<string> Names { get; set; } = Array.Empty<string>();
+
+    /// <summary>When it expires, RFC 3339.</summary>
+    public string? Expires { get; set; }
+}
+
+/// <summary>The Cloudflare Tunnel this node is running, and how far it got.</summary>
+public sealed class MeshTunnel
+{
+    /// <summary><c>none</c>, <c>quick</c> or <c>named</c>.</summary>
+    public string Kind { get; set; } = "none";
+
+    /// <summary><c>off</c>, <c>starting</c>, <c>connected</c> or <c>error</c>.</summary>
+    /// <remarks>
+    /// Four states rather than a boolean: "nothing was asked for", "it is coming up" and "it is
+    /// broken" send somebody to three different places.
+    /// </remarks>
+    public string State { get; set; } = "off";
+
+    /// <summary>The name it answers on. Assigned by Cloudflare when <see cref="Kind"/> is quick.</summary>
+    public string? Hostname { get; set; }
+
+    /// <summary>Why it is starting or broken, in words fit to show.</summary>
+    public string? Detail { get; set; }
+
+    /// <summary>Whether <c>cloudflared</c> is on this machine at all.</summary>
+    /// <remarks>
+    /// Reported rather than assumed, so the page can say "install this" instead of offering a
+    /// button that fails for a reason nobody on that screen could guess.
+    /// </remarks>
+    public bool BinaryPresent { get; set; }
+}
+
+/// <summary><c>POST /mesh/v1/domains/tunnel</c> — ask this node to run a tunnel.</summary>
+public sealed class MeshTunnelRequest
+{
+    /// <summary><c>quick</c> for Cloudflare's account-free tunnel, <c>named</c> for your own domain.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The hostname a named tunnel should answer on.</summary>
+    public string? Hostname { get; set; }
+
+    /// <summary>The Cloudflare API token, used once and never stored.</summary>
+    /// <remarks>
+    /// Write-only: it appears in no response, and the node keeps it in memory only until the
+    /// tunnel is created. It grants DNS edit on a real zone, which is why it is not persisted.
+    /// </remarks>
+    public string? ApiToken { get; set; }
+}
+
 /// <summary>One node's view of one item, as the merged index serves it.</summary>
 /// <remarks>
 /// The mesh flattens its <c>WireRecord</c> into this object, so the record's own fields sit

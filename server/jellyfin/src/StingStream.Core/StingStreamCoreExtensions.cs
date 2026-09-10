@@ -109,6 +109,10 @@ public static class StingStreamCoreExtensions
         // the arr import webhooks and the federated materializer, which have the same problem.
         services.AddSingleton<IPathRefresher, PathRefresher>();
 
+        // Which Jellyfin libraries this node has. One owner, called by both the first-run wiring
+        // and the materializer, because either can be the first to run on a given start.
+        services.AddSingleton<LibraryLayoutService>();
+
         // Webhooks.
         services.AddSingleton<ArrWebhookService>();
 
@@ -125,6 +129,9 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<FederatedStore>();
         services.AddSingleton<InventoryPublisher>();
         services.AddHostedService(sp => sp.GetRequiredService<InventoryPublisher>());
+        // Turns a peer's copy of a title this node also holds into another version of the same
+        // item, rather than a second one beside it.
+        services.AddSingleton<VersionMerger>();
         services.AddSingleton<FederatedLibraryService>();
         services.AddHostedService(sp => sp.GetRequiredService<FederatedLibraryService>());
 
@@ -136,6 +143,9 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<FederatedSourceService>();
         // Minted here and checked by the gateway; see StreamUrlSigner for the hole it closes.
         services.AddSingleton<StreamUrlSigner>();
+        // Describes the copy on this node's own disk in the same terms as a peer's, so the scorer
+        // can compare them instead of assuming local always wins.
+        services.AddSingleton<LocalSourceFactory>();
         services.AddSingleton<FederatedSourceDecorator>();
         services.AddSingleton<MediaBrowser.Controller.Library.IMediaSourceDecorator>(
             sp => sp.GetRequiredService<FederatedSourceDecorator>());

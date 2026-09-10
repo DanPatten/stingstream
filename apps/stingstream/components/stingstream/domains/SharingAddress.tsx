@@ -43,8 +43,14 @@ export function SharingAddress({
   onChange: (next: SharingAddressValue) => void;
   disabled?: boolean;
   placeholder: string;
-  /** What an empty field means. */
-  blankHint: string;
+  /**
+   * What an empty field means, when that is worth a line.
+   *
+   * Optional since the Domains page: the status above the field already says which address is in
+   * use and what it costs, so a second sentence saying the same thing under the box was two
+   * explanations of one fact.
+   */
+  blankHint?: string;
   /** What the node already has, so an untouched value is left alone rather than re-judged. */
   stored?: string | null;
   testID?: string;

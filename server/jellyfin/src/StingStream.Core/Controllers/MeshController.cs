@@ -231,6 +231,49 @@ public sealed class MeshController : StingStreamControllerBase
         => await _mesh.SetSharingSettingsAsync(body, cancellationToken).ConfigureAwait(false);
 
 
+    /// <summary>Whether a browser can reach this server, and how.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The status, with an empty tunnel when nothing is set up.</response>
+    /// <returns>The status.</returns>
+    /// <remarks>
+    /// Elevated, like everything else here — and deliberately not served by the node's own
+    /// <c>/healthz</c>, which is redacted for off-machine callers. A browser reaching this server
+    /// through the very tunnel this page set up has to be able to read the page that set it up.
+    /// </remarks>
+    [HttpGet("domains")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeshDomains>> Domains(CancellationToken cancellationToken)
+        => await _mesh.DomainsAsync(cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Ask this server to run a Cloudflare Tunnel.</summary>
+    /// <param name="body">Which kind, and the hostname and token a named one needs.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The status, which will say starting.</response>
+    /// <returns>The status.</returns>
+    /// <remarks>
+    /// Answers as soon as the request is recorded rather than waiting for Cloudflare: the node's
+    /// supervisor picks it up on its next reconcile, so this returns in milliseconds and the page
+    /// polls. The API token is write-only and is never stored.
+    /// </remarks>
+    [HttpPost("domains/tunnel")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeshDomains>> SetTunnel(
+        [FromBody] MeshTunnelRequest body,
+        CancellationToken cancellationToken)
+        => await _mesh.SetTunnelAsync(body, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Stop this server's tunnel and forget it.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The status, with the tunnel off.</response>
+    /// <returns>The status.</returns>
+    [HttpDelete("domains/tunnel")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MeshDomains>> DeleteTunnel(CancellationToken cancellationToken)
+        => await _mesh.DeleteTunnelAsync(cancellationToken).ConfigureAwait(false);
+
     /// <summary>Which of this server's libraries are shared into one link, and which exist.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

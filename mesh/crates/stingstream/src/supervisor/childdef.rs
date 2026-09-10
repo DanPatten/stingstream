@@ -335,6 +335,37 @@ pub fn find_nzbget(repo_root: Option<&Path>, install_root: Option<&Path>) -> Opt
     which(&exe)
 }
 
+/// Find `cloudflared`, the same way [`find_nzbget`] finds its binary.
+///
+/// The two are the only non-.NET children, so they share a shape: a per-platform directory under
+/// `third_party/` in a checkout, `<install>/bin/<child>/` in an installed node, and whatever is on
+/// `PATH` as the last resort. That last fallback matters more here than it does for nzbget --
+/// `cloudflared` is packaged by Homebrew, winget and most distributions, so somebody may well
+/// already have a copy the node can simply use.
+///
+/// Returning `None` is an ordinary outcome, not an error: a node without it cannot offer to set up
+/// a tunnel and says so on the Domains page, which is a sentence rather than a fault.
+pub fn find_cloudflared(repo_root: Option<&Path>, install_root: Option<&Path>) -> Option<PathBuf> {
+    let exe = format!("cloudflared{}", std::env::consts::EXE_SUFFIX);
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Some(r) = install_root {
+        roots.push(r.join("bin").join("cloudflared"));
+    }
+    if let Some(r) = repo_root {
+        let tp = r.join("third_party").join("cloudflared").join("bin");
+        for platform in ["win64", "linux-x64", "macos"] {
+            roots.push(tp.join(platform));
+        }
+        roots.push(tp);
+    }
+    for root in roots {
+        if let Some(found) = find_file_shallow(&root, &exe, 3) {
+            return Some(found);
+        }
+    }
+    which(&exe)
+}
+
 /// Search `dir` for `name`, descending at most `depth` levels. Deterministic: entries are sorted,
 /// so two runs on the same tree pick the same file.
 fn find_file_shallow(dir: &Path, name: &str, depth: usize) -> Option<PathBuf> {

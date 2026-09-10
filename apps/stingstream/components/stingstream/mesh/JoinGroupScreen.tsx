@@ -41,6 +41,23 @@ const ExpoCamera: CameraModule | null =
       : require("expo-camera")
     : null;
 
+/**
+ * Where an invite link lands, and the only reason this route still exists.
+ *
+ * It is not a page anybody browses to. Nothing links here: the Servers screen used to carry a
+ * "Join with a link" button beside two others and Dan's verdict was that nobody could tell them
+ * apart. What sends you here is `app/join.tsx`, which catches an invite code out of the fragment
+ * before the router can navigate, remembers it, and replaces to this route — see `/join`'s own
+ * docblock for why the code cannot simply be read here.
+ *
+ * So this is the far end of exactly one journey: somebody asked to link the server they run, an
+ * administrator approved it, and the invite that came back opens here on *their* server. The code
+ * is filled in rather than submitted, because joining puts this server into somebody else's group
+ * and that is worth one deliberate tap.
+ *
+ * The paste and scan controls stay for the same journey's awkward cases — a link whose fragment a
+ * chat client ate, or a TV with no browser to open it in.
+ */
 export function JoinGroupScreen() {
   const { t } = useTranslation();
   const router = useRouter();

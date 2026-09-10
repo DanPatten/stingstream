@@ -1,28 +1,32 @@
 import { useTranslation } from "react-i18next";
-import { ServersScreen } from "@/components/stingstream/mesh/ServersScreen";
+import {
+  AddServerButton,
+  ServersScreen,
+} from "@/components/stingstream/mesh/ServersScreen";
+import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { SettingsPane } from "./SettingsPane";
 
 /**
  * The one federation page.
  *
- * Badged `server` because that is what the bulk of it changes, even though the
- * last block on it — the server the reader runs — is about a different machine
- * entirely. A second badge for that block would be precise and unreadable: the
- * block carries its own heading saying whose server it is, which is the part
- * that actually needs saying.
+ * **No scope badge.** It read *Whole server* beside a title that already says
+ * *Servers*, on a page that lists them. Dan: *"whole server label on Servers is
+ * confusing - remove that"*. The badge is worth its width where a page could
+ * plausibly be about this device or this account instead; here it could not.
  */
-export const ServersPane: React.FC<{ openAdvanced?: boolean }> = ({
-  openAdvanced = false,
-}) => {
+export const ServersPane: React.FC = () => {
   const { t } = useTranslation();
+  const isAdmin = useIsStingStreamAdmin();
 
   return (
     <SettingsPane
       title={t("home.settings.nav.servers")}
-      scope='server'
       detail={t("home.settings.nav.servers_hint")}
+      // Beside the title, because the list below no longer carries a heading of its own to hang it
+      // from — two *Servers* headings down one column was the thing being fixed.
+      accessory={isAdmin ? <AddServerButton /> : null}
     >
-      <ServersScreen openAdvanced={openAdvanced} />
+      <ServersScreen />
     </SettingsPane>
   );
 };

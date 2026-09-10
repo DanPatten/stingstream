@@ -252,3 +252,60 @@ describe("policyForAdminChange", () => {
     });
   });
 });
+
+describe("adminChangeBlocked and the owner", () => {
+  const account = (id: string, isAdministrator = false) => ({
+    Id: id,
+    Policy: { IsAdministrator: isAdministrator } as UserPolicy,
+  });
+
+  const owner = account("owner-id", true);
+  const other = account("other-id", true);
+  const all = [owner, other];
+  const somebodyElse = { Id: "somebody" };
+
+  test("the owner cannot be demoted, by anybody", () => {
+    // Not by themselves, and not by a second administrator either. There is no transfer, so an
+    // owner who could be demoted would be a server whose owner had quietly stopped running it.
+    expect(adminChangeBlocked(owner, { Id: "owner-id" }, all, "owner-id")).toBe(
+      "owner",
+    );
+    expect(adminChangeBlocked(owner, { Id: "other-id" }, all, "owner-id")).toBe(
+      "owner",
+    );
+  });
+
+  test("owner beats the other two reasons, because it is the true one", () => {
+    // An owner looking at their own account is also "self", and on a one-administrator server also
+    // "last-administrator". Both would be true and both would say the wrong thing about why.
+    expect(
+      adminChangeBlocked(owner, { Id: "owner-id" }, [owner], "owner-id"),
+    ).toBe("owner");
+  });
+
+  test("an owner somehow not an administrator still reads as locked", () => {
+    // Ahead of the promotion check on purpose: the switch must not offer to grant an owner
+    // something that was never theirs to lose.
+    const demoted = account("owner-id", false);
+    expect(
+      adminChangeBlocked(demoted, somebodyElse, [demoted], "owner-id"),
+    ).toBe("owner");
+  });
+
+  test("nobody is locked as owner when the server did not say", () => {
+    expect(adminChangeBlocked(other, { Id: "me" }, all, null)).toBe(null);
+    expect(adminChangeBlocked(other, { Id: "me" }, all, undefined)).toBe(null);
+  });
+
+  test("the id is compared as a value, not as text", () => {
+    const dashed = account("A4D809DC-5B3B-4072-9937-B55B8622BF85", true);
+    expect(
+      adminChangeBlocked(
+        dashed,
+        { Id: "me" },
+        [dashed, other],
+        "a4d809dc5b3b40729937b55b8622bf85",
+      ),
+    ).toBe("owner");
+  });
+});

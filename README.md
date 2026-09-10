@@ -26,10 +26,11 @@
 **Your movies and shows, on every screen you own, shared with the people you choose.**
 
 StingStream is a free app that turns a computer in your home into your own private streaming
-service. It plays your films and series on your phone, your tablet, your TV and in a web browser.
-It finds and downloads the titles you ask for. And it lets you pool your collection with friends
-and family: their films show up in your library, your films show up in theirs, and everything
-streams directly between your homes.
+service. It organises the films and series you already have and plays them on your phone, your
+tablet, your TV and in a web browser. It manages the indexers and download clients you add, so the
+tools you already run have one interface instead of five. And it lets you watch what friends and
+family choose to share with you: their titles show up in your library, yours show up in theirs, and
+everything streams directly between your homes.
 
 There is no company in the middle. No account to create with us, no subscription, no cloud storage,
 and nothing you have to rent or host. Two homes with an internet connection are enough.
@@ -43,9 +44,10 @@ and nothing you have to rent or host. Two homes with an internet connection are 
 - **Share with a small circle.** Create a group, send a friend the link, and their titles appear
   in your library within seconds, with posters and descriptions, as if they were your own. You can
   remove someone at any time and they lose access immediately.
-- **Ask for something new.** Search for a film or a show and add it. StingStream fetches it for you
-  and tells you when it's ready. Anyone in your group can make a request; you decide whether
-  requests need your approval.
+- **Ask for something new.** Search for a film or a show and add it. If nobody in your group has it,
+  StingStream passes the request to the indexers and download clients you have configured, and tells
+  you when it's ready. Anyone in your group can make a request; you decide whether requests need
+  your approval.
 - **Never download twice.** If someone in your group already has a title, you simply watch theirs.
 - **Watch together.** Start a film with a friend in another house and stay in sync, with pauses
   and skips shared between you.
@@ -85,8 +87,8 @@ with nothing installed.
 2. **Create your account.** This is the only login you will ever need; it lives on your own computer.
 3. **Point it at your media**, if you already have some: choose the folders that hold your films
    and shows. They appear in the library with artwork within a few minutes.
-4. **Set up downloading**, if you want it: add the sources you use under Settings, and add a film
-   to see it arrive.
+4. **Connect your download tools**, if you use them: add your own indexers and download clients
+   under Settings — StingStream ships with none configured — then add a film to see it arrive.
 5. **Install the app** on your phone or TV and enter your server's address. On the TV, approve the
    code it shows from your phone instead of typing.
 6. **Invite someone.** Open Sharing, create a group, and send the invite link to a friend who has
@@ -154,10 +156,12 @@ handle them, and are converted on the fly when it can't.
 the 4K Fire TV sticks are fine; the oldest 32-bit Fire TV sticks are not supported.
 
 **Can I use my own downloader or an existing collection?** Yes. Point it at folders you already
-have, and use the built-in downloading or connect the tools you already run.
+have. The built-in engines work with the indexers you add, or you can connect a download client you
+already run.
 
-**What does StingStream not do?** It does not provide any content. It plays and shares media you
-already have, with people you already know.
+**What does StingStream not do?** It does not provide any content, and it ships with no indexers or
+other sources configured — every one of those is something you add yourself. It plays and shares
+media you already have, with people you already know.
 
 ---
 

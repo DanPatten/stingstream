@@ -222,6 +222,14 @@ public sealed class SetupController : ControllerBase
             }
         }
 
+        // Written before setup is closed, because this is the only moment anything knows which
+        // account first run claimed. `IUserManager.GetFirstUser` answers it correctly today by
+        // accident -- it is an unordered `FirstOrDefault` -- and ownership is permanent, so it is
+        // not a fact to leave resting on that.
+        await FirstRunSetupState
+            .SetOwnerAsync(_settings, account.Id.ToString("N"), cancellationToken)
+            .ConfigureAwait(false);
+
         // Before authenticating, not after: the window in which anyone on this machine can claim
         // the account closes the instant the password changes, and an authentication that then
         // fails for some unrelated reason must not reopen it.

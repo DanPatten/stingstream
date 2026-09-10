@@ -35,6 +35,11 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             get(get_sharing).put(put_sharing),
         )
         .route("/mesh/v1/settings/sidedoor", put(put_side_door))
+        .route("/mesh/v1/domains", get(get_domains))
+        .route(
+            "/mesh/v1/domains/tunnel",
+            post(post_tunnel).delete(delete_tunnel),
+        )
         .route("/mesh/v1/identity/assert", post(vouch_issue))
         .route("/mesh/v1/identity/verify", post(vouch_verify))
         .route("/mesh/v1/groups", get(list_groups).post(create_group))
@@ -423,18 +428,110 @@ struct SideDoorBody {
     /// node, which then publishes nothing.
     #[serde(default)]
     lan_urls: Vec<String>,
+    /// `off`, `no_certificate` or `ready` — the gateway's own TLS state, passed through verbatim.
+    #[serde(default)]
+    https: Option<String>,
+    #[serde(default)]
+    certificate_names: Vec<String>,
+    #[serde(default)]
+    certificate_expires: Option<String>,
+    /// This node's address as the world sees it, when the port mapper could learn one.
+    #[serde(default)]
+    public_ip: Option<String>,
+    /// How far the supervisor got with the tunnel it was asked for, if it was asked for one.
+    #[serde(default)]
+    tunnel: Option<TunnelReportBody>,
 }
 
-/// `PUT /mesh/v1/settings/sidedoor` — the supervisor telling the mesh where a browser can reach it.
+/// The supervisor's report on the tunnel it is running.
+#[derive(Serialize, Deserialize)]
+struct TunnelReportBody {
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    hostname: Option<String>,
+    #[serde(default)]
+    detail: Option<String>,
+    #[serde(default)]
+    binary_present: bool,
+}
+
+/// What the supervisor should make true, handed back by the same call that reports.
 ///
-/// Loopback-only like the rest of this API, and idempotent: it is pushed on a timer because a
-/// laptop changes network, so the common case is writing the record it already had.
+/// One request rather than a second endpoint. The supervisor already pushes here on a timer, so
+/// letting the answer carry the desired state turns that push into a reconcile with no new channel
+/// to secure, and no way for the two halves to disagree about which tick they are on.
+#[derive(Serialize, Deserialize)]
+struct ReconcileBody {
+    /// `none` or `named`.
+    kind: String,
+    /// This node's public address, so the supervisor can put it in `/healthz`.
+    ///
+    /// It belongs to the mesh, which owns `mesh.db`, and is needed by the supervisor, which owns
+    /// `/healthz` -- and the supervisor cannot read it at start-up because the mesh child is not
+    /// up yet. Riding along on the reconcile answer is what lets `side_door.public_address` be
+    /// right without a second call or a startup ordering constraint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tunnel_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tunnel_name: Option<String>,
+    /// The Cloudflare API token, **exactly once**.
+    ///
+    /// Taken out of memory by this read, so the next reconcile sees `None` whether or not this one
+    /// succeeded. A token that fails is not retried silently against somebody's DNS zone; the page
+    /// reports the error and the person decides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_token: Option<String>,
+}
+
+/// `PUT /mesh/v1/settings/sidedoor` — the supervisor's reconcile tick.
+///
+/// Loopback-only like the rest of this API, and idempotent in both directions: it is pushed on a
+/// timer because a laptop changes network, so the common case is writing the record it already had
+/// and being told to keep running the tunnel it is already running.
 async fn put_side_door(
     State(node): State<Arc<MeshNode>>,
     Json(body): Json<SideDoorBody>,
-) -> Result<StatusCode, ApiError> {
+) -> ApiResult<Json<ReconcileBody>> {
     node.set_side_door(&body.lan_urls)?;
-    Ok(StatusCode::NO_CONTENT)
+
+    node.domains
+        .set_observation(crate::sharing::SideDoorObservation {
+            lan_urls: body.lan_urls,
+            https: body.https.unwrap_or_else(|| "off".into()),
+            certificate_names: body.certificate_names,
+            certificate_expires: body.certificate_expires,
+            public_ip: body.public_ip,
+        });
+
+    if let Some(tunnel) = body.tunnel {
+        node.domains.set_report(crate::sharing::TunnelReport {
+            state: crate::sharing::TunnelState::parse(tunnel.state.as_deref().unwrap_or("")),
+            hostname: tunnel.hostname,
+            detail: tunnel.detail,
+            binary_present: tunnel.binary_present,
+        });
+    }
+
+    Ok(Json(reconcile_for(&node)?))
+}
+
+/// What the supervisor should be running, and the token to do it with.
+fn reconcile_for(node: &Arc<MeshNode>) -> Result<ReconcileBody, ApiError> {
+    let settings = node.tunnel_settings()?;
+    Ok(ReconcileBody {
+        kind: settings.kind.as_str().to_string(),
+        public_address: node.sharing_settings()?.public_address,
+        hostname: settings.hostname,
+        tunnel_id: settings.id,
+        tunnel_name: settings.name,
+        // Spent here, once. See `TunnelToken`.
+        api_token: node.domains.token.take(),
+    })
 }
 
 /// This node's own public address, as read and written by the Sharing settings page.
@@ -476,6 +573,185 @@ async fn put_sharing(
 }
 
 
+
+/// Everything the Domains page reports, in one document.
+#[derive(Serialize)]
+struct DomainsBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_address: Option<String>,
+    https: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    certificate: Option<CertificateBody>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    public_ip: Option<String>,
+    lan_urls: Vec<String>,
+    tunnel: TunnelBody,
+}
+
+#[derive(Serialize)]
+struct CertificateBody {
+    names: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TunnelBody {
+    kind: String,
+    state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    binary_present: bool,
+}
+
+/// What the owner is asking for -- `POST /mesh/v1/domains/tunnel`.
+#[derive(Deserialize)]
+struct TunnelRequestBody {
+    /// `named`. Refused rather than quietly read as "none": a client asking for a tunnel this
+    /// node does not understand has been misunderstood, not answered.
+    kind: String,
+    #[serde(default)]
+    hostname: Option<String>,
+    /// Write-only, and never stored. See `TunnelToken`.
+    #[serde(default)]
+    api_token: Option<String>,
+}
+
+/// Assemble the page's document out of settings plus whatever the supervisor last reported.
+fn domains_body(node: &Arc<MeshNode>) -> Result<DomainsBody, ApiError> {
+    let settings = node.tunnel_settings()?;
+    let observation = node.domains.observation();
+    let report = node.domains.report();
+
+    Ok(DomainsBody {
+        public_address: node.sharing_settings()?.public_address,
+        https: observation.https.clone(),
+        // Absent rather than an empty object when there is nothing loaded: "no certificate" is not
+        // a fault (`docs/SIDEDOOR.md` section 6) and a blank row claiming otherwise would say it
+        // was.
+        certificate: (!observation.certificate_names.is_empty()).then(|| CertificateBody {
+            names: observation.certificate_names.clone(),
+            expires: observation.certificate_expires.clone(),
+        }),
+        public_ip: observation.public_ip.clone(),
+        lan_urls: observation.lan_urls.clone(),
+        tunnel: TunnelBody {
+            kind: settings.kind.as_str().to_string(),
+            state: report.state.as_str().to_string(),
+            // What it came up on, falling back to what was asked for, so the hostname is on screen
+            // while the tunnel is still starting.
+            hostname: report.hostname.clone().or(settings.hostname),
+            detail: report.detail.clone(),
+            binary_present: report.binary_present,
+        },
+    })
+}
+
+/// `GET /mesh/v1/domains`
+async fn get_domains(State(node): State<Arc<MeshNode>>) -> ApiResult<Json<DomainsBody>> {
+    Ok(Json(domains_body(&node)?))
+}
+
+/// `POST /mesh/v1/domains/tunnel` -- ask this node to run a tunnel.
+///
+/// Records the desire and returns immediately. The supervisor picks it up on its next reconcile,
+/// which is where the Cloudflare calls and the process live -- so this answers in milliseconds with
+/// `starting`, and the page polls rather than holding a request open across somebody else's API.
+async fn post_tunnel(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<TunnelRequestBody>,
+) -> ApiResult<Json<DomainsBody>> {
+    if body.kind.trim() != "named" {
+        return Err(ApiError::bad_request(format!(
+            "{} is not a kind of tunnel this node can run",
+            body.kind.trim()
+        )));
+    }
+
+    // Refused before anything is stored. A tunnel recorded as desired with no token would fail on
+    // every reconcile for ever, which is a broken node rather than a rejected request.
+    let token = body
+        .api_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request("setting up a tunnel needs a Cloudflare API token".to_string())
+        })?;
+    let hostname =
+        crate::sharing::normalize_tunnel_hostname(body.hostname.as_deref().unwrap_or_default())
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+    node.set_tunnel_settings(crate::sharing::TunnelSettings {
+        kind: crate::sharing::TunnelKind::Named,
+        name: Some(crate::sharing::tunnel_name_for(&hostname)),
+        hostname: Some(hostname.clone()),
+        id: None,
+    })
+    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    node.domains.token.set(token.to_string());
+
+    // The address the tunnel will answer on *is* this node's public address -- that is the whole
+    // point of setting one up. Storing it here rather than making somebody type the same hostname
+    // into two fields is what collapses "your server's address" and "setting it up" into the one
+    // thing they always were. Dan: *"its confusing to have your server address + setting it up
+    // sections - unify that so its the same thing"*.
+    node.set_sharing_settings(crate::sharing::SharingSettings {
+        public_address: Some(hostname),
+    })
+    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    node.set_side_door(&node.domains.observation().lan_urls)?;
+
+    // Said here rather than waiting for the supervisor, so the page has something true to draw on
+    // the same render the button stops spinning.
+    node.domains.set_report(crate::sharing::TunnelReport {
+        state: crate::sharing::TunnelState::Starting,
+        binary_present: node.domains.report().binary_present,
+        ..Default::default()
+    });
+
+    Ok(Json(domains_body(&node)?))
+}
+
+/// `DELETE /mesh/v1/domains/tunnel` -- stop it and forget it.
+///
+/// **It stops the tunnel; it does not delete anything at Cloudflare.** It cannot: the API token
+/// was spent when the tunnel was created and is never stored (`sharing::TunnelToken` says why), so
+/// by the time anybody presses this there is no credential left to authenticate a delete with.
+/// The tunnel and its DNS record stay in the owner's Cloudflare account, where they can be removed
+/// by hand or left for next time.
+///
+/// That is deliberate rather than a gap, and it is paid for elsewhere: `cloudflare` *upserts* the
+/// DNS record, replacing whatever is on the name, so setting the same hostname up again works
+/// against the record this leaves behind instead of colliding with it. The alternative -- keeping a
+/// live credential for somebody's DNS zone in a plain table in `mesh.db` so that a tidier
+/// disconnect was possible -- is a far worse trade.
+///
+/// The tunnel id and hostname are kept for the same reason: they are what a re-setup and a manual
+/// clean-up both need to name.
+async fn delete_tunnel(State(node): State<Arc<MeshNode>>) -> ApiResult<Json<DomainsBody>> {
+    let previous = node.tunnel_settings()?;
+    node.set_tunnel_settings(crate::sharing::TunnelSettings {
+        kind: crate::sharing::TunnelKind::None,
+        ..previous
+    })
+    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    node.domains.token.clear();
+
+    // The address is deliberately left alone. It is the owner's own domain, they typed it, and
+    // they may well be about to put a reverse proxy on it instead -- clearing it would throw away
+    // a setting because a process stopped.
+
+    node.domains.set_report(crate::sharing::TunnelReport {
+        state: crate::sharing::TunnelState::Off,
+        binary_present: node.domains.report().binary_present,
+        ..Default::default()
+    });
+
+    Ok(Json(domains_body(&node)?))
+}
 
 /// `GET /mesh/v1/groups/{group}/members` — the group's membership, removed members included.
 async fn list_members(

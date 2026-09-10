@@ -144,6 +144,60 @@ public sealed class NfoWriterTests : IDisposable
         Assert.Contains(NfoWriter.FederatedTag, Values(WriteMovie(Sample()), "tag"));
     }
 
+    /// <summary>
+    /// A federated movie or episode locks its own item, so it never looks anything up itself.
+    /// </summary>
+    /// <remarks>
+    /// This is what replaced the library-wide switch. The pointers now share <c>Movies</c> and
+    /// <c>TV Shows</c> with files this node downloaded, and those need their fetchers on, so the
+    /// "never touch the internet" rule moved to the item: Jellyfin's NFO parser reads
+    /// <c>lockdata</c> into <c>BaseItem.IsLocked</c> and <c>MetadataService</c> then skips every
+    /// remote metadata provider on that refresh. The holder already looked all of this up, and
+    /// every node re-deriving it independently is how one title drifts apart across a group.
+    /// The spelling is exact: <c>BaseNfoParser</c> matches the element name ordinally.
+    /// </remarks>
+    [Fact]
+    public void AFederatedNfoLocksItsOwnItem()
+    {
+        Assert.Equal(new[] { "true" }, Values(WriteMovie(Sample()), "lockdata"));
+
+        var episode = Sample();
+        episode.ItemKey = "episode:tvdb:71471:s01e01";
+        episode.Metadata.Season = 1;
+        episode.Metadata.Episode = 1;
+        episode.Metadata.SeriesName = "The Beverly Hillbillies";
+        var episodePath = Path.Combine(_dir, "episode.nfo");
+        NfoWriter.WriteEpisode(episodePath, episode);
+        Assert.Equal(new[] { "true" }, Values(XElement.Load(episodePath), "lockdata"));
+    }
+
+    /// <summary>
+    /// …but a series NFO does not, and that asymmetry is deliberate.
+    /// </summary>
+    /// <remarks>
+    /// A series is a folder rather than one holder's file, and the two series items — this node's
+    /// and the one materialized from a peer — collapse by presentation key rather than by version
+    /// link, so Jellyfin picks between them on <c>Min(Id)</c>. Whichever wins is the page somebody
+    /// reads. This file carries a name, genres and provider ids but no artwork and no plot, because
+    /// the mesh publishes those per episode; locking it would leave whoever lost that coin toss
+    /// looking at a series with no overview and no way to get one.
+    /// </remarks>
+    [Fact]
+    public void ASeriesNfoIsLeftFreeToLookItselfUp()
+    {
+        var entry = Sample();
+        entry.Metadata.SeriesName = "The Beverly Hillbillies";
+        var path = Path.Combine(_dir, "tvshow.nfo");
+        NfoWriter.WriteSeries(path, entry);
+
+        var xml = XElement.Load(path);
+        Assert.Equal("tvshow", xml.Name.LocalName);
+        Assert.Empty(Values(xml, "lockdata"));
+
+        // Still tagged, though -- that is how the lifecycle finds it.
+        Assert.Contains(NfoWriter.FederatedTag, Values(xml, "tag"));
+    }
+
     [Fact]
     public void APeersTitleCannotBreakOutOfTheDocument()
     {

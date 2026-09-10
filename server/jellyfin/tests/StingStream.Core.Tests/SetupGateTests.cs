@@ -165,4 +165,38 @@ public class SetupGateTests
         Assert.Equal(SetupGate.ValidatePassword("short"), SetupGate.Validate("dan", "short"));
         Assert.Null(SetupGate.Validate("dan", "12345678"));
     }
+
+    [Fact]
+    public void TheRecordedOwnerWins()
+    {
+        Assert.Equal("owner-id", SetupGate.ChooseOwner("owner-id", true, "somebody-else"));
+        Assert.Equal("owner-id", SetupGate.ChooseOwner("  owner-id  ", true, "somebody-else"));
+    }
+
+    [Fact]
+    public void ANodeWithNoRecordFallsBackToItsFirstAccount()
+    {
+        // The one case the fallback is for: set up before the owner was written down. That first
+        // account *is* the one `setup/admin` claimed, and asking writes it down.
+        Assert.Equal("first-account", SetupGate.ChooseOwner(null, false, "first-account"));
+        Assert.Equal("first-account", SetupGate.ChooseOwner(string.Empty, false, "first-account"));
+        Assert.Equal("first-account", SetupGate.ChooseOwner("   ", false, "first-account"));
+    }
+
+    [Fact]
+    public void ARecordedOwnerWhoIsGoneFallsBackRatherThanAnsweringNobody()
+    {
+        // Should not arise -- the account is not deletable -- but a server with no owner at all is
+        // the worse of the two answers if it ever does.
+        Assert.Equal("first-account", SetupGate.ChooseOwner("owner-id", false, "first-account"));
+    }
+
+    [Fact]
+    public void AServerWithNothingToPointAtHasNoOwner()
+    {
+        Assert.Null(SetupGate.ChooseOwner(null, false, null));
+        Assert.Null(SetupGate.ChooseOwner(string.Empty, false, "   "));
+        // Recorded but gone, and nothing to fall back to.
+        Assert.Null(SetupGate.ChooseOwner("owner-id", false, null));
+    }
 }

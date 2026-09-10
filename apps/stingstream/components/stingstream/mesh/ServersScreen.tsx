@@ -1,207 +1,314 @@
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { Linking, Platform, View } from "react-native";
+import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Icon } from "@/components/common/Icon";
-import { Text } from "@/components/common/Text";
+import { Pill } from "@/components/common/Pill";
 import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
 import { FocusTarget } from "@/components/settings/FocusTarget";
 import { space, tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
-import { useLinkRequests } from "@/lib/stingstream/identity";
+import { useNodeContext } from "@/hooks/useNodeContext";
+import { useServerName } from "@/hooks/useServerName";
+import { useLinkRequests, useMyLinkRequest } from "@/lib/stingstream/identity";
 import {
-  groupCounts,
   MeshUnavailableError,
-  useNodeMeshGroups,
   useNodeMeshPeers,
+  useNodeMeshStatus,
 } from "@/lib/stingstream/mesh";
-import { MyServerScreen } from "../identity/MyServerScreen";
-import { Disclosure } from "../shared/Disclosure";
+import type { MeshNodePeer } from "@/lib/stingstream/meshApi";
+import { buildServerList, type ServerRow } from "@/utils/mesh/serverList";
+import { ActionRow } from "../shared/ActionRow";
 import { GapNotice } from "../shared/GapNotice";
+import { IconAction } from "../shared/IconAction";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
-import { QueryState } from "../shared/ScreenState";
 import { LinkRequests } from "./LinkRequests";
-import { SharingAddresses } from "./SharingAddresses";
-import { ThisServerCard } from "./ThisServerCard";
 
 /**
- * Every server question, on one page, in the order somebody reads them.
+ * Every server this one knows about, in one list.
  *
  * ## What this page used to be
  *
- * Settings carried a "Sharing" group of three rows — *Servers*, *The server I run*, *This device* —
- * and the first of them opened a screen that tried to do everything at once. Dan's read of it, with
- * one request pending on screen: *"the servers page has so much fucking shit going on ... I cant
- * make anything out"*. Four faults, all answered here:
+ * A *THIS SERVER* card with the address folded inside it as a sub-row, a separate list of linked
+ * servers below, a *REQUESTS TO LINK* block answered by two competing buttons, and a *THE SERVER I
+ * RUN* section at the bottom about a different machine entirely. Dan: *"this is still too
+ * confusing"*, and then, item by item:
  *
- * 1. **An empty state over a page that was not empty.** "No servers linked" announced itself above
- *    a request plainly waiting for an answer. It renders only when there is nothing linked *and*
- *    nothing pending — see `LinkedServers`.
- * 2. **Three ways to start a link, none distinguishable.** "Link a server", "Join with a link" and
- *    "Invite a person instead", stacked. There is one path now: invite a **person** on Users &
- *    access; if they run a server they ask to link it from their own settings; an administrator
- *    approves it here. `LinkRequests` records what that cost and what replaced it.
- * 3. **Two filled buttons competing for the same decision.** Approve is the primary; Decline is a
- *    ghost.
- * 4. **This server's own identity at the bottom, inside "Advanced", under a heading that repeated
- *    itself.** It is the first card on the page now (`ThisServerCard`); Advanced keeps only the
- *    address settings it was always about.
+ * 1. *"dont show address as a sub-thing, dont say THis server - just list ALL servers with this
+ *    server labeled - address listed. Clicking it takes you to that server address directly."*
+ *    One list, `buildServerList`. This server is a row in it, marked with a pill rather than
+ *    sectioned off, and the address is the subtitle rather than something you open a row to find.
+ * 2. *"approve/decline should just be inline icons with hover text"* — `LinkRequests`.
+ * 3. *"whole server label on Servers is confusing - remove that"* — the pane's scope badge, gone
+ *    in `ServersPane`.
+ * 4. *"The server I run - again confusing - remove it."* Nothing is lost by it: signing in with
+ *    your own server submits the link request by itself, so that block was a second way to ask a
+ *    question already asked. `docs/INVITES.md` §11.
+ * 5. *"Add a simple Add server button to link another server - must be done through a user"* —
+ *    `AddServerButton`, which goes to the one place a link can start.
  *
- * ## Why it is not administrator-gated, and what a member sees
+ * ## What a member sees
  *
- * Every mesh call behind the linked-servers block needs elevation, which is why that block —
- * queries included — is only *mounted* for an administrator. A member never fires those requests
- * and so never sees a 403 over an empty list.
- *
- * What a member does get is the half that is theirs: **the server I run**, which is also the only
- * control anywhere that starts a link. Dan, when Servers first went behind the gate: *"make sure
- * that client users can still decide to share their server that they own in settings"*.
+ * The list, with this server on it, and nothing else. Every mesh call is elevated, so the peers
+ * query is only *mounted* for an administrator — a member fires none of it and so never meets a
+ * 403 over an empty list.
  */
-export function ServersScreen({
-  openAdvanced = false,
-}: {
-  openAdvanced?: boolean;
-}) {
-  const { t } = useTranslation();
+export function ServersScreen() {
   const isAdmin = useIsStingStreamAdmin();
 
   return (
     <View style={{ gap: space["6"] }}>
-      <FocusTarget id='this-device'>
-        <ThisServerCard />
+      <FocusTarget id='linked-servers'>
+        {isAdmin ? <AllServers /> : <ServerList peers={[]} />}
       </FocusTarget>
 
-      {isAdmin ? (
-        <FocusTarget id='linked-servers'>
-          <LinkedServers />
-        </FocusTarget>
-      ) : null}
+      {isAdmin ? <LinkRequests /> : null}
 
-      <FocusTarget id='my-server'>
-        <MyServerBlock />
-      </FocusTarget>
-
-      {/* Last, and outside `LinkedServers`: this server's own addresses are what invite links are
-          built from, so they have to be reachable — but putting them in front of somebody reading
-          about links is what made three earlier versions of this unreadable. */}
-      {isAdmin ? (
-        <Disclosure title={t("sharing.advanced")} defaultOpen={openAdvanced}>
-          <SharingAddresses />
-        </Disclosure>
-      ) : null}
+      {/* Draws only for the person whose own server was approved, which is rarely the reader. */}
+      <LinkApproved />
     </View>
   );
 }
 
-/**
- * Requests waiting, then the servers already linked. Administrator-only, and *mounted* rather than
- * merely hidden — every query inside it is elevated.
- */
-function LinkedServers() {
+/** The list, with the peers an administrator is allowed to ask about. */
+function AllServers() {
   const { t } = useTranslation();
-  const router = useRouter();
-  const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(null);
-  const requests = useLinkRequests();
 
-  // A server whose mesh child is down answers 503, and that is emphatically not "you share with
-  // nobody" — showing the empty state would tell the user their links had vanished. It gets its own
-  // line, and this server's own card still renders above it.
-  if (groups.error instanceof MeshUnavailableError) {
+  // A server whose mesh child is down answers 503, and that is emphatically not "you are linked to
+  // nobody" — showing an empty list would tell the reader their links had vanished. This server's
+  // own row still renders above the notice.
+  if (peers.error instanceof MeshUnavailableError) {
     return (
-      <GapNotice
-        title={t("sharing.mesh_unavailable_title")}
-        detail={t("sharing.mesh_unavailable_detail")}
-      />
+      <View style={{ gap: space["4"] }}>
+        <ServerList peers={[]} />
+        <GapNotice
+          title={t("sharing.mesh_unavailable_title")}
+          detail={t("sharing.mesh_unavailable_detail")}
+        />
+      </View>
     );
   }
 
-  const servers = groups.data ?? [];
+  return <ServerList peers={peers.data ?? []} />;
+}
+
+/** One list of servers: this one, then the ones it is linked to. */
+function ServerList({ peers }: { peers: readonly MeshNodePeer[] }) {
+  const { t } = useTranslation();
+  const name = useServerName();
+  const node = useNodeContext();
+  const isAdmin = useIsStingStreamAdmin();
+  // Only so this server cannot appear twice if the mesh ever lists it among its own peers. Not
+  // worth a request of its own, which is why it rides on the status call the page already makes.
+  const status = useNodeMeshStatus();
+  const requests = useLinkRequests();
+
+  // `addresses` is what the gateway will tell a stranger; `origin` is only ever however *this*
+  // page arrived, which on the node's own machine is `localhost` and means nothing to anybody else.
+  const address = node?.addresses?.[0] ?? node?.origin ?? null;
+
+  const rows = buildServerList(
+    {
+      node: status.data?.node ?? null,
+      name: name ?? t("sharing.server_untitled"),
+      address,
+    },
+    peers,
+  );
+
+  const linked = rows.filter((row) => !row.isThisServer);
+  // Read here rather than left to `LinkRequests` below, which only knows whether to draw itself.
   const pending = (requests.data ?? []).filter((r) => r.status === "pending");
 
   return (
-    <View style={{ gap: space["6"] }}>
-      {/* Above the list, because a server waiting for an answer is a thing to do and the list is a
-          thing to read. Draws nothing when nobody has asked. */}
-      <LinkRequests />
+    <View testID='sharing-servers'>
+      {/* No heading of its own. The pane above already says *Servers*, over a page that is a list
+          of them — Dan, seeing the word twice down the same column: *"why do I see servers listed
+          twice like that"*. `Add server` moved up beside the pane's title, which is where the
+          Users screen puts `Invite` too. */}
+      <ListGroup>
+        {rows.map((row) => (
+          <ServerListRow key={row.node} row={row} />
+        ))}
+      </ListGroup>
 
-      <QueryState
-        isLoading={groups.isLoading}
-        error={groups.error}
-        onRetry={groups.refetch}
-      >
-        {servers.length > 0 ? (
-          <ListGroup title={t("sharing.servers_title")}>
-            {servers.map((group) => {
-              const counts = groupCounts(peers.data, group.group);
-              return (
-                <ListItem
-                  key={group.group}
-                  testID='sharing-server'
-                  title={group.name || t("sharing.server_untitled")}
-                  subtitle={t("sharing.server_members", {
-                    count: counts.members,
-                    online: counts.online,
-                  })}
-                  showArrow
-                  onPress={() =>
-                    router.push(`/settings/servers/${group.group}`)
-                  }
-                  iconAfter={
-                    <Icon
-                      name='devices'
-                      size={16}
-                      color={
-                        counts.online > 0
-                          ? tokens.color.state.success
-                          : tokens.color.text.tertiary
-                      }
-                    />
-                  }
-                />
-              );
-            })}
-          </ListGroup>
-        ) : pending.length === 0 ? (
-          // Only when the page really is empty. With a request pending, "No servers linked" over
-          // the top of it read as a screen confused about its own state.
+      {/* Only when this server really does stand alone. A server is plainly waiting for an answer
+          just below, and "No servers linked" over the top of it is the fault this page was rebuilt
+          to remove — a screen confused about its own state. */}
+      {isAdmin && linked.length === 0 && pending.length === 0 ? (
+        <View style={{ marginTop: space["4"] }}>
           <EmptyState
             icon='servers'
             title={t("sharing.servers_empty_title")}
             detail={t("sharing.servers_empty_detail")}
           />
-        ) : null}
-      </QueryState>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 /**
- * "The server I run", which used to be a settings row of its own.
+ * One server: press it to manage it, or use the link beside it to go there.
  *
- * It keeps a heading, because the page changes subject here: everything above is about *this*
- * server, and this is about the reader's — and, since the link buttons went, it is also the only
- * control on the page that can start one.
+ * **The row is the settings and the icon is the door**, which is the reverse of how this started.
+ * Dan: *"clicking the server opens the settings page for it with a small link icon instead to the
+ * right to open it (reverse of what we have)"*. It is the right way round — a row in a settings
+ * list should do what the rest of the settings list does, and leaving the app entirely is the
+ * unusual act that deserves its own small control.
+ *
+ * **This server's row goes to the dashboard**, per *"This server settings just takes you to home
+ * dashboard"*. It has no link of its own either: "open this server" is the page you are already
+ * standing on, and two controls with one destination is the redundancy this page keeps shedding.
  */
-function MyServerBlock() {
+function ServerListRow({ row }: { row: ServerRow }) {
   const { t } = useTranslation();
+  const router = useRouter();
+
+  const open = () => {
+    if (!row.address) return;
+    if (Platform.OS === "web") {
+      // A different origin, so a real navigation rather than a router push. A new tab, because
+      // leaving the page somebody is administering to look at another server is not what pressing
+      // a control in a list should cost them.
+      (globalThis as { open?: (u: string, target?: string) => void }).open?.(
+        row.address,
+        "_blank",
+      );
+      return;
+    }
+    void Linking.openURL(row.address);
+  };
+
+  const manage = () => {
+    if (row.isThisServer) {
+      router.replace("/");
+      return;
+    }
+    if (row.group) router.push(`/settings/servers/${row.group}`);
+  };
 
   return (
-    <View>
-      <Text
-        variant='micro'
-        weight='semibold'
-        tone='tertiary'
-        style={{
-          marginLeft: 16,
-          marginBottom: 6,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
-        }}
-      >
-        {t("identity.my_server_title")}
-      </Text>
-      <MyServerScreen />
+    <ActionRow
+      testID='sharing-server'
+      title={row.name}
+      subtitle={row.address ?? t("sharing.server_no_address")}
+      leading={
+        <Icon
+          name='servers'
+          size={18}
+          color={
+            row.online ? tokens.color.state.success : tokens.color.text.tertiary
+          }
+        />
+      }
+      onPress={manage}
+      actions={
+        <>
+          {row.isThisServer ? (
+            <Pill size='sm' tone='neutral' label={t("sharing.this_server")} />
+          ) : null}
+          {!row.isThisServer && row.address ? (
+            <IconAction
+              testID='sharing-server-open'
+              // A box with an arrow leaving it, not a chain link: this is the one control on the
+              // page that takes you out of the app, and it opens a new window to do it. A chain
+              // said "there is a link here" when what mattered was where pressing it lands you.
+              icon='openExternal'
+              label={t("sharing.server_open")}
+              onPress={open}
+            />
+          ) : null}
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * The one way to add a server.
+ *
+ * Dan: *"Add a simple Add server button to link another server - must be done through a user"*. It
+ * is a link to Users & access rather than a form, because that is literally where the act happens:
+ * you invite the **person** who runs the other server, they sign in here with it, and the ask
+ * arrives above. There is no address to type and no code to paste — `docs/INVITES.md` §11 has why
+ * that is the only shape this can take.
+ */
+export function AddServerButton() {
+  const { t } = useTranslation();
+  const router = useRouter();
+
+  return (
+    <Button
+      testID='sharing-add-server'
+      variant='primary'
+      size='sm'
+      icon='add'
+      onPress={() => router.push("/settings/users")}
+    >
+      {t("sharing.add_server")}
+    </Button>
+  );
+}
+
+/**
+ * The code that finishes a link, for the person whose server was approved.
+ *
+ * **This is the one piece of "the server I run" that had to survive.** Approving mints an ordinary
+ * group invite and hands it back to whoever asked; they redeem it on their *own* server, because
+ * choosing what that server shares back is their decision and not this one's — `docs/INVITES.md`
+ * §11. Without somewhere to read the code, an approval went nowhere and the link could never
+ * complete.
+ *
+ * What went with the rest of that block is everything around it: a node id, a status list, a
+ * "you do not run a server here" empty state for the overwhelming majority who do not. This draws
+ * only for the account it is about, only once its request has been approved, and it is one row.
+ */
+function LinkApproved() {
+  const { t } = useTranslation();
+  const mine = useMyLinkRequest();
+
+  const code = mine.data?.status === "approved" ? mine.data.code : null;
+  if (!code) return null;
+
+  const copy = async () => {
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(code);
+        toast.success(t("sharing.link_approved_copied"));
+      } catch {
+        toast.error(t("invites.copy_failed"));
+      }
+      return;
+    }
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(code);
+    toast.success(t("sharing.link_approved_copied"));
+  };
+
+  return (
+    <View testID='sharing-link-approved'>
+      <ListGroup title={t("sharing.link_approved_title")}>
+        <ActionRow
+          testID='sharing-link-approved-row'
+          title={code}
+          subtitle={t("sharing.link_approved_detail")}
+          leading={
+            <Icon name='link' size={18} color={tokens.color.text.tertiary} />
+          }
+          onPress={() => void copy()}
+          actions={
+            <IconAction
+              testID='sharing-link-approved-copy'
+              icon='share'
+              label={t("invites.copy")}
+              onPress={() => void copy()}
+            />
+          }
+        />
+      </ListGroup>
     </View>
   );
 }

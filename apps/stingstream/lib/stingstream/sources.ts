@@ -12,14 +12,16 @@
  *
  * ## Why the download path wants this instead of just PlaybackInfo
  *
- * PlaybackInfo already returns a federated item's `MediaSources` in scored order (M4), which is
- * what native playback plays without needing this endpoint at all. But it can only return sources
- * Jellyfin has *items* for — this node's federated-library materializer writes one `.strm` per
- * holding node, and a title held locally is not materialized at all (the local file wins), so its
- * remote copies never appear as alternate MediaSources even though they are perfectly good
- * candidates for a *download* that wants the fastest holder rather than "the one file this node
- * happens to have a Jellyfin item for." `GET /items/{id}/sources` sees the whole group; PlaybackInfo
- * only sees what got materialized.
+ * PlaybackInfo already returns an item's `MediaSources` in scored order (M4), which is what native
+ * playback plays without needing this endpoint at all. But it can only return sources Jellyfin has
+ * *items* for, and a node materializes a `.strm` only for holders it has seen — so a holder that
+ * joined between the last materialization pass and now is a perfectly good candidate for a
+ * *download* that wants the fastest copy, and has no MediaSource to be chosen by.
+ * `GET /items/{id}/sources` sees the whole group; PlaybackInfo only sees what got materialized.
+ *
+ * A title held on this server appears here too, as the row with `isLocal` set. It is scored
+ * alongside the peers rather than assumed to win: a local 1080p should lose to a friend's 2160p
+ * when the viewer has asked for quality and the link has been measured able to carry it.
  */
 
 /** One scored source, as `ItemsController.Present` shapes it. */
@@ -48,6 +50,23 @@ export interface ItemSource {
   reasons: string[];
   /** The URL a client would play this source from — a `stingstream.local` mesh URL. */
   streamUrl: string;
+  /**
+   * True for the copy on the server this device is signed in to.
+   *
+   * A client cannot work this out from `node` without knowing its own node id, and "This server"
+   * is the one row in a "Play from…" list that must never be mislabelled.
+   */
+  isLocal: boolean;
+  /**
+   * Jellyfin's `MediaSource.Id` for this holder's copy, when this node has an item for it.
+   *
+   * What turns the join below from a heuristic into an identity. Pass it back as PlaybackInfo's
+   * `MediaSourceId` and Jellyfin filters the response to that one source, so a deliberate choice
+   * cannot be re-ordered away by the scorer on the way out. `null` means this node never
+   * materialized a pointer for that holder: the source is real and playable through `streamUrl`,
+   * but there is no local item to name.
+   */
+  mediaSourceId: string | null;
 }
 
 export interface ItemSourcesResponse {
@@ -95,6 +114,8 @@ const toSource = (raw: unknown): ItemSource => ({
   measured: field<boolean>(raw, ...both("measured")) ?? false,
   reasons: field<string[]>(raw, ...both("reasons")) ?? [],
   streamUrl: field<string>(raw, ...both("streamUrl")) ?? "",
+  isLocal: field<boolean>(raw, ...both("isLocal")) ?? false,
+  mediaSourceId: field<string>(raw, ...both("mediaSourceId")) ?? null,
 });
 
 const toResponse = (raw: unknown): ItemSourcesResponse => ({

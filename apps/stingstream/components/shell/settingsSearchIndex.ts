@@ -3,7 +3,6 @@ import {
   buildSettingsCategories,
   flattenCategories,
   type SettingsCategory,
-  type SettingsScope,
 } from "./buildSettingsCategories";
 
 /**
@@ -42,7 +41,6 @@ export interface SettingsSearchEntry {
   categoryLabel: string;
   label: string;
   keywords: string[];
-  scope: SettingsScope;
   /** Where selecting it goes, section and focus target included. */
   href: string;
 }
@@ -106,6 +104,13 @@ const CONTROLS: Control[] = [
   { id: "this-device", category: "servers" },
   { id: "invite-person", category: "servers", route: "/settings/users" },
 
+  // Domains. Two rows for two questions: "what is my address" lands on the
+  // field, and anything about tunnels or forwarding lands on the block that
+  // sets one up -- which is most of what somebody arrives here wanting, and is
+  // not a thing they would think to search for under "domain".
+  { id: "public-domain", category: "domains" },
+  { id: "cloudflare-tunnel", category: "domains" },
+
   // Users & access
   { id: "accounts", category: "users", tab: "people" },
   { id: "invitations", category: "users", tab: "people" },
@@ -118,7 +123,10 @@ const CONTROLS: Control[] = [
   { id: "download-clients", category: "services" },
   { id: "arr-sync", category: "services" },
 
-  // Movie & series managers
+  // Films & series
+  // `downloading` first: it is the only control on that page that can be *off*,
+  // and the one every "downloading is not set up" notice is trying to reach.
+  { id: "downloading", category: "arr_library" },
   { id: "add-title", category: "arr_library" },
   { id: "remove-title", category: "arr_library" },
 
@@ -205,7 +213,6 @@ export function buildSettingsSearchIndex(
           .split(",")
           .map((word) => word.trim().toLowerCase())
           .filter(Boolean),
-        scope: category.scope,
         href: hrefFor(control, category),
       },
     ];

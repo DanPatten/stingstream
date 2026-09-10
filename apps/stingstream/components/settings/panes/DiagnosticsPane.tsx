@@ -44,7 +44,7 @@ export const DiagnosticsPane: React.FC<{ initialSection?: string }> = ({
   );
 
   return (
-    <SettingsPane title={t("home.settings.nav.diagnostics")} scope='server'>
+    <SettingsPane title={t("home.settings.nav.diagnostics")}>
       <View
         testID='settings-diagnostics-tabs'
         style={{ marginBottom: space["4"] }}

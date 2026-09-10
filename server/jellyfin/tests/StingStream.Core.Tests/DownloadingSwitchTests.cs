@@ -14,7 +14,9 @@ namespace StingStream.Core.Tests;
 /// caught the wrong line would turn a port number into <c>true</c>, and a node that then refused to
 /// start would be very hard to connect back to a switch somebody flipped in a settings screen.
 /// </remarks>
-public class DownloadingSwitchTests : IDisposable
+// Sealed to satisfy CA1063: a test class that only tidies a temp directory has no business
+// offering a Dispose(bool) for a subclass to override, and there is no subclass.
+public sealed class DownloadingSwitchTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("stingstream-switch").FullName;
 

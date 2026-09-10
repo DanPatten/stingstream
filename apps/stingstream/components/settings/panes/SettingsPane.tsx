@@ -1,46 +1,37 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { View } from "react-native";
 import { Text } from "@/components/common/Text";
-import type { SettingsScope } from "@/components/shell/buildSettingsCategories";
 import { ScreenHeaderRow } from "@/components/stingstream/shared/ScreenHeaderRow";
 import { space } from "@/constants/theme";
-import { ScopeBadge } from "../ScopeBadge";
 
 /**
- * The top of a settings page: what it is, and who it is for.
+ * The top of a settings page: what it is, and what is on it.
  *
- * Every pane opens the same way, and the badge is the reason this exists rather
- * than each page drawing its own heading. Nothing on the old Settings screen
- * said whether a control changed this browser or every viewer on the server,
- * and the two most confusable controls in the app — a viewer's own playback
- * quality and the server's remote bitrate ceiling — read almost identically
- * without it.
+ * There used to be a scope badge here — "This device", "Your account", "Whole
+ * server" — on the reasoning that nothing otherwise said whether a control
+ * changed this browser or every viewer. Dan removed it from Servers first
+ * (*"whole server label on Servers is confusing - remove that"*) and then
+ * everywhere: *"delete all setting pages badges everywhere"*.
  *
- * The badge goes in `ScreenHeaderRow`'s `accessory` slot, never into a
- * `ListItem`: a `Pill` inside a row steals width from the row's own title, and
- * at 390 px it truncated it.
+ * It was answering a question the navigation already answers. Settings is
+ * grouped into You, Servers and Server administration, so a page's own group
+ * says whose settings it holds — and repeating that as a pill on every page
+ * meant fifteen pages carrying a label that only ever said what the heading
+ * above it had said. `ScopedBlock` below is what is left of the idea, for the
+ * one page that genuinely mixes.
  */
 export const SettingsPane: React.FC<
   PropsWithChildren<{
     /** An `home.settings.nav.*` key's value — the category's own label. */
     title: string;
-    scope: SettingsScope;
     /** A sentence under the heading, where the title alone is not enough. */
     detail?: string;
-    /** Drawn beside the badge: a "Save" button, a count, a status pill. */
+    /** Drawn beside the title: a "Save" button, a count, a status pill. */
     accessory?: ReactNode;
   }>
-> = ({ title, scope, detail, accessory, children }) => (
+> = ({ title, detail, accessory, children }) => (
   <View>
-    <ScreenHeaderRow
-      title={title}
-      accessory={
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {accessory}
-          <ScopeBadge scope={scope} />
-        </View>
-      }
-    />
+    <ScreenHeaderRow title={title} accessory={accessory} />
     {detail ? (
       <Text
         variant='caption'
@@ -55,16 +46,18 @@ export const SettingsPane: React.FC<
 );
 
 /**
- * A block of rows inside a pane whose scope is not the pane's.
+ * A titled block of rows inside a pane, for the one page that is about two
+ * things.
  *
- * Rare, and deliberately so — a page that mixes scopes is a page that is about
- * two things. Playback is the one that genuinely does: how *this* app plays is
- * a device setting, and the server's ceiling on what a remote viewer may pull
- * is not.
+ * Playback is that page: how *this* app plays is a setting for this device, and
+ * the server's ceiling on what a remote viewer may pull is not. The heading is
+ * what says so now that the badge beside it is gone — which is the part that
+ * was doing the work anyway.
  */
-export const ScopedBlock: React.FC<
-  PropsWithChildren<{ title: string; scope: SettingsScope }>
-> = ({ title, scope, children }) => (
+export const ScopedBlock: React.FC<PropsWithChildren<{ title: string }>> = ({
+  title,
+  children,
+}) => (
   <View>
     <View
       style={{
@@ -83,7 +76,6 @@ export const ScopedBlock: React.FC<
       >
         {title}
       </Text>
-      <ScopeBadge scope={scope} />
     </View>
     {children}
   </View>

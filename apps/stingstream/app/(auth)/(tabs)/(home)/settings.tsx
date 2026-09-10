@@ -1,3 +1,4 @@
+import { Redirect } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,10 +10,10 @@ import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { ProfileHeader } from "@/components/settings/ProfileHeader";
-import { SettingsOverview } from "@/components/settings/SettingsOverview";
 import { SettingsShell } from "@/components/settings/SettingsShell";
 import {
   buildSettingsCategories,
+  flattenCategories,
   type SettingsCategory,
 } from "@/components/shell/buildSettingsCategories";
 import {
@@ -29,32 +30,42 @@ import { userAtom } from "@/providers/JellyfinProvider";
 const SettingsTV = Platform.isTV ? require("./settings.tv").default : null;
 
 /**
- * `/settings` — the category list, or the two-pane overview.
+ * `/settings` — the category list on a phone, and the first category on a desktop.
  *
- * Above `SETTINGS_TWO_PANE_MIN_WIDTH` this is `SettingsShell` with no category
- * chosen: the column on the left, and an overview on the right saying who you
- * are signed in as and what the scope badges mean. That overview is what
- * answers the complaint this restructure started from — a 960 px list centred
- * in a 1440 px window, with the right two-thirds of the screen empty.
+ * **There is no landing page above the two-pane threshold.** There was one for
+ * an afternoon: an overview pane with the profile card, a sentence saying to
+ * pick something on the left, and a legend explaining the scope badges. Dan:
+ * *"not a fan of this landing page or what a badge means (we dont need that)
+ * what do most apps do when clicking settings"* — and the answer is that they
+ * open a settings *page*. macOS, Windows and Plex all land you on a real pane
+ * with real controls; none of them spends a screen telling you the navigation
+ * exists next to the navigation.
  *
- * Below it, the shell draws nothing and this is the list it always was, only
- * grouped by domain instead of by "General / Sharing / Server" and with a
- * search box over it. The top bar does not exist at that width, so the box has
- * to be here; above it the same index is reachable from the top bar, which
- * pivots to "Search settings…" on any settings route.
+ * So it redirects to the first category, which is a redirect rather than
+ * rendering Profile in place: one canonical URL per pane, and the address bar
+ * says which one you are on. It is also why the redirect reads the built list
+ * instead of hard-coding `/settings/profile` — the first category is a rule in
+ * `buildSettingsCategories`, and this should follow it if it changes.
+ *
+ * Below the threshold this is the list it always was, only grouped by domain
+ * instead of by "General / Sharing / Server" and with a search box over it. A
+ * list is what a phone should do, and what every phone settings app does. The
+ * box has to be here because the top bar does not exist at that width; above
+ * it, the same index is in the top bar, which pivots to "Search settings…".
  */
 function SettingsMobile() {
+  const { t } = useTranslation();
   const { isWebWide, width } = useBreakpoint();
+  const user = useAtomValue(userAtom);
+  const first = flattenCategories(buildSettingsCategories(user, t))[0];
+
+  if (settingsTwoPane(width, isWebWide) && first) {
+    return <Redirect href={first.route as never} />;
+  }
 
   return (
     <SettingsShell>
-      {settingsTwoPane(width, isWebWide) ? (
-        <ScrollView contentInsetAdjustmentBehavior='automatic'>
-          <SettingsOverview />
-        </ScrollView>
-      ) : (
-        <CategoryList />
-      )}
+      <CategoryList />
     </SettingsShell>
   );
 }

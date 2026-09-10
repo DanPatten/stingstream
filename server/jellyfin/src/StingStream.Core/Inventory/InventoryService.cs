@@ -445,9 +445,9 @@ public sealed class InventoryService : IInventoryService
     /// <para>
     /// The rule is "a file this node can serve", not "not in the federated library", because a
     /// <c>.strm</c> is never servable *whoever* wrote it: handing a peer sixty bytes of URL where a
-    /// film should be is wrong for a debrid user's own library too. Three independent tests, so a
-    /// pointer whose <c>.nfo</c> was not read, or one materialized somewhere unexpected, is still
-    /// caught by the others.
+    /// film should be is wrong for a user's own remote-backed library too. Three independent
+    /// tests, so a pointer whose <c>.nfo</c> was not read, or one materialized somewhere
+    /// unexpected, is still caught by the others.
     /// </para>
     /// <para>
     /// Deliberately **not** a <c>File.Exists</c> check. <see cref="RebuildAllAsync"/> prunes
