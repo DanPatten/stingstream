@@ -202,15 +202,22 @@ describe("what the request button offers", () => {
     expect(action.label).toBe("In your library");
   });
 
-  test("a request already in flight is not offered again", () => {
-    for (const state of [
-      "pending",
-      "approved",
-      "fulfilling",
-      "available",
-    ] as const) {
-      expect(searchAction(result({ requestState: state })).disabled).toBe(true);
+  test("a request already in flight is managed rather than made again", () => {
+    // Asking twice for the same thing is not a thing to offer; doing something about the request
+    // you already have is. The state moved to the pill beside the title and the button became the
+    // action -- edit which seasons, or withdraw it.
+    for (const state of ["pending", "approved", "fulfilling"] as const) {
+      const action = searchAction(result({ requestState: state }));
+      expect(action.intent).toBe("manage");
+      expect(action.disabled).toBe(false);
     }
+  });
+
+  test("a title the group already has is the one case with nothing to do", () => {
+    // Not "manage": there is no request left to change, the thing is simply there.
+    const action = searchAction(result({ requestState: "available" }));
+    expect(action.intent).toBe("none");
+    expect(action.disabled).toBe(true);
   });
 
   test("a declined or failed request may be asked for again, and says so", () => {
@@ -220,6 +227,7 @@ describe("what the request button offers", () => {
     for (const state of ["declined", "failed"] as const) {
       const action = searchAction(result({ requestState: state }));
       expect(action.disabled).toBe(false);
+      expect(action.intent).toBe("request");
       expect(action.label).toBe("Request again");
     }
   });
@@ -227,6 +235,7 @@ describe("what the request button offers", () => {
   test("an untouched title is offered", () => {
     const action = searchAction(result());
     expect(action.disabled).toBe(false);
+    expect(action.intent).toBe("request");
     expect(action.label).toBe("Request");
   });
 });
@@ -475,7 +484,7 @@ describe("the same title, answered twice", () => {
     expect(only.requestState).toBe("pending");
     expect(only.requestId).toBe("r1");
     expect(searchBadgeLabel(only)).toBe("Requested");
-    expect(searchAction(only).disabled).toBe(true);
+    expect(searchAction(only).intent).toBe("manage");
   });
 
   test("the node's own answer wins over the local list", () => {

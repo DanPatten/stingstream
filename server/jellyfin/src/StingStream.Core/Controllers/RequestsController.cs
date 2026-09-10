@@ -180,6 +180,58 @@ public sealed class RequestsController : StingStreamControllerBase
         return Ok(result.Request);
     }
 
+    /// <summary>Change which seasons an open request is for.</summary>
+    /// <param name="id">The request id.</param>
+    /// <param name="body">The seasons wanted. Empty means every season.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The updated request.</response>
+    /// <response code="400">The request has already finished, so there is nothing to change.</response>
+    /// <response code="404">No such request, or somebody else's.</response>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// <see cref="Create"/> already grows a season list — a second request for the same show adds
+    /// whatever it asked for — but growing is all it can do, because it cannot tell "I want season
+    /// 4 as well" from "I only want season 4 now". So this replaces the list outright, and is what
+    /// the app's Edit uses. Asking for fewer seasons unmonitors the rest on the next pass;
+    /// <c>RequestWorker.ApplySeasons</c> ticks exactly what the row names and unticks the others.
+    /// <para>
+    /// Owner or administrator, same rule and the same 404-for-both as <see cref="Delete"/>. Marking
+    /// it unpublished is what sends the change out to the group: the row has moved and the peers
+    /// holding the old season list need to hear about it.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id}/seasons")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<RequestRow>> SetSeasons(
+        string id,
+        [FromBody] RequestSeasonsBody body,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var row = _store.Get(id);
+        if (row is null || !MaySee(row))
+        {
+            return NotFound();
+        }
+
+        if (!RequestStates.IsOpen(row.State))
+        {
+            return BadRequest(new { error = "This request has already finished." });
+        }
+
+        // Sorted and deduplicated, and season 0 dropped: the specials folder is never what "the
+        // whole show" means to a person, and the app does not offer it either.
+        row.Seasons = body.Seasons is null
+            ? new List<int>()
+            : body.Seasons.Where(s => s > 0).Distinct().OrderBy(s => s).ToList();
+        row.Note = "Seasons changed by the requester.";
+        var saved = await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
+        await _store.SetPublishedAsync(row.Id, false, cancellationToken).ConfigureAwait(false);
+        return Ok(saved);
+    }
+
     /// <summary>Withdraw a request.</summary>
     /// <param name="id">The request id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -423,6 +475,13 @@ public sealed class RequestDetail
 
     /// <summary>Everything that has happened to it, oldest first.</summary>
     public List<RequestEvent> Events { get; set; } = new();
+}
+
+/// <summary>Body of <c>PUT /requests/{id}/seasons</c>.</summary>
+public sealed class RequestSeasonsBody
+{
+    /// <summary>Season numbers wanted. Empty, or absent, means every season.</summary>
+    public List<int>? Seasons { get; set; }
 }
 
 /// <summary>Body of <c>PUT /requests/users/{userId}</c>.</summary>

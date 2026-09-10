@@ -242,19 +242,10 @@ export function RequestSheet({
             height={POSTER_HEIGHT}
             cornerRadius={radius.md}
           />
+          {/* No year here: the dialog's own title is `requestTitle`, which already ends in it. */}
           <View style={{ flex: 1 }}>
-            {shown.year ? (
-              <Text variant='caption' tone='secondary'>
-                {shown.year}
-              </Text>
-            ) : null}
             {shown.overview ? (
-              <Text
-                variant='body'
-                tone='secondary'
-                numberOfLines={7}
-                style={{ marginTop: 4 }}
-              >
+              <Text variant='body' tone='secondary' numberOfLines={7}>
                 {shown.overview}
               </Text>
             ) : null}

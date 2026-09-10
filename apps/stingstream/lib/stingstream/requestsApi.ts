@@ -371,26 +371,42 @@ export const requestTitle = (request: {
   request.year ? `${request.title} (${request.year})` : request.title;
 
 /**
- * What the request button should say for a search result.
+ * What pressing the button on a search result should do, and what it should say.
  *
  * The interesting answer is usually "you already have this", and finding that out only after
  * pressing Request is too late to be useful — which is the whole reason the search endpoint
  * annotates every result with the group's holdings.
+ *
+ * `intent` is the half a screen acts on:
+ *
+ * * `request` — ask for it.
+ * * `manage` — there is already an open request for this title, and the person looking at it can
+ *   change or withdraw it.
+ * * `none` — the group has it. Nothing to do here.
+ *
+ * A title with a request open used to be `disabled: true` and nothing else, which answered "you
+ * asked for this already" and then refused to let anybody act on it: the only way to drop a request
+ * or change which seasons it covered was to find it again under My requests. Dan, 2026-09-10:
+ * *"if a show is already requested - allow a user to edit the request from the find screen or
+ * delete the request - dont just disable the button."* The state moved to the pill beside the
+ * title (`searchBadgeLabel`, which already said it) and the button became the action.
  */
+export type SearchIntent = "request" | "manage" | "none";
+
 export const searchAction = (
   result: RequestSearchResult,
-): { label: string; disabled: boolean } => {
+): { label: string; disabled: boolean; intent: SearchIntent } => {
   if (result.availableInGroup) {
-    return { label: "In your library", disabled: true };
+    return { label: "In your library", disabled: true, intent: "none" };
   }
   switch (result.requestState) {
     case "available":
-      return { label: "In your library", disabled: true };
+      return { label: "In your library", disabled: true, intent: "none" };
     case "pending":
-      return { label: "Awaiting approval", disabled: true };
+      return { label: "Awaiting approval", disabled: false, intent: "manage" };
     case "approved":
     case "fulfilling":
-      return { label: "Already requested", disabled: true };
+      return { label: "Already requested", disabled: false, intent: "manage" };
     // A declined or failed request is not a reason to refuse a new one: the first was refused by a
     // person who may since have changed their mind, and the second failed for reasons that may
     // have gone away. Asking reopens the request that is already there rather than filing a second
@@ -398,9 +414,9 @@ export const searchAction = (
     // shows as declined invites the press that used to produce the duplicate.
     case "declined":
     case "failed":
-      return { label: "Request again", disabled: false };
+      return { label: "Request again", disabled: false, intent: "request" };
     default:
-      return { label: "Request", disabled: false };
+      return { label: "Request", disabled: false, intent: "request" };
   }
 };
 
@@ -844,6 +860,41 @@ export async function decideRequest(
   });
   if (!res.ok)
     throw await readRequestsError(res, `POST /requests/${id}/${decision}`);
+  return toRequest(await res.json());
+}
+
+/**
+ * Replace the seasons an open request is for.
+ *
+ * Not in `ROUTES`, and deliberately: that object's `satisfies` proves every path against
+ * `packages/api-client/openapi.json`, and this route is newer than the last time that document was
+ * regenerated. Regenerating it means running a node built from this working tree, which on a shared
+ * checkout picks up whatever other controllers are half-written at that moment — the note
+ * `downloadingApi.ts` records at length. The path is pinned by `RequestsController.SetSeasons`'s
+ * own route attribute; fold it into `ROUTES` the next time the document is regenerated for other
+ * reasons.
+ *
+ * An empty list means every season, the same as everywhere else in this module.
+ */
+export async function setRequestSeasons(
+  apiBaseUrl: string,
+  id: string,
+  seasons: number[],
+  accessToken?: string | null,
+): Promise<MemberRequest> {
+  const res = await fetch(
+    `${apiBaseUrl}/requests/${encodeURIComponent(id)}/seasons`,
+    {
+      method: "PUT",
+      headers: {
+        ...authHeaders(accessToken),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ seasons }),
+    },
+  );
+  if (!res.ok)
+    throw await readRequestsError(res, `PUT /requests/${id}/seasons`);
   return toRequest(await res.json());
 }
 
