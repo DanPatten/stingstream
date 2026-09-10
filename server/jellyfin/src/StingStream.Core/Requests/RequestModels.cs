@@ -360,6 +360,16 @@ public sealed class RequestSearchResult
     public string ItemKey { get; set; } = string.Empty;
 
     /// <summary>
+    /// The IMDb id, <c>tt</c> and seven or eight digits, when the lookup carried one.
+    /// </summary>
+    /// <remarks>
+    /// The one id in this class that is not for us: nothing here is keyed by it, and the app uses
+    /// it for exactly one thing, which is to send a reader who taps a score to the page the score
+    /// came from. Null is a normal answer and the app falls back to an IMDb search on the title.
+    /// </remarks>
+    public string? ImdbId { get; set; }
+
+    /// <summary>
     /// How many seasons this show has, excluding specials. <c>0</c> for a movie, and for a series
     /// whose lookup did not say.
     /// </summary>

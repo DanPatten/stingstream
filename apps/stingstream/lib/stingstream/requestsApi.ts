@@ -190,6 +190,14 @@ export interface RequestSearchResult {
   genres?: string[];
   /** The community rating out of ten, when there is one. */
   rating?: number | null;
+  /**
+   * The IMDb id, `tt` and seven or eight digits, when the lookup carried one.
+   *
+   * Only ever used to leave: `imdbUrl` sends somebody who taps a score to the page it came from.
+   * Absent is normal — an old node does not send it, and the metadata provider does not always know
+   * one — and the link falls back to an IMDb search on the title.
+   */
+  imdbId?: string | null;
   /** Attention on the provider's own scale. Comparable only within one answer. */
   popularity?: number | null;
   /** Length in minutes. An episode's length, for a series. */
@@ -313,6 +321,7 @@ export const toSearchResult = (raw: unknown): RequestSearchResult => ({
   seasonCount: field<number>(raw, ...both("seasonCount")) ?? 0,
   genres: field<string[]>(raw, ...both("genres")) ?? [],
   rating: field<number>(raw, ...both("rating")),
+  imdbId: field<string>(raw, ...both("imdbId")),
   popularity: field<number>(raw, ...both("popularity")),
   runtime: field<number>(raw, ...both("runtime")),
   availableInGroup: field<boolean>(raw, ...both("availableInGroup")) ?? false,
@@ -389,6 +398,29 @@ export const seasonsLabel = (seasons: number[] | undefined): string => {
   const sorted = [...seasons].sort((a, b) => a - b);
   if (sorted.length === 1) return `Season ${sorted[0]}`;
   return `Seasons ${sorted.join(", ")}`;
+};
+
+/**
+ * Where a score goes when somebody taps it.
+ *
+ * A number out of ten is a claim, and the useful next question is always "says who" — so the star
+ * is a way out to the page the score came from rather than a decoration. The node sends an IMDb id
+ * whenever the lookup carried one, which is most of the time; when it did not, the fallback is
+ * IMDb's own search for the title and year, which lands one press away from the same page rather
+ * than nowhere. `ttype=ft|tv` narrows that search to titles, so a film does not answer with the
+ * actor who shares its name.
+ */
+export const imdbUrl = (result: {
+  title: string;
+  year?: number | null;
+  kind?: "movie" | "series";
+  imdbId?: string | null;
+}): string => {
+  const id = result.imdbId?.trim();
+  if (id) return `https://www.imdb.com/title/${id}/`;
+  const term = [result.title, result.year].filter(Boolean).join(" ");
+  const type = result.kind === "series" ? "tv" : "ft";
+  return `https://www.imdb.com/find/?q=${encodeURIComponent(term)}&s=tt&ttype=${type}`;
 };
 
 /** Title and year the way every screen shows it. */

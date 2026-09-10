@@ -49,6 +49,28 @@ public sealed class TmdbCatalog
     /// <summary>The id space series item keys are built from.</summary>
     private const string TvdbProvider = "tvdb";
 
+    /// <summary>
+    /// The id space an IMDb id caches under.
+    /// </summary>
+    /// <remarks>
+    /// Stored as the number alone, because <c>provider_id_map</c> holds integers: <c>tt0063951</c>
+    /// goes in as 63951 and comes back out through <see cref="ImdbTag"/>. Every IMDb id is
+    /// <c>tt</c> and seven or eight digits, so nothing is lost either way.
+    /// </remarks>
+    private const string ImdbProvider = "imdb";
+
+    /// <summary>
+    /// How many seasons a show has, cached beside its ids.
+    /// </summary>
+    /// <remarks>
+    /// Not an id, and it is in the id table anyway: it is a small integer keyed by (provider,
+    /// provider id, name), which is exactly that table's shape, and it arrives on the same call
+    /// that the TVDB translation does. The alternative was a second table and a second round trip
+    /// per show for one number. It ages with everything else in there, so a show that gains a
+    /// season shows the old count until the row expires.
+    /// </remarks>
+    private const string SeasonsKey = "seasons";
+
     private const string BaseUrl = "https://api.themoviedb.org/3";
 
     /// <summary>
@@ -121,7 +143,7 @@ public sealed class TmdbCatalog
     /// </remarks>
     private const int ObscurityFloor = 50;
 
-    /// <summary>How many series ids are translated at once.</summary>
+    /// <summary>How many titles have their ids looked up at once.</summary>
     private const int IdConcurrency = 6;
 
     /// <summary>Ceiling on one HTTP call.</summary>
@@ -313,9 +335,10 @@ public sealed class TmdbCatalog
             TvdbId = tvdbId,
             ItemKey = InventoryKeys.SeriesPrefix(tvdbId),
 
-            // A discover response carries no season count; only the full series record does, which
-            // would be a second call per show. SeasonPicker already draws a generous fallback range
-            // for exactly this case, and offering a season a show does not have is harmless.
+            // Zero here, and filled in by the caller: a discover entry carries no season count,
+            // and the show's own record — which `SeriesFactsAsync` is already fetching for the
+            // TVDB translation — does. This mapper stays pure so a test can hand it a page of
+            // JSON and no network.
             SeasonCount = 0,
             Genres = NamesOf(entry, genres),
             Rating = entry["vote_average"]?.GetValue<double?>(),
@@ -370,24 +393,53 @@ public sealed class TmdbCatalog
                 break;
             }
 
-            if (isMovie)
-            {
-                foreach (var entry in entries.OfType<JsonObject>())
-                {
-                    var result = FromTmdbMovie(entry, genres);
-                    if (result is not null)
-                    {
-                        results.Add(result);
-                    }
-                }
-            }
-            else
-            {
-                results.AddRange(await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false));
-            }
+            results.AddRange(isMovie
+                ? await MoviesAsync(entries, genres, cancellationToken).ConfigureAwait(false)
+                : await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false));
         }
 
         return results;
+    }
+
+    /// <summary>Turn a page of films into results, with each one's IMDb id.</summary>
+    private async Task<List<RequestSearchResult>> MoviesAsync(
+        JsonArray entries,
+        IReadOnlyDictionary<int, string> genres,
+        CancellationToken cancellationToken)
+    {
+        using var slots = new SemaphoreSlim(IdConcurrency);
+        var work = entries
+            .OfType<JsonObject>()
+            .Select(async entry =>
+            {
+                var result = FromTmdbMovie(entry, genres);
+                if (result is null)
+                {
+                    return null;
+                }
+
+                await slots.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    result.ImdbId = await MovieImdbIdAsync(result.TmdbId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // The budget ran out while enriching. The title is still a good result — it
+                    // simply loses the link out to IMDb, which the app already falls back to a
+                    // search for. Dropping the whole feed over a decoration would be the worse
+                    // trade by a distance.
+                }
+                finally
+                {
+                    slots.Release();
+                }
+
+                return result;
+            });
+
+        return Mapped(await Task.WhenAll(work).ConfigureAwait(false));
     }
 
     /// <summary>Turn a page of shows into results, translating each one's id.</summary>
@@ -405,8 +457,15 @@ public sealed class TmdbCatalog
                 try
                 {
                     var tmdbId = entry["id"]?.GetValue<int?>() ?? 0;
-                    var tvdbId = await TvdbIdAsync(tmdbId, cancellationToken).ConfigureAwait(false);
-                    return FromTmdbSeries(entry, tvdbId ?? 0, genres);
+                    var facts = await SeriesFactsAsync(tmdbId, cancellationToken).ConfigureAwait(false);
+                    var result = FromTmdbSeries(entry, facts.TvdbId ?? 0, genres);
+                    if (result is not null)
+                    {
+                        result.ImdbId = facts.ImdbId;
+                        result.SeasonCount = facts.Seasons;
+                    }
+
+                    return result;
                 }
                 finally
                 {
@@ -414,7 +473,12 @@ public sealed class TmdbCatalog
                 }
             });
 
-        var mapped = await Task.WhenAll(work).ConfigureAwait(false);
+        return Mapped(await Task.WhenAll(work).ConfigureAwait(false));
+    }
+
+    /// <summary>The non-null results of a page, in the order the provider gave them.</summary>
+    private static List<RequestSearchResult> Mapped(RequestSearchResult?[] mapped)
+    {
         var results = new List<RequestSearchResult>();
         foreach (var result in mapped)
         {
@@ -427,36 +491,128 @@ public sealed class TmdbCatalog
         return results;
     }
 
-    /// <summary>The TVDB id for a TMDB series id, remembered either way.</summary>
-    private async Task<int?> TvdbIdAsync(int tmdbId, CancellationToken cancellationToken)
+    /// <summary>What one call about a show answers: its two ids and how long it is.</summary>
+    /// <param name="TvdbId">The id every series item key is built from, or null for a miss.</param>
+    /// <param name="ImdbId">The IMDb id, or null when the provider knows none.</param>
+    /// <param name="Seasons">Seasons, specials excluded, or 0 when the provider did not say.</param>
+    private readonly record struct SeriesFacts(int? TvdbId, string? ImdbId, int Seasons);
+
+    /// <summary>
+    /// The ids and season count for a TMDB series id, remembered either way.
+    /// </summary>
+    /// <remarks>
+    /// One call, not three. This used to ask <c>/external_ids</c> for the TVDB id alone; the show's
+    /// own record carries the same block under <c>append_to_response</c> plus the season count, so
+    /// the extra two facts cost nothing but a slightly larger body. All three are cached
+    /// separately, and any one of them being stale re-asks for all three, which is what keeps a
+    /// show's season count from being pinned to whatever it was the first time anybody scrolled
+    /// past it.
+    /// </remarks>
+    private async Task<SeriesFacts> SeriesFactsAsync(int tmdbId, CancellationToken cancellationToken)
+    {
+        if (tmdbId <= 0)
+        {
+            return default;
+        }
+
+        if (_store.TryCachedProviderId(TmdbProvider, tmdbId, TvdbProvider, out var tvdbCached)
+            && _store.TryCachedProviderId(TmdbProvider, tmdbId, ImdbProvider, out var imdbCached)
+            && _store.TryCachedProviderId(TmdbProvider, tmdbId, SeasonsKey, out var seasonsCached))
+        {
+            return new SeriesFacts(tvdbCached, ImdbTag(imdbCached), seasonsCached ?? 0);
+        }
+
+        var body = await GetAsync(
+                $"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}?append_to_response=external_ids",
+                _genreTtl,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var external = body?["external_ids"];
+        var tvdbId = external?["tvdb_id"]?.GetValue<int?>();
+        if (tvdbId is <= 0)
+        {
+            tvdbId = null;
+        }
+
+        var imdbId = Blank(external?["imdb_id"]?.GetValue<string>());
+        var seasons = body?["number_of_seasons"]?.GetValue<int?>() ?? 0;
+
+        // Remembered either way. The miss is the more valuable of the two: a show the provider knows
+        // no TVDB id for would otherwise be asked about on every single page load.
+        await _store.CacheProviderIdAsync(TmdbProvider, tmdbId, TvdbProvider, tvdbId, cancellationToken)
+            .ConfigureAwait(false);
+        await _store.CacheProviderIdAsync(TmdbProvider, tmdbId, ImdbProvider, ImdbNumber(imdbId), cancellationToken)
+            .ConfigureAwait(false);
+        await _store.CacheProviderIdAsync(
+                TmdbProvider,
+                tmdbId,
+                SeasonsKey,
+                seasons > 0 ? seasons : null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return new SeriesFacts(tvdbId, imdbId, seasons);
+    }
+
+    /// <summary>The IMDb id for a TMDB film id, remembered either way.</summary>
+    /// <remarks>
+    /// A discover response carries no IMDb id, so this is one call per film the first time the
+    /// catalogue meets it and nothing at all afterwards — the same deal the series half has always
+    /// made for its TVDB translation, and the same cache. It buys the one thing a poster cannot
+    /// do, which is take somebody to the page the score came from.
+    /// </remarks>
+    private async Task<string?> MovieImdbIdAsync(int tmdbId, CancellationToken cancellationToken)
     {
         if (tmdbId <= 0)
         {
             return null;
         }
 
-        if (_store.TryCachedProviderId(TmdbProvider, tmdbId, TvdbProvider, out var cached))
+        if (_store.TryCachedProviderId(TmdbProvider, tmdbId, ImdbProvider, out var cached))
         {
-            return cached;
+            return ImdbTag(cached);
         }
 
         var body = await GetAsync(
-                $"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/external_ids",
+                $"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/external_ids",
                 _genreTtl,
                 cancellationToken)
             .ConfigureAwait(false);
-        var tvdbId = body?["tvdb_id"]?.GetValue<int?>();
-        if (tvdbId is <= 0)
+
+        var imdbId = Blank(body?["imdb_id"]?.GetValue<string>());
+        await _store.CacheProviderIdAsync(TmdbProvider, tmdbId, ImdbProvider, ImdbNumber(imdbId), cancellationToken)
+            .ConfigureAwait(false);
+        return imdbId;
+    }
+
+    /// <summary>The digits of an IMDb id, for the integer column it caches in.</summary>
+    /// <param name="tag">An id like <c>tt0063951</c>, or null.</param>
+    /// <returns>The number, or null when there is no id to remember.</returns>
+    private static int? ImdbNumber(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
         {
-            tvdbId = null;
+            return null;
         }
 
-        // Remembered either way. The miss is the more valuable of the two: a show the provider knows
-        // no TVDB id for would otherwise be asked about on every single page load.
-        await _store.CacheProviderIdAsync(TmdbProvider, tmdbId, TvdbProvider, tvdbId, cancellationToken)
-            .ConfigureAwait(false);
-        return tvdbId;
+        var digits = tag.AsSpan().TrimStart('t');
+        return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value
+            : null;
     }
+
+    /// <summary>The IMDb id a cached number stands for.</summary>
+    /// <param name="number">The number remembered, or null for a remembered miss.</param>
+    /// <returns><c>tt</c> and at least seven digits, or null.</returns>
+    /// <remarks>
+    /// Seven digits is the shortest IMDb writes, and an id long enough to need eight keeps them:
+    /// <c>D7</c> pads, it does not truncate.
+    /// </remarks>
+    private static string? ImdbTag(int? number)
+        => number is > 0
+            ? "tt" + number.Value.ToString("D7", CultureInfo.InvariantCulture)
+            : null;
 
     /// <summary>The provider's genre table for one kind, as ids to names.</summary>
     private async Task<IReadOnlyDictionary<int, string>> GenresAsync(bool isMovie, CancellationToken cancellationToken)

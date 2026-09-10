@@ -1,6 +1,13 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import {
+  Linking,
+  Platform,
+  Pressable,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { toast } from "sonner-native";
 import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Dialog } from "@/components/common/Dialog";
@@ -11,6 +18,7 @@ import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
+  imdbUrl,
   type MemberRequest,
   RequestFinishedError,
   type RequestSearchResult,
@@ -35,6 +43,11 @@ import {
 /** Big enough to recognise a poster by, which the row's 92px thumbnail is not always. */
 const POSTER_WIDTH = 96;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
+
+/** The same gold star the tiles and the details page use. See `components/cards/Card.tsx`. */
+const RATING_STAR = "#E0B34A";
+
+const isWeb = Platform.OS === "web";
 
 /**
  * Which seasons, and a "held by …" notice when a member already has it.
@@ -288,7 +301,61 @@ export function RequestSheet({
             cornerRadius={radius.md}
           />
           {/* No year here: the dialog's own title is `requestTitle`, which already ends in it. */}
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, gap: 8 }}>
+            {/*
+              The same three facts the tile carries, in the same order: what it is, how long it is,
+              and what it scored. The score is the way out to IMDb, exactly as it is on the tile —
+              a reader who has opened the sheet to decide is the one most likely to want it.
+            */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
+                <Ionicons
+                  name={shown.kind === "series" ? "tv-outline" : "film-outline"}
+                  size={13}
+                  color={color.text.tertiary}
+                />
+                <Text variant='caption' tone='tertiary'>
+                  {shown.kind === "series"
+                    ? total > 0
+                      ? t("requests.season_count", { count: total })
+                      : t("requests.kind_series")
+                    : t("requests.kind_movie")}
+                </Text>
+              </View>
+
+              {shown.rating != null && shown.rating > 0 ? (
+                <Pressable
+                  accessibilityRole='link'
+                  accessibilityLabel={`${shown.rating.toFixed(1)} out of 10 on IMDb`}
+                  onPress={() => void Linking.openURL(imdbUrl(shown))}
+                  style={({ hovered }: { hovered?: boolean }) => [
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 5,
+                      opacity: hovered ? 0.7 : 1,
+                    },
+                    isWeb ? ({ cursor: "pointer" } as ViewStyle) : null,
+                  ]}
+                >
+                  <Ionicons name='star' size={13} color={RATING_STAR} />
+                  <Text variant='caption' tone='secondary'>
+                    {shown.rating.toFixed(1)}
+                  </Text>
+                  <Icon name='openExternal' size={11} tone='tertiary' />
+                </Pressable>
+              ) : null}
+            </View>
+
             {shown.overview ? (
               <Text variant='body' tone='secondary' numberOfLines={7}>
                 {shown.overview}

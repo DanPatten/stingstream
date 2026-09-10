@@ -58,6 +58,8 @@ type Options = {
    * whose cards do not lead to a player.
    */
   hoverPlayGlyph?: boolean;
+  /** Draws the item type's glyph on each card's metadata line — see `Card`. */
+  kindGlyph?: boolean;
 };
 
 /**
@@ -81,6 +83,7 @@ export function useCardGrid({
   enableActionSheet,
   cardTestID,
   hoverPlayGlyph,
+  kindGlyph,
 }: Options) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -193,6 +196,7 @@ export function useCardGrid({
             width={cardWidth}
             testID={cardTestID}
             hoverPlayGlyph={hoverPlayGlyph}
+            kindGlyph={kindGlyph}
             onPress={() => handlePress(item.id)}
             onLongPress={
               handleLongPress ? () => handleLongPress(item.id) : undefined
@@ -208,6 +212,7 @@ export function useCardGrid({
       columnWidth,
       columnOffset,
       hoverPlayGlyph,
+      kindGlyph,
       kind,
       handlePress,
       handleLongPress,

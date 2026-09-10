@@ -174,10 +174,10 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
       )}
 
       {/*
-        The same sheet Find opens, reading the stored request through `requestAsSearchResult`. It
-        carries no overview and no season count — nothing asked TVDB how long the show was when the
-        request was made — so the sheet shows the title, the poster it stored, and the picker's
-        fallback range.
+        The same sheet Find opens, reading the stored request through `requestAsSearchResult`. Both
+        the overview and the season count are stored on the request for this, because the search
+        result they came from is long gone by the time anybody edits it; a request made before
+        those columns existed still falls back to the picker's generous range.
       */}
       <RequestSheet
         result={editing ? requestAsSearchResult(editing) : null}

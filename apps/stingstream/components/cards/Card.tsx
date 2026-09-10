@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
@@ -15,6 +16,7 @@ import {
   type CardSlots,
   defaultTextPlacement,
 } from "./CardData";
+import { CONTENT_GLYPHS } from "./CardPlaceholderTile";
 import { useCardLayout } from "./useCardLayout";
 
 type CardProps = {
@@ -37,6 +39,13 @@ type CardProps = {
    * the press does not keep.
    */
   hoverPlayGlyph?: boolean;
+  /**
+   * Draws the item type's glyph at the head of the metadata line. Off by default: a library of
+   * films says "film" on every card, which is sixty copies of something nobody was wondering. A
+   * screen that mixes the two — Find — turns it on, and it is the one thing there that cannot be
+   * read off a poster at a glance.
+   */
+  kindGlyph?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
   /** What the sweep looks for. The library's own name unless a screen says otherwise. */
@@ -74,18 +83,23 @@ export const Card: React.FC<CardProps> = ({
   textPlacement,
   slots,
   hoverPlayGlyph = true,
+  kindGlyph = false,
   onPress,
   onLongPress,
   testID = "library-card",
 }) => {
   const layout = useCardLayout(kind);
-  const { accent } = useTheme();
+  const { accent, color } = useTheme();
   const states = usePressableStates();
   const cardWidth = width ?? layout.cardWidth;
   const height = cardWidth / (card.aspectRatio ?? layout.aspectRatio);
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const isOver = (textPlacement ?? defaultTextPlacement(kind)) === "over";
   const lifted = isWeb && states.hovered;
+
+  // The glyph beside the year is furniture, so it takes the same tone as the text it sits with
+  // rather than drawing the eye on its own.
+  const metaColor = color.text.tertiary;
 
   // One decimal, and only when there is a score to show: a provider answers
   // `0` for a title nobody has voted on, and "0.0" on a poster reads as a
@@ -269,16 +283,23 @@ export const Card: React.FC<CardProps> = ({
             {card.title}
           </Text>
 
-          {/* The year, and the score beside it when the provider has one. */}
-          {(Boolean(card.subtitle) || rating !== null) && (
+          {/* What it is, when it came out, and what it scored. */}
+          {(Boolean(card.subtitle) || rating !== null || kindGlyph) && (
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 6,
+                gap: 5,
                 marginTop: CARD_META_GAP,
               }}
             >
+              {kindGlyph && card.placeholder ? (
+                <Ionicons
+                  name={CONTENT_GLYPHS[card.placeholder]}
+                  size={11}
+                  color={metaColor}
+                />
+              ) : null}
               {Boolean(card.subtitle) && (
                 // Shrinks, so a long subtitle — an episode title, where a year
                 // would be on a film — ellipses inside the card rather than
@@ -293,21 +314,23 @@ export const Card: React.FC<CardProps> = ({
                 </Text>
               )}
               {rating !== null && (
-                <View
-                  accessible
+                /*
+                  Text, not a link. The score is a way out to IMDb on the sheet, where there is room
+                  for a target a thumb can hit and where somebody has already stopped to decide; on
+                  a tile it would be a second destination inside a card whose whole point is the one
+                  press that opens it. Dan: *"lets NOT have clicking the star from the CARD view
+                  open IMDB - only from the modal."*
+                */
+                <Text
+                  variant='micro'
+                  tone='tertiary'
+                  numberOfLines={1}
                   accessibilityLabel={`${rating} out of 10`}
-                  style={{
-                    flexDirection: "row",
-                    flexShrink: 0,
-                    alignItems: "center",
-                    gap: 3,
-                  }}
+                  style={{ flexShrink: 0 }}
                 >
-                  <Icon name='rating' size={11} color={RATING_STAR} />
-                  <Text variant='micro' tone='tertiary'>
-                    {rating}
-                  </Text>
-                </View>
+                  <Ionicons name='star' size={10} color={RATING_STAR} />
+                  {` ${rating}`}
+                </Text>
               )}
             </View>
           )}

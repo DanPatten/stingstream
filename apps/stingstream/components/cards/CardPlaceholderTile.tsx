@@ -13,7 +13,7 @@ import type { CardPlaceholder } from "./CardData";
  * conclusion for the same reason and carries the same kind of map. Adding these
  * to `Icon` is WP0's call, not this package's.
  */
-const GLYPHS: Record<
+export const CONTENT_GLYPHS: Record<
   CardPlaceholder,
   React.ComponentProps<typeof Ionicons>["name"]
 > = {
@@ -78,7 +78,7 @@ export const CardPlaceholderTile: React.FC<Props> = ({
       }}
     >
       <Ionicons
-        name={GLYPHS[placeholder]}
+        name={CONTENT_GLYPHS[placeholder]}
         size={glyphSize}
         color={color.text.tertiary}
       />

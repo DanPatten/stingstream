@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   type LayoutChangeEvent,
   useWindowDimensions,
@@ -37,6 +38,7 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
   loading,
   onPress,
 }) => {
+  const { t } = useTranslation();
   const { gutter } = useBreakpoint();
   const { width: windowWidth } = useWindowDimensions();
   const [paneWidth, setPaneWidth] = useState<number | null>(null);
@@ -45,7 +47,28 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
     () => new Map(results.map((result) => [result.itemKey, result])),
     [results],
   );
-  const cards = useMemo(() => results.map(toRequestCard), [results]);
+
+  // The year, and how long the show is when the catalogue knows: a run of twenty seasons is the
+  // difference between "I'll start that tonight" and "not this year", and it is the one thing a
+  // poster never says. A film has no season count and gets the year alone.
+  const cards = useMemo(
+    () =>
+      results.map((result) => {
+        const card = toRequestCard(result);
+        const seasons = result.seasonCount ?? 0;
+        if (seasons <= 0) return card;
+        return {
+          ...card,
+          subtitle: [
+            card.subtitle,
+            t("requests.season_count", { count: seasons }),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      }),
+    [results, t],
+  );
 
   /*
    * The width this grid actually got, measured.
@@ -75,6 +98,9 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
     // Nobody holds these titles yet, so nothing here plays. A play disc on hover would be a
     // promise the press does not keep: it opens the request sheet.
     hoverPlayGlyph: false,
+    // Films and shows are mixed on one grid here, and which one a poster is decides whether the
+    // press ahead asks for a film or for twenty seasons of something.
+    kindGlyph: true,
     onPressId: (id) => {
       const result = byId.get(id);
       if (result) onPress(result);
@@ -84,9 +110,15 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
   // The measured element is this outer view rather than the row itself: the row bleeds into the
   // page gutter with a negative margin, so its own width is the answer plus the thing being
   // asked about. This one is exactly the pane.
+  //
+  // Nothing real is drawn until it has answered. Rendering the guess first and correcting it a
+  // frame later is not free here: every card's poster URL carries the width it is drawn at
+  // (`sizedPosterUrl`), so a pass at the wrong width asks the metadata provider for sixty posters
+  // at one size and then sixty more at another, and the ones below the fold sit on the first,
+  // never-loaded request looking like blank tiles.
   return (
     <View onLayout={measure}>
-      {loading ? (
+      {loading || paneWidth === null ? (
         <SkeletonGrid kind='portrait' columns={grid.columns} />
       ) : (
         <View

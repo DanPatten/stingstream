@@ -681,6 +681,10 @@ public sealed class RequestService
             ItemKey = isMovie
                 ? InventoryKeys.Movie(providerId)
                 : InventoryKeys.SeriesPrefix(providerId),
+
+            // Both managers put it on the lookup entry, and it is the only id here that is not for
+            // us: the app sends a reader who taps a score to the page the score came from.
+            ImdbId = entry["imdbId"]?.GetValue<string>(),
             SeasonCount = isMovie ? 0 : SeasonCountOf(entry),
 
             // All four have been on the lookup entry all along and were simply thrown away. They
