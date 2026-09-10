@@ -58,27 +58,30 @@ fix is a write.
 
 ## Seeing a change actually run
 
-**Use the [`reload-node`](.claude/skills/reload-node/SKILL.md) skill.** It is the single procedure
-for getting an edit in front of you, and it exists because the wrong guess here fails silently: an
-exported bundle that the node will never look at, a `-Stop` that stops nothing, a rebuilt binary the
-node never picked up. Invoke it any time a change needs testing in a real node, or an edit is not
-showing up.
+```powershell
+powershell tools\dev.ps1            # both pinned nodes
+powershell tools\dev.ps1 -Node 1    # just node 1
+```
 
-The shape of it, so the rest of this file makes sense:
+**That is the whole procedure.** It works out which of `apps/stingstream`, `server/jellyfin` and
+`mesh` changed since it last ran, builds only those, re-exports the web bundle only when app source
+moved, syncs only the files that differ, and restarts a node only when a binary actually changed. A
+web-only change restarts nothing; nothing changed at all takes under a second.
 
-| Changed | What it takes |
-|---|---|
-| `apps/stingstream/**`, Metro dev server attached | nothing — fast refresh |
-| `apps/stingstream/**`, built bundle | re-export, refresh the browser |
-| `mesh/**` (Rust) | stop → `cargo build` → restart with `-ForceCopy` |
-| `server/jellyfin/**` (incl. `StingStream.Core`) | stop → `dotnet build` → restart with `-ForceCopy` |
-| `<DataDir>\config.toml` | stop → start |
-| first-run, setup or schema behaviour | restart with `-Fresh` |
+It exists because every step it replaces failed *silently*. A bundle exported before the commit you
+are looking at serves the previous UI with no error anywhere. A `-ForceCopy` you forgot leaves the
+node on old binaries and prints "reusing the private copy" as though that were the same thing. One
+that you did pass rewrote a gigabyte to deliver 17 MB, which is why nobody wanted to run it.
 
-Nodes are started, stopped and refreshed with `tools/ui-node.ps1`, and **an instance is identified
-by its data directory, not its port** — `-Stop` and `-Fresh` only touch processes whose command line
-names that `-DataDir`, so every command typed against an instance must carry the same absolute
-`-DataDir` the start command did.
+Add `-Strict` before a commit: the fast path builds Jellyfin with its analyzers off, and says so.
+`-Fresh` wipes the data dirs for a genuine first run, `-Force` rebuilds everything when you suspect
+the change detection rather than the code.
+
+The [`reload-node`](.claude/skills/reload-node/SKILL.md) skill carries the manual equivalents, for
+when a step has gone wrong and you need to drive them one at a time. Read it before hand-rolling
+any of this. **An instance is identified by its data directory, not its port** — `-Stop` and
+`-Fresh` only touch processes whose command line names that `-DataDir`, so every command typed
+against an instance by hand must carry the same absolute `-DataDir` the start command did.
 
 ## Two nodes, pinned. Never a third.
 

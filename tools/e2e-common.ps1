@@ -89,6 +89,136 @@ function Set-HarnessNodeMode {
     $script:NodeModeArgs = $Arguments
 }
 
+function Copy-TreeDelta {
+    <#
+    .SYNOPSIS
+        Copy <Source> into <Destination>, writing only the files that actually differ.
+
+    .DESCRIPTION
+        The replacement for `Copy-Item -Recurse -Force` everywhere a build output is mirrored into
+        a private install root. `Copy-Item -Force` rewrites every byte of every file whether or not
+        it changed, which is what made `-ForceCopy` cost a gigabyte: a `dotnet build` touches about
+        76 files and 17 MB, and the Jellyfin output beside it is 274 files and 731 MB. ffmpeg and
+        nzbget are vendored binaries that had not changed in a week and were re-copied every time.
+
+        On Windows this is robocopy, whose default classification is exactly the wanted semantics:
+        copy a file whose size or write time differs from the destination's, skip it otherwise.
+        Elsewhere it is the same comparison done by hand, because CI runs pwsh 7 on Linux.
+
+        Returns @{ Copied; Bytes; Skipped } so the caller can report what moved and, more usefully,
+        decide whether a node needs restarting at all.
+
+    .PARAMETER Exclude
+        File name patterns to leave behind, as `Copy-Item -Exclude` takes them. The vendored ffmpeg
+        and nzbget directories ship their own installers and archives beside the binaries, and a
+        node has no use for them.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination,
+        [string[]]$Exclude = @()
+    )
+
+    if (-not (Test-Path $Source)) { throw "nothing to copy from: $Source" }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+
+    $sourceFull = [System.IO.Path]::GetFullPath($Source)
+    $destFull = [System.IO.Path]::GetFullPath($Destination)
+
+    if ($script:IsWindowsHost) {
+        # /E all subdirectories including empty ones, /R:2 /W:1 so a transiently locked file costs
+        # three seconds rather than the default's quarter of an hour, /MT:16 because this is
+        # thousands of small assemblies and the copy is latency-bound, and the /N* flags silence a
+        # per-file log nobody reads.
+        # /NJS is deliberately absent: the job summary is the only thing that says how much moved,
+        # and /BYTES makes its byte column a plain integer instead of "157.7 m".
+        $args = @($sourceFull, $destFull, '/E', '/NJH', '/NP', '/NDL', '/NFL', '/BYTES', '/R:2', '/W:1', '/MT:16')
+        foreach ($pattern in $Exclude) { $args += @('/XF', $pattern) }
+
+        # robocopy reports what it did in the exit code rather than reserving 0 for success: bit 0
+        # means files were copied, bit 1 extra files were present, bit 2 mismatches. Anything under
+        # 8 is a normal outcome. Every caller runs under `$ErrorActionPreference = 'Stop'`, so this
+        # has to be swallowed deliberately or a perfectly good copy aborts the script.
+        $output = & robocopy @args 2>&1
+        $code = $LASTEXITCODE
+        if ($code -ge 8) {
+            throw "robocopy failed ($code) copying $sourceFull -> $destFull`n$($output -join "`n")"
+        }
+        # Parse the summary rather than re-walking the tree: robocopy already counted. The columns
+        # are Total / Copied / Skipped / Mismatch / FAILED / Extras.
+        $copied = $null
+        $skipped = 0
+        $bytes = [long]0
+        foreach ($line in $output) {
+            if ($line -match '^\s*Files\s*:\s+(\d+)\s+(\d+)\s+(\d+)\s') {
+                $copied = [int]$Matches[2]
+                $skipped = [int]$Matches[3]
+            } elseif ($line -match '^\s*Bytes\s*:\s+(\d+)\s+(\d+)\s+(\d+)\s') {
+                $bytes = [long]$Matches[2]
+            }
+        }
+        if ($null -eq $copied) {
+            # A non-English Windows localises these labels. Rather than report a confident zero --
+            # which a caller would read as "nothing changed, no need to restart" -- say so, and let
+            # -1 mean "something moved, count unknown".
+            Write-Warning "could not read robocopy's summary for $sourceFull; assuming it copied something"
+            return [pscustomobject]@{ Copied = -1; Bytes = [long]0; Skipped = 0 }
+        }
+        return [pscustomobject]@{ Copied = $copied; Bytes = $bytes; Skipped = $skipped }
+    }
+
+    # pwsh on Linux. Same rule, spelled out: a file is stale when it is absent, a different size,
+    # or older than its source.
+    $copied = 0
+    $bytes = [long]0
+    $skipped = 0
+    foreach ($file in Get-ChildItem -Recurse -File $sourceFull) {
+        $relative = $file.FullName.Substring($sourceFull.Length).TrimStart([char]'/', [char]'\')
+        $skip = $false
+        foreach ($pattern in $Exclude) { if ($file.Name -like $pattern) { $skip = $true; break } }
+        if ($skip) { continue }
+
+        $target = Join-Path $destFull $relative
+        $existing = Get-Item -LiteralPath $target -ErrorAction SilentlyContinue
+        if ($existing -and $existing.Length -eq $file.Length -and $existing.LastWriteTimeUtc -ge $file.LastWriteTimeUtc) {
+            $skipped++
+            continue
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+        $copied++
+        $bytes += $file.Length
+    }
+    return [pscustomobject]@{ Copied = $copied; Bytes = $bytes; Skipped = $skipped }
+}
+
+function Write-SyncedComponent {
+    <#
+    .SYNOPSIS
+        Report one component of a private-copy sync, and return its stamp entry.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)]$Result
+    )
+    if ($Result.Copied -lt 0) {
+        Write-Host ("      {0}: synced (counts unavailable)" -f $Name)
+    } elseif ($Result.Copied -gt 0) {
+        $noun = if ($Result.Copied -eq 1) { 'file' } else { 'files' }
+        Write-Host ("      {0}: {1} {2}, {3:N1} MB ({4} unchanged)" -f $Name, $Result.Copied, $noun, ($Result.Bytes / 1MB), $Result.Skipped)
+    } else {
+        Write-Host ("      {0}: unchanged" -f $Name)
+    }
+    return [ordered]@{
+        source      = $From
+        copied      = $Result.Copied
+        bytes       = $Result.Bytes
+        skipped     = $Result.Skipped
+        syncedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    }
+}
+
 function New-PrivateInstallRoot {
     <#
     .SYNOPSIS
@@ -97,6 +227,17 @@ function New-PrivateInstallRoot {
         `--install-root <dir>` looks for `<dir>/bin/<child>/`, and in that mode the supervisor has
         no repository to fall back on -- so ffmpeg has to be copied in too, not just found. Returns
         the path of the copied supervisor binary.
+
+        The copy is a delta: every component is compared against its source by size and write time,
+        and only what differs is written. Running this is cheap even when nothing changed, so it
+        happens on every start and a node can no longer be quietly a week behind its build outputs.
+
+    .PARAMETER Force
+        Kept so the six existing callers do not have to change, and now a no-op. It used to be the
+        only granularity there was -- "copy everything" against a completeness check that only
+        asked whether the directories existed -- which meant a gigabyte written to deliver 17 MB,
+        or, without it, nothing written at all and a node running stale binaries with no hint.
+        The delta comparison makes both behaviours unnecessary.
     #>
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
@@ -112,30 +253,49 @@ function New-PrivateInstallRoot {
     $radarrBin = Join-Path $Destination 'bin/radarr'
     $sonarrBin = Join-Path $Destination 'bin/sonarr'
 
-    $complete = (Test-Path $supervisor) -and (Test-Path $jellyfinBin) -and
-        (-not $WithArrs -or ((Test-Path $radarrBin) -and (Test-Path $sonarrBin) -and (Test-Path $nzbgetBin)))
-    if ($complete -and -not $Force) {
-        Write-Host "      reusing the private copy at $Destination"
-        return $supervisor
-    }
-
+    # No completeness gate any more, and no all-or-nothing `-Force`. Both were the same bug from
+    # opposite ends: the gate was six `Test-Path` calls, so an *empty* bin/jellyfin counted as a
+    # finished copy and a node silently ran week-old binaries, while `-Force` meant "rewrite
+    # everything" and cost a gigabyte to deliver 17 MB. A delta sync is cheap enough to run on
+    # every start, so freshness stops being something anybody has to remember.
     New-Item -ItemType Directory -Force -Path $Destination, $jellyfinBin, $ffmpegBin | Out-Null
+    $moved = 0
+    $movedBytes = [long]0
+    $stamp = [ordered]@{}
 
     $source = Join-Path $RepoRoot "mesh/target/debug/stingstream$exeSuffix"
     if (-not (Test-Path $source)) { throw "the supervisor is not built: $source" }
-    Copy-Item -Path $source -Destination $supervisor -Force
+    # One file, so the tree helper would be overkill -- but the same rule applies, and skipping it
+    # is what lets a Jellyfin-only change avoid touching the supervisor binary at all.
+    $existingSupervisor = Get-Item -LiteralPath $supervisor -ErrorAction SilentlyContinue
+    $sourceSupervisor = Get-Item -LiteralPath $source
+    if ($existingSupervisor -and $existingSupervisor.Length -eq $sourceSupervisor.Length -and
+        $existingSupervisor.LastWriteTimeUtc -ge $sourceSupervisor.LastWriteTimeUtc) {
+        $r = [pscustomobject]@{ Copied = 0; Bytes = [long]0; Skipped = 1 }
+    } else {
+        Copy-Item -Path $source -Destination $supervisor -Force
+        $r = [pscustomobject]@{ Copied = 1; Bytes = [long]$sourceSupervisor.Length; Skipped = 0 }
+    }
+    $moved += $r.Copied; $movedBytes += $r.Bytes
+    $stamp['supervisor'] = Write-SyncedComponent -Name 'supervisor' -From $source -Result $r
 
     $jellyfinSource = Join-Path $RepoRoot 'server/jellyfin/Jellyfin.Server/bin/Debug/net10.0'
     if (-not (Test-Path (Join-Path $jellyfinSource 'jellyfin.dll'))) {
         throw "Jellyfin is not built: $jellyfinSource"
     }
-    Copy-Item -Path (Join-Path $jellyfinSource '*') -Destination $jellyfinBin -Recurse -Force
+    $r = Copy-TreeDelta -Source $jellyfinSource -Destination $jellyfinBin
+    $moved += $r.Copied; $movedBytes += $r.Bytes
+    $stamp['jellyfin'] = Write-SyncedComponent -Name 'jellyfin' -From $jellyfinSource -Result $r
 
     $ffmpeg = Get-ChildItem -Path (Join-Path $RepoRoot 'third_party/ffmpeg') -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -eq "ffmpeg$exeSuffix" } | Select-Object -First 1
     if (-not $ffmpeg) { throw 'no ffmpeg under third_party/ffmpeg' }
     # Everything beside it: jellyfin-ffmpeg ships ffprobe and its shared libraries in one directory.
-    Copy-Item -Path (Join-Path $ffmpeg.Directory.FullName '*') -Destination $ffmpegBin -Recurse -Force
+    # The archives it is distributed in sit there too, and a node has no use for them --
+    # tools/package-node.ps1 has always excluded them and this never did.
+    $r = Copy-TreeDelta -Source $ffmpeg.Directory.FullName -Destination $ffmpegBin -Exclude '*.zip', '*.tar.xz', '*.tar.gz'
+    $moved += $r.Copied; $movedBytes += $r.Bytes
+    $stamp['ffmpeg'] = Write-SyncedComponent -Name 'ffmpeg' -From $ffmpeg.Directory.FullName -Result $r
 
     # NZBGet, when it has been fetched. `--install-root` has no repository to fall back on, and a
     # node with `children.nzbget = true` and no binary does not start at all -- it is a hard error,
@@ -145,9 +305,9 @@ function New-PrivateInstallRoot {
     $nzbget = Get-ChildItem -Path (Join-Path $RepoRoot 'third_party/nzbget/bin') -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -eq "nzbget$exeSuffix" } | Select-Object -First 1
     if ($nzbget) {
-        New-Item -ItemType Directory -Force -Path $nzbgetBin | Out-Null
-        Copy-Item -Path (Join-Path $nzbget.Directory.FullName '*') -Destination $nzbgetBin -Recurse -Force
-        Write-Host '      copied nzbget'
+        $r = Copy-TreeDelta -Source $nzbget.Directory.FullName -Destination $nzbgetBin -Exclude '*-setup.exe', '*.run', 'Uninstall.exe'
+        $moved += $r.Copied; $movedBytes += $r.Bytes
+        $stamp['nzbget'] = Write-SyncedComponent -Name 'nzbget' -From $nzbget.Directory.FullName -Result $r
     } else {
         # Not fatal here: a harness whose nodes run `children.nzbget = false` -- which is most of
         # them -- does not need it, and saying so beats a copy that fails for something unused.
@@ -166,13 +326,30 @@ function New-PrivateInstallRoot {
             if (-not (Test-Path (Join-Path $source $arr.Probe))) {
                 throw "$($arr.Name) is not built: $source"
             }
-            New-Item -ItemType Directory -Force -Path $arr.Bin | Out-Null
-            Copy-Item -Path (Join-Path $source '*') -Destination $arr.Bin -Recurse -Force
-            Write-Host "      copied $($arr.Name)"
+            $r = Copy-TreeDelta -Source $source -Destination $arr.Bin
+            $moved += $r.Copied; $movedBytes += $r.Bytes
+            $stamp[$arr.Name] = Write-SyncedComponent -Name $arr.Name -From $source -Result $r
         }
     }
 
-    Write-Host "      private copy of the build outputs at $Destination"
+    # What was synced, and from where. Read by tools/dev.ps1 to decide whether a node needs
+    # restarting at all; absent on a copy made before this existed, which correctly reads as
+    # "sync everything" rather than "nothing to do".
+    $stampPath = Join-Path $Destination '.sync-stamp.json'
+    [ordered]@{
+        syncedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+        repoRoot    = [System.IO.Path]::GetFullPath($RepoRoot)
+        withArrs    = [bool]$WithArrs
+        filesCopied = $moved
+        bytesCopied = $movedBytes
+        components  = $stamp
+    } | ConvertTo-Json -Depth 6 | Set-Content -Path $stampPath -Encoding UTF8
+
+    if ($moved -eq 0) {
+        Write-Host "      private copy already current at $Destination"
+    } else {
+        Write-Host ("      private copy updated at {0}: {1} files, {2:N1} MB" -f $Destination, $moved, ($movedBytes / 1MB))
+    }
     return $supervisor
 }
 

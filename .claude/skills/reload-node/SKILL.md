@@ -8,6 +8,41 @@ description: Reload a local StingStream node so a code change is actually the co
 The question this answers: **I changed a file — what do I have to do for the running node to be
 serving that change, and nothing else?**
 
+## The answer is `tools/dev.ps1`
+
+```powershell
+powershell tools\dev.ps1            # both pinned nodes
+powershell tools\dev.ps1 -Node 1    # just node 1
+```
+
+It works out which of `apps/stingstream`, `server/jellyfin` and `mesh` changed since it last ran,
+builds only those, re-exports the web bundle only when app source moved, syncs only the files that
+differ into each node's private copy, and restarts a node only when a binary actually changed. A
+web-only change restarts nothing. Nothing changed at all takes under a second.
+
+**Prefer it to every manual sequence below.** The manual commands are still correct and are what
+`dev.ps1` runs, but each one is a step you have to remember, and the failures are silent: a bundle
+exported before the commit you are looking at serves the previous UI with no error anywhere, and a
+`-ForceCopy` you forgot leaves a node on old binaries while printing that all is well.
+
+Useful flags: `-Strict` (build Jellyfin with its analyzers on, which is what "it builds" has to
+mean before a commit — the fast path turns them off and says so), `-Fresh` (wipe the data dirs for
+a genuine first run), `-Force` (rebuild and re-sync everything, for when you suspect the change
+detection rather than the code), `-SkipBuild` (sync and restart from the outputs already on disk).
+
+**If you are an agent, run it in the background and read its output from a file.** Anything that
+starts a node leaves `stingstream.exe` holding the console it inherited, so a tool that captures
+stdout and waits for end-of-stream waits for the *node*, not the script — the command looks hung
+for its full timeout while having actually finished in seconds. The node is fine; the capture is
+not. Redirect and background it:
+
+```powershell
+powershell tools\dev.ps1 2>&1 | Out-File -Encoding utf8 <logfile>   # with run_in_background
+```
+
+Everything below is the manual equivalent, for when something has gone wrong and you need to drive
+one step at a time.
+
 Every command here is `tools/ui-node.ps1`, run from the repository root. Do not use
 `cargo run -- --dev` (`docs/RUNNING.md`): it runs the node out of `mesh/target/debug/` and holds it
 open, which blocks every other session's rebuild — `docs/CONTRIBUTING.md` rule 3.
@@ -122,8 +157,10 @@ powershell tools\ui-node.ps1 `
 ```
 
 `cargo build` itself is safe while a node runs — the node runs from the private copy, not from
-`target/debug`. It is `-ForceCopy` that needs the node down: it overwrites `stingstream.exe`, and
-Windows will not let you overwrite a running executable.
+`target/debug`. It is the sync into that private copy that needs the node down: it overwrites
+`stingstream.exe` and the Jellyfin assemblies, and Windows will not let you write a file a running
+process has open. `-ForceCopy` no longer means anything (the copy is always a delta now), but the
+node still has to be stopped before one is made.
 
 ### .NET (Jellyfin, StingStream.Core) — the same shape
 

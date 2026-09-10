@@ -104,9 +104,9 @@ npm install       # also runs `playwright install chromium` via postinstall
 ## `tools/ui-node.ps1`
 
 Params: `-PrivateCopy` (default `...\ui-loop\bin`), `-DataDir` (default `...\ui-loop\data`),
-`-Fresh` (stop anything running against that data dir, wipe it), `-ForceCopy` (refresh the private
-copy from the current build outputs -- run this after any `cargo build`/`dotnet build` you want
-reflected), `-Port` (default 8795), `-WithArrs` (switch, default off: `[children]
+`-Fresh` (stop anything running against that data dir, wipe it), `-ForceCopy` (accepted and now a
+no-op: the private copy is a delta made on every start, so it is never behind the build outputs),
+`-Port` (default 8795), `-WithArrs` (switch, default off: `[children]
 radarr/sonarr/nzbget = false`, the same shape `tools/e2e-m4.ps1` uses for a pure holder), `-Bind`
 (`0.0.0.0` default so a LAN IP and an Android emulator's `10.0.2.2` both work; `127.0.0.1` to
 restrict to this machine), `-WebDist <dir>`, `-DevServer <url>` (passes `--web-dev-server <url>` --
@@ -368,8 +368,10 @@ breaking someone else's lock is the orchestrator's call, not this script's.
 3. `bun run typecheck && bun test && bun run i18n:check` (+ `bunx biome check --write --unsafe` on
    touched paths only -- `docs/CONTRIBUTING.md` rule 7); `cargo test -p stingstream` first if Rust
    changed, before starting a node (a running `stingstream.exe` holds the file a rebuild needs).
-4. Tier B export (`bunx expo export --platform web --output-dir .local\ui-loop\web-dist`),
-   restart the node with `-WebDist` (or `-ForceCopy` if server-side code changed).
+4. `powershell tools\dev.ps1` -- it exports the bundle, syncs whatever the builds changed, and
+   restarts a node only if a binary moved. Do not hand-roll the export and restart: an export you
+   skipped serves the previous UI with no error anywhere, which is the whole reason this step is
+   one command.
 5. `node shots.mjs --only <touched screens>` -- zero new findings on the touched screens.
 6. Android: dev-client reload (`-Metro`) + `-Capture` + `-Logcat` clean, only rebuilding
    (`-Build`) when native code changed.

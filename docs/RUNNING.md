@@ -762,8 +762,15 @@ powershell tools\e2e-m4.ps1 -SkipBuild `
 always pass it. `e2e-m3` and `e2e-sidedoor` do not have it yet; `e2e-m8` has nothing to copy
 (standalone mesh nodes, no Jellyfin).
 
-The copy is made once and reused; `-Force` remakes it after a rebuild. CI has a checkout to itself
-and does not use it.
+The copy is a delta. Every component is compared against its source by size and write time, and
+only what differs is written, so making it is cheap enough to do on every start: a `dotnet build`
+moves about 76 files and 17 MB, against 356 files and 1 GB for the whole install root. `-Force` is
+still accepted and now does nothing.
+
+It used to be all-or-nothing, and both halves were wrong. Completeness was a handful of
+`Test-Path` calls, so an *empty* `bin/jellyfin` counted as a finished copy and a node would run
+week-old binaries while reporting "reusing the private copy"; `-Force` meant rewriting the
+gigabyte to deliver the 17 MB. CI has a checkout to itself and does not use any of this.
 
 For a node you are starting **by hand** rather than through a harness, the equivalent is
 `tools/package-node.ps1 -Rid win-x64 -OutDir <dir>` (it has no `-PrivateCopy` switch; `-OutDir` is
