@@ -127,8 +127,6 @@ const CONTROLS: Control[] = [
   { id: "downloading", category: "downloading" },
 
   // Movies & TV shows
-  { id: "add-title", category: "arr_library" },
-  { id: "remove-title", category: "arr_library" },
 
   // Storage & libraries
   { id: "root-folders", category: "storage" },

@@ -1,16 +1,8 @@
 import { getFilterApi } from "@jellyfin/sdk/lib/utils/api";
-import { LinearGradient } from "expo-linear-gradient";
 import { useAtomValue } from "jotai";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  type LayoutChangeEvent,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-  ScrollView,
-  View,
-} from "react-native";
-import { rgba } from "@/constants/theme";
+import { View } from "react-native";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -24,11 +16,7 @@ import {
 } from "@/utils/atoms/filters";
 import { FilterButton } from "./FilterButton";
 import { ResetFiltersButton } from "./ResetFiltersButton";
-
-/** How much of the bar the fade covers at either end. */
-const FADE_WIDTH = 28;
-/** Ignore a pixel or two of rounding when deciding whether an end is reached. */
-const SCROLL_EPSILON = 2;
+import { ScrollingFilterBar } from "./ScrollingFilterBar";
 
 export interface LibraryFilterBarProps {
   /** The library (or collection) these filters narrow. */
@@ -190,88 +178,8 @@ export const LibraryFilterBar: React.FC<LibraryFilterBarProps> = ({
   }
 
   return (
-    <ScrollingFilterBar background={background}>{chips}</ScrollingFilterBar>
+    <ScrollingFilterBar background={background} testID='library-filter-bar'>
+      {chips}
+    </ScrollingFilterBar>
   );
 };
-
-/**
- * The compact bar: one horizontal scroller, with a fade at each end that is
- * drawn only while there is something past it to scroll to.
- */
-const ScrollingFilterBar: React.FC<
-  React.PropsWithChildren<{ background: string }>
-> = ({ background, children }) => {
-  const { gutter } = useBreakpoint();
-  const [offset, setOffset] = useState(0);
-  const [viewportWidth, setViewportWidth] = useState(0);
-  const [contentWidth, setContentWidth] = useState(0);
-
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) =>
-      setOffset(event.nativeEvent.contentOffset.x),
-    [],
-  );
-  const handleLayout = useCallback(
-    (event: LayoutChangeEvent) =>
-      setViewportWidth(event.nativeEvent.layout.width),
-    [],
-  );
-  const handleContentSizeChange = useCallback(
-    (width: number) => setContentWidth(width),
-    [],
-  );
-
-  const fadeLeft = offset > SCROLL_EPSILON;
-  const fadeRight = offset + viewportWidth < contentWidth - SCROLL_EPSILON;
-
-  return (
-    <View
-      testID='library-filter-bar'
-      style={{ backgroundColor: background, position: "relative" }}
-    >
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        onLayout={handleLayout}
-        onContentSizeChange={handleContentSizeChange}
-        contentContainerStyle={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingHorizontal: gutter,
-          paddingVertical: 12,
-        }}
-      >
-        {children}
-      </ScrollView>
-
-      {fadeLeft && <EdgeFade side='left' color={background} />}
-      {fadeRight && <EdgeFade side='right' color={background} />}
-    </View>
-  );
-};
-
-/** A chip half-under a fade is the affordance: there is more this way. */
-const EdgeFade: React.FC<{ side: "left" | "right"; color: string }> = ({
-  side,
-  color,
-}) => (
-  <LinearGradient
-    pointerEvents='none'
-    // Two stops of the same color, opaque to clear: fading to `transparent`
-    // goes through transparent *black* on some engines and leaves a grey
-    // smear over the chips.
-    colors={side === "left" ? [color, rgba(color, 0)] : [rgba(color, 0), color]}
-    start={{ x: 0, y: 0.5 }}
-    end={{ x: 1, y: 0.5 }}
-    style={{
-      position: "absolute",
-      top: 0,
-      bottom: 0,
-      width: FADE_WIDTH,
-      ...(side === "left" ? { left: 0 } : { right: 0 }),
-    }}
-  />
-);

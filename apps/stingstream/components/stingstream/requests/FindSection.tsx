@@ -1,51 +1,43 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { toast } from "sonner-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
-import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { FilterChip } from "@/components/filters/FilterChip";
+import { RequestFilterBar } from "@/components/filters/RequestFilterBar";
 import {
-  REQUEST_EXAMPLE_SEARCHES,
   REQUEST_SEARCH_DEBOUNCE_MS,
   REQUEST_SEARCH_MIN_LENGTH,
 } from "@/constants/Requests";
-import useRouter from "@/hooks/useAppRouter";
 import {
+  applyRequestFilters,
+  DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
+  type RequestFilterState,
   type RequestSearchResult,
+  requestFiltersActive,
   requestTitle,
   searchAction,
   useCanApproveRequests,
   useCreateRequest,
   useDeleteRequest,
+  useRequestDiscover,
   useRequestPolicy,
   useRequestSearch,
   useRequests,
 } from "@/lib/stingstream/requests";
+import { AddByIdDialog } from "../arr/AddByIdDialog";
 import { confirmDestructive } from "../shared/confirm";
 import { RequestCardSkeletonList } from "./RequestCard";
+import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestResultRow } from "./RequestResultRow";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
 import { requestMadeToast } from "./requestMadeToast";
 
 /**
- * All, or one kind. The node takes `kind` on `/requests/search` and has since M6; nothing in the
- * app ever passed it, so every search was two lookups whether or not the person wanted both.
- */
-const KIND_FILTERS = [
-  { key: "all", kind: undefined, labelKey: "requests.filter_kind_all" },
-  { key: "movie", kind: "movie", labelKey: "requests.filter_kind_films" },
-  { key: "series", kind: "series", labelKey: "requests.filter_kind_series" },
-] as const;
-
-type KindKey = (typeof KIND_FILTERS)[number]["key"];
-
-/**
- * Find something to ask for — the Requests tab's own search, on phone and web.
+ * Find something to ask for — the Requests tab's own screen, on phone and web.
  *
  * This is where requesting lives. It was removed from here once, in favour of the Search tab
  * answering one box with both a library section and a catalogue section, and that turned out to be
@@ -54,7 +46,7 @@ type KindKey = (typeof KIND_FILTERS)[number]["key"];
  * Requests screen was shown a button that took them to a different tab where, on a node whose
  * managers were not configured, there was still nothing to press. See `docs/REQUESTS.md` §9.
  *
- * **The box belongs to this section, at every width.** For a while wide web had no input here at
+ * **The box belongs to this screen, at every width.** For a while wide web had no input here at
  * all: the shell's top-bar box drove the `q` route param and this section read it back, to avoid
  * two places to type one title. It avoided that and bought something worse — a control sitting
  * above the tab bar, so it read as furniture for all six sections while driving exactly one; five
@@ -64,23 +56,26 @@ type KindKey = (typeof KIND_FILTERS)[number]["key"];
  * only one place to type, solved the other way round: the top bar no longer touches this screen, so
  * it means one thing everywhere — Enter opens the Search tab (`components/shell/SearchField.tsx`).
  *
- * One box returns films and series together — the node asks both managers and answers films first —
- * with chips to narrow. Narrowing is a real re-query rather than a client-side hide, which is a
- * lookup the node does not have to make; React Query caches per `(term, kind)`, so coming back to
- * All is instant. The chips wait for a search to narrow: before there is a result set they are
- * three controls that do nothing, sitting on top of the empty state.
+ * **Nothing typed is a screen, not a blank.** It used to be an empty state and six public-domain
+ * titles offered as example searches, because no endpoint could answer "what is popular" and a
+ * fabricated row would have been worse than none. The node has a catalogue now, so the screen opens
+ * on the most popular sixty titles, or the best ever made, and somebody who does not already know
+ * what they want has something to look at instead of a prompt telling them to think of something.
+ *
+ * **One filter bar over both halves.** The chips are the library's own — the same component, the
+ * same sheet, the same Clear — because narrowing a catalogue and narrowing a library are the same
+ * gesture and there is no reason to make somebody learn it twice. What differs is where the
+ * narrowing happens: the feed hands genre, year and order to the node, so its sixty really are the
+ * top sixty of that slice; a search narrows what came back, because re-asking the catalogue with
+ * the typed term would be a different search rather than a narrower one. `applyRequestFilters`
+ * holds both rules.
  *
  * Every result says what the *group* already thinks about it, which is the whole difference between
  * this and a Seerr: in a group that pools libraries the interesting answer is usually "somebody
  * already has this", and discovering that after pressing Request is too late to be useful.
- *
- * There is no feed before a search — no trending row, no recently-requested carousel — because no
- * endpoint answers either question. Six example chips stand in, and pressing one runs a real search
- * rather than showing a fabricated result.
  */
 export function FindSection({ term = "" }: { term?: string }) {
   const { t } = useTranslation();
-  const router = useRouter();
 
   // `term` is the `q` route param, which is an *entry* term rather than a mirror of this box:
   // Search's `Request "…"` button hands a title over with it (and `tab=find`), and nothing on this
@@ -88,8 +83,11 @@ export function FindSection({ term = "" }: { term?: string }) {
   // instead of sitting empty through a debounce it never needed.
   const [typed, setTyped] = useState(term);
   const [debounced, setDebounced] = useState(term);
-  const [kindKey, setKindKey] = useState<KindKey>("all");
+  const [filters, setFilters] = useState<RequestFilterState>(
+    DEFAULT_REQUEST_FILTERS,
+  );
   const [picking, setPicking] = useState<RequestSearchResult | null>(null);
+  const [addingById, setAddingById] = useState(false);
   // Which row is waiting on the node, by item key, so one press spins one button. `create.isPending`
   // is per-mutation rather than per-row and would spin every button in the list at once.
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -135,6 +133,9 @@ export function FindSection({ term = "" }: { term?: string }) {
    * rather than assuming silently. A title with a request already open is managed instead of asked
    * for again: a show reopens the sheet with the seasons it currently covers, and a film, which has
    * nothing to edit, is withdrawn after a confirmation.
+   *
+   * A poster on the feed goes through the same four cases. A title must not mean one thing as a
+   * tile and another as a row.
    */
   const act = async (result: RequestSearchResult) => {
     const action = searchAction(result);
@@ -185,8 +186,13 @@ export function FindSection({ term = "" }: { term?: string }) {
     return () => clearTimeout(timer);
   }, [typed]);
 
-  const kind = KIND_FILTERS.find((f) => f.key === kindKey)?.kind;
+  const searching = debounced.trim().length >= REQUEST_SEARCH_MIN_LENGTH;
+
+  // Narrowing a search is a real re-query on `?kind=`, which is one lookup the node does not have
+  // to make. React Query caches per `(term, kind)`, so coming back to All is instant.
+  const kind = filters.kind === "all" ? undefined : filters.kind;
   const search = useRequestSearch(debounced, kind);
+  const discover = useRequestDiscover(filters);
   const policy = useRequestPolicy();
   const canAdmin = useCanApproveRequests();
   // Off the key the Requests list already polls, so a title asked for a moment ago shows as
@@ -194,11 +200,28 @@ export function FindSection({ term = "" }: { term?: string }) {
   const mine = useRequests({ mine: true });
 
   const rows = useMemo(
-    () => dedupeSearchResults(search.data ?? [], mine.data ?? []),
-    [search.data, mine.data],
+    () =>
+      applyRequestFilters(
+        dedupeSearchResults(search.data ?? [], mine.data ?? []),
+        filters,
+      ),
+    [search.data, mine.data, filters],
   );
 
-  const searching = debounced.trim().length >= REQUEST_SEARCH_MIN_LENGTH;
+  // The node has already applied genre, year and order to the feed. Running it through the same
+  // rule anyway is what makes Availability work here, since that is the one thing the node cannot
+  // answer for a title it has not been asked about.
+  const feed = useMemo(
+    () =>
+      applyRequestFilters(
+        // Through the same annotation the search rows get, so a title asked for a moment ago shows
+        // as requested here too. Without it the catalogue was the one list where pressing Request
+        // left the tile looking untouched, and the Requested availability filter could not see it.
+        dedupeSearchResults(discover.data?.results ?? [], mine.data ?? []),
+        filters,
+      ),
+    [discover.data, mine.data, filters],
+  );
 
   const results = () => {
     if (search.isLoading) return <RequestCardSkeletonList />;
@@ -215,18 +238,17 @@ export function FindSection({ term = "" }: { term?: string }) {
           detail={t("requests.discover_empty_detail", {
             term: debounced.trim(),
           })}
-          // Offered only to somebody who can act on it. Two different things land here: a real
-          // no-match, and a node whose managers are off — `/requests/search` answers an empty list
-          // for the second, not the 503 `RequestsErrorState` handles, which is why the copy has to
-          // cover both. Movies & TV shows is the screen for the first and the more likely of the
-          // two now that downloading is on by default: it is where a title search cannot find gets
-          // added by hand, and its own empty state points on to the switch for the second.
+          // Offered only to somebody who can act on it, and it is the escape hatch rather than a
+          // second search: a lookup that cannot name the title still accepts its provider id.
+          // Two different things land here — a real no-match, and a node whose managers are off,
+          // which answers an empty list rather than the 503 `RequestsErrorState` handles — so the
+          // copy covers both while the button answers the first.
           action={
             canAdmin
               ? {
-                  label: t("home.settings.sections.arr_library"),
+                  label: t("requests.add_by_id_title"),
                   icon: "settings",
-                  onPress: () => router.push("/settings/library"),
+                  onPress: () => setAddingById(true),
                 }
               : undefined
           }
@@ -247,13 +269,57 @@ export function FindSection({ term = "" }: { term?: string }) {
     );
   };
 
+  const catalogue = () => {
+    if (discover.error) {
+      return (
+        <RequestsErrorState error={discover.error} onRetry={discover.refetch} />
+      );
+    }
+    // Nothing came back and nothing is narrowing it: the catalogue itself is quiet. Different from
+    // a filter that matched nothing, and the two must not share a sentence — one is about the
+    // server and the other is about what was just pressed.
+    if (!discover.isLoading && feed.length === 0) {
+      const narrowed = requestFiltersActive(filters);
+      return (
+        <EmptyState
+          icon='search'
+          title={
+            narrowed
+              ? t("requests.discover_filtered_title")
+              : t("requests.discover_quiet_title")
+          }
+          detail={
+            narrowed
+              ? t("requests.discover_filtered_detail")
+              : t("requests.discover_quiet_detail")
+          }
+          action={
+            narrowed
+              ? {
+                  label: t("library.filters.clear"),
+                  icon: "close",
+                  onPress: () => setFilters(DEFAULT_REQUEST_FILTERS),
+                }
+              : undefined
+          }
+        />
+      );
+    }
+    return (
+      <RequestDiscoverGrid
+        results={feed}
+        loading={discover.isLoading}
+        onPress={act}
+      />
+    );
+  };
+
   return (
     <View>
       {/*
         Landing on Find puts the caret in the box. This section only exists while its tab is the
         open one — `?tab=find`, a press on the tab, or Search handing a title over — so mounting
-        *is* landing, and every one of those arrivals is somebody who came here to type. Without
-        it the first thing anyone does on this screen is click the only control on it.
+        *is* landing, and every one of those arrivals is somebody who came here to type.
 
         Not when a term arrived with them: the box has already been filled and the results are
         below it, and on a phone the keyboard would open over the answer they came to read. Same
@@ -284,54 +350,19 @@ export function FindSection({ term = "" }: { term?: string }) {
         </Text>
       ) : null}
 
-      {searching ? (
-        <View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              gap: 8,
-              paddingTop: 12,
-              paddingBottom: 12,
-            }}
-          >
-            {KIND_FILTERS.map((entry) => (
-              <FilterChip
-                key={entry.key}
-                label={t(entry.labelKey)}
-                active={kindKey === entry.key}
-                onPress={() => setKindKey(entry.key)}
-              />
-            ))}
-          </ScrollView>
-          {results()}
-        </View>
-      ) : (
-        <View>
-          <EmptyState
-            icon='search'
-            title={t("requests.discover_prompt_title")}
-            detail={t("requests.discover_prompt_detail")}
-          />
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              justifyContent: "center",
-              paddingHorizontal: 24,
-            }}
-          >
-            {REQUEST_EXAMPLE_SEARCHES.map((example) => (
-              <Pill
-                key={example}
-                label={example}
-                onPress={() => setTyped(example)}
-              />
-            ))}
-          </View>
-        </View>
-      )}
+      {/*
+        Always here, over both halves. The chips used to wait for a search, on the reasoning that
+        before there is a result set they are controls that do nothing — true then, and the opposite
+        now: with a feed under them there is always something to narrow, and a bar that appeared
+        only once you typed would be a bar most readers never saw.
+      */}
+      <RequestFilterBar
+        state={filters}
+        set={setFilters}
+        genres={discover.data?.genres ?? []}
+      />
+
+      {searching ? results() : catalogue()}
 
       {/*
         The open request behind the row, when there is one, so the sheet can edit it rather than
@@ -346,6 +377,17 @@ export function FindSection({ term = "" }: { term?: string }) {
         }
         onClose={() => setPicking(null)}
       />
+
+      {/*
+        The escape hatch behind the no-match empty state, mounted here so the dialog is not torn
+        down by the search that is still running underneath it.
+      */}
+      {canAdmin ? (
+        <AddByIdDialog
+          visible={addingById}
+          onClose={() => setAddingById(false)}
+        />
+      ) : null}
     </View>
   );
 }

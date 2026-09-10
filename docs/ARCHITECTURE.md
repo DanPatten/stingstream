@@ -482,7 +482,9 @@ already preferred a version that fits; under Quality first it is the mechanism b
 
 ### Grab / add / request flow
 
-1. User adds a title (or a member requests one) via the StingStream API.
+1. A member requests a title via the StingStream API. (Since 2026-09-10 that is the only door in
+   the app: the direct-add screen is gone, and the add-by-id escape hatch behind Find's empty state
+   is the one path that skips the steps below. `docs/REQUESTS.md` §9.)
 2. `StingStream.Core` asks the mesh for `group_index` matches at acceptable quality.
 3. Present → it is already in the Shared library; mark "available via group", optionally add to
    arr **unmonitored** for future upgrades. **No download.**

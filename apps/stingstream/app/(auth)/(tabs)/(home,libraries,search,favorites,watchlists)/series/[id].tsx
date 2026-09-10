@@ -26,10 +26,13 @@ import { NextUp } from "@/components/series/NextUp";
 import { SeasonPicker } from "@/components/series/SeasonPicker";
 import { TVSeriesPage } from "@/components/series/TVSeriesPage";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
+import { ManageTitleSheet } from "@/components/stingstream/arr/ManageTitleSheet";
 import { SourceSelector } from "@/components/stingstream/sources/SourceSelector";
+import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useTheme } from "@/hooks/useTheme";
+import { useArrTitle } from "@/lib/stingstream/hooks";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
@@ -50,6 +53,7 @@ const COMPACT_HEADER_HEIGHT = 460;
 const page: React.FC = () => {
   const { color } = useTheme();
   const navigation = useNavigation();
+  const router = useRouter();
   const { t } = useTranslation();
   const params = useLocalSearchParams();
   const {
@@ -192,6 +196,12 @@ const page: React.FC = () => {
 
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
+  // What this node's series manager does about this show, if it manages it at
+  // all — on a pooled library it may be held by another node entirely.
+  const tvdbId = Number(item?.ProviderIds?.Tvdb) || undefined;
+  const managed = useArrTitle("series", tvdbId, isAdmin && !isOffline);
+  const [managing, setManaging] = useState(false);
+
   const refreshMetadata = useCallback(async () => {
     if (!api || !item?.Id) return;
     try {
@@ -243,8 +253,28 @@ const page: React.FC = () => {
       });
     }
 
+    // Only for a show this server actually manages: the one row here that
+    // changes what the server does rather than what this session sees.
+    if (managed.row) {
+      actions.push({
+        key: "manage",
+        icon: "settings",
+        label: t("item.manage_title"),
+        description: managed.profileName,
+        onPress: () => setManaging(true),
+      });
+    }
+
     return actions;
-  }, [allEpisodes, isAdmin, isOffline, refreshMetadata, t]);
+  }, [
+    allEpisodes,
+    isAdmin,
+    isOffline,
+    refreshMetadata,
+    managed.row,
+    managed.profileName,
+    t,
+  ]);
 
   if (!item) return null;
 
@@ -305,6 +335,21 @@ const page: React.FC = () => {
     </PageContainer>
   );
 
+  const manageSheet =
+    managed.row && tvdbId ? (
+      <ManageTitleSheet
+        kind='series'
+        providerId={tvdbId}
+        title={item.Name ?? ""}
+        monitored={managed.row.monitored ?? false}
+        visible={managing}
+        onClose={() => setManaging(false)}
+        // The show and its files are gone; this page is showing something that
+        // no longer exists.
+        onRemovedWithFiles={() => router.back()}
+      />
+    ) : null;
+
   return (
     <OfflineModeProvider isOffline={isOffline}>
       {isCompact ? (
@@ -334,6 +379,7 @@ const page: React.FC = () => {
           <View style={{ height: insets.bottom + 48 }} />
         </ScrollView>
       )}
+      {manageSheet}
     </OfflineModeProvider>
   );
 };

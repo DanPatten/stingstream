@@ -11,6 +11,124 @@
     }
   ],
   "paths": {
+    "/stingstream/api/v1/Downloading": {
+      "get": {
+        "tags": [
+          "Downloading"
+        ],
+        "summary": "What downloading is switched to.",
+        "operationId": "Get",
+        "responses": {
+          "200": {
+            "description": "The switches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadingSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "This server was not started by the StingStream supervisor, so there is no config.toml to read."
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Downloading"
+        ],
+        "summary": "Turn downloading on or off.",
+        "description": "Omitted rather than false-by-default: a screen that only shows the film manager must not\r\nsilently turn the usenet engine off because its checkbox was not on the page.",
+        "operationId": "Put",
+        "requestBody": {
+          "description": "What each switch should become. An omitted switch is left as it is.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DownloadingSettings"
+                  }
+                ],
+                "description": "The three switches, named for what they do rather than for what runs."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DownloadingSettings"
+                  }
+                ],
+                "description": "The three switches, named for what they do rather than for what runs."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/DownloadingSettings"
+                  }
+                ],
+                "description": "The three switches, named for what they do rather than for what runs."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The switches, as asked for.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "config.toml does not carry one of these settings in a shape that can be changed safely.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "This server was not started by the StingStream supervisor."
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/downloads": {
       "get": {
         "tags": [
@@ -3630,6 +3748,218 @@
         ]
       }
     },
+    "/stingstream/api/v1/Mesh/domains": {
+      "get": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Whether a browser can reach this server, and how.",
+        "description": "Elevated, like everything else here — and deliberately not served by the node's own\r\n`/healthz`, which is redacted for off-machine callers. A browser reaching this server\r\nthrough the very tunnel this page set up has to be able to read the page that set it up.",
+        "operationId": "Domains",
+        "responses": {
+          "200": {
+            "description": "The status, with an empty tunnel when nothing is set up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshDomains"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Mesh/domains/tunnel": {
+      "post": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Ask this server to run a Cloudflare Tunnel.",
+        "description": "Answers as soon as the request is recorded rather than waiting for Cloudflare: the node's\r\nsupervisor picks it up on its next reconcile, so this returns in milliseconds and the page\r\npolls. The API token is write-only and is never stored.",
+        "operationId": "SetTunnel",
+        "requestBody": {
+          "description": "Which kind, and the hostname and token a named one needs.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshTunnelRequest"
+                  }
+                ],
+                "description": "`POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshTunnelRequest"
+                  }
+                ],
+                "description": "`POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/MeshTunnelRequest"
+                  }
+                ],
+                "description": "`POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The status, which will say starting.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshDomains"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Stop this server's tunnel and forget it.",
+        "operationId": "DeleteTunnel",
+        "responses": {
+          "200": {
+            "description": "The status, with the tunnel off.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshDomains"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/Mesh/federated/refresh": {
       "post": {
         "tags": [
@@ -6653,6 +6983,131 @@
         ]
       }
     },
+    "/stingstream/api/v1/requests/{id}/seasons": {
+      "put": {
+        "tags": [
+          "Requests"
+        ],
+        "summary": "Change which seasons an open request is for.",
+        "description": "M:StingStream.Core.Controllers.RequestsController.Create(StingStream.Core.Requests.CreateRequestBody,System.Threading.CancellationToken) already grows a season list — a second request for the same show adds\r\n            whatever it asked for — but growing is all it can do, because it cannot tell \"I want season\r\n            4 as well\" from \"I only want season 4 now\". So this replaces the list outright, and is what\r\n            the app's Edit uses. Asking for fewer seasons unmonitors the rest on the next pass;\r\n            `RequestWorker.ApplySeasons` ticks exactly what the row names and unticks the others.\r\n            \r\nOwner or administrator, same rule and the same 404-for-both as M:StingStream.Core.Controllers.RequestsController.Delete(System.String,System.Threading.CancellationToken). Marking\r\n            it unpublished is what sends the change out to the group: the row has moved and the peers\r\n            holding the old season list need to hear about it.",
+        "operationId": "SetSeasons",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The request id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The seasons wanted. Empty means every season.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestSeasonsBody"
+                  }
+                ],
+                "description": "Body of `PUT /requests/{id}/seasons`."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestSeasonsBody"
+                  }
+                ],
+                "description": "Body of `PUT /requests/{id}/seasons`."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/RequestSeasonsBody"
+                  }
+                ],
+                "description": "Body of `PUT /requests/{id}/seasons`."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestRow"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such request, or somebody else's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request has already finished, so there is nothing to change.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/requests/counts": {
       "get": {
         "tags": [
@@ -6700,6 +7155,96 @@
             "content": {
               "text/html": {}
             }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/requests/discover": {
+      "get": {
+        "tags": [
+          "Requests"
+        ],
+        "summary": "Browse the catalogue: what is popular now, or the best ever made, narrowed by a filter.",
+        "description": "\r\nBehind the same 503 as the search, and for the same reason: a node with no managers cannot\r\n            fulfil anything, so a catalogue it could not act on would be a grid of dead buttons. The app\r\n            gates the whole screen on that answer before it draws a section bar.\r\n\r\nA metadata provider that will not answer is <em>not</em> a 503. It comes back 200 with an\r\n            empty page, and the screen keeps the search box it has always had: \"requests are not set up\r\n            here\" and \"the catalogue is quiet this minute\" are different sentences and only one of them\r\n            is about this server.",
+        "operationId": "Discover",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`movie`, `series`, or omit for both.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "`popular` (the default), `top_rated`, `newest` or `title`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "`asc`, or omit for descending.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genres",
+            "in": "query",
+            "description": "Genre names to narrow to, comma separated.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "description": "A release year, or omit for every year.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Which page. One-based.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDiscoverPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "Neither manager is configured on this node, so nothing here could be asked for."
           }
         },
         "security": [
@@ -7116,6 +7661,7 @@
           "Requests"
         ],
         "summary": "Search for something to request, with what the group already has attached.",
+        "description": "The 503 is the difference between \"nothing matched\" and \"I could not look\" — two answers\r\nthat are the same empty list on the wire and opposite things to the person who typed. The\r\napp already reads any 503 from this controller as \"requests are not set up on this server\"\r\nand says so instead of drawing an empty result list.",
         "operationId": "Search",
         "parameters": [
           {
@@ -7156,28 +7702,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
+            "description": "Neither manager is configured on this node, so nothing can be looked up."
           }
         },
         "security": [
@@ -8610,6 +9135,65 @@
                   "additionalProperties": {
                     "type": "boolean"
                   }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Status/indexers": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Whether this node has anywhere left to search.",
+        "description": "Requests is where somebody finds out that asking for a title will achieve nothing, and there\r\nare two ways for that to be true: nothing is configured to search, or everything configured\r\nhas stopped answering. Neither is visible on that screen otherwise -- a search still returns\r\nresults, because those come from TMDB rather than from an indexer, so a request goes in,\r\nfinds nowhere to look and simply never arrives.\r\n\r\nThe counts are ours; `Failing` is the managers' own opinion. Radarr and Sonarr already\r\ntrack per-indexer failures and raise a health check when they have given up on one, which is\r\na far better answer than probing each indexer from here would be: it is the state that\r\nactually decides whether a grab is attempted, and it costs one request per manager.",
+        "operationId": "Indexers",
+        "responses": {
+          "200": {
+            "description": "What the indexers are doing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexerHealth"
                 }
               }
             }
@@ -12322,6 +12906,28 @@
         "additionalProperties": false,
         "description": "One download, whichever engine is really carrying it."
       },
+      "DownloadingSettings": {
+        "type": "object",
+        "properties": {
+          "Films": {
+            "type": "boolean",
+            "description": "Whether this node fetches films.",
+            "nullable": true
+          },
+          "Series": {
+            "type": "boolean",
+            "description": "Whether this node fetches series.",
+            "nullable": true
+          },
+          "Usenet": {
+            "type": "boolean",
+            "description": "Whether this node fetches over usenet as well as over BitTorrent.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "The three switches, named for what they do rather than for what runs."
+      },
       "DownloadsView": {
         "type": "object",
         "properties": {
@@ -12870,6 +13476,16 @@
             "type": "integer",
             "format": "int32"
           },
+          "Merged": {
+            "type": "integer",
+            "description": "Titles whose local copy and a peer's became versions of one item.",
+            "format": "int32"
+          },
+          "Unmerged": {
+            "type": "integer",
+            "description": "Federated items that stopped being a version of a local one.",
+            "format": "int32"
+          },
           "Skipped": {
             "type": "boolean",
             "description": "True when the pass did nothing because the mesh could not be read."
@@ -12921,6 +13537,15 @@
           "FetchImages": {
             "type": "boolean",
             "description": "Fetch artwork from the holding node over the mesh."
+          },
+          "MergePeerVersions": {
+            "type": "boolean",
+            "description": "Materialize a peer's copy of a title this node already holds, as another version of it."
+          },
+          "MaxWritesPerPass": {
+            "type": "integer",
+            "description": "How many pointer files one pass may write before leaving the rest to the next.",
+            "format": "int32"
           },
           "MirrorMovies": {
             "type": "boolean",
@@ -13769,6 +14394,34 @@
           }
         }
       },
+      "IndexerHealth": {
+        "type": "object",
+        "properties": {
+          "Configured": {
+            "type": "integer",
+            "description": "How many indexers are configured on this node, enabled or not.",
+            "format": "int32"
+          },
+          "Enabled": {
+            "type": "integer",
+            "description": "How many of those are switched on.",
+            "format": "int32"
+          },
+          "Answered": {
+            "type": "boolean",
+            "description": "True when at least one manager answered."
+          },
+          "Failing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The managers' own indexer health messages, deduplicated."
+          }
+        },
+        "additionalProperties": false,
+        "description": "Whether this node has anywhere to search, and whether it still works."
+      },
       "IndexerSettings": {
         "type": "object",
         "properties": {
@@ -13781,7 +14434,7 @@
           },
           "BaseUrl": {
             "type": "string",
-            "description": "Torznab base URL, e.g. `http://127.0.0.1:9117/api/v2.0/indexers/x/results/torznab`."
+            "description": "Torznab base URL, e.g. `https://indexer.example/api`."
           },
           "ApiPath": {
             "type": "string",
@@ -15559,6 +16212,70 @@
         },
         "additionalProperties": false
       },
+      "MeshCertificate": {
+        "type": "object",
+        "properties": {
+          "Names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every DNS name the certificate covers."
+          },
+          "Expires": {
+            "type": "string",
+            "description": "When it expires, RFC 3339.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A loaded TLS certificate, as the Domains page reports it."
+      },
+      "MeshDomains": {
+        "type": "object",
+        "properties": {
+          "PublicAddress": {
+            "type": "string",
+            "description": "The domain pointed at this node, origin only. Null when unset.",
+            "nullable": true
+          },
+          "Https": {
+            "type": "string",
+            "description": "Whether the gateway serves TLS itself: `off`, `no_certificate` or `ready`."
+          },
+          "Certificate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MeshCertificate"
+              }
+            ],
+            "description": "The certificate in the node's `tls/` directory, when there is one.",
+            "nullable": true
+          },
+          "PublicIp": {
+            "type": "string",
+            "description": "This node's address as the world sees it, when it could learn one.",
+            "nullable": true
+          },
+          "LanUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Plain-HTTP URLs this node answers on inside the house."
+          },
+          "Tunnel": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MeshTunnel"
+              }
+            ],
+            "description": "The tunnel this node is running, if any."
+          }
+        },
+        "additionalProperties": false,
+        "description": "`GET /mesh/v1/domains` — whether a browser can reach this node, and how."
+      },
       "MeshGroup": {
         "type": "object",
         "properties": {
@@ -16233,6 +16950,56 @@
         },
         "additionalProperties": false,
         "description": "One audio or subtitle track."
+      },
+      "MeshTunnel": {
+        "type": "object",
+        "properties": {
+          "Kind": {
+            "type": "string",
+            "description": "`none`, `quick` or `named`."
+          },
+          "State": {
+            "type": "string",
+            "description": "`off`, `starting`, `connected` or `error`."
+          },
+          "Hostname": {
+            "type": "string",
+            "description": "The name it answers on. Assigned by Cloudflare when StingStream.Core.Mesh.MeshTunnel.Kind is quick.",
+            "nullable": true
+          },
+          "Detail": {
+            "type": "string",
+            "description": "Why it is starting or broken, in words fit to show.",
+            "nullable": true
+          },
+          "BinaryPresent": {
+            "type": "boolean",
+            "description": "Whether `cloudflared` is on this machine at all."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The Cloudflare Tunnel this node is running, and how far it got."
+      },
+      "MeshTunnelRequest": {
+        "type": "object",
+        "properties": {
+          "Kind": {
+            "type": "string",
+            "description": "`quick` for Cloudflare's account-free tunnel, `named` for your own domain."
+          },
+          "Hostname": {
+            "type": "string",
+            "description": "The hostname a named tunnel should answer on.",
+            "nullable": true
+          },
+          "ApiToken": {
+            "type": "string",
+            "description": "The Cloudflare API token, used once and never stored.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "`POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel."
       },
       "MetadataBlob": {
         "type": "object",
@@ -18627,6 +19394,32 @@
         "additionalProperties": false,
         "description": "One request with its event trail."
       },
+      "RequestDiscoverPage": {
+        "type": "object",
+        "properties": {
+          "Results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestSearchResult"
+            },
+            "description": "The titles, in the order asked for."
+          },
+          "Page": {
+            "type": "integer",
+            "description": "Which page this is. One-based.",
+            "format": "int32"
+          },
+          "Genres": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every genre the current kind can be filtered by."
+          }
+        },
+        "additionalProperties": false,
+        "description": "A page of the catalogue, with the options its filters offer."
+      },
       "RequestEvent": {
         "type": "object",
         "properties": {
@@ -18872,6 +19665,41 @@
             "type": "string",
             "description": "The item key, or the series prefix."
           },
+          "SeasonCount": {
+            "type": "integer",
+            "description": "How many seasons this show has, excluding specials. `0` for a movie, and for a series\r\nwhose lookup did not say.",
+            "format": "int32"
+          },
+          "Genres": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The genres this title is filed under, in the metadata provider's own words."
+          },
+          "Rating": {
+            "type": "number",
+            "description": "The community rating out of ten, when the provider has one.",
+            "format": "double",
+            "nullable": true
+          },
+          "Popularity": {
+            "type": "number",
+            "description": "How much attention this title is getting, on the provider's own scale.",
+            "format": "double",
+            "nullable": true
+          },
+          "Runtime": {
+            "type": "integer",
+            "description": "Length in minutes, when the lookup said. An episode length, for a series.",
+            "format": "int32",
+            "nullable": true
+          },
+          "Certification": {
+            "type": "string",
+            "description": "The age rating, in whichever country's scheme the lookup answered in.",
+            "nullable": true
+          },
           "AvailableInGroup": {
             "type": "boolean",
             "description": "True when a member of the group already holds it at an acceptable quality."
@@ -18896,6 +19724,22 @@
         },
         "additionalProperties": false,
         "description": "One search result, with what the group already has attached."
+      },
+      "RequestSeasonsBody": {
+        "type": "object",
+        "properties": {
+          "Seasons": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "description": "Season numbers wanted. Empty, or absent, means every season.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Body of `PUT /requests/{id}/seasons`."
       },
       "RequestTrustBody": {
         "type": "object",
@@ -19269,6 +20113,15 @@
           },
           "NodeName": {
             "type": "string"
+          },
+          "IsLocal": {
+            "type": "boolean",
+            "description": "True when this is the copy on the caller's own server."
+          },
+          "MediaSourceId": {
+            "type": "string",
+            "description": "Jellyfin's media-source id for this holder's copy, or null when this node has no item for it.",
+            "nullable": true
           },
           "Group": {
             "type": "string"
@@ -22905,6 +23758,9 @@
     }
   },
   "tags": [
+    {
+      "name": "Downloading"
+    },
     {
       "name": "Downloads"
     },

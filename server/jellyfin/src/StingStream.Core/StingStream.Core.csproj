@@ -60,6 +60,10 @@
     <ProjectReference Include="..\..\MediaBrowser.Common\MediaBrowser.Common.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Controller\MediaBrowser.Controller.csproj" />
     <ProjectReference Include="..\..\MediaBrowser.Model\MediaBrowser.Model.csproj" />
+    <!-- For the metadata provider's API key, which the catalogue behind the Find screen reads so a
+         server does not have to be given a second one. No cycle: Providers references Common,
+         Controller and Model, the same three as here, and Jellyfin.Server already ships it. -->
+    <ProjectReference Include="..\..\MediaBrowser.Providers\MediaBrowser.Providers.csproj" />
   </ItemGroup>
 
   <!-- A class library hosting MVC controllers needs the ASP.NET Core shared framework. -->

@@ -4,21 +4,20 @@ import { useWindowDimensions, View } from "react-native";
 import { useCardGrid } from "@/components/cards/useCardGrid";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
-import { Pill } from "@/components/common/Pill";
 import { SkeletonGrid } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import {
-  REQUEST_EXAMPLE_SEARCHES,
-  REQUEST_SEARCH_DEBOUNCE_MS,
-} from "@/constants/Requests";
+import { REQUEST_SEARCH_DEBOUNCE_MS } from "@/constants/Requests";
 import { maxWidth as MAX_WIDTHS } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
+  DEFAULT_REQUEST_FILTERS,
   type RequestSearchResult,
   toRequestCard,
+  useRequestDiscover,
   useRequestPolicy,
   useRequestSearch,
 } from "@/lib/stingstream/requests";
+import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
 
@@ -39,9 +38,11 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * discovering that only after pressing Request is too late to be useful — so it is a corner badge
  * on the poster itself (`toRequestCard`/`searchBadgeLabel`), not something a tap reveals.
  *
- * There is no feed here before a search — no "trending" row, no "recently requested" carousel —
- * because no endpoint answers either question. Six example chips stand in for a feed, and pressing
- * one runs a real search rather than showing a fabricated result.
+ * With nothing typed it draws the catalogue, the same feed the phone and web screen opens on: the
+ * most popular titles, as posters, which is the one thing a ten-foot screen is genuinely better at
+ * than a phone. It has no filter bar. Those chips open a sheet, and a television filters through
+ * `TVFilterButton` and its own full-screen picker instead — worth doing, and worth doing properly
+ * rather than by dropping a phone control onto a remote control.
  */
 export function DiscoverSection() {
   const { t } = useTranslation();
@@ -53,6 +54,7 @@ export function DiscoverSection() {
 
   const policy = useRequestPolicy();
   const search = useRequestSearch(debounced);
+  const discover = useRequestDiscover(DEFAULT_REQUEST_FILTERS);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -115,30 +117,11 @@ export function DiscoverSection() {
       <View style={{ height: 16 }} />
 
       {!showingSearch ? (
-        <View>
-          <EmptyState
-            icon='search'
-            title={t("requests.discover_prompt_title")}
-            detail={t("requests.discover_prompt_detail")}
-          />
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              justifyContent: "center",
-              paddingHorizontal: 24,
-            }}
-          >
-            {REQUEST_EXAMPLE_SEARCHES.map((example) => (
-              <Pill
-                key={example}
-                label={example}
-                onPress={() => setTerm(example)}
-              />
-            ))}
-          </View>
-        </View>
+        <RequestDiscoverGrid
+          results={discover.data?.results ?? []}
+          loading={discover.isLoading}
+          onPress={setPicking}
+        />
       ) : search.isLoading ? (
         <SkeletonGrid kind='portrait' columns={grid.columns} />
       ) : search.error ? (

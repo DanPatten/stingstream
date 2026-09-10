@@ -3,6 +3,28 @@
 // Source: packages/api-client/openapi.json (StingStream.Core /stingstream/api/v1/openapi.json).
 // Regenerate: bun run fetch-openapi && bun run generate  (see README.md).
 export interface paths {
+    "/stingstream/api/v1/Downloading": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What downloading is switched to. */
+        get: operations["Downloading_Get"];
+        /**
+         * Turn downloading on or off.
+         * @description Omitted rather than false-by-default: a screen that only shows the film manager must not
+         *     silently turn the usenet engine off because its checkbox was not on the page.
+         */
+        put: operations["Downloading_Put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/downloads": {
         parameters: {
             query?: never;
@@ -861,6 +883,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Mesh/domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether a browser can reach this server, and how.
+         * @description Elevated, like everything else here — and deliberately not served by the node's own
+         *     `/healthz`, which is redacted for off-machine callers. A browser reaching this server
+         *     through the very tunnel this page set up has to be able to read the page that set it up.
+         */
+        get: operations["Mesh_Domains"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/domains/tunnel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask this server to run a Cloudflare Tunnel.
+         * @description Answers as soon as the request is recorded rather than waiting for Cloudflare: the node's
+         *     supervisor picks it up on its next reconcile, so this returns in milliseconds and the page
+         *     polls. The API token is write-only and is never stored.
+         */
+        post: operations["Mesh_SetTunnel"];
+        /** Stop this server's tunnel and forget it. */
+        delete: operations["Mesh_DeleteTunnel"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Mesh/federated/refresh": {
         parameters: {
             query?: never;
@@ -1500,6 +1567,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/requests/{id}/seasons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change which seasons an open request is for.
+         * @description M:StingStream.Core.Controllers.RequestsController.Create(StingStream.Core.Requests.CreateRequestBody,System.Threading.CancellationToken) already grows a season list — a second request for the same show adds
+         *                 whatever it asked for — but growing is all it can do, because it cannot tell "I want season
+         *                 4 as well" from "I only want season 4 now". So this replaces the list outright, and is what
+         *                 the app's Edit uses. Asking for fewer seasons unmonitors the rest on the next pass;
+         *                 `RequestWorker.ApplySeasons` ticks exactly what the row names and unticks the others.
+         *
+         *     Owner or administrator, same rule and the same 404-for-both as M:StingStream.Core.Controllers.RequestsController.Delete(System.String,System.Threading.CancellationToken). Marking
+         *                 it unpublished is what sends the change out to the group: the row has moved and the peers
+         *                 holding the old season list need to hear about it.
+         */
+        put: operations["Requests_SetSeasons"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/requests/counts": {
         parameters: {
             query?: never;
@@ -1509,6 +1604,33 @@ export interface paths {
         };
         /** Badge counts for the navigation bar. */
         get: operations["Requests_Counts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse the catalogue: what is popular now, or the best ever made, narrowed by a filter.
+         * @description Behind the same 503 as the search, and for the same reason: a node with no managers cannot
+         *                 fulfil anything, so a catalogue it could not act on would be a grid of dead buttons. The app
+         *                 gates the whole screen on that answer before it draws a section bar.
+         *
+         *     A metadata provider that will not answer is <em>not</em> a 503. It comes back 200 with an
+         *                 empty page, and the screen keeps the search box it has always had: "requests are not set up
+         *                 here" and "the catalogue is quiet this minute" are different sentences and only one of them
+         *                 is about this server.
+         */
+        get: operations["Requests_Discover"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1602,7 +1724,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search for something to request, with what the group already has attached. */
+        /**
+         * Search for something to request, with what the group already has attached.
+         * @description The 503 is the difference between "nothing matched" and "I could not look" — two answers
+         *     that are the same empty list on the wire and opposite things to the person who typed. The
+         *     app already reads any 503 from this controller as "requests are not set up on this server"
+         *     and says so instead of drawing an empty result list.
+         */
         get: operations["Requests_Search"];
         put?: never;
         post?: never;
@@ -1908,6 +2036,35 @@ export interface paths {
         };
         /** Whether each arr is answering right now. */
         get: operations["Status_Arrs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Status/indexers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this node has anywhere left to search.
+         * @description Requests is where somebody finds out that asking for a title will achieve nothing, and there
+         *     are two ways for that to be true: nothing is configured to search, or everything configured
+         *     has stopped answering. Neither is visible on that screen otherwise -- a search still returns
+         *     results, because those come from TMDB rather than from an indexer, so a request goes in,
+         *     finds nowhere to look and simply never arrives.
+         *
+         *     The counts are ours; `Failing` is the managers' own opinion. Radarr and Sonarr already
+         *     track per-indexer failures and raise a health check when they have given up on one, which is
+         *     a far better answer than probing each indexer from here would be: it is the state that
+         *     actually decides whether a grab is attempted, and it costs one request per manager.
+         */
+        get: operations["Status_Indexers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3283,6 +3440,15 @@ export interface components {
             /** @description When the download was added, RFC 3339, when the engine records it. */
             AddedAt?: string | null;
         };
+        /** @description The three switches, named for what they do rather than for what runs. */
+        DownloadingSettings: {
+            /** @description Whether this node fetches films. */
+            Films?: boolean | null;
+            /** @description Whether this node fetches series. */
+            Series?: boolean | null;
+            /** @description Whether this node fetches over usenet as well as over BitTorrent. */
+            Usenet?: boolean | null;
+        };
         /** @description The Downloads screen's whole answer. */
         DownloadsView: {
             Items?: components["schemas"]["DownloadItem"][];
@@ -3546,6 +3712,16 @@ export interface components {
             WentOffline?: number;
             /** Format: int32 */
             CameBack?: number;
+            /**
+             * Format: int32
+             * @description Titles whose local copy and a peer's became versions of one item.
+             */
+            Merged?: number;
+            /**
+             * Format: int32
+             * @description Federated items that stopped being a version of a local one.
+             */
+            Unmerged?: number;
             /** @description True when the pass did nothing because the mesh could not be read. */
             Skipped?: boolean;
             /** @description Folders that changed and therefore need refreshing. */
@@ -3569,6 +3745,13 @@ export interface components {
             OfflineGraceDays?: number;
             /** @description Fetch artwork from the holding node over the mesh. */
             FetchImages?: boolean;
+            /** @description Materialize a peer's copy of a title this node already holds, as another version of it. */
+            MergePeerVersions?: boolean;
+            /**
+             * Format: int32
+             * @description How many pointer files one pass may write before leaving the rest to the next.
+             */
+            MaxWritesPerPass?: number;
             /** @description Copy every film the group holds into this node's own Movies folder. */
             MirrorMovies?: boolean;
             /** @description Copy every episode the group holds into this node's own TV folder. */
@@ -3829,12 +4012,29 @@ export interface components {
         };
         /** @description Represents the list of possible inbound websocket types */
         InboundWebSocketMessage: components["schemas"]["ActivityLogEntryStartMessage"] | components["schemas"]["ActivityLogEntryStopMessage"] | components["schemas"]["InboundKeepAliveMessage"] | components["schemas"]["ScheduledTasksInfoStartMessage"] | components["schemas"]["ScheduledTasksInfoStopMessage"] | components["schemas"]["SessionsStartMessage"] | components["schemas"]["SessionsStopMessage"];
+        /** @description Whether this node has anywhere to search, and whether it still works. */
+        IndexerHealth: {
+            /**
+             * Format: int32
+             * @description How many indexers are configured on this node, enabled or not.
+             */
+            Configured?: number;
+            /**
+             * Format: int32
+             * @description How many of those are switched on.
+             */
+            Enabled?: number;
+            /** @description True when at least one manager answered. */
+            Answered?: boolean;
+            /** @description The managers' own indexer health messages, deduplicated. */
+            Failing?: string[];
+        };
         /** @description A Torznab indexer, the only indexer protocol M1 supports. */
         IndexerSettings: {
             /** @description Stable identifier, generated when the indexer is added. */
             Id?: string;
             Name?: string;
-            /** @description Torznab base URL, e.g. `http://127.0.0.1:9117/api/v2.0/indexers/x/results/torznab`. */
+            /** @description Torznab base URL, e.g. `https://indexer.example/api`. */
             BaseUrl?: string;
             /** @description Path appended to StingStream.Core.Data.IndexerSettings.BaseUrl. Torznab's convention is `/api`. */
             ApiPath?: string;
@@ -4552,6 +4752,28 @@ export interface components {
             Url?: string | null;
             Name?: string | null;
         };
+        /** @description A loaded TLS certificate, as the Domains page reports it. */
+        MeshCertificate: {
+            /** @description Every DNS name the certificate covers. */
+            Names?: string[];
+            /** @description When it expires, RFC 3339. */
+            Expires?: string | null;
+        };
+        /** @description `GET /mesh/v1/domains` — whether a browser can reach this node, and how. */
+        MeshDomains: {
+            /** @description The domain pointed at this node, origin only. Null when unset. */
+            PublicAddress?: string | null;
+            /** @description Whether the gateway serves TLS itself: `off`, `no_certificate` or `ready`. */
+            Https?: string;
+            /** @description The certificate in the node's `tls/` directory, when there is one. */
+            Certificate?: components["schemas"]["MeshCertificate"] | null;
+            /** @description This node's address as the world sees it, when it could learn one. */
+            PublicIp?: string | null;
+            /** @description Plain-HTTP URLs this node answers on inside the house. */
+            LanUrls?: string[];
+            /** @description The tunnel this node is running, if any. */
+            Tunnel?: components["schemas"]["MeshTunnel"];
+        };
         /** @description One group this node belongs to. */
         MeshGroup: {
             /** @description The 32-byte group id, hex. */
@@ -4840,6 +5062,28 @@ export interface components {
             Forced?: boolean;
             /** @description Named `default` on the wire, which is a C# keyword. */
             default?: boolean;
+        };
+        /** @description The Cloudflare Tunnel this node is running, and how far it got. */
+        MeshTunnel: {
+            /** @description `none`, `quick` or `named`. */
+            Kind?: string;
+            /** @description `off`, `starting`, `connected` or `error`. */
+            State?: string;
+            /** @description The name it answers on. Assigned by Cloudflare when StingStream.Core.Mesh.MeshTunnel.Kind is quick. */
+            Hostname?: string | null;
+            /** @description Why it is starting or broken, in words fit to show. */
+            Detail?: string | null;
+            /** @description Whether `cloudflared` is on this machine at all. */
+            BinaryPresent?: boolean;
+        };
+        /** @description `POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel. */
+        MeshTunnelRequest: {
+            /** @description `quick` for Cloudflare's account-free tunnel, `named` for your own domain. */
+            Kind?: string;
+            /** @description The hostname a named tunnel should answer on. */
+            Hostname?: string | null;
+            /** @description The Cloudflare API token, used once and never stored. */
+            ApiToken?: string | null;
         };
         /** @description Enough metadata for a peer to build a complete `.nfo` without a metadata provider. */
         MetadataBlob: {
@@ -5680,6 +5924,18 @@ export interface components {
             /** @description Everything that has happened to it, oldest first. */
             Events?: components["schemas"]["RequestEvent"][];
         };
+        /** @description A page of the catalogue, with the options its filters offer. */
+        RequestDiscoverPage: {
+            /** @description The titles, in the order asked for. */
+            Results?: components["schemas"]["RequestSearchResult"][];
+            /**
+             * Format: int32
+             * @description Which page this is. One-based.
+             */
+            Page?: number;
+            /** @description Every genre the current kind can be filtered by. */
+            Genres?: string[];
+        };
         /** @description One thing that happened to a request, kept so a state change has a trail. */
         RequestEvent: {
             /** Format: int64 */
@@ -5815,6 +6071,31 @@ export interface components {
             TvdbId?: number;
             /** @description The item key, or the series prefix. */
             ItemKey?: string;
+            /**
+             * Format: int32
+             * @description How many seasons this show has, excluding specials. `0` for a movie, and for a series
+             *     whose lookup did not say.
+             */
+            SeasonCount?: number;
+            /** @description The genres this title is filed under, in the metadata provider's own words. */
+            Genres?: string[];
+            /**
+             * Format: double
+             * @description The community rating out of ten, when the provider has one.
+             */
+            Rating?: number | null;
+            /**
+             * Format: double
+             * @description How much attention this title is getting, on the provider's own scale.
+             */
+            Popularity?: number | null;
+            /**
+             * Format: int32
+             * @description Length in minutes, when the lookup said. An episode length, for a series.
+             */
+            Runtime?: number | null;
+            /** @description The age rating, in whichever country's scheme the lookup answered in. */
+            Certification?: string | null;
             /** @description True when a member of the group already holds it at an acceptable quality. */
             AvailableInGroup?: boolean;
             /** @description Who holds it. */
@@ -5823,6 +6104,11 @@ export interface components {
             RequestState?: string | null;
             /** @description The id of that request, so the app can link to it rather than offering a duplicate. */
             RequestId?: string | null;
+        };
+        /** @description Body of `PUT /requests/{id}/seasons`. */
+        RequestSeasonsBody: {
+            /** @description Season numbers wanted. Empty, or absent, means every season. */
+            Seasons?: number[] | null;
         };
         /** @description Body of `PUT /requests/users/{userId}`. */
         RequestTrustBody: {
@@ -5928,6 +6214,10 @@ export interface components {
         ScoredSourceResponse: {
             Node?: string;
             NodeName?: string;
+            /** @description True when this is the copy on the caller's own server. */
+            IsLocal?: boolean;
+            /** @description Jellyfin's media-source id for this holder's copy, or null when this node has no item for it. */
+            MediaSourceId?: string | null;
             Group?: string;
             Online?: boolean;
             Resolution?: string | null;
@@ -7373,6 +7663,104 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    Downloading_Get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The switches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadingSettings"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This server was not started by the StingStream supervisor, so there is no config.toml to read. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    Downloading_Put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What each switch should become. An omitted switch is left as it is. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DownloadingSettings"];
+                "text/json": components["schemas"]["DownloadingSettings"];
+                "application/*+json": components["schemas"]["DownloadingSettings"];
+            };
+        };
+        responses: {
+            /** @description The switches, as asked for. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadingSettings"];
+                };
+            };
+            /** @description config.toml does not carry one of these settings in a shape that can be changed safely. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This server was not started by the StingStream supervisor. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Downloads_GetDownloads: {
         parameters: {
             query?: never;
@@ -9994,6 +10382,154 @@ export interface operations {
             };
         };
     };
+    Mesh_Domains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status, with an empty tunnel when nothing is set up. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshDomains"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_SetTunnel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Which kind, and the hostname and token a named one needs. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MeshTunnelRequest"];
+                "text/json": components["schemas"]["MeshTunnelRequest"];
+                "application/*+json": components["schemas"]["MeshTunnelRequest"];
+            };
+        };
+        responses: {
+            /** @description The status, which will say starting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshDomains"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Mesh_DeleteTunnel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status, with the tunnel off. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshDomains"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Mesh_RefreshFederated: {
         parameters: {
             query?: never;
@@ -12138,6 +12674,81 @@ export interface operations {
             };
         };
     };
+    Requests_SetSeasons: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The seasons wanted. Empty means every season. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RequestSeasonsBody"];
+                "text/json": components["schemas"]["RequestSeasonsBody"];
+                "application/*+json": components["schemas"]["RequestSeasonsBody"];
+            };
+        };
+        responses: {
+            /** @description The updated request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestRow"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request, or somebody else's. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The request has already finished, so there is nothing to change. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Requests_Counts: {
         parameters: {
             query?: never;
@@ -12182,6 +12793,60 @@ export interface operations {
                 content: {
                     "text/html": unknown;
                 };
+            };
+        };
+    };
+    Requests_Discover: {
+        parameters: {
+            query?: {
+                /** @description `movie`, `series`, or omit for both. */
+                kind?: string;
+                /** @description `popular` (the default), `top_rated`, `newest` or `title`. */
+                sort?: string;
+                /** @description `asc`, or omit for descending. */
+                order?: string;
+                /** @description Genre names to narrow to, comma separated. */
+                genres?: string;
+                /** @description A release year, or omit for every year. */
+                year?: number;
+                /** @description Which page. One-based. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDiscoverPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neither manager is configured on this node, so nothing here could be asked for. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -12486,18 +13151,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The server is currently starting or is temporarily not available. */
+            /** @description Neither manager is configured on this node, so nothing can be looked up. */
             503: {
                 headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/html": unknown;
-                };
+                content?: never;
             };
         };
     };
@@ -13477,6 +14136,53 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Status_Indexers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the indexers are doing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerHealth"];
                 };
             };
             /** @description Unauthorized */

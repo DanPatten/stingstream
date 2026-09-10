@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Inventory;
 using StingStream.Core.Mesh;
 
 namespace StingStream.Core.Playback;
@@ -136,6 +137,81 @@ public sealed class FederatedSourceService
         }
 
         return all;
+    }
+
+    /// <summary>
+    /// Holders for many titles at once, in one pass over each group's index.
+    /// </summary>
+    /// <param name="movieKeys">Exact item keys, e.g. <c>movie:tmdb:603</c>.</param>
+    /// <param name="seriesPrefixes">Series prefixes, e.g. <c>episode:tvdb:73739:</c>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// One entry per key or prefix that matched something, keyed by the string that was passed in.
+    /// A key that matched nothing is absent rather than present and empty.
+    /// </returns>
+    /// <remarks>
+    /// <see cref="CandidatesEverywhereAsync"/> and <see cref="GroupsHoldingPrefixAsync"/> each walk
+    /// the whole index for one title, which is the right shape when a screen is asking about one.
+    /// The catalogue asks about sixty at a time, and sixty walks of a household's index is the
+    /// difference between a feed that draws and a feed that hangs. This walks it once and buckets
+    /// as it goes: an episode key is matched on the series it belongs to rather than by testing
+    /// every prefix against it, so the cost is the size of the index and not the product.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<SourceCandidate>>> CandidatesForKeysAsync(
+        IReadOnlyCollection<string> movieKeys,
+        IReadOnlyCollection<string> seriesPrefixes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(movieKeys);
+        ArgumentNullException.ThrowIfNull(seriesPrefixes);
+
+        var found = new Dictionary<string, IReadOnlyList<SourceCandidate>>(StringComparer.Ordinal);
+        if (movieKeys.Count == 0 && seriesPrefixes.Count == 0)
+        {
+            return found;
+        }
+
+        var wantedMovies = new HashSet<string>(movieKeys, StringComparer.Ordinal);
+        var wantedSeries = new HashSet<string>(seriesPrefixes, StringComparer.Ordinal);
+
+        var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
+        if (groups is null)
+        {
+            return found;
+        }
+
+        foreach (var group in groups)
+        {
+            var snapshot = await SnapshotAsync(group.Group, cancellationToken).ConfigureAwait(false);
+            if (snapshot is null)
+            {
+                continue;
+            }
+
+            foreach (var entry in snapshot.Index)
+            {
+                var wanted = InventoryKeys.IsEpisode(entry.ItemKey)
+                    ? InventoryKeys.SeriesOf(entry.ItemKey) + ":"
+                    : entry.ItemKey;
+
+                if (!(InventoryKeys.IsEpisode(entry.ItemKey)
+                        ? wantedSeries.Contains(wanted)
+                        : wantedMovies.Contains(wanted)))
+                {
+                    continue;
+                }
+
+                if (!found.TryGetValue(wanted, out var list))
+                {
+                    list = new List<SourceCandidate>();
+                    found[wanted] = list;
+                }
+
+                ((List<SourceCandidate>)list).Add(Build(group.Group, entry, snapshot.Peer(entry.Node)));
+            }
+        }
+
+        return found;
     }
 
     /// <summary>One group's index and peer table, cached for a few seconds.</summary>

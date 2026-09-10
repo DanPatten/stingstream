@@ -135,10 +135,9 @@ apps/stingstream/app/(auth)/(tabs)/(downloads)/index.tsx
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/server/page.tsx   -> /settings/server/page
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/admin/page.tsx    -> /settings/admin/page
 apps/stingstream/app/(auth)/(tabs)/(home)/settings/node/page.tsx     -> /settings/node/page
-apps/stingstream/app/(auth)/(tabs)/(home)/settings/library/index.tsx -> /settings/library
 ```
 
-The last three follow the exact convention every other settings sub-page already uses (e.g.
+The three settings sub-pages follow the exact convention every other settings sub-page already uses (e.g.
 `settings/network/page.tsx` → `/settings/network/page`) — a plain file-system route, reached with
 `router.push("/settings/server/page")`, registered in `(home)/_layout.tsx`'s `<Stack>` with its own
 `options={{ title: ... }}` for a real header (expo-router renders unregistered nested routes fine,
@@ -255,7 +254,8 @@ feature with no endpoint — there is simply no such feature on these screens an
 
 | Area | Live |
 |---|---|
-| Settings → Movie & series managers | list; **search-as-you-type add** (`/movies/lookup`, `/series/lookup`) with add-by-id kept as an escape hatch; **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation |
+| A title's own page → Manage on this server | **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation. Offered only when this node's manager tracks the title (`useArrTitle`) |
+| Requests → Find | **search-as-you-type add** (`/requests/search` over `/movies/lookup`, `/series/lookup`), with **add-by-id** kept as an escape hatch behind the no-match empty state |
 | Requests → Activity | Queue (both apps), **History** merged and paged, and **Upcoming** — the merged calendar grouped by day, week/month window |
 | Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
@@ -266,13 +266,24 @@ feature with no endpoint — there is simply no such feature on these screens an
 | Node status | `/healthz` children, node info, gateway port; `/status` (Core); `/stingstream/api/v1/mesh/status` (mesh identity, addresses, group count); side door candidates + a live per-candidate reachability/DNS-rebinding test (M5, `components/stingstream/node/SideDoorSection.tsx`, `docs/APP-RELEASE.md` §8), and **per-child version numbers** |
 | Group → Coordinator | **change it after creation**, with M3c's live `/healthz` validation; every member follows over gossip |
 
-Four things about these screens are worth knowing before reading the code.
+Five things about these screens are worth knowing before reading the code.
 
-**Movies and Series are one component.** They were a file each in M2, when both only listed and
-added by id. Now that both do search, a monitor toggle, a profile change and a delete, the only
-differences left are four words and whether a title is keyed on a TMDB or a TVDB id — so they are
-`arr/LibrarySection.tsx` with a `kind`, which `/settings/library` switches directly. The
-`MoviesSection`/`SeriesSection` wrappers are gone with the tab that named them.
+**There is no arr library screen.** There was: `/settings/library`, a Movies/TV shows tab bar over
+a list of everything the managers tracked, with a search-and-add form on top. The form was a second
+Requests — the same lookup, the same add, without the group dedupe, the quota or the approval — and
+the settings row above it read as a second place to ask for a film. Dan, 2026-09-10: *"this tab makes
+no sense to exist.. we alreayd have requests right?"*
+
+So adding is Requests → Find alone, and the three things that were not duplicated anywhere moved to
+the title they are about: monitoring, quality profile and remove are the overflow menu on a film's
+or a show's own page (`arr/ManageTitleSheet.tsx`, one component for both kinds, keyed on the TMDB or
+TVDB id the `PATCH` and `DELETE` endpoints already take). A person removing a film looks at the
+film. `useArrTitle` decides whether the row appears at all: on a pooled library most of what is on
+screen is held by another node and tracked by no manager here.
+
+**What went with it** is the only view of everything the managers track, a title added but never
+downloaded included. That is not a hole because every add now files a request, so a title on its way
+always has a row in Requests: Requests is what is coming, the library is what arrived.
 
 **Core answers PascalCase**, because Swashbuckle reads Jellyfin's own serializer options and
 StingStream's controllers are hosted inside Jellyfin's process. Every property read in

@@ -575,7 +575,7 @@ Invoke-Step 'Generate the media' {
     $script:RecordingSource = Join-Path $MediaDir 'recording.mkv'
     foreach ($target in @($script:FilmSource, $script:RecordingSource)) {
         if (Test-Path $target) { continue }
-        # Forced CBR, not the encoder's own choice: colour bars compress to nothing, and a file
+        # Forced CBR, not the encoder's own choice: color bars compress to nothing, and a file
         # whose real bitrate is a hundredth of what its metadata claims made M4's scoring
         # assertions pass for the wrong reason.
         & $ffmpeg.FullName -y -loglevel error `

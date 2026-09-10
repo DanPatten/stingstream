@@ -105,7 +105,7 @@ Console asks this separately from the rating, and it is easy to answer inconsist
 |---|---|
 | Target age groups | **18 and over** (or 13–17 and 18+, if a broader reach is wanted) |
 | Is your app designed for children? | **No** |
-| Could your store listing unintentionally appeal to children? | **No** — no cartoon characters, no bright primary-colour branding, no game-like imagery |
+| Could your store listing unintentionally appeal to children? | **No** — no cartoon characters, no bright primary-color branding, no game-like imagery |
 | Do you have ads? | **No** |
 
 ---

@@ -11,6 +11,12 @@
 > implementation learned that the proposal did not know. The M4-era "Closed in M4" section at the
 > end is unchanged.
 
+> **The screens named below are gone**, and the endpoints they asked for are not. "Manage → Movies"
+> and "Manage → Series" became `/settings/library`, which was itself folded away on 2026-09-10:
+> adding a title is Requests → Find, and the monitor toggle, the per-title quality profile and the
+> delete are the overflow menu on the title's own page (`docs/UI.md`, "There is no arr library
+> screen"). Gaps 1-4 read as history; every route they closed is still live and still called.
+
 Endpoints the M2 screens wanted that `StingStream.Core` did not expose (checked against
 `packages/api-client/openapi.json`, generated from a live M1 dev node on 2026-09-05). Method/path
 in the numbered list below were *proposals*; where the shipped route differs, the Closed line says

@@ -13,8 +13,8 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * destination.
  *
  * It used to be `/settings/library?focus=downloading`, back when the switch was a section on top of
- * the library and the link had to scroll the page to it. The switch has its own page now, so there
- * is nothing left to focus.
+ * the arr library and the link had to scroll the page to it. The switch has its own page now, and
+ * that library screen no longer exists at all, so there is nothing left to focus.
  *
  * Not "Indexers & engines": that page administers indexers and download clients, which are what a
  * manager uses once it exists. It never mentions the managers themselves.

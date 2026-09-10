@@ -27,11 +27,14 @@ import { SimilarItems } from "@/components/SimilarItems";
 import { CurrentSeries } from "@/components/series/CurrentSeries";
 import { SeasonEpisodesCarousel } from "@/components/series/SeasonEpisodesCarousel";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
+import { ManageTitleSheet } from "@/components/stingstream/arr/ManageTitleSheet";
 import { SourceSelector } from "@/components/stingstream/sources/SourceSelector";
 import { type Bitrate } from "@/constants/Playback";
+import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
 import { useOrientation } from "@/hooks/useOrientation";
+import { useArrTitle } from "@/lib/stingstream/hooks";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -95,6 +98,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
   const { orientation } = useOrientation();
   const { isCompact } = useBreakpoint();
   const navigation = useNavigation();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
@@ -185,6 +189,17 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
 
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
+  // What this node's movie manager does about this film, if it manages it at
+  // all. A film on a pooled library is often held by somebody else's node and
+  // tracked by no manager here, and then there is nothing to offer.
+  const tmdbId = Number(item?.ProviderIds?.Tmdb) || undefined;
+  const managed = useArrTitle(
+    "movie",
+    tmdbId,
+    isAdmin && !isOffline && item?.Type === "Movie",
+  );
+  const [managing, setManaging] = useState(false);
+
   const refreshMetadata = useCallback(async () => {
     if (!api || !item?.Id) return;
     try {
@@ -254,6 +269,19 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       });
     }
 
+    // Last, and only for a film this server actually manages: it is the one
+    // row here that changes what the server does rather than what this session
+    // sees, and the only one that can remove something.
+    if (managed.row) {
+      actions.push({
+        key: "manage",
+        icon: "settings",
+        label: t("item.manage_title"),
+        description: managed.profileName,
+        onPress: () => setManaging(true),
+      });
+    }
+
     return actions;
   }, [
     item,
@@ -263,6 +291,8 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     isAdmin,
     settings.hideRemoteSessionButton,
     refreshMetadata,
+    managed.row,
+    managed.profileName,
     t,
   ]);
 
@@ -321,6 +351,23 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
 
   const tail = <View style={{ height: insets.bottom + 48 }} />;
 
+  // Outside both layout branches so the two cannot drift, and mounted only once
+  // there is a row to manage.
+  const manageSheet =
+    managed.row && tmdbId ? (
+      <ManageTitleSheet
+        kind='movie'
+        providerId={tmdbId}
+        title={item.Name ?? ""}
+        monitored={managed.row.monitored ?? false}
+        visible={managing}
+        onClose={() => setManaging(false)}
+        // The film and its files are gone; the page is showing something that
+        // no longer exists.
+        onRemovedWithFiles={() => router.back()}
+      />
+    ) : null;
+
   if (isCompact) {
     return (
       <View
@@ -344,6 +391,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
           {header}
           {body}
         </ParallaxScrollView>
+        {manageSheet}
       </View>
     );
   }
@@ -357,6 +405,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       {header}
       {body}
       {tail}
+      {manageSheet}
     </ScrollView>
   );
 };

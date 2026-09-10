@@ -526,8 +526,8 @@ function Write-HarnessSummary {
     if (-not $width) { $width = 30 }
     foreach ($s in $script:Steps) {
         $mark = if ($s.Ok) { 'PASS' } else { 'FAIL' }
-        $colour = if ($s.Ok) { 'Green' } else { 'Red' }
-        Write-Host ("  {0}  {1}  {2,7:N1}s  {3}" -f $mark, $s.Name.PadRight($width), $s.Seconds, $s.Detail) -ForegroundColor $colour
+        $color = if ($s.Ok) { 'Green' } else { 'Red' }
+        Write-Host ("  {0}  {1}  {2,7:N1}s  {3}" -f $mark, $s.Name.PadRight($width), $s.Seconds, $s.Detail) -ForegroundColor $color
     }
     $total = ($script:Steps | Measure-Object -Property Seconds -Sum).Sum
     Write-Host ("  total {0:N1}s" -f $total)

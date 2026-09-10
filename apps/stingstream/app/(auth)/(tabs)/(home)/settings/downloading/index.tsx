@@ -8,12 +8,13 @@ import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 /**
  * Whether this server fetches things it does not have yet.
  *
- * Three switches and nothing else. It was a section on top of `/settings/library`
- * until that page grew a Movies/TV shows tab bar: the bar scoped the whole page
- * while the switches above it governed both tabs, so a reader arriving from the
- * Requests notice met a screen that looked like two screens. The switches decide
- * what the server *runs*; the library is a list of titles it manages. Two
- * subjects, two pages.
+ * Three switches and nothing else. They were a section on top of the arr
+ * library screen until that page grew a Movies/TV shows tab bar: the bar scoped
+ * the whole page while the switches above it governed both tabs, so a reader
+ * arriving from the Requests notice met a screen that looked like two screens.
+ * That library screen is gone entirely now (`docs/UI.md`, "There is no arr
+ * library screen") and these have outlived it, which is the answer they always
+ * were: what the server *runs* is a different subject from what it holds.
  *
  * Administrator-only twice over, same as the library page: the row in Settings is
  * hidden without elevation, and `RequiresAdmin` is the actual control, because a

@@ -169,13 +169,14 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   on TV, with its elevated sections (Approvals, Activity, Policy) dropped there. Routes
   shared by several tabs live in the combined group
   `(home,libraries,search,favorites,watchlists)`.
-- There is no `(manage)` group. It was folded into Requests: the arr queue, history and
-  calendar are Requests → Activity, and the arr library is Settings → Movies & TV shows
-  (`app/(auth)/(tabs)/(home)/settings/library`). The switches that decide whether this
-  node fetches anything at all are Settings → Downloading
-  (`app/(auth)/(tabs)/(home)/settings/downloading`), a page of their own since a tab bar
-  scoping the library cannot sit under a control governing both of its tabs. Its
-  components live in
+- There is no `(manage)` group, and no arr library screen either. Both were folded into
+  the things they were about: the arr queue, history and calendar are Requests → Activity,
+  adding a title is Requests → Find, and what this server does about one title it already
+  tracks — monitoring, quality profile, remove with or without files — is the overflow menu
+  on that title's own page (`components/stingstream/arr/ManageTitleSheet.tsx`, offered only
+  when `useArrTitle` finds a row, so a title held by another node offers nothing). The
+  switches that decide whether this node fetches anything at all are Settings → Downloading
+  (`app/(auth)/(tabs)/(home)/settings/downloading`). Its components live in
   `components/stingstream/arr/`.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across

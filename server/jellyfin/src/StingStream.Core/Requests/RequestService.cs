@@ -47,6 +47,8 @@ public sealed class RequestService
     private readonly IMeshClient _mesh;
     private readonly ArrClientFactory _arrs;
     private readonly FederatedSourceService _sources;
+    private readonly ArtworkFallback _artwork;
+    private readonly TmdbCatalog _catalogue;
     private readonly MediaBrowser.Controller.Library.IUserManager _users;
     private readonly ILogger<RequestService> _logger;
 
@@ -56,6 +58,8 @@ public sealed class RequestService
         IMeshClient mesh,
         ArrClientFactory arrs,
         FederatedSourceService sources,
+        ArtworkFallback artwork,
+        TmdbCatalog catalogue,
         MediaBrowser.Controller.Library.IUserManager users,
         ILogger<RequestService> logger)
     {
@@ -64,6 +68,8 @@ public sealed class RequestService
         _mesh = mesh;
         _arrs = arrs;
         _sources = sources;
+        _artwork = artwork;
+        _catalogue = catalogue;
         _users = users;
         _logger = logger;
     }
@@ -528,32 +534,75 @@ public sealed class RequestService
             results.AddRange(await LookupManyAsync(ArrKind.Sonarr, term, cancellationToken).ConfigureAwait(false));
         }
 
-        var policy = _store.Policy(await ResolveGroupAsync(null, cancellationToken).ConfigureAwait(false));
-        foreach (var result in results)
-        {
-            var holders = await HoldersAsync(
-                    result.ItemKey,
-                    result.TmdbId > 0,
-                    policy.MinimumHeight,
-                    // A search result is about the whole title, not a season: "the group has some of
-                    // this show" is the right answer to show beside it, and the season picker is
-                    // where the finer question gets asked.
-                    Array.Empty<int>(),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            result.Holders = holders.Distinct().ToList();
-            result.AvailableInGroup = holders.Count > 0;
+        // Posters for the series TVDB had none for, before the per-result loop rather than inside
+        // it: that loop is sequential and talks to the mesh, and artwork is a bounded parallel pass
+        // that must not be serialised behind it. Failure here is silent by design and leaves the
+        // result posterless, which is what the app already draws a placeholder tile for.
+        await _artwork.FillAsync(results, cancellationToken).ConfigureAwait(false);
 
-            var existing = _store.LatestForItem(result.ItemKey);
-            if (existing is not null)
-            {
-                result.RequestState = existing.State;
-                result.RequestId = existing.Id;
-            }
-        }
+        await AnnotateAsync(results, cancellationToken).ConfigureAwait(false);
 
         return results;
     }
+
+    /// <summary>
+    /// Browse the catalogue: what is popular now, or the best ever made, narrowed by a filter.
+    /// </summary>
+    /// <param name="kind"><c>movie</c>, <c>series</c>, or null for both.</param>
+    /// <param name="sort"><c>popular</c>, <c>top_rated</c>, <c>newest</c> or <c>title</c>.</param>
+    /// <param name="order"><c>asc</c> or <c>desc</c>.</param>
+    /// <param name="genres">Genre names to narrow to, comma separated.</param>
+    /// <param name="year">A release year, or null for every year.</param>
+    /// <param name="page">Which page. One-based.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The page, with the genres its filter offers.</returns>
+    /// <remarks>
+    /// <para>
+    /// The catalogue is not the arrs. They answer "is there a title called this", which is the
+    /// right question for a search and the wrong one for somebody who does not yet know what they
+    /// want, and neither of them can be asked what is worth watching.
+    /// </para>
+    /// <para>
+    /// Everything else is the same as a search: the same result shape, the same annotation, the
+    /// same Request button. A title found by browsing and the same title found by typing its name
+    /// are one thing, and the screen must not be able to tell them apart.
+    /// </para>
+    /// </remarks>
+    public async Task<RequestDiscoverPage> DiscoverAsync(
+        string? kind,
+        string? sort,
+        string? order,
+        string? genres,
+        int? year,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var query = new TmdbBrowseQuery
+        {
+            Kind = kind,
+            Sort = sort,
+            Order = order,
+            Genres = SplitGenres(genres),
+            Year = year,
+            Page = page,
+        };
+
+        var results = (await _catalogue.BrowseAsync(query, cancellationToken).ConfigureAwait(false)).ToList();
+        await AnnotateAsync(results, cancellationToken).ConfigureAwait(false);
+
+        return new RequestDiscoverPage
+        {
+            Results = results,
+            Page = Math.Max(page, 1),
+            Genres = (await _catalogue.GenreNamesAsync(kind, cancellationToken).ConfigureAwait(false)).ToList(),
+        };
+    }
+
+    /// <summary>The genre names off a query string, empties dropped.</summary>
+    private static List<string> SplitGenres(string? genres)
+        => (genres ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
 
     private async Task<List<RequestSearchResult>> LookupManyAsync(
         ArrKind kind,
@@ -623,6 +672,15 @@ public sealed class RequestService
                 ? InventoryKeys.Movie(providerId)
                 : InventoryKeys.SeriesPrefix(providerId),
             SeasonCount = isMovie ? 0 : SeasonCountOf(entry),
+
+            // All four have been on the lookup entry all along and were simply thrown away. They
+            // are what lets the Find screen narrow a search by genre and reorder it, the same way a
+            // library is narrowed, without a second call to anything.
+            Genres = GenresOf(entry),
+            Rating = RatingOf(entry),
+            Popularity = entry["popularity"]?.GetValue<double?>(),
+            Runtime = entry["runtime"]?.GetValue<int?>(),
+            Certification = entry["certification"]?.GetValue<string>(),
         };
     }
 
@@ -652,6 +710,47 @@ public sealed class RequestService
         }
 
         return highest;
+    }
+
+    /// <summary>The genre names on an arr lookup entry.</summary>
+    private static List<string> GenresOf(JsonObject entry)
+    {
+        var names = new List<string>();
+        if (entry["genres"] is not JsonArray genres)
+        {
+            return names;
+        }
+
+        foreach (var genre in genres)
+        {
+            var name = genre?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// The community rating on an arr lookup entry.
+    /// </summary>
+    /// <remarks>
+    /// The two apps shape this differently: Radarr nests one object per rating source, Sonarr has a
+    /// single flat one. TMDB's is preferred where there is a choice, because it is the number the
+    /// catalogue orders by and a screen that mixes two scales sorts by neither.
+    /// </remarks>
+    private static double? RatingOf(JsonObject entry)
+    {
+        if (entry["ratings"] is not JsonObject ratings)
+        {
+            return null;
+        }
+
+        return (ratings["tmdb"] as JsonObject)?["value"]?.GetValue<double?>()
+               ?? (ratings["imdb"] as JsonObject)?["value"]?.GetValue<double?>()
+               ?? ratings["value"]?.GetValue<double?>();
     }
 
     /// <summary>
@@ -714,6 +813,19 @@ public sealed class RequestService
         {
             row.Title = string.Create(CultureInfo.InvariantCulture, $"{row.Provider} {row.ProviderId}");
         }
+
+        // A series the arr had no poster for. Worth one lookup here as well as on the search path,
+        // because this one persists: the row keeps the URL, so My Requests and the approvals queue
+        // get it without ever asking again.
+        if (row.PosterUrl is null
+            && !isMovie
+            && string.Equals(row.Provider, "tvdb", StringComparison.Ordinal)
+            && row.ProviderId > 0)
+        {
+            row.PosterUrl = await _artwork
+                .PosterForSeriesAsync(row.ProviderId, row.Title, row.Year, cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -743,6 +855,81 @@ public sealed class RequestService
     }
 
     /// <summary>
+    /// Say what the group already thinks about each of these titles.
+    /// </summary>
+    /// <param name="results">The results, annotated in place.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is the whole difference between asking StingStream for something and asking a Seerr: in
+    /// a group that pools libraries the interesting answer is usually "somebody already has this",
+    /// and finding that out after pressing Request is too late to be useful. Search and the
+    /// catalogue both go through here, so neither can be the surface that quietly drops it.
+    /// </para>
+    /// <para>
+    /// <strong>One pass over the index, not one per title.</strong> Asking
+    /// <see cref="HoldersAsync"/> per result walks the whole group index each time, which is fine
+    /// for the twenty a search returns and is not fine for the sixty a feed does. The keys are
+    /// collected first and matched in a single walk.
+    /// </para>
+    /// </remarks>
+    private async Task AnnotateAsync(
+        IReadOnlyList<RequestSearchResult> results,
+        CancellationToken cancellationToken)
+    {
+        if (results.Count == 0)
+        {
+            return;
+        }
+
+        var policy = _store.Policy(await ResolveGroupAsync(null, cancellationToken).ConfigureAwait(false));
+
+        var movieKeys = new List<string>();
+        var seriesPrefixes = new List<string>();
+        foreach (var result in results)
+        {
+            if (IsMovie(result))
+            {
+                movieKeys.Add(result.ItemKey);
+            }
+            else
+            {
+                seriesPrefixes.Add(result.ItemKey);
+            }
+        }
+
+        var held = await _sources
+            .CandidatesForKeysAsync(movieKeys, seriesPrefixes, cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var result in results)
+        {
+            var candidates = held.TryGetValue(result.ItemKey, out var found)
+                ? found
+                : Array.Empty<SourceCandidate>();
+
+            // A search result is about the whole title, not a season: "the group has some of this
+            // show" is the right answer to show beside it, and the season picker is where the finer
+            // question gets asked.
+            var holders = Holders(candidates, policy.MinimumHeight, Array.Empty<int>(), IsMovie(result));
+            result.Holders = holders.Distinct().ToList();
+            result.AvailableInGroup = holders.Count > 0;
+
+            var existing = _store.LatestForItem(result.ItemKey);
+            if (existing is not null)
+            {
+                result.RequestState = existing.State;
+                result.RequestId = existing.Id;
+            }
+        }
+    }
+
+    /// <summary>Whether a result is a film, by the only field that always says so.</summary>
+    private static bool IsMovie(RequestSearchResult result)
+        => string.Equals(result.Kind, "movie", StringComparison.Ordinal);
+
+    /// <summary>
     /// Who in the group holds a title at an acceptable quality.
     /// </summary>
     /// <remarks>
@@ -762,14 +949,26 @@ public sealed class RequestService
             ? await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken).ConfigureAwait(false)
             : await _sources.GroupsHoldingPrefixAsync(itemKey, cancellationToken).ConfigureAwait(false);
 
-        return candidates
+        return Holders(candidates, minimumHeight, seasons, isMovie);
+    }
+
+    /// <summary>Which of these candidates count as holding the title, and what to call them.</summary>
+    /// <remarks>
+    /// The rule itself, separated from the fetch, so the per-title path and the batched one that
+    /// annotates a whole feed cannot drift into two different answers.
+    /// </remarks>
+    private static List<string> Holders(
+        IReadOnlyList<SourceCandidate> candidates,
+        int minimumHeight,
+        IReadOnlyList<int> seasons,
+        bool isMovie)
+        => candidates
             .Where(c => c.Online && (minimumHeight <= 0 || (c.Height ?? int.MaxValue) >= minimumHeight))
             .Where(c => isMovie
                         || seasons.Count == 0
                         || (RequestWorker.SeasonOf(c.ItemKey) is int s && seasons.Contains(s)))
             .Select(c => string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName)
             .ToList();
-    }
 
     /// <summary>Union two season lists, sorted, with duplicates removed.</summary>
     /// <param name="a">One list.</param>

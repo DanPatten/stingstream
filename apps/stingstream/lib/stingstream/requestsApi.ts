@@ -48,6 +48,7 @@ const ROUTES = {
   retry: "/requests/{id}/retry",
   counts: "/requests/counts",
   search: "/requests/search",
+  discover: "/requests/discover",
   policy: "/requests/policy",
   users: "/requests/users",
   user: "/requests/users/{userId}",
@@ -175,6 +176,20 @@ export interface RequestSearchResult {
    * Anything through `toSearchResult` always has a number.
    */
   seasonCount?: number;
+  /**
+   * The genres it is filed under, in the metadata provider's own words.
+   *
+   * What lets the filter bar narrow a search by genre without a second call. Absent on a node built
+   * before the field existed, which reads as "no genre" and is therefore never matched by a genre
+   * filter rather than wrongly matched by all of them.
+   */
+  genres?: string[];
+  /** The community rating out of ten, when there is one. */
+  rating?: number | null;
+  /** Attention on the provider's own scale. Comparable only within one answer. */
+  popularity?: number | null;
+  /** Length in minutes. An episode's length, for a series. */
+  runtime?: number | null;
   /** True when a member of the group already holds it at an acceptable quality. */
   availableInGroup: boolean;
   holders: string[];
@@ -287,6 +302,10 @@ export const toSearchResult = (raw: unknown): RequestSearchResult => ({
   tvdbId: field<number>(raw, ...both("tvdbId")) ?? 0,
   itemKey: field<string>(raw, ...both("itemKey")) ?? "",
   seasonCount: field<number>(raw, ...both("seasonCount")) ?? 0,
+  genres: field<string[]>(raw, ...both("genres")) ?? [],
+  rating: field<number>(raw, ...both("rating")),
+  popularity: field<number>(raw, ...both("popularity")),
+  runtime: field<number>(raw, ...both("runtime")),
   availableInGroup: field<boolean>(raw, ...both("availableInGroup")) ?? false,
   holders: field<string[]>(raw, ...both("holders")) ?? [],
   requestState: field<string>(raw, ...both("requestState")) as
@@ -471,6 +490,35 @@ const isSearchResult = (
  * `id` is the item key for a search result — it has no request row yet — and the request's own id
  * once one exists, so a card stays keyed on the same value across a refetch either way.
  */
+/**
+ * A request, in the shape the request sheet reads.
+ *
+ * My requests holds `MemberRequest` rows and the sheet is written against a search result, because
+ * that is where a request is normally made from. Rather than teach the sheet a second shape, the
+ * row is mapped onto the one it already knows: the ids come off `provider`/`providerId`, and the
+ * request's own state and id come with it so the sheet opens in edit mode.
+ *
+ * `seasonCount` is 0, because a stored request does not carry one — nothing asked TVDB how long the
+ * show is when it was made. `SeasonPicker` falls back to its fixed range, which is what it is for.
+ */
+export const requestAsSearchResult = (
+  request: MemberRequest,
+): RequestSearchResult => ({
+  kind: request.kind,
+  title: request.title,
+  year: request.year,
+  overview: null,
+  posterUrl: request.posterUrl,
+  tmdbId: request.provider === "tmdb" ? request.providerId : 0,
+  tvdbId: request.provider === "tvdb" ? request.providerId : 0,
+  itemKey: request.itemKey,
+  seasonCount: 0,
+  availableInGroup: false,
+  holders: [],
+  requestState: request.state,
+  requestId: request.id,
+});
+
 export const toRequestCard = (
   source: RequestSearchResult | MemberRequest,
 ): CardData =>
@@ -1011,4 +1059,166 @@ export async function markNotificationsRead(
   });
   if (!res.ok)
     throw await readRequestsError(res, "POST /requests/notifications/read");
+}
+
+// --- browsing -----------------------------------------------------------------------------------
+
+/** A page of the catalogue, with the options its genre chip offers. */
+export interface RequestDiscoverPage {
+  results: RequestSearchResult[];
+  page: number;
+  genres: string[];
+}
+
+export const toDiscoverPage = (raw: unknown): RequestDiscoverPage => ({
+  results: (field<unknown[]>(raw, ...both("results")) ?? []).map(
+    toSearchResult,
+  ),
+  page: field<number>(raw, ...both("page")) ?? 1,
+  genres: field<string[]>(raw, ...both("genres")) ?? [],
+});
+
+/** All, or one kind. */
+export type RequestKind = "all" | "movie" | "series";
+
+/** How the catalogue is ordered. `popular` is the default on both screens. */
+export type RequestSort = "popular" | "top_rated" | "newest" | "title";
+
+/** Which way round. */
+export type RequestOrder = "asc" | "desc";
+
+/** What the group already thinks about a title, as something to narrow by. */
+export type RequestAvailability = "held" | "not_held" | "requested";
+
+/**
+ * Everything the Find bar is currently narrowing by.
+ *
+ * The list-shaped fields are lists because that is what a `FilterButton` hands back, not because
+ * more than one can be chosen: the chips are single-select, exactly as a library's are.
+ */
+export interface RequestFilterState {
+  kind: RequestKind;
+  genres: string[];
+  years: string[];
+  availability: RequestAvailability[];
+  sortBy: RequestSort[];
+  sortOrder: RequestOrder[];
+}
+
+export const DEFAULT_REQUEST_FILTERS: RequestFilterState = {
+  kind: "all",
+  genres: [],
+  years: [],
+  availability: [],
+  sortBy: ["popular"],
+  sortOrder: ["desc"],
+};
+
+/**
+ * Whether anything is actually narrowing what is on screen.
+ *
+ * Drives the Clear chip, so it has to agree with the defaults above exactly: a bar that opens with
+ * Clear already showing is a bar offering to undo something nobody did.
+ */
+export const requestFiltersActive = (state: RequestFilterState): boolean =>
+  state.kind !== DEFAULT_REQUEST_FILTERS.kind ||
+  state.genres.length > 0 ||
+  state.years.length > 0 ||
+  state.availability.length > 0 ||
+  state.sortBy[0] !== DEFAULT_REQUEST_FILTERS.sortBy[0] ||
+  state.sortOrder[0] !== DEFAULT_REQUEST_FILTERS.sortOrder[0];
+
+/** The query the node's catalogue takes for this state. */
+export const discoverQuery = (
+  state: RequestFilterState,
+  page = 1,
+): Record<string, string> => {
+  const query: Record<string, string> = {
+    sort: state.sortBy[0] ?? "popular",
+    order: state.sortOrder[0] ?? "desc",
+    page: String(page),
+  };
+  if (state.kind !== "all") query.kind = state.kind;
+  if (state.genres.length > 0) query.genres = state.genres.join(",");
+  if (state.years.length > 0) query.year = state.years[0];
+  return query;
+};
+
+/**
+ * Narrow and reorder a list of results by the bar above it.
+ *
+ * **The two screens filter in different places and this is the same rule in both.** The feed hands
+ * genre, year and order to the node, because the fifty titles it draws have to be the top fifty of
+ * that slice rather than the top fifty of everything with the rest thrown away. A search cannot
+ * work that way: the answer is whatever matched what you typed, and re-asking the catalogue with
+ * the term would be a different search rather than a narrower one. So the search narrows here.
+ * Running the feed through this as well costs nothing — the node has already applied most of it —
+ * and is what makes Availability, which the node cannot answer, work on both.
+ *
+ * The default sort deliberately does *not* reorder. A search's own order is relevance, and the
+ * reader has not asked for anything else yet; sorting by popularity the moment the screen opens
+ * would push the show somebody typed the name of below a dozen films that outrank it.
+ */
+export const applyRequestFilters = (
+  results: readonly RequestSearchResult[],
+  state: RequestFilterState,
+): RequestSearchResult[] => {
+  const genres = state.genres.map((genre) => genre.toLowerCase());
+  const years = new Set(state.years);
+  const availability = state.availability[0];
+
+  const kept = results.filter((result) => {
+    if (state.kind !== "all" && result.kind !== state.kind) return false;
+    if (
+      genres.length > 0 &&
+      !(result.genres ?? []).some((genre) =>
+        genres.includes(genre.toLowerCase()),
+      )
+    ) {
+      return false;
+    }
+    if (years.size > 0 && !years.has(String(result.year ?? ""))) return false;
+    if (availability === "held" && !result.availableInGroup) return false;
+    if (availability === "not_held" && result.availableInGroup) return false;
+    if (availability === "requested" && !result.requestState) return false;
+    return true;
+  });
+
+  const sort = state.sortBy[0] ?? "popular";
+  if (sort === "popular") return kept;
+
+  const descending = (state.sortOrder[0] ?? "desc") === "desc";
+  const sorted = [...kept].sort((a, b) => {
+    switch (sort) {
+      case "top_rated":
+        return (b.rating ?? 0) - (a.rating ?? 0);
+      case "newest":
+        return (b.year ?? 0) - (a.year ?? 0);
+      default:
+        return b.title.localeCompare(a.title, undefined, {
+          sensitivity: "base",
+        });
+    }
+  });
+  return descending ? sorted : sorted.reverse();
+};
+
+/** Browse the catalogue: what is popular now, or the best ever made. */
+export async function discoverRequestable(
+  apiBaseUrl: string,
+  state: RequestFilterState,
+  page: number,
+  accessToken?: string | null,
+): Promise<RequestDiscoverPage> {
+  const res = await fetch(
+    url(
+      apiBaseUrl,
+      ROUTES.discover,
+      {},
+      new URLSearchParams(discoverQuery(state, page)),
+    ),
+    { headers: authHeaders(accessToken) },
+  );
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/discover");
+  return toDiscoverPage(await res.json());
 }

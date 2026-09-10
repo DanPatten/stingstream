@@ -13,7 +13,7 @@
     What it does, in order:
 
       1. Builds everything it needs (skip with -SkipBuild).
-      2. Generates two test media files with the fetched jellyfin-ffmpeg -- colour bars and a
+      2. Generates two test media files with the fetched jellyfin-ffmpeg -- color bars and a
          tone, named as a movie release and an episode release, each long enough to clear the
          arrs' sample check for its title.
       3. Makes a .torrent for each and seeds it from a self-hosted tracker on loopback.
@@ -541,7 +541,7 @@ Invoke-Step 'Generate test media' {
         @{ Path = (Join-Path $SeedDir "movie/$MovieFileName"); Label = 'movie'; Seconds = $MovieClipSeconds },
         @{ Path = (Join-Path $SeedDir "tv/$EpisodeFileName"); Label = 'episode'; Seconds = $EpisodeClipSeconds }
     )) {
-        # Colour bars and a 440 Hz tone: a real H.264/AAC file that ffprobe and Jellyfin analyse
+        # Color bars and a 440 Hz tone: a real H.264/AAC file that ffprobe and Jellyfin analyse
         # normally, small enough that the transfer is never the slow part.
         #
         # The durations are not arbitrary -- see the sample-check table at the top of this file.
@@ -1284,8 +1284,8 @@ Invoke-Step 'Restart: everything comes back' {
     if (-not $width) { $width = 30 }
     foreach ($s in $script:Steps) {
         $mark = if ($s.Ok) { 'PASS' } else { 'FAIL' }
-        $colour = if ($s.Ok) { 'Green' } else { 'Red' }
-        Write-Host ("  {0}  {1}  {2,7:N1}s  {3}" -f $mark, $s.Name.PadRight($width), $s.Seconds, $s.Detail) -ForegroundColor $colour
+        $color = if ($s.Ok) { 'Green' } else { 'Red' }
+        Write-Host ("  {0}  {1}  {2,7:N1}s  {3}" -f $mark, $s.Name.PadRight($width), $s.Seconds, $s.Detail) -ForegroundColor $color
     }
     $total = ($script:Steps | Measure-Object -Property Seconds -Sum).Sum
     Write-Host ("  total {0:N1}s" -f $total)

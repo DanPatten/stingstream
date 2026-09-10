@@ -1,0 +1,642 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using MediaBrowser.Providers.Plugins.Tmdb;
+using Microsoft.Extensions.Logging;
+using StingStream.Core.Inventory;
+
+namespace StingStream.Core.Requests;
+
+/// <summary>
+/// The catalogue behind the Find screen: what is popular, what is best, and what matches a filter.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Search goes through the arrs, and should keep going through them: they hold the keys, they
+/// normalise two providers onto one shape, and they are what will be asked to grab the result, so a
+/// title they cannot look up is a title that could not have been added anyway.
+/// </para>
+/// <para>
+/// <strong>Browsing is a different question and the arrs cannot answer it.</strong> "What is popular
+/// right now" and "what is the best ever made" are not searches for a term. Radarr can be asked for
+/// a popular list, Sonarr cannot be asked for anything of the sort, and neither has an all-time
+/// rating list, so a feed built on them would be films-only and half the feature. This asks the
+/// metadata provider directly, using the key the server already carries for its own library
+/// metadata.
+/// </para>
+/// <para>
+/// <strong>What this is not.</strong> It is not on the request path and it is not a source of truth.
+/// Every call is capped, the whole pass is capped, and any failure returns an empty list rather than
+/// throwing: a catalogue that cannot be read leaves the reader with the search box they had before
+/// it existed, which is a worse screen and not a broken one.
+/// </para>
+/// </remarks>
+public sealed class TmdbCatalog
+{
+    /// <summary>Name of the <see cref="IHttpClientFactory"/> client used for catalogue calls.</summary>
+    public const string HttpClientName = "StingStream.Tmdb";
+
+    /// <summary>The id space a translated series id caches under.</summary>
+    private const string TmdbProvider = "tmdb";
+
+    /// <summary>The id space series item keys are built from.</summary>
+    private const string TvdbProvider = "tvdb";
+
+    private const string BaseUrl = "https://api.themoviedb.org/3";
+
+    /// <summary>
+    /// Where a poster path becomes a URL.
+    /// </summary>
+    /// <remarks>
+    /// Hardcoded rather than read from <c>/configuration</c>, which would be a round trip on the
+    /// request path for a value that has not moved in a decade. <see cref="ArtworkFallback"/>
+    /// hardcodes its CDN for the same reason. <c>w500</c> is roughly twice the widest poster the
+    /// grid draws, which is what the card layout asks for on a high-density screen.
+    /// </remarks>
+    private const string PosterBase = "https://image.tmdb.org/t/p/w500";
+
+    /// <summary>
+    /// How many upstream pages one feed is made of.
+    /// </summary>
+    /// <remarks>
+    /// A page is twenty titles, so three is sixty: comfortably past the fifty the screen promises,
+    /// and short enough that a cold feed is three calls rather than a crawl.
+    /// </remarks>
+    private const int PagesPerFeed = 3;
+
+    /// <summary>
+    /// The vote floor under which a rating means nothing.
+    /// </summary>
+    /// <remarks>
+    /// Load-bearing, not a nicety. Ordering by rating without it answers "the best films ever made"
+    /// with nine-vote curiosities sitting at 10.0, because that is what an unbounded average does.
+    /// </remarks>
+    private const int MovieVoteFloor = 300;
+
+    /// <summary>The same floor for series, which have fewer voters per title.</summary>
+    private const int SeriesVoteFloor = 200;
+
+    /// <summary>How many series ids are translated at once.</summary>
+    private const int IdConcurrency = 6;
+
+    /// <summary>Ceiling on one HTTP call.</summary>
+    private static readonly TimeSpan _callTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>Ceiling on one whole feed, however many calls it takes.</summary>
+    private static readonly TimeSpan _passTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>How long a feed page is reused. Popular moves daily at most.</summary>
+    private static readonly TimeSpan _feedTtl = TimeSpan.FromHours(6);
+
+    /// <summary>How long the genre list is reused. It changes about once a decade.</summary>
+    private static readonly TimeSpan _genreTtl = TimeSpan.FromHours(24);
+
+    private readonly RequestStore _store;
+    private readonly IHttpClientFactory _httpFactory;
+    private readonly ILogger<TmdbCatalog> _logger;
+    private readonly ConcurrentDictionary<string, (DateTime At, JsonNode Body)> _cache = new(StringComparer.Ordinal);
+
+    public TmdbCatalog(
+        RequestStore store,
+        IHttpClientFactory httpFactory,
+        ILogger<TmdbCatalog> logger)
+    {
+        _store = store;
+        _httpFactory = httpFactory;
+        _logger = logger;
+    }
+
+    /// <summary>Whether a catalogue can be read at all.</summary>
+    /// <returns>True when there is a key to read it with.</returns>
+    /// <remarks>
+    /// The key the metadata provider ships is always present, so this is true unless somebody has
+    /// deliberately blanked it. It exists so a caller can tell "no catalogue" from "empty
+    /// catalogue" if that ever changes.
+    /// </remarks>
+    public bool CanBrowse() => !string.IsNullOrWhiteSpace(ApiKey);
+
+    /// <summary>
+    /// A page of the catalogue, before anything is known about who holds what.
+    /// </summary>
+    /// <param name="query">What to fetch.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The titles, in the order asked for. Empty when the catalogue could not be read.</returns>
+    public async Task<IReadOnlyList<RequestSearchResult>> BrowseAsync(
+        TmdbBrowseQuery query,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_passTimeout);
+
+        try
+        {
+            var wantMovies = !string.Equals(query.Kind, "series", StringComparison.OrdinalIgnoreCase);
+            var wantSeries = !string.Equals(query.Kind, "movie", StringComparison.OrdinalIgnoreCase);
+
+            var results = new List<RequestSearchResult>();
+            if (wantMovies)
+            {
+                results.AddRange(await PageAsync(query, true, budget.Token).ConfigureAwait(false));
+            }
+
+            if (wantSeries)
+            {
+                results.AddRange(await PageAsync(query, false, budget.Token).ConfigureAwait(false));
+            }
+
+            // Two lists become one. Films and series are fetched separately because the provider has
+            // no combined endpoint, and a hard films-then-series boundary halfway down a grid with
+            // no section headings reads as a rendering fault rather than as an order.
+            if (wantMovies && wantSeries)
+            {
+                results = Order(results, query);
+            }
+
+            return Dedupe(results);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("The catalogue did not answer inside {Budget}", _passTimeout);
+            return Array.Empty<RequestSearchResult>();
+        }
+    }
+
+    /// <summary>The genres this kind can be filtered by.</summary>
+    /// <param name="kind"><c>movie</c>, <c>series</c>, or anything else for both.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Genre names, alphabetical, deduplicated across both kinds when both are wanted.</returns>
+    public async Task<IReadOnlyList<string>> GenreNamesAsync(string? kind, CancellationToken cancellationToken)
+    {
+        var wantMovies = !string.Equals(kind, "series", StringComparison.OrdinalIgnoreCase);
+        var wantSeries = !string.Equals(kind, "movie", StringComparison.OrdinalIgnoreCase);
+
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (wantMovies)
+        {
+            foreach (var genre in await GenresAsync(true, cancellationToken).ConfigureAwait(false))
+            {
+                names.Add(genre.Value);
+            }
+        }
+
+        if (wantSeries)
+        {
+            foreach (var genre in await GenresAsync(false, cancellationToken).ConfigureAwait(false))
+            {
+                names.Add(genre.Value);
+            }
+        }
+
+        return names.ToList();
+    }
+
+    // --- mapping, static so it can be tested without a network --------------
+
+    /// <summary>One film out of a discover response.</summary>
+    /// <param name="entry">The provider's object.</param>
+    /// <param name="genres">Genre ids to names, for the ids the entry carries.</param>
+    /// <returns>The result, or null when it has no usable id.</returns>
+    public static RequestSearchResult? FromTmdbMovie(JsonObject? entry, IReadOnlyDictionary<int, string> genres)
+    {
+        ArgumentNullException.ThrowIfNull(genres);
+        var tmdbId = entry?["id"]?.GetValue<int?>() ?? 0;
+        if (entry is null || tmdbId <= 0)
+        {
+            return null;
+        }
+
+        return new RequestSearchResult
+        {
+            Kind = "movie",
+            Title = entry["title"]?.GetValue<string>() ?? string.Empty,
+            Year = YearOf(entry["release_date"]?.GetValue<string>()),
+            Overview = Blank(entry["overview"]?.GetValue<string>()),
+            PosterUrl = PosterOf(entry),
+            TmdbId = tmdbId,
+            TvdbId = 0,
+            ItemKey = InventoryKeys.Movie(tmdbId),
+            SeasonCount = 0,
+            Genres = NamesOf(entry, genres),
+            Rating = entry["vote_average"]?.GetValue<double?>(),
+            Popularity = entry["popularity"]?.GetValue<double?>(),
+        };
+    }
+
+    /// <summary>One show out of a discover response, once its TVDB id is known.</summary>
+    /// <param name="entry">The provider's object.</param>
+    /// <param name="tvdbId">The TVDB id every series item key is built from.</param>
+    /// <param name="genres">Genre ids to names.</param>
+    /// <returns>The result, or null when either id is missing.</returns>
+    /// <remarks>
+    /// A show with no TVDB id is dropped rather than emitted with a zero. Every series key in the
+    /// system is <c>episode:tvdb:{id}:</c>, so a zero would be one key shared by every untranslated
+    /// show in the catalogue: they would report each other's holders, each other's request state,
+    /// and asking for one would look like asking for all of them.
+    /// </remarks>
+    public static RequestSearchResult? FromTmdbSeries(
+        JsonObject? entry,
+        int tvdbId,
+        IReadOnlyDictionary<int, string> genres)
+    {
+        ArgumentNullException.ThrowIfNull(genres);
+        var tmdbId = entry?["id"]?.GetValue<int?>() ?? 0;
+        if (entry is null || tmdbId <= 0 || tvdbId <= 0)
+        {
+            return null;
+        }
+
+        return new RequestSearchResult
+        {
+            Kind = "series",
+            Title = entry["name"]?.GetValue<string>() ?? string.Empty,
+            Year = YearOf(entry["first_air_date"]?.GetValue<string>()),
+            Overview = Blank(entry["overview"]?.GetValue<string>()),
+            PosterUrl = PosterOf(entry),
+
+            // Zero, deliberately, even though we have one. A request body carrying both ids is
+            // read as a film by CreateAsync, which decides the kind from whichever id is set, so a
+            // series that volunteered its TMDB id would be requested from the wrong manager. The
+            // TMDB id has done its job by the time this is built: it is what the TVDB id was
+            // translated from.
+            TmdbId = 0,
+            TvdbId = tvdbId,
+            ItemKey = InventoryKeys.SeriesPrefix(tvdbId),
+
+            // A discover response carries no season count; only the full series record does, which
+            // would be a second call per show. SeasonPicker already draws a generous fallback range
+            // for exactly this case, and offering a season a show does not have is harmless.
+            SeasonCount = 0,
+            Genres = NamesOf(entry, genres),
+            Rating = entry["vote_average"]?.GetValue<double?>(),
+            Popularity = entry["popularity"]?.GetValue<double?>(),
+        };
+    }
+
+    /// <summary>The provider's sort parameter for one of ours.</summary>
+    /// <param name="sort">Our sort name.</param>
+    /// <param name="order"><c>asc</c>, or anything else for descending.</param>
+    /// <param name="isMovie">Films and series name their release date differently.</param>
+    /// <returns>The provider's <c>sort_by</c> value.</returns>
+    public static string SortParam(string? sort, string? order, bool isMovie)
+    {
+        var direction = string.Equals(order, "asc", StringComparison.OrdinalIgnoreCase) ? "asc" : "desc";
+        var field = (sort ?? string.Empty).ToLowerInvariant() switch
+        {
+            "top_rated" => "vote_average",
+            "newest" => isMovie ? "primary_release_date" : "first_air_date",
+            "title" => isMovie ? "title" : "name",
+            _ => "popularity",
+        };
+
+        return field + "." + direction;
+    }
+
+    // --- fetching -----------------------------------------------------------
+
+    private async Task<List<RequestSearchResult>> PageAsync(
+        TmdbBrowseQuery query,
+        bool isMovie,
+        CancellationToken cancellationToken)
+    {
+        var genres = await GenresAsync(isMovie, cancellationToken).ConfigureAwait(false);
+        var wanted = GenreIds(query.Genres, genres);
+        if (query.Genres.Count > 0 && wanted.Count == 0)
+        {
+            // The reader asked for a genre this kind does not have: "Sci-Fi & Fantasy" is a series
+            // genre with no film equivalent. Answering with an unfiltered feed would be worse than
+            // answering with nothing, because it would look like the filter had not worked.
+            return new List<RequestSearchResult>();
+        }
+
+        var results = new List<RequestSearchResult>();
+        var first = ((Math.Max(query.Page, 1) - 1) * PagesPerFeed) + 1;
+        for (var page = first; page < first + PagesPerFeed; page++)
+        {
+            var body = await GetAsync(DiscoverPath(query, isMovie, wanted, page), _feedTtl, cancellationToken)
+                .ConfigureAwait(false);
+            if (body?["results"] is not JsonArray entries || entries.Count == 0)
+            {
+                break;
+            }
+
+            if (isMovie)
+            {
+                foreach (var entry in entries.OfType<JsonObject>())
+                {
+                    var result = FromTmdbMovie(entry, genres);
+                    if (result is not null)
+                    {
+                        results.Add(result);
+                    }
+                }
+            }
+            else
+            {
+                results.AddRange(await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>Turn a page of shows into results, translating each one's id.</summary>
+    private async Task<List<RequestSearchResult>> SeriesAsync(
+        JsonArray entries,
+        IReadOnlyDictionary<int, string> genres,
+        CancellationToken cancellationToken)
+    {
+        using var slots = new SemaphoreSlim(IdConcurrency);
+        var work = entries
+            .OfType<JsonObject>()
+            .Select(async entry =>
+            {
+                await slots.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var tmdbId = entry["id"]?.GetValue<int?>() ?? 0;
+                    var tvdbId = await TvdbIdAsync(tmdbId, cancellationToken).ConfigureAwait(false);
+                    return FromTmdbSeries(entry, tvdbId ?? 0, genres);
+                }
+                finally
+                {
+                    slots.Release();
+                }
+            });
+
+        var mapped = await Task.WhenAll(work).ConfigureAwait(false);
+        var results = new List<RequestSearchResult>();
+        foreach (var result in mapped)
+        {
+            if (result is not null)
+            {
+                results.Add(result);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>The TVDB id for a TMDB series id, remembered either way.</summary>
+    private async Task<int?> TvdbIdAsync(int tmdbId, CancellationToken cancellationToken)
+    {
+        if (tmdbId <= 0)
+        {
+            return null;
+        }
+
+        if (_store.TryCachedProviderId(TmdbProvider, tmdbId, TvdbProvider, out var cached))
+        {
+            return cached;
+        }
+
+        var body = await GetAsync(
+                $"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/external_ids",
+                _genreTtl,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var tvdbId = body?["tvdb_id"]?.GetValue<int?>();
+        if (tvdbId is <= 0)
+        {
+            tvdbId = null;
+        }
+
+        // Remembered either way. The miss is the more valuable of the two: a show the provider knows
+        // no TVDB id for would otherwise be asked about on every single page load.
+        await _store.CacheProviderIdAsync(TmdbProvider, tmdbId, TvdbProvider, tvdbId, cancellationToken)
+            .ConfigureAwait(false);
+        return tvdbId;
+    }
+
+    /// <summary>The provider's genre table for one kind, as ids to names.</summary>
+    private async Task<IReadOnlyDictionary<int, string>> GenresAsync(bool isMovie, CancellationToken cancellationToken)
+    {
+        var body = await GetAsync(isMovie ? "/genre/movie/list" : "/genre/tv/list", _genreTtl, cancellationToken)
+            .ConfigureAwait(false);
+
+        var map = new Dictionary<int, string>();
+        if (body?["genres"] is not JsonArray genres)
+        {
+            return map;
+        }
+
+        foreach (var genre in genres.OfType<JsonObject>())
+        {
+            var id = genre["id"]?.GetValue<int?>() ?? 0;
+            var name = genre["name"]?.GetValue<string>();
+            if (id > 0 && !string.IsNullOrWhiteSpace(name))
+            {
+                map[id] = name;
+            }
+        }
+
+        return map;
+    }
+
+    private static string DiscoverPath(
+        TmdbBrowseQuery query,
+        bool isMovie,
+        IReadOnlyList<int> genreIds,
+        int page)
+    {
+        var path = isMovie ? "/discover/movie" : "/discover/tv";
+        var parts = new List<string>
+        {
+            "include_adult=false",
+            "language=en-US",
+            "sort_by=" + SortParam(query.Sort, query.Order, isMovie),
+            "page=" + page.ToString(CultureInfo.InvariantCulture),
+        };
+
+        // Both directions need the floor, not just the default one: ascending by rating without it
+        // is the same nine-vote curiosities from the other end.
+        if (string.Equals(query.Sort, "top_rated", StringComparison.OrdinalIgnoreCase))
+        {
+            var floor = isMovie ? MovieVoteFloor : SeriesVoteFloor;
+            parts.Add("vote_count.gte=" + floor.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (genreIds.Count > 0)
+        {
+            parts.Add("with_genres=" + string.Join(
+                ",",
+                genreIds.Select(id => id.ToString(CultureInfo.InvariantCulture))));
+        }
+
+        if (query.Year is > 0)
+        {
+            var year = query.Year.Value.ToString(CultureInfo.InvariantCulture);
+            parts.Add(isMovie ? "primary_release_year=" + year : "first_air_date_year=" + year);
+        }
+
+        return path + "?" + string.Join("&", parts);
+    }
+
+    /// <summary>
+    /// One GET against the metadata provider, cached, with every failure flattened to null.
+    /// </summary>
+    /// <remarks>
+    /// The cache is what keeps this node polite. The key ships with the server and is therefore
+    /// shared across every install of it, so a feed that refetched on every chip press would be
+    /// this node's contribution to somebody else's rate limit.
+    /// </remarks>
+    private async Task<JsonNode?> GetAsync(string path, TimeSpan ttl, CancellationToken cancellationToken)
+    {
+        if (_cache.TryGetValue(path, out var cached) && DateTime.UtcNow - cached.At <= ttl)
+        {
+            return cached.Body;
+        }
+
+        var key = ApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_callTimeout);
+        try
+        {
+            using var http = _httpFactory.CreateClient(HttpClientName);
+            using var response = await http
+                .GetAsync(BaseUrl + path + separator + "api_key=" + key, timeout.Token)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("The catalogue answered {Status} for {Path}", (int)response.StatusCode, path);
+                return Stale(path);
+            }
+
+            var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            var parsed = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body);
+            if (parsed is not null)
+            {
+                _cache[path] = (DateTime.UtcNow, parsed);
+            }
+
+            return parsed;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "The catalogue did not answer for {Path}", path);
+            return Stale(path);
+        }
+    }
+
+    /// <summary>
+    /// The expired copy of a page, when the provider will not give a fresh one.
+    /// </summary>
+    /// <remarks>
+    /// Yesterday's popular list is a good screen. An empty grid, after the reader has already seen
+    /// a full one, is a broken screen.
+    /// </remarks>
+    private JsonNode? Stale(string path)
+        => _cache.TryGetValue(path, out var cached) ? cached.Body : null;
+
+    // --- helpers ------------------------------------------------------------
+
+    /// <summary>The configured key, or the one the server ships for its own metadata.</summary>
+    private static string ApiKey
+    {
+        get
+        {
+            var configured = Plugin.Instance?.Configuration?.TmdbApiKey;
+            return string.IsNullOrWhiteSpace(configured) ? TmdbUtils.ApiKey : configured;
+        }
+    }
+
+    private static List<int> GenreIds(IReadOnlyList<string> names, IReadOnlyDictionary<int, string> genres)
+        => genres
+            .Where(g => names.Any(name => string.Equals(name, g.Value, StringComparison.OrdinalIgnoreCase)))
+            .Select(g => g.Key)
+            .ToList();
+
+    private static List<string> NamesOf(JsonObject entry, IReadOnlyDictionary<int, string> genres)
+    {
+        var names = new List<string>();
+        if (entry["genre_ids"] is not JsonArray ids)
+        {
+            return names;
+        }
+
+        foreach (var id in ids)
+        {
+            if (id?.GetValue<int?>() is int value && genres.TryGetValue(value, out var name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names;
+    }
+
+    private static List<RequestSearchResult> Order(List<RequestSearchResult> results, TmdbBrowseQuery query)
+    {
+        var ascending = string.Equals(query.Order, "asc", StringComparison.OrdinalIgnoreCase);
+        IEnumerable<RequestSearchResult> ordered = (query.Sort ?? string.Empty).ToLowerInvariant() switch
+        {
+            "top_rated" => results.OrderByDescending(r => r.Rating ?? 0),
+            "newest" => results.OrderByDescending(r => r.Year ?? 0),
+            "title" => results.OrderByDescending(r => r.Title, StringComparer.OrdinalIgnoreCase),
+            _ => results.OrderByDescending(r => r.Popularity ?? 0),
+        };
+
+        return ascending ? ordered.Reverse().ToList() : ordered.ToList();
+    }
+
+    private static List<RequestSearchResult> Dedupe(IEnumerable<RequestSearchResult> results)
+    {
+        // The provider's popular list shifts between one page fetch and the next, so the same title
+        // arriving twice is expected rather than a fault.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return results.Where(r => seen.Add(r.ItemKey)).ToList();
+    }
+
+    private static int? YearOf(string? date)
+        => date is { Length: >= 4 } && int.TryParse(
+            date.AsSpan(0, 4),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var year)
+            ? year
+            : null;
+
+    private static string? PosterOf(JsonObject entry)
+    {
+        var path = entry["poster_path"]?.GetValue<string>();
+        return string.IsNullOrWhiteSpace(path) ? null : PosterBase + path;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+}
+
+/// <summary>What the Find screen is asking the catalogue for.</summary>
+public sealed class TmdbBrowseQuery
+{
+    /// <summary><c>movie</c>, <c>series</c>, or anything else for both.</summary>
+    public string? Kind { get; set; }
+
+    /// <summary><c>popular</c>, <c>top_rated</c>, <c>newest</c> or <c>title</c>.</summary>
+    public string? Sort { get; set; }
+
+    /// <summary><c>asc</c> or <c>desc</c>.</summary>
+    public string? Order { get; set; }
+
+    /// <summary>Genre names, as the screen's own chip shows them.</summary>
+    public IReadOnlyList<string> Genres { get; set; } = Array.Empty<string>();
+
+    /// <summary>A release year, or null for every year.</summary>
+    public int? Year { get; set; }
+
+    /// <summary>Which sixty. One-based.</summary>
+    public int Page { get; set; } = 1;
+}

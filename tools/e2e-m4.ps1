@@ -480,7 +480,7 @@ $Media = Invoke-Step 'Generate two encodes of one film, and two more films' {
         .SYNOPSIS
             Encode a clip at an exact bitrate.
         .DESCRIPTION
-            Constant bitrate, not a target, and the difference is the whole test. A colour-bar
+            Constant bitrate, not a target, and the difference is the whole test. A color-bar
             pattern is a static image: with an ordinary `-b:v 20M` x264 compresses twelve seconds of
             it to a couple of hundred kilobytes, and the bitrate the scorer then reads out of the
             index is fiction -- every source "fits" every link and the Speed-first and Quality-first

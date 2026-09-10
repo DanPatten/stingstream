@@ -144,6 +144,54 @@ public sealed class RequestsController : StingStreamControllerBase
         return Ok(await _requests.SearchAsync(q ?? string.Empty, kind, cancellationToken).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Browse the catalogue: what is popular now, or the best ever made, narrowed by a filter.
+    /// </summary>
+    /// <param name="kind"><c>movie</c>, <c>series</c>, or omit for both.</param>
+    /// <param name="sort"><c>popular</c> (the default), <c>top_rated</c>, <c>newest</c> or <c>title</c>.</param>
+    /// <param name="order"><c>asc</c>, or omit for descending.</param>
+    /// <param name="genres">Genre names to narrow to, comma separated.</param>
+    /// <param name="year">A release year, or omit for every year.</param>
+    /// <param name="page">Which page. One-based.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The page.</response>
+    /// <response code="503">Neither manager is configured on this node, so nothing here could be asked for.</response>
+    /// <returns>The page.</returns>
+    /// <remarks>
+    /// <para>
+    /// Behind the same 503 as the search, and for the same reason: a node with no managers cannot
+    /// fulfil anything, so a catalogue it could not act on would be a grid of dead buttons. The app
+    /// gates the whole screen on that answer before it draws a section bar.
+    /// </para>
+    /// <para>
+    /// A metadata provider that will not answer is <em>not</em> a 503. It comes back 200 with an
+    /// empty page, and the screen keeps the search box it has always had: "requests are not set up
+    /// here" and "the catalogue is quiet this minute" are different sentences and only one of them
+    /// is about this server.
+    /// </para>
+    /// </remarks>
+    [HttpGet("discover")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<RequestDiscoverPage>> Discover(
+        [FromQuery] string? kind,
+        [FromQuery] string? sort,
+        [FromQuery] string? order,
+        [FromQuery] string? genres,
+        [FromQuery] int? year,
+        [FromQuery] int page,
+        CancellationToken cancellationToken)
+    {
+        if (!_requests.CanSearch())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Ok(await _requests
+            .DiscoverAsync(kind, sort, order, genres, year, page, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
     // --- making ------------------------------------------------------------
 
     /// <summary>

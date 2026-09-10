@@ -6,7 +6,9 @@ import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { FilterChip } from "@/components/filters/FilterChip";
 import {
+  type MemberRequest,
   type RequestState,
+  requestAsSearchResult,
   requestTitle,
   selectMine,
   useCurrentUserId,
@@ -15,6 +17,7 @@ import {
 } from "@/lib/stingstream/requests";
 import { confirmDestructive } from "../shared/confirm";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
+import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
 
 const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
@@ -46,6 +49,7 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
   const requests = useRequests({ mine: true });
   const userId = useCurrentUserId();
   const remove = useDeleteRequest();
+  const [editing, setEditing] = useState<MemberRequest | null>(null);
 
   const mine = useMemo(
     () => selectMine(requests.data, userId),
@@ -125,26 +129,71 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
             <RequestCard
               key={request.id}
               request={request}
+              // The poster and the title open it, the same as they do on Find.
+              onOpen={editable(request) ? () => setEditing(request) : undefined}
               actions={
                 // Withdrawing a request that is already fulfilled does not stop the download — the
                 // grabbing node may be somebody else's and is already committed — but it does take
                 // it off this list, which is what "I no longer want this" means from here.
                 request.state === "available" ? undefined : (
-                  <Button
-                    variant='danger'
-                    size='sm'
-                    icon='delete'
-                    disabled={remove.isPending}
-                    onPress={() => withdraw(request.id, requestTitle(request))}
-                  >
-                    {t("common.delete")}
-                  </Button>
+                  <>
+                    {/*
+                      Only a show, and only while the request can still change: a film has no
+                      seasons to edit, and a finished request has nothing left to say.
+                    */}
+                    {editable(request) ? (
+                      <Button
+                        variant='secondary'
+                        size='sm'
+                        icon='settings'
+                        onPress={() => setEditing(request)}
+                      >
+                        {t("requests.edit_button")}
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant='danger'
+                      size='sm'
+                      icon='delete'
+                      disabled={remove.isPending}
+                      onPress={() =>
+                        withdraw(request.id, requestTitle(request))
+                      }
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  </>
                 )
               }
             />
           ))}
         </View>
       )}
+
+      {/*
+        The same sheet Find opens, reading the stored request through `requestAsSearchResult`. It
+        carries no overview and no season count — nothing asked TVDB how long the show was when the
+        request was made — so the sheet shows the title, the poster it stored, and the picker's
+        fallback range.
+      */}
+      <RequestSheet
+        result={editing ? requestAsSearchResult(editing) : null}
+        existing={editing}
+        onClose={() => setEditing(null)}
+      />
     </View>
   );
 }
+
+/**
+ * Whether there is anything to edit.
+ *
+ * Seasons are the only editable part of a request, so a film has nothing; and a request that has
+ * finished cannot change — the node answers 409 for one, which is the same rule read from the
+ * other side.
+ */
+const editable = (request: MemberRequest) =>
+  request.kind === "series" &&
+  (request.state === "pending" ||
+    request.state === "approved" ||
+    request.state === "fulfilling");

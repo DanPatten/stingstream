@@ -144,7 +144,6 @@ export function buildSettingsCategories(
         // scoping the whole of it while the switch above the bar governed both
         // tabs, so the two halves read as one confused screen.
         category("downloading", "/settings/downloading", "download", t),
-        category("arr_library", "/settings/library", "library", t),
         category("services", "/settings/services", "services", t),
         category("quality", "/settings/quality", "quality", t),
         category("files", "/settings/files", "files", t),

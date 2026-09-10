@@ -30,6 +30,8 @@ type CardProps = {
   slots?: Pick<CardSlots, "overlay" | "footer">;
   onPress: () => void;
   onLongPress?: () => void;
+  /** What the sweep looks for. The library's own name unless a screen says otherwise. */
+  testID?: string;
 };
 
 const isWeb = Platform.OS === "web";
@@ -58,6 +60,7 @@ export const Card: React.FC<CardProps> = ({
   slots,
   onPress,
   onLongPress,
+  testID = "library-card",
 }) => {
   const layout = useCardLayout(kind);
   const { accent } = useTheme();
@@ -140,7 +143,7 @@ export const Card: React.FC<CardProps> = ({
 
   return (
     <Pressable
-      testID='library-card'
+      testID={testID}
       accessibilityRole='button'
       // "Title (Year)", the same label the artwork carries — a poster card's
       // title is drawn text now, but a banded one still has it over the image,

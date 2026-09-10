@@ -307,15 +307,6 @@ export default function IndexLayout() {
         }}
       />
       <Stack.Screen
-        name='settings/library'
-        options={{
-          title: t("home.settings.sections.arr_library"),
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
-      <Stack.Screen
         name='settings/node'
         options={{
           title: t("home.settings.nav.diagnostics"),

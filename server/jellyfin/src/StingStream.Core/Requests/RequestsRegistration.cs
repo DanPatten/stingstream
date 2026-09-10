@@ -21,6 +21,27 @@ public static class RequestsRegistration
         services.AddSingleton<RequestStore>();
         services.AddSingleton<IRequestMesh, RequestMesh>();
         services.AddSingleton<RequestNotifier>();
+
+        // Posters for the series TVDB has no artwork for. Short timeout by design: this runs on the
+        // search path, and a slow answer must cost a placeholder tile rather than a slow search.
+        // ArtworkFallback caps each call again on its own, so this is only the outer bound.
+        services.AddHttpClient(ArtworkFallback.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(5);
+            // TVmaze asks for a real user agent and rate limits harder without one.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("StingStream/1.0");
+        });
+        services.AddSingleton<ArtworkFallback>();
+
+        // The catalogue behind the Find screen. Longer timeout than the artwork fallback: this one
+        // is the screen rather than a detail on it, and a feed is several calls deep. TmdbCatalog
+        // caps each call and the whole pass again on its own, so this is only the outer bound.
+        services.AddHttpClient(TmdbCatalog.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("StingStream/1.0");
+        });
+        services.AddSingleton<TmdbCatalog>();
         services.AddSingleton<RequestService>();
 
         // Resolved as both the concrete worker and a hosted service, so the controller's "run a

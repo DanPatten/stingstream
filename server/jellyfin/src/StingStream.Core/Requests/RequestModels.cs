@@ -293,6 +293,24 @@ public sealed class RequestDecisionBody
     public string? Reason { get; set; }
 }
 
+/// <summary>A page of the catalogue, with the options its filters offer.</summary>
+/// <remarks>
+/// The genres travel with the results rather than through an endpoint of their own, so the chip's
+/// options and the grid under it can never disagree, and opening Find is one round trip and not
+/// two.
+/// </remarks>
+public sealed class RequestDiscoverPage
+{
+    /// <summary>The titles, in the order asked for.</summary>
+    public List<RequestSearchResult> Results { get; set; } = new();
+
+    /// <summary>Which page this is. One-based.</summary>
+    public int Page { get; set; } = 1;
+
+    /// <summary>Every genre the current kind can be filtered by.</summary>
+    public List<string> Genres { get; set; } = new();
+}
+
 /// <summary>One search result, with what the group already has attached.</summary>
 public sealed class RequestSearchResult
 {
@@ -325,6 +343,34 @@ public sealed class RequestSearchResult
     /// need elevation, which is why the picker used to guess at twenty.
     /// </remarks>
     public int SeasonCount { get; set; }
+
+    /// <summary>
+    /// The genres this title is filed under, in the metadata provider's own words.
+    /// </summary>
+    /// <remarks>
+    /// On the wire so the Find screen can filter by genre the way a library does. Both arr lookups
+    /// have carried this all along and it was simply dropped; the catalogue fills it from the
+    /// provider's genre table.
+    /// </remarks>
+    public List<string> Genres { get; set; } = new();
+
+    /// <summary>The community rating out of ten, when the provider has one.</summary>
+    public double? Rating { get; set; }
+
+    /// <summary>
+    /// How much attention this title is getting, on the provider's own scale.
+    /// </summary>
+    /// <remarks>
+    /// Only comparable against other titles from the same answer, which is all the feed uses it
+    /// for. Sonarr does not report it, so a series found by search carries none.
+    /// </remarks>
+    public double? Popularity { get; set; }
+
+    /// <summary>Length in minutes, when the lookup said. An episode length, for a series.</summary>
+    public int? Runtime { get; set; }
+
+    /// <summary>The age rating, in whichever country's scheme the lookup answered in.</summary>
+    public string? Certification { get; set; }
 
     /// <summary>True when a member of the group already holds it at an acceptable quality.</summary>
     public bool AvailableInGroup { get; set; }

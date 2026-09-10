@@ -126,8 +126,8 @@ function Record-Timing {
     $ok = $Seconds -le $budget
     if (-not $ok) { $script:AnyMiss = $true }
     $Results[$Name] = [pscustomobject]@{ Seconds = $Seconds; Budget = $budget; Ok = $ok; Note = '' }
-    $colour = if ($ok) { 'Green' } else { 'Red' }
-    Write-Host ("  {0,-10} {1,7:N2}s   budget {2,6:N1}s   {3}" -f $Name, $Seconds, $budget, $(if ($ok) { 'OK' } else { 'MISS' })) -ForegroundColor $colour
+    $color = if ($ok) { 'Green' } else { 'Red' }
+    Write-Host ("  {0,-10} {1,7:N2}s   budget {2,6:N1}s   {3}" -f $Name, $Seconds, $budget, $(if ($ok) { 'OK' } else { 'MISS' })) -ForegroundColor $color
 }
 
 # Declared before the try block, and specifically $tool2: under Set-StrictMode -Version Latest,

@@ -398,6 +398,16 @@ feature is that somebody who cannot administer the node can still ask it for som
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
 
+**Find is the only way a title is added.** It was not, for a while: Settings → Movies & TV shows
+carried a search-and-add form of its own, over a list of everything the managers tracked. That was
+the same lookup and the same add without the group dedupe, the quota or the approval, and a second
+settings row that read as a second place to ask for a film, so it went (2026-09-10). What was not
+duplicated went with it to the title it was about: monitoring, quality profile and remove are the
+overflow menu on a film's or a show's own page. The one thing Find keeps from that screen is the
+**Add by id** escape hatch, behind the no-match empty state and offered only to an administrator:
+a lookup that cannot name a title still accepts its TMDB or TVDB id, and that add is deliberately
+outside the request machinery, which is the point of it.
+
 **Find is where asking happens, and it is the first tab.** One box asks the node, which asks both
 managers, and the answers come back films first with All / Films / Series chips to narrow — the
 chip is a real re-query on `?kind=`, which is one lookup the node does not have to make. Results

@@ -44,6 +44,14 @@ type Options = {
   /** Long-press handler for `cards` mode. */
   onLongPressId?: (id: string) => void;
   enableActionSheet?: boolean;
+  /**
+   * What each cell answers to in a screenshot sweep.
+   *
+   * Defaulted rather than required: every existing grid is `library-card` and the sweep's selectors
+   * name it. Requests passes its own, because its pinned route looks for `requests-card` and a
+   * shared default would have made the new grid invisible to the sweep rather than wrong.
+   */
+  cardTestID?: string;
 };
 
 /**
@@ -65,6 +73,7 @@ export function useCardGrid({
   onLongPressItem,
   onLongPressId,
   enableActionSheet,
+  cardTestID,
 }: Options) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -163,6 +172,7 @@ export function useCardGrid({
           card={item}
           kind={kind}
           width={cardWidth}
+          testID={cardTestID}
           onPress={() => handlePress(item.id)}
           onLongPress={
             handleLongPress ? () => handleLongPress(item.id) : undefined
@@ -172,6 +182,7 @@ export function useCardGrid({
     ),
     [
       cardWidth,
+      cardTestID,
       cellHeight,
       columnWidth,
       columnOffset,

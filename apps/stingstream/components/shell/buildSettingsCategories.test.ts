@@ -75,7 +75,6 @@ describe("buildSettingsCategories", () => {
     );
     expect(downloading?.categories.map((item) => item.key)).toEqual([
       "downloading",
-      "arr_library",
       "services",
       "quality",
       "files",

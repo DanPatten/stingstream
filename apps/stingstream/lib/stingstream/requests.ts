@@ -1,5 +1,10 @@
 import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
@@ -7,6 +12,8 @@ import {
   createRequest,
   decideRequest,
   deleteRequest,
+  discoverQuery,
+  discoverRequestable,
   fetchNotifications,
   fetchRequest,
   fetchRequestCounts,
@@ -16,6 +23,7 @@ import {
   fetchRequestUsers,
   type MemberRequest,
   markNotificationsRead,
+  type RequestFilterState,
   type RequestPolicy,
   type RequestState,
   saveRequestPolicy,
@@ -50,6 +58,8 @@ const keys = {
   users: ["stingstream", "requests", "users"] as const,
   search: (term: string, kind: string | undefined) =>
     ["stingstream", "requests", "search", term, kind ?? null] as const,
+  discover: (query: Record<string, string>) =>
+    ["stingstream", "requests", "discover", query] as const,
   notifications: (unreadOnly: boolean) =>
     ["stingstream", "requests", "notifications", unreadOnly] as const,
 };
@@ -155,6 +165,28 @@ export function useRequestSearch(term: string, kind?: "movie" | "series") {
     queryFn: () => searchRequestable(base!, trimmed, kind, token),
     enabled: !!base && trimmed.length > 2,
     staleTime: 60000,
+    retry: 1,
+  });
+}
+
+/**
+ * The catalogue: what is popular now, or the best ever made, narrowed by the bar above it.
+ *
+ * `keepPreviousData` is the point of this being a query rather than a fetch on press. Pressing a
+ * genre chip re-asks the node, and without it the grid would empty and re-fill on every press,
+ * which reads as the screen breaking rather than as it answering.
+ *
+ * The stale window is long because the answer is: the most popular titles do not move between one
+ * glance at the screen and the next, and the node caches the upstream call for longer still.
+ */
+export function useRequestDiscover(state: RequestFilterState, page = 1) {
+  const { base, token } = useConnection();
+  return useQuery({
+    queryKey: keys.discover(discoverQuery(state, page)),
+    queryFn: () => discoverRequestable(base!, state, page, token),
+    enabled: !!base,
+    staleTime: 30 * 60000,
+    placeholderData: keepPreviousData,
     retry: 1,
   });
 }

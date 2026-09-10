@@ -237,8 +237,8 @@ font:600 20px/1.25 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;letter
 /// The splash element itself, built once: the mark is 30 KB of base64 and there is no reason to
 /// format it per request.
 ///
-/// The mark goes in full colour rather than the flat white it used to be: the splash ground is
-/// #0B0C0F, and the art is a colour render now, so there is nothing to gain by throwing it away.
+/// The mark goes in full color rather than the flat white it used to be: the splash ground is
+/// #0B0C0F, and the art is a color render now, so there is nothing to gain by throwing it away.
 fn splash_body() -> &'static str {
     static HTML: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HTML.get_or_init(|| {
@@ -910,7 +910,7 @@ mod tests {
         // ...and the belt for an app that never mounts at all.
         assert!(out.contains("getElementById(\"ss-splash\")"));
         assert!(out.contains("},10000)"));
-        // The mark, in colour at 72px, and the word.
+        // The mark, in color at 72px, and the word.
         assert!(out.contains("<img src=\"data:image/png;base64,"));
         assert!(out.contains("<span>StingStream</span>"));
         assert!(out.contains("background:#0B0C0F"));

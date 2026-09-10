@@ -1,9 +1,9 @@
 /**
- * Request-search policy, shared by the two screens that run one.
+ * Find-screen policy, shared by the two screens that draw one.
  *
- * `FindSection` is the phone and web search on the Requests tab; `DiscoverSection` is the
+ * `FindSection` is the phone and web screen on the Requests tab; `DiscoverSection` is the
  * television's, which is a separate screen with a remote control to type on. They ask the node the
- * same question and so have to agree about when to ask it — see `docs/conventions/constants.md`.
+ * same questions and so have to agree about when to ask them — see `docs/conventions/constants.md`.
  */
 
 /**
@@ -26,8 +26,10 @@ export const REQUEST_SEARCH_MIN_LENGTH = 3;
 /**
  * How many season chips to draw when the node did not say how many a show has.
  *
- * `RequestSearchResult.seasonCount` carries the real number, off the same lookup that produced the
- * row, so this is only reached on a node built before that field existed. Generous on purpose: the
+ * `RequestSearchResult.seasonCount` carries the real number when the answer it came from had one.
+ * A search does: the season list is on the lookup entry. A show reached from the catalogue does
+ * not, because a browse response carries no season count and asking for one would be a second call
+ * per poster on the screen. Generous on purpose: the
  * node ticks only the seasons the series actually has, so offering season 18 of a nine-season show
  * is harmless (`RequestWorker.ApplySeasons` never finds it) where offering too few would make a
  * season unrequestable.
@@ -35,19 +37,9 @@ export const REQUEST_SEARCH_MIN_LENGTH = 3;
 export const REQUEST_SEASON_FALLBACK = 20;
 
 /**
- * Public-domain titles offered as chips before anything has been typed.
+ * The earliest year the year chip offers.
  *
- * These are search *terms*, not library content: pressing one runs a real metadata lookup, so a
- * chip finds whatever the node's own managers return. They stand in for a feed — there is no
- * trending or recently-requested endpoint to build one from, and a fabricated row would be worse
- * than none. Six, per the design: enough to suggest a spread of films and one series without
- * turning the empty state into a wall of buttons.
+ * Far enough back to cover everything the catalogue holds. The chip's sheet grows its own search
+ * box past fifteen options, so a long list costs a reader nothing.
  */
-export const REQUEST_EXAMPLE_SEARCHES = [
-  "Sintel",
-  "Big Buck Bunny",
-  "Nosferatu",
-  "The Beverly Hillbillies",
-  "Tears of Steel",
-  "Elephants Dream",
-] as const;
+export const REQUEST_YEAR_FLOOR = 1900;

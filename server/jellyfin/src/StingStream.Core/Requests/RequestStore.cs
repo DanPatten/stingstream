@@ -142,6 +142,32 @@ public sealed class RequestStore
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS ix_notifications_user ON notifications (user_id, read);
+
+                -- What an artwork provider said about a title the arrs had no poster for. A null
+                -- poster_url is a *known miss* and is the reason this table exists at all: roughly
+                -- four in five of these lookups find nothing, and without remembering that, every
+                -- search would re-ask for every gap it has already been told about.
+                CREATE TABLE IF NOT EXISTS artwork_lookup (
+                    provider    TEXT    NOT NULL,
+                    provider_id INTEGER NOT NULL,
+                    poster_url  TEXT,
+                    checked_at  TEXT    NOT NULL,
+                    PRIMARY KEY (provider, provider_id)
+                );
+
+                -- One provider's id translated into another's, e.g. a TMDB series id to the TVDB
+                -- id every series item key is built from. A null target_id is a known miss, for
+                -- the same reason artwork_lookup remembers one: the catalogue asks about the same
+                -- twenty shows every time somebody opens it, and a show TMDB knows no TVDB id for
+                -- will never grow one on the next page load.
+                CREATE TABLE IF NOT EXISTS provider_id_map (
+                    source     TEXT    NOT NULL,
+                    source_id  INTEGER NOT NULL,
+                    target     TEXT    NOT NULL,
+                    target_id  INTEGER,
+                    checked_at TEXT    NOT NULL,
+                    PRIMARY KEY (source, source_id, target)
+                );
                 """);
             _schemaReady = true;
         }
@@ -644,6 +670,187 @@ public sealed class RequestStore
                         ("$i", id));
                 }
             },
+            cancellationToken);
+    }
+
+    // --- artwork lookups ---------------------------------------------------
+
+    /// <summary>How long a found poster is believed before we ask again.</summary>
+    private static readonly TimeSpan _artworkHitTtl = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// How long a miss is believed. Shorter than a hit: a show with no artwork today may be given
+    /// some next month, and a month of placeholder after that would be our own fault.
+    /// </summary>
+    private static readonly TimeSpan _artworkMissTtl = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// What a provider last said about a title, if it was recent enough to still believe.
+    /// </summary>
+    /// <param name="provider">The id space the lookup was keyed on, currently <c>tvdb</c>.</param>
+    /// <param name="providerId">The id.</param>
+    /// <param name="posterUrl">
+    /// The cached poster, or null. Null with a <c>true</c> return is a remembered miss, which is a
+    /// different thing from a cache with nothing in it and must not be re-asked.
+    /// </param>
+    /// <returns>True when there is a fresh answer, whether or not it found a poster.</returns>
+    public bool TryCachedArtwork(string provider, int providerId, out string? posterUrl)
+    {
+        EnsureSchema();
+        posterUrl = null;
+
+        var rows = _db.Read(c => CoreDatabase.Query(
+            c,
+            "SELECT poster_url, checked_at FROM artwork_lookup WHERE provider = $p AND provider_id = $i;",
+            r => (Url: r.IsDBNull(0) ? null : r.GetString(0), CheckedAt: r.GetString(1)),
+            ("$p", provider),
+            ("$i", providerId)));
+
+        if (rows.Count == 0)
+        {
+            return false;
+        }
+
+        var (url, checkedAt) = rows[0];
+        if (!DateTime.TryParse(
+                checkedAt,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var when))
+        {
+            return false;
+        }
+
+        var ttl = url is null ? _artworkMissTtl : _artworkHitTtl;
+        if (DateTime.UtcNow - when.ToUniversalTime() > ttl)
+        {
+            return false;
+        }
+
+        posterUrl = url;
+        return true;
+    }
+
+    /// <summary>
+    /// Remember what a provider said, including that it said nothing.
+    /// </summary>
+    /// <param name="provider">The id space, currently <c>tvdb</c>.</param>
+    /// <param name="providerId">The id.</param>
+    /// <param name="posterUrl">The poster found, or null for a miss.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task CacheArtworkAsync(
+        string provider,
+        int providerId,
+        string? posterUrl,
+        CancellationToken cancellationToken)
+    {
+        EnsureSchema();
+        return _db.WriteAsync(
+            c => CoreDatabase.Execute(
+                c,
+                """
+                INSERT INTO artwork_lookup (provider, provider_id, poster_url, checked_at)
+                VALUES ($p, $i, $u, $a)
+                ON CONFLICT(provider, provider_id) DO UPDATE SET
+                    poster_url = excluded.poster_url, checked_at = excluded.checked_at;
+                """,
+                ("$p", provider),
+                ("$i", providerId),
+                ("$u", posterUrl),
+                ("$a", Now())),
+            cancellationToken);
+    }
+
+    // --- provider id translation -------------------------------------------
+
+    /// <summary>How long a translated id is believed. Provider ids do not move.</summary>
+    private static readonly TimeSpan _providerIdHitTtl = TimeSpan.FromDays(90);
+
+    /// <summary>
+    /// How long "that provider knows no such id" is believed.
+    /// </summary>
+    /// <remarks>
+    /// Shorter than a hit, and for the same reason as the artwork miss: a show TMDB has no TVDB id
+    /// for today may be matched up next month, and a quarter of never asking again would leave it
+    /// permanently unrequestable.
+    /// </remarks>
+    private static readonly TimeSpan _providerIdMissTtl = TimeSpan.FromDays(7);
+
+    /// <summary>The cached translation of one provider's id into another's.</summary>
+    /// <param name="source">The provider the id is from, e.g. <c>tmdb</c>.</param>
+    /// <param name="sourceId">That provider's id.</param>
+    /// <param name="target">The provider wanted, e.g. <c>tvdb</c>.</param>
+    /// <param name="targetId">The translated id, or null for a remembered miss.</param>
+    /// <returns>True when the answer is cached and still fresh, miss included.</returns>
+    public bool TryCachedProviderId(string source, int sourceId, string target, out int? targetId)
+    {
+        EnsureSchema();
+        targetId = null;
+
+        var rows = _db.Read(c => CoreDatabase.Query(
+            c,
+            "SELECT target_id, checked_at FROM provider_id_map "
+            + "WHERE source = $s AND source_id = $i AND target = $t;",
+            r => (Id: r.IsDBNull(0) ? (int?)null : r.GetInt32(0), CheckedAt: r.GetString(1)),
+            ("$s", source),
+            ("$i", sourceId),
+            ("$t", target)));
+
+        if (rows.Count == 0)
+        {
+            return false;
+        }
+
+        var (id, checkedAt) = rows[0];
+        if (!DateTime.TryParse(
+                checkedAt,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var when))
+        {
+            return false;
+        }
+
+        var ttl = id is null ? _providerIdMissTtl : _providerIdHitTtl;
+        if (DateTime.UtcNow - when.ToUniversalTime() > ttl)
+        {
+            return false;
+        }
+
+        targetId = id;
+        return true;
+    }
+
+    /// <summary>Remember a translation, including a miss.</summary>
+    /// <param name="source">The provider the id is from.</param>
+    /// <param name="sourceId">That provider's id.</param>
+    /// <param name="target">The provider wanted.</param>
+    /// <param name="targetId">The translated id, or null when there is none.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task CacheProviderIdAsync(
+        string source,
+        int sourceId,
+        string target,
+        int? targetId,
+        CancellationToken cancellationToken)
+    {
+        EnsureSchema();
+        return _db.WriteAsync(
+            c => CoreDatabase.Execute(
+                c,
+                """
+                INSERT INTO provider_id_map (source, source_id, target, target_id, checked_at)
+                VALUES ($s, $i, $t, $x, $a)
+                ON CONFLICT(source, source_id, target) DO UPDATE SET
+                    target_id = excluded.target_id, checked_at = excluded.checked_at;
+                """,
+                ("$s", source),
+                ("$i", sourceId),
+                ("$t", target),
+                ("$x", targetId),
+                ("$a", Now())),
             cancellationToken);
     }
 

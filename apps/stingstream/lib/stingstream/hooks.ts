@@ -249,7 +249,7 @@ export function useRunSync() {
   });
 }
 
-export function useMovies() {
+export function useMovies(enabled = true) {
   const client = useStingStreamClient();
   const arrReady = useArrReady("radarr");
   return useQuery({
@@ -268,8 +268,14 @@ export function useMovies() {
     // manager is still starting answers with a 500. Letting the request go out
     // anyway means three retries (the app's default) and a console entry for
     // each one, purely to learn something /healthz already knows for free.
-    enabled: !!client && arrReady === "ready",
+    enabled: enabled && !!client && arrReady === "ready",
     retry: false,
+    // The whole tracked list, and `useArrTitle` asks for it from every film and
+    // series page an administrator opens. Without this, walking a library
+    // refetches it per navigation to answer a question — is this title tracked,
+    // and how — whose answer changes when somebody adds or removes something,
+    // not while a page is being read. The mutations below invalidate it.
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -307,7 +313,7 @@ export function useAddMovie() {
   });
 }
 
-export function useSeries() {
+export function useSeries(enabled = true) {
   const client = useStingStreamClient();
   const arrReady = useArrReady("sonarr");
   return useQuery({
@@ -319,8 +325,10 @@ export function useSeries() {
       if (error) throw error;
       return ((data ?? (await response.json())) as ArrSeries[]) ?? [];
     },
-    enabled: !!client && arrReady === "ready",
+    enabled: enabled && !!client && arrReady === "ready",
     retry: false,
+    // Same reason as `useMovies`.
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -501,8 +509,57 @@ export function useDeleteLibraryItem(kind: "movie" | "series") {
   });
 }
 
+/**
+ * What this node's manager knows about a title the app is already showing.
+ *
+ * The manage actions on a film's or a show's own page need three things a
+ * Jellyfin item cannot answer: whether a manager here tracks it at all, whether
+ * it is monitored, and which quality profile it is on. `PATCH` and `DELETE` are
+ * keyed on the TMDB/TVDB id directly, so the row is wanted for those answers,
+ * not for an internal id.
+ *
+ * **Absent is a real answer, and a common one.** On a pooled library the item on
+ * screen may be held by another node entirely and tracked by no manager here;
+ * the page must offer nothing rather than a control that can only fail.
+ *
+ * `enabled` is the caller's "administrator, and online". Every endpoint behind
+ * this is elevated, and a member should not spend a list call to be told so.
+ */
+export function useArrTitle(
+  kind: "movie" | "series",
+  providerId: number | undefined,
+  enabled: boolean,
+) {
+  const want = enabled && !!providerId;
+  const isMovie = kind === "movie";
+  // Both, one of them switched off: hooks cannot be called conditionally, and
+  // the disabled half costs nothing.
+  const movies = useMovies(want && isMovie);
+  const series = useSeries(want && !isMovie);
+  const profiles = useQualityProfiles(want);
+  const query = isMovie ? movies : series;
+
+  const row = providerId
+    ? ((query.data ?? []) as (ArrMovie | ArrSeries)[]).find((item) =>
+        isMovie
+          ? (item as ArrMovie).tmdbId === providerId
+          : (item as ArrSeries).tvdbId === providerId,
+      )
+    : undefined;
+
+  // The row carries the arr's own integer id for the profile; the name is what
+  // a person reads, and `Ids` is published for exactly this cross-check.
+  const app = isMovie ? "radarr" : "sonarr";
+  const profileName = row
+    ? (profiles.data ?? []).find((p) => p.Ids?.[app] === row.qualityProfileId)
+        ?.Name
+    : undefined;
+
+  return { row, profileName, isLoading: query.isLoading };
+}
+
 /** Every quality profile either app has, merged by name. Gap 4. */
-export function useQualityProfiles() {
+export function useQualityProfiles(enabled = true) {
   const client = useStingStreamClient();
   return useQuery({
     queryKey: keys.qualityProfiles,
@@ -513,7 +570,7 @@ export function useQualityProfiles() {
       if (error) throw error;
       return (data ?? []) as QualityProfileView[];
     },
-    enabled: !!client,
+    enabled: enabled && !!client,
   });
 }
 
