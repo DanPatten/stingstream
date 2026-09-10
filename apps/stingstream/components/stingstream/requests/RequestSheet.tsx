@@ -321,11 +321,16 @@ export function RequestSheet({
         {/*
           What this server does about the title, on the same sheet as what was asked for. It was a
           second button on the row — "Manage on this server" — beside Edit and Delete, which is
-          three controls for one title and a name nobody had to learn. Only when this node's own
-          manager tracks it: a request another node is fulfilling, or one still waiting for
-          approval, has nothing here to change.
+          three controls for one title and a name nobody had to learn.
+
+          Gated on the *title* being tracked, not on the request still being open, because that is
+          what these three are about. Gating them on the request as well is what left a failed film
+          with an Edit button on its row (the row asks "is it tracked") and an empty sheet behind it
+          (the sheet asked "is the request open"). A request that failed still has a film in the
+          manager to monitor, re-profile or remove — and the button below says Request, so asking
+          again is here too.
         */}
-        {editingNow && managed.row ? (
+        {managed.row ? (
           <View
             style={{
               borderTopWidth: 1,
