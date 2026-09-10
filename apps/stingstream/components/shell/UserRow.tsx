@@ -36,8 +36,14 @@ export const UserRow: React.FC<Props> = ({ collapsed = false }) => {
 
   const name = user?.Name ?? "";
 
+  // `navigate`, not `push`. `useAppRouter`'s `push` is gated by a ref that only
+  // resets when the calling *screen* regains focus, and the sidebar is not a
+  // screen: it lives outside the navigator and never blurs, so every push from
+  // it after the first is dropped in silence. The rows above this one navigate
+  // for the same reason (see `WebShellLayout.onSelect`), and `navigate` reuses
+  // the profile route rather than stacking a second copy of it.
   const openProfile = useCallback(() => {
-    router.push("/settings/profile");
+    router.navigate("/settings/profile");
   }, [router]);
 
   return (
