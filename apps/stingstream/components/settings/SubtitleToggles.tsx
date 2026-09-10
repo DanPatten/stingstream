@@ -435,7 +435,6 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
 
         <ListItem
           title={t("home.settings.subtitles.subtitles_on_mute")}
-          subtitle={t("home.settings.subtitles.subtitles_on_mute_hint")}
           disabled={pluginSettings?.subtitlesOnMute?.locked}
         >
           <SettingSwitch

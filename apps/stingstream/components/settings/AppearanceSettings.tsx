@@ -113,7 +113,6 @@ export const AppearanceSettings: React.FC = () => {
         </ListItem>
         <ListItem
           title={t("home.settings.other.show_custom_menu_links")}
-          subtitle={t("home.settings.other.show_custom_menu_links_hint")}
           disabled={pluginSettings?.showCustomMenuLinks?.locked}
           onPress={() =>
             Linking.openURL(
@@ -160,9 +159,6 @@ export const AppearanceSettings: React.FC = () => {
         </ListItem>
         <ListItem
           title={t("home.settings.appearance.use_episode_images_next_up")}
-          subtitle={t(
-            "home.settings.appearance.use_episode_images_next_up_hint",
-          )}
         >
           <SettingSwitch
             value={settings.useEpisodeImagesForNextUp}

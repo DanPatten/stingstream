@@ -2,7 +2,7 @@ import { getNodeBaseUrl } from "@stingstream/api-client";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/common/Input";
@@ -309,12 +309,6 @@ const SignOut: React.FC = () => {
         textColor='red'
         onPress={() => logout()}
         title={t("home.settings.sections.sign_out")}
-        // Web has no second app to return to, so say where it lands.
-        subtitle={
-          Platform.OS === "web"
-            ? t("home.settings.profile.sign_out_detail")
-            : undefined
-        }
       />
     </ListGroup>
   );

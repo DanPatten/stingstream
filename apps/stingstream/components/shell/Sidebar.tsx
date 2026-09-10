@@ -18,7 +18,7 @@ import type {
   SidebarSection,
 } from "./buildSidebarItems";
 import { RailTooltip, SidebarItem } from "./SidebarItem";
-import { UserMenu } from "./UserMenu";
+import { UserRow } from "./UserRow";
 
 /** 240 when the labels are showing, a 72 px icon rail when they are not. */
 export const SIDEBAR_WIDTH = 240;
@@ -159,7 +159,7 @@ export const Sidebar: React.FC<Props> = ({
           )),
         )}
         <View style={{ marginTop: 4 }}>
-          <UserMenu variant='row' collapsed={collapsed} />
+          <UserRow collapsed={collapsed} />
         </View>
       </View>
 

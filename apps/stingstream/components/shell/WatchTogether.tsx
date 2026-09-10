@@ -201,7 +201,6 @@ const WatchTogetherDialog: React.FC<{
       visible={visible}
       onClose={onClose}
       title={t("shell.watch_together")}
-      description={t("shell.watch_together_detail")}
       actions={[
         {
           label: t("shell.watch_together_start"),

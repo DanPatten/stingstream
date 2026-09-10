@@ -125,7 +125,6 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
       visible={visible}
       onClose={onClose}
       title={t("player.source.play_from")}
-      description={t("player.source.play_from_description")}
     >
       <View testID='player-source-chooser'>
         {isLoading && selection.choices.length === 0 ? (

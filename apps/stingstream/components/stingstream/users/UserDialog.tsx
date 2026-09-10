@@ -174,7 +174,6 @@ export const UserDialog: React.FC<{
       visible={!!userId}
       onClose={onClose}
       title={user?.Name ?? t("users.unnamed")}
-      description={t("users.dialog_description")}
       /*
        * Dan: *"move disable as a button next to done. account role/password reset is too many
        * forms going on, make reset password another button."*

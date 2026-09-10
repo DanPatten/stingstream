@@ -70,9 +70,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
       >
         <ListItem
           title={t("home.settings.gesture_controls.horizontal_swipe_skip")}
-          subtitle={t(
-            "home.settings.gesture_controls.horizontal_swipe_skip_description",
-          )}
           disabled={pluginSettings?.enableHorizontalSwipeSkip?.locked}
         >
           <SettingSwitch
@@ -86,9 +83,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
 
         <ListItem
           title={t("home.settings.gesture_controls.left_side_brightness")}
-          subtitle={t(
-            "home.settings.gesture_controls.left_side_brightness_description",
-          )}
           disabled={pluginSettings?.enableLeftSideBrightnessSwipe?.locked}
         >
           <SettingSwitch
@@ -102,9 +96,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
 
         <ListItem
           title={t("home.settings.gesture_controls.right_side_volume")}
-          subtitle={t(
-            "home.settings.gesture_controls.right_side_volume_description",
-          )}
           disabled={pluginSettings?.enableRightSideVolumeSwipe?.locked}
         >
           <SettingSwitch
@@ -124,9 +115,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
         {!Platform.isTV && (
           <ListItem
             title={t("home.settings.gesture_controls.hold_to_speed")}
-            subtitle={t(
-              "home.settings.gesture_controls.hold_to_speed_description",
-            )}
             disabled={pluginSettings?.enableHoldToSpeed?.locked}
           >
             <SettingSwitch
@@ -176,9 +164,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
         {isNativeTouchPlayer && (
           <ListItem
             title={t("home.settings.gesture_controls.pinch_to_zoom")}
-            subtitle={t(
-              "home.settings.gesture_controls.pinch_to_zoom_description",
-            )}
             disabled={pluginSettings?.enablePinchToZoom?.locked}
           >
             <SettingSwitch
@@ -194,9 +179,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
         {isNativeTouchPlayer && (
           <ListItem
             title={t("home.settings.gesture_controls.double_tap_to_seek")}
-            subtitle={t(
-              "home.settings.gesture_controls.double_tap_to_seek_description",
-            )}
             disabled={pluginSettings?.enableDoubleTapToSeek?.locked}
           >
             <SettingSwitch
