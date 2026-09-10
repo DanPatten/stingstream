@@ -127,4 +127,3 @@ export const useSourceChoices = (
 
   return { ...result, choices, hasChoice: choices.length > 1 };
 };
-

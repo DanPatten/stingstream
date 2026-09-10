@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { SourcePin } from "@/utils/sourcePinMemory";
+import type { SourceChoice, SourceChoiceLabels } from "./sourceChooser";
 import {
   AUTO_KEY,
   buildSourceMenu,
@@ -6,8 +8,6 @@ import {
   resolveSourceSelection,
   selectionLabel,
 } from "./sourceSelection";
-import type { SourceChoice, SourceChoiceLabels } from "./sourceChooser";
-import type { SourcePin } from "@/utils/sourcePinMemory";
 
 // Pure, like `sourceChooser`: choices in, a decision out. No storage and no react-native.
 
@@ -21,7 +21,9 @@ const LABELS: SourceChoiceLabels = {
   playing: "Playing",
 };
 
-const choice = (over: Partial<SourceChoice> & { mediaSourceId: string }): SourceChoice => ({
+const choice = (
+  over: Partial<SourceChoice> & { mediaSourceId: string },
+): SourceChoice => ({
   node: null,
   nodeName: "This server",
   local: false,
@@ -114,7 +116,10 @@ describe("resolveSourceSelection", () => {
 
   test("a pin on this server finds the local row", () => {
     const choices = [attic, { ...local, recommended: true }];
-    const resolved = resolveSourceSelection(choices, pin({ node: null, nodeName: "This server" }));
+    const resolved = resolveSourceSelection(
+      choices,
+      pin({ node: null, nodeName: "This server" }),
+    );
 
     expect(resolved.mode).toBe("pinned");
     expect(resolved.selected?.local).toBe(true);
@@ -134,8 +139,16 @@ describe("resolveSourceSelection", () => {
   });
 
   test("a local pin whose exact file has gone still means this server", () => {
-    const hd = { ...local, mediaSourceId: "hd", fileHash: "aaa", recommended: true };
-    const resolved = resolveSourceSelection([hd], pin({ node: null, fileHash: "gone" }));
+    const hd = {
+      ...local,
+      mediaSourceId: "hd",
+      fileHash: "aaa",
+      recommended: true,
+    };
+    const resolved = resolveSourceSelection(
+      [hd],
+      pin({ node: null, fileHash: "gone" }),
+    );
 
     expect(resolved.mode).toBe("pinned");
     expect(resolved.selected?.mediaSourceId).toBe("hd");
@@ -149,7 +162,9 @@ describe("resolveSourceSelection", () => {
   test("an offline recommendation is not what Auto resolves to", () => {
     // `recommended` is decided over playable rows, but a stale list could carry it on a disabled
     // one; Auto must never hand the play button something that cannot serve.
-    const choices = [{ ...attic, online: false, disabled: true, recommended: true }];
+    const choices = [
+      { ...attic, online: false, disabled: true, recommended: true },
+    ];
     const resolved = resolveSourceSelection(choices, undefined);
 
     expect(resolved.autoChoice).toBeNull();
@@ -166,7 +181,10 @@ describe("resolveSourceSelection", () => {
 describe("buildSourceMenu", () => {
   test("Auto leads, and is selected when there is no pin", () => {
     const choices = [{ ...local, recommended: true }, attic];
-    const rows = buildSourceMenu(choices, resolveSourceSelection(choices, undefined));
+    const rows = buildSourceMenu(
+      choices,
+      resolveSourceSelection(choices, undefined),
+    );
 
     expect(rows[0].key).toBe(AUTO_KEY);
     expect(rows[0].choice).toBeNull();
@@ -176,7 +194,10 @@ describe("buildSourceMenu", () => {
 
   test("exactly one row is selected, and it is the pinned one", () => {
     const choices = [{ ...local, recommended: true }, attic];
-    const rows = buildSourceMenu(choices, resolveSourceSelection(choices, pin()));
+    const rows = buildSourceMenu(
+      choices,
+      resolveSourceSelection(choices, pin()),
+    );
 
     expect(rows.filter((r) => r.selected).map((r) => r.key)).toEqual(["attic"]);
   });
@@ -184,7 +205,10 @@ describe("buildSourceMenu", () => {
   test("an offline pin stays selected, because it is still what was chosen", () => {
     const offline = { ...attic, online: false, disabled: true };
     const choices = [{ ...local, recommended: true }, offline];
-    const rows = buildSourceMenu(choices, resolveSourceSelection(choices, pin()));
+    const rows = buildSourceMenu(
+      choices,
+      resolveSourceSelection(choices, pin()),
+    );
 
     expect(rows.filter((r) => r.selected).map((r) => r.key)).toEqual(["attic"]);
   });
@@ -214,7 +238,10 @@ describe("labels", () => {
   test("a pin that cannot be honoured still reads as the server that was chosen", () => {
     // Flipping the label back to "Auto" would look like the choice had been thrown away. The
     // line underneath is what explains that it is not being used right now.
-    const resolved = resolveSourceSelection([{ ...local, recommended: true }], pin());
+    const resolved = resolveSourceSelection(
+      [{ ...local, recommended: true }],
+      pin(),
+    );
     expect(selectionLabel(resolved, "Auto")).toBe("Attic PC");
   });
 });

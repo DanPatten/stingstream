@@ -12,27 +12,27 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { SourceChoiceLabels } from "@/lib/stingstream/sourceChooser";
 import {
   AUTO_KEY,
   buildSourceMenu,
   formatAutoTarget,
-  resolveSourceSelection,
-  selectionLabel,
   type ResolvedSelection,
+  resolveSourceSelection,
   type SourceMenuRow,
+  selectionLabel,
 } from "@/lib/stingstream/sourceSelection";
-import type { SourceChoiceLabels } from "@/lib/stingstream/sourceChooser";
 import {
   clearSourcePin,
   getSourcePin,
   rememberSourcePin,
-  sourcePinKey,
   type SourcePin,
+  sourcePinKey,
 } from "@/utils/sourcePinMemory";
 import {
-  useSourceChoices,
   type UseItemSourcesOptions,
   type UseSourceChoicesResult,
+  useSourceChoices,
 } from "./useItemSources";
 
 export interface UseSourceSelectionOptions extends UseItemSourcesOptions {
@@ -59,11 +59,17 @@ export const useSourceSelection = (
   options: UseSourceSelectionOptions = {},
 ): UseSourceSelectionResult => {
   const { t } = useTranslation();
-  const { currentMediaSourceId, onSelectMediaSource, ...queryOptions } = options;
-  const result = useSourceChoices(item, { ...queryOptions, currentMediaSourceId });
+  const { currentMediaSourceId, onSelectMediaSource, ...queryOptions } =
+    options;
+  const result = useSourceChoices(item, {
+    ...queryOptions,
+    currentMediaSourceId,
+  });
 
   const pinKey = useMemo(() => sourcePinKey(item), [item]);
-  const [pin, setPin] = useState<SourcePin | undefined>(() => getSourcePin(pinKey));
+  const [pin, setPin] = useState<SourcePin | undefined>(() =>
+    getSourcePin(pinKey),
+  );
 
   // Re-read when the screen moves to a different title. Storage is not reactive, so nothing else
   // would tell this hook that the answer changed.

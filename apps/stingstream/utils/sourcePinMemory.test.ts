@@ -4,12 +4,8 @@ import { clearMmkv, stubMmkv } from "@/test-utils/mmkv";
 
 stubMmkv();
 
-const {
-  clearSourcePin,
-  getSourcePin,
-  rememberSourcePin,
-  sourcePinKey,
-} = await import("./sourcePinMemory");
+const { clearSourcePin, getSourcePin, rememberSourcePin, sourcePinKey } =
+  await import("./sourcePinMemory");
 
 beforeEach(clearMmkv);
 
@@ -17,7 +13,11 @@ describe("sourcePinKey", () => {
   test("files an episode under its series", () => {
     // "Play this show from the attic box" is one decision, not one per episode. An episode that
     // box happens not to hold falls back to Auto on its own without disturbing the rest.
-    const episode = { Id: "e1", Type: "Episode", SeriesId: "s1" } as BaseItemDto;
+    const episode = {
+      Id: "e1",
+      Type: "Episode",
+      SeriesId: "s1",
+    } as BaseItemDto;
     expect(sourcePinKey(episode)).toBe("s1");
   });
 
@@ -28,7 +28,9 @@ describe("sourcePinKey", () => {
 
   test("files a film and a series under themselves", () => {
     expect(sourcePinKey({ Id: "m1", Type: "Movie" } as BaseItemDto)).toBe("m1");
-    expect(sourcePinKey({ Id: "s1", Type: "Series" } as BaseItemDto)).toBe("s1");
+    expect(sourcePinKey({ Id: "s1", Type: "Series" } as BaseItemDto)).toBe(
+      "s1",
+    );
   });
 
   test("has no key for nothing", () => {

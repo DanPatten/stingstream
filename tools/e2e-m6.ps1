@@ -32,7 +32,7 @@
          does -- A never claims, because it cannot fulfil.
       6. B grabs the episode through the Torznab stub, downloads it with the embedded engine and
          imports it.
-      7. It reaches A's group index and A's Shared TV library, and A's request flips to
+      7. It reaches A's group index and A's TV Shows library, and A's request flips to
          `available` on its own.
       8. The requester has an unread `request_available` notification on A.
       9. A second request, for a film B already holds, goes straight to `available` with **no
@@ -767,7 +767,7 @@ Invoke-Step 'B grabs the episode and imports it' {
 }
 
 # ============================================================================================
-Invoke-Step "It reaches A's Shared TV, and A's request flips to available on its own" {
+Invoke-Step "It reaches A's TV Shows, and A's request flips to available on its own" {
     Wait-Until -What "the episode to appear in A's group index" -Seconds 300 -PollSeconds 5 -Condition {
         $index = try {
             Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($Group.group)/index" -TimeoutSec 30
@@ -776,7 +776,7 @@ Invoke-Step "It reaches A's Shared TV, and A's request flips to available on its
         return @($index.entries | Where-Object { $_.itemKey -like "episode:tvdb:${SeriesTvdb}:*" }).Count -ge 1
     } | Out-Null
 
-    $episode = Wait-Until -What "the episode to appear in A's Shared TV library" -Seconds 300 -PollSeconds 5 -Condition {
+    $episode = Wait-Until -What "the episode to appear in A's TV Shows library" -Seconds 300 -PollSeconds 5 -Condition {
         $items = try {
             Invoke-Jellyfin $NodeA "/Items?IncludeItemTypes=Episode&Recursive=true&Fields=Path&userId=$($NodeA.UserId)" -TimeoutSec 30
         } catch { $null }
@@ -785,7 +785,7 @@ Invoke-Step "It reaches A's Shared TV, and A's request flips to available on its
         if ($found) { return $found }
         return $null
     }
-    Write-Host "      A has '$($episode.Name)' in its Shared TV library"
+    Write-Host "      A has '$($episode.Name)' in its TV Shows library"
 
     $final = Wait-Until -What "A's request to flip to available" -Seconds 300 -PollSeconds 5 -Condition {
         Invoke-Node $NodeA '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null

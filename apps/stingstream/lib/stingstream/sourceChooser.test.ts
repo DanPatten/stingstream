@@ -522,7 +522,11 @@ describe("a local file and a peer's copy on one item", () => {
 
   test("one item, one local row and one row per holder", () => {
     const choices = build(
-      [localSource("local"), meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
+      [
+        localSource("local"),
+        meshSource("ms-a", NODE_A),
+        meshSource("ms-b", NODE_B),
+      ],
       response([
         source({ node: NODE_A, nodeName: "Attic" }),
         source({ node: NODE_B, nodeName: "Loft" }),
@@ -559,7 +563,12 @@ describe("a local file and a peer's copy on one item", () => {
     const choices = build(
       [localSource("local", 2160), meshSource("ms-a", NODE_A)],
       response([
-        source({ node: "local", nodeName: "This server", isLocal: true, height: 2160 }),
+        source({
+          node: "local",
+          nodeName: "This server",
+          isLocal: true,
+          height: 2160,
+        }),
         source({ node: NODE_A, nodeName: "Attic", height: 1080 }),
       ]),
     );
@@ -570,10 +579,13 @@ describe("a local file and a peer's copy on one item", () => {
   test("a peer's pick still joins by node id when it names no media source", () => {
     const choices = build(
       [localSource("local"), meshSource("ms-a", NODE_A)],
-      response([
-        source({ node: NODE_A, nodeName: "Attic", height: 2160 }),
-        source({ node: "local", nodeName: "This server", isLocal: true }),
-      ], "quality_first"),
+      response(
+        [
+          source({ node: NODE_A, nodeName: "Attic", height: 2160 }),
+          source({ node: "local", nodeName: "This server", isLocal: true }),
+        ],
+        "quality_first",
+      ),
       "quality_first",
     );
 
@@ -586,11 +598,15 @@ describe("a local file and a peer's copy on one item", () => {
     const local = { ...localSource("local"), ETag: 'W/"b3-abc123"' };
     const choices = build(
       [local, meshSource("ms-a", NODE_A)],
-      response([source({ node: NODE_A, nodeName: "Attic", fileHash: "ABC123" })]),
+      response([
+        source({ node: NODE_A, nodeName: "Attic", fileHash: "ABC123" }),
+      ]),
       "speed_first",
       "local",
     );
 
-    expect(choices.find((c) => c.nodeName === "Attic")?.sameFileAsCurrent).toBe(true);
+    expect(choices.find((c) => c.nodeName === "Attic")?.sameFileAsCurrent).toBe(
+      true,
+    );
   });
 });

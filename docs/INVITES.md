@@ -210,7 +210,7 @@ All under `/stingstream/api/v1/invites`.
 
 | Route | Who | What |
 |---|---|---|
-| `GET /libraries` | Admin | Every library on this server, for the picker. Includes the federated "Shared" ones — passing on what a friend shared is a choice, and it is the inviter's |
+| `GET /libraries` | Admin | Every library on this server, for the picker. There is no separate "Shared" library to include or withhold any more — see the note in §10 |
 | `GET /` | Admin | Every invite ever minted, newest first, with its status and the account it created |
 | `POST /` | Admin | Mint. `{Label, Libraries[], IsAdministrator}` → `{Token, Url, UrlIsLan, Invite}`. **The only time the token is returned.** `IsAdministrator` absent means false, which is what an older client sends and the reading that grants least |
 | `DELETE /{id}` | Admin | Delete. By id, never by token, so deleting never means handling the credential again. The row is gone |
@@ -277,9 +277,16 @@ then asks `POST /invites/lookup`:
 ## 10. Acceptance
 
 `tools/e2e-invite.ps1` is the harness: server A mints an invite for one library out of two, a cold
-client opens the link, creates an account, signs in, sees **only** the shared library, and plays a
-film that lives on **server B**. That last hop is the point — it proves the invited person gets the
-federated library rather than only A's own files.
+client opens the link, creates an account, signs in, sees **only** the library the invite named, and
+plays a film that lives on **server B**. That last hop is the point.
+
+**An invite that grants `Movies` grants the group's films, not only this server's.** That follows
+from removing the shared/not-shared split: a peer's copy of a title is now another version of an
+item in the node's *own* `Movies`, and Jellyfin has no sub-library access control to express
+anything narrower. An inviter can still withhold a whole library — the harness proves that, and it
+is the assertion the feature turns on — but "my own films but not my friends'" stopped being
+expressible. That is the intended reading of "there is no such thing as shared versus not shared":
+a title is a title, whoever holds it.
 
 `InviteGateTests` covers the decision itself: live, unknown, spent, expired, withdrawn, the order
 they are reported in, and the two halves of the no-expiry change — that a null date means never

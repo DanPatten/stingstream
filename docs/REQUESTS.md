@@ -484,7 +484,7 @@ It asserts, in order: the two nodes advertise different capabilities, per kind, 
 other's; a non-administrator's request under `admins_only` lands `pending` and notifies every
 administrator; the non-administrator can neither approve it nor see anybody else's; an administrator
 approves it; B adopts, claims and **is the only live claimant**; B grabs and imports; it reaches A's
-group index and Shared TV and A's request flips to `available` on its own; the requester has an
+group index and A's TV Shows, and A's request flips to `available` on its own; the requester has an
 unread `request_available` notification and Jellyfin's activity log has the entry; and a second
 request for a film B already holds is answered `available` with Radarr on B never hearing about it.
 

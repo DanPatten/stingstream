@@ -280,6 +280,31 @@ The fix needed no change to the encoder at all. `MediaSourceInfo` already carrie
 unmodified upstream code. The client still gets `stingstream.local`, which is what the native app
 rewrites to its own embedded mesh.
 
+### Not a patch: merging one film's copies uses Jellyfin's own version mechanic
+
+Removing the shared/not-shared library split — one `Movies` holding both this node's files and its
+peers' pointers, so a friend's 2160p is another *version* of the film on this disk — sounded like it
+would need the item repository opened up. It did not.
+
+Two of the three halves are already upstream behaviour, and the change was to stop working against
+them. `Series.CreatePresentationUniqueKey` keys a series on its provider id **plus the collection
+folders it belongs to**, so two series merge exactly when they share a library and never otherwise;
+`Season`'s key is its series' key plus the index, so seasons follow. Movies and episodes do not
+merge on their own, and there `StingStream.Core/Federated/VersionMerger.cs` calls
+`Video.SetPrimaryVersionId` and sets `LinkedAlternateVersions` **in process** — the same two writes
+`Jellyfin.Api/Controllers/VideosController.MergeVersions` performs over HTTP, with the local item
+chosen as primary rather than upstream's widest-video-stream heuristic.
+
+The third half is `<lockdata>true</lockdata>` in every materialized `.nfo`. `BaseNfoParser` already
+reads it into `BaseItem.IsLocked` and `MetadataService` already skips remote metadata providers for a
+locked item, which is what lets one library keep its internet fetchers on for the films this node
+downloaded while every pointer in it stays described by the peer that published it.
+
+Scoring the local copy against the remote ones needed no change to `SourceScorer` either: the local
+file is handed to the existing four-component formula as an ordinary candidate with `path = direct`,
+zero RTT and a throughput no encode saturates. A new `local` path value would have obliged the same
+new case in the Rust twin, which is deliberately unchanged.
+
 ### Not a patch, but a deliberate deviation: analyzer settings
 
 `server/jellyfin/Directory.Build.props` sets `TreatWarningsAsErrors=true` and, in Debug,

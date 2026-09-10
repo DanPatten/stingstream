@@ -16,16 +16,15 @@
       3. Starts node B (the friend's server) holding one film, and node A (the inviter) holding the
          other in a second library.
       4. A and B link: A creates a group, B joins with A's invite code, and B's film materialises
-         into A's own Jellyfin as a Shared Movies pointer.
-      5. A mints a **person invite** naming two of A's three libraries -- its own Movies and the
-         federated Shared Movies, which is how the invited person reaches B's film -- and
-         deliberately withholding Private.
+         into A's own Movies library as a pointer, beside A's own film.
+      5. A mints a **person invite** naming A's Movies -- which now holds both films, since
+         there is no separate federated library any more -- and deliberately withholding Private.
       6. A cold client — no session, no cookies, nothing — looks the token up anonymously, sees
          which server and which libraries, and creates an account.
       7. That account can see the libraries the invite named and **cannot see the one it did
          not**. This is the assertion the whole feature turns on: Jellyfin's default is
-         `EnableAllFolders = true`, so an invite naming two libraries of three would hand over all
-         three unless something turned it off.
+         `EnableAllFolders = true`, so an invite naming one library of two would hand over both
+         unless something turned it off.
       8. It plays a film that lives on B, through A, over the mesh — byte-exact.
       9. The invite cannot be used twice, and a withdrawn one stops working at once.
 
@@ -340,7 +339,7 @@ $Group = Invoke-Step 'A and B link, and B''s film materialises into A''s own lib
 
     # The federated library is what makes an invited person's account worth having: they see the
     # *group's* films, not one server's.
-    Wait-Until -What "B's film to reach A's Shared Movies" -Seconds 300 -PollSeconds 5 -Condition {
+    Wait-Until -What "B's film to reach A's Movies" -Seconds 300 -PollSeconds 5 -Condition {
         $items = Invoke-Jellyfin $NodeA "/Items?IncludeItemTypes=Movie&Recursive=true&userId=$($NodeA.UserId)" -TimeoutSec 60
         return [bool](@($items.Items | Where-Object { $_.Name -like "$($Remote.Title)*" }).Count)
     } | Out-Null
@@ -349,31 +348,36 @@ $Group = Invoke-Step 'A and B link, and B''s film materialises into A''s own lib
 }
 
 # ============================================================================================
-$Minted = Invoke-Step 'A mints a person invite, naming two libraries of three' {
+$Minted = Invoke-Step "A mints a person invite naming Movies, and withholding Private" {
     <#
-        Movies **and Shared Movies**, which is a decision rather than a convenience. The federated
-        library is a real library on A, holding pointers to films that live on other servers, and
-        passing it on is exactly the choice the inviter is being asked to make -- `docs/INVITES.md`
-        says so. Naming it is what lets the last step reach a film held by B.
+        One library, and it carries both films.
 
-        `Private` is still withheld, which is the assertion the feature turns on.
+        There used to be two to name here -- A's own `Movies` and a separate `Shared Movies` -- and
+        naming the second was how an invited person reached a film that lives on B. There is no
+        second library now: B's film is another item in A's own `Movies`, because a title is a
+        title whoever holds it.
 
-        Listed again here rather than reused from the earlier step: Shared Movies does not exist
-        until A has materialised something into it, which happened in the step above.
+        The consequence is deliberate and is what this step exists to record: granting `Movies`
+        grants the group's films, not merely A's, and Jellyfin has no sub-library access control to
+        express anything narrower. `Private` is still withheld, which is the assertion the feature
+        actually turns on.
+
+        Listed again here rather than reused from the earlier step, because the materialization in
+        the step above is what put B's film into this library.
     #>
     $now = Invoke-Node $NodeA '/stingstream/api/v1/invites/libraries' -TimeoutSec 60
-    $federated = $now | Where-Object { $_.Name -like 'Shared Movies*' } | Select-Object -First 1
-    if (-not $federated) {
-        throw "A has no Shared Movies library, so there is nothing of B's to share: [$(($now | ForEach-Object { $_.Name }) -join ', ')]"
+    $names = @($now | ForEach-Object { $_.Name })
+    if ($names | Where-Object { $_ -like 'Shared*' }) {
+        throw "A still has a 'Shared' library, which this design removed: [$($names -join ', ')]"
     }
-    $script:GrantedNames = @($Libraries.Shared.Name, $federated.Name) | Sort-Object
+    $script:GrantedNames = @($Libraries.Shared.Name) | Sort-Object
 
     $minted = Invoke-Node $NodeA '/stingstream/api/v1/invites' -Method POST -Body @{
         # `Label` is the username the invited account arrives with -- pre-filled on the landing
         # page and still theirs to change. It stopped being a private note in Part 9. No expiry is
         # sent, and there is nothing to send: an invite works until it is deleted.
         Label     = 'Mum'
-        Libraries = @($Libraries.Shared.Id, $federated.Id)
+        Libraries = @($Libraries.Shared.Id)
     }
     if (-not $minted.Token) { throw 'A minted no invite token.' }
     # `Url` is *absent*, not null, when this node has no domain: Core omits nulls

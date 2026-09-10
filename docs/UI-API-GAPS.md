@@ -582,7 +582,7 @@ stream fetch is one `await` on a request the server simply never answers.
 Reduced to one call, with no app involved:
 
 ```powershell
-# Sintel in Shared Movies: two `.strm` pointers, two holders.  -> 200 in 1.1s, 2 sources
+# Sintel, held by two peers: two `.strm` pointers, two holders.  -> 200 in 1.1s, 2 sources
 POST /jellyfin/Items/876be28e.../PlaybackInfo
 
 # Big Buck Bunny, this server only.                            -> 200 in 1.4s, 1 source

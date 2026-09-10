@@ -55,7 +55,7 @@
     "sign_in_with_code": "Sign in with a code",
     "sign_in_with_passkey": "Use a passkey",
     "sign_in_with_password": "Sign in with password",
-    "starting_description": "StingStream is coming up. This screen moves on by itself as soon as it is ready.",
+    "starting_description": "StingStream is warming up. It will carry on by itself as soon as it is ready.",
     "starting_retry": "Try again",
     "starting_stalled_description": "It may still be starting — a first run can take a couple of minutes. Nothing it shares with is answering either. Try again, or check the machine running StingStream.",
     "starting_stalled_title": "Your server has not answered yet",

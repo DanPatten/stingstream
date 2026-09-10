@@ -42,9 +42,9 @@ import useRouter from "@/hooks/useAppRouter";
 import { useMediaSegments } from "@/hooks/useMediaSegments";
 import { usePlaybackManager } from "@/hooks/usePlaybackManager";
 import type { SegmentType } from "@/hooks/useSegmentSkipper";
+import { useSourceSelection } from "@/hooks/useSourceSelection";
 import { useTrickplay } from "@/hooks/useTrickplay";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
-import { useSourceSelection } from "@/hooks/useSourceSelection";
 import { useTVSourceChooser } from "@/hooks/useTVSourceChooser";
 import { useTVSubtitleModal } from "@/hooks/useTVSubtitleModal";
 import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
@@ -1258,7 +1258,8 @@ export const Controls: FC<Props> = ({
   // one key, so asking again here is a read of the cache rather than a second mesh round trip.
   const sourceSelection = useSourceSelection(item, {
     currentMediaSourceId: mediaSource?.Id,
-    onSelectMediaSource: (mediaSourceId) => onSwitchMediaSource?.(mediaSourceId),
+    onSelectMediaSource: (mediaSourceId) =>
+      onSwitchMediaSource?.(mediaSourceId),
   });
 
   // Only a button when there is somewhere else to go: a one-row modal on a television is four

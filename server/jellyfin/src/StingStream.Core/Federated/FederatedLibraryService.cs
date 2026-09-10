@@ -981,7 +981,7 @@ public sealed class FederatedLibraryService : BackgroundService
             _logger.LogDebug("Fetched the {Kind} image for {ItemKey} to {Path}", kind, entry.ItemKey, path);
         }
 
-        // A series folder needs its own poster, or the Series item in Shared TV is a blank tile
+        // A series folder needs its own poster, or a peer-only series is a blank tile
         // however good the episodes' thumbnails are.
         if (!isEpisode)
         {

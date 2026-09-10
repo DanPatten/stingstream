@@ -21,8 +21,9 @@
       5. A creates a group and B joins with A's invite code. Nothing anyone hosts is involved:
          iroh's public relays and, on one machine, plain loopback.
       6. Asserts B's inventory reaches A's group index.
-      7. Asserts A materialized Shared Movies and Shared TV entries with a poster, an overview and
-         a resolution badge -- through Jellyfin's own API, as a client would see them.
+      7. Asserts A materialized B's titles into A's *own* Movies and TV Shows -- not into a
+         separate "Shared" library, which no longer exists -- with a poster, an overview and a
+         resolution badge, through Jellyfin's own API as a client would see them.
       8. Plays the federated movie three ways: Jellyfin's own /Videos/{id}/stream (which proxies
          through A's mesh), a PlaybackInfo call (which must return the stingstream.local source),
          and a ranged GET straight at A's /stream endpoint (which must come back byte-exact with
@@ -1034,17 +1035,35 @@ Invoke-Step "B's inventory appears in A's group index" {
 }
 
 # ============================================================================================
-$Federated = Invoke-Step 'A materializes Shared Movies and Shared TV' {
+$Federated = Invoke-Step "B's titles materialize into A's own Movies and TV Shows" {
     $report = Invoke-Node $NodeA '/stingstream/api/v1/mesh/federated/refresh' -Method POST -TimeoutSec 300
     Write-Host "      pass: $($report.written) written, $($report.removed) removed"
     foreach ($e in @(Get-Member-Value $report 'errors')) { Write-Host "      error: $e" -ForegroundColor Yellow }
 
     $libraries = Invoke-Jellyfin $NodeA '/Library/VirtualFolders'
     $names = @($libraries | ForEach-Object { $_.Name })
-    foreach ($want in 'Shared Movies', 'Shared TV') {
+    foreach ($want in 'Movies', 'TV Shows') {
         if ($names -notcontains $want) { throw "A has no '$want' library. Found: $($names -join ', ')" }
     }
+
+    # There is no shared-versus-not-shared distinction any more, and this is the assertion that
+    # says so: a peer's film is another version of an item in the *same* library as this node's own
+    # films, because Jellyfin only ever merges two items that share a collection folder.
+    $shared = @($names | Where-Object { $_ -like 'Shared*' })
+    if ($shared.Count -gt 0) {
+        throw "A still has a 'Shared' library, which this design removed: $($shared -join ', ')"
+    }
+
+    $movies = $libraries | Where-Object { $_.Name -eq 'Movies' } | Select-Object -First 1
+    $locations = @($movies.Locations)
+    if ($locations.Count -lt 2) {
+        throw "A's Movies library holds $($locations.Count) path(s); it needs both the media folder and the federated one: $($locations -join ', ')"
+    }
+    if (-not ($locations | Where-Object { $_ -like '*federated*' })) {
+        throw "A's Movies library does not include the federated tree: $($locations -join ', ')"
+    }
     Write-Host "      libraries: $($names -join ', ')"
+    Write-Host "      Movies paths: $($locations -join ', ')"
 
     $movie = Wait-Until -What "the federated movie to appear on A" -Seconds 300 -PollSeconds 5 -Condition {
         $items = try {

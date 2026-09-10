@@ -306,22 +306,56 @@ Each node turns the group index into real items in its **own** Jellyfin, so ever
 works unchanged. Proven pattern for remote-backed libraries; implemented in `StingStream.Core`
 (`src/StingStream.Core/Federated/`, landed in M3b).
 
-1. **Shared libraries.** Two Jellyfin libraries per node, `Shared Movies` and `Shared TV`, backed
-   by `$STINGSTREAM_DATA/federated/{movies,tv}`. Internet metadata fetchers are off for them and
-   the NFO reader is on. They are never arr root folders, since both arrs treat `.strm` as video.
-2. **Materialization.** For every `item_key` in the group index that this node does **not** hold
-   locally, Core writes the standard folder layout with one `.strm` per holding node and quality
-   (`Title (Year) - <node-label> 1080p.strm`), a `.nfo` built from the source's metadata blob, and
-   image files fetched from the source node over the mesh. Jellyfin's resolvers turn that into one
-   movie or episode with alternate versions. Titles held locally are not materialized (the local
-   file wins); their remote copies are still used for pin, dedupe and future failover.
-3. **Enrichment in-process.** After the targeted refresh Core stamps MediaStreams and runtime on
-   each version from the inventory record, so resolution and codec badges appear without probing.
-4. **Lifecycle.** Index delta → write or remove pointer files → targeted library refresh. A peer
-   going offline marks its versions unavailable (tag, greyed in the app) rather than deleting them;
-   removal happens after a configurable grace period. When a local copy arrives (grab or pin) the
-   pointer entry is removed.
-5. **Stream URL.** Each `.strm` contains `https://stingstream.local/stream/<group>/<item_key>/<node>`.
+1. **One library per type, holding both halves.** A node has one `Movies` and one `TV Shows`, each
+   with two media paths: its own files, and `$STINGSTREAM_DATA/federated/{movies,tv}`. There is no
+   `Shared Movies`. That is not only presentational — Jellyfin merges two items *only* when they
+   share a collection folder (`Series.CreatePresentationUniqueKey` keys a series on its provider id
+   plus the folder ids it belongs to), so one folder is what makes a peer's copy a **version** of a
+   film rather than a second entry beside it. `StingStream.Core/Library/LibraryLayoutService.cs`
+   owns the layout and both the first-run wiring and the materializer call it.
+   `Recordings` stays a third library, and only because its folder shape suits neither of the other
+   two (see "DVR recordings" below).
+   The federated tree is never an arr root folder, since both arrs treat `.strm` as video.
+2. **Metadata: on for the library, off per item.** The merged library keeps its internet fetchers —
+   empty `TypeOptions`, which is the server-defaults path — because it holds films this node
+   downloaded and a person expects those to have posters. Each materialized `.nfo` instead carries
+   `<lockdata>true</lockdata>`, which Jellyfin parses into `BaseItem.IsLocked` and which makes
+   `MetadataService` skip every remote *metadata* provider for that item. So a peer's title is
+   still described by the peer's own answer rather than re-derived on every node in the group.
+   (Remote *image* providers ignore `IsLocked`; that is left alone, since it only fires for an image
+   the holder did not publish and the result is a library that looks finished.)
+   A series `tvshow.nfo` is deliberately **not** locked: two series items collapse by presentation
+   key rather than by version link, so Jellyfin picks between them arbitrarily, and locking the one
+   with no plot would leave whichever won looking blank.
+3. **Materialization.** For every `item_key` in the group index, Core writes the standard folder
+   layout with one `.strm` per holding node and quality (`Title (Year) - <node-label> 1080p.strm`),
+   a `.nfo` built from the source's metadata blob, and image files fetched from the source node over
+   the mesh. Jellyfin's resolvers turn that into one movie or episode with alternate versions.
+   **Titles this node holds locally are materialized too** — that is the whole point: a local 1080p
+   and a friend's 2160p have to be two versions of one film. Artwork is skipped for those (the local
+   item is the primary and supplies every tile), which is the expensive half of a pass;
+   `federated.max_writes_per_pass` spreads a first burst over a few minutes, and
+   `federated.merge_peer_versions = false` restores the old behaviour for a node that does not want
+   the extra pointers.
+4. **Version merge.** Series and seasons merge natively once both trees share a folder. Movies and
+   episodes do not — `BaseItem.CreatePresentationUniqueKey` returns the item id — so
+   `Federated/VersionMerger.cs` links them with Jellyfin's own mechanic in process:
+   `Video.SetPrimaryVersionId` on the federated item (which rewrites its presentation key to the
+   primary's id) plus a `LinkedAlternateVersions` entry on the local one. Library grids, search and
+   "recently added" then collapse the pair and prefer the item whose `PrimaryVersionId` is null, and
+   `GetAllItemsForMediaSources` walks the link *and* each linked item's same-folder alternates — so
+   one link brings every other peer's `.strm` with it. **The local item is always the primary**: it
+   carries the resume state, it is the only copy that plays with the mesh down, and its id is what
+   every existing collection, playlist and watched row already names. Every write is behind an
+   equality check, because `UpdateToRepositoryAsync` wakes the inventory watcher and an
+   unconditional write every fifteen seconds is a permanent rebuild loop.
+5. **Lifecycle.** Index delta → write or remove pointer files → targeted library refresh → merge
+   pass. A peer going offline marks its versions unavailable (tag, greyed in the app) rather than
+   deleting them; removal happens after a configurable grace period. The materializer brackets each
+   pass with `ILibraryMonitor.ReportFileSystemChangeBeginning` on the federated root, because those
+   paths are now inside a real-time-monitored library and every `.strm` it writes would otherwise
+   raise a redundant refresh.
+6. **Stream URL.** Each `.strm` contains `https://stingstream.local/stream/<group>/<item_key>/<node>`.
    Core's PlaybackInfo hook returns the MediaSources ordered by score (next section). The native
    app rewrites `stingstream.local` to its own embedded mesh listener and MPV plays from there,
    dialing the source node directly over iroh: no double hop through the home node. Any client
@@ -368,6 +402,24 @@ cannot serve still appears in "Play from…" *with a reason* instead of vanishin
 heartbeat inside the peer timeout loses 10,000, and one already at its advertised
 `max_direct_streams` loses 1,000.
 
+**The copy on this node's own disk is scored as a candidate like any other.** It used to be pinned
+to the front of the source list on the grounds that a local file is always the best source there is,
+which stopped being true the moment a peer's 2160p became another version of the same item: under
+Quality first the viewer has asked for the 4K, and under Speed first a link *measured* able to carry
+it should be allowed to win. `Playback/LocalSourceFactory.cs` describes the local file in the same
+terms as a peer — zero round trip, throughput no encode can saturate, neutral headroom (a local read
+takes no mesh stream permit, and `MeshStatus` advertises no maximum to divide by) — and
+`FederatedSourceDecorator.Order` ranks everything it could score, keeping only genuinely unscorable
+sources (a live stream, a placeholder) at the front.
+
+The arithmetic that follows from that, under Speed first: a local 1080p at 87.5 beats an unmeasured
+relayed 1080p peer at ≈51 and loses to a measured direct 2160p at ≈96.2. Under Quality first, 67.5
+against 96.6. The formula already expressed "quality against speed, local against remote"; it was
+simply never given the local candidate.
+
+Its `path` is `direct` rather than a new `local` value **on purpose**: a new case here would oblige
+the same new case in the Rust twin below, and this needed no formula change at all.
+
 Three deliberate choices in there:
 
 - **An unmeasured link scores 0.5, not 1.0.** It should not beat a peer we have watched succeed, and
@@ -380,7 +432,11 @@ Three deliberate choices in there:
 - **The formula exists twice**, in `StingStream.Core/Playback/SourceScorer.cs` and in
   `mesh/crates/stingstream-mesh/src/score.rs`, with the same weights and the same test cases in both
   languages. That is a real cost, paid so that `?any=1` and mid-stream failover — moments with no
-  Jellyfin in the loop — do not put a .NET round trip inside every seek.
+  Jellyfin in the loop — do not put a .NET round trip inside every seek. The Rust twin has **no**
+  notion of a local candidate and deliberately gains none: it ranks holders for `?any=1` and for
+  mid-stream failover, which are about remote holders by definition. That is why the local
+  candidate reuses the existing `direct` path value instead of introducing a case that would have
+  to be mirrored.
 
 #### Failover semantics (M4)
 
@@ -843,9 +899,10 @@ Group screen.
   DNS discovery and mainline-DHT discovery, with the inviter's address carried in the invite so a
   join needs no lookup. Dan's Railway coordinator is appended to every relay map as the
   lowest-priority fallback.
-- **Federated library v1 in `StingStream.Core`:** inventory publisher; Shared Movies / Shared TV
-  libraries with NFO-only metadata; materialization of `.strm` + `.nfo` + images for titles not
-  held locally, one version per holding node; MediaStream enrichment after refresh; offline-peer
+- **Federated library v1 in `StingStream.Core`:** inventory publisher; `Shared Movies` and
+  `Shared TV` (since merged into the node's own `Movies` and `TV Shows`) with NFO-only
+  metadata; materialization of `.strm` + `.nfo` + images for titles not held locally, one
+  version per holding node; MediaStream enrichment after refresh; offline-peer
   unavailable tagging with grace-period removal; PlaybackInfo hook returning `stingstream.local`
   MediaSources (unscored order in M3). Verify episode multi-version support on the vendored
   Jellyfin; record the result and fallback in this document. **Done — it works; see "What M3b
@@ -878,7 +935,8 @@ Group screen.
 NAT in CI) join a group by invite **with no coordinator configured** and stream each other's files
 using only public infrastructure. Then the same with Dan's Railway coordinator selected. A user on
 node A opens A's own Jellyfin through the app and sees B's titles in Shared Movies and Shared TV
-with correct posters, overviews and resolution badges, and plays B's file direct while A's mesh
+(both since merged into A's own Movies and TV Shows) with correct posters, overviews and
+resolution badges, and plays B's file direct while A's mesh
 traffic counters show the bytes did not pass through A. Stop the coordinator after connection →
 playback continues on the direct path. Block UDP hole-punching → playback still works via relay.
 Block *all* UDP on a node → mesh traffic still flows through a relay on TCP 443. Take B offline →
@@ -905,9 +963,10 @@ supervised, and the extra hop is a copy through the kernel's loopback next to a 
 against what has been materialized, writes or removes pointer files, refreshes only the folders
 that changed, and stamps what the index already said onto the resulting items:
 
-* `Shared Movies` and `Shared TV` are created with an empty `TypeOptions` entry per item type —
-  which is what actually disables the internet fetchers, because those lists are *allow*-lists and
-  only apply to a type that has an entry at all — `LocalMetadataReaderOrder = ["Nfo"]`, and
+* At the time, `Shared Movies` and `Shared TV` were created with an empty `TypeOptions` entry per
+  item type — which is what actually disables the internet fetchers, because those lists are
+  *allow*-lists and only apply to a type that has an entry at all —
+  `LocalMetadataReaderOrder = ["Nfo"]`, and
   `MetadataSavers = []`. That last one is not cosmetic: Jellyfin runs its metadata savers on every
   item update, and a saver would rewrite the `.nfo` the materializer had just written.
 * Layout is `Title (Year)/Title (Year) - <node> <quality>.strm` for films and
@@ -990,7 +1049,7 @@ nodes with their own Jellyfin, Radarr, Sonarr, NZBGet and iroh identity:
 | B grabs and imports a movie and an episode through the M1 pipeline | pass |
 | A creates a group with **no coordinator**; B joins with A's invite | pass, `via: inviter` |
 | B's inventory reaches A's group index, with no `local_path` anywhere in it | pass |
-| A materializes Shared Movies and Shared TV | pass |
+| A materializes Shared Movies and Shared TV (now: into its own Movies and TV Shows) | pass |
 | The federated movie has a poster, an overview and a `1920x1080 h264` badge | pass |
 | PlaybackInfo returns a `stingstream.local` source, `Protocol=Http`, `SupportsDirectPlay=true` | pass |
 | `GET /jellyfin/Videos/{id}/stream` on A returns B's file **byte for byte** | pass |
@@ -1377,8 +1436,8 @@ was corrected, so the next attempt made the same mistake (`docs/APP-RELEASE.md` 
 three faults, all of them ours.
 
 **The cause was not in the mesh.** `InventoryService.RebuildAllAsync` queries every library on the
-server with no ancestor restriction, and the federated materializer writes peers' titles into Shared
-Movies and Shared TV as `.strm` files that Jellyfin resolves into ordinary Movies. So the node built
+server with no ancestor restriction, and the federated materializer writes peers' titles into the
+federated tree as `.strm` files that Jellyfin resolves into ordinary Movies. So the node built
 inventory records for **its own pointers** — `LocalPath` pointing at a `.strm` — and announced itself
 to the group as a holder of films it does not have. Worse, the next materialization pass saw those
 item keys in `IInventoryService.Keys`, read that as "held locally, the local file wins", and deleted
@@ -1526,10 +1585,14 @@ only closes during the first scan of a newly arrived file — which is the only 
 answer was still moving. The harness stopped pinning the first key it saw as well, and takes the
 recording's name from the group index, which is where the group's agreement actually lives.
 
-They land in a third library, `Shared Recordings`, rather than being forced into the other two:
-Shared Movies needs the year in both the folder and the filename and needs holders to agree on it,
-which a recording with no `ProductionYear` cannot do, and Shared TV groups on a parsed `SxxEyy`,
-which a recording named by its air date does not have.
+They land in a library of their own, `Recordings`, rather than being forced into the other two: the
+movie layout needs the year in both the folder and the filename and needs holders to agree on it,
+which a recording with no `ProductionYear` cannot do, and the TV layout groups on a parsed `SxxEyy`,
+which a recording named by its air date does not have. It is the one federated tree that did **not**
+become a second media path of an existing library when the shared/not-shared split was removed, and
+that reason is why. It also keeps the older, stricter options — an empty `TypeOptions` allow-list per
+type — because a recording carries no provider ids, so a name-and-year lookup would confidently
+match "Gardeners' World" to something.
 
 **Live channels stay per-node in v1, and the UI says so rather than offering something that will
 not work.** A tuner is a piece of hardware with a finite number of them; sharing one across the mesh
@@ -1717,7 +1780,7 @@ machine. The table is in the M8b report.
 2. Two users, one per home node, log in from the web UI, an Android device, and a Google TV. Each
    sees only their own accounts on their own node, and the whole group's content.
 3. Add a public-domain movie on node A; confirm it downloads once (embedded torrent engine) and
-   appears in every other node's Shared Movies within a minute with poster and badges. Add the same
+   appears in every other node's Movies within a minute with poster and badges. Add the same
    title from node B; confirm no second download.
 4. Play from each client with Speed-first, then Quality-first; watch PlaybackInfo order and the
    mesh log show the source choice and reasons. Kill the serving node mid-play; confirm failover.

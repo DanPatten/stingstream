@@ -19,6 +19,7 @@ import {
 } from "../../mesh/streamUrl";
 import { generateDownloadProfile } from "../../profiles/download";
 import type { AudioTranscodeModeType } from "../../profiles/native";
+import { pickNegotiatedSource } from "./pickNegotiatedSource";
 
 interface StreamResult {
   url: string;
@@ -364,7 +365,7 @@ export const getStreamUrl = async ({
   }
 
   sessionId = res.data.PlaySessionId || null;
-  mediaSource = res.data.MediaSources?.[0];
+  mediaSource = pickNegotiatedSource(res.data.MediaSources, mediaSourceId);
 
   // Jellyfin reports negotiation failures as HTTP 200 with an ErrorCode
   // (NoCompatibleStream, RateLimitExceeded, …) and no MediaSources.
@@ -463,7 +464,10 @@ export const getDownloadStreamUrl = async ({
   }
 
   const sessionId = res.data.PlaySessionId || null;
-  const mediaSource = res.data.MediaSources?.[0];
+  const mediaSource = pickNegotiatedSource(
+    res.data.MediaSources,
+    mediaSourceId,
+  );
   if (!mediaSource) {
     console.warn("No media source offered for download");
     return null;

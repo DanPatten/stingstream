@@ -431,7 +431,7 @@ public sealed class InventoryService : IInventoryService
     /// `failover_candidates=0`). The chain was short and entirely self-inflicted:
     /// </para>
     /// <list type="number">
-    ///   <item>the materializer wrote a peer's title into <c>Shared Movies</c> as a <c>.strm</c>;</item>
+    ///   <item>the materializer wrote a peer's title into the federated tree as a <c>.strm</c>;</item>
     ///   <item>Jellyfin resolved it into an ordinary <c>Movie</c>, so
     ///     <see cref="RebuildAllAsync"/> — which queries every library, unrestricted — built an
     ///     inventory record for it with <c>LocalPath</c> pointing at the <c>.strm</c>, and this

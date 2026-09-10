@@ -19,9 +19,9 @@
  * people report as "it keeps resetting".
  */
 
+import type { SourcePin } from "@/utils/sourcePinMemory";
 import type { SourceChoice, SourceChoiceLabels } from "./sourceChooser";
 import { formatSourceChoice } from "./sourceChooser";
-import type { SourcePin } from "@/utils/sourcePinMemory";
 
 /** The row key for Auto, shared by the phone sheet and the TV modal so the two cannot drift. */
 export const AUTO_KEY = "auto";
@@ -183,5 +183,7 @@ export function selectionLabel(
   resolved: ResolvedSelection,
   autoLabel: string,
 ): string {
-  return resolved.mode === "auto" ? autoLabel : resolved.pinnedName ?? autoLabel;
+  return resolved.mode === "auto"
+    ? autoLabel
+    : (resolved.pinnedName ?? autoLabel);
 }

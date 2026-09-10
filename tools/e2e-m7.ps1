@@ -26,7 +26,7 @@
 
       **The M5 bug** (`docs/APP-RELEASE.md` section 11): `/items/{id}/sources` named a holder that then
       404'd, with `failover_candidates=0` and nothing corrected. Its cause was a node publishing
-      the federated `.strm` pointers in its own Shared library as if it held the films, so this
+      the federated `.strm` pointers in its own library as if it held the films, so this
       asserts the thing that can never be true again -- A's own inventory contains nothing it only
       points at -- and then reproduces the staleness against a real node and asserts the stream
       still arrives.
@@ -808,7 +808,7 @@ Invoke-Step "Both holders' inventories reach A's index" {
 # ============================================================================================
 Invoke-Step 'A materializes the film, and the subtitle lands beside the .strm' {
     Invoke-FederatedRefresh -Node $NodeA
-    Wait-Until -What "the film to appear in A's Shared Movies" -Seconds 180 -PollSeconds 3 -Condition {
+    Wait-Until -What "the film to appear in A's Movies" -Seconds 180 -PollSeconds 3 -Condition {
         [bool](Get-JellyfinItemByName -Node $NodeA -Like "$($Film.Title)*")
     } | Out-Null
 
@@ -835,7 +835,7 @@ Invoke-Step 'A materializes the film, and the subtitle lands beside the .strm' {
 }
 
 # ============================================================================================
-Invoke-Step "The recording appears in A's Shared Recordings and plays" {
+Invoke-Step "The recording appears in A's Recordings and plays" {
     Wait-Until -What "the recording to appear on A" -Seconds 180 -PollSeconds 3 -Condition {
         [bool](Get-JellyfinItemByName -Node $NodeA -Like "*$($Recording.Programme)*")
     } -Describe {
@@ -845,7 +845,7 @@ Invoke-Step "The recording appears in A's Shared Recordings and plays" {
         } else { 'no recordings directory yet' }
     } | Out-Null
 
-    # In its own library, not shoehorned into Shared Movies: a recording has no year to agree on and
+    # In its own library, not shoehorned in among the films: a recording has no year to agree on and
     # no SxxEyy to parse, so neither of the other layouts groups it correctly.
     $recordings = Join-Path (Join-Path $DataA 'federated') 'recordings'
     $strms = @(Get-ChildItem -Path $recordings -Recurse -Filter '*.strm' -ErrorAction SilentlyContinue)
@@ -868,7 +868,7 @@ Invoke-Step "The recording appears in A's Shared Recordings and plays" {
 Invoke-Step "A publishes nothing it only points at (the M5 bug's cause)" {
     <#
         The cause of `status=404 failover_candidates=0`: A's own inventory rebuild picked up the
-        `.strm` pointers in its Shared libraries and published them as if A held the films, so the
+        `.strm` pointers in the federated tree and published them as if A held the films, so the
         group index named A as a holder of files it does not have -- and the materializer then
         deleted its own pointers, because their item keys now looked "held locally".
 

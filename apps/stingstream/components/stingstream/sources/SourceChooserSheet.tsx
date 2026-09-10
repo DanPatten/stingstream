@@ -22,11 +22,11 @@ import { Pill } from "@/components/common/Pill";
 import { Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
-import { useTheme } from "@/hooks/useTheme";
 import {
-  useSourceSelection,
   type UseSourceSelectionResult,
+  useSourceSelection,
 } from "@/hooks/useSourceSelection";
+import { useTheme } from "@/hooks/useTheme";
 import {
   formatSourceChoice,
   type PlaybackPolicy,
@@ -94,7 +94,10 @@ export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
   const isLoading = !provided && fetched.isLoading;
 
   const labels: SourceChoiceLabels = useMemo(
-    () => ({ ...selection.labels, playing: currentLabel ?? selection.labels.playing }),
+    () => ({
+      ...selection.labels,
+      playing: currentLabel ?? selection.labels.playing,
+    }),
     [selection.labels, currentLabel],
   );
 
@@ -228,7 +231,9 @@ const AutoRow: FC<{
           paddingHorizontal: 12,
           borderRadius: radius.md,
           marginBottom: 6,
-          backgroundColor: pressed ? tokens.color.bg["3"] : tokens.color.bg["2"],
+          backgroundColor: pressed
+            ? tokens.color.bg["3"]
+            : tokens.color.bg["2"],
           borderWidth: 1,
           borderColor: selected ? accent[500] : "transparent",
         },

@@ -1065,7 +1065,7 @@ Invoke-Step 'The local libraries fetch metadata from the internet' {
     # reader anywhere in the server. What actually decides is TypeOptions: an entry for an item type
     # makes that entry's MetadataFetchers an allow-list, and no entry means "use the server's own
     # options", which disable nothing. So the invariant to hold is that these two libraries carry
-    # **no** TypeOptions entries -- and the federated Shared libraries, which m3 covers, carry one
+    # **no** TypeOptions entries -- and the Recordings library, which m7 covers, carries one
     # per type precisely to turn the internet off.
     #
     # Waited for, and read through Get-Member-Value throughout. Both are answers to the same fact:

@@ -50,7 +50,7 @@ namespace StingStream.Core.Inventory;
 /// </para>
 /// <para>
 /// Federated pointers, deliberately. The materializer writes a `.strm` per peer per title into
-/// Shared Movies, Jellyfin resolves each one into an item, and every one of those raises an event.
+/// the federated tree, Jellyfin resolves each one into an item, and every one raises an event.
 /// A rebuild would skip them all (<see cref="InventoryService.IsServableLocally"/>) and be pure
 /// waste — and on a node materializing a large group, waste that never stops. The same test is
 /// applied here so the pointers never wake the loop at all.

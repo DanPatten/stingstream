@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtom } from "jotai";
 import type React from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,6 +26,7 @@ import { NextUp } from "@/components/series/NextUp";
 import { SeasonPicker } from "@/components/series/SeasonPicker";
 import { TVSeriesPage } from "@/components/series/TVSeriesPage";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
+import { SourceSelector } from "@/components/stingstream/sources/SourceSelector";
 import { Colors } from "@/constants/Colors";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
@@ -163,24 +164,30 @@ const page: React.FC = () => {
     defaultSubtitleIndex,
   } = useDefaultPlaySettings(nextEpisode, settings);
 
-  const playOptions = useMemo(
-    () =>
-      nextEpisode
-        ? {
-            bitrate: defaultBitrate,
-            mediaSource: defaultMediaSource ?? undefined,
-            audioIndex: defaultAudioIndex,
-            subtitleIndex: defaultSubtitleIndex ?? -1,
-          }
-        : undefined,
-    [
-      nextEpisode,
-      defaultBitrate,
-      defaultMediaSource,
-      defaultAudioIndex,
-      defaultSubtitleIndex,
-    ],
-  );
+  // Play here goes straight into the player, so "which server?" has to be answerable *on this
+  // screen* — there is no episode details page in between to ask it on, the way there is on
+  // television. The pin itself is filed against the series, so a choice made here is the show's.
+  const [chosenSourceId, setChosenSourceId] = useState<string | null>(null);
+
+  const playOptions = useMemo(() => {
+    if (!nextEpisode) return undefined;
+    const chosen = chosenSourceId
+      ? nextEpisode.MediaSources?.find((s) => s.Id === chosenSourceId)
+      : undefined;
+    return {
+      bitrate: defaultBitrate,
+      mediaSource: chosen ?? defaultMediaSource ?? undefined,
+      audioIndex: defaultAudioIndex,
+      subtitleIndex: defaultSubtitleIndex ?? -1,
+    };
+  }, [
+    nextEpisode,
+    chosenSourceId,
+    defaultBitrate,
+    defaultMediaSource,
+    defaultAudioIndex,
+    defaultSubtitleIndex,
+  ]);
 
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
@@ -259,13 +266,23 @@ const page: React.FC = () => {
       item={item}
       meta={<Ratings item={item} />}
       actions={
-        <ActionRow
-          // Play belongs to the episode; everything else belongs to the series.
-          item={item}
-          playItem={nextEpisode}
-          selectedOptions={playOptions}
-          moreActions={moreActions}
-        />
+        <>
+          <ActionRow
+            // Play belongs to the episode; everything else belongs to the series.
+            item={item}
+            playItem={nextEpisode}
+            selectedOptions={playOptions}
+            moreActions={moreActions}
+          />
+          {!isOffline ? (
+            <SourceSelector
+              item={nextEpisode}
+              currentMediaSourceId={playOptions?.mediaSource?.Id}
+              onSelect={setChosenSourceId}
+              style={{ marginTop: 12 }}
+            />
+          ) : null}
+        </>
       }
     />
   );

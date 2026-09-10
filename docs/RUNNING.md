@@ -661,7 +661,7 @@ What it asserts, in order:
    `join.state = joined` with a `via` that is not `none`.
 4. A materializes the film and **the subtitle lands beside the `.strm`**, named the way Jellyfin
    finds an external track.
-5. The recording appears in A's **Shared Recordings** and plays.
+5. The recording appears in A's **Recordings** and plays.
 6. **A publishes nothing it only points at.** This is the cause of the M5 bug asserted directly:
    A's own inventory must contain neither the film's nor the recording's item key, because A holds
    only pointers to them -- and A's pointers must survive a rebuild, because the old loop deleted
