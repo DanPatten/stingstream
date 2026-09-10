@@ -14,6 +14,13 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://github.com/sponsors/DanPatten">
+    <img
+      src="https://img.shields.io/badge/Sponsor-DanPatten-db61a2?logo=githubsponsors&logoColor=white"
+      alt="Sponsor StingStream on GitHub"></a>
+</p>
+
 # StingStream
 
 **Your movies and shows, on every screen you own, shared with the people you choose.**
@@ -131,7 +138,9 @@ certificate for one.
 ## Frequently asked questions
 
 **Is it really free?** Yes. StingStream is open source under the GPL. There is nothing to buy and
-no premium tier.
+no premium tier. If you want to help pay for the time it takes, you can
+[sponsor the project](https://github.com/sponsors/DanPatten) — entirely optional, and it unlocks
+nothing, because there is nothing locked.
 
 **Where do my files and my account live?** On your own computer, in a folder you control. Nothing
 is uploaded to us because there is no "us".
@@ -158,6 +167,20 @@ Something not working? Open an issue on the
 [issues page](https://github.com/DanPatten/stingstream/issues) and describe what you did and what
 you saw. The server has a **Node status** page in Settings that shows what's running; a screenshot
 of it helps a lot.
+
+---
+
+## Supporting the project
+
+StingStream is built in spare time and given away. If it is useful to you and you would like to
+chip in, **[sponsor it on GitHub](https://github.com/sponsors/DanPatten)** — monthly or one-off,
+whatever suits.
+
+Sponsoring buys no features and no priority: everyone gets the same app. It pays for the hours,
+the test hardware and the code signing certificates.
+
+Not in a position to sponsor? Reporting a bug clearly, or telling someone else about it, is worth
+just as much.
 
 ---
 
