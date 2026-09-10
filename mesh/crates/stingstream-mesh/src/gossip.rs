@@ -1271,6 +1271,24 @@ mod tests {
     }
 
     #[test]
+    fn a_withdrawal_survives_the_round_trip_and_an_older_node_drops_it() {
+        let group = GroupId::generate();
+        let secret = GroupSecret::generate();
+        let key = SecretKey::generate();
+        let withdrawn = Body::RequestWithdrawn {
+            request_id: "req-1".into(),
+        };
+        let wire = seal(&group, &secret, &key, &withdrawn).unwrap();
+        assert_eq!(open(&group, &secret, &wire, "test").unwrap().1, withdrawn);
+
+        // And the half `docs/UPGRADING.md` §3 rests on: `Body` is tagged by variant name, so a
+        // build that predates this one cannot decode the frame and drops it rather than misreading
+        // it as something else. Stood in for here by a variant name no build has.
+        let unknown = r#"{"RequestUnhinged":{"request_id":"r"}}"#;
+        assert!(serde_json::from_str::<Body>(unknown).is_err());
+    }
+
+    #[test]
     fn snapshots_and_deltas_survive_the_round_trip() {
         let group = GroupId::generate();
         let secret = GroupSecret::generate();
