@@ -18,7 +18,7 @@ import {
 } from "./buildSidebarItems";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
-import { isTabKey, tabLabelKey } from "./tabIcons";
+import { isTabKey, tabLabelKey, tabPath } from "./tabIcons";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 
 /**
@@ -105,9 +105,15 @@ export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
       // "Already there" means *exactly* there, not "somewhere in this tab".
       // Clicking Home from a detail page has to go home — that is most of what
       // a persistent sidebar is for — so only the row's own URL is a no-op, and
-      // anything deeper navigates back up to it. Comparing addresses rather
-      // than route segments is what every row having a real URL buys us.
-      if (item.route.pathname === pathname) return;
+      // anything deeper navigates back up to it.
+      //
+      // Compared against the row's **public** address, not its route. Home is
+      // the one row whose `route.pathname` is the fully qualified
+      // `/(auth)/(tabs)/(home)/` (see `buildSidebarItems`), and `pathname` for
+      // Home is `/` — so the two could never be equal and Home was the one row
+      // that always re-navigated, even from Home.
+      const publicPath = item.tab ? tabPath(item.tab) : item.route.pathname;
+      if (publicPath === pathname) return;
 
       if (item.navigate === "replace") {
         router.replace(href as never);
