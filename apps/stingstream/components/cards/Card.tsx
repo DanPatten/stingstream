@@ -3,15 +3,18 @@ import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { elevation, rgba, tokens } from "@/constants/theme";
+import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { CardArtwork } from "./CardArtwork";
 import {
+  CARD_META_GAP,
   CARD_TEXT_GAP,
   CARD_TITLE_LINES,
   type CardData,
   type CardKind,
   type CardSlots,
+  cardTitleBlockHeight,
   defaultTextPlacement,
 } from "./CardData";
 import { useCardLayout } from "./useCardLayout";
@@ -28,6 +31,14 @@ type CardProps = {
    */
   textPlacement?: "over" | "below";
   slots?: Pick<CardSlots, "overlay" | "footer">;
+  /**
+   * Whether hovering the artwork draws the play disc. On by default: a card in
+   * a library is a thing you press to watch. A screen where pressing a card
+   * opens something else — Find, where nobody holds the title yet — passes
+   * `false`, because a play glyph on artwork that cannot be played is a promise
+   * the press does not keep.
+   */
+  hoverPlayGlyph?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
   /** What the sweep looks for. The library's own name unless a screen says otherwise. */
@@ -35,6 +46,12 @@ type CardProps = {
 };
 
 const isWeb = Platform.OS === "web";
+
+/**
+ * The star beside a community score — the same gold `components/Ratings.tsx`
+ * uses on the details page, so one score means one colour wherever it appears.
+ */
+const RATING_STAR = "#E0B34A";
 
 /**
  * A media card. Everything it draws comes from `CardData` — see
@@ -58,11 +75,13 @@ export const Card: React.FC<CardProps> = ({
   width,
   textPlacement,
   slots,
+  hoverPlayGlyph = true,
   onPress,
   onLongPress,
   testID = "library-card",
 }) => {
   const layout = useCardLayout(kind);
+  const breakpoint = useBreakpointName();
   const { accent } = useTheme();
   const states = usePressableStates();
   const cardWidth = width ?? layout.cardWidth;
@@ -70,6 +89,12 @@ export const Card: React.FC<CardProps> = ({
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const isOver = (textPlacement ?? defaultTextPlacement(kind)) === "over";
   const lifted = isWeb && states.hovered;
+
+  // One decimal, and only when there is a score to show: a provider answers
+  // `0` for a title nobody has voted on, and "0.0" on a poster reads as a
+  // verdict rather than as an absence.
+  const rating =
+    card.rating != null && card.rating > 0 ? card.rating.toFixed(1) : null;
 
   // Only the banded card draws its bar here, under the title. The clean-art
   // card puts it on the artwork's bottom edge instead (`edgeProgress`), where
@@ -113,33 +138,34 @@ export const Card: React.FC<CardProps> = ({
 
   // The disc reads as "this plays" without a caption; it only makes sense once
   // a pointer is actually hovering, since touch has no equivalent gesture.
-  const hoverPlayGlyph = lifted ? (
-    <View
-      pointerEvents='none'
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
+  const playGlyph =
+    lifted && hoverPlayGlyph ? (
       <View
+        pointerEvents='none'
         style={{
-          width: 44,
-          height: 44,
-          borderRadius: 22,
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: rgba("#000000", 0.5),
         }}
       >
-        <Icon name='play' size={20} color='#FFFFFF' />
+        <View
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: rgba("#000000", 0.5),
+          }}
+        >
+          <Icon name='play' size={20} color='#FFFFFF' />
+        </View>
       </View>
-    </View>
-  ) : null;
+    ) : null;
 
   return (
     <Pressable
@@ -174,7 +200,7 @@ export const Card: React.FC<CardProps> = ({
           overlay={
             <>
               {stateWash}
-              {hoverPlayGlyph}
+              {playGlyph}
               {slots?.overlay?.(card)}
             </>
           }
@@ -230,18 +256,65 @@ export const Card: React.FC<CardProps> = ({
       */}
       {!isOver && (
         <View style={{ paddingTop: CARD_TEXT_GAP }}>
-          <Text
-            variant='caption'
-            weight='medium'
-            numberOfLines={CARD_TITLE_LINES}
-          >
-            {card.title}
-          </Text>
-          {Boolean(card.subtitle) && (
-            <Text variant='micro' tone='secondary' numberOfLines={1}>
-              {card.subtitle}
+          {/*
+            Both lines are reserved whether or not this title needs them, so the
+            year under a one-word title lands on the same baseline as the year
+            under a title that wrapped. Ragged years are what makes a grid of
+            posters look crooked.
+          */}
+          <View style={{ height: cardTitleBlockHeight(breakpoint) }}>
+            <Text
+              variant='caption'
+              weight='medium'
+              numberOfLines={CARD_TITLE_LINES}
+            >
+              {card.title}
             </Text>
+          </View>
+
+          {/* The year, and the score beside it when the provider has one. */}
+          {(Boolean(card.subtitle) || rating !== null) && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                marginTop: CARD_META_GAP,
+              }}
+            >
+              {Boolean(card.subtitle) && (
+                // Shrinks, so a long subtitle — an episode title, where a year
+                // would be on a film — ellipses inside the card rather than
+                // pushing the score off the end of it.
+                <Text
+                  variant='micro'
+                  tone='tertiary'
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {card.subtitle}
+                </Text>
+              )}
+              {rating !== null && (
+                <View
+                  accessible
+                  accessibilityLabel={`${rating} out of 10`}
+                  style={{
+                    flexDirection: "row",
+                    flexShrink: 0,
+                    alignItems: "center",
+                    gap: 3,
+                  }}
+                >
+                  <Icon name='rating' size={11} color={RATING_STAR} />
+                  <Text variant='micro' tone='tertiary'>
+                    {rating}
+                  </Text>
+                </View>
+              )}
+            </View>
           )}
+
           {Boolean(card.detail) && (
             <Text variant='micro' tone='tertiary' numberOfLines={1}>
               {card.detail}

@@ -52,6 +52,11 @@ type Options = {
    * shared default would have made the new grid invisible to the sweep rather than wrong.
    */
   cardTestID?: string;
+  /**
+   * Whether hovering a card draws the play disc — see `Card`. Off for a grid
+   * whose cards do not lead to a player.
+   */
+  hoverPlayGlyph?: boolean;
 };
 
 /**
@@ -74,6 +79,7 @@ export function useCardGrid({
   onLongPressId,
   enableActionSheet,
   cardTestID,
+  hoverPlayGlyph,
 }: Options) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -144,6 +150,18 @@ export function useCardGrid({
   // A column is wider than the card it holds, so each card is nudged within
   // its column to land on the row inset and keep even gutters. Doing it here
   // rather than padding the list keeps a header spanning the full width.
+  //
+  // The nudge goes *negative* past the middle of the row and has to: the
+  // columns tile the whole list width, gutters included, while the cards they
+  // hold are pitched `cardWidth + spacing` apart, which is the narrower step
+  // whenever the page gutter is wider than half the card spacing — always, at
+  // every breakpoint we ship. So the last card sits a little to the left of its
+  // own column, and lands exactly on the page's right gutter.
+  //
+  // It is a margin rather than padding for that reason alone: a negative
+  // `paddingLeft` is invalid, and both web and Yoga drop it to zero without a
+  // word, which is what left the right-hand columns of every grid drifting
+  // wider apart than the left-hand ones.
   const columnOffset = useCallback(
     (index: number) => {
       const column = index % columns;
@@ -165,19 +183,21 @@ export function useCardGrid({
           flexGrow: 0,
           flexShrink: 0,
           height: cellHeight,
-          paddingLeft: columnOffset(index),
         }}
       >
-        <Card
-          card={item}
-          kind={kind}
-          width={cardWidth}
-          testID={cardTestID}
-          onPress={() => handlePress(item.id)}
-          onLongPress={
-            handleLongPress ? () => handleLongPress(item.id) : undefined
-          }
-        />
+        <View style={{ marginLeft: columnOffset(index) }}>
+          <Card
+            card={item}
+            kind={kind}
+            width={cardWidth}
+            testID={cardTestID}
+            hoverPlayGlyph={hoverPlayGlyph}
+            onPress={() => handlePress(item.id)}
+            onLongPress={
+              handleLongPress ? () => handleLongPress(item.id) : undefined
+            }
+          />
+        </View>
       </View>
     ),
     [
@@ -186,6 +206,7 @@ export function useCardGrid({
       cellHeight,
       columnWidth,
       columnOffset,
+      hoverPlayGlyph,
       kind,
       handlePress,
       handleLongPress,

@@ -13,11 +13,13 @@ const {
   autoGridColumns,
   buildItemCards,
   CARD_LAYOUTS,
+  CARD_META_GAP,
   CARD_TEXT_GAP,
   CARD_TITLE_LINES,
   cardPlaceholder,
   cardRowHeight,
   cardTextBlockHeight,
+  cardTitleBlockHeight,
   defaultTextPlacement,
 }: typeof import("./CardData") = await import("./CardData");
 type CardKind = import("./CardData").CardKind;
@@ -245,8 +247,19 @@ describe("card title placement", () => {
     for (const breakpoint of BREAKPOINTS) {
       expect(cardTextBlockHeight(breakpoint)).toBe(
         CARD_TEXT_GAP +
-          typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES +
+          cardTitleBlockHeight(breakpoint) +
+          CARD_META_GAP +
           typeStyle("micro", breakpoint).lineHeight,
+      );
+    }
+  });
+
+  test("the title block is both lines, whether or not this one wraps", () => {
+    // What keeps the years under a row of posters on one baseline: the card
+    // reserves the second line even for a title that fits on the first.
+    for (const breakpoint of BREAKPOINTS) {
+      expect(cardTitleBlockHeight(breakpoint)).toBe(
+        typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES,
       );
     }
   });

@@ -53,6 +53,12 @@ export type CardData = {
    * `unknown`, which still gets a real tile rather than an empty rectangle.
    */
   placeholder?: CardPlaceholder;
+  /**
+   * A community score out of ten, drawn as a star and one decimal beside the
+   * subtitle. Omit it and the card draws nothing there — a title nobody has
+   * rated must not read as a title rated zero.
+   */
+  rating?: number | null;
 };
 
 export type CardKind = "wide" | "portrait" | "rowWide";
@@ -198,6 +204,15 @@ export const defaultTextPlacement = (kind: CardKind): "over" | "below" =>
 /** Gap between the artwork and the title below it. */
 export const CARD_TEXT_GAP = 6;
 
+/**
+ * Gap between the title and the metadata line under it.
+ *
+ * Small, but not nothing: `micro` is only a point smaller than `caption`, so
+ * with the two lines stacked flush the year read as a second line of the title
+ * rather than as a note about it.
+ */
+export const CARD_META_GAP = 3;
+
 /** How many lines a below-artwork title may wrap to before it ellipses. */
 export const CARD_TITLE_LINES = 2;
 
@@ -214,8 +229,21 @@ export const CARD_TITLE_LINES = 2;
  */
 export const cardTextBlockHeight = (breakpoint: BreakpointName): number =>
   CARD_TEXT_GAP +
-  typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES +
+  cardTitleBlockHeight(breakpoint) +
+  CARD_META_GAP +
   typeStyle("micro", breakpoint).lineHeight;
+
+/**
+ * Height of the title itself: both lines, always.
+ *
+ * The card reserves this whether or not *this* title wraps, so the year under a
+ * one-word title sits on the same baseline as the year under a title that took
+ * two lines. Without it a row of posters ends in a ragged line of years at two
+ * different heights, which is the thing that makes a grid look untidy long
+ * before anybody works out why.
+ */
+export const cardTitleBlockHeight = (breakpoint: BreakpointName): number =>
+  typeStyle("caption", breakpoint).lineHeight * CARD_TITLE_LINES;
 
 /**
  * How many columns of at least `minCardWidth` fit in `availableWidth`, the

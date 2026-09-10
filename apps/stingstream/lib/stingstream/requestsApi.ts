@@ -532,6 +532,10 @@ export const toRequestCard = (
         imageAlt: requestTitle(source),
         badgeLabel: searchBadgeLabel(source),
         placeholder: kindPlaceholder(source.kind),
+        // What the provider's own audience made of it, out of ten. The one
+        // thing a poster cannot tell you and the reason half these presses
+        // happen: sixty strangers on a page, and this is what sorts them.
+        rating: source.rating,
       }
     : {
         id: source.id,

@@ -136,6 +136,11 @@ export const ICONS = {
    */
   users: "people",
   signOut: "log-out",
+  /**
+   * A community score. A star, because that is what a score out of ten looks
+   * like everywhere else a person has seen one.
+   */
+  rating: "star",
   warning: "warning",
   error: "alert-circle",
   success: "checkmark-circle",

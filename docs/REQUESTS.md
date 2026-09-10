@@ -455,6 +455,14 @@ of sixty. From the catalogue a film opens `RequestSheet` (poster, overview, one 
 season picker) and Request is a deliberate second press. A title that already has a request open
 behaves exactly as its row does either way.
 
+**A tile is a title, a year and the community score, and no play affordance.** The score is the one
+thing the artwork cannot tell you and roughly what the choice is made on: sixty strangers on a page,
+and a number out of ten is what sorts them. It is whatever the lookup carried — TMDB's own average
+for the feed, an arr's `ratings` for a search — drawn as `Card`'s star, and a title nobody has rated
+draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here: everywhere else a
+poster is a thing you press to watch, and the play disc that appears under a pointer would be a
+promise this screen cannot keep, since nobody holds these titles yet.
+
 **The catalogue is TMDB, and search is still the arrs.** They answer different questions. The arrs
 answer "is there a title called this", which is right for a search and useless to somebody who does
 not yet know what they want, and neither can be asked what is worth watching: Radarr has a popular

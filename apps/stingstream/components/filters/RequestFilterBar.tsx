@@ -77,12 +77,26 @@ export const RequestFilterBar: React.FC<Props> = ({ state, set, genres }) => {
   const availabilityLabel = (value: RequestAvailability) =>
     t(`requests.availability_${value}`);
 
+  /*
+   * Where Clear sits depends on the shape of the bar, and both answers are about the same thing:
+   * it appears the moment something is narrowing the list, so wherever it lands it must not push
+   * anything that was already there.
+   *
+   * Wide, the bar wraps and every chip is on screen, so Clear goes last: at the leading edge it
+   * shoved the whole bar sideways as it arrived, out from under the chip the reader had just
+   * pressed. Compact, the bar is a scroller and the end of it is somewhere off the right of the
+   * screen, so last would mean hidden. There it leads, where the scroller is already parked.
+   */
+  const clear = (
+    <ClearFiltersChip
+      visible={requestFiltersActive(state)}
+      onPress={() => set(DEFAULT_REQUEST_FILTERS)}
+    />
+  );
+
   const chips = (
     <>
-      <ClearFiltersChip
-        visible={requestFiltersActive(state)}
-        onPress={() => set(DEFAULT_REQUEST_FILTERS)}
-      />
+      {isCompact ? clear : null}
 
       {KINDS.map((entry) => (
         <FilterChip
@@ -150,6 +164,8 @@ export const RequestFilterBar: React.FC<Props> = ({ state, set, genres }) => {
         active={state.sortOrder[0] !== DEFAULT_REQUEST_FILTERS.sortOrder[0]}
         renderItemLabel={orderLabel}
       />
+
+      {isCompact ? null : clear}
     </>
   );
 
