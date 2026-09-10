@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { PixelRatio, View } from "react-native";
 import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
 import { motion } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
 import { CardPlaceholderTile } from "./CardPlaceholderTile";
+import { sizedPosterUrl } from "./posterSize";
 
 type Props = {
   card: CardData;
@@ -44,8 +45,11 @@ export const CardArtwork: React.FC<Props> = ({
   // showing the previous poster's "loaded" as if it were this one's.
   const [settled, setSettled] = useState<string | null>(null);
   const [broken, setBroken] = useState<string | null>(null);
-  const imageUrl =
-    card.imageUrl && card.imageUrl !== broken ? card.imageUrl : null;
+  // Sized first, because everything downstream treats this string as the
+  // identity of "this poster": `settled`, `broken`, and expo-image's own cache
+  // key. They have to be looking at the same URL the request actually used.
+  const sized = sizedPosterUrl(card.imageUrl, width, PixelRatio.get());
+  const imageUrl = sized && sized !== broken ? sized : null;
   const covered = !!imageUrl && settled !== imageUrl;
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const unplayed = card.unplayedCount ?? 0;
