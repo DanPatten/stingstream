@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
@@ -21,18 +20,31 @@ import { arrAppLabel } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { SaveBar, TextFieldRow } from "./fields";
+import { SaveBar } from "./fields";
+import {
+  availableGroups,
+  inGroup,
+  isPresetPresent,
+  PRESETS,
+  type QualityPreset,
+  resolvePreset,
+} from "./qualityPresets";
 
 /**
  * Server settings → Quality profiles. Gap 4 closed.
  *
- * A profile is one thing with one name, written into **both** Radarr and Sonarr
- * — that is the Omniarr premise, and it is why there is no app picker here. What
- * the two apps do not share is the quality vocabulary itself, so the editor
- * offers the *shared* names by default and says plainly when a profile is asking
- * for something one app does not have (`Unsupported`) or when the two apps have
- * drifted apart (`InSync`). Both are real states somebody needs to see, not
- * errors to hide.
+ * A profile is one thing with one name, written wherever this server fetches from — which is why
+ * there is no picker for that here. What films and series do not share is the quality vocabulary
+ * itself, so the editor offers the *shared* names by default and says plainly when a profile asks
+ * for something one half does not have (`Unsupported`) or when the two have drifted apart
+ * (`InSync`). Both are real states somebody needs to see, not errors to hide.
+ *
+ * **Nothing on this screen is typed.** Making a profile used to mean inventing a name and then
+ * ticking boxes from a list of nineteen strings like `WEBRip-720p` — a downloader's vocabulary,
+ * not anything a person watching television has an opinion about. A profile's name is also its
+ * identity in what it is written to and cannot be changed afterwards, so a typo is permanent.
+ * Profiles now come from `qualityPresets`, formats are added a group at a time, and the default is
+ * chosen from the profiles that exist rather than spelled out again.
  */
 export function QualityProfilesSection({
   value,
@@ -95,7 +107,10 @@ export function QualityProfilesSection({
       />
 
       {creating && (
-        <ProfileEditor initial={null} onDone={() => setCreating(false)} />
+        <PresetPicker
+          existing={(profiles.data ?? []).map((p) => p.Name ?? "")}
+          onDone={() => setCreating(false)}
+        />
       )}
 
       <QueryState
@@ -156,13 +171,34 @@ export function QualityProfilesSection({
 
       <View style={{ height: 16 }} />
 
-      <ListGroup>
-        <TextFieldRow
-          title={t("server_settings.quality_profiles_default_name_title")}
-          subtitle={t("server_settings.quality_profiles_default_name_detail")}
-          value={draft}
-          onChangeText={setDraft}
-        />
+      {/*
+        A chooser, not a text field. This names the profile everything new is filed under, and it
+        used to be typed -- so a single typo silently pointed the whole server at a profile that
+        does not exist, with nothing on screen to say so.
+      */}
+      <ListGroup
+        title={t("server_settings.quality_profiles_default_name_title")}
+      >
+        <View style={{ padding: 12 }}>
+          <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+            {t("server_settings.quality_profiles_default_name_detail")}
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {(profiles.data ?? []).map((p) => (
+              <ChoicePill
+                key={p.Name}
+                label={p.Name ?? ""}
+                selected={draft === p.Name}
+                onPress={() => setDraft(p.Name ?? "")}
+              />
+            ))}
+            {(profiles.data ?? []).length === 0 && (
+              <Text variant='caption' tone='secondary'>
+                {t("server_settings.quality_profiles_default_none")}
+              </Text>
+            )}
+          </View>
+        </View>
       </ListGroup>
       <SaveBar
         dirty={dirty}
@@ -183,6 +219,162 @@ export function QualityProfilesSection({
           }
         }}
       />
+    </View>
+  );
+}
+
+/**
+ * A pill that is a choice, not a text field.
+ *
+ * The one shape every control on this screen now takes: formats, format groups, the cutoff, and
+ * which profile is the default. Shared so they cannot drift apart -- four near-identical
+ * `Pressable`s with hand-written colours is how three of them ended up looking like buttons and
+ * one like a tag.
+ */
+function ChoicePill({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { accent } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole='button'
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={{
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: radius.pill,
+        backgroundColor: selected ? accent[500] : tokens.color.bg["3"],
+      }}
+    >
+      <Text
+        variant='caption'
+        weight='semibold'
+        tone={selected ? "onAccent" : "secondary"}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * The four ready-made profiles, offered instead of a blank editor.
+ *
+ * Pressing one writes it and is done -- there is no second step, because the whole point is that
+ * somebody who wants "the everyday one" should not have to have an opinion about `WEBRip-720p`.
+ * What it resolves to on *this* server is shown underneath, so the choice is not blind, and the
+ * profile it makes can be opened and adjusted afterwards like any other.
+ *
+ * A preset already on the server is shown as such rather than hidden: its absence would read as
+ * the list being wrong, and hiding things people expect to see is how a screen becomes a puzzle.
+ */
+function PresetPicker({
+  existing,
+  onDone,
+}: {
+  existing: string[];
+  onDone: () => void;
+}) {
+  const { t } = useTranslation();
+  const vocabulary = useQualityVocabulary();
+  const save = useSaveQualityProfile();
+  const [pending, setPending] = useState<string | null>(null);
+
+  const names = useMemo(() => vocabulary.data?.Shared ?? [], [vocabulary.data]);
+
+  const add = async (preset: QualityPreset) => {
+    const resolved = resolvePreset(preset, names);
+    if (!resolved) {
+      toast.error(t("server_settings.quality_presets_unavailable"));
+      return;
+    }
+    setPending(preset.key);
+    try {
+      const result = await save.mutateAsync({
+        isNew: true,
+        profile: {
+          Name: preset.name,
+          UpgradeAllowed: true,
+          Cutoff: resolved.cutoff,
+          Items: resolved.allowed.map((q) => ({ Name: q, Allowed: true })),
+        },
+      });
+      toast.success(
+        result?.Detail?.join("; ") ||
+          t("server_settings.quality_presets_added", { name: preset.name }),
+      );
+      onDone();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("server_settings.quality_profiles_save_error"),
+      );
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return (
+    <View
+      testID='quality-presets'
+      style={{
+        borderRadius: radius.lg,
+        backgroundColor: tokens.color.bg["1"],
+        padding: 16,
+        marginBottom: 12,
+      }}
+    >
+      <Text weight='semibold' style={{ marginBottom: 4 }}>
+        {t("server_settings.quality_presets_title")}
+      </Text>
+      <Text variant='caption' tone='secondary' style={{ marginBottom: 12 }}>
+        {t("server_settings.quality_presets_detail")}
+      </Text>
+
+      {names.length === 0 ? (
+        <Text variant='caption' tone='secondary'>
+          {vocabulary.isLoading
+            ? t("server_settings.quality_profiles_reading_vocabulary")
+            : t("server_settings.quality_profiles_no_vocabulary")}
+        </Text>
+      ) : (
+        <ListGroup>
+          {PRESETS.map((preset) => {
+            const resolved = resolvePreset(preset, names);
+            const present = isPresetPresent(preset, existing);
+            return (
+              <ListItem
+                key={preset.key}
+                title={t(`server_settings.quality_preset_${preset.key}_title`)}
+                subtitle={
+                  resolved
+                    ? t(`server_settings.quality_preset_${preset.key}_detail`)
+                    : t("server_settings.quality_presets_unavailable")
+                }
+                value={
+                  present
+                    ? t("server_settings.quality_presets_already")
+                    : undefined
+                }
+                showArrow={!present && !!resolved}
+                onPress={
+                  present || !resolved || pending !== null
+                    ? undefined
+                    : () => void add(preset)
+                }
+              />
+            );
+          })}
+        </ListGroup>
+      )}
     </View>
   );
 }
@@ -229,7 +421,7 @@ function ProfileEditor({
   const save = useSaveQualityProfile();
   const isNew = initial === null;
 
-  const [name, setName] = useState(initial?.Name ?? "");
+  const name = initial?.Name ?? "";
   const [upgrade, setUpgrade] = useState(initial?.UpgradeAllowed ?? true);
   const [cutoff, setCutoff] = useState(initial?.Cutoff ?? "");
   const [showAll, setShowAll] = useState(false);
@@ -262,10 +454,6 @@ function ProfileEditor({
     );
 
   const submit = async () => {
-    if (!name.trim()) {
-      toast.error(t("server_settings.quality_profiles_name_required"));
-      return;
-    }
     if (allowed.length === 0) {
       toast.error(t("server_settings.quality_profiles_allow_one_required"));
       return;
@@ -312,18 +500,12 @@ function ProfileEditor({
         marginBottom: 12,
       }}
     >
-      <Input
-        placeholder={t("server_settings.quality_profiles_name_placeholder")}
-        value={name}
-        editable={isNew}
-        onChangeText={setName}
-        style={{ marginBottom: 8 }}
-      />
-      {!isNew && (
-        <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
-          {t("server_settings.quality_profiles_rename_hint")}
-        </Text>
-      )}
+      <Text weight='semibold' style={{ marginBottom: 4 }}>
+        {name}
+      </Text>
+      <Text variant='caption' tone='secondary' style={{ marginBottom: 12 }}>
+        {t("server_settings.quality_profiles_rename_hint")}
+      </Text>
 
       <View
         style={{
@@ -364,6 +546,46 @@ function ProfileEditor({
           : t("server_settings.quality_profiles_showing_shared_detail")}
       </Text>
 
+      {/*
+        The shortcut, and for most readers the only control here: "add 4K" rather than five
+        separate pills whose names differ only in how the file was made. Toggling a group adds or
+        removes all of it at once; the individual formats below stay for somebody who wants to
+        exclude one of them.
+      */}
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        {availableGroups(names).map((group) => {
+          const members = inGroup(names, group);
+          const on = members.every((q) => allowed.includes(q));
+          return (
+            <ChoicePill
+              key={group}
+              label={t(`server_settings.quality_group_${group}`)}
+              selected={on}
+              onPress={() =>
+                setAllowed((current) =>
+                  on
+                    ? current.filter((q) => !members.includes(q))
+                    : [
+                        ...current,
+                        ...members.filter((q) => !current.includes(q)),
+                      ],
+                )
+              }
+            />
+          );
+        })}
+      </View>
+
+      <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
+        {t("server_settings.quality_profiles_individual_detail")}
+      </Text>
       <View
         style={{
           flexDirection: "row",
