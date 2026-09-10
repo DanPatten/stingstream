@@ -95,6 +95,10 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
             marginHorizontal: -gutter,
             flexDirection: "row",
             flexWrap: "wrap",
+            // The list screens pass this as a `FlashList` separator; a wrapping
+            // row takes it directly. Without it the rows touched, and a card's
+            // year sat flush against the poster on the row below.
+            rowGap: grid.rowGap,
           }}
         >
           {grid.data.map((item, index) => (

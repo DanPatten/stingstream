@@ -237,18 +237,24 @@ export function RequestSheet({
       title={requestTitle(shown)}
       dismissible={!busy}
       actions={[
-        // Withdraw sits with Cancel rather than beside the submit: it is the way *out* of the
-        // request, not a second way to confirm it, and a destructive control next to the one
-        // everybody means to press is how people press the wrong one.
-        ...(editingNow && editing
+        // Delete sits at the far end from the submit: it is the way *out* of the request, not a
+        // second way to confirm it, and a destructive control next to the one everybody means to
+        // press is how people press the wrong one.
+        //
+        // Offered for any request that exists, not only one still open — the other half of the
+        // inconsistency the row had. A failed request could be deleted from its row and not from
+        // its own sheet, so the two disagreed about what could be done to the same thing.
+        ...(editing
           ? [
               {
-                label: t("common.delete"),
+                // Named for what it deletes. On a dialog that is already about one title a bare
+                // "Delete" is the shortest label that still leaves the reader checking what it
+                // means, and the thing it deletes is the request, not the film.
+                label: t("requests.delete_action"),
                 // `danger`, like the same button on My requests. It was ghost, on the idea that
                 // playing it down keeps it away from the one everybody means to press -- but a
                 // destructive control that looks ordinary is the one people press by accident, and
-                // it is the position beside Cancel rather than the colour that keeps it clear of
-                // Save.
+                // it is the distance from the submit rather than the colour that keeps it clear.
                 variant: "danger" as const,
                 icon: "delete" as const,
                 testID: "requests-delete",
@@ -258,12 +264,8 @@ export function RequestSheet({
               },
             ]
           : []),
-        {
-          label: t("common.cancel"),
-          variant: "ghost" as const,
-          onPress: onClose,
-          disabled: busy,
-        },
+        // No Cancel. The dialog closes on its own dismiss — the X, the scrim, Escape — so a button
+        // for it is a third control competing with the two that actually do something.
         {
           label: submitLabel(),
           testID: "requests-submit",

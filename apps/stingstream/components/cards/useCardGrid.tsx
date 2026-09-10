@@ -6,6 +6,7 @@ import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { Card } from "./Card";
 import {
   autoGridColumns,
+  CARD_GRID_ROW_GAP,
   type CardData,
   type CardKind,
   cardTextBlockHeight,
@@ -220,8 +221,8 @@ export function useCardGrid({
     data: cards,
     renderItem,
     keyExtractor,
-    /** Vertical gap between rows. */
-    rowGap: layout.spacing,
+    /** Vertical gap between rows — wider than the column gap, see the constant. */
+    rowGap: CARD_GRID_ROW_GAP,
     /**
      * The column count actually in use — the caller's own `columns` when
      * given, otherwise what the auto-fill formula picked for the current

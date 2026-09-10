@@ -213,6 +213,18 @@ export const CARD_TEXT_GAP = 6;
  */
 export const CARD_META_GAP = 3;
 
+/**
+ * Gap between one row of a grid and the next.
+ *
+ * Wider than the gap between columns, and it has to be: a column gap sits
+ * between two posters, while a row gap sits between a card's own year and the
+ * *next* poster. Set them equal and the year is as close to the artwork below
+ * it as to the title above it, so it reads as a caption on the wrong picture.
+ * Everything inside a card is 6 px or less apart; this is what says the card
+ * ended.
+ */
+export const CARD_GRID_ROW_GAP = 20;
+
 /** How many lines a below-artwork title may wrap to before it ellipses. */
 export const CARD_TITLE_LINES = 2;
 

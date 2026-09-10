@@ -3,7 +3,6 @@ import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { elevation, rgba, tokens } from "@/constants/theme";
-import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { CardArtwork } from "./CardArtwork";
@@ -14,7 +13,6 @@ import {
   type CardData,
   type CardKind,
   type CardSlots,
-  cardTitleBlockHeight,
   defaultTextPlacement,
 } from "./CardData";
 import { useCardLayout } from "./useCardLayout";
@@ -81,7 +79,6 @@ export const Card: React.FC<CardProps> = ({
   testID = "library-card",
 }) => {
   const layout = useCardLayout(kind);
-  const breakpoint = useBreakpointName();
   const { accent } = useTheme();
   const states = usePressableStates();
   const cardWidth = width ?? layout.cardWidth;
@@ -257,20 +254,20 @@ export const Card: React.FC<CardProps> = ({
       {!isOver && (
         <View style={{ paddingTop: CARD_TEXT_GAP }}>
           {/*
-            Both lines are reserved whether or not this title needs them, so the
-            year under a one-word title lands on the same baseline as the year
-            under a title that wrapped. Ragged years are what makes a grid of
-            posters look crooked.
+            Left to flow, not padded out to both lines. The row above reserves
+            the taller block either way (`cardTextBlockHeight`), so the next row
+            of posters lands where it always did — but forcing the second line
+            *here* pushed the year of a one-line title a whole line clear of it,
+            and with the grid's row gap under it the year then read as a caption
+            on the poster below rather than the one it belongs to.
           */}
-          <View style={{ height: cardTitleBlockHeight(breakpoint) }}>
-            <Text
-              variant='caption'
-              weight='medium'
-              numberOfLines={CARD_TITLE_LINES}
-            >
-              {card.title}
-            </Text>
-          </View>
+          <Text
+            variant='caption'
+            weight='medium'
+            numberOfLines={CARD_TITLE_LINES}
+          >
+            {card.title}
+          </Text>
 
           {/* The year, and the score beside it when the provider has one. */}
           {(Boolean(card.subtitle) || rating !== null) && (

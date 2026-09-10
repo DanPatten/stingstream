@@ -326,6 +326,12 @@ export function RequestsScreen({
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
   const available = useRequestsAvailable();
+  // The same query My requests itself runs, so the badge costs no extra poll: React Query hands
+  // both callers one entry. It is read rather than `counts.mineOpen` because that number counts
+  // only what is still in flight, and a request that was declined or could not be filled is
+  // exactly the kind this member most needs telling about.
+  const userId = useCurrentUserId();
+  const myRequests = useRequests({ mine: true });
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape,
@@ -338,6 +344,12 @@ export function RequestsScreen({
 
   const pending = counts.data?.pendingApproval ?? 0;
   const unread = counts.data?.unreadNotifications ?? 0;
+  // Everything of this member's own that is not finished: waiting, approved, downloading, declined,
+  // failed. Not the whole list — a title that arrived is over, and a badge that counts things
+  // nobody has to do anything about only ever goes up, which is how a badge stops being read.
+  const mineOpen = selectMine(myRequests.data, userId).filter(
+    (request) => request.state !== "available",
+  ).length;
 
   // Find is first, and it is the one tab every other entry point aims at. It
   // was removed once (F-73) in favour of the Search tab answering one box with
@@ -348,7 +360,11 @@ export function RequestsScreen({
   // screen whose whole purpose is asking has to be able to ask.
   const segments: Segment[] = [
     { key: "find", label: t("requests.tab_find") },
-    { key: "mine", label: t("requests.tab_mine") },
+    {
+      key: "mine",
+      label: t("requests.tab_mine"),
+      badge: mineOpen > 0 ? mineOpen : undefined,
+    },
     {
       key: "alerts",
       label: t("requests.tab_alerts"),

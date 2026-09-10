@@ -422,6 +422,16 @@ exactly the window in which somebody notices they asked for the wrong thing: wit
 request does not help, because `DELETE /requests/{id}` drops the row and leaves the manager
 tracking the title, by design.
 
+**Every row on My requests carries the same two buttons.** Edit and Delete, on every request that
+has not arrived, and Edit is not gated on there being a season to change or on this node's manager
+tracking the title. That gate is what put Edit on one of three failed films and nothing on the other
+two, off a fact — which node happened to add it — the reader cannot see; a list whose buttons come
+and go for invisible reasons reads as broken. The sheet always has something behind it: the seasons,
+what this server does about the title, or asking for it again. The tab itself carries a count of
+everything not yet finished, declined and failed included, which is the same list read the same way
+(`counts.mineOpen` counts only what is in flight and would have said nothing about three films that
+could not be grabbed).
+
 **Find is where asking happens, and it is the first tab.** With nothing typed it opens on the
 catalogue — the sixty most popular titles, or the best ever made — as a poster grid. One box asks
 the node, which asks both managers, and the answers come back films first as rows: a search for a

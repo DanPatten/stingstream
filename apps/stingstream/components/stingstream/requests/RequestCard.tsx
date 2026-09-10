@@ -50,7 +50,7 @@ const onDate = (at: number): string =>
  *
  * The actions slot is deliberately generic — `Button variant="ghost"` for Approve/Retry,
  * `variant="danger"` for Decline/Delete — rather than a fixed prop per verb, because My requests
- * offers Delete alone, Approvals offers Approve+Decline for a pending row and Retry for a failed
+ * offers Edit and Delete, Approvals offers Approve+Decline for a pending row and Retry for a failed
  * one, and a fixed set of props would grow a boolean per screen.
  */
 export function RequestCard({
