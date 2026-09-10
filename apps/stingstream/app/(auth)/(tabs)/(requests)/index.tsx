@@ -3,6 +3,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Platform } from "react-native";
 import { RequestsScreen } from "@/components/stingstream/requests/RequestsScreen";
+import { kindFromRoute } from "@/components/stingstream/requests/requestsSections";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import useRouter from "@/hooks/useAppRouter";
 
@@ -14,17 +15,23 @@ import useRouter from "@/hooks/useAppRouter";
  * who cannot administer the node can still ask it for something. The elevated parts (Approvals,
  * Activity, Policy) are simply absent from the section bar for everybody else.
  *
- * Two route params, both optional. `q` is the search term, written by Search's `Request "…"`
+ * Three route params, all optional. `q` is the search term, written by Search's `Request "…"`
  * button; `tab` is the open section, so that button can land on Find directly — and so a reload, a
- * bookmark or a shared link comes back to the section it named. The page reads both and owns the
- * writing of `tab`, because the router belongs up here rather than in a section component.
+ * bookmark or a shared link comes back to the section it named; `kind` narrows Find's bar to films
+ * or to shows, written by an empty Movies or TV shows library alongside `tab=find`. The page reads
+ * all three and owns the writing of `tab`, because the router belongs up here rather than in a
+ * section component.
  *
  * `setParams`, not `push`: the sections are flat halves of one screen rather than deep routes, and
  * pushing would put a back step between two halves of the same errand — the same reasoning as
  * Search's `Request "…"` button using `replace`.
  */
 export default function StingStreamRequestsPage() {
-  const { q, tab } = useLocalSearchParams<{ q?: string; tab?: string }>();
+  const { q, tab, kind } = useLocalSearchParams<{
+    q?: string;
+    tab?: string;
+    kind?: string;
+  }>();
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -51,7 +58,12 @@ export default function StingStreamRequestsPage() {
 
   return (
     <RefreshScreen refreshing={refreshing} onRefresh={onRefresh}>
-      <RequestsScreen tab={tab} term={q ?? ""} onSelectTab={selectTab} />
+      <RequestsScreen
+        tab={tab}
+        term={q ?? ""}
+        kind={kindFromRoute(kind)}
+        onSelectTab={selectTab}
+      />
     </RefreshScreen>
   );
 }

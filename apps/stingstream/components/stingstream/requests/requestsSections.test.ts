@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Segment } from "@/components/common/tabSegments";
-import { DEFAULT_REQUEST_SECTION, sectionFromRoute } from "./requestsSections";
+import {
+  DEFAULT_REQUEST_SECTION,
+  kindFromRoute,
+  sectionFromRoute,
+} from "./requestsSections";
 
 /** What a member sees. */
 const member: Segment[] = [
@@ -52,5 +56,25 @@ describe("sectionFromRoute", () => {
     expect(sectionFromRoute(member, "policy")).toBe("find");
     expect(sectionFromRoute(member, "nonsense")).toBe("find");
     expect(sectionFromRoute(admin, "policy")).toBe("policy");
+  });
+});
+
+describe("kindFromRoute", () => {
+  test("the two kinds a catalogue can be narrowed to", () => {
+    // An empty Movies or TV shows library hands one of these over with
+    // `tab=find`, so Find opens already showing what the reader was looking at.
+    expect(kindFromRoute("movie")).toBe("movie");
+    expect(kindFromRoute("series")).toBe("series");
+  });
+
+  test("anything else means nothing was asked for", () => {
+    // Including `all`, which is Find's own default: the point of the param is
+    // to narrow, so a param naming the default has nothing to say and must not
+    // look, to `FindSection`'s guard, like an arrival that should move the bar.
+    expect(kindFromRoute(undefined)).toBeUndefined();
+    expect(kindFromRoute("")).toBeUndefined();
+    expect(kindFromRoute("all")).toBeUndefined();
+    expect(kindFromRoute("Movie")).toBeUndefined();
+    expect(kindFromRoute("tvshows")).toBeUndefined();
   });
 });

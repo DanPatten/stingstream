@@ -21,6 +21,7 @@ import {
 } from "@/lib/stingstream/requests";
 import {
   type MemberRequest,
+  type RequestKind,
   stateLabel,
   stateTone,
 } from "@/lib/stingstream/requestsApi";
@@ -312,14 +313,20 @@ function TVRequestsScreen() {
  * `term` is the `q` route param, handed over by Search's `Request "…"` button. It picks Find when
  * `tab` is silent: somebody who arrives at Requests with a film's name is asking for it, not
  * filtering their own list.
+ *
+ * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows
+ * Find's bar on arrival rather than choosing a section, because the entry point that sets it always
+ * names `tab=find` as well: it says what is being asked for, not where to ask.
  */
 export function RequestsScreen({
   tab,
   term = "",
+  kind,
   onSelectTab,
 }: {
   tab?: string;
   term?: string;
+  kind?: RequestKind;
   onSelectTab?: (key: string) => void;
 } = {}) {
   const { t } = useTranslation();
@@ -441,7 +448,7 @@ export function RequestsScreen({
         />
       </View>
 
-      {section === "find" && <FindSection term={term} />}
+      {section === "find" && <FindSection term={term} kind={kind} />}
       {section === "mine" && (
         <MyRequestsSection onFind={() => select("find")} />
       )}

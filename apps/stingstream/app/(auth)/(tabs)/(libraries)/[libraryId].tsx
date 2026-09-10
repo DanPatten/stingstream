@@ -44,6 +44,7 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
 import { Loader } from "@/components/Loader";
+import { LibraryEmptyState } from "@/components/library/LibraryEmptyState";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
 import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
@@ -922,9 +923,13 @@ const Page = () => {
               isGridLoading ? (
                 <SkeletonGrid kind='portrait' columns={grid.columns} />
               ) : (
-                <EmptyState
-                  title={t("library.no_results")}
-                  style={{ paddingTop: "20%" }}
+                // Three situations, three different next moves: a filter to
+                // clear, a film or a show to go and ask for, or nothing to be
+                // done. `LibraryEmptyState` holds which is which.
+                <LibraryEmptyState
+                  collectionType={library?.CollectionType}
+                  narrowed={hasActiveFilters}
+                  onClear={resetAllFilters}
                 />
               )
             }

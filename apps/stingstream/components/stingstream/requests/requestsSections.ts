@@ -7,6 +7,7 @@
  */
 
 import { resolveSegment, type Segment } from "@/components/common/tabSegments";
+import type { RequestKind } from "@/lib/stingstream/requestsApi";
 
 /**
  * What a bare `/requests` opens on.
@@ -49,3 +50,19 @@ export const sectionFromRoute = (
     segments,
     tab || (term.trim() ? TERM_SECTION : DEFAULT_REQUEST_SECTION),
   ) ?? DEFAULT_REQUEST_SECTION;
+
+/**
+ * The kind chip a `?kind=` names, if it names a real one.
+ *
+ * Find opens on All, and an entry point that already knows what it is asking for says so on the
+ * route: the empty state on a Movies library sends `kind=movie`, so the catalogue that greets the
+ * reader is the one they were just looking at rather than everything the node can fetch.
+ *
+ * Narrowed here rather than cast at the call site, and `all` deliberately answers `undefined`
+ * rather than itself: a stale link, a typo or a param naming the default all mean "nothing was
+ * asked for", and Find seeds its own default from that.
+ */
+export const kindFromRoute = (
+  kind: string | undefined,
+): RequestKind | undefined =>
+  kind === "movie" || kind === "series" ? kind : undefined;

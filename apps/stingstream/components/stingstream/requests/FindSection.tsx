@@ -15,6 +15,7 @@ import {
   DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
   type RequestFilterState,
+  type RequestKind,
   type RequestSearchResult,
   requestFiltersActive,
   requestTitle,
@@ -74,7 +75,13 @@ import { requestMadeToast } from "./requestMadeToast";
  * this and a Seerr: in a group that pools libraries the interesting answer is usually "somebody
  * already has this", and discovering that after pressing Request is too late to be useful.
  */
-export function FindSection({ term = "" }: { term?: string }) {
+export function FindSection({
+  term = "",
+  kind: entryKind,
+}: {
+  term?: string;
+  kind?: RequestKind;
+}) {
   const { t } = useTranslation();
 
   // `term` is the `q` route param, which is an *entry* term rather than a mirror of this box:
@@ -83,8 +90,14 @@ export function FindSection({ term = "" }: { term?: string }) {
   // instead of sitting empty through a debounce it never needed.
   const [typed, setTyped] = useState(term);
   const [debounced, setDebounced] = useState(term);
+  // `kind` is the other half of that handoff, and the same shape: an *entry* filter rather than a
+  // mirror of the bar. A Movies library's empty state hands `kind=movie` over, so somebody who came
+  // here looking for a film is shown films rather than everything the catalogue has. Nothing on
+  // this screen writes it back, so pressing All is a real choice and stays.
   const [filters, setFilters] = useState<RequestFilterState>(
-    DEFAULT_REQUEST_FILTERS,
+    entryKind
+      ? { ...DEFAULT_REQUEST_FILTERS, kind: entryKind }
+      : DEFAULT_REQUEST_FILTERS,
   );
   const [picking, setPicking] = useState<RequestSearchResult | null>(null);
   const [addingById, setAddingById] = useState(false);
@@ -169,6 +182,16 @@ export function FindSection({ term = "" }: { term?: string }) {
     if (!term) return;
     setTyped((current) => (term === current ? current : term));
   }, [term]);
+
+  // The same guard, for the same reason. This section stays mounted while its tab is open, so a
+  // second arrival naming a different kind has to move the bar, while a re-render carrying the kind
+  // already set must not undo a chip pressed since.
+  useEffect(() => {
+    if (!entryKind) return;
+    setFilters((current) =>
+      current.kind === entryKind ? current : { ...current, kind: entryKind },
+    );
+  }, [entryKind]);
 
   useEffect(() => {
     const timer = setTimeout(

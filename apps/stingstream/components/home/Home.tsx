@@ -693,7 +693,13 @@ const HomeMobile = () => {
             size={isAdmin ? "sm" : "lg"}
             icon='requests'
             justify='center'
-            onPress={() => router.push("/(auth)/(tabs)/(requests)")}
+            // Find, named rather than left to the default. A bare `/requests`
+            // opens My requests, which for somebody whose library is empty is
+            // a second empty screen: they pressed "Request something", so put
+            // them where something can actually be requested.
+            onPress={() =>
+              router.push({ pathname: "/requests", params: { tab: "find" } })
+            }
           >
             {t("home.empty_request")}
           </Button>

@@ -224,7 +224,6 @@
         "current": "current"
       },
       "sections": {
-        "downloading": "Downloading",
         "account": "Account",
         "sign_out": "Sign out",
         "generic_server": "your StingStream server"
@@ -681,10 +680,8 @@
         "users_hint": "Accounts, invitations, limits",
         "services": "Indexers & engines",
         "services_hint": "Search providers and download clients",
-        "downloading": "Downloading",
-        "downloading_hint": "Movies, TV shows, usenet",
-        "storage": "Storage & libraries",
-        "storage_hint": "Root folders, libraries, scans",
+        "storage": "Libraries",
+        "storage_hint": "Folders, downloading, scans",
         "quality": "Quality & formats",
         "quality_hint": "Profiles and upgrade cutoffs",
         "files": "Files & naming",
@@ -740,8 +737,6 @@
           "indexers": "Indexers",
           "download-clients": "Download clients",
           "arr-sync": "Push settings to movies and TV shows",
-          "downloading": "Downloading",
-          "root-folders": "Root folders",
           "libraries": "Libraries",
           "scan-delay": "How soon a change is noticed",
           "scan-concurrency": "How many folders are scanned at once",
@@ -802,9 +797,7 @@
           "indexers": "indexer, prowlarr, torznab, newznab, tracker, usenet, search provider",
           "download-clients": "download, client, qbittorrent, sabnzbd, transmission, deluge, torrent, usenet",
           "arr-sync": "sync, push, apply, movies, tv shows, films, series, indexers, downloads",
-          "downloading": "download, downloading, enable downloading, turn on downloading, not set up, fetch, grab, enable, turn on, turn off, movies, tv shows, films, series, usenet",
-          "root-folders": "root folder, path, where files go, download folder, disk",
-          "libraries": "library, libraries, folder, media folder, collection",
+          "libraries": "library, libraries, folder, media folder, root folder, path, where files go, disk, download, downloading, enable downloading, turn on downloading, not set up, fetch, enable, turn on, turn off, movies, tv shows, films, series, recordings",
           "scan-delay": "scan, monitor, delay, watch, refresh, real time",
           "scan-concurrency": "scan, concurrency, parallel, threads, speed",
           "quality-profiles": "quality, profile, resolution, 1080p, 4k, 2160p, remux, format",
@@ -1010,6 +1003,14 @@
   },
   "library": {
     "no_results": "No results",
+    "filtered_title": "Nothing in these filters",
+    "filtered_detail": "Nothing in this library matches everything you have chosen. Clear a filter to widen it.",
+    "empty_movies_title": "No movies yet",
+    "empty_movies_detail": "Request a movie and StingStream will add it here when it arrives.",
+    "empty_movies_action": "Request a movie",
+    "empty_series_title": "No TV shows yet",
+    "empty_series_detail": "Request a show and StingStream will add it here when it arrives.",
+    "empty_series_action": "Request a TV show",
     "not_found": "This library does not exist",
     "no_libraries_found": "No libraries found",
     "item_types": {
@@ -1680,7 +1681,7 @@
     "filter_kind_all": "All",
     "filter_kind_films": "Movies",
     "filter_kind_series": "TV shows",
-    "kind_movie": "Movie",
+    "kind_movie": "Film",
     "kind_series": "TV show",
     "request_title": "Request {{title}}",
     "policy_hint_admins_only": "Requests on this server wait for an administrator.",
@@ -1714,6 +1715,8 @@
     "toast_available": "{{title}} is already in your library",
     "toast_pending": "Requested {{title}}. Waiting for approval.",
     "toast_requested": "Requested {{title}}",
+    "season_count_one": "{{count}} season",
+    "season_count_other": "{{count}} seasons",
     "season_n": "Season {{n}}",
     "seasons_label": "Seasons",
     "seasons_select_all": "Select all",
@@ -1733,7 +1736,7 @@
     "filter_failed": "Failed",
     "delete_action": "Delete request",
     "delete_confirm_title": "Delete {{title}}?",
-    "delete_confirm_detail": "This removes it from your list. A download already in progress continues.",
+    "delete_confirm_detail": "This removes it from your list and stops any download in progress. Anything already downloaded is kept.",
     "delete_success": "Deleted {{title}}",
     "someone": "someone",
     "requested_by": "Requested by {{name}}",
@@ -1812,11 +1815,6 @@
     }
   },
   "admin": {
-    "libraries_empty_title": "No libraries found",
-    "libraries_scan_action": "Scan libraries",
-    "libraries_scan_error": "Could not start a scan",
-    "libraries_scan_success": "Scan started",
-    "libraries_title": "Libraries",
     "logs_back_action": "Logs",
     "logs_empty_title": "No logs available",
     "logs_loading": "Loading…",
@@ -2117,23 +2115,6 @@
     "torrent_local_peer_discovery_title": "Local peer discovery",
     "usenet_engine_group_title": "Usenet engine"
   },
-  "downloading": {
-    "title": "Downloading",
-    "detail": "Whether this server fetches titles it does not have yet.",
-    "films_title": "Movies",
-    "films_detail": "Search for and fetch movies.",
-    "series_title": "TV shows",
-    "series_detail": "Search for and fetch TV shows, episode by episode.",
-    "usenet_title": "Usenet",
-    "usenet_detail": "Fetch over usenet as well as over BitTorrent.",
-    "state_running": "Running",
-    "state_starting": "Starting",
-    "state_failed": "Not running",
-    "turned_on": "Turned on. It takes a few seconds to start.",
-    "turned_off": "Turned off.",
-    "unmanaged_title": "This server does not manage downloading",
-    "unmanaged_detail": "It was started outside StingStream, so there is nothing to switch here."
-  },
   "server_status": {
     "available_streams_field": "Available streams",
     "child_disabled": "Disabled",
@@ -2351,5 +2332,19 @@
     "manual_proxy": "Already running Caddy, nginx or your own tunnel? It handles HTTPS, so the steps above are already done.",
     "manual_this_machine": "this machine",
     "manual_tls_folder": "the tls folder in this server's data directory"
+  },
+  "libraries": {
+    "title": "Libraries",
+    "folder_title": "Folder",
+    "folder_detail": "Leave empty to use the default folder.",
+    "off_detail": "Your files are kept. Turn it back on to see them again.",
+    "saving": "Saving…",
+    "save_error": "Could not save",
+    "scan_action": "Scan now",
+    "scan_success": "Scan started",
+    "scan_error": "Could not start a scan",
+    "state_running": "Running",
+    "state_starting": "Starting",
+    "state_failed": "Not running"
   }
 }
