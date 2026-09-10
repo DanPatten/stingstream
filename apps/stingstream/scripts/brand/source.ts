@@ -74,8 +74,9 @@ export const MONO_ALPHA_LEVELS = { lo: 0.18, hi: 0.72 } as const;
 /**
  * Saturation thresholds used to build the light-background wordmark. "Sting" is rendered
  * near-white (#EAECF2) and vanishes on a light ground; "Stream" carries the cyan->violet
- * gradient and must not be touched. Measured on the cut art the two do not overlap at
- * all: every achromatic column is <= 363 and every chromatic column is >= 375.
+ * gradient, whose hue is kept and whose lightness is capped. Measured on the cut art the
+ * two do not overlap at all: every achromatic column is <= 363 and every chromatic column
+ * is >= 375.
  */
 export const WORDMARK_SATURATION = {
   chromatic: 0.35,
@@ -84,3 +85,24 @@ export const WORDMARK_SATURATION = {
 
 /** The ink "Sting" is recolored to for the light-background lockup. */
 export const WORDMARK_LIGHT_INK = { r: 0x0b, g: 0x0c, b: 0x0f } as const;
+
+/**
+ * How far "Stream" is darkened for the light-background lockup.
+ *
+ * The gradient is the artwork's and used to be carried across untouched, on the
+ * grounds that it is the brand. On white it measured 3.22:1 on average and 1.11:1
+ * at its lightest -- Dan, looking at the sidebar on the light theme: *"can you make
+ * the logo readable?"*. The pale cyan end is simply not ink on a white page.
+ *
+ * So the hue and the saturation are kept, which is what makes it recognisably the
+ * same gradient, and only the *lightness* is capped. `maxLightness` is an HSL L,
+ * and `minSaturation` stops a darkened pixel going muddy: pulling lightness down
+ * without it turns the cyan grey rather than deep teal.
+ *
+ * `brand.test.ts` pins the result, so a re-render of the source art that drifts
+ * back towards pale fails rather than shipping.
+ */
+export const WORDMARK_LIGHT_CHROMA = {
+  maxLightness: 0.28,
+  minSaturation: 0.65,
+} as const;

@@ -34,6 +34,7 @@ import {
   MARK_SIZE,
   MONO_ALPHA_LEVELS,
   SOURCE_FILES,
+  WORDMARK_LIGHT_CHROMA,
   WORDMARK_LIGHT_INK,
   WORDMARK_SATURATION,
   WORDMARK_SIZE,
@@ -235,12 +236,18 @@ async function markMonoArt(): Promise<Buffer> {
 }
 
 /**
- * The wordmark recolored for a light background: "Sting" is rendered near-white and
- * disappears on white, while "Stream" carries the cyan-to-violet gradient and must
- * survive untouched. Selecting by saturation rather than by a hardcoded x split keeps
- * this correct if the art is ever re-rendered -- and the boundary is checked, not
- * assumed, because a wordmark whose halves overlapped would need a different approach
- * entirely.
+ * The wordmark recolored for a light background.
+ *
+ * Both halves need work, for opposite reasons. "Sting" is rendered near-white and
+ * disappears on white, so it is repainted in the dark ink. "Stream" carries the
+ * cyan-to-violet gradient, which used to be carried across untouched -- and measured
+ * 3.22:1 on white, with its palest pixels at 1.11:1. It is darkened by capping HSL
+ * lightness, so the hue and the saturation survive and it is still visibly the same
+ * gradient, just one made of ink rather than of light.
+ *
+ * Selecting by saturation rather than by a hardcoded x split keeps this correct if the
+ * art is ever re-rendered -- and the boundary is checked, not assumed, because a
+ * wordmark whose halves overlapped would need a different approach entirely.
  */
 async function wordmarkLightArt(): Promise<Buffer> {
   const { data, info } = await sharp(WORDMARK_SRC)
@@ -296,7 +303,80 @@ async function wordmarkLightArt(): Promise<Buffer> {
       data[i + 2] = WORDMARK_LIGHT_INK.b;
     }
   }
+
+  // "Stream": keep the hue, cap the lightness. Everything from the boundary
+  // rightwards, including the anti-aliased edges, so the word darkens evenly
+  // rather than growing a pale halo.
+  for (let y = 0; y < height; y++) {
+    for (let x = firstChromatic; x < width; x++) {
+      const i = (y * width + x) * channels;
+      if (data[i + 3] === 0) continue;
+      const [r, g, b] = darkenForLight(data[i], data[i + 1], data[i + 2]);
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+    }
+  }
   return sharp(data, { raw: { width, height, channels } }).png().toBuffer();
+}
+
+/**
+ * One pixel of "Stream", moved from light to ink.
+ *
+ * Round-trips through HSL and changes only two of the three: lightness is capped
+ * at `maxLightness`, and saturation is floored at `minSaturation` because
+ * darkening alone sends the pale cyan grey rather than deep teal. Hue is never
+ * touched, which is what keeps the result the artwork's gradient rather than a
+ * new one.
+ */
+function darkenForLight(
+  r8: number,
+  g8: number,
+  b8: number,
+): [number, number, number] {
+  const r = r8 / 255;
+  const g = g8 / 255;
+  const b = b8 / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+
+  const nextL = Math.min(l, WORDMARK_LIGHT_CHROMA.maxLightness);
+  // A greyscale pixel has no hue to preserve, so leave its saturation alone
+  // rather than inventing a colour for it.
+  const nextS = d === 0 ? s : Math.max(s, WORDMARK_LIGHT_CHROMA.minSaturation);
+
+  const c = (1 - Math.abs(2 * nextL - 1)) * nextS;
+  const x2 = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = nextL - c / 2;
+  const [rp, gp, bp] =
+    h < 60
+      ? [c, x2, 0]
+      : h < 120
+        ? [x2, c, 0]
+        : h < 180
+          ? [0, c, x2]
+          : h < 240
+            ? [0, x2, c]
+            : h < 300
+              ? [x2, 0, c]
+              : [c, 0, x2];
+  return [
+    Math.round((rp + m) * 255),
+    Math.round((gp + m) * 255),
+    Math.round((bp + m) * 255),
+  ];
 }
 
 // ---------------------------------------------------------------------------

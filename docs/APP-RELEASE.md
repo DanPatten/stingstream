@@ -190,7 +190,9 @@ writing, all under `apps/stingstream/` unless noted:
 assets/brand/mark.png                  400x674    the mark, native size; what the app renders
 assets/brand/mark-mono.png             400x674    white silhouette from the mark's levelled alpha
 assets/brand/wordmark.png              856x151    "StingStream", for dark grounds
-assets/brand/wordmark-light.png        856x151    same, "Sting" recolored dark for light grounds
+assets/brand/wordmark-light.png        856x151    for light grounds: "Sting" recolored dark, and
+                                                  "Stream" darkened by capping its lightness so the
+                                                  pale cyan end is ink rather than a suggestion
 assets/brand/lockup-stacked{,-light}.png  600x590 mark above wordmark; used by the root README
 assets/images/icon.png                 1024x1024, opaque  combined icon (web favicon, non-adaptive fallback)
 assets/images/icon-android-plain.png   1024x1024  Android adaptive icon FOREGROUND (66% safe zone)
