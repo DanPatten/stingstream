@@ -278,11 +278,6 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
       <ListGroup
         className='mb-4'
         title={t("home.settings.subtitles.language_behavior_title")}
-        description={
-          <Text className='text-[#8E8D91] text-xs'>
-            {t("home.settings.subtitles.language_behavior_hint")}
-          </Text>
-        }
       >
         <Text className='px-4 pt-3 pb-1 text-[#8E8D91] text-xs uppercase'>
           {t("home.settings.audio.audio_title")}
@@ -472,11 +467,6 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
       <ListGroup
         className='mb-4'
         title={t("home.settings.subtitles.subtitle_appearance_title")}
-        description={
-          <Text className='text-[#8E8D91] text-xs'>
-            {t("home.settings.subtitles.subtitle_appearance_hint")}
-          </Text>
-        }
       >
         <SubtitlePreview />
 
@@ -629,7 +619,6 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
 
         <ListItem
           title={t("home.settings.subtitles.subtitle_background")}
-          subtitle={t("home.settings.subtitles.subtitle_background_hint")}
           disabled={pluginSettings?.subtitleBackground?.locked}
         >
           <SettingSwitch

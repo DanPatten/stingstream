@@ -112,7 +112,7 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
       testID='cast-tile'
       accessibilityRole='button'
       accessibilityLabel={
-        role ? `${person.Name} — ${role}` : (person.Name ?? "")
+        role ? `${person.Name}, ${role}` : (person.Name ?? "")
       }
       onPress={() =>
         person.Id &&

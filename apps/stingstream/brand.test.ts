@@ -231,6 +231,21 @@ describe("brand guard: zero user-visible upstream names", () => {
     expect(stale.map((e) => `${e.file}: ${e.substring}`)).toEqual([]);
   });
 
+  // The voice rule from the root CLAUDE.md, "The voice of user-facing copy": no em dashes in
+  // anything that reaches a screen. A dashed aside is nearly always two sentences wearing a
+  // trench coat, and the second one is usually the reasoning, which belongs in a comment or in
+  // docs/**. Dan, 2026-09-10, reviewing the stalled-server screen. English only: a translator
+  // writes their own language's punctuation.
+  test("no em dash in en.json", () => {
+    const en = JSON.parse(
+      readFileSync(join(root, "translations/en.json"), "utf8"),
+    ) as LocaleTree;
+    const violations = localeViolations(en, "", "en.json", /\u2014/);
+    // A non-empty list names the keys to reword: a full stop, a comma, a colon, or two
+    // sentences. See the root CLAUDE.md.
+    expect(violations).toEqual([]);
+  });
+
   test("app.json is StingStream's own", () => {
     const appJson = JSON.parse(readFileSync(join(root, "app.json"), "utf8"));
     expect(appJson.expo.scheme).toBe("stingstream");

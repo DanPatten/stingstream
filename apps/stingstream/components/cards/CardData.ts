@@ -277,7 +277,7 @@ export const cardImageAlt = (item: BaseItemDto): string => {
   const title = cardTitle(item);
   if (item.Type === "Episode") {
     const subtitle = cardSubtitle(item);
-    return subtitle ? `${title} — ${subtitle}` : title;
+    return subtitle ? `${title}, ${subtitle}` : title;
   }
   return item.ProductionYear ? `${title} (${item.ProductionYear})` : title;
 };

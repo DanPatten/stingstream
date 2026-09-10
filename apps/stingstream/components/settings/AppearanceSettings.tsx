@@ -128,9 +128,6 @@ export const AppearanceSettings: React.FC = () => {
         )}
         <ListItem
           title={t("home.settings.appearance.merge_next_up_continue_watching")}
-          subtitle={t(
-            "home.settings.appearance.merge_next_up_continue_watching_hint",
-          )}
         >
           <SettingSwitch
             value={settings.mergeNextUpAndContinueWatching}
@@ -154,9 +151,6 @@ export const AppearanceSettings: React.FC = () => {
         </ListItem>
         <ListItem
           title={t("home.settings.appearance.hide_remote_session_button")}
-          subtitle={t(
-            "home.settings.appearance.hide_remote_session_button_hint",
-          )}
         >
           <SettingSwitch
             value={settings.hideRemoteSessionButton}

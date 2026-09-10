@@ -211,9 +211,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
 
         <ListItem
           title={t("home.settings.gesture_controls.hide_volume_slider")}
-          subtitle={t(
-            "home.settings.gesture_controls.hide_volume_slider_description",
-          )}
           disabled={pluginSettings?.hideVolumeSlider?.locked}
         >
           <SettingSwitch
@@ -227,9 +224,6 @@ export const GestureControls: React.FC<Props> = ({ ...props }) => {
 
         <ListItem
           title={t("home.settings.gesture_controls.hide_brightness_slider")}
-          subtitle={t(
-            "home.settings.gesture_controls.hide_brightness_slider_description",
-          )}
           disabled={pluginSettings?.hideBrightnessSlider?.locked}
         >
           <SettingSwitch
