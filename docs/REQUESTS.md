@@ -420,12 +420,27 @@ matched" and "I could not look" are the same empty list on the wire and opposite
 person who typed; the app reads a 503 from this controller as "requests are not set up on this
 server" and says so instead of drawing an empty list.
 
-That gate is narrower than it sounds, and Find's empty state has to cover the gap. Measured
-2026-09-09 against a ui-loop node whose `[children] radarr/sonarr` are `false`: `/requests/search`
-answered **200 `[]`**, not 503, so the screen showed "Nothing found" rather than "not set up". A
-real no-match and a node whose managers are not running are therefore the same answer here, which
-is why `requests.discover_empty_detail` says both — and why the administrator-only button on that
-state goes to Settings → Movie & series managers, the one screen that distinguishes them.
+**The whole screen is gated on that 503, before its section bar is drawn.** `useRequestsAvailable`
+asks `/requests/search?q=` once per visit — an empty term is a free capability probe, since Core
+refuses with 503 *before* it looks at the term and returns `200 []` without touching either manager
+when it does not. `RequestsScreen` renders a skeleton while that is in flight, `RequestsNotSetUp`
+if it came back 503, and its six tabs only otherwise. Every one of those sections is answered by
+the same two absent managers, so drawing the bar anyway gave a reader six things to try before the
+seventh told them why. An administrator gets the sentence plus a button to Settings → Movie &
+series managers; a member gets "ask an administrator". Anything but a 503 — a 500, a dropped
+connection — counts as available, so a broken node still reaches the sections that can say what
+broke, and the answer is deliberately kept out of the persisted query cache (`gcTime: 0`) so that
+turning a manager on and restarting is visible immediately rather than a day later.
+
+An earlier measurement recorded here claimed this gate never fired: on 2026-09-09 a ui-loop node
+whose `[children] radarr/sonarr` were `false` answered `200 []`, not 503. That node was running a
+plugin built before `CanSearch` existed — the same trap as any stale `-PrivateCopy` (see
+`.claude/skills/reload-node`). Re-measured the same day against a node carrying the current
+`StingStream.Core`: `/requests/search?q=` answers **503**, and the gate draws.
+
+Find's empty state still covers a real no-match, which is a different thing: results came back and
+none of them were it. `requests.discover_empty_detail` says so, and its administrator-only button
+goes to the same Settings → Movie & series managers screen, so one problem never leads two ways.
 
 TV still has its own Discover section, because the TV search screen is a separate screen with a
 separate input and no top bar to share.

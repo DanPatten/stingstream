@@ -1,14 +1,17 @@
 import type { TFunction } from "i18next";
 
 /**
- * The movie manager's and the series manager's own internal identifiers
- * ("radarr" / "sonarr") reach the UI verbatim wherever the server hands back
- * its own field unchanged — a queue entry's app, a history record's app, a
- * calendar entry's app, a download's app. That is data, not text this app
- * wrote, so the brand guard's static scan of string literals cannot catch
- * it, and Dan's "zero user-visible Radarr/Sonarr" rule still applies. Every
- * place that would otherwise print one of those two words raw goes through
- * one of these instead.
+ * Radarr's and Sonarr's own internal identifiers ("radarr" / "sonarr") reach the UI verbatim
+ * wherever the server hands back its own field unchanged — a queue entry's app, a history
+ * record's app, a calendar entry's app, a download's app. That is data, not text this app wrote,
+ * so the brand guard's static scan of string literals cannot catch it. Every place that would
+ * otherwise print one of those two words raw comes through here instead.
+ *
+ * **What they turn into is "Films" and "Series", not two managers.** StingStream is one
+ * application (root `CLAUDE.md`, "StingStream is one app"), so the only split a reader may be
+ * shown is the one that is true of their own library rather than of our process table. That also
+ * happens to be what these fields actually mean to somebody reading a queue: not "which service
+ * fetched this" but "is this a film or a series".
  */
 
 const KEY_FOR: Record<string, "movie" | "series"> = {
@@ -16,7 +19,7 @@ const KEY_FOR: Record<string, "movie" | "series"> = {
   sonarr: "series",
 };
 
-/** Title-case, for a heading or a short standalone tag: "Movie manager". */
+/** Title-case, for a heading or a short standalone tag: "Films", "Series". */
 export function arrAppLabel(
   t: TFunction,
   app: string | null | undefined,
@@ -27,7 +30,7 @@ export function arrAppLabel(
   return app ?? "";
 }
 
-/** Lower case with an article, for a sentence fragment: "the movie manager". */
+/** Lower case with an article, for a sentence fragment: "tracked as a film". */
 export function arrAppLabelWithArticle(
   t: TFunction,
   app: string | null | undefined,

@@ -5,6 +5,7 @@ import { Platform, ScrollView, View } from "react-native";
 import { PageContainer } from "@/components/common/PageContainer";
 import { type Segment, Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
+import { LoadingState } from "@/components/stingstream/shared/ScreenState";
 import { TVFilterButton } from "@/components/tv";
 import { TVFocusablePoster } from "@/components/tv/TVFocusablePoster";
 import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
@@ -16,6 +17,7 @@ import {
   useCurrentUserId,
   useRequestCounts,
   useRequests,
+  useRequestsAvailable,
 } from "@/lib/stingstream/requests";
 import {
   type MemberRequest,
@@ -30,6 +32,7 @@ import { FindSection } from "./FindSection";
 import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
+import { RequestsNotSetUp } from "./RequestsNotSetUp";
 import { sectionFromRoute } from "./requestsSections";
 
 /** The same four tones the phone pills use, so a state means one thing everywhere. */
@@ -205,6 +208,7 @@ function TVRequestsScreen() {
   const sizes = useScaledTVSizes();
   const typography = useScaledTVTypography();
   const counts = useRequestCounts();
+  const available = useRequestsAvailable();
   const [section, setSection] = useState("discover");
 
   const unread = counts.data?.unreadNotifications ?? 0;
@@ -243,28 +247,43 @@ function TVRequestsScreen() {
         {t("tabs.requests")}
       </Text>
 
-      <View
-        style={{
-          flexDirection: "row",
-          gap: sizes.gaps.small,
-          marginBottom: sizes.gaps.section,
-        }}
-      >
-        {sections.map((entry, index) => (
-          <TVFilterButton
-            key={entry.key}
-            label=''
-            value={entry.label}
-            onPress={() => setSection(entry.key)}
-            hasTVPreferredFocus={index === 0}
-            hasActiveFilter={section === entry.key}
-          />
-        ))}
-      </View>
+      {/* The same gate the phone screen uses, and for the sharper reason: the
+          pills are the focus targets, so a node with no managers would greet a
+          remote with three of them, each leading to the same sentence. Drawing
+          the sentence and no pills leaves the D-pad the one thing it can
+          usefully do here, which is go back.
+          Nothing at all while the probe is in flight, rather than pills that
+          might be replaced a moment later: the first pill carries
+          `hasTVPreferredFocus`, and pulling a focused view out from under the
+          focus engine is the flicker docs/conventions/tv.md warns about. */}
+      {available.isLoading ? null : available.data === false ? (
+        <RequestsNotSetUp />
+      ) : (
+        <>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: sizes.gaps.small,
+              marginBottom: sizes.gaps.section,
+            }}
+          >
+            {sections.map((entry, index) => (
+              <TVFilterButton
+                key={entry.key}
+                label=''
+                value={entry.label}
+                onPress={() => setSection(entry.key)}
+                hasTVPreferredFocus={index === 0}
+                hasActiveFilter={section === entry.key}
+              />
+            ))}
+          </View>
 
-      {section === "discover" && <DiscoverSection />}
-      {section === "mine" && <TVMyRequests />}
-      {section === "alerts" && <NotificationsSection />}
+          {section === "discover" && <DiscoverSection />}
+          {section === "mine" && <TVMyRequests />}
+          {section === "alerts" && <NotificationsSection />}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -305,6 +324,7 @@ export function RequestsScreen({
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
+  const available = useRequestsAvailable();
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape,
@@ -355,6 +375,36 @@ export function RequestsScreen({
   // down, so there is no second copy to fall out of step with it.
   const section = sectionFromRoute(segments, tab, term);
   const select = (key: string) => onSelectTab?.(key);
+
+  // The gate, ahead of the section bar rather than inside it.
+  //
+  // Every one of those six sections is answered by the same two managers, so on a node that has
+  // neither there is nothing behind any of them: Find could not look a title up, My requests and
+  // Alerts are permanently empty, and Approvals, Activity and Policy administer machinery that is
+  // not running. Drawing the tabs anyway gave a reader six things to try before the seventh told
+  // them why, and the one section that said so said it only after they had typed a search.
+  //
+  // `data === false` specifically, not `!data`: a probe still in flight shows the skeleton, and a
+  // probe that failed for some other reason (`fetchRequestsAvailable` treats everything but a 503
+  // as available) lets the screen through to sections that can report what actually broke.
+  //
+  // `isLoading`, not `isPending`: the query is disabled until a server is connected, and a disabled
+  // query is pending forever — this screen would have held a skeleton up for the whole session.
+  if (available.isLoading) {
+    return (
+      <PageContainer width='media'>
+        <LoadingState rows={3} />
+      </PageContainer>
+    );
+  }
+
+  if (available.data === false) {
+    return (
+      <PageContainer width='media'>
+        <RequestsNotSetUp />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer width='media'>

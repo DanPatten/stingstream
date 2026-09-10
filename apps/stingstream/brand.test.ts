@@ -14,6 +14,19 @@ import ts from "typescript";
 const root = __dirname;
 const BRAND_RE = /\b(Jellyfin|Streamyfin|Radarr|Sonarr|NZBGet|Emby)\b/i;
 
+// The same rule, one layer deeper. Renaming Radarr and Sonarr to "the movie manager" and "the
+// series manager" cleared BRAND_RE and still told the reader they own two applications: "Create in
+// both apps", "the two apps disagree", "Neither app has one". Dan, 2026-09-09, on finding the
+// first of those on the quality screen -- "StingStream is a single app and the combination of
+// sonarr/radarr should never be referenced as such". A person installed one program; which child
+// process did the work is ours to know. The user-facing split that survives is films vs series,
+// because that is a fact about their library rather than about our processes. See the root
+// CLAUDE.md, "StingStream is one app".
+//
+// Copy only: code, comments, logs and docs/** keep the honest names.
+const TWO_APPS_RE =
+  /\b(both apps|the two apps|two apps|both the movie|movie manager|series manager|neither app|either app|both managers|into both|to both)\b/i;
+
 // ---------------------------------------------------------------------------
 // (1) translations/*.json — no value may name an upstream product.
 // ---------------------------------------------------------------------------
@@ -24,15 +37,16 @@ function localeViolations(
   tree: LocaleTree,
   path: string,
   file: string,
+  re: RegExp = BRAND_RE,
 ): string[] {
   const found: string[] = [];
   for (const [key, value] of Object.entries(tree)) {
     const at = path ? `${path}.${key}` : key;
     if (typeof value === "string") {
-      if (BRAND_RE.test(value))
+      if (re.test(value))
         found.push(`${file}:${at} = ${JSON.stringify(value)}`);
     } else if (value && typeof value === "object") {
-      found.push(...localeViolations(value, at, file));
+      found.push(...localeViolations(value, at, file, re));
     }
   }
   return found;
@@ -175,6 +189,21 @@ describe("brand guard: zero user-visible upstream names", () => {
     );
     // A non-empty list here names the translations/*.json keys to reword. "Jellyseerr"/"Seerr"
     // are a different product and do not match.
+    expect(violations).toEqual([]);
+  });
+
+  test("no translations/*.json value presents StingStream as two applications", () => {
+    // en.json only. The Crowdin catalogues are translations of whatever en.json said at the time,
+    // so a stale "both apps" in pt-BR is a re-translation job, not a code change — failing on it
+    // here would block every unrelated commit until Crowdin caught up.
+    const violations = localeViolations(
+      JSON.parse(readFileSync(join(root, "translations", "en.json"), "utf8")),
+      "",
+      "en.json",
+      TWO_APPS_RE,
+    );
+    // A non-empty list names the keys to reword. Say what the node did ("Saved", "Synced"), or
+    // name the half of the library it concerns ("films", "series") — never the process.
     expect(violations).toEqual([]);
   });
 

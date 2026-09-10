@@ -750,6 +750,34 @@ export async function fetchRequestCounts(
   return toCounts(await res.json());
 }
 
+/**
+ * Whether this node can be asked for anything at all.
+ *
+ * `GET /requests/search` refuses with 503 before it looks anything up when neither manager is
+ * configured (`RequestService.CanSearch`), and answers an empty list for an empty term without
+ * touching either of them. An empty search is therefore a free capability probe: no metadata
+ * lookup, no group-index scan, one round trip, and the two answers are exactly "requests are set
+ * up here" and "they are not".
+ *
+ * It is the only endpoint in the feature that can say so. `/requests`, `/requests/counts` and the
+ * rest answer perfectly good empty lists and zero counts on a node with no arrs at all, which is
+ * why the screen used to look merely empty rather than unset-up until somebody typed a search.
+ *
+ * Anything other than a 503 counts as available: a network failure or a 500 is a broken node, not
+ * an unconfigured one, and blocking the whole screen on a flaky probe would hide the sections that
+ * can still say what went wrong.
+ */
+export async function fetchRequestsAvailable(
+  apiBaseUrl: string,
+  accessToken?: string | null,
+): Promise<boolean> {
+  const res = await fetch(
+    url(apiBaseUrl, ROUTES.search, {}, new URLSearchParams({ q: "" })),
+    { headers: authHeaders(accessToken) },
+  );
+  return res.status !== 503;
+}
+
 /** Search TMDB and TVDB through the node's own arrs, annotated with the group's holdings. */
 export async function searchRequestable(
   apiBaseUrl: string,

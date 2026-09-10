@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   dedupeSearchResults,
+  fetchRequestsAvailable,
   type LibraryIdentity,
   type MemberRequest,
   providerKey,
@@ -537,5 +538,55 @@ describe("when Search offers to go and ask", () => {
         item("Dune", "Series"),
       ]),
     ).toBe(false);
+  });
+});
+
+const BASE = "https://node.example.com/stingstream/api/v1";
+
+describe("fetchRequestsAvailable", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /** Answers one status for whatever it is asked, and remembers the URL. */
+  const stub = (status: number) => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(typeof url === "string" ? url : url.toString());
+      return new Response(status === 503 ? "" : "[]", { status });
+    }) as unknown as typeof fetch;
+    return calls;
+  };
+
+  test("asks the one endpoint that can refuse, with an empty term", async () => {
+    const calls = stub(200);
+    await fetchRequestsAvailable(BASE);
+    // The empty `q` is the whole point: Core returns 503 before it looks at the term, and returns
+    // an empty list without touching either manager when it does. A probe that sent a real search
+    // term would cost two metadata lookups per visit to the screen.
+    expect(calls).toEqual([`${BASE}/requests/search?q=`]);
+  });
+
+  test("503 is the node saying neither manager is configured", async () => {
+    stub(503);
+    expect(await fetchRequestsAvailable(BASE)).toBe(false);
+  });
+
+  test("anything else is a working feature, however badly", async () => {
+    stub(200);
+    expect(await fetchRequestsAvailable(BASE)).toBe(true);
+    stub(500);
+    // A broken node is not an unconfigured one. Gating the screen on this would replace whatever
+    // the sections could say about a real failure with "requests are not set up", which is a lie.
+    expect(await fetchRequestsAvailable(BASE)).toBe(true);
+  });
+
+  test("a network failure is not an answer", async () => {
+    globalThis.fetch = (() =>
+      Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+    // Rejects rather than resolving false, so react-query holds `data` undefined and the screen
+    // renders its sections instead of the gate.
+    await expect(fetchRequestsAvailable(BASE)).rejects.toThrow("offline");
   });
 });

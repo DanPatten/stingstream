@@ -12,6 +12,7 @@ import {
   fetchRequestCounts,
   fetchRequestPolicy,
   fetchRequests,
+  fetchRequestsAvailable,
   fetchRequestUsers,
   type MemberRequest,
   markNotificationsRead,
@@ -42,6 +43,7 @@ const keys = {
     ["stingstream", "requests", "list", mine ?? null, state ?? null] as const,
   detail: (id: string) => ["stingstream", "requests", "detail", id] as const,
   counts: ["stingstream", "requests", "counts"] as const,
+  available: ["stingstream", "requests", "available"] as const,
   policy: (group: string | undefined) =>
     ["stingstream", "requests", "policy", group ?? null] as const,
   users: ["stingstream", "requests", "users"] as const,
@@ -95,6 +97,34 @@ export function useRequest(id: string | undefined) {
     queryFn: () => fetchRequest(base!, id!, token),
     enabled: !!base && !!id,
     refetchInterval: 10000,
+  });
+}
+
+/**
+ * Whether requests are set up on this node at all — the gate the whole screen sits behind.
+ *
+ * `gcTime: 0` is the load-bearing line, and it is there to keep this answer *out* of the persisted
+ * cache: `app/_layout.tsx` dehydrates every successful query into MMKV for 24 hours and skips only
+ * the ones with `gcTime: 0`. Turning a manager on means editing the node's `config.toml` and
+ * restarting it, so the very moment this answer changes is the moment a persisted copy of the old
+ * one would be read back — an administrator who had just set the managers up would be told for the
+ * rest of the day that they had not. Caught exactly that way in testing, against a node whose
+ * plugin was upgraded under a browser that had already cached "available".
+ *
+ * `staleTime` then keeps it to one round trip per visit rather than one per section render, and
+ * `retry: false` because an unset-up node answers 503 immediately and truthfully — a node that
+ * cannot be reached at all is treated as available (see `fetchRequestsAvailable`), so there is
+ * nothing a second attempt could improve.
+ */
+export function useRequestsAvailable() {
+  const { base, token } = useConnection();
+  return useQuery({
+    queryKey: keys.available,
+    queryFn: () => fetchRequestsAvailable(base!, token),
+    enabled: !!base,
+    staleTime: 60000,
+    gcTime: 0,
+    retry: false,
   });
 }
 

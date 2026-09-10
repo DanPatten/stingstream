@@ -18,7 +18,7 @@ import {
   useNodeStatus,
 } from "@/lib/stingstream/hooks";
 import { useHealthz } from "@/lib/stingstream/status";
-import { arrAppLabel } from "../shared/arrLabels";
+import { arrAppLabelWithArticle } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
@@ -361,7 +361,9 @@ function describe(t: TFunction, item: DownloadItem): string {
   if (item.Eta) bits.push(eta(t, item.Eta));
   bits.push(engineLabel(t, item.Engine));
   if (item.App && item.App !== item.Engine) {
-    bits.push(t("transfers.tracked_by", { app: arrAppLabel(t, item.App) }));
+    bits.push(
+      t("transfers.tracked_by", { app: arrAppLabelWithArticle(t, item.App) }),
+    );
   }
   if (item.ErrorMessage) bits.push(item.ErrorMessage);
   return bits.filter(Boolean).join(" • ");
