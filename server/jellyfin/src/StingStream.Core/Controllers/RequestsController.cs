@@ -34,12 +34,18 @@ public sealed class RequestsController : StingStreamControllerBase
     private readonly RequestService _requests;
     private readonly RequestStore _store;
     private readonly RequestWorker _worker;
+    private readonly RequestWithdrawal _withdrawal;
 
-    public RequestsController(RequestService requests, RequestStore store, RequestWorker worker)
+    public RequestsController(
+        RequestService requests,
+        RequestStore store,
+        RequestWorker worker,
+        RequestWithdrawal withdrawal)
     {
         _requests = requests;
         _store = store;
         _worker = worker;
+        _withdrawal = withdrawal;
     }
 
     // --- reading -----------------------------------------------------------
@@ -294,9 +300,17 @@ public sealed class RequestsController : StingStreamControllerBase
     /// <response code="404">No such request.</response>
     /// <returns>No content.</returns>
     /// <remarks>
-    /// A request already being fulfilled can be withdrawn too. It does not stop the download — the
-    /// grabbing node may be somebody else's and is already committed — but it does take the request
-    /// off the requester's list, which is what "I no longer want this" means from their side.
+    /// <para>
+    /// A request already being fulfilled can be withdrawn too, and doing so <em>stops the
+    /// download</em>: an unfinished one is cancelled and its partial files are deleted, wherever in
+    /// the group it is running. Anything that has finished downloading is kept and finishes
+    /// importing, because a person withdrawing an ask has not asked for an episode they already
+    /// have to be thrown away. <see cref="RequestWithdrawal"/> is the whole of that rule.
+    /// </para>
+    /// <para>
+    /// This used to be a row delete, and said so on the confirmation dialog: the request came off
+    /// the list and the grab it had started ran to the end on whichever node was doing it.
+    /// </para>
     /// </remarks>
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -311,7 +325,7 @@ public sealed class RequestsController : StingStreamControllerBase
             return NotFound();
         }
 
-        await _store.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await _withdrawal.WithdrawAsync(row, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 

@@ -93,8 +93,52 @@ Three details that are load-bearing:
 * **Only this node's own requests are reopened** (`mine = 1`). A row heard over gossip belongs to
   the node that made it, and only its origin may approve, decline or delete one.
 
-Withdrawing is still the way to start over from nothing: `DELETE` removes the row and its trail, and
-the next ask is a genuinely new request.
+Withdrawing is still the way to start over from nothing: `DELETE` removes the row and its trail,
+stops the download it had started (§2.1), and the next ask is a genuinely new request.
+
+### 2.1 Withdrawing stops the download
+
+**An unfinished download dies and takes its partial files with it. A finished one is never touched.**
+That is the whole rule, and `RequestWithdrawal` is the whole of the implementation.
+
+It used to be neither. `DELETE` deleted the row, and the confirmation dialog said so out loud: *"A
+download already in progress continues."* The request left the list and the grab ran to the end,
+which on a series is tens of gigabytes of something nobody has wanted since they pressed Delete, on
+a disk whose owner cannot see a request to cancel any more.
+
+On the node that is grabbing it, in this order:
+
+1. **Unmonitor first.** The seasons the request named are unticked, or the film is unmonitored. The
+   other way round leaves a monitored, file-less item that the next RSS pass downloads again, which
+   is the same bug wearing a hat.
+2. **Clear the queue, but only the unfinished part of it.** A row still fetching bytes goes with
+   `removeFromClient=true&blocklist=false&skipRedownload=true`, and it is `removeFromClient` that
+   deletes the incomplete data. A row that has *finished* downloading is left exactly where it is,
+   so the import completes and the episode the group has already paid the bandwidth for lands in
+   the library. `RequestWithdrawal.IsIncomplete` is the judgement call, and the arrs say "finished"
+   three different ways (`status`, `sizeleft`, `trackedDownloadState`), so it reads all three.
+3. **Remove the library entry only when it is empty.** No file of its own, nothing still arriving,
+   no other open request waiting on the same title, and always `deleteFiles=false`. A file or a
+   pending import would mean deleting something finished, which this path never does; another
+   open request would mean pulling the entry out from under a request nobody withdrew, and two
+   seasons of one show are two rows against one Sonarr series.
+
+A season the request did not name is somebody else's download: Sonarr's queue says which season each
+row is for, and a row that does not say is left alone rather than guessed at.
+
+**The grabbing node is usually not the withdrawing one.** A request is fulfilled by whichever member
+has the indexers, so the node the `DELETE` arrives on often has no download to stop and no arr in
+the story at all. Its half is `DELETE /mesh/v1/requests/{id}` — the mesh drops the row and gossips
+`RequestWithdrawn`, and only the origin's withdrawal counts (`Db::remove_request` matches the author
+against `origin_node`, for the same reason `record_request` does). The volunteer notices on its next
+pass: the request has stopped being in the group's list, so `DropWithdrawnAsync` cancels its own grab
+under the rule above and forgets the row. **Absence only counts when the mesh actually answered** —
+reading a null list as "everything has been withdrawn" would have a node cancel every download it is
+running for the group.
+
+Without the gossip half this would not work at all, and not subtly: an open request is re-published
+on its origin's snapshot tick, so a withdrawal that only deleted the origin's own row would be
+undone by the very next tick.
 
 ---
 
@@ -242,6 +286,11 @@ elapses.
                          pass: holders found        ◄──── Body::RequestClaim { available }
                          state → available,
                          notify the requester
+
+  DELETE /requests/{id} ──►  stop own grab, drop row
+                         gossip Body::RequestWithdrawn ────►  gone from the group's list
+                                  │                                pass: drop the row,
+                                  │                                      cancel the grab (§2.1)
 ```
 
 Every step in `RequestWorker`'s pass is idempotent, because the pass is the recovery mechanism as
@@ -325,7 +374,7 @@ see `APP-MESH.md` §6).
 | `GET` | `/requests?mine=&state=` | member | Requests. A non-administrator always gets only their own, whatever they pass. |
 | `POST` | `/requests` | member | Ask for something. Reuses the row for a title already asked for, whatever state it reached (§2). 400 with neither id; 429 over quota. |
 | `GET` | `/requests/{id}` | member (own) / admin | One request with its event trail. |
-| `DELETE` | `/requests/{id}` | member (own) / admin | Withdraw. |
+| `DELETE` | `/requests/{id}` | member (own) / admin | Withdraw, and stop the download: unfinished data is deleted, finished data is kept (§2.1). |
 | `POST` | `/requests/{id}/approve` | **admin** | Approve. |
 | `POST` | `/requests/{id}/decline` | **admin** | Decline, with an optional reason shown to the requester. |
 | `POST` | `/requests/{id}/retry` | **admin** | Put a failed request back in the queue. |
@@ -356,6 +405,7 @@ wants to watch, and a household member should not be able to enumerate the rest 
 | `GET` | `/mesh/v1/requests?group=` | Every request this node knows about, with claims and winners. |
 | `GET` | `/mesh/v1/requests/{request_id}?group=` | One of them. |
 | `POST` | `/mesh/v1/requests/claim` | Claim, or update this node's claim. The answer carries `winner`, which is the only thing the caller wants to know. |
+| `DELETE` | `/mesh/v1/requests/{request_id}?group=` | Withdraw a request this node published: drop the row and gossip `RequestWithdrawn`, so the volunteer grabbing it stops. |
 | `GET`/`PUT` | `/mesh/v1/fulfilment` | What this node advertises it could grab. |
 
 Core's own `GET /stingstream/api/v1/mesh/peers` carries `canFulfilMovies` and `canFulfilTv` for
@@ -418,9 +468,10 @@ Retry, rather than a title silently sitting in the manager.
 `arr/ManageTitleAction.tsx` puts the same sheet on the card in My requests and on a failed row in
 Approvals, for an administrator, and draws nothing unless this node's manager is actually tracking
 that title. Between "asked for" and "arrived" there is no library page to carry them, and that is
-exactly the window in which somebody notices they asked for the wrong thing: withdrawing the
-request does not help, because `DELETE /requests/{id}` drops the row and leaves the manager
-tracking the title, by design.
+exactly the window in which somebody notices they asked for the wrong thing. Withdrawing now goes
+most of the way on its own (§2.1: the download stops and an empty entry is removed), and the sheet
+is what is left for the cases it deliberately does not touch — a title with a file already on disk,
+or one this node's manager tracks for a reason no request explains.
 
 **Every row on My requests carries the same two buttons.** Edit and Delete, on every request that
 has not arrived, and Edit is not gated on there being a season to change or on this node's manager
@@ -465,13 +516,31 @@ of sixty. From the catalogue a film opens `RequestSheet` (poster, overview, one 
 season picker) and Request is a deliberate second press. A title that already has a request open
 behaves exactly as its row does either way.
 
-**A tile is a title, a year and the community score, and no play affordance.** The score is the one
-thing the artwork cannot tell you and roughly what the choice is made on: sixty strangers on a page,
-and a number out of ten is what sorts them. It is whatever the lookup carried — TMDB's own average
-for the feed, an arr's `ratings` for a search — drawn as `Card`'s star, and a title nobody has rated
-draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here: everywhere else a
-poster is a thing you press to watch, and the play disc that appears under a pointer would be a
-promise this screen cannot keep, since nobody holds these titles yet.
+**A tile says what it is, when it came out, how long it is and what it scored, and promises no
+playback.** A glyph for film or show, because the two are mixed on one grid and which one a poster is
+decides whether the press ahead asks for a film or for twenty seasons of something; the year; the
+season count for a show; and the community score, which is the one thing the artwork cannot tell you
+and roughly what the choice gets made on. The score is whatever the lookup carried — TMDB's own
+average for the feed, an arr's `ratings` for a search — drawn as `Card`'s star, and a title nobody
+has rated draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here:
+everywhere else a poster is a thing you press to watch, and the play disc that appears under a
+pointer would be a promise this screen cannot keep, since nobody holds these titles yet.
+
+**The score is a way out to IMDb, from the sheet only.** `imdbUrl` prefers the id the node sends and
+falls back to IMDb's own title search on the name and year, so the link always lands somewhere.
+It is on the sheet and deliberately not on the tile: a tile's whole point is the one press that
+opens it, and a second destination inside it is a mis-tap waiting to happen on a grid of sixty. Dan,
+2026-09-10: *"lets NOT have clicking the star from the CARD view open IMDB - only from the modal."*
+
+**Where the id and the season count come from.** One call per title, and for a show it is the call
+the catalogue was already making. `TmdbCatalog` used to ask `/tv/{id}/external_ids` for the TVDB id
+every series item key is built from; it asks `/tv/{id}?append_to_response=external_ids` now, which
+carries the IMDb id and `number_of_seasons` in the same body, and all three are remembered in
+`provider_id_map` (the IMDb id as its digits, the season count as a plain integer under `seasons`).
+A film has no such call to piggyback on, so the feed makes one — `/movie/{id}/external_ids`, at the
+same concurrency, cached the same way, and swallowing its own cancellation so a slow provider costs
+the link rather than the whole catalogue. A search does not pay for either: both managers put
+`imdbId` on the lookup entry already.
 
 **The catalogue is TMDB, and search is still the arrs.** They answer different questions. The arrs
 answer "is there a title called this", which is right for a search and useless to somebody who does

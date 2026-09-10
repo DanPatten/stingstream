@@ -28,8 +28,8 @@ and `/mesh/v1/status` reports the pair as a string:
 $ curl -s localhost:8791/mesh/v1/status | jq .protocol
 {
   "major": 2,
-  "minor": 2,
-  "version": "2.2",
+  "minor": 4,
+  "version": "2.4",
   "refused_handshake": 0,
   "refused_gossip": 0
 }
@@ -280,6 +280,25 @@ Three things changed behaviour, not just appearance:
   "Sign in with a code" text link remains.
 
 ### The address form, and finding a server — Part 6
+
+### Minor 4, and withdrawing a request
+
+**`PROTOCOL_MINOR` 3 → 4.** A new gossip body, `RequestWithdrawn { request_id }`: the requester's
+node telling the group to forget a request, so whichever member is grabbing it stops and deletes the
+partial file. §3 makes a new `Body` variant a minor with a caveat, and the caveat is worth stating
+plainly here because it is what an older node does:
+
+**An older node cannot decode the message and drops the frame**, so it keeps the request and keeps
+downloading — which is exactly what every node did before this existed. A withdrawal is therefore
+honoured by every member on 2.4 or later and by nobody below it. Nothing is misread, nothing needs
+coordinating, and **there is nothing to do on upgrade** in either direction. If a member's downloads
+carry on after somebody withdraws a request, that member is on an older build.
+
+Withdrawing was a row delete until this release, on every node: the request left the list, the
+confirmation dialog said *"A download already in progress continues"*, and it did — to the end.
+`docs/REQUESTS.md` §2.1 is the new behaviour in full, including the half that is not on the wire at
+all: an unfinished download is cancelled and its partial data deleted, and **a finished one is never
+touched**.
 
 ### Minor 3, and invites that are spent — Part 9
 

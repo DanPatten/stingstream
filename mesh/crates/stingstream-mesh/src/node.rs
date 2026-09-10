@@ -1388,6 +1388,41 @@ impl MeshNode {
             .context("the request vanished immediately after being written")
     }
 
+    /// Withdraw a request this node published, and tell the group to forget it.
+    ///
+    /// Called by `StingStream.Core` when the requester deletes a request. Removing the local row is
+    /// half the job and the gossip is the other half: an open request is re-published on the
+    /// origin's snapshot tick ([`gossip::publish_open_requests`]), so a withdrawal that stopped at
+    /// this node's own database would be undone by the next tick, and the volunteer that is
+    /// downloading the file would carry on to the end.
+    ///
+    /// The message goes out whether or not a row was there to delete — this node's copy may have
+    /// aged out while a peer's has not, and the peers are the ones that need to hear it. Returns
+    /// whether the local row existed, which is only ever information for the caller's log.
+    pub async fn withdraw_request(&self, group_id: &GroupId, request_id: &str) -> Result<bool> {
+        let Some(group) = self.db.group(group_id)? else {
+            bail!("this node is not a member of group {group_id}");
+        };
+        if request_id.trim().is_empty() {
+            bail!("a withdrawal needs a request_id");
+        }
+        let me = self.node_id();
+        let removed = self.db.remove_request(group_id, &me, request_id)?;
+        if let Some(rg) = self.groups.lock().await.get(group_id) {
+            gossip::publish(
+                &rg.gossip.sender,
+                group_id,
+                &group.secret,
+                &self.secret_key,
+                &Body::RequestWithdrawn {
+                    request_id: request_id.to_string(),
+                },
+            )
+            .await;
+        }
+        Ok(removed)
+    }
+
     /// Claim a request for this node, or update the claim already made.
     ///
     /// The claim timestamp is taken **once**, on the first claim, and preserved by

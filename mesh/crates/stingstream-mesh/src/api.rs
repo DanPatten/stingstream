@@ -69,7 +69,10 @@ pub fn router(node: Arc<MeshNode>) -> Router {
         .route("/mesh/v1/sources/{group}/{item_key}", get(sources))
         .route("/mesh/v1/requests", get(list_requests).post(publish_request))
         .route("/mesh/v1/requests/claim", post(claim_request))
-        .route("/mesh/v1/requests/{request_id}", get(get_request))
+        .route(
+            "/mesh/v1/requests/{request_id}",
+            get(get_request).delete(withdraw_request),
+        )
         .route(
             "/mesh/v1/image/{group}/{item_key}/{node}/{kind}",
             get(image),
@@ -1156,6 +1159,35 @@ async fn get_request(
             format!("this node has never heard of request {request_id}"),
         )
     })
+}
+
+#[derive(Serialize)]
+struct WithdrawnBody {
+    request_id: String,
+    /// Whether this node still held the request it has just told the group to forget.
+    withdrawn: bool,
+}
+
+/// `DELETE /mesh/v1/requests/{request_id}?group=` — withdraw a request this node published.
+///
+/// Called when the requester deletes their request. It removes this node's row and gossips
+/// [`crate::gossip::Body::RequestWithdrawn`], which is what stops the volunteer that is grabbing
+/// the file: the request would otherwise be re-published on the next snapshot tick and the download
+/// would run to the end for somebody who no longer wants it.
+async fn withdraw_request(
+    State(node): State<Arc<MeshNode>>,
+    Path(request_id): Path<String>,
+    Query(q): Query<GroupQuery>,
+) -> ApiResult<Json<WithdrawnBody>> {
+    let group = q
+        .group
+        .ok_or_else(|| ApiError::bad_request("?group= is required"))?;
+    let id = parse_group(&group)?;
+    let withdrawn = node.withdraw_request(&id, &request_id).await?;
+    Ok(Json(WithdrawnBody {
+        request_id,
+        withdrawn,
+    }))
 }
 
 // --- streaming ----------------------------------------------------------------------------------

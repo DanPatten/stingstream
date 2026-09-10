@@ -120,6 +120,19 @@ public interface IRequestMesh
         string note,
         CancellationToken cancellationToken);
 
+    /// <summary>Tell the group to forget a request this node published.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="requestId">The request id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the mesh accepted the withdrawal.</returns>
+    /// <remarks>
+    /// The counterpart to <see cref="PublishAsync"/>, and not optional: the mesh re-publishes every
+    /// open request on its origin's snapshot tick, so a request deleted only in this node's own
+    /// database comes straight back, and the node that volunteered to grab it downloads the whole
+    /// film for somebody who has already withdrawn the ask.
+    /// </remarks>
+    Task<bool> WithdrawAsync(string group, string requestId, CancellationToken cancellationToken);
+
     /// <summary>Every request this node knows about in a group.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -228,6 +241,39 @@ public sealed class RequestMesh : IRequestMesh
                 note = note ?? string.Empty,
             },
             cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<bool> WithdrawAsync(
+        string group,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        var http = Client();
+        if (http is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var response = await http
+                .DeleteAsync(
+                    new Uri(
+                        $"/mesh/v1/requests/{Uri.EscapeDataString(requestId)}?group={Uri.EscapeDataString(group)}",
+                        UriKind.Relative),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) when (IsTransport(ex))
+        {
+            // The caller deletes its own row either way. A peer still holding the request hears
+            // nothing until this node's mesh is back, and the volunteer's next pass is what stops
+            // it -- which is the same repair path a lost gossip message takes.
+            _logger.LogDebug(ex, "Could not withdraw request {Id} from the group", requestId);
+            return false;
+        }
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<MeshRequestView>?> ListAsync(

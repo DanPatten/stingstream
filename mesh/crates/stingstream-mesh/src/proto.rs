@@ -81,13 +81,19 @@ pub const PROTOCOL_MAJOR: u8 = 2;
 ///   newer one dialling it gets a connection refusal it can report. The **invite format** moved in
 ///   the same release ([`crate::group::INVITE_VERSION`] 2 → 3) and that half *is* a flag day — but
 ///   it is carried by its own version byte with its own clear error, not by this number.
+/// * **4** — the `RequestWithdrawn` gossip body: a member request its origin has taken back, so
+///   the node grabbing it stops and deletes the partial file. A new `Body` variant, which
+///   `docs/UPGRADING.md` §3 classes as a minor with a caveat: an older node cannot decode it and
+///   drops the frame, so it keeps the request and keeps grabbing — which is exactly what every
+///   node did before this existed. Nobody's correctness turns on the older node acting on it,
+///   which is the test the `Revocation` body was added under.
 ///
 /// **Deliberately not reset by the major bump.** The two axes are independent: the major says who
 /// this build can talk to at all, the minor says which optional features to expect from somebody it
 /// can. Resetting to 0 would claim a v2 node might lack rotation, which is false, and it would make
 /// [`negotiate_minor`] and the [`MINOR_REKEY`] check degenerate — clippy notices, and it is right
-/// to. So a build is "2.2": major 2, with rotation and with published addresses.
-pub const PROTOCOL_MINOR: u8 = 3;
+/// to. So a build is "2.4": major 2, with rotation, published addresses, admission and withdrawals.
+pub const PROTOCOL_MINOR: u8 = 4;
 
 /// The minor version at which secret rotation and revocation became available.
 ///

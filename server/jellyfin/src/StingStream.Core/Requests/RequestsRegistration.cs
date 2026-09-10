@@ -44,6 +44,10 @@ public static class RequestsRegistration
         services.AddSingleton<TmdbCatalog>();
         services.AddSingleton<RequestService>();
 
+        // Withdrawing, which is the delete path and the download it has to stop. Shared by the
+        // controller (the person pressing Delete) and the worker (the volunteer hearing about it).
+        services.AddSingleton<RequestWithdrawal>();
+
         // Resolved as both the concrete worker and a hosted service, so the controller's "run a
         // pass now" endpoint drives the same instance the timer does rather than a second copy
         // with its own idea of this node's identity.

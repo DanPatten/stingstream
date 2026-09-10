@@ -211,6 +211,20 @@ pub enum Body {
     RequestClaim {
         claim: crate::requests::ClaimRecord,
     },
+    /// "Forget that request", published by the node that made it (M6).
+    ///
+    /// The counterpart to [`Body::Request`], and the reason it has to exist: a request is stored by
+    /// every member and *re-published on its origin's snapshot tick*, so a withdrawal that only
+    /// deleted the origin's own row would be undone by the next tick, and the volunteer grabbing
+    /// the file would never hear that nobody wants it any more.
+    ///
+    /// Only the origin's withdrawal counts. [`crate::db::Db::remove_request`] matches the author
+    /// against `origin_node`, for the same reason [`crate::db::Db::record_request`] does: request
+    /// ids are minted by their origin, and a member who could withdraw somebody else's request
+    /// could cancel the group's downloads one id at a time.
+    RequestWithdrawn {
+        request_id: String,
+    },
     /// An open watch-together session, announced by the node leading it (M7).
     ///
     /// **Discovery only.** Play, pause and seek do *not* ride gossip -- they go point to point over
@@ -961,6 +975,18 @@ async fn handle(
             let _ = db.set_peer_online(group, &author_s, true);
             if let Err(e) = db.record_claim(group, &claim) {
                 tracing::warn!(error = %e, "recording a request claim");
+            }
+        }
+        Body::RequestWithdrawn { request_id } => {
+            let _ = db.set_peer_online(group, &author_s, true);
+            match db.remove_request(group, &author_s, &request_id) {
+                // False is the ordinary case, not a fault: every member that never heard the
+                // request, and every member whose copy has already aged out, has nothing to delete.
+                Ok(removed) => tracing::debug!(
+                    %group, peer = %author.fmt_short(), request = %request_id, removed,
+                    "a request was withdrawn"
+                ),
+                Err(e) => tracing::warn!(error = %e, "removing a withdrawn request"),
             }
         }
     }

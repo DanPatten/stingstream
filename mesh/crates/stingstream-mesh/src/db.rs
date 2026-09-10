@@ -1390,6 +1390,36 @@ impl Db {
         Ok(n > 0)
     }
 
+    /// Forget a request whose origin has withdrawn it, and every claim on it.
+    ///
+    /// `origin` is the node the withdrawal came from, and matching it against `origin_node` is what
+    /// makes this safe to drive off a gossip message: request ids are minted by their origin, so a
+    /// member who could withdraw somebody else's request could cancel the group's downloads one id
+    /// at a time. Same rule as [`Db::record_request`], same reason.
+    ///
+    /// `false` means nothing was deleted, which is the ordinary answer rather than a fault: a
+    /// member that never heard the request, or whose copy has already aged out, has nothing to
+    /// remove. The claims go with it only when the request itself did, so a withdrawal from the
+    /// wrong node cannot strip the claims off a request it does not own.
+    pub fn remove_request(&self, group: &GroupId, origin: &str, request_id: &str) -> Result<bool> {
+        let conn = self.lock();
+        let n = conn
+            .execute(
+                "DELETE FROM requests
+                 WHERE group_id = ?1 AND request_id = ?2 AND origin_node = ?3",
+                params![group.to_string(), request_id, origin],
+            )
+            .context("removing a withdrawn request")?;
+        if n > 0 {
+            conn.execute(
+                "DELETE FROM request_claims WHERE group_id = ?1 AND request_id = ?2",
+                params![group.to_string(), request_id],
+            )
+            .context("removing a withdrawn request's claims")?;
+        }
+        Ok(n > 0)
+    }
+
     /// Write this node's or a peer's claim on a request.
     ///
     /// **`claimed_at` is set once and never updated.** That single missing assignment in the
@@ -1861,6 +1891,34 @@ mod tests {
 
         assert!(!changed);
         assert_eq!(db.requests(&g.id).unwrap()[0].request.item_key, "episode:tvdb:73739:");
+    }
+
+    #[test]
+    fn only_the_origin_can_withdraw_a_request() {
+        // A member who did not publish it cannot make the group forget it, and cannot strip the
+        // claims off it either: a withdrawal anybody could send would cancel the group's downloads
+        // one request id at a time.
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.record_request(&g.id, "origin", &request("r1")).unwrap();
+        db.record_claim(
+            &g.id,
+            &a_claim("r1", "volunteer", 1000, crate::requests::ClaimStates::FULFILLING),
+        )
+        .unwrap();
+
+        assert!(!db.remove_request(&g.id, "somebody-else", "r1").unwrap());
+        assert!(db.request(&g.id, "r1").unwrap().is_some());
+        assert_eq!(db.claims(&g.id, "r1").unwrap().len(), 1);
+
+        assert!(db.remove_request(&g.id, "origin", "r1").unwrap());
+        assert!(db.request(&g.id, "r1").unwrap().is_none());
+        assert!(db.claims(&g.id, "r1").unwrap().is_empty());
+
+        // Withdrawing what is already gone is not a fault: every member that never heard the
+        // request, and every member whose copy has aged out, answers this way.
+        assert!(!db.remove_request(&g.id, "origin", "r1").unwrap());
     }
 
     #[test]
