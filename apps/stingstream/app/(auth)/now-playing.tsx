@@ -41,6 +41,7 @@ import { TrackOptionsSheet } from "@/components/music/TrackOptionsSheet";
 import useRouter from "@/hooks/useAppRouter";
 import { useFavorite } from "@/hooks/useFavorite";
 import { useMusicCast } from "@/hooks/useMusicCast";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   type RepeatMode,
@@ -232,9 +233,7 @@ export default function NowPlayingScreen() {
             paddingBottom: Platform.OS === "android" ? insets.bottom : 0,
           }}
         >
-          <Text className='text-neutral-500'>
-            {t("music.no_track_playing")}
-          </Text>
+          <Text tone='tertiary'>{t("music.no_track_playing")}</Text>
         </View>
       </BottomSheetModalProvider>
     );
@@ -414,6 +413,7 @@ const PlayerView: React.FC<PlayerViewProps> = ({
   onOptionsPress,
   isCastConnected,
 }) => {
+  const { color } = useTheme();
   const audioStream = useMemo(() => {
     return mediaSource?.MediaStreams?.find((stream) => stream.Type === "Audio");
   }, [mediaSource]);
@@ -477,7 +477,10 @@ const PlayerView: React.FC<PlayerViewProps> = ({
             cachePolicy='memory-disk'
           />
         ) : (
-          <View className='flex-1 items-center justify-center bg-neutral-800'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='flex-1 items-center justify-center'
+          >
             <Ionicons name='musical-note' size={80} color='#666' />
           </View>
         )}
@@ -581,8 +584,12 @@ const PlayerView: React.FC<PlayerViewProps> = ({
           renderBubble={() => null}
         />
         <View className='flex flex-row justify-between mt-2'>
-          <Text className='text-neutral-500 text-xs'>{progressText}</Text>
-          <Text className='text-neutral-500 text-xs'>{remainingText}</Text>
+          <Text tone='tertiary' className='text-xs'>
+            {progressText}
+          </Text>
+          <Text tone='tertiary' className='text-xs'>
+            {remainingText}
+          </Text>
         </View>
       </View>
 
@@ -606,9 +613,10 @@ const PlayerView: React.FC<PlayerViewProps> = ({
         </TouchableOpacity>
 
         <TouchableOpacity
+          style={{ backgroundColor: color.text.primary }}
           onPress={onTogglePlayPause}
           disabled={isLoading}
-          className='mx-4 bg-white rounded-full p-4'
+          className='mx-4 rounded-full p-4'
         >
           {isLoading ? (
             <ActivityIndicator size={36} color='#121212' />
@@ -638,8 +646,11 @@ const PlayerView: React.FC<PlayerViewProps> = ({
             color={repeatMode !== "off" ? "#9334E9" : "#666"}
           />
           {repeatMode === "one" && (
-            <View className='absolute right-0 top-1 bg-purple-600 rounded-full w-4 h-4 items-center justify-center'>
-              <Text className='text-white text-[10px] font-bold'>1</Text>
+            <View
+              style={{ backgroundColor: color.accent[500] }}
+              className='absolute right-0 top-1 rounded-full w-4 h-4 items-center justify-center'
+            >
+              <Text className='text-[10px] font-bold'>1</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -722,6 +733,7 @@ const QueueView: React.FC<QueueViewProps> = ({
   onRemoveFromQueue,
   onReorderQueue,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const renderQueueItem = useCallback(
     ({ item, drag, isActive, getIndex }: RenderItemParams<BaseItemDto>) => {
@@ -767,7 +779,10 @@ const QueueView: React.FC<QueueViewProps> = ({
             </TouchableOpacity>
 
             {/* Album art */}
-            <View className='w-12 h-12 rounded overflow-hidden bg-neutral-800 mr-3'>
+            <View
+              style={{ backgroundColor: color.bg["2"] }}
+              className='w-12 h-12 rounded overflow-hidden mr-3'
+            >
               {imageUrl ? (
                 <Image
                   source={{ uri: imageUrl }}
@@ -790,7 +805,7 @@ const QueueView: React.FC<QueueViewProps> = ({
               >
                 {item.Name}
               </Text>
-              <Text numberOfLines={1} className='text-neutral-500 text-sm'>
+              <Text tone='tertiary' numberOfLines={1} className='text-sm'>
                 {item.Artists?.join(", ") || item.AlbumArtist}
               </Text>
             </View>
@@ -835,7 +850,7 @@ const QueueView: React.FC<QueueViewProps> = ({
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={
         <View className='px-4 py-2'>
-          <Text className='text-neutral-400 text-xs uppercase tracking-wider'>
+          <Text tone='secondary' className='text-xs uppercase tracking-wider'>
             {history.length > 0
               ? t("music.playing_from_queue")
               : t("music.up_next")}
@@ -844,7 +859,7 @@ const QueueView: React.FC<QueueViewProps> = ({
       }
       ListEmptyComponent={
         <View className='flex-1 items-center justify-center py-20'>
-          <Text className='text-neutral-500'>{t("music.queue_empty")}</Text>
+          <Text tone='tertiary'>{t("music.queue_empty")}</Text>
         </View>
       }
     />

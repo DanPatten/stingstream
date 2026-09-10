@@ -11,13 +11,8 @@ import {
 } from "react-native";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import {
-  elevation,
-  radius,
-  rgba,
-  tokens,
-  webFocusRing,
-} from "@/constants/theme";
+import { elevation, radius, rgba, webFocusRing } from "@/constants/theme";
+import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useServerName } from "@/hooks/useServerName";
 import { useTheme } from "@/hooks/useTheme";
@@ -54,15 +49,28 @@ export const UserMenu: React.FC<Props> = ({
   const { t } = useTranslation();
   const user = useAtomValue(userAtom);
   const { logout } = useJellyfin();
-  const { accent, accentName } = useTheme();
+  const { accent, color } = useTheme();
+
+  const router = useRouter();
 
   const triggerRef = useRef<View>(null);
+  const [isOpen, setIsOpen] = useState(false);
   const [anchor, setAnchor] = useState<ViewStyle | null>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
 
-  const close = useCallback(() => setAnchor(null), []);
+  /**
+   * Closing hides the card but keeps the last anchor.
+   *
+   * `animationType="fade"` keeps the card mounted for the length of the fade
+   * out, and an anchor cleared on the way out took `position: absolute` with
+   * it: for those few frames the card fell back into flow and painted at the
+   * top of the scrim, which is the flash Dan saw when clicking away. The
+   * position it had while it was open is the right one to fade out from, and
+   * the next open overwrites it before anything is visible.
+   */
+  const close = useCallback(() => setIsOpen(false), []);
 
   /**
    * Where the card goes when nothing has been measured yet.
@@ -87,6 +95,7 @@ export const UserMenu: React.FC<Props> = ({
 
   const open = useCallback(() => {
     setAnchor(fallbackAnchor());
+    setIsOpen(true);
     triggerRef.current?.measureInWindow((x, y, width, height) => {
       // Four zeros means "not laid out yet", not "the top left corner".
       if (width <= 0 || height <= 0) return;
@@ -110,7 +119,7 @@ export const UserMenu: React.FC<Props> = ({
 
   // Escape closes, the way every other menu on the web does.
   useEffect(() => {
-    if (!anchor || Platform.OS !== "web") return;
+    if (!isOpen || Platform.OS !== "web") return;
     const onKeyDown = (event: { key?: string }) => {
       if (event.key === "Escape") close();
     };
@@ -121,7 +130,7 @@ export const UserMenu: React.FC<Props> = ({
     target.addEventListener?.("keydown", onKeyDown as (e: never) => void);
     return () =>
       target.removeEventListener?.("keydown", onKeyDown as (e: never) => void);
-  }, [anchor, close]);
+  }, [isOpen, close]);
 
   const name = user?.Name ?? "";
   const serverName = useServerName();
@@ -131,6 +140,12 @@ export const UserMenu: React.FC<Props> = ({
     void logout();
   }, [close, logout]);
 
+  // Who you are is also the way to the screen where you change it.
+  const openProfile = useCallback(() => {
+    close();
+    router.push("/settings/profile");
+  }, [close, router]);
+
   return (
     <View>
       <Pressable
@@ -138,7 +153,7 @@ export const UserMenu: React.FC<Props> = ({
         testID='shell-user-menu'
         accessibilityRole='button'
         accessibilityLabel={name || t("shell.account")}
-        accessibilityState={{ expanded: Boolean(anchor) }}
+        accessibilityState={{ expanded: isOpen }}
         onPress={open}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
@@ -152,11 +167,9 @@ export const UserMenu: React.FC<Props> = ({
             paddingVertical: 4,
             paddingHorizontal: variant === "row" && !collapsed ? 8 : 4,
             backgroundColor:
-              hovered && variant === "row"
-                ? tokens.color.bg["3"]
-                : "transparent",
+              hovered && variant === "row" ? color.bg["3"] : "transparent",
             ...(Platform.OS === "web"
-              ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+              ? { cursor: "pointer", ...webFocusRing(showRing, color) }
               : null),
           } as ViewStyle
         }
@@ -178,7 +191,7 @@ export const UserMenu: React.FC<Props> = ({
       </Pressable>
 
       <Modal
-        visible={Boolean(anchor)}
+        visible={isOpen}
         transparent
         animationType='fade'
         onRequestClose={close}
@@ -196,45 +209,31 @@ export const UserMenu: React.FC<Props> = ({
             testID='shell-user-menu-popover'
             onPress={() => {}}
             style={[
-              anchor ?? {},
+              anchor ?? fallbackAnchor(),
               {
                 borderRadius: radius.md,
                 borderWidth: 1,
                 // bg2 and the stronger border, not bg1: the sidebar this opens
-                // over is bg1, and a card the same colour as the thing behind
+                // over is bg1, and a card the same color as the thing behind
                 // it is not a card.
-                borderColor: tokens.color.border.strong,
-                backgroundColor: tokens.color.bg["2"],
+                borderColor: color.border.strong,
+                backgroundColor: color.bg["2"],
                 paddingVertical: 8,
               },
               elevation(2),
             ]}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-              }}
-            >
-              <Avatar name={name} color={accent[500]} />
-              <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text variant='body' weight='semibold' numberOfLines={1}>
-                  {name}
-                </Text>
-                {serverName ? (
-                  <Text variant='micro' tone='tertiary' numberOfLines={1}>
-                    {serverName}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
+            <IdentityRow
+              name={name}
+              serverName={serverName}
+              accent={accent[500]}
+              onPress={openProfile}
+            />
 
             <View
               style={{
                 height: 1,
-                backgroundColor: tokens.color.border.subtle,
+                backgroundColor: color.border.subtle,
                 marginVertical: 6,
               }}
             />
@@ -256,6 +255,64 @@ export const UserMenu: React.FC<Props> = ({
         </Pressable>
       </Modal>
     </View>
+  );
+};
+
+/**
+ * The identity at the head of the card: press it to open your profile.
+ *
+ * Nothing else here needs a label. An avatar, a name and a hover state over a
+ * row in a menu is the pattern every account menu on the web shares, and a
+ * reader arrives already knowing where it goes.
+ */
+const IdentityRow: React.FC<{
+  name: string;
+  serverName: string | undefined;
+  accent: string;
+  onPress: () => void;
+}> = ({ name, serverName, accent, onPress }) => {
+  const { t } = useTranslation();
+  const { color } = useTheme();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const showRing = useFocusVisible(focused);
+
+  return (
+    <Pressable
+      testID='shell-user-menu-profile'
+      accessibilityRole='menuitem'
+      accessibilityLabel={name || t("shell.account")}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          backgroundColor: hovered ? color.bg["3"] : "transparent",
+          ...(Platform.OS === "web"
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
+            : null),
+        } as ViewStyle
+      }
+    >
+      <Avatar name={name} color={accent} />
+      <View style={{ marginLeft: 10, flex: 1 }}>
+        <Text variant='body' weight='semibold' numberOfLines={1}>
+          {name}
+        </Text>
+        {serverName ? (
+          <Text variant='micro' tone='tertiary' numberOfLines={1}>
+            {serverName}
+          </Text>
+        ) : null}
+      </View>
+      <Icon name='chevronRight' size={14} tone='tertiary' />
+    </Pressable>
   );
 };
 
@@ -302,7 +359,7 @@ const MenuRow: React.FC<{
   danger?: boolean;
   onPress: () => void;
 }> = ({ icon, label, testID, danger = false, onPress }) => {
-  const { accentName } = useTheme();
+  const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
@@ -323,9 +380,9 @@ const MenuRow: React.FC<{
           alignItems: "center",
           minHeight: 40,
           paddingHorizontal: 12,
-          backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+          backgroundColor: hovered ? color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
             : null),
         } as ViewStyle
       }

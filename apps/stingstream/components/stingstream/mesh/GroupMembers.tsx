@@ -6,7 +6,8 @@ import { Button } from "@/components/Button";
 import { SectionHeader } from "@/components/common/SectionHeader";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   ageOf,
   canRemoveMember,
@@ -56,6 +57,7 @@ export function GroupMembers({
   /** Opens the invite dialog. Absent for anybody who may not add a member. */
   onInvite?: () => void;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   // Passing null when the group cannot be managed disables the query outright, so a
   // non-administrator never fires a request that would come back 403 — and a television never
@@ -157,7 +159,7 @@ export function GroupMembers({
           style={{
             padding: 16,
             borderRadius: radius.md,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
           }}
         >
           <Text variant='body' weight='semibold'>
@@ -195,7 +197,7 @@ export function GroupMembers({
               style={{
                 marginTop: 12,
                 borderRadius: radius.md,
-                backgroundColor: tokens.color.bg["1"],
+                backgroundColor: color.bg["1"],
                 padding: 14,
                 flexDirection: "row",
                 alignItems: "center",

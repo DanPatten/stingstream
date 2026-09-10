@@ -28,6 +28,7 @@ import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useOrientation } from "@/hooks/useOrientation";
+import { useTheme } from "@/hooks/useTheme";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import {
   useDeleteWatchlist,
@@ -42,6 +43,7 @@ import { userAtom } from "@/providers/JellyfinProvider";
 const TV_ITEM_GAP = 20;
 
 export default function WatchlistDetailScreen() {
+  const { color } = useTheme();
   const typography = useScaledTVTypography();
   const posterSizes = useScaledTVPosterSizes();
   const { t } = useTranslation();
@@ -186,16 +188,19 @@ export default function WatchlistDetailScreen() {
   const ListHeader = useMemo(
     () =>
       watchlist ? (
-        <View className='px-4 pt-4 pb-6 mb-4 border-b border-neutral-800'>
+        <View
+          style={{ borderColor: color.border.subtle }}
+          className='px-4 pt-4 pb-6 mb-4 border-b'
+        >
           {watchlist.description && (
-            <Text className='text-neutral-400 mb-2'>
+            <Text tone='secondary' className='mb-2'>
               {watchlist.description}
             </Text>
           )}
           <View className='flex-row items-center gap-4'>
             <View className='flex-row items-center gap-1'>
               <Ionicons name='film-outline' size={14} color='#9ca3af' />
-              <Text className='text-neutral-400 text-sm'>
+              <Text tone='secondary' className='text-sm'>
                 {items?.length ?? 0}{" "}
                 {(items?.length ?? 0) === 1
                   ? t("watchlists.item")
@@ -210,14 +215,14 @@ export default function WatchlistDetailScreen() {
                 size={14}
                 color='#9ca3af'
               />
-              <Text className='text-neutral-400 text-sm'>
+              <Text tone='secondary' className='text-sm'>
                 {watchlist.isPublic
                   ? t("watchlists.public")
                   : t("watchlists.private")}
               </Text>
             </View>
             {!isOwner && (
-              <Text className='text-neutral-500 text-sm'>
+              <Text tone='tertiary' className='text-sm'>
                 {t("watchlists.by_owner")}
               </Text>
             )}
@@ -231,11 +236,11 @@ export default function WatchlistDetailScreen() {
     () => (
       <View className='flex-1 items-center justify-center px-8 py-16'>
         <Ionicons name='film-outline' size={48} color='#4b5563' />
-        <Text className='text-neutral-400 text-center mt-4'>
+        <Text tone='secondary' className='text-center mt-4'>
           {t("watchlists.empty_watchlist")}
         </Text>
         {isOwner && (
-          <Text className='text-neutral-500 text-center mt-2 text-sm'>
+          <Text tone='tertiary' className='text-center mt-2 text-sm'>
             {t("watchlists.empty_watchlist_hint")}
           </Text>
         )}
@@ -255,7 +260,7 @@ export default function WatchlistDetailScreen() {
   if (!watchlist) {
     return (
       <View className='flex-1 items-center justify-center px-8'>
-        <Text className='text-lg text-neutral-400'>
+        <Text tone='secondary' className='text-lg'>
           {t("watchlists.not_found")}
         </Text>
       </View>

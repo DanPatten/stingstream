@@ -10,15 +10,18 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import { TextFieldRow } from "@/components/stingstream/settings/fields";
-import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
+import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
+import { useTheme } from "@/hooks/useTheme";
 import { useSettings } from "@/utils/atoms/settings";
 import { reachabilityProbe } from "@/utils/serverUrl/probes/reachability";
 
 function StreamystatsPage() {
+  const { color } = useTheme();
   useDismissKeyboardOnLeave();
   const { t } = useTranslation();
   const navigation = useNavigation();
@@ -177,7 +180,7 @@ function StreamystatsPage() {
           <ServerUrlStatusText state={urlResolver} />
         </View>
 
-        <Text className='px-4 text-xs text-neutral-500 mt-1'>
+        <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.plugins.streamystats.streamystats_search_hint")}{" "}
           <Text className='text-blue-500' onPress={handleOpenLink}>
             {t(
@@ -270,17 +273,18 @@ function StreamystatsPage() {
             />
           </ListItem>
         </ListGroup>
-        <Text className='px-4 text-xs text-neutral-500 mt-1'>
+        <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.plugins.streamystats.home_sections_hint")}
         </Text>
 
         {/* Disable button - only show if URL is not locked and Streamystats is enabled */}
         {!isUrlLocked && isStreamystatsEnabled && (
           <TouchableOpacity
+            style={{ backgroundColor: color.bg["2"] }}
             onPress={handleClearStreamystats}
-            className='mt-3 mb-4 py-3 rounded-xl bg-neutral-800'
+            className='mt-3 mb-4 py-3 rounded-xl'
           >
-            <Text className='text-center text-red-500'>
+            <Text tone='danger' className='text-center'>
               {t("home.settings.plugins.streamystats.disable_streamystats")}
             </Text>
           </TouchableOpacity>
@@ -290,4 +294,21 @@ function StreamystatsPage() {
   );
 }
 
-export default adminOnly(StreamystatsPage);
+/**
+ * The category column belongs on this page too.
+ *
+ * Without it a drill-in is a pane with no navigation beside it and no way
+ * back to Plugins at all -- the settings sidebar simply is not drawn. The
+ * gate goes inside the shell rather than around it, the way
+ * `settings/servers/join` does it: a member who pastes this URL still gets
+ * the settings that are theirs, with the refusal in the pane.
+ */
+export default function StreamystatsRoute() {
+  return (
+    <SettingsShell categoryKey='plugins'>
+      <RequiresAdmin>
+        <StreamystatsPage />
+      </RequiresAdmin>
+    </SettingsShell>
+  );
+}

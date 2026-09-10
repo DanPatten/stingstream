@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import { elevation, radius, tokens, webFocusRing } from "@/constants/theme";
+import { elevation, radius, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
@@ -173,6 +173,7 @@ const SettingsResults: React.FC<{
   matches: SettingsSearchEntry[];
   onSelect: (entry: SettingsSearchEntry) => void;
 }> = ({ matches, onSelect }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   return (
@@ -185,8 +186,8 @@ const SettingsResults: React.FC<{
         right: 0,
         borderRadius: radius.md,
         borderWidth: 1,
-        borderColor: tokens.color.border.subtle,
-        backgroundColor: tokens.color.bg["2"],
+        borderColor: color.border.subtle,
+        backgroundColor: color.bg["2"],
         overflow: "hidden",
         zIndex: 30,
         ...elevation(2),
@@ -211,7 +212,7 @@ const ResultRow: React.FC<{
   entry: SettingsSearchEntry;
   onSelect: (entry: SettingsSearchEntry) => void;
 }> = ({ entry, onSelect }) => {
-  const { accentName } = useTheme();
+  const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
@@ -233,9 +234,9 @@ const ResultRow: React.FC<{
           gap: 10,
           paddingHorizontal: 14,
           paddingVertical: 9,
-          backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+          backgroundColor: hovered ? color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
             : null),
         } as ViewStyle
       }

@@ -20,6 +20,7 @@ import JellyseerrStatusIcon from "@/components/jellyseerr/JellyseerrStatusIcon";
 import { RoundButton } from "@/components/RoundButton";
 import { confirmAction } from "@/components/stingstream/shared/confirm";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import {
   MediaStatus,
   MediaType,
@@ -58,6 +59,7 @@ const JellyseerrSeasonEpisodes: React.FC<{
 };
 
 const RenderItem = ({ item }: any) => {
+  const { color } = useTheme();
   const {
     jellyseerrApi,
     jellyseerrRegion: region,
@@ -77,7 +79,10 @@ const RenderItem = ({ item }: any) => {
 
   return (
     <View className='flex flex-col w-44 mt-2'>
-      <View className='relative aspect-video rounded-lg overflow-hidden border border-neutral-800'>
+      <View
+        style={{ borderColor: color.border.subtle }}
+        className='relative aspect-video rounded-lg overflow-hidden border'
+      >
         {!imageError ? (
           <>
             <Image
@@ -107,7 +112,13 @@ const RenderItem = ({ item }: any) => {
             )}
           </>
         ) : (
-          <View className='flex flex-col w-full h-full items-center justify-center border border-neutral-800 bg-neutral-900'>
+          <View
+            style={{
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["1"],
+            }}
+            className='flex flex-col w-full h-full items-center justify-center border'
+          >
             <Ionicons
               name='image-outline'
               size={24}
@@ -121,11 +132,11 @@ const RenderItem = ({ item }: any) => {
         <Text numberOfLines={2} className=''>
           {item.name}
         </Text>
-        <Text numberOfLines={1} className='text-xs text-neutral-500'>
+        <Text tone='tertiary' numberOfLines={1} className='text-xs'>
           {`S${item.seasonNumber}:E${item.episodeNumber}`}
         </Text>
       </View>
-      <Text numberOfLines={3} className='text-xs text-neutral-500 shrink'>
+      <Text tone='tertiary' numberOfLines={3} className='text-xs shrink'>
         {item.overview}
       </Text>
     </View>

@@ -9,20 +9,52 @@ The source of truth is `apps/stingstream/constants/theme.tokens.json`. Two
 things read it and nothing else may: `tailwind.config.js`, which turns it into
 utility classes, and `constants/theme.ts`, which turns it into typed values for
 inline styles. A hex, a radius, a font size or a shadow written anywhere else is
-a bug — it is how the fork ended up with nine colours in `Colors.ts` and inline
+a bug — it is how the fork ended up with nine colors in `Colors.ts` and inline
 hexes in a hundred files.
 
-**NativeWind v2 compiles Tailwind once, at build time, and has no CSS
-variables.** So a class can only ever carry the *default* accent (teal).
-Anything that must follow the accent a user picked in Appearance reads
-`useTheme().accent` and sets it inline. Both are correct in their place: default
-furniture stays teal, user-accented furniture reads the hook. Token edits do not
-survive Metro's cache — restart with `-c`.
+## Three themes
 
-Teal is the default *interface* accent, not the logo's colour. The mark runs
-cyan (`#3CDDFC`) to violet (`#6D5BF7`) — see `constants/brandAssets.ts` — and
-that gradient is deliberately confined to the artwork and the web manifest. No
-control, focus ring or tab bar follows it.
+Appearance offers a **theme**, not an accent. Each one is a complete palette —
+surfaces, ink, borders, state colors, the accent ramp, the hover wash and the
+shadow strength — because a light theme moves all of them at once.
+
+| | Ground | Accent | Ring and active |
+|---|---|---|---|
+| `dark` (default) | near-black neutral `#0B0C0F` | the mark's cyan `#3CDDFC` | cyan `#6FE6FF` |
+| `light` | white `#FFFFFF` | the mark's blue, darkened to `#0A3FD1` | the same blue |
+| `sting` | deep indigo `#0A0A1F` | the mark's violet `#B49CFF` | cyan `#6FE6FF` |
+
+`sting` takes the far end of the gradient on purpose. It first shipped with the
+same cyan accent as `dark`, and on the same near-black ground that made two of
+the three swatches read as the same theme — Dan, looking at the picker: *"this
+3rd theme looks too close to the 1st"*. Violet leads there now, cyan is demoted
+to the focus ring, and the surfaces are pushed further into indigo.
+
+The interface accent used to be a teal that came from nowhere in particular, and
+the logo's own colors were confined to the artwork. They are the same thing now:
+the mark runs cyan (`#3CDDFC`) through blue (`#0C48FC`) into violet (`#6D5BF7`),
+and every theme is built out of that. `light` darkens the artwork blue until
+white clears AAA on it — `#0C48FC` itself only reaches 6.3:1.
+
+**NativeWind v2 compiles Tailwind once, at build time, and has no CSS
+variables.** So a class can only ever carry the *default* theme's answer.
+Everything with a color in it reads `useTheme().color` and sets it inline; the
+Tailwind color classes exist only as a compatibility shim and have no callers
+left. Token edits do not survive Metro's cache — restart with `-c`.
+
+Two roles are named rather than derived, because they are not always a shade of
+the accent:
+
+- **`accent.ring`** — the keyboard focus outline. On `light` a pale blue ring on
+  a white page is barely there, so the ring is the 500; on `sting` it is violet.
+- **`overlay`** — the color of the hover and pressed washes. White on the dark
+  themes, black on `light`. Hardcoding white is why a light theme's rows would
+  answer a pointer with nothing at all.
+
+Over-video chrome is the one thing that does not follow the theme: the player's
+controls pin `PLAYER_PALETTE` (the dark palette) in
+`components/video-player/controls/constants.ts`, because a light theme's ink on
+a translucent chip is unreadable over bright footage.
 
 ### Two things that make `className` do nothing
 
@@ -69,7 +101,7 @@ const states = usePressableStates({ disabled });
 | **rest** | nothing is happening | the control's own surface |
 | **hovered** | a pointer is over it (web only in practice) | white at 6 % over the surface, or one step up the surface scale |
 | **pressed** | a finger or button is down on it | white at 10 %, or two steps up |
-| **focused** | it has keyboard focus | a 2 px accent-400 outline, offset 2, **web only** |
+| **focused** | it has keyboard focus | a 2 px `accent.ring` outline, offset 2, **web only** |
 | **disabled** | it cannot be actuated | fill at 35 %, label at 60 %; `cursor: not-allowed` |
 
 Two rules are baked into the hook rather than left to each caller:
@@ -113,7 +145,7 @@ plain `bun test` specs can read it.
 | `Button` secondary | bg2 | bg3 | bg3 | accent ring | same rule on its own fill |
 | `Button` ghost | transparent | white 6 % | white 10 % | accent ring | label at 60 % |
 | `Button` danger | danger | danger 85 % | danger 75 % | accent ring | same rule |
-| `Input` | subtle rule on bg2 | strong rule on bg3 | — | **accent-400 rule**, not a ring | `control.disabledOpacity`, `cursor: not-allowed` |
+| `Input` | subtle rule on bg2 | strong rule on bg3 | — | **`accent.ring` rule**, not a ring | `control.disabledOpacity`, `cursor: not-allowed` |
 | `ListItem` (pressable) | bg1 | bg2 | bg3 | accent ring | `control.disabledOpacity`, no tint |
 | `Pill` with `onPress` | its tone's fill | + white 6 % | + white 10 % | accent ring | fill and label faded |
 | `Switch` | track bg3 | — | — | platform default | track accent at 35 % |
@@ -125,7 +157,7 @@ second border. Its precedence is `error > focused > hovered > rest`, because an
 invalid field must stay red while it is being corrected — which is exactly when
 it is also focused.
 
-A `ListItem` with no `onPress` never changes colour. The whole point of the
+A `ListItem` with no `onPress` never changes color. The whole point of the
 tints is to say "this does something", and a settings row that only holds a
 switch does not.
 
@@ -153,10 +185,11 @@ animated views for an effect nobody looks at directly. It holds still when the
 platform reports reduced motion — which is also how the screenshot sweep gets
 two identical runs of the same screen.
 
-`components/Loader.tsx` follows the user's accent (it was Streamyfin's purple on
-every platform but iOS, which is why a violet ring kept appearing in a teal app)
+`components/Loader.tsx` follows the theme's accent (it was Streamyfin's purple on
+every platform but iOS, which is why a violet ring kept appearing in an app that
+was not purple anywhere else)
 and takes a `tone`, so a spinner inside a filled button can be drawn in the
-button's own label colour instead of vanishing into its fill. On TV it stays
+button's own label color instead of vanishing into its fill. On TV it stays
 white.
 
 ---
@@ -166,21 +199,26 @@ white.
 | Group | Tokens |
 |---|---|
 | Surfaces | `bg0` app · `bg1` sidebar, cards, list groups · `bg2` inputs, sheets · `bg3` hover, pressed, chips |
-| Text | `primary` · `secondary` · `tertiary` · `disabled` · `onAccent` |
-| Accent | teal (default), violet, amber — 400 hover / 500 rest / 600 pressed |
+| Text | `primary` · `secondary` · `tertiary` · `disabled` |
+| Accent | 400 hover / 500 rest / 600 pressed · `ring` · `active` · `onAccent` |
 | States | `success` · `warning` · `danger` · `info` |
-| Borders | `subtle` · `strong` · focus = accent-400 |
+| Borders | `subtle` · `strong`; the focus ring is `accent.ring` |
+| Wash | `overlay` (white on dark, black on light) · `scrim` · `elevationOpacity` |
 | Radii | xs 4 · sm 8 · md 12 · lg 16 · xl 24 · pill 999 |
 | Spacing | 4-pt scale 4…64; gutters 16 / 24 / 32 by breakpoint |
 | Type | display · title · heading · body · caption · micro, each with a compact / medium / expanded size |
 | Elevation | e1 card hover · e2 sheet and dialog |
 | Motion | fast 120 ms · base 200 · slow 320 · crossfade 500; hover scale 1.03 |
 
-`constants/theme.test.ts` pins the contrast ratios (secondary on bg1 ≥ 4.5:1,
-primary on bg2 ≥ 7:1, on-accent on teal and amber ≥ 7:1), the presence of every
-token in the Tailwind extend, and all eighteen variant × breakpoint type sizes.
+`constants/theme.test.ts` pins all of this **for every theme, not just the one
+you happen to be looking at**: primary ≥ 7:1 on every surface, secondary ≥ 4.5:1
+on bg1, `onAccent` ≥ 7:1 on the accent, every state color ≥ 4.5:1 on every
+surface, and `ring`/`active` ≥ 3:1 on bg1 (WCAG 1.4.11 — a non-text indicator).
+It also pins the shape: every theme has exactly the key paths the default has, a
+theme's `scheme` matches the luminance of its own surfaces, the surface ramp
+never reverses, and the hover wash actually contrasts with the cards it washes.
 
-Violet-500 is the one documented exception: `#9334E9` is the fork's legacy
-purple, and no foreground reaches 7:1 against it — white, its best, is 5.4:1 —
-so it is held to AA. Raising it needs a darker violet, not a different
-foreground.
+The old "violet is held to AA" exemption is gone with the accent it described.
+`#9334E9` was the fork's legacy purple and no foreground reached 7:1 on it.
+`sting` still uses violet, but only for `ring` and `active`, which carry no text
+and are held to the 3:1 rule instead.

@@ -10,8 +10,9 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { rgba, tokens } from "@/constants/theme";
+import { rgba } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   type FilterByOption,
@@ -71,6 +72,7 @@ export const LibraryFilterBar: React.FC<LibraryFilterBarProps> = ({
   filterBy,
   setFilter,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
@@ -167,7 +169,7 @@ export const LibraryFilterBar: React.FC<LibraryFilterBarProps> = ({
 
   // Opaque: on a wide browser the bar is the list's sticky header, and cards
   // scrolling visibly through it is worse than no sticky header at all.
-  const background = tokens.color.bg["0"];
+  const background = color.bg["0"];
 
   if (!isCompact) {
     return (
@@ -258,7 +260,7 @@ const EdgeFade: React.FC<{ side: "left" | "right"; color: string }> = ({
 }) => (
   <LinearGradient
     pointerEvents='none'
-    // Two stops of the same colour, opaque to clear: fading to `transparent`
+    // Two stops of the same color, opaque to clear: fading to `transparent`
     // goes through transparent *black* on some engines and leaves a grey
     // smear over the chips.
     colors={side === "left" ? [color, rgba(color, 0)] : [rgba(color, 0), color]}

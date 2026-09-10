@@ -8,7 +8,8 @@ import Animated, {
   useScrollViewOffset,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { rgba, tokens } from "@/constants/theme";
+import { rgba } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props extends ViewProps {
   headerImage: ReactElement;
@@ -27,6 +28,7 @@ export const ParallaxScrollView: React.FC<PropsWithChildren<Props>> = ({
   onEndReached,
   ...props
 }: Props) => {
+  const { color } = useTheme();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollViewOffset(scrollRef);
   const insets = useSafeAreaInsets();
@@ -90,7 +92,7 @@ export const ParallaxScrollView: React.FC<PropsWithChildren<Props>> = ({
           style={[
             {
               height: headerHeight,
-              backgroundColor: tokens.color.bg["0"],
+              backgroundColor: color.bg["0"],
             },
             headerAnimatedStyle,
           ]}
@@ -110,11 +112,7 @@ export const ParallaxScrollView: React.FC<PropsWithChildren<Props>> = ({
             // Background Linear Gradient
             // Fades into the page's own background rather than into black: on
             // #0B0C0F a pure-black ramp reads as a grey band across the seam.
-            colors={[
-              "transparent",
-              rgba(tokens.color.bg["0"], 0.85),
-              tokens.color.bg["0"],
-            ]}
+            colors={["transparent", rgba(color.bg["0"], 0.85), color.bg["0"]]}
             locations={[0, 0.7, 1]}
             style={{
               position: "absolute",
@@ -132,7 +130,7 @@ export const ParallaxScrollView: React.FC<PropsWithChildren<Props>> = ({
               right: 0,
               top: 50,
               height: "100%",
-              backgroundColor: tokens.color.bg["0"],
+              backgroundColor: color.bg["0"],
             }}
           />
           {children}

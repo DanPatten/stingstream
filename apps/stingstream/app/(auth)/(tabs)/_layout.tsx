@@ -19,7 +19,7 @@ import { WebShellLayout } from "@/components/shell/WebShellLayout";
 import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
 import type { TVNavRailItem } from "@/components/tv/TVNavRail";
 import { TVNavRail } from "@/components/tv/TVNavRail";
-import { rgba, tokens } from "@/constants/theme";
+import { rgba } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
@@ -252,7 +252,7 @@ const PlainFrame: React.FC<PropsWithChildren> = ({ children }) => (
 export default function TabLayout() {
   const { t } = useTranslation();
   const { isCompact, width } = useBreakpoint();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   // Who sees Transfers, Watchlists and Custom links is no longer a question
   // this file answers. Those three groups are behind More on every phone and
   // narrow window, and `buildMoreItems` applies the gates that used to live in
@@ -304,12 +304,12 @@ export default function TabLayout() {
         // navigator itself carries on.
         tabBarHidden={wide}
         tabBarStyle={{
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
         }}
         tabBarActiveTintColor={
           Platform.isTV ? "#FFFFFF" : (accent[500] as string)
         }
-        tabBarInactiveTintColor={tokens.color.text.tertiary}
+        tabBarInactiveTintColor={color.text.tertiary}
         // Material hides the labels of unselected items as soon as there are
         // four or more of them. F-08 wants all five spelled out, so the bar is
         // told explicitly — and told to stop at the width where they no longer

@@ -9,6 +9,7 @@ import { Switch } from "@/components/common/Switch";
 import { Text } from "@/components/common/Text";
 import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import { looksLikeHostname } from "@/lib/stingstream/setup";
 import { FocusPressable } from "./FocusPressable";
 
@@ -68,6 +69,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
   onSignInWithPasskey,
   onUseDifferentServer,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
 
@@ -211,7 +213,7 @@ export const SignInForm: React.FC<SignInFormProps> = ({
             <Ionicons
               name={revealed ? "eye-off-outline" : "eye-outline"}
               size={18}
-              color={tokens.color.text.tertiary}
+              color={color.text.tertiary}
             />
           </FocusPressable>
         </View>

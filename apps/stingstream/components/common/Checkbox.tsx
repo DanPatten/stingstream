@@ -24,7 +24,7 @@ export const Checkbox: React.FC<{
   /** The box's edge. The tick is sized from it. */
   size?: number;
 }> = ({ checked, disabled = false, size = 20 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
 
   return (
     <View
@@ -37,7 +37,7 @@ export const Checkbox: React.FC<{
         height: size,
         borderRadius: radius.xs,
         borderWidth: 2,
-        borderColor: checked ? accent[500] : tokens.color.border.strong,
+        borderColor: checked ? accent[500] : color.border.strong,
         backgroundColor: checked ? accent[500] : "transparent",
         alignItems: "center",
         justifyContent: "center",

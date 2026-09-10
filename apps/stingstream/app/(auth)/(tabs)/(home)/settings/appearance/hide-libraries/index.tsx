@@ -10,10 +10,11 @@ import { Loader } from "@/components/Loader";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import DisabledSetting from "@/components/settings/DisabledSetting";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 
-export default function AppearanceHideLibrariesPage() {
+function HideLibrariesPane() {
   const { settings, updateSettings, pluginSettings } = useSettings();
   const user = useAtomValue(userAtom);
   const api = useAtomValue(apiAtom);
@@ -74,10 +75,26 @@ export default function AppearanceHideLibrariesPage() {
             </ListItem>
           ))}
         </ListGroup>
-        <Text className='px-4 text-xs text-neutral-500 mt-1'>
+        <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.other.select_libraries_you_want_to_hide")}
         </Text>
       </DisabledSetting>
     </ScrollView>
+  );
+}
+
+/**
+ * The category column belongs on this page too.
+ *
+ * Without it this is a pane with no navigation beside it and no way back to
+ * its category at all. The shell goes around the whole pane rather than
+ * inside it, so an early return while a query is in flight does not take the
+ * column with it.
+ */
+export default function AppearanceHideLibrariesPage() {
+  return (
+    <SettingsShell categoryKey='appearance'>
+      <HideLibrariesPane />
+    </SettingsShell>
   );
 }

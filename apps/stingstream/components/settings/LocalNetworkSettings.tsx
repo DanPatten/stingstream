@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
+import { useTheme } from "@/hooks/useTheme";
 import { useWifiSSID } from "@/hooks/useWifiSSID";
 import { openLocationSettings } from "@/modules/wifi-ssid";
 import { useServerUrl } from "@/providers/ServerUrlProvider";
@@ -44,6 +45,7 @@ function StatusDisplay({
   onOpenLocationSettings,
   t,
 }: StatusDisplayProps): React.ReactElement {
+  const { color } = useTheme();
   const wifiStatus = currentSSID
     ? currentSSID
     : connectedToWifi
@@ -55,22 +57,24 @@ function StatusDisplay({
   const urlTypeColor = isUsingLocalUrl ? "text-green-500" : "text-blue-500";
 
   return (
-    <View className='px-4 py-2 bg-neutral-900 rounded-xl mt-4'>
+    <View
+      style={{ backgroundColor: color.bg["1"] }}
+      className='px-4 py-2 rounded-xl mt-4'
+    >
       <View className='flex-row justify-between items-center py-1'>
-        <Text className='text-neutral-400'>
-          {t("home.settings.network.current_wifi")}
-        </Text>
+        <Text tone='secondary'>{t("home.settings.network.current_wifi")}</Text>
         <Text>{wifiStatus}</Text>
       </View>
       <View className='flex-row justify-between items-center py-1'>
-        <Text className='text-neutral-400'>
-          {t("home.settings.network.using_url")}
-        </Text>
+        <Text tone='secondary'>{t("home.settings.network.using_url")}</Text>
         <Text className={urlTypeColor}>{urlType}</Text>
       </View>
 
       {locationBlocked && (
-        <View className='mt-2 pt-2 border-t border-neutral-800'>
+        <View
+          style={{ borderColor: color.border.subtle }}
+          className='mt-2 pt-2 border-t'
+        >
           <Text className='text-xs text-amber-400'>
             {t("home.settings.network.location_off_description")}
           </Text>
@@ -272,7 +276,7 @@ export function LocalNetworkSettings(): React.ReactElement | null {
 
       {permissionStatus === "denied" && (
         <View className='py-2'>
-          <Text className='text-xs text-red-500'>
+          <Text tone='danger' className='text-xs'>
             {t("home.settings.network.permission_denied_explanation")}
           </Text>
         </View>

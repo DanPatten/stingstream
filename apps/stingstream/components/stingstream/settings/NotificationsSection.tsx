@@ -7,7 +7,8 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import type { NotificationSettings } from "@/lib/stingstream/hooks";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { SaveStatus, ToggleRow } from "./fields";
@@ -22,6 +23,7 @@ export function NotificationsSection({
   onSave: (next: NotificationSettings) => Promise<void>;
   saving: boolean;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
@@ -116,7 +118,7 @@ export function NotificationsSection({
       <View
         style={{
           borderRadius: radius.lg,
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
           padding: 16,
           marginTop: 12,
         }}

@@ -10,8 +10,9 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { SettingsShell } from "@/components/settings/SettingsShell";
 import { TextFieldRow } from "@/components/stingstream/settings/fields";
-import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
+import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
@@ -135,7 +136,7 @@ function MarlinSearchPage() {
         </ListGroup>
         <ServerUrlStatusText state={urlResolver} className='mt-1 px-4' />
 
-        <Text className='px-4 text-xs text-neutral-500 mt-1'>
+        <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.plugins.marlin_search.marlin_search_hint")}{" "}
           <Text className='text-blue-500' onPress={handleOpenLink}>
             {t("home.settings.plugins.marlin_search.read_more_about_marlin")}
@@ -146,4 +147,21 @@ function MarlinSearchPage() {
   );
 }
 
-export default adminOnly(MarlinSearchPage);
+/**
+ * The category column belongs on this page too.
+ *
+ * Without it a drill-in is a pane with no navigation beside it and no way
+ * back to Plugins at all -- the settings sidebar simply is not drawn. The
+ * gate goes inside the shell rather than around it, the way
+ * `settings/servers/join` does it: a member who pastes this URL still gets
+ * the settings that are theirs, with the refusal in the pane.
+ */
+export default function MarlinSearchRoute() {
+  return (
+    <SettingsShell categoryKey='plugins'>
+      <RequiresAdmin>
+        <MarlinSearchPage />
+      </RequiresAdmin>
+    </SettingsShell>
+  );
+}

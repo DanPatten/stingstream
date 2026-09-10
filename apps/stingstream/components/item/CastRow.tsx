@@ -8,10 +8,11 @@ import { SectionHeader } from "@/components/common/SectionHeader";
 import { Image } from "@/components/common/ServerImage";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import { elevation, radius, tokens } from "@/constants/theme";
+import { elevation, radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { dedupePeople, initialsOf, roleCaption } from "./cast";
@@ -92,6 +93,7 @@ export const CastRow: React.FC<Props> = ({
 };
 
 const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
+  const { color } = useTheme();
   const api = useAtomValue(apiAtom);
   const router = useRouter();
   const states = usePressableStates({});
@@ -131,11 +133,11 @@ const CastTile: React.FC<{ person: BaseItemPerson }> = ({ person }) => {
             height: AVATAR,
             borderRadius: radius.pill,
             overflow: "hidden",
-            backgroundColor: tokens.color.bg["2"],
+            backgroundColor: color.bg["2"],
             borderWidth: 1,
             borderColor: states.hovered
-              ? tokens.color.border.strong
-              : tokens.color.border.subtle,
+              ? color.border.strong
+              : color.border.subtle,
             alignItems: "center",
             justifyContent: "center",
           },

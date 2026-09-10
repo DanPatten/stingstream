@@ -17,6 +17,7 @@ import {
   SheetView,
 } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 
 interface LibraryOptions {
   display: "row" | "list";
@@ -36,20 +37,27 @@ interface Props extends ViewProps {
 const OptionGroup: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
   children,
-}) => (
-  <View className='mb-6'>
-    <Text className='text-lg font-semibold mb-3 text-neutral-300'>{title}</Text>
-    <View
-      style={{
-        borderRadius: 12,
-        overflow: "hidden",
-      }}
-      className='bg-neutral-800 rounded-xl overflow-hidden'
-    >
-      {children}
+}) => {
+  const { color } = useTheme();
+
+  return (
+    <View className='mb-6'>
+      <Text tone='secondary' className='text-lg font-semibold mb-3'>
+        {title}
+      </Text>
+      <View
+        style={{
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: color.bg["2"],
+        }}
+        className='rounded-xl overflow-hidden'
+      >
+        {children}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const OptionItem: React.FC<{
   label: string;
@@ -57,32 +65,37 @@ const OptionItem: React.FC<{
   onPress: () => void;
   disabled?: boolean;
   isLast?: boolean;
-}> = ({ label, selected, onPress, disabled: itemDisabled, isLast }) => (
-  <>
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={itemDisabled}
-      className={`px-4 py-3 flex flex-row items-center justify-between ${
-        itemDisabled ? "opacity-50" : ""
-      }`}
-    >
-      <Text className='flex-1 text-white'>{label}</Text>
-      {selected ? (
-        <Ionicons name='checkmark-circle' size={24} color='#9333ea' />
-      ) : (
-        <Ionicons name='ellipse-outline' size={24} color='#6b7280' />
+}> = ({ label, selected, onPress, disabled: itemDisabled, isLast }) => {
+  const { color } = useTheme();
+
+  return (
+    <>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={itemDisabled}
+        className={`px-4 py-3 flex flex-row items-center justify-between ${
+          itemDisabled ? "opacity-50" : ""
+        }`}
+      >
+        <Text className='flex-1'>{label}</Text>
+        {selected ? (
+          <Ionicons name='checkmark-circle' size={24} color='#9333ea' />
+        ) : (
+          <Ionicons name='ellipse-outline' size={24} color='#6b7280' />
+        )}
+      </TouchableOpacity>
+      {!isLast && (
+        <View
+          style={{
+            height: StyleSheet.hairlineWidth,
+            backgroundColor: color.bg["3"],
+          }}
+          className='mx-4'
+        />
       )}
-    </TouchableOpacity>
-    {!isLast && (
-      <View
-        style={{
-          height: StyleSheet.hairlineWidth,
-        }}
-        className='bg-neutral-700 mx-4'
-      />
-    )}
-  </>
-);
+    </>
+  );
+};
 
 const ToggleItem: React.FC<{
   label: string;
@@ -90,36 +103,41 @@ const ToggleItem: React.FC<{
   onToggle: () => void;
   disabled?: boolean;
   isLast?: boolean;
-}> = ({ label, value, onToggle, disabled: itemDisabled, isLast }) => (
-  <>
-    <TouchableOpacity
-      onPress={onToggle}
-      disabled={itemDisabled}
-      className={`px-4 py-3 flex flex-row items-center justify-between ${
-        itemDisabled ? "opacity-50" : ""
-      }`}
-    >
-      <Text className='flex-1 text-white'>{label}</Text>
-      <View
-        className={`w-12 h-7 rounded-full ${value ? "bg-purple-600" : "bg-neutral-600"} flex-row items-center`}
+}> = ({ label, value, onToggle, disabled: itemDisabled, isLast }) => {
+  const { color } = useTheme();
+
+  return (
+    <>
+      <TouchableOpacity
+        onPress={onToggle}
+        disabled={itemDisabled}
+        className={`px-4 py-3 flex flex-row items-center justify-between ${
+          itemDisabled ? "opacity-50" : ""
+        }`}
       >
+        <Text className='flex-1'>{label}</Text>
         <View
-          className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${
-            value ? "translate-x-6" : "translate-x-1"
-          }`}
+          className={`w-12 h-7 rounded-full ${value ? "bg-purple-600" : "bg-neutral-600"} flex-row items-center`}
+        >
+          <View
+            className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${
+              value ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </View>
+      </TouchableOpacity>
+      {!isLast && (
+        <View
+          style={{
+            height: StyleSheet.hairlineWidth,
+            backgroundColor: color.bg["3"],
+          }}
+          className='mx-4'
         />
-      </View>
-    </TouchableOpacity>
-    {!isLast && (
-      <View
-        style={{
-          height: StyleSheet.hairlineWidth,
-        }}
-        className='bg-neutral-700 mx-4'
-      />
-    )}
-  </>
-);
+      )}
+    </>
+  );
+};
 
 /**
  * LibraryOptionsSheet Component

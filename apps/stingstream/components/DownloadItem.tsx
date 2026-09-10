@@ -432,10 +432,8 @@ export const DownloadItems: React.FC<DownloadProps> = ({
         <SheetView>
           <View className='flex flex-col space-y-4 px-4 pb-8 pt-2'>
             <View>
-              <Text className='font-bold text-2xl text-neutral-100'>
-                {title}
-              </Text>
-              <Text className='text-neutral-300'>
+              <Text className='font-bold text-2xl'>{title}</Text>
+              <Text tone='secondary'>
                 {subtitle ||
                   t("item_card.download.download_x_item", {
                     item_count: itemsToDownload.length,

@@ -17,10 +17,12 @@ import { MusicAlbumCard } from "@/components/music/MusicAlbumCard";
 import { MusicTrackItem } from "@/components/music/MusicTrackItem";
 import { PlaylistPickerSheet } from "@/components/music/PlaylistPickerSheet";
 import { TrackOptionsSheet } from "@/components/music/TrackOptionsSheet";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { writeDebugLog } from "@/utils/log";
 
 export default function SuggestionsScreen() {
+  const { color } = useTheme();
   const localParams = useLocalSearchParams<{ libraryId?: string | string[] }>();
   const route = useRoute<any>();
   const libraryId =
@@ -216,7 +218,10 @@ export default function SuggestionsScreen() {
 
   if (!api || !user?.Id) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -224,8 +229,11 @@ export default function SuggestionsScreen() {
 
   if (!libraryId) {
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           {t("music.missing_library_id")}
         </Text>
       </View>
@@ -235,7 +243,10 @@ export default function SuggestionsScreen() {
   // Only show loading if we have no cached data to display
   if (isLoading && sections.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -253,8 +264,11 @@ export default function SuggestionsScreen() {
       (frequentError as Error | undefined)?.message ||
       "Unknown error";
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           Failed to load music: {msg}
         </Text>
       </View>
@@ -263,14 +277,17 @@ export default function SuggestionsScreen() {
 
   if (sections.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500'>{t("music.no_suggestions")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text tone='tertiary'>{t("music.no_suggestions")}</Text>
       </View>
     );
   }
 
   return (
-    <View className='flex-1 bg-black'>
+    <View style={{ backgroundColor: color.bg["0"] }} className='flex-1'>
       <FlashList
         data={sections}
         contentContainerStyle={{

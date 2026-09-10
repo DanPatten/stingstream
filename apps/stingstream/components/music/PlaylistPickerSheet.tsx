@@ -29,6 +29,7 @@ import {
 } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useAddToPlaylist } from "@/hooks/usePlaylistMutations";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 interface Props {
@@ -44,6 +45,7 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
   trackToAdd,
   onCreateNew,
 }) => {
+  const { color } = useTheme();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
@@ -164,12 +166,15 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
         <Text className='font-bold text-2xl mb-2'>
           {t("music.track_options.add_to_playlist")}
         </Text>
-        <Text className='text-neutral-500 mb-4'>{trackToAdd?.Name}</Text>
+        <Text tone='tertiary' className='mb-4'>
+          {trackToAdd?.Name}
+        </Text>
 
         {showSearch && (
           <Input
+            style={{ borderColor: color.border.subtle }}
             placeholder={t("music.playlists.search_playlists")}
-            className='mb-4 border-neutral-800 border'
+            className='mb-4 border'
             value={search}
             onChangeText={setSearch}
             returnKeyType='done'
@@ -181,10 +186,13 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
           onPress={handleCreateNew}
           className='flex-row items-center bg-purple-900/30 rounded-xl px-4 py-3.5 mb-4'
         >
-          <View className='w-12 h-12 rounded-lg bg-purple-600 items-center justify-center mr-3'>
+          <View
+            style={{ backgroundColor: color.accent[500] }}
+            className='w-12 h-12 rounded-lg items-center justify-center mr-3'
+          >
             <Ionicons name='add' size={28} color='white' />
           </View>
-          <Text className='text-purple-400 font-semibold text-base'>
+          <Text tone='accent' className='font-semibold text-base'>
             {t("music.playlists.create_new")}
           </Text>
         </TouchableOpacity>
@@ -195,12 +203,15 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
           </View>
         ) : filteredPlaylists.length === 0 ? (
           <View className='py-8 items-center'>
-            <Text className='text-neutral-500'>
+            <Text tone='tertiary'>
               {search ? t("search.no_results") : t("music.no_playlists")}
             </Text>
           </View>
         ) : (
-          <View className='rounded-xl overflow-hidden bg-neutral-800'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='rounded-xl overflow-hidden'
+          >
             {filteredPlaylists.map((playlist, index) => (
               <View key={playlist.Id}>
                 <TouchableOpacity
@@ -228,10 +239,10 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
                     />
                   </View>
                   <View className='flex-1'>
-                    <Text numberOfLines={1} className='text-white text-base'>
+                    <Text numberOfLines={1} className='text-base'>
                       {playlist.Name}
                     </Text>
-                    <Text className='text-neutral-500 text-sm'>
+                    <Text tone='tertiary' className='text-sm'>
                       {playlist.ChildCount} {t("music.tabs.tracks")}
                     </Text>
                   </View>

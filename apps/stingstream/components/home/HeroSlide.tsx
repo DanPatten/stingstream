@@ -49,7 +49,7 @@ const LOGO_HEIGHT: Record<BreakpointName, number> = {
 };
 
 /**
- * A logo is a transparent PNG whose ink can be any colour at all, and several
+ * A logo is a transparent PNG whose ink can be any color at all, and several
  * of them are near-black title cards that vanish into a dark backdrop —
  * "The Cabinet of Dr. Caligari" is exactly that. `drop-shadow` follows the
  * alpha channel, so it traces the lettering rather than boxing the image the
@@ -85,7 +85,7 @@ export const HeroSlide: React.FC<HeroSlideProps> = ({
   onPressInfo,
 }) => {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const isCompact = breakpoint === "compact";
   const isResuming = (slide.progress ?? 0) > 0;
   const contentWidth = Math.max(
@@ -125,7 +125,7 @@ export const HeroSlide: React.FC<HeroSlideProps> = ({
           position: "absolute",
           width: "100%",
           height: "100%",
-          backgroundColor: rgba(tokens.color.bg["0"], 0.15),
+          backgroundColor: rgba(color.bg["0"], 0.15),
         }}
       />
 

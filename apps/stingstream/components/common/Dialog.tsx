@@ -6,8 +6,9 @@ import {
 } from "react";
 import { Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { Button, type ButtonVariant } from "@/components/Button";
-import { elevation, radius, tokens } from "@/constants/theme";
+import { elevation, radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -43,9 +44,15 @@ export interface DialogProps {
  * tablet keep the sheet they already had, through `useGlobalModal` (see
  * `openDialog` below).
  *
+ * Both branches now land on a card in a browser: `SheetModal`
+ * (`components/common/Sheet.web.tsx`) applies the same split to every modal in
+ * the app, so `useGlobalModal` is no longer a sheet on the web either. This
+ * component stays because it owns the dialog *shape* — title, description,
+ * actions — not because the platforms differ here.
+ *
  * The split used to be `isWebWide`, which sent a browser window under 768 px to
- * the sheet — and on react-native-web `BottomSheetModal.present()` does nothing
- * at all. Nothing appeared, no error was logged, and the dialog was simply not
+ * the sheet, and back then the sheet did not present on react-native-web at
+ * all. Nothing appeared, no error was logged, and the dialog was simply not
  * there. Driving the player at 390x844 found it through the source chooser, and
  * the app's own overflow menu (`PlatformDropdown`, same global sheet) opened
  * nothing at that width either, which is what says the surface is at fault
@@ -65,8 +72,10 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   dismissible = true,
   children,
 }) => {
+  const { color } = useTheme();
   const { width } = useBreakpoint();
-  // Not `isWebWide`: see above — the sheet does not present on react-native-web at any width.
+  // Not `isWebWide`: see above — a 342 px card is a fine phone dialog, and at
+  // the time this was written the sheet presented nothing at all on the web.
   const isCard = Platform.OS === "web" && !Platform.isTV;
   const { showModal, hideModal } = useGlobalModal();
 
@@ -131,7 +140,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
           alignItems: "center",
           justifyContent: "center",
           padding: 24,
-          backgroundColor: tokens.color.scrim.backdrop,
+          backgroundColor: color.scrim,
         }}
       >
         {/* A Pressable inside a Pressable: the card swallows the press so a
@@ -145,8 +154,8 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
               maxHeight: "85%",
               borderRadius: radius.lg,
               borderWidth: 1,
-              borderColor: tokens.color.border.subtle,
-              backgroundColor: tokens.color.bg["1"],
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["1"],
               paddingHorizontal: 24,
               paddingVertical: 20,
             },
@@ -247,11 +256,11 @@ export interface DialogRequest {
  * The imperative form, for the many places that want a dialog without holding
  * `visible` state: `const dialog = useDialog(); dialog.open({...})`.
  *
- * On the wide web it renders through the same sheet provider as everywhere
- * else — a modal presented imperatively has no component to mount a `Modal`
- * from, and the provider is already at the root. Prefer the `<Dialog>`
- * component where a screen can hold the state; it is the one that becomes a
- * card on a desktop.
+ * It renders through the same global modal as everywhere else — a modal
+ * presented imperatively has no component to mount a `Modal` from, and the
+ * provider is already at the root — which since `SheetModal` means it is a card
+ * in a browser too. Prefer the `<Dialog>` component where a screen can hold the
+ * state.
  */
 export const useDialog = () => {
   const { showModal, hideModal } = useGlobalModal();

@@ -180,7 +180,7 @@ export const ActionRow: React.FC<Props> = ({
  *
  * The icon is passed as a node rather than through `Button`'s `icon` prop
  * because an "on" state (favourited, watched, listed) has to be the accent, and
- * `icon` always takes the button's own label colour.
+ * `icon` always takes the button's own label color.
  */
 const IconAction: React.FC<{
   name: IconName;

@@ -5,7 +5,8 @@ import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type NodeStatus,
   useMeshStatus,
@@ -69,13 +70,14 @@ function ChildCard({
   child: HealthzChild;
   status: NodeStatus | undefined;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   return (
     <View
       style={{
         width: 180,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 12,
         marginRight: 12,
         marginBottom: 12,

@@ -133,7 +133,11 @@ export function ServerUrlField({
   return (
     <View>
       {label ? <Text className='font-bold mb-1'>{label}</Text> : null}
-      {hint ? <Text className='text-xs text-gray-500 mb-2'>{hint}</Text> : null}
+      {hint ? (
+        <Text tone='tertiary' className='text-xs mb-2'>
+          {hint}
+        </Text>
+      ) : null}
 
       <Input
         value={value}

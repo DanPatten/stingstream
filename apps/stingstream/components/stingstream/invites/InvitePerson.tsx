@@ -9,8 +9,9 @@ import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { useInviteLibraries, useMintInvite } from "@/lib/stingstream/invites";
 import {
   INVITE_USERNAME_MAX_LENGTH,
@@ -277,6 +278,7 @@ export const MintedInviteDialog: React.FC<{
   /** Defaults to navigating to the address setting; `ServersScreen` unfolds its own instead. */
   onSetUpAddress?: () => void;
 }> = ({ minted, onClose, onSetUpAddress }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const value = minted?.url ?? minted?.token ?? null;
@@ -351,7 +353,7 @@ export const MintedInviteDialog: React.FC<{
           <View
             style={{
               borderRadius: radius.sm,
-              backgroundColor: tokens.color.bg["2"],
+              backgroundColor: color.bg["2"],
               padding: 12,
             }}
           >
@@ -389,6 +391,7 @@ export const MintedInviteDialog: React.FC<{
  * somewhere, and whoever is pasting it should know it is not the ordinary kind.
  */
 const AdministratorNotice: React.FC = () => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   return (
     <View
@@ -398,8 +401,8 @@ const AdministratorNotice: React.FC = () => {
         padding: 12,
         borderRadius: radius.sm,
         borderWidth: 1,
-        borderColor: tokens.color.border.subtle,
-        backgroundColor: tokens.color.bg["2"],
+        borderColor: color.border.subtle,
+        backgroundColor: color.bg["2"],
         gap: 6,
       }}
     >
@@ -423,6 +426,7 @@ const AdministratorNotice: React.FC = () => {
 const LanOnlyNotice: React.FC<{ onSetUpAddress: () => void }> = ({
   onSetUpAddress,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   return (
     <View
@@ -432,8 +436,8 @@ const LanOnlyNotice: React.FC<{ onSetUpAddress: () => void }> = ({
         padding: 12,
         borderRadius: radius.sm,
         borderWidth: 1,
-        borderColor: tokens.color.border.subtle,
-        backgroundColor: tokens.color.bg["2"],
+        borderColor: color.border.subtle,
+        backgroundColor: color.bg["2"],
         gap: 6,
       }}
     >

@@ -2,7 +2,8 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 /**
  * `EmptyState` now lives in `components/common` so every screen shares one, not
@@ -19,6 +20,7 @@ export { EmptyState } from "@/components/common/EmptyState";
  * when the real rows arrive — the critique's "skeletons, never a spinner" rule.
  */
 export function LoadingState({ rows = 4 }: { rows?: number }) {
+  const { color } = useTheme();
   return (
     <View
       accessibilityRole='progressbar'
@@ -26,7 +28,7 @@ export function LoadingState({ rows = 4 }: { rows?: number }) {
       style={{
         borderRadius: radius.md,
         overflow: "hidden",
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
       }}
     >
       {Array.from({ length: rows }, (_, index) => (
@@ -35,7 +37,7 @@ export function LoadingState({ rows = 4 }: { rows?: number }) {
           style={{
             padding: 16,
             borderBottomWidth: index < rows - 1 ? 1 : 0,
-            borderBottomColor: tokens.color.border.subtle,
+            borderBottomColor: color.border.subtle,
           }}
         >
           <Skeleton width='55%' height={14} />

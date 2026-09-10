@@ -1,26 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ACCENT_NAMES,
-  accentPalette,
   type BreakpointName,
-  DEFAULT_ACCENT,
+  DEFAULT_PALETTE,
+  DEFAULT_THEME,
   elevation,
   fade,
   interaction,
   resolveTextStyle,
   rgba,
+  THEME_NAMES,
+  type ThemePalette,
   type TypeVariant,
+  themePalette,
   tokens,
   typeStyle,
 } from "./theme";
 
-// The design system's two promises, pinned:
+// The design system's three promises, pinned:
 //
-//  1. Text is readable. Dark-only UIs drift towards grey-on-grey one commit at
-//     a time, and nobody notices until a screenshot review. The ratios below
-//     are the plan's own targets, computed the way WCAG computes them.
-//  2. Tailwind and `theme.ts` cannot disagree, because both read the same JSON
-//     — and the second test proves the JSON actually reached the Tailwind
+//  1. Text is readable — on every theme, not just the one whoever made the
+//     change happened to be looking at. Dark-only UIs drift towards grey-on-grey
+//     one commit at a time; a light theme added on top of one drifts twice as
+//     fast, because half the palette is never on screen while it is being
+//     edited. The ratios below are the plan's own targets, computed the way
+//     WCAG computes them.
+//  2. The three palettes are the same shape. A `light` missing `state.warning`
+//     resolves to `undefined` and paints an invisible badge on one theme only.
+//  3. Tailwind and `theme.ts` cannot disagree, because both read the same JSON
+//     — and the third block proves the JSON actually reached the Tailwind
 //     extend rather than being half-wired.
 
 const tailwind = require("../tailwind.config.js");
@@ -50,65 +57,166 @@ const contrast = (a: string, b: string) => {
   return (light + 0.05) / (dark + 0.05);
 };
 
+/** Every theme, with its name, so a failure says which one broke. */
+const eachTheme = (): [string, ThemePalette][] =>
+  THEME_NAMES.map((name) => [name, themePalette(name)]);
+
+const SURFACE_STEPS = ["0", "1", "2", "3"] as const;
+
 describe("contrast", () => {
   test("the ratio helper agrees with the known endpoints", () => {
     expect(contrast("#FFFFFF", "#000000")).toBeCloseTo(21, 1);
     expect(contrast("#777777", "#777777")).toBeCloseTo(1, 5);
   });
 
-  test("secondary text on a card reaches AA", () => {
+  test("secondary text on a card reaches AA in every theme", () => {
     // Card, list-group and sidebar backgrounds are bg1; secondary is the
     // subtitle under every row title.
-    expect(
-      contrast(tokens.color.text.secondary, tokens.color.bg["1"]),
-    ).toBeGreaterThanOrEqual(4.5);
-  });
-
-  test("primary text on an input reaches AAA", () => {
-    expect(
-      contrast(tokens.color.text.primary, tokens.color.bg["2"]),
-    ).toBeGreaterThanOrEqual(7);
-  });
-
-  test("primary text reaches AAA on every surface", () => {
-    for (const [name, background] of Object.entries(tokens.color.bg)) {
+    for (const [name, p] of eachTheme()) {
       expect({
-        surface: `bg${name}`,
-        ratio: contrast(tokens.color.text.primary, background) >= 7,
-      }).toEqual({ surface: `bg${name}`, ratio: true });
+        theme: name,
+        ok: contrast(p.text.secondary, p.bg[1]) >= 4.5,
+      }).toEqual({ theme: name, ok: true });
     }
   });
 
-  test("on-accent text reaches AAA on teal and amber", () => {
-    // These two carry the dark `onAccent`: white on either is about 2:1.
-    for (const name of ["teal", "amber"] as const) {
-      const palette = accentPalette(name);
-      expect({
-        accent: name,
-        ratio: contrast(palette.onAccent, palette[500]) >= 7,
-      }).toEqual({ accent: name, ratio: true });
+  test("primary text reaches AAA on every surface of every theme", () => {
+    for (const [name, p] of eachTheme()) {
+      for (const step of SURFACE_STEPS) {
+        const at = `${name}.bg${step}`;
+        expect({
+          at,
+          ok: contrast(p.text.primary, p.bg[Number(step) as 0]) >= 7,
+        }).toEqual({ at, ok: true });
+      }
     }
   });
 
-  test("violet is held to AA, because AAA is unreachable on it", () => {
-    // #9334E9 is the fork's legacy purple, kept as a selectable accent. Its
-    // best possible foreground is white at 5.4:1 — no colour reaches 7:1
-    // against it — so the plan's AAA target cannot hold for violet without
-    // changing the hex. Teal is the default and the brand colour; violet is an
-    // opt-in preference, so it is held to AA instead. Raise this to 7 only
-    // together with a darker violet-500.
-    const palette = accentPalette("violet");
-    expect(contrast(palette.onAccent, palette[500])).toBeGreaterThanOrEqual(
-      4.5,
+  test("on-accent text reaches AAA on every theme's accent", () => {
+    // The old "violet is held to AA" exemption is gone with the accent it
+    // described: `#9334E9` was the fork's legacy purple and no foreground
+    // reached 7:1 on it. `sting` still uses violet, but only for `ring` and
+    // `active`, which carry no text and are held to the 3:1 rule below.
+    for (const [name, p] of eachTheme()) {
+      expect({
+        theme: name,
+        ok: contrast(p.accent.onAccent, p.accent[500]) >= 7,
+      }).toEqual({ theme: name, ok: true });
+    }
+  });
+
+  test("the ring and the active tint are visible against the surface behind them", () => {
+    // WCAG 1.4.11: a non-text indicator needs 3:1. This is what catches
+    // `sting`'s violet ring on its indigo bg1 — the one pairing in the set
+    // where the two are close enough in luminance to disappear.
+    for (const [name, p] of eachTheme()) {
+      for (const role of ["ring", "active"] as const) {
+        const at = `${name}.accent.${role}`;
+        expect({ at, ok: contrast(p.accent[role], p.bg[1]) >= 3 }).toEqual({
+          at,
+          ok: true,
+        });
+      }
+    }
+  });
+
+  test("every state color is readable on every surface of every theme", () => {
+    // Not just danger. A warning badge that is legible on near-black and
+    // invisible on white is the same bug, found six months later.
+    for (const [name, p] of eachTheme()) {
+      for (const [role, hex] of Object.entries(p.state)) {
+        for (const step of SURFACE_STEPS) {
+          const at = `${name}.${role} on bg${step}`;
+          expect({
+            at,
+            ok: contrast(hex, p.bg[Number(step) as 0]) >= 4.5,
+          }).toEqual({ at, ok: true });
+        }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Palette shape
+// ---------------------------------------------------------------------------
+
+describe("palette shape", () => {
+  /** Every leaf key path in an object, `"accent.onAccent"` style. */
+  const paths = (value: object, prefix = ""): string[] =>
+    Object.entries(value).flatMap(([key, child]) =>
+      child && typeof child === "object"
+        ? paths(child, `${prefix}${key}.`)
+        : [`${prefix}${key}`],
     );
-    expect(contrast("#FFFFFF", palette[500])).toBeLessThan(7);
+
+  test("every theme has exactly the keys the default has", () => {
+    // The `$comment` arrays differ by theme and are documentation, not tokens.
+    const keys = (p: ThemePalette) =>
+      paths(p)
+        .filter((k) => !k.startsWith("$comment"))
+        .sort();
+    const reference = keys(DEFAULT_PALETTE);
+    for (const [name, p] of eachTheme()) {
+      expect({ theme: name, keys: keys(p) }).toEqual({
+        theme: name,
+        keys: reference,
+      });
+    }
   });
 
-  test("danger text is readable on every surface", () => {
-    for (const background of Object.values(tokens.color.bg)) {
-      expect(
-        contrast(tokens.color.state.danger, background),
-      ).toBeGreaterThanOrEqual(4.5);
+  test("a theme's scheme matches the luminance of its surfaces", () => {
+    // The one field nothing else can derive, so nothing else can catch it
+    // wrong — and it drives `Appearance.setColorScheme`, the system bars and
+    // which of React Navigation's two base themes the chrome is built from.
+    for (const [name, p] of eachTheme()) {
+      const scheme =
+        luminance(p.bg[0]) < luminance(p.text.primary) ? "dark" : "light";
+      expect({ theme: name, scheme }).toEqual({
+        theme: name,
+        scheme: p.scheme,
+      });
+    }
+  });
+
+  test("the surface ramp moves away from the page one step at a time", () => {
+    // bg0 is furthest from the text, bg3 closest, and `usePressableStates`
+    // describes hover as "one step up the surface scale". A ramp that reverses
+    // at one step makes an elevated sheet read as a hole.
+    for (const [name, p] of eachTheme()) {
+      const ramp = SURFACE_STEPS.map((s) => luminance(p.bg[Number(s) as 0]));
+      const ordered =
+        p.scheme === "dark"
+          ? [...ramp].sort((a, b) => a - b)
+          : [...ramp].sort((a, b) => b - a);
+      expect({ theme: name, ramp }).toEqual({ theme: name, ramp: ordered });
+    }
+  });
+
+  test("the hover wash actually washes", () => {
+    // The light-theme trap: `overlayFor` used to lay white over everything, and
+    // white at 6 % on a near-white card is a change nobody can see. A theme
+    // whose overlay does not contrast with its own cards has no hover states.
+    for (const [name, p] of eachTheme()) {
+      expect({ theme: name, ok: contrast(p.overlay, p.bg[1]) >= 1.5 }).toEqual({
+        theme: name,
+        ok: true,
+      });
+    }
+  });
+
+  test("a light theme's shadows are lighter than a dark theme's", () => {
+    // Black at 0.35 under a card reads as depth on near-black and as soot on
+    // white, which is why the opacity is per-theme rather than shared.
+    for (const [name, p] of eachTheme()) {
+      if (p.scheme !== "light") continue;
+      expect({ theme: name, ok: p.elevationOpacity[1] < 0.2 }).toEqual({
+        theme: name,
+        ok: true,
+      });
+    }
+    for (const [, p] of eachTheme()) {
+      expect(p.elevationOpacity[2]).toBeGreaterThan(p.elevationOpacity[1]);
     }
   });
 });
@@ -119,50 +227,51 @@ describe("contrast", () => {
 
 describe("tailwind extend", () => {
   const colors = extend.colors as Record<string, unknown>;
-  const accent = accentPalette(DEFAULT_ACCENT);
+  const accent = DEFAULT_PALETTE.accent;
 
   test("every surface token has a class", () => {
-    expect(colors.bg0).toBe(tokens.color.bg["0"]);
-    expect(colors.bg1).toBe(tokens.color.bg["1"]);
-    expect(colors.bg2).toBe(tokens.color.bg["2"]);
-    expect(colors.bg3).toBe(tokens.color.bg["3"]);
+    expect(colors.bg0).toBe(DEFAULT_PALETTE.bg[0]);
+    expect(colors.bg1).toBe(DEFAULT_PALETTE.bg[1]);
+    expect(colors.bg2).toBe(DEFAULT_PALETTE.bg[2]);
+    expect(colors.bg3).toBe(DEFAULT_PALETTE.bg[3]);
     expect(colors.surface).toEqual({
-      0: tokens.color.bg["0"],
-      1: tokens.color.bg["1"],
-      2: tokens.color.bg["2"],
-      3: tokens.color.bg["3"],
+      0: DEFAULT_PALETTE.bg[0],
+      1: DEFAULT_PALETTE.bg[1],
+      2: DEFAULT_PALETTE.bg[2],
+      3: DEFAULT_PALETTE.bg[3],
     });
   });
 
   test("every text tone has a class", () => {
-    expect(colors.primary).toBe(tokens.color.text.primary);
-    expect(colors.secondary).toBe(tokens.color.text.secondary);
-    expect(colors.tertiary).toBe(tokens.color.text.tertiary);
-    expect(colors.disabled).toBe(tokens.color.text.disabled);
+    expect(colors.primary).toBe(DEFAULT_PALETTE.text.primary);
+    expect(colors.secondary).toBe(DEFAULT_PALETTE.text.secondary);
+    expect(colors.tertiary).toBe(DEFAULT_PALETTE.text.tertiary);
+    expect(colors.disabled).toBe(DEFAULT_PALETTE.text.disabled);
     expect(colors["on-accent"]).toBe(accent.onAccent);
   });
 
-  test("the accent classes carry the default accent, not a runtime one", () => {
-    // NativeWind v2 compiles classes once, so a user-selected accent can only
-    // arrive as an inline style. If this ever holds a non-default accent, the
-    // build has baked one user's preference into everyone's bundle.
+  test("the color classes carry the default theme, not a runtime one", () => {
+    // NativeWind v2 compiles classes once, so a chosen theme can only ever
+    // arrive as an inline style. If this holds a non-default theme, the build
+    // has baked one person's preference into everyone's bundle.
     expect(colors.accent).toEqual({
       400: accent[400],
       500: accent[500],
       600: accent[600],
       DEFAULT: accent[500],
     });
-    expect(DEFAULT_ACCENT).toBe("teal");
+    expect(colors.focus).toBe(accent.ring);
+    expect(DEFAULT_THEME).toBe("dark");
   });
 
   test("every state and border token has a class", () => {
-    expect(colors.success).toBe(tokens.color.state.success);
-    expect(colors.warning).toBe(tokens.color.state.warning);
-    expect(colors.danger).toBe(tokens.color.state.danger);
-    expect(colors.info).toBe(tokens.color.state.info);
-    expect(colors.subtle).toBe(tokens.color.border.subtle);
-    expect(colors.strong).toBe(tokens.color.border.strong);
-    expect(colors.focus).toBe(accent[400]);
+    expect(colors.success).toBe(DEFAULT_PALETTE.state.success);
+    expect(colors.warning).toBe(DEFAULT_PALETTE.state.warning);
+    expect(colors.danger).toBe(DEFAULT_PALETTE.state.danger);
+    expect(colors.info).toBe(DEFAULT_PALETTE.state.info);
+    expect(colors.subtle).toBe(DEFAULT_PALETTE.border.subtle);
+    expect(colors.strong).toBe(DEFAULT_PALETTE.border.strong);
+    expect(colors.scrim).toBe(DEFAULT_PALETTE.scrim);
   });
 
   test("every radius, spacing step and max width has a class", () => {
@@ -206,9 +315,13 @@ describe("tailwind extend", () => {
     expect(extend.screens.expanded).toBe(`${tokens.breakpoint.expanded}px`);
   });
 
-  test("both elevations have a shadow class", () => {
-    expect(extend.boxShadow.e1).toBe("0px 4px 12px rgba(0,0,0,0.35)");
-    expect(extend.boxShadow.e2).toBe("0px 8px 24px rgba(0,0,0,0.5)");
+  test("both elevations have a shadow class, at the default theme's opacity", () => {
+    expect(extend.boxShadow.e1).toBe(
+      `0px 4px 12px rgba(0,0,0,${DEFAULT_PALETTE.elevationOpacity[1]})`,
+    );
+    expect(extend.boxShadow.e2).toBe(
+      `0px 8px 24px rgba(0,0,0,${DEFAULT_PALETTE.elevationOpacity[2]})`,
+    );
   });
 });
 
@@ -306,7 +419,7 @@ describe("resolveTextStyle", () => {
         const size = typeStyle(variant, breakpoint);
         expect(style.fontSize).toBe(size.fontSize);
         expect(style.lineHeight).toBe(size.lineHeight);
-        expect(style.color).toBe(tokens.color.text.primary);
+        expect(style.color).toBe(DEFAULT_PALETTE.text.primary);
         expect(style.fontFamily).toBe(tokens.fontFamily.regular);
         expect(String(style.fontWeight)).toBe(tokens.fontWeight.regular);
       }
@@ -325,21 +438,45 @@ describe("resolveTextStyle", () => {
     );
   });
 
-  test("tones resolve against the accent passed in", () => {
-    for (const name of ACCENT_NAMES) {
-      const palette = accentPalette(name);
-      expect(
-        resolveTextStyle("body", "accent", "regular", "compact", name).color,
-      ).toBe(palette[500]);
-      expect(
-        resolveTextStyle("body", "onAccent", "regular", "compact", name).color,
-      ).toBe(palette.onAccent);
+  test("every tone resolves against the theme passed in", () => {
+    // The lever the whole change turns on: `Text` and `Icon` both color
+    // themselves through `toneColor`, so if a tone ignored the palette, most of
+    // the app's foreground would stay dark on the light theme.
+    for (const [name, p] of eachTheme()) {
+      const expected = {
+        primary: p.text.primary,
+        secondary: p.text.secondary,
+        tertiary: p.text.tertiary,
+        disabled: p.text.disabled,
+        accent: p.accent[500],
+        danger: p.state.danger,
+        onAccent: p.accent.onAccent,
+      };
+      for (const [tone, hex] of Object.entries(expected)) {
+        const at = `${name}.${tone}`;
+        expect({
+          at,
+          color: resolveTextStyle(
+            "body",
+            tone as keyof typeof expected,
+            "regular",
+            "compact",
+            p,
+          ).color,
+        }).toEqual({ at, color: hex });
+      }
     }
   });
 
-  test("the defaults are body / primary / regular / compact", () => {
+  test("the defaults are body / primary / regular / compact / the default theme", () => {
     expect(resolveTextStyle()).toEqual(
-      resolveTextStyle("body", "primary", "regular", "compact", DEFAULT_ACCENT),
+      resolveTextStyle(
+        "body",
+        "primary",
+        "regular",
+        "compact",
+        DEFAULT_PALETTE,
+      ),
     );
   });
 });
@@ -349,7 +486,7 @@ describe("resolveTextStyle", () => {
 // ---------------------------------------------------------------------------
 
 describe("interaction", () => {
-  test("the overlays are alphas, not colours", () => {
+  test("the overlays are alphas, not colors", () => {
     for (const alpha of [
       interaction.hoverOverlay,
       interaction.pressedOverlay,
@@ -382,20 +519,23 @@ describe("interaction", () => {
   test("a disabled primary button is still visible", () => {
     // 35 % of the accent on bg0 has to stay distinguishable from the page, or
     // the button disappears instead of switching off.
-    const faded = fade(accentPalette()[500], interaction.disabledFillAlpha);
-    expect(faded).toBe("rgba(31,199,181,0.35)");
+    const faded = fade(
+      DEFAULT_PALETTE.accent[500],
+      interaction.disabledFillAlpha,
+    );
+    expect(faded).toBe("rgba(60,221,252,0.35)");
   });
 });
 
 describe("helpers", () => {
   test("rgba expands both hex forms", () => {
-    expect(rgba("#1FC7B5", 0.12)).toBe("rgba(31,199,181,0.12)");
+    expect(rgba("#3CDDFC", 0.12)).toBe("rgba(60,221,252,0.12)");
     expect(rgba("#FFF", 1)).toBe("rgba(255,255,255,1)");
   });
 
-  test("fade thins a colour and leaves the non-colours alone", () => {
-    expect(fade("#1FC7B5", 0.35)).toBe("rgba(31,199,181,0.35)");
-    // A ghost button's rest fill is the literal string, not a colour, and a
+  test("fade thins a color and leaves the non-colors alone", () => {
+    expect(fade("#3CDDFC", 0.35)).toBe("rgba(60,221,252,0.35)");
+    // A ghost button's rest fill is the literal string, not a color, and a
     // caller should not have to special-case it before asking for 35 % of it.
     expect(fade("transparent", 0.35)).toBe("transparent");
     expect(fade("rgba(255,255,255,0.08)", 0.5)).toBe("rgba(255,255,255,0.08)");
@@ -408,7 +548,17 @@ describe("helpers", () => {
       const style = elevation(level);
       expect(style.elevation).toBe(tokens.elevation[`${level}`].android);
       expect(style.shadowRadius).toBe(tokens.elevation[`${level}`].blur);
-      expect(style.shadowOpacity).toBe(tokens.elevation[`${level}`].opacity);
+      expect(style.shadowOpacity).toBe(DEFAULT_PALETTE.elevationOpacity[level]);
+    }
+  });
+
+  test("elevation takes its opacity from the theme it is drawn on", () => {
+    for (const [name, p] of eachTheme()) {
+      const at = `${name}.e2`;
+      expect({ at, opacity: elevation(2, p).shadowOpacity }).toEqual({
+        at,
+        opacity: p.elevationOpacity[2],
+      });
     }
   });
 });

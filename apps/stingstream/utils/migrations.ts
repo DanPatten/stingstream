@@ -1,5 +1,6 @@
 import { writeErrorLog, writeInfoLog } from "@/utils/log";
 import { storage } from "@/utils/mmkv";
+import { SETTINGS_KEY } from "@/utils/storedSettings";
 
 /**
  * One-off migrations for locally stored (MMKV) data.
@@ -25,6 +26,7 @@ const SCHEMA_VERSION_KEY = "storageSchemaVersion";
 /** The slice of the MMKV surface migrations are allowed to touch. */
 export interface MigrationStorage {
   getNumber: (key: string) => number | undefined;
+  getString: (key: string) => string | undefined;
   getAllKeys: () => string[];
   set: (key: string, value: boolean | number | string) => void;
   remove: (key: string) => void;
@@ -45,6 +47,24 @@ const MIGRATIONS: Migration[] = [
       "clear hasShownIntro so existing users see the intro again, now that it carries the crash-reporting opt-out",
     run: (store) => {
       store.remove("hasShownIntro");
+    },
+  },
+  {
+    version: 2,
+    description:
+      "carry a chosen accent over to the theme that inherits it, now that Appearance picks a whole theme rather than an accent",
+    run: (store) => {
+      const raw = store.getString(SETTINGS_KEY);
+      if (!raw) return;
+      const settings = JSON.parse(raw) as Record<string, unknown>;
+      // Someone who already has a theme has used the new picker; leave them be.
+      if (typeof settings.theme === "string") return;
+      // Violet was the one deliberate departure from the brand, and `sting` is
+      // the theme that keeps violet. Everything else lands on the default, which
+      // is where teal and amber were sitting anyway: a near-black app.
+      settings.theme = settings.accent === "violet" ? "sting" : "dark";
+      settings.accent = undefined;
+      store.set(SETTINGS_KEY, JSON.stringify(settings));
     },
   },
 ];

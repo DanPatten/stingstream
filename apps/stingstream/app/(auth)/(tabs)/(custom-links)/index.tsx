@@ -76,7 +76,7 @@ export default function CustomLinksPage() {
       )}
       ListEmptyComponent={
         <View className='flex flex-col items-center justify-center h-full'>
-          <Text className='font-bold text-xl text-neutral-500'>
+          <Text tone='tertiary' className='font-bold text-xl'>
             {t("custom_links.no_links")}
           </Text>
         </View>

@@ -10,6 +10,7 @@ import { ItemImage } from "@/components/common/ItemImage";
 import { Text } from "@/components/common/Text";
 import { HourHeader } from "@/components/livetv/HourHeader";
 import { LiveTVGuideRow } from "@/components/livetv/LiveTVGuideRow";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 const HOUR_HEIGHT = 30;
@@ -18,6 +19,7 @@ const ITEMS_PER_PAGE = 20;
 const MemoizedLiveTVGuideRow = React.memo(LiveTVGuideRow);
 
 export default function LiveTvGuidePage() {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const insets = useSafeAreaInsets();
@@ -107,8 +109,8 @@ export default function LiveTvGuidePage() {
           <View
             style={{
               height: HOUR_HEIGHT,
+              backgroundColor: color.bg["2"],
             }}
-            className='bg-neutral-800'
           />
           {channels?.Items?.map((c, i) => (
             <View className='h-16 w-16 mr-4 rounded-lg overflow-hidden' key={i}>
@@ -163,9 +165,13 @@ const PageButtons: React.FC<PageButtonsProps> = ({
   onNextPage,
   isNextDisabled,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   return (
-    <View className='flex flex-row justify-between items-center bg-neutral-800 w-full px-4 py-2'>
+    <View
+      style={{ backgroundColor: color.bg["2"] }}
+      className='flex flex-row justify-between items-center w-full px-4 py-2'
+    >
       <TouchableOpacity
         onPress={onPrevPage}
         disabled={currentPage === 1}
@@ -184,7 +190,7 @@ const PageButtons: React.FC<PageButtonsProps> = ({
           {t("live_tv.previous")}
         </Text>
       </TouchableOpacity>
-      <Text className='text-white'>Page {currentPage}</Text>
+      <Text>Page {currentPage}</Text>
       <TouchableOpacity
         onPress={onNextPage}
         disabled={isNextDisabled}

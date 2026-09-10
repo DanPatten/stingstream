@@ -6,8 +6,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PageContainer } from "@/components/common/PageContainer";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { space, tokens } from "@/constants/theme";
+import { space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { buildMoreItems, type SidebarItem } from "./buildSidebarItems";
@@ -29,6 +30,7 @@ import { buildMoreItems, type SidebarItem } from "./buildSidebarItems";
  * `components/stacks/NestedTabPageStack.tsx`.
  */
 export const MoreScreen: React.FC = () => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const user = useAtomValue(userAtom);
@@ -56,7 +58,7 @@ export const MoreScreen: React.FC = () => {
   return (
     <ScrollView
       testID='more-screen'
-      style={{ flex: 1, backgroundColor: tokens.color.bg["0"] }}
+      style={{ flex: 1, backgroundColor: color.bg["0"] }}
       contentContainerStyle={{
         paddingTop: space["4"],
         // The bottom tab bar floats over the scroll view's last row otherwise.

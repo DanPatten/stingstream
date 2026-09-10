@@ -8,6 +8,7 @@ import { Text } from "@/components/common/Text";
 import { AnimatedEqualizer } from "@/components/music/AnimatedEqualizer";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { useTheme } from "@/hooks/useTheme";
 import {
   audioStorageEvents,
   getLocalPath,
@@ -35,6 +36,7 @@ export const MusicTrackItem: React.FC<Props> = ({
   showArtwork = true,
   onOptionsPress,
 }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const { playTrack, currentTrack, isPlaying, loadingTrackId } =
     useMusicPlayer();
@@ -152,7 +154,10 @@ export const MusicTrackItem: React.FC<Props> = ({
               cachePolicy='memory-disk'
             />
           ) : (
-            <View className='flex-1 items-center justify-center bg-neutral-800'>
+            <View
+              style={{ backgroundColor: color.bg["2"] }}
+              className='flex-1 items-center justify-center'
+            >
               <Ionicons name='musical-note' size={18} color='#737373' />
             </View>
           )}
@@ -186,7 +191,7 @@ export const MusicTrackItem: React.FC<Props> = ({
             {track.Name}
           </Text>
         </View>
-        <Text numberOfLines={1} className='text-neutral-500 text-xs mt-0.5'>
+        <Text tone='tertiary' numberOfLines={1} className='text-xs mt-0.5'>
           {track.Artists?.join(", ") || track.AlbumArtist}
         </Text>
       </View>
@@ -209,7 +214,9 @@ export const MusicTrackItem: React.FC<Props> = ({
       )}
 
       {/* Duration */}
-      <Text className='text-neutral-500 text-xs'>{duration}</Text>
+      <Text tone='tertiary' className='text-xs'>
+        {duration}
+      </Text>
 
       {/* Options button */}
       {onOptionsPress && (

@@ -3,6 +3,7 @@ import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { Colors } from "@/constants/Colors";
+import { useTheme } from "@/hooks/useTheme";
 import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
   DRIFT_BUDGET_MS,
@@ -36,6 +37,7 @@ import {
  * everybody, and a button that quietly did that would be a nasty surprise.
  */
 export function WatchTogetherBanner() {
+  const { color } = useTheme();
   // The **home node's** identity and groups, not the phone's embedded light node's. A watch
   // session's participants are home nodes -- joining one is joining on behalf of everybody signed
   // in to that server -- so comparing against the light node's id would offer this device an invite
@@ -99,9 +101,12 @@ export function WatchTogetherBanner() {
   };
 
   return (
-    <View className='mx-3 mb-2 flex-row items-center justify-between rounded-xl bg-neutral-900 p-3'>
+    <View
+      style={{ backgroundColor: color.bg["1"] }}
+      className='mx-3 mb-2 flex-row items-center justify-between rounded-xl p-3'
+    >
       <View className='flex-1 pr-3'>
-        <Text className='text-white font-semibold' numberOfLines={1}>
+        <Text className='font-semibold' numberOfLines={1}>
           {invite.leaderName} is watching {invite.title}
         </Text>
         <Text className='text-[#9899A1] text-xs'>
@@ -119,7 +124,7 @@ export function WatchTogetherBanner() {
         {join.isPending ? (
           <ActivityIndicator color='white' />
         ) : (
-          <Text className='text-white font-semibold'>Watch together</Text>
+          <Text className='font-semibold'>Watch together</Text>
         )}
       </TouchableOpacity>
     </View>
@@ -138,13 +143,17 @@ function JoinedRow({
   onLeave: () => void;
   pending: boolean;
 }) {
+  const { color } = useTheme();
   const drift = worstDriftMs(session);
   const leading = session.leader === nodeId;
 
   return (
-    <View className='mx-3 mb-2 flex-row items-center justify-between rounded-xl bg-neutral-900 p-3'>
+    <View
+      style={{ backgroundColor: color.bg["1"] }}
+      className='mx-3 mb-2 flex-row items-center justify-between rounded-xl p-3'
+    >
       <View className='flex-1 pr-3'>
-        <Text className='text-white font-semibold' numberOfLines={1}>
+        <Text className='font-semibold' numberOfLines={1}>
           Watching {session.title} together
         </Text>
         <Text className='text-[#9899A1] text-xs'>
@@ -153,15 +162,16 @@ function JoinedRow({
         </Text>
       </View>
       <TouchableOpacity
+        style={{ borderColor: color.border.strong }}
         onPress={onLeave}
         disabled={pending}
         accessibilityRole='button'
         accessibilityLabel={
           leading ? "End the watch party" : "Leave the watch party"
         }
-        className='rounded-lg border border-neutral-700 px-3 py-2'
+        className='rounded-lg border px-3 py-2'
       >
-        <Text className='text-white'>{leading ? "End" : "Leave"}</Text>
+        <Text>{leading ? "End" : "Leave"}</Text>
       </TouchableOpacity>
     </View>
   );

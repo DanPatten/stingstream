@@ -12,6 +12,7 @@ import {
   SheetView,
 } from "@/components/common/Sheet";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useTheme } from "@/hooks/useTheme";
 import { Button } from "./Button";
 import { Text } from "./common/Text";
 
@@ -28,6 +29,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
   onSubmit,
   username,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
@@ -114,17 +116,23 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
         <View className='flex-1'>
           {/* Header */}
           <View className='mb-6'>
-            <Text className='font-bold text-2xl text-neutral-100'>
+            <Text className='font-bold text-2xl'>
               {t("password.enter_password")}
             </Text>
-            <Text className='text-neutral-400 mt-1'>
+            <Text tone='secondary' className='mt-1'>
               {t("password.enter_password_for", { username })}
             </Text>
           </View>
 
           {/* Password Input */}
-          <View className='p-4 border border-neutral-800 rounded-xl bg-neutral-900 mb-4'>
-            <Text className='text-neutral-400 text-sm mb-2'>
+          <View
+            style={{
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["1"],
+            }}
+            className='p-4 border rounded-xl mb-4'
+          >
+            <Text tone='secondary' className='text-sm mb-2'>
               {t("login.password_placeholder")}
             </Text>
             <SheetTextInput
@@ -149,7 +157,11 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
               onSubmitEditing={handleSubmit}
               returnKeyType='done'
             />
-            {error && <Text className='text-red-500 mt-2'>{error}</Text>}
+            {error && (
+              <Text tone='danger' className='mt-2'>
+                {error}
+              </Text>
+            )}
           </View>
 
           {/* Buttons */}

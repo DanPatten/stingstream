@@ -237,7 +237,7 @@ export const BottomControls: FC<BottomControlsProps> = ({
                 maximumTrackTintColor: "rgba(255,255,255,0.2)",
                 minimumTrackTintColor: accent[500],
                 // The one place the accent belongs on the OSD: watched progress. Everything else
-                // over video stays white, which is the only colour that reads on any frame.
+                // over video stays white, which is the only color that reads on any frame.
                 cacheTrackTintColor: "rgba(255,255,255,0.3)",
                 bubbleBackgroundColor: "#fff",
                 bubbleTextColor: "#666",

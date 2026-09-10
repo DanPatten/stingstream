@@ -65,7 +65,7 @@ export const BRAND_BG = "#0B0C0F";
 /**
  * Levels applied to the mark's alpha channel to make the monochrome silhouette: alpha
  * below `lo` is dropped (the outer glow halo) and alpha above `hi` goes fully solid (the
- * ribbons), with a linear ramp between. Android throws away the colour of a notification
+ * ribbons), with a linear ramp between. Android throws away the color of a notification
  * icon and keeps only this shape, so it is tuned for 96px legibility rather than fidelity
  * to the render.
  */
@@ -82,5 +82,5 @@ export const WORDMARK_SATURATION = {
   achromatic: 0.12,
 } as const;
 
-/** The ink "Sting" is recoloured to for the light-background lockup. */
+/** The ink "Sting" is recolored to for the light-background lockup. */
 export const WORDMARK_LIGHT_INK = { r: 0x0b, g: 0x0c, b: 0x0f } as const;

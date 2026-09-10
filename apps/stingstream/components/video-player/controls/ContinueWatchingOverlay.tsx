@@ -32,7 +32,7 @@ const ContinueWatchingOverlay: React.FC<ContinueWatchingOverlayProps> = ({
         "absolute top-0 bottom-0 left-0 right-0 z-50 flex flex-col px-4 items-center justify-center bg-[#000000B3]"
       }
     >
-      <Text className='text-2xl font-bold text-white py-4 '>
+      <Text className='text-2xl font-bold py-4'>
         {t("player.still_watching")}
       </Text>
       <Button

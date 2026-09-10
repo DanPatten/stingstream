@@ -13,6 +13,7 @@ import { Text } from "@/components/common/Text";
 import { elevation, radius, rgba, tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { getItemNavigation, itemRouter } from "../common/TouchableItemRouter";
@@ -66,6 +67,7 @@ const ASPECT_RATIO = 16 / 9;
  * shows" faster than a collage of four posters does anyway.
  */
 export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const router = useRouter();
   const segments = useSegments();
@@ -131,9 +133,9 @@ export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
           height,
           borderRadius: radius.lg,
           overflow: "hidden",
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           borderWidth: 0.5,
-          borderColor: tokens.color.border.subtle,
+          borderColor: color.border.subtle,
         }}
       >
         {url ? (
@@ -160,16 +162,12 @@ export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
                 backgroundColor: rgba("#000000", 0.5),
               }}
             >
-              <Ionicons
-                name={iconName}
-                size={15}
-                color={tokens.color.text.primary}
-              />
+              <Ionicons name={iconName} size={15} color={color.text.primary} />
             </View>
           </>
         ) : (
           <LinearGradient
-            colors={[tokens.color.bg["2"], tokens.color.bg["3"]]}
+            colors={[color.bg["2"], color.bg["3"]]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
@@ -177,7 +175,7 @@ export const LibraryItemCard: React.FC<Props> = ({ library, width, style }) => {
             <Ionicons
               name={iconName}
               size={glyphSize}
-              color={tokens.color.text.tertiary}
+              color={color.text.tertiary}
             />
           </LinearGradient>
         )}

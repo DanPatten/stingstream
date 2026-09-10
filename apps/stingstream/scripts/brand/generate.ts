@@ -203,7 +203,7 @@ async function lockupOnCanvas(opts: {
  * The monochrome silhouette: white ink shaped by the mark's own alpha, with the levels
  * from `source.ts` applied so the ribbons go solid and the outer glow halo is dropped.
  *
- * Android keeps only this shape -- it discards the colour of a notification icon and
+ * Android keeps only this shape -- it discards the color of a notification icon and
  * tints the alpha -- so a straight copy of the render's soft falloff would arrive as a
  * grey smear at 96px. The linear() maps `lo` to fully transparent and `hi` to fully
  * opaque; sharp clamps everything outside that.
@@ -235,7 +235,7 @@ async function markMonoArt(): Promise<Buffer> {
 }
 
 /**
- * The wordmark recoloured for a light background: "Sting" is rendered near-white and
+ * The wordmark recolored for a light background: "Sting" is rendered near-white and
  * disappears on white, while "Stream" carries the cyan-to-violet gradient and must
  * survive untouched. Selecting by saturation rather than by a hardcoded x split keeps
  * this correct if the art is ever re-rendered -- and the boundary is checked, not
@@ -254,7 +254,7 @@ async function wordmarkLightArt(): Promise<Buffer> {
     return max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
   };
 
-  // Column census: where does the coloured half start, and where does the pale half end?
+  // Column census: where does the colored half start, and where does the pale half end?
   let firstChromatic = width;
   let lastAchromatic = -1;
   for (let x = 0; x < width; x++) {
@@ -272,15 +272,15 @@ async function wordmarkLightArt(): Promise<Buffer> {
   }
   if (lastAchromatic >= firstChromatic) {
     throw new Error(
-      `wordmark halves overlap (pale ink to x=${lastAchromatic}, colour from x=${firstChromatic}); ` +
+      `wordmark halves overlap (pale ink to x=${lastAchromatic}, color from x=${firstChromatic}); ` +
         "the light variant cannot be separated by saturation alone",
     );
   }
 
   // Everything left of the boundary is "Sting", so every visible pixel there is
-  // recoloured -- including the faintly tinted anti-aliased edges, which an
+  // recolored -- including the faintly tinted anti-aliased edges, which an
   // achromatic-only test leaves behind as a pale ghost of the original word. The
-  // saturation check that remains is a guard against a stray coloured pixel, not the
+  // saturation check that remains is a guard against a stray colored pixel, not the
   // filter that decides what "Sting" is; the census above already decided that.
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < firstChromatic; x++) {

@@ -10,6 +10,7 @@ import {
   type ViewProps,
 } from "react-native";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { useTheme } from "@/hooks/useTheme";
 import { GlassSurface } from "./common/GlassSurface";
 import { Text } from "./common/Text";
 
@@ -25,6 +26,7 @@ export const Tag: React.FC<
     textStyle?: StyleProp<TextStyle>;
   } & ViewProps
 > = ({ text, textClass, textStyle, ...props }) => {
+  const { color } = useTheme();
   // Hook must be called at the top level, before any conditional returns
   const typography = useScaledTVTypography();
 
@@ -72,7 +74,11 @@ export const Tag: React.FC<
   }
 
   return (
-    <View className='bg-neutral-800 rounded-full px-2 py-1' {...props}>
+    <View
+      style={{ backgroundColor: color.bg["2"] }}
+      className='rounded-full px-2 py-1'
+      {...props}
+    >
       <Text className={textClass} style={textStyle}>
         {text}
       </Text>

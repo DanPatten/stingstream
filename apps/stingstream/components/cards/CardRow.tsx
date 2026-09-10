@@ -284,7 +284,7 @@ export const CardRow: React.FC<Props> = ({
       ) : isEmpty ? (
         emptyText ? (
           <View className='px-4'>
-            <Text className='text-neutral-500'>{emptyText}</Text>
+            <Text tone='tertiary'>{emptyText}</Text>
           </View>
         ) : null
       ) : (

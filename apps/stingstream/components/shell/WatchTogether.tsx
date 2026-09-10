@@ -10,7 +10,7 @@ import { Dialog } from "@/components/common/Dialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, space, tokens, webFocusRing } from "@/constants/theme";
+import { radius, space, webFocusRing } from "@/constants/theme";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
@@ -46,7 +46,7 @@ import { apiAtom } from "@/providers/JellyfinProvider";
  */
 export const WatchTogetherButton: React.FC = () => {
   const { t } = useTranslation();
-  const { accent, accentName } = useTheme();
+  const { accent, color } = useTheme();
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -77,9 +77,9 @@ export const WatchTogetherButton: React.FC = () => {
             alignItems: "center",
             justifyContent: "center",
             borderRadius: radius.sm,
-            backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+            backgroundColor: hovered ? color.bg["3"] : "transparent",
             ...(Platform.OS === "web"
-              ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+              ? { cursor: "pointer", ...webFocusRing(showRing, color) }
               : null),
           } as ViewStyle
         }
@@ -87,7 +87,7 @@ export const WatchTogetherButton: React.FC = () => {
         <Icon
           name='watchTogether'
           size={20}
-          color={inARoom ? accent[500] : tokens.color.text.secondary}
+          color={inARoom ? accent[500] : color.text.secondary}
         />
       </Pressable>
 
@@ -289,6 +289,7 @@ const RoomRow: React.FC<{
   onJoin: () => void;
   onLeave: () => void;
 }> = ({ name, detail, joined, busy, onJoin, onLeave }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   return (
@@ -300,7 +301,7 @@ const RoomRow: React.FC<{
         paddingVertical: space["2"],
         paddingHorizontal: space["3"],
         borderRadius: radius.sm,
-        backgroundColor: tokens.color.bg["2"],
+        backgroundColor: color.bg["2"],
       }}
     >
       <View style={{ flex: 1, minWidth: 0 }}>

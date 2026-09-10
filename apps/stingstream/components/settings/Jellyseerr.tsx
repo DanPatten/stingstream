@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { JellyseerrApi, useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { markExpectedError } from "@/utils/errors";
@@ -22,6 +23,7 @@ import { ListGroup } from "../list/ListGroup";
 import { ListItem } from "../list/ListItem";
 
 export const JellyseerrSettings = () => {
+  const { color } = useTheme();
   const { jellyseerrUser, setJellyseerrUser, clearAllJellyseerData } =
     useJellyseerr();
 
@@ -184,7 +186,7 @@ export const JellyseerrSettings = () => {
                 className='mt-4'
                 title={t("home.settings.plugins.jellyseerr.auto_login_title")}
                 description={
-                  <Text className='text-xs text-neutral-500'>
+                  <Text tone='tertiary' className='text-xs'>
                     {t(
                       "home.settings.plugins.jellyseerr.auto_login_description",
                     )}
@@ -224,7 +226,10 @@ export const JellyseerrSettings = () => {
             </View>
           </>
         ) : (
-          <View className='flex flex-col rounded-xl overflow-hidden p-4 bg-neutral-900'>
+          <View
+            style={{ backgroundColor: color.bg["1"] }}
+            className='flex flex-col rounded-xl overflow-hidden p-4'
+          >
             <View style={{ opacity: urlLocked ? 0.5 : 1 }}>
               <View className='mb-2'>
                 <ServerUrlField
@@ -248,7 +253,7 @@ export const JellyseerrSettings = () => {
                   editable={!urlLocked && !loginToJellyseerrMutation.isPending}
                 />
                 {urlLocked && (
-                  <Text className='text-xs text-red-600 mb-2'>
+                  <Text tone='danger' className='text-xs mb-2'>
                     {t("home.settings.disabled_by_admin")}
                   </Text>
                 )}
@@ -268,7 +273,8 @@ export const JellyseerrSettings = () => {
                     {t("home.settings.plugins.jellyseerr.password")}
                   </Text>
                   <Input
-                    className='border border-neutral-800'
+                    style={{ borderColor: color.border.subtle }}
+                    className='border'
                     autoFocus={true}
                     focusable={true}
                     placeholder={t(
@@ -291,7 +297,8 @@ export const JellyseerrSettings = () => {
                     {t("home.settings.plugins.jellyseerr.api_key_hint")}
                   </Text>
                   <Input
-                    className='border border-neutral-800'
+                    style={{ borderColor: color.border.subtle }}
+                    className='border'
                     placeholder={t(
                       "home.settings.plugins.jellyseerr.api_key_placeholder",
                     )}

@@ -4,13 +4,15 @@ import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { useRunSync, useSyncStatus } from "@/lib/stingstream/hooks";
 import { arrAppLabel } from "../shared/arrLabels";
 
 /** One sentence and one pill summarising sync into the movie manager and the
  * series manager, plus a manual re-sync button. */
 export function SyncStatusBanner() {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { data: statuses } = useSyncStatus();
   const runSync = useRunSync();
@@ -42,7 +44,7 @@ export function SyncStatusBanner() {
     <View
       style={{
         borderRadius: radius.lg,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 12,
         marginBottom: 12,
         flexDirection: "row",

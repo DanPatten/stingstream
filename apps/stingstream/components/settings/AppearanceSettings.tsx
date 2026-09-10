@@ -4,14 +4,10 @@ import { useTranslation } from "react-i18next";
 import { Linking, Platform, Pressable, View } from "react-native";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import DisabledSetting from "@/components/settings/DisabledSetting";
-import {
-  ACCENT_NAMES,
-  type AccentName,
-  accentPalette,
-  tokens,
-} from "@/constants/theme";
+import { THEME_NAMES, type ThemeName, themePalette } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { isHeroAvailable } from "@/modules";
 import { useSettings } from "@/utils/atoms/settings";
 import { Icon } from "../common/Icon";
@@ -19,20 +15,33 @@ import { ListGroup } from "../list/ListGroup";
 import { ListItem } from "../list/ListItem";
 
 const SWATCH_SIZE = 32;
+const SWATCH_DOT = 20;
 
-/** One accent swatch: a filled circle, a checkmark when selected, the usual hover/press/focus set. */
-const AccentSwatch: React.FC<{
-  name: AccentName;
+/**
+ * One theme swatch: the theme's own surface as the disc, its accent as the dot
+ * inside, a checkmark when selected, and the usual hover/press/focus set.
+ *
+ * It has to show the surface as well as the accent. Dark and StingStream share
+ * the same cyan accent, so three plain accent circles would put two identical
+ * swatches side by side; with the surface behind it they read as near-black,
+ * white and indigo, which is what actually distinguishes them on screen.
+ */
+const ThemeSwatch: React.FC<{
+  name: ThemeName;
   selected: boolean;
   label: string;
-  onSelect: (name: AccentName) => void;
+  onSelect: (name: ThemeName) => void;
 }> = ({ name, selected, label, onSelect }) => {
-  const palette = accentPalette(name);
+  const palette = themePalette(name);
+  // The selected ring is drawn in the theme the person is looking at now, not
+  // the one the swatch is offering: it belongs to the settings row, not to the
+  // preview inside it.
+  const { color } = useTheme();
   const states = usePressableStates();
 
   return (
     <Pressable
-      testID={`settings-accent-${name}`}
+      testID={`settings-theme-${name}`}
       accessibilityRole='button'
       accessibilityLabel={label}
       accessibilityState={{ selected }}
@@ -43,18 +52,31 @@ const AccentSwatch: React.FC<{
           width: SWATCH_SIZE,
           height: SWATCH_SIZE,
           borderRadius: SWATCH_SIZE / 2,
-          backgroundColor: palette[500],
+          backgroundColor: palette.bg["1"],
           alignItems: "center",
           justifyContent: "center",
-          borderWidth: selected ? 2 : 0,
-          borderColor: tokens.color.text.primary,
+          borderWidth: selected ? 2 : 1,
+          // Unselected still needs a hairline, or the light swatch has no edge
+          // against a light row.
+          borderColor: selected ? color.text.primary : color.border.strong,
         },
         states.webStyle,
       ]}
     >
-      {selected ? (
-        <Icon name='check' size={16} color={palette.onAccent} />
-      ) : null}
+      <View
+        style={{
+          width: SWATCH_DOT,
+          height: SWATCH_DOT,
+          borderRadius: SWATCH_DOT / 2,
+          backgroundColor: palette.accent[500],
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {selected ? (
+          <Icon name='check' size={13} color={palette.accent.onAccent} />
+        ) : null}
+      </View>
     </Pressable>
   );
 };
@@ -76,15 +98,15 @@ export const AppearanceSettings: React.FC = () => {
   return (
     <DisabledSetting disabled={disabled}>
       <ListGroup title={t("home.settings.appearance.title")} className=''>
-        <ListItem title={t("home.settings.appearance.accent_title")}>
+        <ListItem title={t("home.settings.appearance.theme_title")}>
           <View style={{ flexDirection: "row", gap: 10 }}>
-            {ACCENT_NAMES.map((name) => (
-              <AccentSwatch
+            {THEME_NAMES.map((name) => (
+              <ThemeSwatch
                 key={name}
                 name={name}
-                selected={settings.accent === name}
-                label={t(`home.settings.appearance.accent_${name}`)}
-                onSelect={(value) => updateSettings({ accent: value })}
+                selected={settings.theme === name}
+                label={t(`home.settings.appearance.theme_${name}`)}
+                onSelect={(value) => updateSettings({ theme: value })}
               />
             ))}
           </View>

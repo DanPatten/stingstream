@@ -30,7 +30,7 @@ const HIT_SLOP = { top: 12, bottom: 12, left: 6, right: 6 };
  * Where you are in the hero, and — with a pointer — a way to get somewhere
  * else.
  *
- * The active dot stretches into a short bar rather than only changing colour,
+ * The active dot stretches into a short bar rather than only changing color,
  * so position survives being read at a glance, in a screenshot, or by somebody
  * who cannot separate teal from grey.
  */

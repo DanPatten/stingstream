@@ -44,6 +44,7 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   style,
   ...viewProps
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const effectiveSubtitle = disabledByAdmin
     ? t("home.settings.disabled_by_admin")
@@ -55,7 +56,7 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   // controls sit taller). Switch height is capped via SettingSwitch so toggle
   // rows match non-toggle rows.
   //
-  // A row that cannot be pressed never changes colour: the whole point of the
+  // A row that cannot be pressed never changes color: the whole point of the
   // hover and pressed tints is to say "this does something", and a settings row
   // that only holds a switch does not.
   const row: ViewStyle = {
@@ -67,10 +68,10 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
     paddingHorizontal: 16,
     backgroundColor:
       onPress && states.pressed
-        ? tokens.color.bg["3"]
+        ? color.bg["3"]
         : onPress && states.hovered
-          ? tokens.color.bg["2"]
-          : tokens.color.bg["1"],
+          ? color.bg["2"]
+          : color.bg["1"],
     opacity: isDisabled ? tokens.control.disabledOpacity : 1,
   };
 
@@ -128,7 +129,7 @@ const ListItemContent = ({
   iconAfter,
   children,
 }: Props) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", width: "100%" }}>
@@ -141,7 +142,7 @@ const ListItemContent = ({
             alignItems: "center",
             justifyContent: "center",
             marginRight: 10,
-            backgroundColor: tokens.color.bg["3"],
+            backgroundColor: color.bg["3"],
           }}
         >
           <Icon name={icon} size={18} tone='secondary' />
@@ -160,8 +161,8 @@ const ListItemContent = ({
               textColor === "blue"
                 ? accent[500]
                 : textColor === "red"
-                  ? tokens.color.state.danger
-                  : tokens.color.text.primary,
+                  ? color.state.danger
+                  : color.text.primary,
           }}
           numberOfLines={1}
         >

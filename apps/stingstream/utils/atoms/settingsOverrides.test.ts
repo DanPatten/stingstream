@@ -7,8 +7,8 @@ import {
   withinAllowedValues,
 } from "./settingsOverrides";
 
-const ACCENT_NAMES = ["teal", "violet", "amber"] as const;
-const DEFAULT_ACCENT = "teal";
+const THEME_NAMES = ["dark", "light", "sting"] as const;
+const DEFAULT_THEME = "dark";
 
 const defaults = {
   rememberAudioSelections: true,
@@ -254,26 +254,25 @@ describe("pluginRefreshOverlay", () => {
 
 describe("withinAllowedValues", () => {
   // What `utils/atoms/settings.ts` calls this for: `effectiveSettingsAtom` runs every stored or
-  // plugin-supplied `accent` through this before anything reads it, because `accentPalette()`
-  // indexes the token JSON by name and returns `undefined` — a crash waiting in the first
-  // component that reads `.500` off it — for anything outside the three known names.
-  test("a known accent passes through unchanged", () => {
-    expect(withinAllowedValues("violet", ACCENT_NAMES, DEFAULT_ACCENT)).toBe(
-      "violet",
+  // plugin-supplied `theme` through this before anything reads it, so the value the picker shows
+  // as selected is always one of the names on the token JSON.
+  test("a known theme passes through unchanged", () => {
+    expect(withinAllowedValues("sting", THEME_NAMES, DEFAULT_THEME)).toBe(
+      "sting",
     );
   });
 
-  test("an unknown accent is rejected, falling back to the default", () => {
-    // Corrupt storage, a downgrade after a release added a fourth accent, an admin typo in a
+  test("an unknown theme is rejected, falling back to the default", () => {
+    // Corrupt storage, a downgrade after a release added a fourth theme, an admin typo in a
     // locked plugin value — none of these are one of the three names on the token JSON.
-    expect(
-      withinAllowedValues("chartreuse", ACCENT_NAMES, DEFAULT_ACCENT),
-    ).toBe(DEFAULT_ACCENT);
+    expect(withinAllowedValues("chartreuse", THEME_NAMES, DEFAULT_THEME)).toBe(
+      DEFAULT_THEME,
+    );
   });
 
   test("the default itself is a known value", () => {
-    expect(
-      withinAllowedValues(DEFAULT_ACCENT, ACCENT_NAMES, DEFAULT_ACCENT),
-    ).toBe(DEFAULT_ACCENT);
+    expect(withinAllowedValues(DEFAULT_THEME, THEME_NAMES, DEFAULT_THEME)).toBe(
+      DEFAULT_THEME,
+    );
   });
 });

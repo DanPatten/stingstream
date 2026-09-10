@@ -12,6 +12,7 @@ import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { calculateSmoothedETA } from "@/providers/Downloads/hooks/useDownloadSpeedCalculator";
 import { JobStatus } from "@/providers/Downloads/types";
@@ -35,6 +36,7 @@ interface DownloadCardProps extends TouchableOpacityProps {
 }
 
 export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { cancelDownload } = useDownload();
   const router = useRouter();
@@ -123,8 +125,12 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
 
   return (
     <TouchableOpacity
+      style={{
+        backgroundColor: color.bg["1"],
+        borderColor: color.border.subtle,
+      }}
       onPress={() => router.push(`/(auth)/items/page?id=${process.item.Id}`)}
-      className='relative bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden'
+      className='relative border rounded-2xl overflow-hidden'
       {...props}
     >
       {process.status === "downloading" && (
@@ -142,8 +148,9 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
       {/* Action buttons in bottom right corner */}
       <View className='absolute bottom-2 right-2 flex flex-row items-center z-10'>
         <TouchableOpacity
+          style={{ backgroundColor: color.bg["2"] }}
           onPress={() => handleDelete(process.id)}
-          className='p-2 bg-neutral-800 rounded-full'
+          className='p-2 rounded-full'
         >
           <Ionicons name='close' size={20} color='red' />
         </TouchableOpacity>
@@ -174,7 +181,7 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
 
             {isTranscoding && (
               <View className='bg-purple-600/20 px-2 py-0.5 rounded-md mt-1 self-start'>
-                <Text className='text-xs text-purple-400'>
+                <Text tone='accent' className='text-xs'>
                   {t("home.downloads.transcoding")}
                 </Text>
               </View>
@@ -202,7 +209,7 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
             {/* Row 2: Speed + ETA */}
             <View className='flex flex-row items-center gap-x-2 mt-0.5'>
               {process.speed && process.speed > 0 && (
-                <Text className='text-xs text-purple-400'>
+                <Text tone='accent' className='text-xs'>
                   {bytesToMB(process.speed).toFixed(2)} MB/s
                 </Text>
               )}

@@ -94,7 +94,7 @@ const ICON_ONLY_BELOW = 360;
  */
 function WebTabBar({ state, descriptors, navigation }: any) {
   const insets = useSafeAreaInsets();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const { width } = useBreakpoint();
   const router = useRouter();
   const labelled = width >= ICON_ONLY_BELOW;
@@ -108,6 +108,10 @@ function WebTabBar({ state, descriptors, navigation }: any) {
         {
           height: TAB_BAR_HEIGHT + insets.bottom,
           paddingBottom: insets.bottom,
+          // Inline rather than in `styles`: a module-scope StyleSheet is one
+          // theme's answer baked into the bundle.
+          borderTopColor: color.border.subtle,
+          backgroundColor: color.bg["1"],
         },
       ]}
     >
@@ -160,7 +164,7 @@ function WebTabBar({ state, descriptors, navigation }: any) {
             <Icon
               name={tabIcon(route.name)}
               size={22}
-              color={focused ? accent[500] : tokens.color.text.tertiary}
+              color={focused ? accent[500] : color.text.tertiary}
             />
             {labelled ? (
               <Text
@@ -173,7 +177,7 @@ function WebTabBar({ state, descriptors, navigation }: any) {
                 style={{
                   marginTop: 2,
                   fontSize: TAB_LABEL_FONT_SIZE,
-                  color: focused ? accent[500] : tokens.color.text.tertiary,
+                  color: focused ? accent[500] : color.text.tertiary,
                 }}
               >
                 {label}
@@ -192,8 +196,6 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     justifyContent: "center",
     borderTopWidth: 1,
-    borderTopColor: tokens.color.border.subtle,
-    backgroundColor: tokens.color.bg["1"],
   },
   item: {
     flexGrow: 1,

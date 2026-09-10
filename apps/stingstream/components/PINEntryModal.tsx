@@ -19,6 +19,7 @@ import {
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useTheme } from "@/hooks/useTheme";
 import { verifyAccountPIN } from "@/utils/secureCredentials";
 import { Button } from "./Button";
 import { Text } from "./common/Text";
@@ -43,6 +44,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
   userId,
   username,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
@@ -178,18 +180,20 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
         <View className='flex-1'>
           {/* Header */}
           <View className='mb-6'>
-            <Text className='font-bold text-2xl text-neutral-100'>
-              {t("pin.enter_pin")}
-            </Text>
-            <Text className='text-neutral-400 mt-1'>
+            <Text className='font-bold text-2xl'>{t("pin.enter_pin")}</Text>
+            <Text tone='secondary' className='mt-1'>
               {t("pin.enter_pin_for", { username })}
             </Text>
           </View>
 
           {/* PIN Input */}
           <Animated.View
-            style={{ transform: [{ translateX: shakeAnimation }] }}
-            className='p-4 border border-neutral-800 rounded-xl bg-neutral-900 mb-4'
+            style={{
+              transform: [{ translateX: shakeAnimation }],
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["1"],
+            }}
+            className='p-4 border rounded-xl mb-4'
           >
             <PinInput
               value={pinCode}
@@ -199,10 +203,12 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
               autoFocus
             />
             {error && (
-              <Text className='text-red-500 text-center mt-3'>{error}</Text>
+              <Text tone='danger' className='text-center mt-3'>
+                {error}
+              </Text>
             )}
             {isVerifying && (
-              <Text className='text-neutral-400 text-center mt-3'>
+              <Text tone='secondary' className='text-center mt-3'>
                 {t("common.verifying") || "Verifying..."}
               </Text>
             )}
@@ -210,7 +216,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
 
           {/* Forgot PIN */}
           <TouchableOpacity onPress={handleForgotPIN} className='mb-4'>
-            <Text className='text-purple-400 text-center'>
+            <Text tone='accent' className='text-center'>
               {t("pin.forgot_pin")}
             </Text>
           </TouchableOpacity>

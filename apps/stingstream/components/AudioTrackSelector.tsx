@@ -2,6 +2,7 @@ import type { MediaSourceInfo } from "@jellyfin/sdk/lib/generated-client/models"
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, TouchableOpacity, View } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "./common/Text";
 import { type OptionGroup, PlatformDropdown } from "./PlatformDropdown";
 
@@ -17,6 +18,7 @@ export const AudioTrackSelector: React.FC<Props> = ({
   selected,
   ...props
 }) => {
+  const { color } = useTheme();
   const isTv = Platform.isTV;
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
@@ -59,7 +61,11 @@ export const AudioTrackSelector: React.FC<Props> = ({
     <View className='flex flex-col' {...props}>
       <Text className='opacity-50 mb-1 text-xs'>{t("item_card.audio")}</Text>
       <TouchableOpacity
-        className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'
+        style={{
+          backgroundColor: color.bg["1"],
+          borderColor: color.border.subtle,
+        }}
+        className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
         onPress={() => setOpen(true)}
       >
         <Text numberOfLines={1}>{selectedAudioSteam?.DisplayTitle}</Text>

@@ -3,6 +3,7 @@ import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 
 /**
  * One decision, as an icon, with the words on hover.
@@ -39,14 +40,15 @@ export const IconAction: React.FC<{
   testID,
   onPress,
 }) => {
+  const { color } = useTheme();
   const states = usePressableStates({ disabled: disabled || busy });
 
   const accent =
     tone === "success"
-      ? tokens.color.state.success
+      ? color.state.success
       : tone === "danger"
-        ? tokens.color.state.danger
-        : tokens.color.text.primary;
+        ? color.state.danger
+        : color.text.primary;
 
   const lit = states.hovered || states.pressed;
 
@@ -84,7 +86,7 @@ export const IconAction: React.FC<{
           <Icon
             name={icon}
             size={18}
-            color={lit ? accent : tokens.color.text.tertiary}
+            color={lit ? accent : color.text.tertiary}
           />
         )}
       </Pressable>
@@ -114,8 +116,8 @@ export const IconAction: React.FC<{
               paddingVertical: 4,
               borderRadius: radius.sm,
               borderWidth: 1,
-              borderColor: tokens.color.border.subtle,
-              backgroundColor: tokens.color.bg["3"],
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["3"],
             }}
           >
             <Text variant='caption' numberOfLines={1}>

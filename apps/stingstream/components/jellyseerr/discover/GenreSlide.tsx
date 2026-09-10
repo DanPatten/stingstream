@@ -7,11 +7,13 @@ import GenericSlideCard from "@/components/jellyseerr/discover/GenericSlideCard"
 import Slide, { type SlideProps } from "@/components/jellyseerr/discover/Slide";
 import useRouter from "@/hooks/useAppRouter";
 import { Endpoints, useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { DiscoverSliderType } from "@/utils/jellyseerr/server/constants/discover";
 import type { GenreSliderItem } from "@/utils/jellyseerr/server/interfaces/api/discoverInterfaces";
 import { genreColorMap } from "@/utils/jellyseerr/src/components/Discover/constants";
 
 const GenreSlide: React.FC<SlideProps & ViewProps> = ({ slide, ...props }) => {
+  const { color } = useTheme();
   const segments = useSegments();
   const { jellyseerrApi } = useJellyseerr();
   const router = useRouter();
@@ -48,7 +50,8 @@ const GenreSlide: React.FC<SlideProps & ViewProps> = ({ slide, ...props }) => {
         renderItem={(item, _index) => (
           <TouchableOpacity className='mr-2' onPress={() => navigate(item)}>
             <GenericSlideCard
-              className='w-28 rounded-lg overflow-hidden border border-neutral-900'
+              style={{ borderColor: color.border.subtle }}
+              className='w-28 rounded-lg overflow-hidden border'
               id={item.id.toString()}
               title={item.name}
               colors={["transparent", "transparent"]}

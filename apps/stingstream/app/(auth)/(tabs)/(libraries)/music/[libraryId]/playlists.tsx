@@ -20,11 +20,13 @@ import {
   type PlaylistSortOrder,
   PlaylistSortSheet,
 } from "@/components/music/PlaylistSortSheet";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 const ITEMS_PER_PAGE = 40;
 
 export default function PlaylistsScreen() {
+  const { color } = useTheme();
   const localParams = useLocalSearchParams<{ libraryId?: string | string[] }>();
   const route = useRoute<any>();
   const navigation = useNavigation();
@@ -110,7 +112,10 @@ export default function PlaylistsScreen() {
 
   if (!api || !user?.Id) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -118,8 +123,11 @@ export default function PlaylistsScreen() {
 
   if (!libraryId) {
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           {t("music.missing_library_id")}
         </Text>
       </View>
@@ -129,7 +137,10 @@ export default function PlaylistsScreen() {
   // Only show loading if we have no cached data to display
   if (isLoading && playlists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -139,8 +150,11 @@ export default function PlaylistsScreen() {
   // This allows offline access to previously cached playlists
   if (isError && playlists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           Failed to load playlists:{" "}
           {(error as Error)?.message || "Unknown error"}
         </Text>
@@ -150,14 +164,20 @@ export default function PlaylistsScreen() {
 
   if (playlists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500 mb-4'>{t("music.no_playlists")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text tone='tertiary' className='mb-4'>
+          {t("music.no_playlists")}
+        </Text>
         <TouchableOpacity
+          style={{ backgroundColor: color.accent[500] }}
           onPress={() => setCreateModalOpen(true)}
-          className='flex-row items-center bg-purple-600 px-6 py-3 rounded-full'
+          className='flex-row items-center px-6 py-3 rounded-full'
         >
           <Ionicons name='add' size={20} color='white' />
-          <Text className='text-white font-semibold ml-2'>
+          <Text className='font-semibold ml-2'>
             {t("music.playlists.create_playlist")}
           </Text>
         </TouchableOpacity>
@@ -170,7 +190,7 @@ export default function PlaylistsScreen() {
   }
 
   return (
-    <View className='flex-1 bg-black'>
+    <View style={{ backgroundColor: color.bg["0"] }} className='flex-1'>
       <FlashList
         data={playlists}
         contentContainerStyle={{
@@ -193,7 +213,7 @@ export default function PlaylistsScreen() {
             className='flex-row items-center mb-2 py-1'
           >
             <Ionicons name='swap-vertical' size={18} color='#9334E9' />
-            <Text className='text-purple-500 text-sm ml-1.5'>
+            <Text tone='accent' className='text-sm ml-1.5'>
               {t(
                 `music.sort.${sortBy === "SortName" ? "alphabetical" : "date_created"}`,
               )}

@@ -22,7 +22,7 @@ interface Props {
  *
  * The dots are their own `Text` in `tertiary` rather than characters inside the
  * segments: punctuation that recedes reads as a separator, punctuation in the
- * same colour as the words reads as part of them. `flexWrap` is deliberate —
+ * same color as the words reads as part of them. `flexWrap` is deliberate —
  * "one line" is the goal at every width the design targets, but a 320 dp phone
  * with a five-genre film has to put the rest somewhere, and wrapping is better
  * than truncating the age rating away.

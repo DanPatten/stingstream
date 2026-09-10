@@ -9,11 +9,11 @@ import { useTheme } from "@/hooks/useTheme";
 interface Props extends Omit<ActivityIndicatorProps, "color"> {
   /**
    * Defaults to the accent — a spinner is a progress indicator, and progress is
-   * accent-coloured everywhere else. Pass `onAccent` inside a filled button,
+   * accent-colored everywhere else. Pass `onAccent` inside a filled button,
    * where the accent would be invisible on its own fill.
    */
   tone?: TextTone;
-  /** An explicit colour, for a spinner over artwork or a coloured surface. */
+  /** An explicit color, for a spinner over artwork or a colored surface. */
   color?: string;
 }
 
@@ -32,7 +32,7 @@ interface Props extends Omit<ActivityIndicatorProps, "color"> {
  * also tells them what is about to arrive, and it does not reflow the page when
  * it does.
  *
- * TV keeps white: `docs/conventions/tv.md` reserves colour on a 10-foot screen
+ * TV keeps white: `docs/conventions/tv.md` reserves color on a 10-foot screen
  * for meaning, and a tinted spinner beside a white focus ring competes with it.
  */
 export const Loader: React.FC<Props> = ({
@@ -40,14 +40,14 @@ export const Loader: React.FC<Props> = ({
   color,
   ...props
 }) => {
-  const { accentName } = useTheme();
+  const { color: palette } = useTheme();
 
   return (
     <ActivityIndicator
       size='small'
       color={
         color ??
-        (Platform.isTV ? toneColor("primary") : toneColor(tone, accentName))
+        (Platform.isTV ? toneColor("primary") : toneColor(tone, palette))
       }
       {...props}
     />

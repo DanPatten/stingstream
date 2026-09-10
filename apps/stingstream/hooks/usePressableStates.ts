@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { Platform, type ViewStyle } from "react-native";
 import {
-  type AccentName,
-  DEFAULT_ACCENT,
+  DEFAULT_PALETTE,
   interaction,
   motion,
   rgba,
+  type ThemePalette,
   webFocusRing,
 } from "@/constants/theme";
 import { useFocusVisible } from "./useFocusVisible";
@@ -39,9 +39,9 @@ export interface PressableStates {
   /** Spread onto the `Pressable`. */
   handlers: PressableStateHandlers;
   /**
-   * A white wash to lay over the control's own surface: `undefined` at rest,
-   * so a caller can skip the extra view entirely. Use it when the surface is
-   * an image or a gradient and there is no flat colour to lighten.
+   * A wash to lay over the control's own surface: `undefined` at rest, so a
+   * caller can skip the extra view entirely. Use it when the surface is an
+   * image or a gradient and there is no flat color to tint.
    */
   overlay: string | undefined;
   /**
@@ -59,8 +59,14 @@ export interface PressableStatesOptions {
    * keyboard.
    */
   focusRingWhenDisabled?: boolean;
-  /** Override the accent the ring is drawn in. Defaults to the user's. */
-  accent?: AccentName;
+  /**
+   * Draw against a palette other than the user's, for a control on a surface
+   * that is always dark whatever the theme: the video OSD, a poster overlay.
+   *
+   * Was `accent?: AccentName`. A control that wants a different ring almost
+   * always wants a different wash too, so it takes the whole palette.
+   */
+  palette?: ThemePalette;
 }
 
 /**
@@ -88,8 +94,9 @@ export interface PressableStatesOptions {
 export const usePressableStates = (
   options: PressableStatesOptions = {},
 ): PressableStates => {
-  const { disabled = false, focusRingWhenDisabled = false, accent } = options;
-  const { accentName } = useTheme();
+  const { disabled = false, focusRingWhenDisabled = false, palette } = options;
+  const { color } = useTheme();
+  const active = palette ?? color;
   const [hovered, setHovered] = useState(false);
   const [pressed, setPressed] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -134,7 +141,7 @@ export const usePressableStates = (
         ? "hovered"
         : "rest";
 
-  const overlay = overlayFor(state);
+  const overlay = overlayFor(state, active);
 
   const webStyle: ViewStyle =
     Platform.OS === "web"
@@ -145,7 +152,7 @@ export const usePressableStates = (
           transitionDuration: `${motion.fast}ms`,
           ...webFocusRing(
             focusVisible && (!disabled || focusRingWhenDisabled),
-            accent ?? accentName ?? DEFAULT_ACCENT,
+            active,
           ),
         } as ViewStyle)
       : {};
@@ -162,13 +169,23 @@ export const usePressableStates = (
   };
 };
 
-/** The white wash for a state, or `undefined` at rest and when disabled. */
-export const overlayFor = (state: InteractionState): string | undefined => {
+/**
+ * The wash for a state, or `undefined` at rest and when disabled.
+ *
+ * The wash color is the theme's `overlay`, not white. White at 6 % over a
+ * near-white card is a change nobody can see, so a light theme drawn with a
+ * hardcoded white wash would have had hover states that simply did not exist —
+ * which is the "half the interface is decoration" this hook was written to stop.
+ */
+export const overlayFor = (
+  state: InteractionState,
+  palette: ThemePalette = DEFAULT_PALETTE,
+): string | undefined => {
   if (state === "hovered") {
-    return rgba("#FFFFFF", interaction.hoverOverlay);
+    return rgba(palette.overlay, interaction.hoverOverlay);
   }
   if (state === "pressed") {
-    return rgba("#FFFFFF", interaction.pressedOverlay);
+    return rgba(palette.overlay, interaction.pressedOverlay);
   }
   return undefined;
 };

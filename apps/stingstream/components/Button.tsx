@@ -20,12 +20,12 @@ import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import {
-  type AccentPalette,
+  control,
   fade,
   interaction,
   radius,
   rgba,
-  tokens,
+  type ThemePalette,
 } from "@/constants/theme";
 import { useHaptic } from "@/hooks/useHaptic";
 import { usePressableStates } from "@/hooks/usePressableStates";
@@ -40,7 +40,7 @@ import { Loader } from "./Loader";
 // The 10-foot button is its own thing — white focus ring, focus scale, no
 // accent (`docs/conventions/tv.md`) — and it is driven by D-pad focus rather
 // than hover and pressed states. It is left exactly as it was, and the new
-// variants are mapped back onto its legacy colours below.
+// variants are mapped back onto its legacy colors below.
 
 const getColorClasses = (
   color: LegacyColor,
@@ -190,7 +190,7 @@ const SIZES: Record<
   // inside a row that is itself at least 44 tall.
   sm: { minHeight: 40, paddingH: 12, gap: 6, icon: 16 },
   md: {
-    minHeight: tokens.control.minTouchTarget,
+    minHeight: control.minTouchTarget,
     paddingH: 16,
     gap: 8,
     icon: 18,
@@ -219,7 +219,8 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
 }) => {
   const [focused, setFocused] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
-  const { accent } = useTheme();
+  // Not `color`: that is this component's own legacy variant prop.
+  const { color: palette } = useTheme();
   const lightHapticFeedback = useHaptic("light");
   const resolved = resolveButtonVariant(variant, color);
   // `loading` counts as disabled: the press is already in flight, and a button
@@ -288,7 +289,7 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
 
   const metrics = SIZES[size];
   const isInert = disabled || loading;
-  const fills = FILLS[resolved.variant](accent);
+  const fills = FILLS[resolved.variant](palette);
   // "disabled" is not one of the three fills; it is the rest fill faded. Doing
   // it here rather than with an `opacity` on the whole button is what the
   // critique asked for (F-32/F-37): a uniform fade leaves a fully legible
@@ -308,7 +309,7 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
   const fill = resolved.outlined
     ? "transparent"
     : dim(fills[paint], interaction.disabledFillAlpha);
-  // Outlined draws the fill as a rule instead: the same colour, on the edge.
+  // Outlined draws the fill as a rule instead: the same color, on the edge.
   // Its label has to leave the filled palette with it, or a dark `onAccent`
   // would be drawn on the page background and disappear.
   const border = dim(
@@ -352,7 +353,7 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
       {...props}
     >
       {loading ? (
-        // Drawn in the label's own colour: the accent default would be
+        // Drawn in the label's own color: the accent default would be
         // invisible on a primary button's accent fill.
         <View className='p-0.5'>
           <Loader color={label} />
@@ -405,44 +406,48 @@ interface Fill {
 }
 
 /**
- * Rest / hover / pressed for each variant.
+ * Rest / hover / pressed for each variant, under a given theme.
  *
- * The accent shades come from `useTheme()` rather than from a class, because
- * NativeWind v2 compiles classes once and cannot follow a runtime accent — and
- * a primary button is the most visible place that matters.
+ * A function of the palette rather than a table of colors, because NativeWind
+ * v2 compiles classes once and a module-scope table would bake one theme's
+ * answer into the bundle — and a primary button is the most visible place that
+ * would go wrong.
  */
-const FILLS: Record<ButtonVariant, (accent: AccentPalette) => Fill> = {
-  primary: (a) => ({
-    rest: a[500],
-    hovered: a[400],
-    pressed: a[600],
+const FILLS: Record<ButtonVariant, (palette: ThemePalette) => Fill> = {
+  primary: (p) => ({
+    rest: p.accent[500],
+    hovered: p.accent[400],
+    pressed: p.accent[600],
     border: "transparent",
-    label: a.onAccent,
-    outline: a[400],
+    label: p.accent.onAccent,
+    outline: p.accent[400],
   }),
-  secondary: () => ({
-    rest: tokens.color.bg["2"],
-    hovered: tokens.color.bg["3"],
-    pressed: tokens.color.bg["3"],
-    border: tokens.color.border.subtle,
-    label: tokens.color.text.primary,
-    outline: tokens.color.text.primary,
+  secondary: (p) => ({
+    rest: p.bg["2"],
+    hovered: p.bg["3"],
+    pressed: p.bg["3"],
+    border: p.border.subtle,
+    label: p.text.primary,
+    outline: p.text.primary,
   }),
-  ghost: () => ({
+  ghost: (p) => ({
     rest: "transparent",
-    hovered: rgba("#FFFFFF", 0.06),
-    pressed: rgba("#FFFFFF", 0.1),
+    // The theme's wash, not white: on a light theme a white tint over a white
+    // page is no tint at all.
+    hovered: rgba(p.overlay, interaction.hoverOverlay),
+    pressed: rgba(p.overlay, interaction.pressedOverlay),
     border: "transparent",
-    label: tokens.color.text.primary,
-    outline: tokens.color.text.secondary,
+    label: p.text.primary,
+    outline: p.text.secondary,
   }),
-  danger: () => ({
-    rest: tokens.color.state.danger,
-    hovered: rgba(tokens.color.state.danger, 0.85),
-    pressed: rgba(tokens.color.state.danger, 0.75),
+  danger: (p) => ({
+    rest: p.state.danger,
+    hovered: rgba(p.state.danger, 0.85),
+    pressed: rgba(p.state.danger, 0.75),
     border: "transparent",
-    // #FF5C5C is a light red: white on it is 3:1, the darkest surface 6.5:1.
-    label: tokens.color.bg["0"],
-    outline: tokens.color.state.danger,
+    // The danger red is a light one on the dark themes, so the label is the
+    // page behind it rather than white, which would only reach 3:1.
+    label: p.scheme === "dark" ? p.bg["0"] : p.text.primary,
+    outline: p.state.danger,
   }),
 };

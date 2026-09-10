@@ -26,6 +26,7 @@ import { Feather } from "@expo/vector-icons";
 import { SymbolView } from "expo-symbols";
 import type { ColorValue } from "react-native";
 import { tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { HEADER_ICON_SIZE } from "./HeaderButton";
 
 /**
@@ -108,7 +109,7 @@ const FALLBACK_GLYPHS: Partial<
 
 interface Props {
   name: HeaderIconName;
-  /** Defaults to primary text; pass a colour to signal a toggle's "on" state. */
+  /** Defaults to primary text; pass a color to signal a toggle's "on" state. */
   tintColor?: ColorValue;
   /** Only override for icons rendered outside a header. */
   size?: number;
@@ -116,16 +117,20 @@ interface Props {
 
 export const HeaderIcon: React.FC<Props> = ({
   name,
-  tintColor = tokens.color.text.primary,
+  tintColor,
   size = HEADER_ICON_SIZE,
 }) => {
+  // Defaulted here rather than in the parameter list: the fallback is the
+  // theme's ink, and a default parameter cannot read a hook.
+  const { color } = useTheme();
+  const tint = tintColor ?? color.text.primary;
   const fallbackGlyph = FALLBACK_GLYPHS[name];
 
   return (
     <SymbolView
       name={HEADER_ICONS[name]}
       size={size}
-      tintColor={tintColor}
+      tintColor={tint}
       resizeMode='scaleAspectFit'
       fallback={
         fallbackGlyph ? (

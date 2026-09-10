@@ -32,7 +32,7 @@ import { useTheme } from "@/hooks/useTheme";
  * true.
  *
  * The ring is drawn and then removed rather than faded, because the app has no
- * colour-transition primitive and a hand-rolled one here would be a third
+ * color-transition primitive and a hand-rolled one here would be a third
  * animation vocabulary for a 1.6-second effect. It holds still either way,
  * which is what a reduced-motion setting asks for.
  */

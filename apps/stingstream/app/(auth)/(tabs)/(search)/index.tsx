@@ -34,6 +34,7 @@ import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { shouldOfferRequest } from "@/lib/stingstream/requestsApi";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -74,6 +75,7 @@ const EXAMPLE_SEARCH_KEYS = [
 ] as const;
 
 export default function SearchPage() {
+  const { color } = useTheme();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -855,7 +857,7 @@ export default function SearchPage() {
       {!isWebWide ? (
         <View
           style={{
-            backgroundColor: tokens.color.bg["0"],
+            backgroundColor: color.bg["0"],
             paddingHorizontal: gutter,
             paddingVertical: 10,
           }}

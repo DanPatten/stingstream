@@ -27,6 +27,7 @@ import {
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useFavorite } from "@/hooks/useFavorite";
+import { useTheme } from "@/hooks/useTheme";
 import {
   audioStorageEvents,
   deleteTrack,
@@ -57,6 +58,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
   playlistId,
   onRemoveFromPlaylist,
 }) => {
+  const { color } = useTheme();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
@@ -266,32 +268,35 @@ export const TrackOptionsSheet: React.FC<Props> = ({
                 cachePolicy='memory-disk'
               />
             ) : (
-              <View className='flex-1 items-center justify-center bg-neutral-800'>
+              <View
+                style={{ backgroundColor: color.bg["2"] }}
+                className='flex-1 items-center justify-center'
+              >
                 <Ionicons name='musical-note' size={24} color='#737373' />
               </View>
             )}
           </View>
           <View className='flex-1'>
-            <Text
-              numberOfLines={1}
-              className='text-white font-semibold text-base'
-            >
+            <Text numberOfLines={1} className='font-semibold text-base'>
               {track.Name}
             </Text>
-            <Text numberOfLines={1} className='text-neutral-400 text-sm mt-0.5'>
+            <Text tone='secondary' numberOfLines={1} className='text-sm mt-0.5'>
               {track.Artists?.join(", ") || track.AlbumArtist}
             </Text>
           </View>
         </View>
 
         {/* Playback Options */}
-        <View className='flex-col rounded-xl overflow-hidden bg-neutral-800'>
+        <View
+          style={{ backgroundColor: color.bg["2"] }}
+          className='flex-col rounded-xl overflow-hidden'
+        >
           <TouchableOpacity
             onPress={handlePlayNext}
             className='flex-row items-center px-4 py-3.5'
           >
             <Ionicons name='play-forward' size={22} color='white' />
-            <Text className='text-white ml-4 text-base'>
+            <Text className='ml-4 text-base'>
               {t("music.track_options.play_next")}
             </Text>
           </TouchableOpacity>
@@ -303,14 +308,17 @@ export const TrackOptionsSheet: React.FC<Props> = ({
             className='flex-row items-center px-4 py-3.5'
           >
             <Ionicons name='list' size={22} color='white' />
-            <Text className='text-white ml-4 text-base'>
+            <Text className='ml-4 text-base'>
               {t("music.track_options.add_to_queue")}
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* Library Options */}
-        <View className='flex-col rounded-xl overflow-hidden bg-neutral-800 mt-3'>
+        <View
+          style={{ backgroundColor: color.bg["2"] }}
+          className='flex-col rounded-xl overflow-hidden mt-3'
+        >
           <TouchableOpacity
             onPress={handleToggleFavorite}
             className='flex-row items-center px-4 py-3.5'
@@ -320,7 +328,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
               size={22}
               color={isFavorite ? "#ec4899" : "white"}
             />
-            <Text className='text-white ml-4 text-base'>
+            <Text className='ml-4 text-base'>
               {isFavorite
                 ? t("music.track_options.remove_from_favorites")
                 : t("music.track_options.add_to_favorites")}
@@ -334,7 +342,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
             className='flex-row items-center px-4 py-3.5'
           >
             <Ionicons name='albums-outline' size={22} color='white' />
-            <Text className='text-white ml-4 text-base'>
+            <Text className='ml-4 text-base'>
               {t("music.track_options.add_to_playlist")}
             </Text>
           </TouchableOpacity>
@@ -347,7 +355,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
                 className='flex-row items-center px-4 py-3.5'
               >
                 <Ionicons name='trash-outline' size={22} color='#ef4444' />
-                <Text className='text-red-500 ml-4 text-base'>
+                <Text tone='danger' className='ml-4 text-base'>
                   {t("music.track_options.remove_from_playlist")}
                 </Text>
               </TouchableOpacity>
@@ -392,7 +400,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
               <View style={styles.separator} />
               <View className='flex-row items-center px-4 py-3.5'>
                 <Ionicons name='cloud-done-outline' size={22} color='#737373' />
-                <Text className='text-neutral-500 ml-4 text-base'>
+                <Text tone='tertiary' className='ml-4 text-base'>
                   {t("music.track_options.cached")}
                 </Text>
               </View>
@@ -407,7 +415,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
                 className='flex-row items-center px-4 py-3.5'
               >
                 <Ionicons name='trash-outline' size={22} color='#ef4444' />
-                <Text className='text-red-500 ml-4 text-base'>
+                <Text tone='danger' className='ml-4 text-base'>
                   {isAlreadyDownloaded
                     ? t("music.track_options.delete_download")
                     : t("music.track_options.delete_cache")}
@@ -419,7 +427,10 @@ export const TrackOptionsSheet: React.FC<Props> = ({
 
         {/* Navigation Options */}
         {(hasArtist || hasAlbum) && (
-          <View className='flex-col rounded-xl overflow-hidden bg-neutral-800 mt-3'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='flex-col rounded-xl overflow-hidden mt-3'
+          >
             {hasArtist && (
               <>
                 <TouchableOpacity
@@ -427,7 +438,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
                   className='flex-row items-center px-4 py-3.5'
                 >
                   <Ionicons name='person-outline' size={22} color='white' />
-                  <Text className='text-white ml-4 text-base'>
+                  <Text className='ml-4 text-base'>
                     {t("music.track_options.go_to_artist")}
                   </Text>
                 </TouchableOpacity>
@@ -441,7 +452,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
                 className='flex-row items-center px-4 py-3.5'
               >
                 <Ionicons name='disc-outline' size={22} color='white' />
-                <Text className='text-white ml-4 text-base'>
+                <Text className='ml-4 text-base'>
                   {t("music.track_options.go_to_album")}
                 </Text>
               </TouchableOpacity>

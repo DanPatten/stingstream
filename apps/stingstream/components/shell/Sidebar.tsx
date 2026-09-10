@@ -7,7 +7,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { StingStreamWordmark } from "@/components/brand";
+import { StingStreamMark, StingStreamWordmark } from "@/components/brand";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, tokens, webFocusRing } from "@/constants/theme";
@@ -29,6 +29,9 @@ const SIDEBAR_HEADER_HEIGHT = 64;
 
 /** Matches the auth card's lockup at >= 1024 (`components/login/AuthCard.tsx`). */
 const SIDEBAR_WORDMARK_HEIGHT = 40;
+
+/** The mark alone, on the rail. 28 in the 44 px control, as in a phone header. */
+const SIDEBAR_MARK_SIZE = 28;
 
 interface Props {
   sections: SidebarSection[];
@@ -65,6 +68,7 @@ export const Sidebar: React.FC<Props> = ({
   onPressBrand,
   onToggleCollapsed,
 }) => {
+  const { color } = useTheme();
   const body = sections.filter((section) => section.key !== "footer");
   const footer = sections.filter((section) => section.key === "footer");
   // The rail's hover label. It belongs here, not in the row: the rows sit in a
@@ -82,9 +86,14 @@ export const Sidebar: React.FC<Props> = ({
       role='navigation'
       style={{
         width: collapsed ? SIDEBAR_RAIL_WIDTH : SIDEBAR_WIDTH,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         borderRightWidth: 1,
-        borderRightColor: tokens.color.border.subtle,
+        borderRightColor: color.border.subtle,
+        // The rail's hover labels hang past its right edge, and the column
+        // beside it is a later sibling — so without this they were painted over
+        // by the page: the toggle's own label landed exactly under the top
+        // bar's title and never showed at all.
+        zIndex: 1,
       }}
     >
       <SidebarHeader
@@ -134,7 +143,7 @@ export const Sidebar: React.FC<Props> = ({
           paddingTop: 8,
           paddingBottom: 12,
           borderTopWidth: 1,
-          borderTopColor: tokens.color.border.subtle,
+          borderTopColor: color.border.subtle,
         }}
       >
         {footer.flatMap((section) =>
@@ -162,16 +171,20 @@ export const Sidebar: React.FC<Props> = ({
 };
 
 /** The rule that stands in for a heading. */
-const SectionRule: React.FC = () => (
-  <View
-    style={{
-      height: 1,
-      marginVertical: 8,
-      marginHorizontal: 8,
-      backgroundColor: tokens.color.border.subtle,
-    }}
-  />
-);
+const SectionRule: React.FC = () => {
+  const { color } = useTheme();
+
+  return (
+    <View
+      style={{
+        height: 1,
+        marginVertical: 8,
+        marginHorizontal: 8,
+        backgroundColor: color.border.subtle,
+      }}
+    />
+  );
+};
 
 /**
  * A heading above a group of rows, or a rule when there is no room for words —
@@ -217,11 +230,12 @@ const SectionLabel: React.FC<{
  * belongs at its edge rather than after the logo. Pass-03 F-70; Dan asked for
  * the Plex shape specifically.
  *
- * On the rail there is room for one 44 px control and nothing else, so the
- * brand steps aside — expanding brings the wordmark straight back, and the mark
- * is still on every compact header and in the tab bar. Trying to fit a 28 px
- * mark and a 44 px button into 72 px of width produced two cramped glyphs and
- * no room for either to breathe.
+ * On the rail there is only room for one 44 px control, so the two share it:
+ * the mark sits there at rest and the hamburger takes its place under the
+ * pointer. That is what a collapsed rail does everywhere it is done well — the
+ * product is still named at the top of its own chrome, and the control that
+ * brings the labels back is exactly where the eye already is. Stacking a mark
+ * above a button instead cost 44 px of navigation to say the same thing twice.
  */
 const SidebarHeader: React.FC<{
   collapsed: boolean;
@@ -243,19 +257,31 @@ const SidebarHeader: React.FC<{
   </View>
 );
 
-/** Plex's hamburger: it opens the labels, and the chevron closes them again. */
+/**
+ * Plex's hamburger, and on the rail the brand as well.
+ *
+ * Collapsed and untouched it draws the mark; hover or keyboard focus swaps in
+ * the hamburger, so the affordance appears at the moment it is wanted and the
+ * rail is otherwise headed by the logo rather than by a control. It stays one
+ * button throughout: the same name, the same target, the same 44 px.
+ */
 const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
   collapsed,
   onPress,
 }) => {
   const { t } = useTranslation();
-  const { accentName } = useTheme();
+  const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
   const label = collapsed
     ? t("shell.expand_sidebar")
     : t("shell.collapse_sidebar");
+  // The rail is headed by the mark until there is a reason to show the control.
+  // `showRing`, not `focused`: a click focuses the button too, and swapping the
+  // mark out for good the moment somebody collapsed the sidebar with the mouse
+  // would leave the rail headed by a hamburger until they clicked elsewhere.
+  const showMark = collapsed && !hovered && !showRing;
 
   return (
     <View>
@@ -276,19 +302,24 @@ const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
             alignItems: "center",
             justifyContent: "center",
             borderRadius: radius.sm,
-            backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+            backgroundColor: hovered ? color.bg["3"] : "transparent",
             ...(Platform.OS === "web"
-              ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+              ? { cursor: "pointer", ...webFocusRing(showRing, color) }
               : null),
           } as ViewStyle
         }
       >
         {/*
-          A hamburger in both states, not a direction-aware chevron: it is what
-          the control is, and what people reach for. The chevron was only ever a
-          stand-in for a glyph the icon registry did not have.
+          A hamburger whenever the control itself is showing, not a
+          direction-aware chevron: it is what the control is, and what people
+          reach for. The chevron was only ever a stand-in for a glyph the icon
+          registry did not have.
         */}
-        <Icon name='menu' size={20} color={tokens.color.text.secondary} />
+        {showMark ? (
+          <StingStreamMark size={SIDEBAR_MARK_SIZE} />
+        ) : (
+          <Icon name='menu' size={20} color={color.text.secondary} />
+        )}
       </Pressable>
       {/* The rail has no labels at all, so the toggle needs the same hover
           explanation every row there gets. */}
@@ -307,7 +338,7 @@ const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
  */
 const BrandButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   const { t } = useTranslation();
-  const { accentName } = useTheme();
+  const { color, scheme } = useTheme();
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
 
@@ -326,12 +357,20 @@ const BrandButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
           paddingHorizontal: 4,
           borderRadius: radius.sm,
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
             : null),
         } as ViewStyle
       }
     >
-      <StingStreamWordmark height={SIDEBAR_WORDMARK_HEIGHT} />
+      {/*
+        The wordmark ships in two cuts: "Sting" is near-white for a dark ground
+        and recolored dark for a light one. Without this the whole first word
+        disappears on the light theme.
+      */}
+      <StingStreamWordmark
+        height={SIDEBAR_WORDMARK_HEIGHT}
+        theme={scheme === "light" ? "light" : "dark"}
+      />
     </Pressable>
   );
 };

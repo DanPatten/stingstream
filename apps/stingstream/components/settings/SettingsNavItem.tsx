@@ -3,7 +3,7 @@ import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import type { SettingsCategory } from "@/components/shell/buildSettingsCategories";
-import { radius, tokens, webFocusRing } from "@/constants/theme";
+import { radius, webFocusRing } from "@/constants/theme";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -27,12 +27,12 @@ export const SettingsNavItem: React.FC<{
   active: boolean;
   onPress: () => void;
 }> = ({ category, active, onPress }) => {
-  const { accentName, accent } = useTheme();
+  const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
 
-  const glyphColor = active ? accent[500] : tokens.color.text.secondary;
+  const glyphColor = active ? accent[500] : color.text.secondary;
 
   return (
     <Pressable
@@ -59,10 +59,9 @@ export const SettingsNavItem: React.FC<{
           paddingRight: 10,
           marginBottom: 2,
           borderRadius: radius.sm,
-          backgroundColor:
-            active || hovered ? tokens.color.bg["3"] : "transparent",
+          backgroundColor: active || hovered ? color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
             : null),
         } as ViewStyle
       }

@@ -6,11 +6,13 @@ import { Text } from "@/components/common/Text";
 import { Colors } from "@/constants/Colors";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { ListGroup } from "../list/ListGroup";
 import { ListItem } from "../list/ListItem";
 
 export const StorageSettings = () => {
+  const { color } = useTheme();
   const { deleteAllFiles, appSizeUsage } = useDownload();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -66,7 +68,7 @@ export const StorageSettings = () => {
         <View className='flex flex-row items-center justify-between'>
           <Text className=''>{t("home.settings.storage.storage_title")}</Text>
           {size && (
-            <Text className='text-neutral-500'>
+            <Text tone='tertiary'>
               {t("home.settings.storage.size_used", {
                 used: Number(size.total - size.remaining).bytesToReadable(),
                 total: size.total?.bytesToReadable(),
@@ -96,8 +98,11 @@ export const StorageSettings = () => {
           {size && (
             <View className='flex flex-row gap-x-2'>
               <View className='flex flex-row items-center'>
-                <View className='w-3 h-3 rounded-full bg-purple-600 mr-1' />
-                <Text className='text-white text-xs'>
+                <View
+                  style={{ backgroundColor: color.accent[500] }}
+                  className='w-3 h-3 rounded-full mr-1'
+                />
+                <Text className='text-xs'>
                   {t("home.settings.storage.app_usage", {
                     usedSpace: calculatePercentage(size.appSize, size.total),
                   })}
@@ -105,7 +110,7 @@ export const StorageSettings = () => {
               </View>
               <View className='flex flex-row items-center'>
                 <View className='w-3 h-3 rounded-full bg-purple-400 mr-1' />
-                <Text className='text-white text-xs'>
+                <Text className='text-xs'>
                   {t("home.settings.storage.device_usage", {
                     availableSpace: calculatePercentage(
                       size.total - size.remaining - size.appSize,

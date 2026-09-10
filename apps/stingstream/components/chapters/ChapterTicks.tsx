@@ -11,7 +11,7 @@ import type { ChapterMarker } from "@/utils/chapters";
 interface ChapterTicksProps {
   /** Pre-computed markers (caller memoizes — avoids double-computing here). */
   markers: ChapterMarker[];
-  /** Tick colour. */
+  /** Tick color. */
   color?: string;
   /** Tick height in px — slightly less than the slider track thickness. */
   height?: number;

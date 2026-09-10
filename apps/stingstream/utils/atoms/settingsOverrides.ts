@@ -24,13 +24,12 @@ export const hasMeaningfulSettingValue = (value: unknown): boolean =>
 /**
  * Keep a value inside a fixed set of allowed values, falling back to a default otherwise.
  *
- * Generic rather than accent-specific so this file can stay free of any one setting's own module —
- * `utils/atoms/settings.ts` calls this for `accent` with `ACCENT_NAMES`/`DEFAULT_ACCENT` from
+ * Generic rather than theme-specific so this file can stay free of any one setting's own module —
+ * `utils/atoms/settings.ts` calls this for `theme` with `THEME_NAMES`/`DEFAULT_THEME` from
  * `constants/theme`, but the check itself does not need to know that. Without it, a stored or
  * plugin-supplied value outside the known set — corrupt storage, a downgrade after a release added
- * a fourth accent, an admin typo in a locked plugin value — reaches `accentPalette()`, which indexes
- * the token JSON by name and returns `undefined` for anything else, crashing the first component
- * that reads `.500` off the result.
+ * a fourth theme, an admin typo in a locked plugin value — reaches `themePalette()`, and the
+ * *stored* value stays one the picker cannot show as selected.
  */
 export const withinAllowedValues = <T>(
   value: T,

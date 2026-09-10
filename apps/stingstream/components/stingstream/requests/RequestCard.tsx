@@ -4,7 +4,8 @@ import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Pill, type PillTone } from "@/components/common/Pill";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { ageOf } from "@/lib/stingstream/meshApi";
 import {
   type MemberRequest,
@@ -15,7 +16,7 @@ import {
   toRequestCard,
 } from "@/lib/stingstream/requestsApi";
 
-/** `stateTone`'s four groupings onto the four colours a `Pill` understands. */
+/** `stateTone`'s four groupings onto the four colors a `Pill` understands. */
 const TONE: Record<ReturnType<typeof stateTone>, PillTone> = {
   waiting: "warning",
   working: "info",
@@ -51,6 +52,7 @@ export function RequestCard({
   request: MemberRequest;
   actions?: React.ReactNode;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   // No `badgeLabel` on the row's small poster: `toRequestCard` sets it to the state's full label
   // ("Could not be filled", "Waiting for approval"), sized for a Discover grid tile — on a 56 px
@@ -75,7 +77,7 @@ export function RequestCard({
         gap: 12,
         padding: 12,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         marginBottom: 8,
       }}
     >
@@ -130,6 +132,7 @@ export function RequestCard({
 
 /** The final geometry of one `RequestCard` row, filled with grey blocks while the list loads. */
 export function RequestCardSkeleton() {
+  const { color } = useTheme();
   return (
     <View
       accessibilityElementsHidden
@@ -139,7 +142,7 @@ export function RequestCardSkeleton() {
         gap: 12,
         padding: 12,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         marginBottom: 8,
       }}
     >

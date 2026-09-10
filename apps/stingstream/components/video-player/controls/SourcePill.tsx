@@ -31,13 +31,14 @@ import {
 import { Text } from "@/components/common/Text";
 import { useTVFocusAnimation } from "@/components/tv/hooks/useTVFocusAnimation";
 import { useScaledTVTypography } from "@/constants/TVTypography";
-import { radius, rgba, tokens } from "@/constants/theme";
+import { radius, rgba, space } from "@/constants/theme";
 import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
 import {
   type MeshConnectionKind,
   useMeshSourceStatus,
 } from "@/providers/MeshProvider";
 import { scaleSize } from "@/utils/scaleSize";
+import { PLAYER_PALETTE } from "./constants";
 
 /**
  * Green is "these bytes came straight off the holder's disk"; amber is "working, but through more
@@ -45,18 +46,20 @@ import { scaleSize } from "@/utils/scaleSize";
  * a mesh grade at all — this device is not in the group, so there is nothing to grade.
  *
  * The same scale `TechnicalInfoOverlay` draws its diagnostic line on, deliberately: two different
- * colours for one fact is how a user learns to trust neither.
+ * colors for one fact is how a user learns to trust neither.
  */
 export const meshDotColor = (kind: MeshConnectionKind): string => {
+  // The dark palette on every theme: this pill is drawn over video, where a
+  // light theme's ink would be unreadable. See PLAYER_PALETTE below.
   switch (kind) {
     case "direct":
-      return tokens.color.state.success;
+      return PLAYER_PALETTE.state.success;
     case "relayed":
-      return tokens.color.state.warning;
+      return PLAYER_PALETTE.state.warning;
     case "home-node":
-      return tokens.color.text.primary;
+      return PLAYER_PALETTE.text.primary;
     default:
-      return tokens.color.text.tertiary;
+      return PLAYER_PALETTE.text.tertiary;
   }
 };
 
@@ -77,7 +80,7 @@ interface SourcePillProps {
   onPress?: () => void;
 }
 
-/** The dot for a local file: white, the same "not a mesh grade" colour the home node gets. */
+/** The dot for a local file: white, the same "not a mesh grade" color the home node gets. */
 const LOCAL_KIND: MeshConnectionKind = "home-node";
 
 /** The route a choice reports, in the vocabulary the mesh status already uses. */
@@ -114,7 +117,7 @@ const useRouteLabels = () => {
 };
 
 /**
- * What the pill says and what colour its dot is, from the two sources of truth in priority order:
+ * What the pill says and what color its dot is, from the two sources of truth in priority order:
  * this device's own measured hop first, the node's scored list second.
  */
 const usePillContent = (
@@ -220,7 +223,7 @@ interface TVSourcePillProps extends SourcePillProps {
 /**
  * The television variant: same content, reachable with the D-pad.
  *
- * Focus is a **white** ring, never the accent — `docs/conventions/tv.md`. The dot keeps its colour
+ * Focus is a **white** ring, never the accent — `docs/conventions/tv.md`. The dot keeps its color
  * because it is information, not a focus affordance.
  */
 export const TVSourcePill: FC<TVSourcePillProps> = ({
@@ -278,20 +281,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "flex-start",
-    paddingHorizontal: tokens.space["2"],
-    paddingVertical: tokens.space["1"],
+    paddingHorizontal: space["2"],
+    paddingVertical: space["1"],
     borderRadius: radius.pill,
     // Over video, so the chip carries its own contrast rather than relying on the scrim, which
     // fades out with the rest of the controls.
-    backgroundColor: rgba(tokens.color.bg["0"], 0.6),
+    backgroundColor: rgba(PLAYER_PALETTE.bg["0"], 0.6),
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: tokens.color.border.subtle,
+    borderColor: PLAYER_PALETTE.border.subtle,
   },
   dot: {
     width: 7,
     height: 7,
     borderRadius: radius.pill,
-    marginRight: tokens.space["2"],
+    marginRight: space["2"],
   },
 });
 

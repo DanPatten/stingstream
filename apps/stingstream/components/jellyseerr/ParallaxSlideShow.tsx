@@ -143,7 +143,7 @@ const ParallaxSlideShow = <T,>({
                 data={data}
                 ListEmptyComponent={
                   <View className='flex flex-col items-center justify-center h-full'>
-                    <Text className='font-bold text-xl text-neutral-500'>
+                    <Text tone='tertiary' className='font-bold text-xl'>
                       No results
                     </Text>
                   </View>

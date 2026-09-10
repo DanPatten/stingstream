@@ -66,6 +66,36 @@ make the dedupe rule invisible, which is the same mistake `library_state` exists
 `ARCHITECTURE.md`, "Grab / add / request flow"). A user who presses Request, sees no download start
 and is told nothing reasonably concludes the button is broken.
 
+### Asking for the same thing twice
+
+**There is one request row per title, however many times the button is pressed.** A request that is
+still running (`pending`, `approved`, `fulfilling`) absorbs the new ask outright and grows its
+season list. A request that has *finished* is **reopened in place**: the same row, the same id and
+the same event trail go back round the loop, which is the `(retry)` arrow in the diagram above
+followed without an administrator having to press Retry.
+
+`RequestStore.OpenForItem` only ever answered the first half, so the second ask for something that
+had failed matched nothing and filed a second row beside the first. Two identical cards reading
+"Could not be filled", each with its own Delete button, is what that looks like on the screen, and
+the pair then have to be approved twice, grabbed twice and deleted twice. `LatestMineForItem` is
+the other half, and reopening runs the whole of `CreateAsync` again — quota, the group-index check,
+the policy — so a request asked again is decided on what is true now rather than on what was true
+when it was first made.
+
+Three details that are load-bearing:
+
+* **`requested_at` is stamped forward.** The claim race is timed from it (§4.4), and an hour-old
+  timestamp would put every volunteer's 20 second delay in the past, handing the request to whoever
+  answered first rather than to the requester's own node.
+* **The decision and the fulfilling node are cleared**, exactly as `RetryAsync` clears them. A stale
+  `fulfilling_node` tells the group somebody is already grabbing this; a stale `decided_by`
+  attributes an approval nobody just gave.
+* **Only this node's own requests are reopened** (`mine = 1`). A row heard over gossip belongs to
+  the node that made it, and only its origin may approve, decline or delete one.
+
+Withdrawing is still the way to start over from nothing: `DELETE` removes the row and its trail, and
+the next ask is a genuinely new request.
+
 ---
 
 ## 3. Policy
@@ -229,6 +259,10 @@ For a series the check is a prefix match (`episode:tvdb:73739:`), and a season-l
 counts a holder whose episode is in a season that was asked for — otherwise a show whose season 1 the
 group already had would mark a request for season 2 available the moment it was made.
 
+Both of those are dedupe against the **group index**: do not download what somebody already has.
+Dedupe against the **request list** — one row per title, however many times the button is pressed —
+is a separate rule and lives in §2.
+
 ---
 
 ## 5. Seasons
@@ -289,7 +323,7 @@ see `APP-MESH.md` §6).
 | Method | Path | Elevation | What |
 |---|---|---|---|
 | `GET` | `/requests?mine=&state=` | member | Requests. A non-administrator always gets only their own, whatever they pass. |
-| `POST` | `/requests` | member | Ask for something. 400 with neither id; 429 over quota. |
+| `POST` | `/requests` | member | Ask for something. Reuses the row for a title already asked for, whatever state it reached (§2). 400 with neither id; 429 over quota. |
 | `GET` | `/requests/{id}` | member (own) / admin | One request with its event trail. |
 | `DELETE` | `/requests/{id}` | member (own) / admin | Withdraw. |
 | `POST` | `/requests/{id}/approve` | **admin** | Approve. |

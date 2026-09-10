@@ -613,7 +613,7 @@ already satisfies, which never reaches an arr. That takes the run from twelve ch
 six. The consequence is that the pin step exercises the *direct Jellyfin import* branch rather than
 the arr rescan; both are real paths and `PinService` documents when each applies.
 
-**The media is encoded constant-bitrate, and that is load-bearing.** A colour-bar test pattern is a
+**The media is encoded constant-bitrate, and that is load-bearing.** A color-bar test pattern is a
 static image, so with an ordinary `-b:v 20M` x264 compresses twelve seconds of 4K to a couple of
 hundred kilobytes. The bitrate the scorer then reads out of the group index is fiction, every source
 "fits" every link, and Speed-first and Quality-first return the same answer — a green run that

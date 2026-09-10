@@ -2,7 +2,7 @@ import type { PropsWithChildren } from "react";
 import { Platform, ScrollView, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { StingStreamWordmark } from "@/components/brand";
-import { elevation, radius, tokens } from "@/constants/theme";
+import { elevation, radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -26,7 +26,7 @@ const MAX_WIDTH_WIDE = 460;
  */
 export const AuthCard: React.FC<PropsWithChildren> = ({ children }) => {
   const { isWebWide, gutter, width } = useBreakpoint();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   // A literal 1024 rather than the `expanded` token (1280): the plan's verification widths are
   // 1440/1024/390, and the card should already be at its widest by the middle one.
   const isWideDesktop = isWebWide && width >= WIDE_DESKTOP_WIDTH;
@@ -35,7 +35,7 @@ export const AuthCard: React.FC<PropsWithChildren> = ({ children }) => {
     <View
       style={{
         flex: 1,
-        backgroundColor: tokens.color.bg["0"],
+        backgroundColor: color.bg["0"],
       }}
     >
       {isWebWide ? <AccentGlow color={accent[500]} /> : null}
@@ -61,10 +61,10 @@ export const AuthCard: React.FC<PropsWithChildren> = ({ children }) => {
           <View
             style={[
               {
-                backgroundColor: tokens.color.bg["1"],
+                backgroundColor: color.bg["1"],
                 borderRadius: radius.lg,
                 borderWidth: 1,
-                borderColor: tokens.color.border.subtle,
+                borderColor: color.border.subtle,
                 padding: isWebWide ? 28 : 20,
               },
               elevation(2),

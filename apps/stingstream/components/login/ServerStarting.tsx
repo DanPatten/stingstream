@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from "react-native";
 import { Button } from "@/components/Button";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 
 export interface ServerStartingProps {
@@ -46,7 +46,7 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
   onRetry,
 }) => {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
 
   return (
     <View testID='login-server-starting' style={{ alignItems: "center" }}>
@@ -95,9 +95,9 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
                 paddingVertical: 14,
                 paddingHorizontal: 16,
                 borderRadius: radius.md,
-                backgroundColor: tokens.color.bg["2"],
+                backgroundColor: color.bg["2"],
                 borderWidth: 1,
-                borderColor: tokens.color.border.subtle,
+                borderColor: color.border.subtle,
               }}
             >
               <Text variant='body' tone='accent' weight='medium' selectable>

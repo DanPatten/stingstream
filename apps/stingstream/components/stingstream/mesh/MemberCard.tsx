@@ -33,7 +33,7 @@ export function MemberCard({
   disabled,
 }: MemberCardProps) {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   // **Removed, offline or online — and nothing about how the bytes get there.** It used to report
   // "Direct" or "Relayed" with a round-trip time beside it, under a paragraph explaining what a
   // relay was. Dan: *"The direct vs relayed shit seems completely unnecessary to show or
@@ -59,7 +59,7 @@ export function MemberCard({
         alignItems: "center",
         padding: 12,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         marginBottom: 8,
       }}
     >
@@ -87,10 +87,8 @@ export function MemberCard({
             height: 12,
             borderRadius: 6,
             borderWidth: 2,
-            borderColor: tokens.color.bg["1"],
-            backgroundColor: online
-              ? tokens.color.state.success
-              : tokens.color.text.disabled,
+            borderColor: color.bg["1"],
+            backgroundColor: online ? color.state.success : color.text.disabled,
           }}
         />
       </View>

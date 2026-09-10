@@ -11,12 +11,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 import { MusicArtistCard } from "@/components/music/MusicArtistCard";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 // Web uses Limit=100
 const ITEMS_PER_PAGE = 100;
 
 export default function ArtistsScreen() {
+  const { color } = useTheme();
   const localParams = useLocalSearchParams<{ libraryId?: string | string[] }>();
   const route = useRoute<any>();
   const libraryId =
@@ -79,7 +81,10 @@ export default function ArtistsScreen() {
 
   if (!api || !user?.Id) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -87,8 +92,11 @@ export default function ArtistsScreen() {
 
   if (!libraryId) {
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           {t("music.missing_library_id")}
         </Text>
       </View>
@@ -98,7 +106,10 @@ export default function ArtistsScreen() {
   // Only show loading if we have no cached data to display
   if (isLoading && artists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -108,8 +119,11 @@ export default function ArtistsScreen() {
   // This allows offline access to previously cached artists
   if (isError && artists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black px-6'>
-        <Text className='text-neutral-500 text-center'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center px-6'
+      >
+        <Text tone='tertiary' className='text-center'>
           Failed to load artists: {(error as Error)?.message || "Unknown error"}
         </Text>
       </View>
@@ -118,14 +132,17 @@ export default function ArtistsScreen() {
 
   if (artists.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500'>{t("music.no_artists")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text tone='tertiary'>{t("music.no_artists")}</Text>
       </View>
     );
   }
 
   return (
-    <View className='flex-1 bg-black'>
+    <View style={{ backgroundColor: color.bg["0"] }} className='flex-1'>
       <FlashList
         data={artists}
         contentContainerStyle={{

@@ -6,7 +6,8 @@ import QRCode from "react-native-qrcode-svg";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { useMintMeshInvite } from "@/lib/stingstream/mesh";
 import { LoadingState } from "../shared/ScreenState";
 
@@ -51,6 +52,7 @@ export function InviteCard({
   group: string;
   groupName: string;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const mint = useMintMeshInvite();
   const code = mint.data?.code;
@@ -148,7 +150,7 @@ export function InviteCard({
       <View
         style={{
           borderRadius: radius.sm,
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           padding: 12,
         }}
       >

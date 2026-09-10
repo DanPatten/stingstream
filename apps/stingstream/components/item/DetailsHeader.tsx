@@ -13,8 +13,9 @@ import { CardPlaceholderTile } from "@/components/cards/CardPlaceholderTile";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import { radius, rgba, tokens } from "@/constants/theme";
+import { radius, rgba } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
@@ -92,6 +93,7 @@ export const DetailsHeader: React.FC<Props> = ({
   actions,
   meta,
 }) => {
+  const { color } = useTheme();
   const api = useAtomValue(apiAtom);
   const { t } = useTranslation();
   const { isCompact, name: breakpoint } = useBreakpoint();
@@ -149,7 +151,7 @@ export const DetailsHeader: React.FC<Props> = ({
           left: 0,
           right: 0,
           height,
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
         }}
       >
         {backdropUrl ? (
@@ -170,21 +172,17 @@ export const DetailsHeader: React.FC<Props> = ({
             text stays legible over an image nobody chose for its contrast. */}
         <View
           pointerEvents='none'
-          style={[FILL, { backgroundColor: rgba(tokens.color.bg["0"], 0.22) }]}
+          style={[FILL, { backgroundColor: rgba(color.bg["0"], 0.22) }]}
         />
         <LinearGradient
-          colors={[
-            "transparent",
-            rgba(tokens.color.bg["0"], 0.7),
-            tokens.color.bg["0"],
-          ]}
+          colors={["transparent", rgba(color.bg["0"], 0.7), color.bg["0"]]}
           locations={[0.3, 0.85, 1]}
           style={FILL}
         />
         <LinearGradient
           colors={[
-            rgba(tokens.color.bg["0"], 0.88),
-            rgba(tokens.color.bg["0"], 0.55),
+            rgba(color.bg["0"], 0.88),
+            rgba(color.bg["0"], 0.55),
             "transparent",
           ]}
           locations={[0, 0.5, 0.85]}
@@ -224,6 +222,7 @@ const Poster: React.FC<{ item: BaseItemDto; url?: string | null }> = ({
   item,
   url,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const height = Math.round(POSTER_WIDTH / POSTER_ASPECT);
   const [failed, setFailed] = useState(false);
@@ -243,9 +242,9 @@ const Poster: React.FC<{ item: BaseItemDto; url?: string | null }> = ({
         height,
         borderRadius: radius.lg,
         overflow: "hidden",
-        backgroundColor: tokens.color.bg["2"],
+        backgroundColor: color.bg["2"],
         borderWidth: 1,
-        borderColor: tokens.color.border.subtle,
+        borderColor: color.border.subtle,
       }}
     >
       {url && !failed ? (
@@ -260,7 +259,6 @@ const Poster: React.FC<{ item: BaseItemDto; url?: string | null }> = ({
         />
       ) : (
         <CardPlaceholderTile
-          title={item.Name ?? ""}
           placeholder={cardPlaceholder(item)}
           width={POSTER_WIDTH}
           accessibilityLabel={label}

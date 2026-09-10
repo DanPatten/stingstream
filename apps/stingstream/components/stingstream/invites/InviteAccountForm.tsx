@@ -9,6 +9,7 @@ import { Text } from "@/components/common/Text";
 import { FocusPressable } from "@/components/login/FocusPressable";
 import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import type { InviteDescription } from "@/lib/stingstream/invitesApi";
 import {
   isSetupFormValid,
@@ -51,6 +52,7 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
   invite,
   onSubmit,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
 
@@ -109,7 +111,7 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
       <Ionicons
         name={revealed ? "eye-off-outline" : "eye-outline"}
         size={18}
-        color={tokens.color.text.tertiary}
+        color={color.text.tertiary}
       />
     </FocusPressable>
   );
@@ -208,6 +210,7 @@ export const InviteLibraryList: React.FC<{
   libraries: { id: string; name: string }[];
   isAdministrator?: boolean;
 }> = ({ libraries, isAdministrator }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   if (!isAdministrator && libraries.length === 0) return null;
 
@@ -219,7 +222,7 @@ export const InviteLibraryList: React.FC<{
           marginTop: 16,
           padding: 12,
           borderRadius: 12,
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           gap: 6,
         }}
       >
@@ -230,7 +233,7 @@ export const InviteLibraryList: React.FC<{
           <Ionicons
             name='checkmark-circle'
             size={16}
-            color={tokens.color.state.success}
+            color={color.state.success}
           />
           <Text variant='body'>{t("invites.landing_administrator_body")}</Text>
         </View>
@@ -244,7 +247,7 @@ export const InviteLibraryList: React.FC<{
         marginTop: 16,
         padding: 12,
         borderRadius: 12,
-        backgroundColor: tokens.color.bg["2"],
+        backgroundColor: color.bg["2"],
         gap: 6,
       }}
     >
@@ -259,7 +262,7 @@ export const InviteLibraryList: React.FC<{
           <Ionicons
             name='checkmark-circle'
             size={16}
-            color={tokens.color.state.success}
+            color={color.state.success}
           />
           <Text variant='body'>{library.name}</Text>
         </View>

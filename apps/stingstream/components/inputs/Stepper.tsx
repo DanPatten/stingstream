@@ -2,6 +2,7 @@ import React from "react";
 import { TouchableOpacity } from "react-native";
 import { Text } from "@/components/common/Text";
 import DisabledSetting from "@/components/settings/DisabledSetting";
+import { useTheme } from "@/hooks/useTheme";
 
 interface StepperProps {
   value: number;
@@ -24,6 +25,7 @@ export const Stepper: React.FC<StepperProps> = ({
   appendValue,
   formatValue,
 }) => {
+  const { color } = useTheme();
   const isDisabled = disabled === true;
 
   return (
@@ -33,12 +35,13 @@ export const Stepper: React.FC<StepperProps> = ({
       className='flex flex-row items-center'
     >
       <TouchableOpacity
+        style={{ backgroundColor: color.bg["2"] }}
         disabled={isDisabled}
         accessibilityState={{ disabled: isDisabled }}
         onPress={() => {
           if (!isDisabled) onUpdate(Math.max(min, value - step));
         }}
-        className='w-8 h-8 bg-neutral-800 rounded-l-lg flex items-center justify-center'
+        className='w-8 h-8 rounded-l-lg flex items-center justify-center'
       >
         <Text>-</Text>
       </TouchableOpacity>
@@ -49,9 +52,10 @@ export const Stepper: React.FC<StepperProps> = ({
         {appendValue}
       </Text>
       <TouchableOpacity
+        style={{ backgroundColor: color.bg["2"] }}
         disabled={isDisabled}
         accessibilityState={{ disabled: isDisabled }}
-        className='w-8 h-8 bg-neutral-800 rounded-r-lg flex items-center justify-center'
+        className='w-8 h-8 rounded-r-lg flex items-center justify-center'
         onPress={() => {
           if (!isDisabled) onUpdate(Math.min(max, value + step));
         }}

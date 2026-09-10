@@ -13,11 +13,11 @@ import {
 import { Icon } from "@/components/common/Icon";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import { radius, rgba, tokens } from "@/constants/theme";
+import { radius, rgba } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 import { CountdownRing } from "./CountdownRing";
-import { CONTROLS_CONSTANTS } from "./constants";
+import { CONTROLS_CONSTANTS, PLAYER_PALETTE } from "./constants";
 
 interface NextEpisodeCountDownButtonProps {
   onFinish?: () => void;
@@ -214,15 +214,15 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     borderRadius: radius.md,
     overflow: "hidden",
-    backgroundColor: rgba(tokens.color.bg["0"], 0.82),
+    backgroundColor: rgba(PLAYER_PALETTE.bg["0"], 0.82),
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: tokens.color.border.subtle,
+    borderColor: PLAYER_PALETTE.border.subtle,
     paddingRight: 12,
   },
   thumbnail: {
     width: 84,
     height: 48,
-    backgroundColor: tokens.color.bg["2"],
+    backgroundColor: PLAYER_PALETTE.bg["2"],
   },
   body: {
     flexShrink: 1,

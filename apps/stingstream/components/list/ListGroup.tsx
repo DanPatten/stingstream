@@ -6,7 +6,8 @@ import React, {
   type ReactElement,
 } from "react";
 import { StyleSheet, View, type ViewProps, type ViewStyle } from "react-native";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "../common/Text";
 
 interface Props extends ViewProps {
@@ -28,6 +29,7 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
   description,
   ...props
 }) => {
+  const { color } = useTheme();
   const childrenArray = Children.toArray(children);
 
   return (
@@ -52,16 +54,24 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
           flexDirection: "column",
           borderRadius: radius.md,
           overflow: "hidden",
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
         }}
       >
+        {/*
+          The divider is built here rather than in a module-scope
+          `StyleSheet.create`, which would bake one theme's border color into
+          the bundle.
+        */}
         {Children.map(childrenArray, (child, index) => {
           if (isValidElement<{ style?: ViewStyle }>(child)) {
             return cloneElement(child as any, {
               style: StyleSheet.compose(
                 child.props.style,
                 index < childrenArray.length - 1
-                  ? styles.borderBottom
+                  ? {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: color.border.subtle,
+                    }
                   : undefined,
               ),
             });
@@ -75,10 +85,3 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  borderBottom: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: tokens.color.border.subtle,
-  },
-});

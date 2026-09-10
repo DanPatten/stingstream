@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "../common/Text";
 
 export const HourHeader = ({ height }: { height: number }) => {
@@ -21,16 +22,23 @@ export const HourHeader = ({ height }: { height: number }) => {
   );
 };
 
-const HourCell = ({ hour }: { hour: Date }) => (
-  <View className='w-[200px] flex items-center justify-center bg-neutral-800'>
-    <Text className='text-xs text-gray-600'>
-      {hour.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })}
-    </Text>
-  </View>
-);
+const HourCell = ({ hour }: { hour: Date }) => {
+  const { color } = useTheme();
+
+  return (
+    <View
+      style={{ backgroundColor: color.bg["2"] }}
+      className='w-[200px] flex items-center justify-center'
+    >
+      <Text tone='tertiary' className='text-xs'>
+        {hour.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </Text>
+    </View>
+  );
+};
 
 const generateHours = (startHour: number, count: number): Date[] => {
   const now = new Date();

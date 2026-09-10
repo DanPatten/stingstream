@@ -10,8 +10,9 @@ import {
 import type { CardKind } from "@/components/cards/CardData";
 import { useCardLayout } from "@/components/cards/useCardLayout";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
-import { interaction, radius as RADII, tokens } from "@/constants/theme";
+import { interaction, radius as RADII } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 
 export interface SkeletonProps {
   /** A number of dp, or a percentage string for a text line. */
@@ -41,6 +42,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   radius = RADII.sm,
   style,
 }) => {
+  const { color } = useTheme();
   const opacity = usePulse();
 
   return (
@@ -54,7 +56,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
           width,
           height,
           borderRadius: radius,
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           opacity,
         },
         style,

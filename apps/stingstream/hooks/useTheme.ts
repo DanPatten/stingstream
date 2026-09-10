@@ -1,21 +1,26 @@
-import { useMemo } from "react";
 import {
-  type AccentName,
-  type AccentPalette,
-  accentPalette,
-  DEFAULT_ACCENT,
+  type AccentRamp,
+  type ColorScheme,
+  DEFAULT_THEME,
+  type ThemeName,
+  type ThemePalette,
+  themePalette,
   tokens,
 } from "@/constants/theme";
 import { useSettings } from "@/utils/atoms/settings";
 import { type Breakpoint, useBreakpoint } from "./useBreakpoint";
 
 export interface Theme {
-  /** Every design token, exactly as `constants/theme.tokens.json` holds them. */
-  tokens: typeof tokens;
-  /** The accent the user picked in Appearance; teal unless they changed it. */
-  accent: AccentPalette;
+  /** Every color, resolved for the theme the user picked. */
+  color: ThemePalette;
+  /** `color.accent`, hoisted: it is read more often than the rest put together. */
+  accent: AccentRamp;
   /** Its name, for persisting a choice or keying a swatch. */
-  accentName: AccentName;
+  themeName: ThemeName;
+  /** `"dark"` or `"light"` — a status bar style, a keyboard appearance, a blur tint. */
+  scheme: ColorScheme;
+  /** Everything that is *not* color: radius, space, type, motion, focus, interaction. */
+  tokens: typeof tokens;
   /** The current window's breakpoint, so a component needs one hook, not two. */
   breakpoint: Breakpoint;
 }
@@ -24,25 +29,30 @@ export interface Theme {
  * The runtime half of the design system.
  *
  * NativeWind v2 compiles Tailwind once at build time and has no CSS variables,
- * so a class can only ever carry the *default* accent. Anything that must
- * follow the user's choice — a primary button, a progress bar, an active nav
- * item, an accent-toned label — reads `accent` from here and sets it inline.
- * Everything else should stay on classes; this is not a licence to inline the
- * whole stylesheet.
+ * so a class can only ever carry one theme's answer. Anything with a color in
+ * it — a surface, a label, a border, a primary button, a focus ring — reads
+ * `color` from here and sets it inline.
  *
  * Deliberately not a provider. `app/_layout.tsx`'s stack is pinned by
- * `CLAUDE.test.ts` and every provider in it is load bearing; the accent already
+ * `CLAUDE.test.ts` and every provider in it is load bearing; the theme already
  * lives in `settingsAtom`, which Jotai broadcasts on its own, so a context
  * around it would buy nothing but a re-render boundary.
  */
 export const useTheme = (): Theme => {
   const { settings } = useSettings();
   const breakpoint = useBreakpoint();
-  const accentName = (settings?.accent ?? DEFAULT_ACCENT) as AccentName;
-  // Only the palette is worth memoising: `useBreakpoint` already returns a
-  // fresh object every render, so wrapping the whole result would memoise
-  // nothing.
-  const accent = useMemo(() => accentPalette(accentName), [accentName]);
+  const themeName = (settings?.theme ?? DEFAULT_THEME) as ThemeName;
+  // No memo: `themePalette` hands back the same object off the token module
+  // every time, and `useBreakpoint` returns a fresh object each render anyway,
+  // so there is nothing here a memo could stabilise.
+  const color = themePalette(themeName);
 
-  return { tokens, accent, accentName, breakpoint };
+  return {
+    color,
+    accent: color.accent,
+    themeName,
+    scheme: color.scheme,
+    tokens,
+    breakpoint,
+  };
 };

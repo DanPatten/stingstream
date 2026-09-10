@@ -2,6 +2,7 @@ import type { FC } from "react";
 import { View } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 import { CONTROLS_CONSTANTS } from "./constants";
 
 // Slightly larger preview (scale 1.6 vs old 1.4) to give the overlay text
@@ -41,6 +42,7 @@ export const TrickplayBubble: FC<TrickplayBubbleProps> = ({
   imageScale = 1,
   chapterName,
 }) => {
+  const { color } = useTheme();
   if (!trickPlayUrl || !trickplayInfo) {
     return null;
   }
@@ -79,8 +81,9 @@ export const TrickplayBubble: FC<TrickplayBubbleProps> = ({
           alignSelf: "center",
           transform: [{ scale: finalScale }],
           borderRadius: 5,
+          backgroundColor: color.bg["2"],
         }}
-        className='bg-neutral-800 overflow-hidden'
+        className='overflow-hidden'
       >
         <Image
           cachePolicy='memory-disk'

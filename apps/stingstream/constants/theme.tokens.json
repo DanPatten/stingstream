@@ -2,61 +2,160 @@
   "$comment": [
     "The single source of truth for StingStream's visual language.",
     "Consumed by tailwind.config.js (utility classes) and constants/theme.ts",
-    "(typed values for inline styles). Nothing else may hardcode a colour, a",
-    "radius, a font size or a shadow. NativeWind v2 compiles Tailwind at build",
-    "time and has no CSS variables, so Tailwind is given the DEFAULT accent",
-    "(teal) statically; the runtime-selected accent reaches components through",
-    "useTheme().accent as an inline style. Run Metro with -c after editing."
+    "(typed values for inline styles). Nothing else may hardcode a color, a",
+    "radius, a font size or a shadow.",
+    "",
+    "`theme` holds one complete palette per selectable theme: surfaces, text,",
+    "the accent triad, state colors, borders, the hover/press overlay, the",
+    "scrim and the elevation opacities. Everything outside `theme` is shared by",
+    "all three, because it is geometry and timing rather than color.",
+    "",
+    "NativeWind v2 compiles Tailwind at build time and has no CSS variables, so",
+    "Tailwind is given the DEFAULT theme statically; the theme a user picks",
+    "reaches components through useTheme().colors as an inline style. Run Metro",
+    "with -c after editing."
   ],
-  "color": {
-    "bg": {
-      "0": "#0B0C0F",
-      "1": "#141518",
-      "2": "#1C1E23",
-      "3": "#26292F"
-    },
-    "text": {
-      "primary": "#F2F3F5",
-      "secondary": "#B4B7BD",
-      "tertiary": "#7C808A",
-      "disabled": "#555962",
-      "onAccent": "#04201D"
-    },
-    "accent": {
-      "teal": {
-        "400": "#4FD9CA",
-        "500": "#1FC7B5",
-        "600": "#17A99A",
-        "onAccent": "#04201D"
+  "defaultTheme": "dark",
+  "theme": {
+    "dark": {
+      "$comment": [
+        "The default. Near-black neutral surfaces, and the StingStream mark's",
+        "cyan as the accent. Cyan replaced a teal that was a design-system",
+        "default rather than a brand color, and clears AAA on its onAccent ink",
+        "(10.4:1) where the old violet could not reach it at all."
+      ],
+      "scheme": "dark",
+      "bg": {
+        "0": "#0B0C0F",
+        "1": "#141518",
+        "2": "#1C1E23",
+        "3": "#26292F"
       },
-      "violet": {
-        "400": "#B37DF5",
-        "500": "#9334E9",
-        "600": "#7A22C7",
-        "onAccent": "#FFFFFF"
+      "text": {
+        "primary": "#F2F3F5",
+        "secondary": "#B4B7BD",
+        "tertiary": "#7C808A",
+        "disabled": "#555962"
       },
-      "amber": {
-        "400": "#FFC24D",
-        "500": "#F5A524",
-        "600": "#D48A12",
-        "onAccent": "#04201D"
+      "accent": {
+        "400": "#6FE6FF",
+        "500": "#3CDDFC",
+        "600": "#17B4D6",
+        "ring": "#6FE6FF",
+        "active": "#3CDDFC",
+        "onAccent": "#04202A"
+      },
+      "state": {
+        "success": "#3DDC97",
+        "warning": "#F5C451",
+        "danger": "#FF5C5C",
+        "info": "#5FA8FF"
+      },
+      "border": {
+        "subtle": "rgba(255,255,255,0.08)",
+        "strong": "rgba(255,255,255,0.16)"
+      },
+      "overlay": "#FFFFFF",
+      "scrim": "rgba(0,0,0,0.6)",
+      "elevationOpacity": {
+        "1": 0.35,
+        "2": 0.5
       }
     },
-    "state": {
-      "success": "#3DDC97",
-      "warning": "#F5C451",
-      "danger": "#FF5C5C",
-      "info": "#5FA8FF"
+    "light": {
+      "$comment": [
+        "Light surfaces, dark ink. The accent is the mark's blue (#0C48FC)",
+        "darkened until white clears AAA on it: the artwork blue itself only",
+        "reaches 6.3:1. The state colors are darkened for the same reason, and",
+        "the overlay is black rather than white -- a white hover wash on a white",
+        "card is invisible, which is the bug this token exists to stop."
+      ],
+      "scheme": "light",
+      "bg": {
+        "0": "#FFFFFF",
+        "1": "#F7F8FA",
+        "2": "#EFF1F4",
+        "3": "#E3E6EB"
+      },
+      "text": {
+        "primary": "#14161A",
+        "secondary": "#4A4F58",
+        "tertiary": "#6B7280",
+        "disabled": "#9AA0A9"
+      },
+      "accent": {
+        "400": "#3F7BF5",
+        "500": "#0A3FD1",
+        "600": "#082FA0",
+        "ring": "#0A3FD1",
+        "active": "#0A3FD1",
+        "onAccent": "#FFFFFF"
+      },
+      "state": {
+        "success": "#0A6B43",
+        "warning": "#8A5A00",
+        "danger": "#B91C1C",
+        "info": "#14509F"
+      },
+      "border": {
+        "subtle": "rgba(0,0,0,0.10)",
+        "strong": "rgba(0,0,0,0.20)"
+      },
+      "overlay": "#000000",
+      "scrim": "rgba(0,0,0,0.4)",
+      "elevationOpacity": {
+        "1": 0.1,
+        "2": 0.16
+      }
     },
-    "border": {
-      "subtle": "rgba(255,255,255,0.08)",
-      "strong": "rgba(255,255,255,0.16)"
-    },
-    "scrim": {
-      "backdrop": "rgba(0,0,0,0.6)"
+    "sting": {
+      "$comment": [
+        "The logo theme, and the one that has to look least like the default.",
+        "Dark and sting share a ground and, at first, shared the cyan accent too --",
+        "which made two of the three swatches read as the same theme. So sting takes",
+        "the other end of the mark's gradient: violet leads, cyan is demoted to the",
+        "focus ring, and the surfaces are pushed further into indigo so the ground",
+        "itself is visibly not the default's neutral near-black."
+      ],
+      "scheme": "dark",
+      "bg": {
+        "0": "#0A0A1F",
+        "1": "#141433",
+        "2": "#1C1C44",
+        "3": "#26265C"
+      },
+      "text": {
+        "primary": "#F1F0FF",
+        "secondary": "#B9B6E0",
+        "tertiary": "#8480B8",
+        "disabled": "#5D5A8A"
+      },
+      "accent": {
+        "400": "#C9BAFF",
+        "500": "#B49CFF",
+        "600": "#8C6DF0",
+        "ring": "#6FE6FF",
+        "active": "#B49CFF",
+        "onAccent": "#16082E"
+      },
+      "state": {
+        "success": "#3DDC97",
+        "warning": "#F5C451",
+        "danger": "#FF6B6B",
+        "info": "#7FB4FF"
+      },
+      "border": {
+        "subtle": "rgba(180,190,255,0.12)",
+        "strong": "rgba(180,190,255,0.22)"
+      },
+      "overlay": "#FFFFFF",
+      "scrim": "rgba(5,5,20,0.7)",
+      "elevationOpacity": {
+        "1": 0.45,
+        "2": 0.6
+      }
     }
   },
-  "defaultAccent": "teal",
   "radius": {
     "xs": 4,
     "sm": 8,
@@ -94,27 +193,51 @@
   },
   "type": {
     "display": {
-      "size": { "compact": 34, "medium": 41, "expanded": 48 },
+      "size": {
+        "compact": 34,
+        "medium": 41,
+        "expanded": 48
+      },
       "lineHeight": 1.15
     },
     "title": {
-      "size": { "compact": 26, "medium": 29, "expanded": 32 },
+      "size": {
+        "compact": 26,
+        "medium": 29,
+        "expanded": 32
+      },
       "lineHeight": 1.2
     },
     "heading": {
-      "size": { "compact": 20, "medium": 21, "expanded": 22 },
+      "size": {
+        "compact": 20,
+        "medium": 21,
+        "expanded": 22
+      },
       "lineHeight": 1.3
     },
     "body": {
-      "size": { "compact": 15, "medium": 16, "expanded": 16 },
+      "size": {
+        "compact": 15,
+        "medium": 16,
+        "expanded": 16
+      },
       "lineHeight": 1.45
     },
     "caption": {
-      "size": { "compact": 13, "medium": 13, "expanded": 13 },
+      "size": {
+        "compact": 13,
+        "medium": 13,
+        "expanded": 13
+      },
       "lineHeight": 1.4
     },
     "micro": {
-      "size": { "compact": 12, "medium": 12, "expanded": 12 },
+      "size": {
+        "compact": 12,
+        "medium": 12,
+        "expanded": 12
+      },
       "lineHeight": 1.3
     }
   },
@@ -134,15 +257,18 @@
     "1": {
       "offsetY": 4,
       "blur": 12,
-      "opacity": 0.35,
       "android": 4
     },
     "2": {
       "offsetY": 8,
       "blur": 24,
-      "opacity": 0.5,
       "android": 12
-    }
+    },
+    "$comment": [
+      "Geometry only. The shadow's opacity is per-theme (`elevationOpacity`):",
+      "black at 0.35 under a card is right on near-black and reads as soot on a",
+      "light ground."
+    ]
   },
   "motion": {
     "fast": 120,
@@ -168,8 +294,9 @@
   "interaction": {
     "$comment": [
       "How a control answers a pointer, a key and a disabled flag.",
-      "Overlays are white at these alphas, laid over whatever surface the",
-      "control already has, so one pair of numbers covers every variant.",
+      "Overlays are the theme's `overlay` color at these alphas, laid over",
+      "whatever surface the control already has, so one pair of numbers covers",
+      "every variant on every theme.",
       "A disabled *filled* control fades its fill and its label by different",
       "amounts on purpose: fading the whole thing uniformly leaves a legible",
       "label on an almost-invisible fill, which reads as a link, not a",

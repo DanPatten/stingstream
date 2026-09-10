@@ -15,6 +15,7 @@ import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useDeletePlaylist } from "@/hooks/usePlaylistMutations";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props {
   open: boolean;
@@ -27,6 +28,7 @@ export const PlaylistOptionsSheet: React.FC<Props> = ({
   setOpen,
   playlist,
 }) => {
+  const { color } = useTheme();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -101,13 +103,16 @@ export const PlaylistOptionsSheet: React.FC<Props> = ({
           paddingBottom: insets.bottom,
         }}
       >
-        <View className='flex-col rounded-xl overflow-hidden bg-neutral-800'>
+        <View
+          style={{ backgroundColor: color.bg["2"] }}
+          className='flex-col rounded-xl overflow-hidden'
+        >
           <TouchableOpacity
             onPress={handleDeletePlaylist}
             className='flex-row items-center px-4 py-3.5'
           >
             <Ionicons name='trash-outline' size={22} color='#ef4444' />
-            <Text className='text-red-500 ml-4 text-base'>
+            <Text tone='danger' className='ml-4 text-base'>
               {t("music.playlists.delete_playlist")}
             </Text>
           </TouchableOpacity>

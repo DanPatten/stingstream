@@ -5,6 +5,7 @@ import { TouchableOpacity, View } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
@@ -16,6 +17,7 @@ interface Props {
 const IMAGE_SIZE = 48;
 
 export const MusicArtistCard: React.FC<Props> = ({ artist }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const router = useRouter();
 
@@ -53,15 +55,15 @@ export const MusicArtistCard: React.FC<Props> = ({ artist }) => {
             cachePolicy='memory-disk'
           />
         ) : (
-          <View className='flex-1 items-center justify-center bg-neutral-800'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='flex-1 items-center justify-center'
+          >
             <Text className='text-xl'>👤</Text>
           </View>
         )}
       </View>
-      <Text
-        numberOfLines={1}
-        className='text-white text-base font-medium ml-3 flex-1'
-      >
+      <Text numberOfLines={1} className='text-base font-medium ml-3 flex-1'>
         {artist.Name}
       </Text>
     </TouchableOpacity>

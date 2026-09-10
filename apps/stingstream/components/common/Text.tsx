@@ -8,11 +8,13 @@ import {
 import type { ScaledTVTypography } from "@/constants/TVTypography";
 import {
   type BreakpointName,
-  DEFAULT_ACCENT,
+  DEFAULT_THEME,
   resolveTextStyle,
   type TextTone,
   type TextWeight,
+  type ThemeName,
   type TypeVariant,
+  themePalette,
   toneColor,
   typeStyle,
 } from "@/constants/theme";
@@ -59,7 +61,7 @@ const tvTypography = (): TVTypographyModule => {
 export interface StingTextProps extends TextProps {
   /** The step on the type scale. Defaults to `body`. */
   variant?: TypeVariant;
-  /** What the text *is*, not what colour it is. Defaults to `primary`. */
+  /** What the text *is*, not what color it is. Defaults to `primary`. */
   tone?: TextTone;
   /**
    * Which Inter face to use. The weight rides on the family, not on
@@ -76,14 +78,17 @@ export interface StingTextProps extends TextProps {
 }
 
 /**
- * The accent, read straight off the settings atom.
+ * The active theme's palette, read straight off the settings atom.
  *
- * Not `useSettings()`: that hook subscribes to three atoms, builds two
- * callbacks and runs an effect on every call, and `Text` renders hundreds of
- * times on a busy screen. One atom read is all this needs.
+ * Not `useTheme()`: that hook goes through `useSettings()`, which subscribes to
+ * three atoms, builds two callbacks and runs an effect on every call, and `Text`
+ * renders hundreds of times on a busy screen. One atom read is all this needs.
  */
-const useAccent = () =>
-  useAtomValue(settings().effectiveSettingsAtom).accent ?? DEFAULT_ACCENT;
+const usePalette = () =>
+  themePalette(
+    (useAtomValue(settings().effectiveSettingsAtom).theme ??
+      DEFAULT_THEME) as ThemeName,
+  );
 
 function PhoneText({
   variant,
@@ -94,14 +99,14 @@ function PhoneText({
   style,
   ...otherProps
 }: StingTextProps) {
-  const accent = useAccent();
+  const palette = usePalette();
   const windowBreakpoint = useBreakpointName();
   const resolved = resolveTextStyle(
     variant ?? "body",
     tone,
     weight,
     breakpoint ?? windowBreakpoint,
-    accent,
+    palette,
   );
 
   return (
@@ -160,7 +165,7 @@ function TVText({
   style,
   ...otherProps
 }: StingTextProps) {
-  const accent = useAccent();
+  const palette = usePalette();
   const typography = tvTypography().useScaledTVTypography();
 
   return (
@@ -171,7 +176,7 @@ function TVText({
           // Same opt-in as the phone branch: an untouched TV call site keeps
           // whatever size it already sets for itself.
           fontSize: variant ? typography[TV_VARIANTS[variant]] : undefined,
-          color: toneColor(tone, accent),
+          color: toneColor(tone, palette),
           fontWeight: TV_WEIGHTS[weight],
           textAlign: align,
         },
@@ -186,7 +191,7 @@ function TVText({
  * Every piece of text in the app.
  *
  * One API across phone, web and television: a `variant` picks a step on the
- * type scale, a `tone` says what the text *is* rather than what colour it is,
+ * type scale, a `tone` says what the text *is* rather than what color it is,
  * and a `weight` picks an Inter face. On TV the same variant resolves against
  * `useScaledTVTypography()` instead, because TV text is sized from the panel
  * and the user's typography setting, and TV keeps the system font.

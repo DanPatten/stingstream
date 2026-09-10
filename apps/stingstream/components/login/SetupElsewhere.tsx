@@ -4,7 +4,8 @@ import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 export interface SetupElsewhereProps {
   /**
@@ -39,6 +40,7 @@ export const SetupElsewhere: React.FC<SetupElsewhereProps> = ({
   retrying = false,
   message,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   return (
@@ -64,9 +66,9 @@ export const SetupElsewhere: React.FC<SetupElsewhereProps> = ({
                 paddingVertical: 14,
                 paddingHorizontal: 16,
                 borderRadius: radius.md,
-                backgroundColor: tokens.color.bg["2"],
+                backgroundColor: color.bg["2"],
                 borderWidth: 1,
-                borderColor: tokens.color.border.subtle,
+                borderColor: color.border.subtle,
               }}
             >
               {/* Selectable: on a laptop already on the network, copying it is the fastest way

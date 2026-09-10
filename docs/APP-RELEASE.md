@@ -173,9 +173,9 @@ The art is two PNGs cut once from the one delivered master render and committed 
 ceiling, and why both pieces come from a single master (it is what keeps the mark and the wordmark
 at their intended relative scale).
 
-Note the split between the logo's colours and the interface's: `BRAND_ACCENT` follows the artwork,
-while `constants/theme.tokens.json` keeps teal (`#1FC7B5`) as the default UI accent for buttons,
-focus rings, tabs and sliders. Those are deliberately allowed to differ.
+There is no longer a split between the logo's colors and the interface's. `BRAND_ACCENT` follows
+the artwork, and so does `constants/theme.tokens.json`: every theme is built out of the mark's
+cyan-to-violet ramp. See `docs/UI-DESIGN.md`, "Three themes".
 
 `scripts/brand/generate.ts` (bun + the `sharp` devDependency) reads the source art and writes every
 brand asset the app, its web build and its store listing use:
@@ -190,7 +190,7 @@ writing, all under `apps/stingstream/` unless noted:
 assets/brand/mark.png                  400x674    the mark, native size; what the app renders
 assets/brand/mark-mono.png             400x674    white silhouette from the mark's levelled alpha
 assets/brand/wordmark.png              856x151    "StingStream", for dark grounds
-assets/brand/wordmark-light.png        856x151    same, "Sting" recoloured dark for light grounds
+assets/brand/wordmark-light.png        856x151    same, "Sting" recolored dark for light grounds
 assets/brand/lockup-stacked{,-light}.png  600x590 mark above wordmark; used by the root README
 assets/images/icon.png                 1024x1024, opaque  combined icon (web favicon, non-adaptive fallback)
 assets/images/icon-android-plain.png   1024x1024  Android adaptive icon FOREGROUND (66% safe zone)

@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Text } from "@/components/common/Text";
-import { space, tokens } from "@/constants/theme";
+import { space } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import type { MeshDomainsStatus } from "@/lib/stingstream/meshApi";
 import { domainsSummary } from "@/utils/mesh/domainsStatus";
 
@@ -29,6 +30,7 @@ export function DomainsStatus({
 }: {
   status: MeshDomainsStatus | undefined;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const summary = domainsSummary(status);
 
@@ -57,7 +59,7 @@ export function DomainsStatus({
           tone={summary.reach === "error" ? "primary" : "tertiary"}
           style={
             summary.reach === "error"
-              ? { color: tokens.color.state.danger }
+              ? { color: color.state.danger }
               : undefined
           }
         >

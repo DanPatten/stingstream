@@ -7,7 +7,8 @@ import { Dialog } from "@/components/common/Dialog";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   canManageMembers,
   MeshUnavailableError,
@@ -39,6 +40,7 @@ import { InviteCard } from "./InviteCard";
  * above the fold on a screen most visits are just here to check on members.
  */
 export function GroupDetailScreen({ group }: { group: string }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(group);
@@ -177,7 +179,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
           style={{
             padding: 16,
             borderRadius: radius.md,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
           }}
         >
           <Text variant='title' weight='semibold'>
@@ -250,7 +252,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
                 marginTop: 20,
                 paddingTop: 16,
                 borderTopWidth: 1,
-                borderTopColor: tokens.color.border.subtle,
+                borderTopColor: color.border.subtle,
               }}
             >
               <Text

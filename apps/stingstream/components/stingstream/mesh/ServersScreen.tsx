@@ -7,10 +7,11 @@ import { Icon } from "@/components/common/Icon";
 import { Pill } from "@/components/common/Pill";
 import { ListGroup } from "@/components/list/ListGroup";
 import { FocusTarget } from "@/components/settings/FocusTarget";
-import { space, tokens } from "@/constants/theme";
+import { space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useNodeContext } from "@/hooks/useNodeContext";
 import { useServerName } from "@/hooks/useServerName";
+import { useTheme } from "@/hooks/useTheme";
 import { useLinkRequests, useMyLinkRequest } from "@/lib/stingstream/identity";
 import {
   MeshUnavailableError,
@@ -170,6 +171,7 @@ function ServerList({ peers }: { peers: readonly MeshNodePeer[] }) {
  * two controls with one destination is the redundancy this page keeps shedding.
  */
 function ServerListRow({ row }: { row: ServerRow }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -205,9 +207,7 @@ function ServerListRow({ row }: { row: ServerRow }) {
         <Icon
           name='servers'
           size={18}
-          color={
-            row.online ? tokens.color.state.success : tokens.color.text.tertiary
-          }
+          color={row.online ? color.state.success : color.text.tertiary}
         />
       }
       onPress={manage}
@@ -275,6 +275,7 @@ export function InviteUserButton() {
  * only for the account it is about, only once its request has been approved, and it is one row.
  */
 function LinkApproved() {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const mine = useMyLinkRequest();
 
@@ -303,9 +304,7 @@ function LinkApproved() {
           testID='sharing-link-approved-row'
           title={code}
           subtitle={t("sharing.link_approved_detail")}
-          leading={
-            <Icon name='link' size={18} color={tokens.color.text.tertiary} />
-          }
+          leading={<Icon name='link' size={18} color={color.text.tertiary} />}
           onPress={() => void copy()}
           actions={
             <IconAction

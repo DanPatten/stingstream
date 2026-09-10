@@ -1,6 +1,7 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
 import { useMemo, useRef } from "react";
 import { Dimensions, View } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "../common/Text";
 import { TouchableItemRouter } from "../common/TouchableItemRouter";
 
@@ -15,6 +16,7 @@ export const LiveTVGuideRow = ({
   scrollX?: number;
   isVisible?: boolean;
 }) => {
+  const { color } = useTheme();
   const _positionRefs = useRef<{ [key: string]: number }>({});
   const screenWidth = Dimensions.get("window").width;
 
@@ -65,8 +67,9 @@ export const LiveTVGuideRow = ({
               backgroundColor: isCurrentlyLive(p)
                 ? "rgba(255, 255, 255, 0.1)"
                 : "transparent",
+              borderColor: color.border.subtle,
             }}
-            className='flex flex-col items-center justify-center border border-neutral-800 overflow-hidden'
+            className='flex flex-col items-center justify-center border overflow-hidden'
           >
             {(() => {
               return (

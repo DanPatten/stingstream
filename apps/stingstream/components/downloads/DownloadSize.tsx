@@ -39,7 +39,7 @@ export const DownloadSize: React.FC<DownloadSizeProps> = ({
   }, [size]);
 
   return (
-    <Text className='text-xs text-neutral-500' {...props}>
+    <Text tone='tertiary' className='text-xs' {...props}>
       {sizeText}
     </Text>
   );

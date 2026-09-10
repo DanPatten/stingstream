@@ -11,6 +11,7 @@ import {
   SheetView,
 } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 
 export type PlaylistSortOption = "SortName" | "DateCreated";
 
@@ -44,6 +45,7 @@ export const PlaylistSortSheet: React.FC<Props> = ({
   sortOrder,
   onSortChange,
 }) => {
+  const { color } = useTheme();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -112,10 +114,13 @@ export const PlaylistSortSheet: React.FC<Props> = ({
           paddingBottom: insets.bottom,
         }}
       >
-        <Text className='text-white text-lg font-semibold mb-4'>
+        <Text className='text-lg font-semibold mb-4'>
           {t("music.sort.title")}
         </Text>
-        <View className='flex-col rounded-xl overflow-hidden bg-neutral-800'>
+        <View
+          style={{ backgroundColor: color.bg["2"] }}
+          className='flex-col rounded-xl overflow-hidden'
+        >
           {SORT_OPTIONS.map((option, index) => {
             const isSelected = sortBy === option.key;
             return (

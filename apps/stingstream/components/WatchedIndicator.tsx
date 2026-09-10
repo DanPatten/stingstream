@@ -3,6 +3,7 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import React from "react";
 import { Platform, View, type ViewStyle } from "react-native";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 import { scaleSize } from "@/utils/scaleSize";
 
 const isAggregateType = (item: BaseItemDto) =>
@@ -80,6 +81,7 @@ export const UnplayedCountBadge: React.FC<{ item: BaseItemDto }> = React.memo(
 );
 
 export const WatchedIndicator: React.FC<{ item: BaseItemDto }> = ({ item }) => {
+  const { color } = useTheme();
   const isMovieOrEpisode = item.Type === "Movie" || item.Type === "Episode";
   const isAggregate = isAggregateType(item);
   const isPlayed = item.UserData?.Played === true;
@@ -102,7 +104,10 @@ export const WatchedIndicator: React.FC<{ item: BaseItemDto }> = ({ item }) => {
     <>
       {/* Strict === false: items without UserData (unknown state) get no ribbon */}
       {isMovieOrEpisode && item.UserData?.Played === false && (
-        <View className='bg-purple-600 w-8 h-8 absolute -top-4 -right-4 rotate-45' />
+        <View
+          style={{ backgroundColor: color.accent[500] }}
+          className='w-8 h-8 absolute -top-4 -right-4 rotate-45'
+        />
       )}
 
       {/* Fully watched Series/BoxSet → small purple checkmark */}

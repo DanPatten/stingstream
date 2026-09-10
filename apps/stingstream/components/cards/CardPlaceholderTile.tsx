@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { View } from "react-native";
-import { Text } from "@/components/common/Text";
-import { tokens } from "@/constants/theme";
+
+import { useTheme } from "@/hooks/useTheme";
 import type { CardPlaceholder } from "./CardData";
 
 /**
@@ -31,8 +31,6 @@ const GLYPHS: Record<
 };
 
 type Props = {
-  /** The card's title — its first letter is what the tile shows. */
-  title: string;
   placeholder?: CardPlaceholder;
   /** The artwork rectangle's width, so the glyph scales with the card. */
   width: number;
@@ -45,27 +43,29 @@ type Props = {
  *
  * An imageless card used to be a flat near-black rectangle, indistinguishable
  * from a poster that had not loaded yet and from a broken one. This is a
- * deliberate tile instead: the surface a card sits on one step lighter (`bg2`),
- * the item type's glyph, and the title's first letter — enough to tell a
- * missing poster from a missing *item*, and enough to tell two imageless cards
- * apart at a glance in a grid.
+ * deliberate tile instead: the surface a card sits on one step lighter (`bg2`)
+ * and the item type's glyph, enough to tell a missing poster from a missing
+ * *item*.
+ *
+ * The glyph alone. The title's first letter used to sit under it, and on a
+ * 56px thumbnail beside a title that already says the whole name it read as a
+ * second, cruder label for something the row had spelled out twice already.
+ * The tile stands in for a picture, so it should look like a picture.
  *
  * Tertiary tone throughout: it is furniture standing in for content, and should
  * never compete with the real posters beside it.
  */
 export const CardPlaceholderTile: React.FC<Props> = ({
-  title,
   placeholder = "unknown",
   width,
   accessibilityLabel,
 }) => {
-  // The first *letter*, not the first character: leading quotes and brackets
-  // sort into titles often enough to matter ("[Unsorted]", "'71").
-  const initial = (title.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toUpperCase();
+  const { color } = useTheme();
 
-  // A poster tile and a 16:9 still are very different widths; both want a glyph
-  // that reads without swallowing the letter under it.
-  const glyphSize = Math.max(16, Math.min(32, Math.round(width * 0.18)));
+  // A poster tile and a 16:9 still are very different widths. With nothing else
+  // in the box the glyph can take a real share of it, rather than the smaller
+  // mark it had to be when a letter sat underneath.
+  const glyphSize = Math.max(20, Math.min(48, Math.round(width * 0.34)));
 
   return (
     <View
@@ -74,18 +74,14 @@ export const CardPlaceholderTile: React.FC<Props> = ({
         flex: 1,
         alignItems: "center",
         justifyContent: "center",
-        gap: 4,
-        backgroundColor: tokens.color.bg["2"],
+        backgroundColor: color.bg["2"],
       }}
     >
       <Ionicons
         name={GLYPHS[placeholder]}
         size={glyphSize}
-        color={tokens.color.text.tertiary}
+        color={color.text.tertiary}
       />
-      <Text variant='heading' weight='bold' tone='tertiary' numberOfLines={1}>
-        {initial}
-      </Text>
     </View>
   );
 };

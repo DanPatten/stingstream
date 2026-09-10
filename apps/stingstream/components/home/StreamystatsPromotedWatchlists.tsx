@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { View, type ViewProps } from "react-native";
 import { CardRow } from "@/components/cards/CardRow";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { createStreamystatsApi } from "@/utils/streamystats/api";
@@ -107,6 +108,7 @@ interface StreamystatsPromotedWatchlistsProps extends ViewProps {
 export const StreamystatsPromotedWatchlists: React.FC<
   StreamystatsPromotedWatchlistsProps
 > = ({ enabled = true, ...props }) => {
+  const { color } = useTheme();
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
   const { settings } = useSettings();
@@ -178,14 +180,21 @@ export const StreamystatsPromotedWatchlists: React.FC<
   if (isLoading) {
     return (
       <View {...props}>
-        <View className='h-4 w-32 bg-neutral-900 rounded ml-4 mb-2' />
+        <View
+          style={{ backgroundColor: color.bg["1"] }}
+          className='h-4 w-32 rounded ml-4 mb-2'
+        />
         <View className='flex flex-row gap-2 px-4'>
           {[1, 2, 3].map((i) => (
             <View className='w-28' key={i}>
-              <View className='bg-neutral-900 aspect-[2/3] w-full rounded-md mb-1' />
+              <View
+                style={{ backgroundColor: color.bg["1"] }}
+                className='aspect-[2/3] w-full rounded-md mb-1'
+              />
               <View className='rounded-md overflow-hidden mb-1 self-start'>
                 <Text
-                  className='text-neutral-900 bg-neutral-900 rounded-md'
+                  style={{ backgroundColor: color.bg["1"] }}
+                  className='text-neutral-900 rounded-md'
                   numberOfLines={1}
                 >
                   Loading...

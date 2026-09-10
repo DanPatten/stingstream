@@ -19,7 +19,7 @@ type Props = {
 /**
  * The title above a row or a block of settings.
  *
- * One `heading` on the left, an optional accent-coloured action on the right,
+ * One `heading` on the left, an optional accent-colored action on the right,
  * and the page gutter either side so a row's title lines up with the first card
  * under it at every width.
  */

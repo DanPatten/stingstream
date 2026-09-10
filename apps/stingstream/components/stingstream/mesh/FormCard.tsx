@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
 import { View } from "react-native";
-import { elevation, radius, tokens } from "@/constants/theme";
+import { elevation, radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 /** The card never grows past this, at any window width — same measure `AuthCard` uses. */
 const MAX_WIDTH = 480;
@@ -11,6 +12,7 @@ const MAX_WIDTH = 480;
  * a first-impression screen, so it does not need to re-introduce the app.
  */
 export function FormCard({ children }: PropsWithChildren) {
+  const { color } = useTheme();
   return (
     <View style={{ width: "100%", alignItems: "center" }}>
       <View
@@ -18,10 +20,10 @@ export function FormCard({ children }: PropsWithChildren) {
           {
             width: "100%",
             maxWidth: MAX_WIDTH,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
             borderRadius: radius.lg,
             borderWidth: 1,
-            borderColor: tokens.color.border.subtle,
+            borderColor: color.border.subtle,
             padding: 24,
           },
           elevation(2),

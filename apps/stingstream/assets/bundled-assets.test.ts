@@ -125,7 +125,7 @@ function readPngIHDR(path: string): {
   };
 }
 
-// PNG colour types with an alpha channel: 4 (greyscale+alpha), 6 (truecolour+alpha).
+// PNG color types with an alpha channel: 4 (greyscale+alpha), 6 (truecolor+alpha).
 const ALPHA_COLOR_TYPES = new Set([4, 6]);
 
 // The art is a render, so favicon.svg is the only SVG left: it wraps the 192px mark for

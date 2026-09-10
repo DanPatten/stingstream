@@ -6,7 +6,7 @@ export type StingStreamMarkProps = {
   size: number;
   /** Tint for `variant="mono"`. Ignored for `variant="gradient"`. Defaults to white. */
   color?: string;
-  /** "gradient" (the full-colour art, the default) or "mono" (a flat `color` silhouette). */
+  /** "gradient" (the full-color art, the default) or "mono" (a flat `color` silhouette). */
   variant?: "gradient" | "mono";
 };
 
@@ -14,10 +14,10 @@ export type StingStreamMarkProps = {
  * The StingStream mark on its own -- app icon, sidebar/header logo, loading states.
  * See `scripts/brand/source.ts` for where the art comes from.
  *
- * `mono` is a separate image, not a tint of the colour one: the mark is a render of
+ * `mono` is a separate image, not a tint of the color one: the mark is a render of
  * overlapping translucent ribbons, and tinting that directly gives a soft grey smear
  * rather than a shape. `mark-mono.png` is the same art with levels applied to its alpha
- * so the ribbons read solid at small sizes; `tintColor` then recolours it.
+ * so the ribbons read solid at small sizes; `tintColor` then recolors it.
  *
  * The art is taller than it is wide, so `contentFit="contain"` letterboxes it inside the
  * square `size` box -- the same placement the square viewBox gave before.

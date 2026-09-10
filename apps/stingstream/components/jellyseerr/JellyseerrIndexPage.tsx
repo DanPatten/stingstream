@@ -166,7 +166,7 @@ export const JellyserrIndexPage: React.FC<Props> = ({
             <Text className='text-center text-lg font-bold mt-4'>
               {t("search.no_results_found_for")}
             </Text>
-            <Text className='text-xs text-purple-600 text-center'>
+            <Text tone='accent' className='text-xs text-center'>
               "{searchQuery}"
             </Text>
           </View>

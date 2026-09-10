@@ -111,7 +111,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
           {t("music.playlists.create_playlist")}
         </Text>
 
-        <Text className='text-neutral-400 mb-2 text-sm'>
+        <Text tone='secondary' className='mb-2 text-sm'>
           {t("music.playlists.playlist_name")}
         </Text>
         <SheetTextInput

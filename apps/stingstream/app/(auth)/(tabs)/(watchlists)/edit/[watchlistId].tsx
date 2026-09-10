@@ -129,7 +129,7 @@ export default function EditWatchlistScreen() {
         className='flex-1 items-center justify-center px-8'
         style={{ backgroundColor: "#171717" }}
       >
-        <Text className='text-lg text-neutral-400'>
+        <Text tone='secondary' className='text-lg'>
           {t("watchlists.not_found")}
         </Text>
       </View>
@@ -151,7 +151,7 @@ export default function EditWatchlistScreen() {
       >
         {/* Name */}
         <View className='px-4 py-4'>
-          <Text className='text-sm font-medium text-neutral-400 mb-2'>
+          <Text tone='secondary' className='text-sm font-medium mb-2'>
             {t("watchlists.name_label")} *
           </Text>
           <Input
@@ -163,7 +163,7 @@ export default function EditWatchlistScreen() {
 
         {/* Description */}
         <View className='px-4 py-4'>
-          <Text className='text-sm font-medium text-neutral-400 mb-2'>
+          <Text tone='secondary' className='text-sm font-medium mb-2'>
             {t("watchlists.description_label")}
           </Text>
           <Input
@@ -180,10 +180,10 @@ export default function EditWatchlistScreen() {
         {/* Public Toggle */}
         <View className='px-4 py-4 flex-row items-center justify-between'>
           <View className='flex-1 mr-4'>
-            <Text className='text-base font-medium text-white'>
+            <Text className='text-base font-medium'>
               {t("watchlists.is_public_label")}
             </Text>
-            <Text className='text-sm text-neutral-400 mt-1'>
+            <Text tone='secondary' className='text-sm mt-1'>
               {t("watchlists.is_public_description")}
             </Text>
           </View>
@@ -197,7 +197,7 @@ export default function EditWatchlistScreen() {
 
         {/* Content Type */}
         <View className='px-4 py-4'>
-          <Text className='text-sm font-medium text-neutral-400 mb-2'>
+          <Text tone='secondary' className='text-sm font-medium mb-2'>
             {t("watchlists.allowed_type_label")}
           </Text>
           <View className='flex-row flex-wrap gap-2'>
@@ -223,7 +223,7 @@ export default function EditWatchlistScreen() {
 
         {/* Sort Order */}
         <View className='px-4 py-4'>
-          <Text className='text-sm font-medium text-neutral-400 mb-2'>
+          <Text tone='secondary' className='text-sm font-medium mb-2'>
             {t("watchlists.sort_order_label")}
           </Text>
           <View className='flex-row flex-wrap gap-2'>
@@ -259,7 +259,7 @@ export default function EditWatchlistScreen() {
             ) : (
               <View className='flex-row items-center'>
                 <Ionicons name='checkmark' size={20} color='white' />
-                <Text className='text-white font-semibold text-base'>
+                <Text className='font-semibold text-base'>
                   {t("watchlists.save_button")}
                 </Text>
               </View>

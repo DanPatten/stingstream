@@ -7,7 +7,7 @@ import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import { formatBytes } from "@/lib/stingstream/arr-types";
@@ -38,12 +38,13 @@ function EngineCard({
   state: string;
   detail?: string;
 }) {
+  const { color } = useTheme();
   return (
     <View
       style={{
         flex: 1,
         borderRadius: radius.md,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 12,
       }}
     >
@@ -221,6 +222,7 @@ function engineNote(
 }
 
 function DownloadRow({ item }: { item: DownloadItem }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const action = useDownloadAction();
 
@@ -267,7 +269,7 @@ function DownloadRow({ item }: { item: DownloadItem }) {
       />
       <View
         style={{
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           paddingHorizontal: 16,
           paddingBottom: 12,
         }}
@@ -317,15 +319,15 @@ function DownloadRow({ item }: { item: DownloadItem }) {
 }
 
 function ProgressBar({ item }: { item: DownloadItem }) {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const fraction = Math.max(0, Math.min(1, item.Progress ?? 0));
-  const colour =
+  const fill =
     item.State === "failed"
-      ? tokens.color.state.danger
+      ? color.state.danger
       : item.State === "paused"
-        ? tokens.color.text.tertiary
+        ? color.text.tertiary
         : item.State === "completed"
-          ? tokens.color.state.success
+          ? color.state.success
           : accent[500];
   return (
     <View
@@ -333,14 +335,14 @@ function ProgressBar({ item }: { item: DownloadItem }) {
         height: 6,
         borderRadius: radius.pill,
         overflow: "hidden",
-        backgroundColor: tokens.color.bg["3"],
+        backgroundColor: color.bg["3"],
       }}
     >
       <View
         style={{
           width: `${fraction * 100}%`,
           height: "100%",
-          backgroundColor: colour,
+          backgroundColor: fill,
         }}
       />
     </View>
@@ -420,6 +422,7 @@ function IconAction({
   tone?: "red";
   busy?: boolean;
 }) {
+  const { color } = useTheme();
   return (
     <Pressable
       disabled={busy}
@@ -433,7 +436,7 @@ function IconAction({
         borderRadius: radius.sm,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: tokens.color.bg["3"],
+        backgroundColor: color.bg["3"],
         opacity: busy ? 0.5 : 1,
       }}
     >

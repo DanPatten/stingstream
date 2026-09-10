@@ -14,6 +14,7 @@ import { Text } from "@/components/common/Text";
 import { FilterButton } from "@/components/filters/FilterButton";
 import { Loader } from "@/components/Loader";
 import { SettingsShell } from "@/components/settings/SettingsShell";
+import { useTheme } from "@/hooks/useTheme";
 import { LogLevel, useLog, writeErrorLog } from "@/utils/log";
 
 // Conditionally import expo-sharing only on non-TV platforms
@@ -22,6 +23,7 @@ const Sharing = Platform.isTV
   : (require("expo-sharing") as typeof SharingType);
 
 export default function Page() {
+  const { color } = useTheme();
   const navigation = useNavigation();
   const { logs } = useLog();
   const { t } = useTranslation();
@@ -124,7 +126,10 @@ export default function Page() {
         stickyHeaderIndices={[0]}
         contentContainerStyle={{ paddingBottom: insets.bottom }}
       >
-        <View className='flex flex-row justify-end py-2 px-4 space-x-2 bg-black'>
+        <View
+          style={{ backgroundColor: color.bg["0"] }}
+          className='flex flex-row justify-end py-2 px-4 space-x-2'
+        >
           <FilterButton
             id={orderFilterId}
             queryKey='log'
@@ -147,7 +152,11 @@ export default function Page() {
         </View>
         <View className='flex flex-col space-y-2 px-4'>
           {filteredLogs?.map((log, index) => (
-            <View className='bg-neutral-900 rounded-xl p-3' key={index}>
+            <View
+              style={{ backgroundColor: color.bg["1"] }}
+              className='rounded-xl p-3'
+              key={index}
+            >
               <TouchableOpacity
                 disabled={!log.data}
                 onPress={() =>

@@ -1,5 +1,12 @@
 import { Pressable, type StyleProp, View, type ViewStyle } from "react-native";
-import { fade, interaction, radius, rgba, tokens } from "@/constants/theme";
+import {
+  control,
+  fade,
+  interaction,
+  radius,
+  rgba,
+  type ThemePalette,
+} from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { Icon, type IconName } from "./Icon";
@@ -15,7 +22,7 @@ export type PillTone =
 
 export interface PillProps {
   label: string;
-  /** What the state *is*. Colour follows from it. */
+  /** What the state *is*. Color follows from it. */
   tone?: PillTone;
   icon?: IconName;
   /** `soft` is a tinted chip; `solid` is a filled badge for the loud cases. */
@@ -55,20 +62,18 @@ export const Pill: React.FC<PillProps> = ({
   testID,
   style,
 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const states = usePressableStates({ disabled });
   const base =
-    tone === "accent" ? accent[500] : tone === "neutral" ? null : TONES[tone];
+    tone === "accent"
+      ? accent[500]
+      : tone === "neutral"
+        ? null
+        : toneFill(tone, color);
   const solid = emphasis === "solid" && base !== null;
 
-  const restBackground = solid
-    ? base
-    : base
-      ? rgba(base, 0.16)
-      : tokens.color.bg["3"];
-  const foreground = solid
-    ? tokens.color.bg["0"]
-    : (base ?? tokens.color.text.secondary);
+  const restBackground = solid ? base : base ? rgba(base, 0.16) : color.bg["3"];
+  const foreground = solid ? color.bg["0"] : (base ?? color.text.secondary);
 
   const box: ViewStyle = {
     flexDirection: "row",
@@ -78,7 +83,7 @@ export const Pill: React.FC<PillProps> = ({
     paddingVertical: size === "sm" ? 2 : 3,
     borderRadius: radius.pill,
     backgroundColor: restBackground,
-    opacity: disabled ? tokens.control.disabledOpacity : 1,
+    opacity: disabled ? control.disabledOpacity : 1,
   };
 
   const content = (
@@ -151,9 +156,13 @@ export const Pill: React.FC<PillProps> = ({
   );
 };
 
-const TONES: Record<Exclude<PillTone, "neutral" | "accent">, string> = {
-  success: tokens.color.state.success,
-  warning: tokens.color.state.warning,
-  danger: tokens.color.state.danger,
-  info: tokens.color.state.info,
-};
+/**
+ * A tone's color under a given theme.
+ *
+ * A lookup table read at module scope would be one theme's answer baked into
+ * the bundle, which is the thing the whole palette exists to stop.
+ */
+const toneFill = (
+  tone: Exclude<PillTone, "neutral" | "accent">,
+  palette: ThemePalette,
+): string => palette.state[tone];

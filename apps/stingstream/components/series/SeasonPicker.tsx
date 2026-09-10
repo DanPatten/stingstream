@@ -187,7 +187,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
         const overview = episodeById.get(card.id)?.Overview;
         if (!overview) return null;
         return (
-          <Text numberOfLines={3} className='text-xs text-neutral-500 mt-2'>
+          <Text tone='tertiary' numberOfLines={3} className='text-xs mt-2'>
             {overview}
           </Text>
         );
@@ -263,7 +263,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
         )}
         {(episodes?.length || 0) === 0 ? (
           <View className='flex flex-col'>
-            <Text className='text-neutral-500'>
+            <Text tone='tertiary'>
               {t("item_card.no_episodes_for_this_season")}
             </Text>
           </View>

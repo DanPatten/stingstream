@@ -14,6 +14,7 @@ import {
 } from "@/components/common/Sheet";
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { Colors } from "@/constants/Colors";
+import { useTheme } from "@/hooks/useTheme";
 import {
   deleteAccountCredential,
   type SavedServer,
@@ -39,6 +40,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
   onAddAccount,
   onAccountDeleted,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
@@ -101,8 +103,9 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
 
   const renderRightActions = (account: SavedServerAccount) => (
     <TouchableOpacity
+      style={{ backgroundColor: color.state.danger }}
       onPress={() => handleDeleteAccount(account)}
-      className='bg-red-600 justify-center items-center px-5'
+      className='justify-center items-center px-5'
     >
       <Ionicons name='trash' size={20} color='white' />
     </TouchableOpacity>
@@ -130,16 +133,19 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
         <View className='flex-1'>
           {/* Header */}
           <View className='mb-4'>
-            <Text className='font-bold text-2xl text-neutral-100'>
+            <Text className='font-bold text-2xl'>
               {t("server.select_account")}
             </Text>
-            <Text className='text-neutral-400 mt-1'>
+            <Text tone='secondary' className='mt-1'>
               {server.name || server.address}
             </Text>
           </View>
 
           {/* Account List */}
-          <View className='bg-neutral-800 rounded-xl overflow-hidden mb-4'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='rounded-xl overflow-hidden mb-4'
+          >
             {server.accounts.map((account, index) => (
               <Swipeable
                 key={account.userId}
@@ -158,16 +164,17 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
                   }`}
                 >
                   {/* Avatar */}
-                  <View className='w-10 h-10 bg-neutral-700 rounded-full items-center justify-center mr-3'>
+                  <View
+                    style={{ backgroundColor: color.bg["3"] }}
+                    className='w-10 h-10 rounded-full items-center justify-center mr-3'
+                  >
                     <Ionicons name='person' size={20} color='white' />
                   </View>
 
                   {/* Account Info */}
                   <View className='flex-1'>
-                    <Text className='text-neutral-100 font-medium'>
-                      {account.username}
-                    </Text>
-                    <Text className='text-neutral-500 text-sm'>
+                    <Text className='font-medium'>{account.username}</Text>
+                    <Text tone='tertiary' className='text-sm'>
                       {account.securityType === "none"
                         ? t("save_account.no_protection")
                         : account.securityType === "pin"
@@ -188,7 +195,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
           </View>
 
           {/* Hint */}
-          <Text className='text-xs text-neutral-500 mb-4 ml-1'>
+          <Text tone='tertiary' className='text-xs mb-4 ml-1'>
             {t("server.swipe_to_remove")}
           </Text>
 
@@ -202,7 +209,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
           >
             <View className='flex-row items-center justify-center'>
               <Ionicons name='add' size={20} color='white' />
-              <Text className='text-white font-semibold ml-2'>
+              <Text className='font-semibold ml-2'>
                 {t("server.add_account")}
               </Text>
             </View>

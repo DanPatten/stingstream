@@ -13,8 +13,9 @@ import { Swipeable } from "react-native-gesture-handler";
 import { useMMKVString } from "react-native-mmkv";
 import { toast } from "sonner-native";
 import { Colors } from "@/constants/Colors";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
+import { useTheme } from "@/hooks/useTheme";
 import {
   deleteAccountCredential,
   getPreviousServers,
@@ -63,6 +64,7 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
   onPasswordLogin,
   onAddAccount,
 }) => {
+  const { color } = useTheme();
   const [_previousServers, setPreviousServers] =
     useMMKVString("previousServers");
   const [loadingServer, setLoadingServer] = useState<string | null>(null);
@@ -221,11 +223,12 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
     (serverUrl: string, swipeableRef: React.RefObject<Swipeable | null>) => (
       <View className='flex-row'>
         <TouchableOpacity
+          style={{ backgroundColor: color.state.danger }}
           onPress={() => {
             swipeableRef.current?.close();
             handleRemoveServer(serverUrl);
           }}
-          className='bg-red-600 justify-center items-center px-5'
+          className='justify-center items-center px-5'
           accessibilityLabel={t("server.remove_server")}
         >
           <Ionicons name='trash' size={20} color='white' />
@@ -312,7 +315,7 @@ export const PreviousServersList: React.FC<PreviousServersListProps> = ({
         />
       </ListGroup>
       {swipeable ? (
-        <Text className='text-xs text-neutral-500 mt-2 ml-4'>
+        <Text tone='tertiary' className='text-xs mt-2 ml-4'>
           {t("server.swipe_for_options")}
         </Text>
       ) : null}
@@ -387,6 +390,7 @@ const RowAction: React.FC<{
   danger?: boolean;
   onPress: () => void;
 }> = ({ icon, label, danger = false, onPress }) => {
+  const { color } = useTheme();
   // `hovered` is absent from `PressableStateCallbackType` in these typings even though
   // react-native-web passes it, so the hover state is held here instead — same as `Button`.
   const [hovered, setHovered] = useState(false);
@@ -405,14 +409,14 @@ const RowAction: React.FC<{
         alignItems: "center",
         justifyContent: "center",
         borderRadius: radius.sm,
-        backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+        backgroundColor: hovered ? color.bg["3"] : "transparent",
         ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null),
       }}
     >
       <Ionicons
         name={icon}
         size={16}
-        color={danger ? tokens.color.state.danger : tokens.color.text.tertiary}
+        color={danger ? color.state.danger : color.text.tertiary}
       />
     </Pressable>
   );

@@ -21,7 +21,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { Pill } from "@/components/common/Pill";
 import { Tabs } from "@/components/common/Tabs";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius, type ThemePalette } from "@/constants/theme";
 import {
   type UseSourceSelectionResult,
   useSourceSelection,
@@ -63,13 +63,13 @@ export interface SourceChooserSheetProps {
   currentLabel?: string;
 }
 
-/** The chooser's own copy of the route colours, so a row's dot matches the player's pill. */
-const dotFor = (choice: SourceChoice): string => {
-  if (choice.local) return tokens.color.text.primary;
-  if (!choice.online) return tokens.color.text.disabled;
-  if (choice.route === "direct") return tokens.color.state.success;
-  if (choice.route === "relayed") return tokens.color.state.warning;
-  return tokens.color.text.tertiary;
+/** The chooser's own copy of the route colors, so a row's dot matches the player's pill. */
+const dotFor = (choice: SourceChoice, palette: ThemePalette): string => {
+  if (choice.local) return palette.text.primary;
+  if (!choice.online) return palette.text.disabled;
+  if (choice.route === "direct") return palette.state.success;
+  if (choice.route === "relayed") return palette.state.warning;
+  return palette.text.tertiary;
 };
 
 export const SourceChooserSheet: FC<SourceChooserSheetProps> = ({
@@ -210,7 +210,7 @@ const AutoRow: FC<{
   onPressOut: () => void;
 }> = ({ selected, target, pressed, onPress, onPressIn, onPressOut }) => {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const subtitle = target
     ? t("player.source.auto_now", { source: target })
     : t("player.source.auto_nothing");
@@ -231,9 +231,7 @@ const AutoRow: FC<{
           paddingHorizontal: 12,
           borderRadius: radius.md,
           marginBottom: 6,
-          backgroundColor: pressed
-            ? tokens.color.bg["3"]
-            : tokens.color.bg["2"],
+          backgroundColor: pressed ? color.bg["3"] : color.bg["2"],
           borderWidth: 1,
           borderColor: selected ? accent[500] : "transparent",
         },
@@ -245,9 +243,7 @@ const AutoRow: FC<{
           width: 8,
           height: 8,
           borderRadius: radius.pill,
-          backgroundColor: target
-            ? tokens.color.state.success
-            : tokens.color.text.tertiary,
+          backgroundColor: target ? color.state.success : color.text.tertiary,
           marginRight: 12,
         }}
       />
@@ -291,7 +287,7 @@ const SourceRow: FC<{
   onPressIn,
   onPressOut,
 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const { title, subtitle, badges } = formatSourceChoice(choice, labels);
 
   return (
@@ -313,9 +309,7 @@ const SourceRow: FC<{
           paddingHorizontal: 12,
           borderRadius: radius.md,
           marginBottom: 6,
-          backgroundColor: pressed
-            ? tokens.color.bg["3"]
-            : tokens.color.bg["2"],
+          backgroundColor: pressed ? color.bg["3"] : color.bg["2"],
           borderWidth: 1,
           borderColor: selected ? accent[500] : "transparent",
           opacity: choice.disabled ? 0.5 : 1,
@@ -330,7 +324,7 @@ const SourceRow: FC<{
           width: 8,
           height: 8,
           borderRadius: radius.pill,
-          backgroundColor: dotFor(choice),
+          backgroundColor: dotFor(choice, color),
           marginRight: 12,
         }}
       />

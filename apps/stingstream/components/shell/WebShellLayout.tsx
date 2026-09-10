@@ -5,8 +5,8 @@ import { useAtomValue } from "jotai";
 import { type PropsWithChildren, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
-import { tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
@@ -39,6 +39,7 @@ import { useSidebarCollapsed } from "./useSidebarCollapsed";
  * of its own and can be mounted and unmounted freely.
  */
 export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const segments = useSegments() as string[];
@@ -137,7 +138,7 @@ export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
       style={{
         flex: 1,
         flexDirection: "row",
-        backgroundColor: tokens.color.bg["0"],
+        backgroundColor: color.bg["0"],
       }}
     >
       <Sidebar

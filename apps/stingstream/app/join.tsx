@@ -14,6 +14,7 @@ import {
 } from "@/components/stingstream/invites/InviteAccountForm";
 import { tokens } from "@/constants/theme";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
+import { useTheme } from "@/hooks/useTheme";
 import { signInWithAssertion } from "@/lib/stingstream/identityApi";
 import {
   acceptInvite,
@@ -58,6 +59,7 @@ import { rememberPendingInvite } from "@/utils/mesh/pendingInvite";
  * and the page below decides what each of the two should see.
  */
 export default function JoinFromLinkPage() {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const nodeContext = useNodeContext();
@@ -305,7 +307,7 @@ export default function JoinFromLinkPage() {
           alignItems: "center",
           justifyContent: "center",
           gap: 12,
-          backgroundColor: tokens.color.bg["0"],
+          backgroundColor: color.bg["0"],
         }}
       >
         <ActivityIndicator />
@@ -409,7 +411,7 @@ export default function JoinFromLinkPage() {
               marginTop: 20,
               paddingTop: 16,
               borderTopWidth: 1,
-              borderTopColor: tokens.color.border.subtle,
+              borderTopColor: color.border.subtle,
               gap: 8,
             }}
           >

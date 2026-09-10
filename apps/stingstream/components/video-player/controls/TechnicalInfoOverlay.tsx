@@ -209,7 +209,7 @@ const formatTranscodeReason = (reason: string): string => {
 };
 
 /**
- * The mesh status pill's colour, on the same scale the play method uses: green is the good case
+ * The mesh status pill's color, on the same scale the play method uses: green is the good case
  * (bytes came straight off the holder's disk), amber is "working, but longer than it needs to be".
  */
 const getMeshStatusColor = (kind: MeshConnectionKind): string => {

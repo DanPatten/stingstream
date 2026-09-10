@@ -27,6 +27,7 @@ import { DownloadSize } from "@/components/downloads/DownloadSize";
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import useRouter from "@/hooks/useAppRouter";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { type DownloadedItem } from "@/providers/Downloads/types";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
@@ -37,6 +38,7 @@ import { writeToLog } from "@/utils/log";
 const CARD_FOOTER_HEIGHT = 78;
 
 export default function DownloadsPage() {
+  const { color } = useTheme();
   const navigation = useNavigation();
   const { t } = useTranslation();
   const [_queue, _setQueue] = useAtom(queueAtom);
@@ -195,7 +197,10 @@ export default function DownloadsPage() {
 
   const countPill = useCallback(
     (count: number) => (
-      <View className='bg-purple-600 rounded-full h-6 w-6 flex items-center justify-center'>
+      <View
+        style={{ backgroundColor: color.accent[500] }}
+        className='rounded-full h-6 w-6 flex items-center justify-center'
+      >
         <Text className='text-xs font-bold'>{count}</Text>
       </View>
     ),

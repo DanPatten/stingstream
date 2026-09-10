@@ -8,8 +8,8 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { BITRATES } from "@/constants/Playback";
-import { tokens } from "@/constants/theme";
 import type { ThemeColors } from "@/hooks/useImageColorsReturn";
+import { useTheme } from "@/hooks/useTheme";
 import { useSettings } from "@/utils/atoms/settings";
 import { rememberSeriesTrackFromRow } from "@/utils/seriesTrackMemory";
 import { SUBTITLES_OFF } from "@/utils/subtitles/subtitleIndex";
@@ -32,16 +32,17 @@ export const MediaSourceButton: React.FC<Props> = ({
   setSelectedOptions,
   colors,
 }: Props) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
   const [open, setOpen] = useState(false);
 
-  // WP5: the fallback used to be the fork's purple, which is the one colour
+  // WP5: the fallback used to be the fork's purple, which is the one color
   // `docs/UI-DESIGN.md` rules out — and once the details page stopped tinting
   // this button from the poster, the fallback became what everybody saw.
   const effectiveColors = colors || {
-    primary: tokens.color.bg["3"],
-    text: tokens.color.text.primary,
+    primary: color.bg["3"],
+    text: color.text.primary,
   };
 
   // There used to be an effect here that forced `MediaSources[0]` onto the selection whenever the

@@ -69,6 +69,14 @@ beside the page; below it they are the list they always were.
 `components/settings/SettingsShell.tsx` is a *component*, not a layout route, for the same reason
 `WebShellLayout` is: there is one navigator at every width.
 
+Because it is a component, every page has to remember to host it, and six shipped without one: a
+pane with no navigation beside it has no way back to its category at all. Every route under
+`/settings` wears it now, drill-ins included, and `components/settings/settingsRoutes.test.ts`
+sweeps the tree so the next one cannot forget. Clicking a category row takes you to that category's
+root from anywhere inside it, `/settings/servers/this` back to `/settings/servers`; only the row's
+own exact URL is a no-op. Lighting a row is a prefix match, clicking it is an address, and
+`settingsNavIntent` is where the two are told apart.
+
 The top-bar search box pivots on a settings route — same placeholder, different index. It answers
 from `components/shell/settingsSearchIndex.ts`, which lists individual **controls** rather than
 pages, so "nvenc" finds hardware acceleration and "x-forwarded" finds the trusted-proxy field. A

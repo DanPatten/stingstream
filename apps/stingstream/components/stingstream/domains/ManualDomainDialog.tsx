@@ -6,7 +6,8 @@ import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Text } from "@/components/common/Text";
 import { NODE_GATEWAY_PORT } from "@/constants/Networking";
-import { space, tokens } from "@/constants/theme";
+import { space } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   useMeshSharingSettings,
   useSetMeshSharingSettings,
@@ -68,6 +69,7 @@ export function ManualDomainDialog({
   /** For this machine's own LAN address, so step one names a real value. */
   status: MeshDomainsStatus | undefined;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const healthz = useHealthz();
   const settings = useMeshSharingSettings();
@@ -155,7 +157,7 @@ export function ManualDomainDialog({
         <View
           style={{
             borderTopWidth: 1,
-            borderTopColor: tokens.color.border.subtle,
+            borderTopColor: color.border.subtle,
             paddingTop: space["4"],
             gap: space["4"],
           }}

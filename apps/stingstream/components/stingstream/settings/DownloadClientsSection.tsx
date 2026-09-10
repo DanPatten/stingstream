@@ -8,7 +8,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
   type ConnectivityTestResult,
@@ -145,7 +145,7 @@ export function DownloadClientsSection({
  */
 function ExternalClients() {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const clients = useExternalDownloadClients();
   const add = useAddExternalDownloadClient();
   const remove = useDeleteExternalDownloadClient();
@@ -243,7 +243,7 @@ function ExternalClients() {
         <View
           style={{
             borderRadius: radius.lg,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
             padding: 16,
             marginBottom: 12,
           }}
@@ -280,7 +280,7 @@ function ExternalClients() {
                   backgroundColor:
                     form.Implementation === impl.value
                       ? accent[500]
-                      : tokens.color.bg["3"],
+                      : color.bg["3"],
                 }}
               >
                 <Text
@@ -392,7 +392,7 @@ function ExternalClients() {
               tone={verdict.Ok ? undefined : "danger"}
               style={[
                 { marginBottom: 8 },
-                verdict.Ok ? { color: tokens.color.state.success } : undefined,
+                verdict.Ok ? { color: color.state.success } : undefined,
               ]}
             >
               {verdict.Message}

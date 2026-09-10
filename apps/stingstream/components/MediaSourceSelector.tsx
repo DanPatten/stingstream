@@ -5,6 +5,7 @@ import type {
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, TouchableOpacity, View } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "./common/Text";
 import { type OptionGroup, PlatformDropdown } from "./PlatformDropdown";
 
@@ -20,6 +21,7 @@ export const MediaSourceSelector: React.FC<Props> = ({
   selected,
   ...props
 }) => {
+  const { color } = useTheme();
   const isTv = Platform.isTV;
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
@@ -74,7 +76,11 @@ export const MediaSourceSelector: React.FC<Props> = ({
     <View className='flex flex-col' {...props}>
       <Text className='opacity-50 mb-1 text-xs'>{t("item_card.video")}</Text>
       <TouchableOpacity
-        className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center'
+        style={{
+          backgroundColor: color.bg["1"],
+          borderColor: color.border.subtle,
+        }}
+        className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center'
         onPress={() => setOpen(true)}
       >
         <Text numberOfLines={1}>{selectedName}</Text>

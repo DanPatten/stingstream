@@ -4,7 +4,7 @@ import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListItem } from "@/components/list/ListItem";
-import { tokens } from "@/constants/theme";
+
 import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -48,6 +48,7 @@ export function TextFieldRow({
   /** Locked by server policy: says so in place of the subtitle, and cannot be typed in. */
   disabledByAdmin?: boolean;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const breakpoint = useBreakpointName();
   const compact = breakpoint === "compact";
@@ -82,7 +83,7 @@ export function TextFieldRow({
         style={{
           paddingHorizontal: 16,
           paddingVertical: 10,
-          backgroundColor: tokens.color.bg["1"],
+          backgroundColor: color.bg["1"],
         }}
       >
         <Text numberOfLines={2}>{title}</Text>

@@ -11,7 +11,7 @@ import { SettingsPane } from "./SettingsPane";
  *
  * The language selector used to float above the whole settings list, outside
  * every group, because it belonged to none of them. It belongs here: picking
- * English or German is the same kind of decision as picking an accent colour,
+ * English or German is the same kind of decision as picking an accent color,
  * and both are stored in this install's MMKV and follow nobody anywhere.
  */
 export const InterfacePane: React.FC = () => {
@@ -26,9 +26,7 @@ export const InterfacePane: React.FC = () => {
         <AppLanguageSelector />
       </FocusTarget>
       <View style={{ marginTop: space["4"] }}>
-        <FocusTarget
-          id={["theme", "accent", "home-layout", "hidden-libraries"]}
-        >
+        <FocusTarget id={["theme", "home-layout", "hidden-libraries"]}>
           <AppearanceSettings />
         </FocusTarget>
       </View>

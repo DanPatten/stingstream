@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Input } from "@/components/common/Input";
 import { SheetFlatList } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props<T> {
   title: string;
@@ -44,6 +45,7 @@ export const FilterSheetContent = <T,>({
   multiple = false,
   onClose,
 }: Props<T>) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
@@ -91,13 +93,14 @@ export const FilterSheetContent = <T,>({
       ListHeaderComponent={
         <>
           <Text className='font-bold text-2xl mt-2'>{title}</Text>
-          <Text className='mb-2 text-neutral-500'>
+          <Text tone='tertiary' className='mb-2'>
             {t("search.x_items", { count: data.length })}
           </Text>
           {showSearch && (
             <Input
+              style={{ borderColor: color.border.subtle }}
               placeholder={t("search.search")}
-              className='my-2 border-neutral-800 border'
+              className='my-2 border'
               value={search}
               onChangeText={setSearch}
               returnKeyType='done'
@@ -107,8 +110,10 @@ export const FilterSheetContent = <T,>({
       }
       ItemSeparatorComponent={() => (
         <View
-          style={{ height: StyleSheet.hairlineWidth }}
-          className='bg-neutral-700'
+          style={{
+            height: StyleSheet.hairlineWidth,
+            backgroundColor: color.bg["3"],
+          }}
         />
       )}
       renderItem={({ item, index }) => {
@@ -125,8 +130,9 @@ export const FilterSheetContent = <T,>({
               borderTopRightRadius: isFirst ? ROW_RADIUS : 0,
               borderBottomLeftRadius: isLast ? ROW_RADIUS : 0,
               borderBottomRightRadius: isLast ? ROW_RADIUS : 0,
+              backgroundColor: color.bg["2"],
             }}
-            className='bg-neutral-800 px-4 py-3 flex flex-row items-center justify-between'
+            className='px-4 py-3 flex flex-row items-center justify-between'
           >
             <Text className='flex shrink'>{renderItemLabel(item)}</Text>
             <Ionicons

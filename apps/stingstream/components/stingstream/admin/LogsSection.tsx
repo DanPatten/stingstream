@@ -8,7 +8,8 @@ import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
@@ -21,6 +22,7 @@ function formatSize(bytes?: number): string {
 }
 
 export function LogsSection() {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const api = useAtomValue(apiAtom);
   const [openLog, setOpenLog] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export function LogsSection() {
           horizontal
           style={{
             borderRadius: radius.md,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
             maxHeight: 500,
           }}
           contentContainerStyle={{ padding: 12 }}

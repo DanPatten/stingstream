@@ -8,7 +8,8 @@ import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type ConnectivityTestResult,
   type IndexerSettings,
@@ -39,6 +40,7 @@ const emptyForm: IndexerSettings = {
 };
 
 export function IndexersSection() {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { data: indexers, isLoading, error, refetch } = useIndexers();
   const addIndexer = useAddIndexer();
@@ -142,7 +144,7 @@ export function IndexersSection() {
         <View
           style={{
             borderRadius: radius.lg,
-            backgroundColor: tokens.color.bg["1"],
+            backgroundColor: color.bg["1"],
             padding: 16,
             marginBottom: 12,
           }}
@@ -196,7 +198,7 @@ export function IndexersSection() {
               tone={verdict.Ok ? undefined : "danger"}
               style={[
                 { marginBottom: 8 },
-                verdict.Ok ? { color: tokens.color.state.success } : undefined,
+                verdict.Ok ? { color: color.state.success } : undefined,
               ]}
             >
               {verdict.Message}

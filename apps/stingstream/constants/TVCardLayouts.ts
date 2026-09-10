@@ -84,9 +84,9 @@ export const TV_CARD_SPACING = 24;
 /**
  * The one focus treatment on TV.
  *
- * White, never the accent: the accent is a brand colour and reads as "selected"
+ * White, never the accent: the accent is a brand color and reads as "selected"
  * rather than "focused" from across a room, and `docs/conventions/tv.md` has
- * banned a coloured focus ring since the first TV pass.
+ * banned a colored focus ring since the first TV pass.
  */
 export const TV_FOCUS = {
   scale: 1.05,

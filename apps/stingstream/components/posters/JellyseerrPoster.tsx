@@ -15,6 +15,7 @@ import JellyseerrMediaIcon from "@/components/jellyseerr/JellyseerrMediaIcon";
 import JellyseerrStatusIcon from "@/components/jellyseerr/JellyseerrStatusIcon";
 import { Colors } from "@/constants/Colors";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { useJellyseerrCanRequest } from "@/utils/_jellyseerr/useJellyseerrCanRequest";
 import { MediaStatus } from "@/utils/jellyseerr/server/constants/media";
 import type MediaRequest from "@/utils/jellyseerr/server/entity/MediaRequest";
@@ -40,6 +41,7 @@ const JellyseerrPoster: React.FC<Props> = ({
   showDownloadInfo,
   mediaRequest,
 }) => {
+  const { color } = useTheme();
   const { jellyseerrApi, getTitle, getYear, getMediaType } = useJellyseerr();
   const loadingOpacity = useSharedValue(1);
   const imageOpacity = useSharedValue(0);
@@ -170,7 +172,8 @@ const JellyseerrPoster: React.FC<Props> = ({
                 </>
               )}
               <Tag
-                className='absolute right-1 top-1 text-right bg-black border border-neutral-800/50'
+                style={{ backgroundColor: color.bg["0"] }}
+                className='absolute right-1 top-1 text-right border border-neutral-800/50'
                 text={mediaRequest?.requestedBy.displayName}
               />
               {requestedSeasons.length > 0 && (

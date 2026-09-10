@@ -6,6 +6,7 @@ import GenericSlideCard from "@/components/jellyseerr/discover/GenericSlideCard"
 import Slide, { type SlideProps } from "@/components/jellyseerr/discover/Slide";
 import useRouter from "@/hooks/useAppRouter";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import {
   COMPANY_LOGO_IMAGE_FILTER,
   type Network,
@@ -15,6 +16,7 @@ import type { Studio } from "@/utils/jellyseerr/src/components/Discover/StudioSl
 const CompanySlide: React.FC<
   { data: Network[] | Studio[] } & SlideProps & ViewProps
 > = ({ slide, data, ...props }) => {
+  const { color } = useTheme();
   const segments = useSegments();
   const { jellyseerrApi } = useJellyseerr();
   const router = useRouter();
@@ -38,7 +40,8 @@ const CompanySlide: React.FC<
       renderItem={(item, _index) => (
         <TouchableOpacity className='mr-2' onPress={() => navigate(item)}>
           <GenericSlideCard
-            className='w-28 rounded-lg overflow-hidden border border-neutral-900 p-4'
+            style={{ borderColor: color.border.subtle }}
+            className='w-28 rounded-lg overflow-hidden border p-4'
             id={item.id.toString()}
             url={jellyseerrApi?.imageProxy(
               item.image,

@@ -56,7 +56,7 @@ export const stackScreenOptions: ICommonScreenOptions = {
  */
 export function useStackScreenOptions(): ICommonScreenOptions {
   const { isWebWide, name } = useBreakpoint();
-  const { accent } = useTheme();
+  const { accent, color } = useTheme();
 
   return useMemo(() => {
     // `!Platform.isTV` is what every screen used to declare for itself; moving
@@ -73,7 +73,7 @@ export function useStackScreenOptions(): ICommonScreenOptions {
       // The back chevron is the one interactive thing in the header, so it is
       // the one thing that takes the accent.
       headerTintColor: accent[500],
-      headerStyle: { backgroundColor: tokens.color.bg["0"] },
+      headerStyle: { backgroundColor: color.bg["0"] },
       headerTitleStyle: {
         color: title.color,
         fontFamily: title.fontFamily,
@@ -82,9 +82,9 @@ export function useStackScreenOptions(): ICommonScreenOptions {
       headerShadowVisible: false,
       // Every screen's own background, so a short page does not show the
       // browser's white through the bottom of the column.
-      contentStyle: { backgroundColor: tokens.color.bg["0"] },
+      contentStyle: { backgroundColor: color.bg["0"] },
     } satisfies ICommonScreenOptions;
-  }, [isWebWide, name, accent]);
+  }, [isWebWide, name, accent, color]);
 }
 
 /**

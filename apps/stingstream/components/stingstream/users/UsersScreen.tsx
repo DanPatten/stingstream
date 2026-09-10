@@ -11,6 +11,7 @@ import { Icon } from "@/components/common/Icon";
 import { ListGroup } from "@/components/list/ListGroup";
 import { rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import {
   useDeleteInvite,
   useInviteLibraries,
@@ -288,6 +289,7 @@ const PendingRow: React.FC<{
   onPress: () => void;
   onDelete: () => void;
 }> = ({ name, libraries, isAdministrator, busy, onPress, onDelete }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   return (
@@ -310,7 +312,7 @@ const PendingRow: React.FC<{
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: tokens.color.bg["3"],
+            backgroundColor: color.bg["3"],
             alignItems: "center",
             justifyContent: "center",
           }}
@@ -343,6 +345,7 @@ const DeleteAction: React.FC<{
   disabled: boolean;
   onPress: () => void;
 }> = ({ label, disabled, onPress }) => {
+  const { color } = useTheme();
   const states = usePressableStates({ disabled });
 
   return (
@@ -362,9 +365,9 @@ const DeleteAction: React.FC<{
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: states.pressed
-            ? rgba(tokens.color.state.danger, 0.24)
+            ? rgba(color.state.danger, 0.24)
             : states.hovered
-              ? rgba(tokens.color.state.danger, 0.14)
+              ? rgba(color.state.danger, 0.14)
               : "transparent",
           opacity: disabled ? tokens.control.disabledOpacity : 1,
         },
@@ -376,8 +379,8 @@ const DeleteAction: React.FC<{
         size={18}
         color={
           states.hovered || states.pressed
-            ? tokens.color.state.danger
-            : tokens.color.text.tertiary
+            ? color.state.danger
+            : color.text.tertiary
         }
       />
     </Pressable>
@@ -394,6 +397,7 @@ function Avatar({
   user: UserDto;
   size?: number;
 }) {
+  const { color } = useTheme();
   const url =
     serverAddress && user.Id
       ? getUserImageUrl({
@@ -411,7 +415,7 @@ function Avatar({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: tokens.color.bg["3"],
+          backgroundColor: color.bg["3"],
           alignItems: "center",
           justifyContent: "center",
         }}

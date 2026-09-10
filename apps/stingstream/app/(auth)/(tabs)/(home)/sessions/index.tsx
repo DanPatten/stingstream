@@ -17,6 +17,7 @@ import { Loader } from "@/components/Loader";
 import Poster from "@/components/posters/Poster";
 import { useInterval } from "@/hooks/useInterval";
 import { useSessions, type useSessionsProps } from "@/hooks/useSessions";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { formatBitrate } from "@/utils/bitrate";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
@@ -36,7 +37,7 @@ export default function SessionsPage() {
   if (!sessions || sessions.length === 0)
     return (
       <View className='h-full w-full flex justify-center items-center'>
-        <Text className='text-lg text-neutral-500'>
+        <Text tone='tertiary' className='text-lg'>
           {t("home.sessions.no_active_sessions")}
         </Text>
       </View>
@@ -62,6 +63,7 @@ interface SessionCardProps {
 }
 
 const SessionCard = ({ session }: SessionCardProps) => {
+  const { color } = useTheme();
   const api = useAtomValue(apiAtom);
   const [remainingTicks, setRemainingTicks] = useState<number>(0);
 
@@ -169,7 +171,10 @@ const SessionCard = ({ session }: SessionCardProps) => {
   useInterval(tick, 1000);
 
   return (
-    <View className='flex flex-col shadow-md bg-neutral-900 rounded-2xl mb-4'>
+    <View
+      style={{ backgroundColor: color.bg["1"] }}
+      className='flex flex-col shadow-md rounded-2xl mb-4'
+    >
       <View className='flex flex-row p-4'>
         <View className='w-20 pr-4'>
           <Poster
@@ -229,9 +234,10 @@ const SessionCard = ({ session }: SessionCardProps) => {
             </View>
             <View className='align-bottom bg-gray-800 h-1'>
               <View
-                className={"bg-purple-600 h-full"}
+                className='h-full'
                 style={{
                   width: `${getProgressPercentage()}%`,
+                  backgroundColor: color.accent[500],
                 }}
               />
             </View>
@@ -447,6 +453,7 @@ const TranscodingStreamView = ({
 };
 
 const TranscodingView = ({ session }: SessionCardProps) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const videoStream = useMemo(() => {
     return session.NowPlayingItem?.MediaStreams?.filter(
@@ -479,7 +486,10 @@ const TranscodingView = ({ session }: SessionCardProps) => {
   };
 
   return (
-    <View className='flex flex-col bg-neutral-800 rounded-b-2xl p-4 pt-2'>
+    <View
+      style={{ backgroundColor: color.bg["2"] }}
+      className='flex flex-col rounded-b-2xl p-4 pt-2'
+    >
       <TranscodingStreamView
         title={t("common.video")}
         properties={{

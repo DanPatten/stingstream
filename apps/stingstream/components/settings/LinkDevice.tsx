@@ -1,10 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { getQuickConnectApi } from "@jellyfin/sdk/lib/utils/api";
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { useAtom } from "jotai";
@@ -14,9 +8,17 @@ import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewProps } from "react-native";
 import { toast } from "sonner-native";
 import { FormError } from "@/components/common/FormError";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useHaptic } from "@/hooks/useHaptic";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { Button } from "../Button";
 import { PinInput } from "../inputs/PinInput";
@@ -36,12 +38,13 @@ interface Props extends ViewProps {}
  * a code you type is something you reach for from the phone in your hand.
  */
 export const LinkDevice: React.FC<Props> = ({ ...props }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const [code, setCode] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const successHapticFeedback = useHaptic("success");
   const errorHapticFeedback = useHaptic("error");
   const isAndroid = Platform.OS === "android";
@@ -53,8 +56,8 @@ export const LinkDevice: React.FC<Props> = ({ ...props }) => {
   const { t } = useTranslation();
 
   const renderBackdrop = useCallback(
-    (backdropProps: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
+    (backdropProps: SheetBackdropProps) => (
+      <SheetBackdrop
         {...backdropProps}
         disappearsOnIndex={-1}
         appearsOnIndex={0}
@@ -117,18 +120,18 @@ export const LinkDevice: React.FC<Props> = ({ ...props }) => {
         />
       </ListGroup>
 
-      <BottomSheetModal
+      <SheetModal
         ref={bottomSheetModalRef}
         snapPoints={snapPoints}
-        handleIndicatorStyle={{ backgroundColor: tokens.color.text.tertiary }}
-        backgroundStyle={{ backgroundColor: tokens.color.bg["1"] }}
+        handleIndicatorStyle={{ backgroundColor: color.text.tertiary }}
+        backgroundStyle={{ backgroundColor: color.bg["1"] }}
         backdropComponent={renderBackdrop}
         keyboardBehavior={isAndroid ? "fillParent" : "interactive"}
         keyboardBlurBehavior='restore'
         android_keyboardInputMode='adjustResize'
         topInset={isAndroid ? 0 : undefined}
       >
-        <BottomSheetView>
+        <SheetView>
           <View
             style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32 }}
           >
@@ -145,8 +148,8 @@ export const LinkDevice: React.FC<Props> = ({ ...props }) => {
                 padding: 16,
                 borderRadius: radius.md,
                 borderWidth: 1,
-                borderColor: tokens.color.border.subtle,
-                backgroundColor: tokens.color.bg["2"],
+                borderColor: color.border.subtle,
+                backgroundColor: color.bg["2"],
               }}
             >
               <PinInput
@@ -174,7 +177,7 @@ export const LinkDevice: React.FC<Props> = ({ ...props }) => {
                 <Feather
                   name='clipboard'
                   size={15}
-                  color={tokens.color.text.tertiary}
+                  color={color.text.tertiary}
                 />
                 <Text
                   variant='caption'
@@ -199,8 +202,8 @@ export const LinkDevice: React.FC<Props> = ({ ...props }) => {
               {t("home.settings.link_device.authorize")}
             </Button>
           </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+        </SheetView>
+      </SheetModal>
     </View>
   );
 };

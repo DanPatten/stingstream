@@ -11,11 +11,7 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import { BITRATES, type Bitrate } from "@/constants/Playback";
-import {
-  ACCENT_NAMES,
-  type AccentName,
-  DEFAULT_ACCENT,
-} from "@/constants/theme";
+import { DEFAULT_THEME, THEME_NAMES, type ThemeName } from "@/constants/theme";
 import type { PlaybackPolicy } from "@/lib/stingstream/sourceChooser";
 import * as ScreenOrientation from "@/packages/expo-screen-orientation";
 import { apiAtom } from "@/providers/JellyfinProvider";
@@ -497,13 +493,17 @@ export type Settings = {
   hideRemoteSessionButton: boolean;
   hideWatchlistsTab: boolean;
   /**
-   * The accent colour, picked in Appearance. Teal is the brand colour and the
-   * default; the other two exist so the palette can be sanity-checked against
-   * real screens. NativeWind v2 compiles classes at build time, so this value
-   * only reaches the UI through `useTheme()` as an inline style — see
-   * `constants/theme.ts`.
+   * The theme, picked in Appearance: `dark` (the default), `light`, or `sting`,
+   * which tints its surfaces toward the StingStream mark. A theme carries a
+   * whole palette — surfaces, ink, borders, state colors, the accent and the
+   * direction of the hover wash — not just an accent.
+   *
+   * Per-device rather than per-account: the same library is watched on a laptop
+   * in a dark room and a tablet in a bright one. NativeWind v2 compiles classes
+   * at build time, so this value only reaches the UI through `useTheme()` as an
+   * inline style — see `constants/theme.ts`.
    */
-  accent: AccentName;
+  theme: ThemeName;
   /**
    * Which end of the trade-off "Play from…" leans on when a title is held by more than one server
    * in the group: the fastest holder, or the best encode.
@@ -675,7 +675,7 @@ export const defaultValues: Settings = {
   // Appearance
   hideRemoteSessionButton: false,
   hideWatchlistsTab: false,
-  accent: DEFAULT_ACCENT,
+  theme: DEFAULT_THEME,
   // Starting sooner is the answer people expect from a "play" button; quality is the deliberate
   // choice, so it is the one you go and make.
   playbackPolicy: "speed_first",
@@ -880,14 +880,15 @@ export const effectiveSettingsAtom = atom<Settings>((get) => {
     defaultValues,
     normalizePluginValue,
   );
-  // Every reader of `accent` — `Text`, `Icon`, `useTheme`, `ListItem` — goes through this one
+  // Every reader of `theme` — `Text`, `Icon`, `useTheme`, `ListItem` — goes through this one
   // atom, so this is the single point that can catch a value outside the three known names
-  // (corrupt storage, a downgrade after a release added a fourth accent, an admin typo in a
-  // locked plugin value) before it reaches `accentPalette()`, which would otherwise return
-  // `undefined` and crash the first component that reads `.500` off it.
+  // (corrupt storage, a downgrade after a release added a fourth theme, an admin typo in a
+  // locked plugin value) before it reaches `themePalette()`. That helper falls back rather
+  // than returning `undefined`, but clamping here means the *stored* value is the one the
+  // picker shows as selected, instead of the picker showing nothing selected at all.
   return {
     ...resolved,
-    accent: withinAllowedValues(resolved.accent, ACCENT_NAMES, DEFAULT_ACCENT),
+    theme: withinAllowedValues(resolved.theme, THEME_NAMES, DEFAULT_THEME),
   };
 });
 

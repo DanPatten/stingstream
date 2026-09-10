@@ -5,6 +5,7 @@ import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetScrollView } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
+import { useTheme } from "@/hooks/useTheme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 
 // @expo/ui's SwiftUI native module (ExpoUI) does not exist in tvOS builds.
@@ -82,6 +83,7 @@ const OptionItem: React.FC<{ option: Option; isLast?: boolean }> = ({
   option,
   isLast,
 }) => {
+  const { color } = useTheme();
   const isToggle = option.type === "toggle";
   const isAction = option.type === "action";
   const handlePress = isToggle
@@ -95,7 +97,7 @@ const OptionItem: React.FC<{ option: Option; isLast?: boolean }> = ({
         disabled={option.disabled}
         className={`px-4 py-3 flex flex-row items-center justify-between ${option.disabled ? "opacity-50" : ""}`}
       >
-        <Text className='flex-1 text-white'>{option.label}</Text>
+        <Text className='flex-1'>{option.label}</Text>
         {isToggle ? (
           <ToggleSwitch value={option.value} />
         ) : isAction ? null : (option as RadioOption).selected ? (
@@ -108,38 +110,44 @@ const OptionItem: React.FC<{ option: Option; isLast?: boolean }> = ({
         <View
           style={{
             height: StyleSheet.hairlineWidth,
+            backgroundColor: color.bg["3"],
           }}
-          className='bg-neutral-700 mx-4'
+          className='mx-4'
         />
       )}
     </>
   );
 };
 
-const OptionGroupComponent: React.FC<{ group: OptionGroup }> = ({ group }) => (
-  <View className='mb-6'>
-    {group.title && (
-      <Text className='text-lg font-semibold mb-3 text-neutral-300'>
-        {group.title}
-      </Text>
-    )}
-    <View
-      style={{
-        borderRadius: 12,
-        overflow: "hidden",
-      }}
-      className='bg-neutral-800 rounded-xl overflow-hidden'
-    >
-      {group.options.map((option, index) => (
-        <OptionItem
-          key={index}
-          option={option}
-          isLast={index === group.options.length - 1}
-        />
-      ))}
+const OptionGroupComponent: React.FC<{ group: OptionGroup }> = ({ group }) => {
+  const { color } = useTheme();
+
+  return (
+    <View className='mb-6'>
+      {group.title && (
+        <Text tone='secondary' className='text-lg font-semibold mb-3'>
+          {group.title}
+        </Text>
+      )}
+      <View
+        style={{
+          borderRadius: 12,
+          overflow: "hidden",
+          backgroundColor: color.bg["2"],
+        }}
+        className='rounded-xl overflow-hidden'
+      >
+        {group.options.map((option, index) => (
+          <OptionItem
+            key={index}
+            option={option}
+            isLast={index === group.options.length - 1}
+          />
+        ))}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 const BottomSheetContent: React.FC<{
   title?: string;
@@ -390,7 +398,7 @@ const PlatformDropdownComponent = ({
       activeOpacity={0.7}
       disabled={isDisabled}
     >
-      {trigger || <Text className='text-white'>{t("common.open_menu")}</Text>}
+      {trigger || <Text>{t("common.open_menu")}</Text>}
     </TouchableOpacity>
   );
 };

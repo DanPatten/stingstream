@@ -42,15 +42,15 @@ export const SidebarItem: React.FC<Props> = ({
   onPress,
   onHoverChange,
 }) => {
-  const { accentName, accent } = useTheme();
+  const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
   const ref = useRef<View>(null);
 
-  const background = active || hovered ? tokens.color.bg["3"] : "transparent";
+  const background = active || hovered ? color.bg["3"] : "transparent";
   const tone = active ? "primary" : "secondary";
-  const glyphColor = active ? accent[500] : tokens.color.text.secondary;
+  const glyphColor = active ? accent[500] : color.text.secondary;
 
   const hoverIn = () => {
     setHovered(true);
@@ -96,7 +96,7 @@ export const SidebarItem: React.FC<Props> = ({
                 // A nav row is a link; react-native-web leaves a Pressable as
                 // `cursor: auto`.
                 cursor: "pointer",
-                ...webFocusRing(showRing, accentName),
+                ...webFocusRing(showRing, color),
               }
             : null),
         } as ViewStyle
@@ -151,31 +151,35 @@ export const SidebarItem: React.FC<Props> = ({
 export const RailTooltip: React.FC<{ label: string; top: number }> = ({
   label,
   top,
-}) => (
-  <View
-    // Purely decorative: the row it belongs to already carries the same string
-    // as its accessible name.
-    pointerEvents='none'
-    style={{
-      position: "absolute",
-      left: 60,
-      top,
-      // An absolutely positioned box shrinks to fit inside its containing
-      // block, and the rail's containing block is 72 px wide — which left 12 px
-      // for the label and rendered an 8 px sliver. The width has to be stated.
-      minWidth: 120,
-      maxWidth: 220,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: radius.sm,
-      borderWidth: 1,
-      borderColor: tokens.color.border.subtle,
-      backgroundColor: tokens.color.bg["2"],
-      zIndex: 20,
-    }}
-  >
-    <Text variant='caption' numberOfLines={1}>
-      {label}
-    </Text>
-  </View>
-);
+}) => {
+  const { color } = useTheme();
+
+  return (
+    <View
+      // Purely decorative: the row it belongs to already carries the same string
+      // as its accessible name.
+      pointerEvents='none'
+      style={{
+        position: "absolute",
+        left: 60,
+        top,
+        // An absolutely positioned box shrinks to fit inside its containing
+        // block, and the rail's containing block is 72 px wide — which left 12 px
+        // for the label and rendered an 8 px sliver. The width has to be stated.
+        minWidth: 120,
+        maxWidth: 220,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: radius.sm,
+        borderWidth: 1,
+        borderColor: color.border.subtle,
+        backgroundColor: color.bg["2"],
+        zIndex: 20,
+      }}
+    >
+      <Text variant='caption' numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+};

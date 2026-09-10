@@ -5,6 +5,7 @@ import { TouchableOpacity, View } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
 
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export const MusicAlbumCard: React.FC<Props> = ({ album, width = 130 }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const router = useRouter();
 
@@ -52,15 +54,18 @@ export const MusicAlbumCard: React.FC<Props> = ({ album, width = 130 }) => {
             cachePolicy='memory-disk'
           />
         ) : (
-          <View className='flex-1 items-center justify-center bg-neutral-800'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='flex-1 items-center justify-center'
+          >
             <Text className='text-4xl'>🎵</Text>
           </View>
         )}
       </View>
-      <Text numberOfLines={1} className='text-white text-sm font-medium mt-2'>
+      <Text numberOfLines={1} className='text-sm font-medium mt-2'>
         {album.Name}
       </Text>
-      <Text numberOfLines={1} className='text-neutral-400 text-xs'>
+      <Text tone='secondary' numberOfLines={1} className='text-xs'>
         {album.AlbumArtist || album.Artists?.join(", ")}
       </Text>
     </TouchableOpacity>

@@ -23,7 +23,7 @@ export function ServerUrlStatusText({
     return (
       <View className={`flex-row items-center ${className}`}>
         <ActivityIndicator size='small' color='#9ca3af' />
-        <Text className='text-xs text-neutral-400 ml-2'>
+        <Text tone='secondary' className='text-xs ml-2'>
           {t("server_url.resolving")}
         </Text>
       </View>

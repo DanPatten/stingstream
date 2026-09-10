@@ -92,7 +92,7 @@ export const Card: React.FC<CardProps> = ({
   );
 
   // The artwork is a photograph, not a flat surface, so hover and press are a
-  // wash laid over it rather than a background colour swap — the same wash
+  // wash laid over it rather than a background color swap — the same wash
   // every other interactive surface uses, from `usePressableStates`.
   const stateWash = states.overlay ? (
     <View

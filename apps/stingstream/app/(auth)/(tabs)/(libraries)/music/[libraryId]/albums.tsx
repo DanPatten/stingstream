@@ -11,11 +11,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/common/Text";
 import { Loader } from "@/components/Loader";
 import { MusicAlbumRowCard } from "@/components/music/MusicAlbumRowCard";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 const ITEMS_PER_PAGE = 40;
 
 export default function AlbumsScreen() {
+  const { color } = useTheme();
   const localParams = useLocalSearchParams<{ libraryId?: string | string[] }>();
   const route = useRoute<any>();
   const libraryId =
@@ -73,7 +75,10 @@ export default function AlbumsScreen() {
 
   if (isLoading) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -81,14 +86,17 @@ export default function AlbumsScreen() {
 
   if (albums.length === 0) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500'>{t("music.no_albums")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text tone='tertiary'>{t("music.no_albums")}</Text>
       </View>
     );
   }
 
   return (
-    <View className='flex-1 bg-black'>
+    <View style={{ backgroundColor: color.bg["0"] }} className='flex-1'>
       <FlashList
         data={albums}
         contentContainerStyle={{

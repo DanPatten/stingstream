@@ -7,10 +7,12 @@ import { Text } from "@/components/common/Text";
 import { FocusTarget } from "@/components/settings/FocusTarget";
 import { PluginSettings } from "@/components/settings/PluginSettings";
 import { SettingsShell } from "@/components/settings/SettingsShell";
-import { adminOnly } from "@/components/stingstream/shared/RequiresAdmin";
+import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
+import { useTheme } from "@/hooks/useTheme";
 import { useSettings } from "@/utils/atoms/settings";
 
 function PluginsPage() {
+  const { color } = useTheme();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { refreshStreamyfinPluginSettings } = useSettings();
@@ -32,35 +34,42 @@ function PluginsPage() {
 
   return (
     <SettingsShell categoryKey='plugins'>
-      <ScrollView
-        contentInsetAdjustmentBehavior='automatic'
-        contentContainerStyle={{
-          paddingLeft: insets.left,
-          paddingRight: insets.right,
-        }}
-      >
-        <View
-          className='px-4 flex flex-col'
-          style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
+      <RequiresAdmin>
+        <ScrollView
+          contentInsetAdjustmentBehavior='automatic'
+          contentContainerStyle={{
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
+          }}
         >
-          <FocusTarget id='streamystats'>
-            <PluginSettings />
-          </FocusTarget>
-
-          {/* Pulls the centralised Streamyfin plugin settings for every plugin,
-            so it lives on the plugins index rather than inside Streamystats. */}
-          <TouchableOpacity
-            onPress={handleRefreshFromServer}
-            className='py-3 rounded-xl bg-neutral-800'
+          <View
+            className='px-4 flex flex-col'
+            style={{ paddingTop: Platform.OS === "android" ? 10 : 0 }}
           >
-            <Text className='text-center text-blue-500'>
-              {t("home.settings.plugins.streamystats.refresh_from_server")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+            <FocusTarget id='streamystats'>
+              <PluginSettings />
+            </FocusTarget>
+
+            {/* Pulls the centralised Streamyfin plugin settings for every plugin,
+            so it lives on the plugins index rather than inside Streamystats. */}
+            <TouchableOpacity
+              style={{ backgroundColor: color.bg["2"] }}
+              onPress={handleRefreshFromServer}
+              className='py-3 rounded-xl'
+            >
+              <Text className='text-center text-blue-500'>
+                {t("home.settings.plugins.streamystats.refresh_from_server")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </RequiresAdmin>
     </SettingsShell>
   );
 }
 
-export default adminOnly(PluginsPage);
+// The gate is inside the column, not around it. It was `adminOnly` on the
+// default export, which put the refusal where the navigation should have
+// been: a member pasting this URL lost the whole of Settings rather than the
+// one page they cannot open. `SettingsPage`'s docblock is the rule.
+export default PluginsPage;

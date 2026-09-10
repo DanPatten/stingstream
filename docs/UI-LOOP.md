@@ -703,7 +703,7 @@ Verified with `shots.mjs --only 05-details,06-player` against a fresh node (real
 hand, not just the absence of a finding: `05-details-1440x900.png` is a fully loaded Nosferatu
 details page (real TMDB poster, rating, overview, cast row -- F-27's no-`<plot>` fix still holding,
 the overview is TMDB's real synopsis, not seed text), and `06-player-1440x900.png` is a real,
-playing video (the seed clip's colour-bar pattern, OSD controls, "Ends at" time) -- the whole
+playing video (the seed clip's color-bar pattern, OSD controls, "Ends at" time) -- the whole
 Home -> item -> playback chain confirmed working, not just "didn't throw." One extra fix along the
 way: the first attempt's `05-details` screenshots caught the details page mid-skeleton
 (`page.waitForLoadState("networkidle")` settles before the item's own data fetch finishes) --

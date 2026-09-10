@@ -5,6 +5,7 @@ import { useAtom } from "jotai";
 import { type FC, useMemo } from "react";
 import { View, type ViewProps } from "react-native";
 import { Image } from "@/components/common/ServerImage";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { getItemImage } from "@/utils/getItemImage";
 
@@ -33,6 +34,7 @@ export const ItemImage: FC<Props> = ({
   onError,
   ...props
 }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
 
   const source = useMemo(() => {
@@ -53,8 +55,12 @@ export const ItemImage: FC<Props> = ({
   if (!source?.uri)
     return (
       <View
+        style={{
+          borderColor: color.border.subtle,
+          backgroundColor: color.bg["1"],
+        }}
         {...(props as ViewProps)}
-        className='flex flex-col items-center justify-center border border-neutral-800 bg-neutral-900'
+        className='flex flex-col items-center justify-center border'
       >
         <Ionicons
           name='image-outline'

@@ -48,7 +48,7 @@ export function Input(props: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const breakpoint = useBreakpointName();
   // TV-only: scales the input font with the tvTypographyScale setting.
   // Not consumed by the mobile branch below.
@@ -169,12 +169,12 @@ export function Input(props: InputProps) {
   // in that order, because an invalid field must stay red while it is being
   // corrected — which is exactly when it is also focused.
   const borderColor = error
-    ? tokens.color.state.danger
+    ? color.state.danger
     : isFocused
       ? accent[400]
       : isHovered && editable
-        ? tokens.color.border.strong
-        : tokens.color.border.subtle;
+        ? color.border.strong
+        : color.border.subtle;
 
   return (
     <View>
@@ -193,8 +193,8 @@ export function Input(props: InputProps) {
             borderColor,
             backgroundColor:
               isHovered && editable && !isFocused
-                ? tokens.color.bg["3"]
-                : tokens.color.bg["2"],
+                ? color.bg["3"]
+                : color.bg["2"],
             opacity: editable ? 1 : tokens.control.disabledOpacity,
             ...(Platform.OS === "web"
               ? ({
@@ -218,7 +218,7 @@ export function Input(props: InputProps) {
           ref={inputRef}
           allowFontScaling={false}
           editable={editable}
-          placeholderTextColor={tokens.color.text.tertiary}
+          placeholderTextColor={color.text.tertiary}
           clearButtonMode='while-editing'
           onFocus={handleFocus}
           onBlur={handleBlur}

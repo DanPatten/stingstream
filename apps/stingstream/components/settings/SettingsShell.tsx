@@ -9,8 +9,8 @@ import {
   categoryForRoute,
 } from "@/components/shell/buildSettingsCategories";
 import { settingsTwoPane } from "@/constants/Settings";
-import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { SettingsNav } from "./SettingsNav";
 
@@ -48,6 +48,7 @@ export const SettingsShell: React.FC<
     categoryKey?: string;
   }>
 > = ({ categoryKey, children }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { isWebWide, width } = useBreakpoint();
   const user = useAtomValue(userAtom);
@@ -67,7 +68,7 @@ export const SettingsShell: React.FC<
       style={{
         flex: 1,
         flexDirection: "row",
-        backgroundColor: tokens.color.bg["0"],
+        backgroundColor: color.bg["0"],
       }}
     >
       <SettingsNav activeKey={activeKey} />

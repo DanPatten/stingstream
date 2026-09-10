@@ -7,6 +7,7 @@ import { View, type ViewProps } from "react-native";
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
 import type { MovieDetails } from "@/utils/jellyseerr/server/models/Movie";
 import type {
@@ -106,26 +107,30 @@ const Chip: React.FC<{
   label: string;
   icon?: React.ReactNode;
   accessibilityLabel?: string;
-}> = ({ label, icon, accessibilityLabel }) => (
-  <View
-    accessible
-    accessibilityLabel={accessibilityLabel ?? label}
-    style={{
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: radius.pill,
-      backgroundColor: tokens.color.bg["3"],
-    }}
-  >
-    {icon}
-    <Text variant='caption' weight='semibold' tone='secondary'>
-      {label}
-    </Text>
-  </View>
-);
+}> = ({ label, icon, accessibilityLabel }) => {
+  const { color } = useTheme();
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={accessibilityLabel ?? label}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: radius.pill,
+        backgroundColor: color.bg["3"],
+      }}
+    >
+      {icon}
+      <Text variant='caption' weight='semibold' tone='secondary'>
+        {label}
+      </Text>
+    </View>
+  );
+};
 
 export const JellyserrRatings: React.FC<{
   result: MovieResult | TvResult | TvDetails | MovieDetails;

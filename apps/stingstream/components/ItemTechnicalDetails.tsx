@@ -12,6 +12,7 @@ import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { formatBitrate } from "@/utils/bitrate";
 
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
  * window" the whole overhaul is trying to undo.
  */
 export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { gutter } = useBreakpoint();
   const [open, setOpen] = useState(false);
@@ -72,8 +74,8 @@ export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
             paddingHorizontal: 14,
             borderRadius: radius.md,
             borderWidth: 1,
-            borderColor: tokens.color.border.subtle,
-            backgroundColor: states.overlay ?? tokens.color.bg["1"],
+            borderColor: color.border.subtle,
+            backgroundColor: states.overlay ?? color.bg["1"],
           },
           states.webStyle,
         ]}

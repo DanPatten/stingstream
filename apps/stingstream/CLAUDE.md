@@ -170,8 +170,12 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   shared by several tabs live in the combined group
   `(home,libraries,search,favorites,watchlists)`.
 - There is no `(manage)` group. It was folded into Requests: the arr queue, history and
-  calendar are Requests → Activity, and the arr library is Settings → Movie & series
-  managers (`app/(auth)/(tabs)/(home)/settings/library`). Its components live in
+  calendar are Requests → Activity, and the arr library is Settings → Movies & TV shows
+  (`app/(auth)/(tabs)/(home)/settings/library`). The switches that decide whether this
+  node fetches anything at all are Settings → Downloading
+  (`app/(auth)/(tabs)/(home)/settings/downloading`), a page of their own since a tab bar
+  scoping the library cannot sit under a control governing both of its tabs. Its
+  components live in
   `components/stingstream/arr/`.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
@@ -268,8 +272,15 @@ import { apiAtom } from "@/providers/JellyfinProvider";
 - **One text field.** Everything typed into goes through `@/components/common/Input`, which owns
   the box, the hover tint and the focused border. A settings row uses `TextFieldRow`, which wraps
   it. A bare `TextInput` reads as a printed value rather than a control, which is the bug this
-  rule exists to stop. The bottom sheets are the one exception, since `BottomSheetTextInput` is
-  what keeps the keyboard and the sheet in step.
+  rule exists to stop. The sheets are the one exception, since `SheetTextInput` is what keeps the
+  keyboard and the sheet in step.
+- **One modal surface.** Anything that opens over the page is a `SheetModal` from
+  `@/components/common/Sheet`, or goes through `showModal()`, which is the same component. It is a
+  bottom sheet on a device and a centred card in a browser, so a screen never has to know which.
+  Never import `@gorhom/bottom-sheet` in a screen or a component: its scrollables throw outside a
+  sheet, so a `BottomSheetScrollView` that reaches the web card is a blank page rather than a
+  layout nit. Use `SheetView`, `SheetScrollView`, `SheetFlatList` and `SheetTextInput`.
+  `components/common/oneModalSurface.test.ts` fails on a stray import.
 - Conventional Commits for commits and PR titles: `feat(scope):`, `fix(scope):`,
   `chore(scope):`. CI validates the PR title.
 

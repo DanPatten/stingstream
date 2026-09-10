@@ -27,6 +27,7 @@ import { Loader } from "@/components/Loader";
 import { AutoSubtitleNotice } from "@/components/video-player/controls/AutoSubtitleNotice";
 import { Controls } from "@/components/video-player/controls/Controls";
 import { Controls as TVControls } from "@/components/video-player/controls/Controls.tv";
+import { PLAYER_PALETTE } from "@/components/video-player/controls/constants";
 import { PlayerProvider } from "@/components/video-player/controls/contexts/PlayerContext";
 import { VideoProvider } from "@/components/video-player/controls/contexts/VideoContext";
 import {
@@ -1735,8 +1736,11 @@ export default function DirectPlayerPage() {
   // Show error UI first, before checking loading/missing‐data
   if (itemStatus.isError || streamStatus.isError) {
     return (
-      <View className='w-screen h-screen flex flex-col items-center justify-center bg-black'>
-        <Text className='text-white'>{t("player.error")}</Text>
+      <View
+        style={{ backgroundColor: PLAYER_PALETTE.bg["0"] }}
+        className='w-screen h-screen flex flex-col items-center justify-center'
+      >
+        <Text>{t("player.error")}</Text>
       </View>
     );
   }
@@ -1745,7 +1749,10 @@ export default function DirectPlayerPage() {
   if (itemStatus.isLoading || streamStatus.isLoading || !item || !stream) {
     // …loader UI…
     return (
-      <View className='w-screen h-screen flex flex-col items-center justify-center bg-black'>
+      <View
+        style={{ backgroundColor: PLAYER_PALETTE.bg["0"] }}
+        className='w-screen h-screen flex flex-col items-center justify-center'
+      >
         <Loader />
       </View>
     );
@@ -1753,8 +1760,11 @@ export default function DirectPlayerPage() {
 
   if (itemStatus.isError || streamStatus.isError)
     return (
-      <View className='w-screen h-screen flex flex-col items-center justify-center bg-black'>
-        <Text className='text-white'>{t("player.error")}</Text>
+      <View
+        style={{ backgroundColor: PLAYER_PALETTE.bg["0"] }}
+        className='w-screen h-screen flex flex-col items-center justify-center'
+      >
+        <Text>{t("player.error")}</Text>
       </View>
     );
 

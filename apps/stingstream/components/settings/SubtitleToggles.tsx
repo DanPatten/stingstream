@@ -10,6 +10,7 @@ import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Stepper } from "@/components/inputs/Stepper";
 import { SubtitlePreview } from "@/components/settings/SubtitlePreview";
+import { useTheme } from "@/hooks/useTheme";
 import {
   AudioTranscodeMode,
   defaultValues,
@@ -35,6 +36,7 @@ const AUDIO_TRANSCODE_MODES = [
 ] as const;
 
 export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
+  const { color } = useTheme();
   const isTv = Platform.isTV;
 
   const media = useMedia();
@@ -677,11 +679,12 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
         }
       >
         <View className='p-4'>
-          <Text className='text-xs text-gray-400 mb-2'>
+          <Text tone='secondary' className='text-xs mb-2'>
             {t("home.settings.subtitles.opensubtitles_api_key")}
           </Text>
           <Input
-            className='border border-neutral-800'
+            style={{ borderColor: color.border.subtle }}
+            className='border'
             placeholder={t(
               "home.settings.subtitles.opensubtitles_api_key_placeholder",
             )}
@@ -694,7 +697,7 @@ export const SubtitleToggles: React.FC<Props> = React.memo(({ ...props }) => {
             autoCorrect={false}
             secureTextEntry
           />
-          <Text className='text-xs text-gray-500 mt-2'>
+          <Text tone='tertiary' className='text-xs mt-2'>
             {t("home.settings.subtitles.opensubtitles_get_key")}
           </Text>
         </View>

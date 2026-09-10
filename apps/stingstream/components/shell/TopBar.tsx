@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens, webFocusRing } from "@/constants/theme";
+import { radius, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
@@ -39,6 +39,7 @@ interface Props {
  * drawn is here instead, and only when there is somewhere to go back to.
  */
 export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
+  const { color } = useTheme();
   const screenTitle = useScreenTitle();
   // Re-read on every navigation: `canGoBack` is a function, not a subscription,
   // so the pathname is what tells React this bar has to look again.
@@ -55,9 +56,9 @@ export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
         alignItems: "center",
         paddingHorizontal: 20,
         gap: 16,
-        backgroundColor: tokens.color.bg["0"],
+        backgroundColor: color.bg["0"],
         borderBottomWidth: 1,
-        borderBottomColor: tokens.color.border.subtle,
+        borderBottomColor: color.border.subtle,
       }}
     >
       <View
@@ -110,7 +111,7 @@ export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
  */
 const BackButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
   const { t } = useTranslation();
-  const { accentName } = useTheme();
+  const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
@@ -133,14 +134,14 @@ const BackButton: React.FC<{ onPress: () => void }> = ({ onPress }) => {
           alignItems: "center",
           justifyContent: "center",
           borderRadius: radius.sm,
-          backgroundColor: hovered ? tokens.color.bg["3"] : "transparent",
+          backgroundColor: hovered ? color.bg["3"] : "transparent",
           ...(Platform.OS === "web"
-            ? { cursor: "pointer", ...webFocusRing(showRing, accentName) }
+            ? { cursor: "pointer", ...webFocusRing(showRing, color) }
             : null),
         } as ViewStyle
       }
     >
-      <Icon name='chevronLeft' size={20} color={tokens.color.text.secondary} />
+      <Icon name='chevronLeft' size={20} color={color.text.secondary} />
     </Pressable>
   );
 };

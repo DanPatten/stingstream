@@ -1,4 +1,20 @@
 import { Platform } from "react-native";
+import { type ThemePalette, themePalette } from "@/constants/theme";
+
+/**
+ * The palette the over-video controls are drawn from, on every theme.
+ *
+ * The OSD is not a surface of the app: it is chrome laid over a film, and its
+ * legibility comes from contrast against the picture rather than against a page.
+ * The light theme's near-black ink on a translucent white chip is unreadable
+ * over bright footage, and the theme a person picked for their library is not a
+ * statement about what a player should look like.
+ *
+ * So the controls pin the dark palette and say so, rather than following
+ * `useTheme()`. Anything drawn *outside* the video frame still follows the
+ * theme like the rest of the app.
+ */
+export const PLAYER_PALETTE: ThemePalette = themePalette("dark");
 
 /**
  * How long the OSD stays up with nothing happening, per surface.

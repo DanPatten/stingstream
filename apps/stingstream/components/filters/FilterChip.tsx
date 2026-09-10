@@ -7,7 +7,7 @@ import {
 } from "react-native";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { motion, radius, tokens, webFocusRing } from "@/constants/theme";
+import { motion, radius, webFocusRing } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 
 export interface FilterChipProps {
@@ -51,15 +51,15 @@ export const FilterChip: React.FC<FilterChipProps> = ({
   style,
   className,
 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
   const background = active
     ? accent[500]
     : hovered && isWeb
-      ? tokens.color.bg["3"]
-      : tokens.color.bg["2"];
+      ? color.bg["3"]
+      : color.bg["2"];
 
   return (
     <Pressable

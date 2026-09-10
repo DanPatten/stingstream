@@ -15,7 +15,7 @@ export type StingStreamWordmarkProps = {
   layout?: "horizontal" | "stacked";
   /**
    * Which ground the lockup is sitting on. "Sting" is rendered near-white and vanishes on
-   * a light background, so "light" swaps in the variant with it recoloured dark. The app
+   * a light background, so "light" swaps in the variant with it recolored dark. The app
    * is dark throughout, hence the default.
    */
   theme?: "dark" | "light";

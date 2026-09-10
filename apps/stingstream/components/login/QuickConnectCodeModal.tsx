@@ -13,6 +13,7 @@ import {
   type SheetModalRef,
   SheetView,
 } from "@/components/common/Sheet";
+import { useTheme } from "@/hooks/useTheme";
 import { Button } from "../Button";
 import { Text } from "../common/Text";
 
@@ -29,6 +30,7 @@ interface Props {
  * lingers over the app after login completes.
  */
 export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
@@ -98,15 +100,17 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
         }}
       >
         <View className='flex-1'>
-          <Text className='font-bold text-2xl text-neutral-100'>
-            {t("login.quick_connect")}
-          </Text>
+          <Text className='font-bold text-2xl'>{t("login.quick_connect")}</Text>
           <TouchableOpacity
-            className='mt-6 p-6 border border-neutral-800 rounded-xl bg-neutral-900 flex flex-row items-center justify-center'
+            style={{
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["1"],
+            }}
+            className='mt-6 p-6 border rounded-xl flex flex-row items-center justify-center'
             onPress={copyCode}
           >
             <Text
-              className='text-center font-bold text-5xl text-neutral-100'
+              className='text-center font-bold text-5xl'
               style={{ letterSpacing: 10 }}
             >
               {code ?? lastCodeRef.current}
@@ -118,10 +122,10 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
               style={{ opacity: 0.4, marginLeft: 16 }}
             />
           </TouchableOpacity>
-          <Text className='mt-2 text-neutral-500 text-center text-xs'>
+          <Text tone='tertiary' className='mt-2 text-center text-xs'>
             {t("login.tap_code_to_copy")}
           </Text>
-          <Text className='mt-3 mb-5 text-neutral-400 text-center px-4'>
+          <Text tone='secondary' className='mt-3 mb-5 text-center px-4'>
             {t("login.quick_connect_instructions")}
           </Text>
           <Button className='mt-auto' color='purple' onPress={onClose}>

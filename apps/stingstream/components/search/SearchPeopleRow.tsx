@@ -13,6 +13,7 @@ import { elevation, tokens } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom } from "@/providers/JellyfinProvider";
 
 const AVATAR_SIZE = 76;
@@ -96,6 +97,7 @@ const PersonAvatar: React.FC<{ card: CardData; from: string }> = ({
   card,
   from,
 }) => {
+  const { color } = useTheme();
   const router = useRouter();
   const states = usePressableStates();
   const lifted = isWeb && states.hovered;
@@ -135,7 +137,7 @@ const PersonAvatar: React.FC<{ card: CardData; from: string }> = ({
           height: AVATAR_SIZE,
           borderRadius: AVATAR_SIZE / 2,
           overflow: "hidden",
-          backgroundColor: tokens.color.bg["2"],
+          backgroundColor: color.bg["2"],
           alignItems: "center",
           justifyContent: "center",
         }}

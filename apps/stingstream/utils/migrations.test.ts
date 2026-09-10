@@ -16,6 +16,7 @@ mock.module("@/utils/log", () => ({
   writeErrorLog: (message: string) => void errors.push(message),
   writeDebugLog: () => undefined,
   readFromLog: () => [],
+  logAndCaptureError: () => undefined,
 }));
 
 const { LATEST_SCHEMA_VERSION, runStorageMigrations } = await import(
@@ -25,6 +26,7 @@ const { LATEST_SCHEMA_VERSION, runStorageMigrations } = await import(
 const data = new Map<string, boolean | number | string>();
 const store = {
   getNumber: (key: string) => data.get(key) as number | undefined,
+  getString: (key: string) => data.get(key) as string | undefined,
   getAllKeys: () => [...data.keys()],
   set: (key: string, value: boolean | number | string) =>
     void data.set(key, value),
@@ -85,5 +87,50 @@ describe("runStorageMigrations", () => {
 
     // The intro was dismissed after migrating, so it must stay dismissed.
     expect(data.get("hasShownIntro")).toBe(true);
+  });
+
+  describe("accent -> theme", () => {
+    const settingsBlob = (value: Record<string, unknown>) =>
+      void data.set("settings", JSON.stringify(value));
+    const storedSettings = () =>
+      JSON.parse(String(data.get("settings"))) as Record<string, unknown>;
+
+    test("violet lands on the theme that kept violet", () => {
+      // Violet was the one accent that was a deliberate departure from the
+      // brand, so it maps to `sting` rather than to the default.
+      settingsBlob({ accent: "violet", subtitleSize: 20 });
+
+      runStorageMigrations(store);
+
+      expect(storedSettings()).toEqual({ theme: "sting", subtitleSize: 20 });
+    });
+
+    test("the other accents land on the default theme", () => {
+      for (const accent of ["teal", "amber"]) {
+        data.clear();
+        settingsBlob({ accent });
+
+        runStorageMigrations(store);
+
+        expect(storedSettings()).toEqual({ theme: "dark" });
+      }
+    });
+
+    test("someone who already picked a theme is left alone", () => {
+      settingsBlob({ theme: "light", accent: "violet" });
+
+      runStorageMigrations(store);
+
+      expect(storedSettings().theme).toBe("light");
+    });
+
+    test("a store with no settings blob is not a failure", () => {
+      data.set("token", "abc");
+
+      runStorageMigrations(store);
+
+      expect(errors).toEqual([]);
+      expect(version()).toBe(LATEST_SCHEMA_VERSION);
+    });
   });
 });

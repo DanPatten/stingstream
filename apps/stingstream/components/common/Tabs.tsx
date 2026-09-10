@@ -7,7 +7,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { motion, radius, rgba, tokens } from "@/constants/theme";
+import { motion, radius, rgba } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { Text } from "./Text";
@@ -50,7 +50,7 @@ export const Tabs: React.FC<TabsProps> = ({
   style,
   contentInset,
 }) => {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const { name, gutter } = useBreakpoint();
   const [hovered, setHovered] = useState<string | null>(null);
   const resolved = resolveSegment(segments, value);
@@ -98,8 +98,8 @@ export const Tabs: React.FC<TabsProps> = ({
                     backgroundColor: active
                       ? accent[500]
                       : isHovered
-                        ? tokens.color.bg["3"]
-                        : tokens.color.bg["2"],
+                        ? color.bg["3"]
+                        : color.bg["2"],
                   }
                 : {
                     paddingHorizontal: 2,
@@ -151,7 +151,7 @@ export const Tabs: React.FC<TabsProps> = ({
                   backgroundColor:
                     mode === "pills" && active
                       ? rgba("#000000", 0.2)
-                      : tokens.color.bg["3"],
+                      : color.bg["3"],
                 }}
               >
                 <Text
@@ -172,6 +172,7 @@ export const Tabs: React.FC<TabsProps> = ({
 
 /** The strip Server settings, Admin and the arr library put their `Tabs` in. */
 export const TabsBar: React.FC<TabsProps> = (props) => {
+  const { color } = useTheme();
   const { name } = useBreakpoint();
   const mode = props.layout ?? tabsLayoutFor(name);
 
@@ -182,9 +183,9 @@ export const TabsBar: React.FC<TabsProps> = (props) => {
         // Underline tabs carry their own bottom padding, so that the rule lands
         // on the strip's edge rather than floating above it.
         paddingBottom: mode === "pills" ? 12 : 0,
-        backgroundColor: tokens.color.bg["0"],
+        backgroundColor: color.bg["0"],
         borderBottomWidth: 1,
-        borderBottomColor: tokens.color.border.subtle,
+        borderBottomColor: color.border.subtle,
       }}
     >
       <Tabs {...props} />

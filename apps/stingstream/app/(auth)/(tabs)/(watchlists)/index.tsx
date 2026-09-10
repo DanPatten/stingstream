@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
+import { useTheme } from "@/hooks/useTheme";
 import {
   useStreamystatsEnabled,
   useWatchlistsQuery,
@@ -26,12 +27,14 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
   isOwner,
   onPress,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   return (
     <TouchableOpacity
+      style={{ backgroundColor: color.bg["1"] }}
       onPress={onPress}
-      className='bg-neutral-900 rounded-xl p-4 mx-4 mb-3'
+      className='rounded-xl p-4 mx-4 mb-3'
       activeOpacity={0.7}
     >
       <View className='flex-row items-center justify-between mb-2'>
@@ -41,7 +44,7 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
         <View className='flex-row items-center gap-2'>
           {isOwner && (
             <View className='bg-purple-600/20 px-2 py-1 rounded'>
-              <Text className='text-purple-400 text-xs'>
+              <Text tone='accent' className='text-xs'>
                 {t("watchlists.you")}
               </Text>
             </View>
@@ -55,7 +58,7 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
       </View>
 
       {watchlist.description && (
-        <Text className='text-neutral-400 text-sm mb-2' numberOfLines={2}>
+        <Text tone='secondary' className='text-sm mb-2' numberOfLines={2}>
           {watchlist.description}
         </Text>
       )}
@@ -63,7 +66,7 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
       <View className='flex-row items-center gap-4'>
         <View className='flex-row items-center gap-1'>
           <Ionicons name='film-outline' size={14} color='#9ca3af' />
-          <Text className='text-neutral-400 text-sm'>
+          <Text tone='secondary' className='text-sm'>
             {watchlist.itemCount ?? 0}{" "}
             {(watchlist.itemCount ?? 0) === 1
               ? t("watchlists.item")
@@ -71,8 +74,11 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
           </Text>
         </View>
         {watchlist.allowedItemType && (
-          <View className='bg-neutral-800 px-2 py-0.5 rounded'>
-            <Text className='text-neutral-400 text-xs'>
+          <View
+            style={{ backgroundColor: color.bg["2"] }}
+            className='px-2 py-0.5 rounded'
+          >
+            <Text tone='secondary' className='text-xs'>
               {watchlist.allowedItemType}
             </Text>
           </View>
@@ -93,7 +99,7 @@ const EmptyState: React.FC<{ onCreatePress: () => void }> = ({
       <Text className='text-xl font-semibold mt-4 text-center'>
         {t("watchlists.empty_title")}
       </Text>
-      <Text className='text-neutral-400 text-center mt-2 mb-6'>
+      <Text tone='secondary' className='text-center mt-2 mb-6'>
         {t("watchlists.empty_description")}
       </Text>
     </View>
@@ -110,7 +116,7 @@ const NotConfiguredState: React.FC = () => {
       <Text className='text-xl font-semibold mt-4 text-center'>
         {t("watchlists.not_configured_title")}
       </Text>
-      <Text className='text-neutral-400 text-center mt-2 mb-6'>
+      <Text tone='secondary' className='text-center mt-2 mb-6'>
         {t("watchlists.not_configured_description")}
       </Text>
       <Button

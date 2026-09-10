@@ -87,6 +87,24 @@ export function RequestSheet({
   // list means every season — so the button waits rather than sending the opposite of the screen.
   const nothingChosen = seasons.length === 0;
 
+  /**
+   * The button says what pressing it will ask for.
+   *
+   * A bare "Request" under a row of chips leaves the reader checking the chips again to find out
+   * what they are about to get, which is the doubt the chips were meant to remove. Three shapes,
+   * because "Request 1 seasons" is not English and "Request 6 seasons" hides that six *is* all of
+   * them.
+   */
+  const submitLabel = () => {
+    if (action.disabled) return action.label;
+    if (nothingChosen) return t("requests.request_button");
+    if (seasons.length === total)
+      return t("requests.request_all_seasons", { count: total });
+    if (seasons.length === 1)
+      return t("requests.request_one_season", { n: seasons[0] });
+    return t("requests.request_n_seasons", { count: seasons.length });
+  };
+
   const submit = async () => {
     setError(null);
     try {
@@ -119,7 +137,7 @@ export function RequestSheet({
           disabled: create.isPending,
         },
         {
-          label: action.disabled ? action.label : t("requests.request_button"),
+          label: submitLabel(),
           testID: "requests-submit",
           onPress: submit,
           disabled: action.disabled || nothingChosen,

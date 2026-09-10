@@ -4,7 +4,7 @@ import { Platform, Pressable, View } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { motion, radius, rgba, tokens } from "@/constants/theme";
+import { motion, radius, rgba } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import type { GroupSyncState, MeshNodeGroup } from "@/lib/stingstream/mesh";
 
@@ -24,7 +24,7 @@ export interface GroupCardProps {
  *
  * "Syncing" is not a warning — a group the home node just created or joined has not reached the
  * app's own light node yet, which follows on a timer — so it gets the same tinted `Pill` treatment
- * as "Synced" rather than a warning colour.
+ * as "Synced" rather than a warning color.
  */
 export function GroupCard({
   group,
@@ -35,7 +35,7 @@ export function GroupCard({
   onPress,
 }: GroupCardProps) {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -52,9 +52,7 @@ export function GroupCard({
           alignItems: "center",
           padding: 14,
           borderRadius: radius.md,
-          backgroundColor: hovered
-            ? tokens.color.bg["2"]
-            : tokens.color.bg["1"],
+          backgroundColor: hovered ? color.bg["2"] : color.bg["1"],
           marginBottom: 8,
         },
         Platform.OS === "web"

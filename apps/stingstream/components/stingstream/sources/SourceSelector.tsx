@@ -17,10 +17,11 @@ import { useTranslation } from "react-i18next";
 import { Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useSourceSelection } from "@/hooks/useSourceSelection";
+import { useTheme } from "@/hooks/useTheme";
 import { SourceChooserSheet } from "./SourceChooserSheet";
 
 export interface SourceSelectorProps {
@@ -37,6 +38,7 @@ export const SourceSelector: FC<SourceSelectorProps> = ({
   onSelect,
   style,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
   const states = usePressableStates({});
@@ -86,9 +88,7 @@ export const SourceSelector: FC<SourceSelectorProps> = ({
             paddingHorizontal: 12,
             borderRadius: radius.md,
             backgroundColor:
-              states.state === "rest"
-                ? tokens.color.bg["2"]
-                : tokens.color.bg["3"],
+              states.state === "rest" ? color.bg["2"] : color.bg["3"],
             minHeight: 48,
             // Full width under a full-width Play button on a phone; an inline pill on a desktop,
             // where the action row is a line of controls rather than a stack.

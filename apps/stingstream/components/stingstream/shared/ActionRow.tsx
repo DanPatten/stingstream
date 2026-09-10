@@ -9,6 +9,7 @@ import {
 import { Text } from "@/components/common/Text";
 import { radius, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
+import { useTheme } from "@/hooks/useTheme";
 
 /**
  * A row whose label opens one thing and whose icons do another.
@@ -37,6 +38,7 @@ export const ActionRow: React.FC<{
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
 }> = ({ testID, title, subtitle, leading, actions, onPress, style }) => {
+  const { color } = useTheme();
   const states = usePressableStates();
 
   return (
@@ -50,10 +52,10 @@ export const ActionRow: React.FC<{
           paddingVertical: Platform.OS === "android" ? 6 : 8,
           paddingHorizontal: 16,
           backgroundColor: states.pressed
-            ? tokens.color.bg["3"]
+            ? color.bg["3"]
             : states.hovered
-              ? tokens.color.bg["2"]
-              : tokens.color.bg["1"],
+              ? color.bg["2"]
+              : color.bg["1"],
         },
         style,
       ]}

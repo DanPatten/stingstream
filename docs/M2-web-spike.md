@@ -139,7 +139,7 @@ as `object-fit: cover`; `getTechnicalInfo` reporting dimensions, dropped frames,
 and the current hls.js level's codecs.
 
 **Deliberately inert (never throwing):** every MPV-specific subtitle *styling* control —
-`setSubtitleStyle`, `setSubtitleAssOverride`, font size, background colour, border style, margins,
+`setSubtitleStyle`, `setSubtitleAssOverride`, font size, background color, border style, margins,
 alignment, scale, delay. The browser renders WebVTT with its own UA styling and cannot render
 ASS/SSA at all. The settings screens still open and behave; they just have no effect.
 

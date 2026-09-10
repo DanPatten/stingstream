@@ -14,7 +14,7 @@ const DisabledSetting: React.FC<
     <View {...props}>
       {children}
       {disabled && showText && (
-        <Text className='text-xs text-red-600 px-4 mt-1'>
+        <Text tone='danger' className='text-xs px-4 mt-1'>
           {text ?? "Disabled by admin"}
         </Text>
       )}

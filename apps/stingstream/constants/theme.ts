@@ -8,61 +8,138 @@ import rawTokens from "./theme.tokens.json";
  * utility classes, and this file, which turns it into values you can put in an
  * inline style. Everything else reads one of those two. A hex, a radius, a font
  * size or a shadow written anywhere else in the app is a bug — it is how the
- * fork ended up with nine colours in `Colors.ts` and inline hexes in a hundred
+ * fork ended up with nine colors in `Colors.ts` and inline hexes in a hundred
  * files.
  *
  * **NativeWind v2 has no CSS variables.** Classes are compiled once, at build
- * time, so `bg-accent-500` is always the *default* accent (teal, the brand
- * colour). The accent a user picks in Appearance is a runtime value and reaches
- * the screen as an inline style, through `useTheme().accent` — see
- * `hooks/useTheme.ts`. Both are correct in their place: brand furniture stays
- * teal, user-accented furniture reads the hook.
+ * time, so a class can only ever carry one theme's answer. The theme a person
+ * picks in Appearance is a runtime value and reaches the screen as an inline
+ * style, through `useTheme().color` — see `hooks/useTheme.ts`.
  *
  * Token edits do not survive Metro's cache. Restart with `-c`.
  */
-export const tokens = rawTokens;
 
 // ---------------------------------------------------------------------------
-// Accents
+// Themes
 // ---------------------------------------------------------------------------
 
-export type AccentName = keyof typeof rawTokens.color.accent;
+export type ThemeName = keyof typeof rawTokens.theme;
 
-export interface AccentPalette {
-  /** Hover / focus ring. */
+/** Which way round a theme is, for the platform chrome that has only two options. */
+export type ColorScheme = "dark" | "light";
+
+/** Hover 400, rest 500, pressed 600, plus the roles that are not a shade of those. */
+export interface AccentRamp {
+  /** Hover. */
   400: string;
-  /** Rest state: primary buttons, progress, badges, active nav. */
+  /** Rest: primary buttons, progress, badges. */
   500: string;
   /** Pressed. */
   600: string;
+  /**
+   * The keyboard focus outline.
+   *
+   * Spelled out rather than derived from `400`, because it is not always a
+   * shade of the accent: on `light` a pale blue ring on a white ground is
+   * barely there, so the ring is the 500; on `sting` it is the mark's violet.
+   */
+  ring: string;
+  /** Selected nav item, active tab, checked control. */
+  active: string;
   /** Text and glyphs drawn *on* the 500 fill. */
   onAccent: string;
 }
 
-export const ACCENT_NAMES = Object.keys(
-  rawTokens.color.accent,
-) as readonly AccentName[];
-
-export const DEFAULT_ACCENT = rawTokens.defaultAccent as AccentName;
-
 /**
- * The three shades plus the text colour that reads on them.
+ * Every color in the app, for one theme.
  *
- * `onAccent` is per-accent rather than one global token because no single
- * foreground works on all three: the dark `#04201D` reaches 8:1 on teal and
- * amber, but only 3.2:1 on violet, whose maximum against *any* foreground is
- * white at 5.4:1. See `theme.test.ts`.
+ * A theme is not an accent: `light` moves the surfaces, the ink, the borders,
+ * the state colors and the direction of the hover wash all at once, so all of
+ * them live here rather than only the accent triad.
+ *
+ * Written out rather than inferred from the JSON, so this interface reads as the
+ * contract a palette has to satisfy. `theme.test.ts` compares every theme's key
+ * paths against the default one, which is what actually catches a half-filled
+ * palette — a `light` missing `state.warning` would otherwise resolve to
+ * `undefined` and paint an invisible badge on one theme only.
  */
-export const accentPalette = (
-  name: AccentName = DEFAULT_ACCENT,
-): AccentPalette => rawTokens.color.accent[name];
+export interface ThemePalette {
+  scheme: ColorScheme;
+  /** `0` app · `1` sidebar, cards, list groups · `2` inputs, sheets · `3` hover, pressed, chips. */
+  bg: { 0: string; 1: string; 2: string; 3: string };
+  text: {
+    primary: string;
+    secondary: string;
+    tertiary: string;
+    disabled: string;
+  };
+  accent: AccentRamp;
+  state: { success: string; warning: string; danger: string; info: string };
+  border: { subtle: string; strong: string };
+  /**
+   * The color of the hover and pressed washes, at `interaction`'s alphas.
+   *
+   * White on a dark theme, black on a light one. Hardcoding white is why a
+   * light theme's rows would answer a pointer with nothing at all: white at 6 %
+   * over a near-white card is a change no one can see.
+   */
+  overlay: string;
+  /** Behind a dialog or a sheet. */
+  scrim: string;
+  /** Shadow alpha per elevation level; the geometry is shared. */
+  elevationOpacity: { 1: number; 2: number };
+}
+
+const THEMES = rawTokens.theme as unknown as Record<ThemeName, ThemePalette>;
+
+export const THEME_NAMES = Object.keys(THEMES) as readonly ThemeName[];
+
+export const DEFAULT_THEME = rawTokens.defaultTheme as ThemeName;
+
+/**
+ * A theme's colors.
+ *
+ * Falls back to the default rather than returning `undefined`: a stale
+ * persisted name must not take down the first render. `effectiveSettingsAtom`
+ * already clamps the setting, so this is belt and braces.
+ */
+export const themePalette = (name: ThemeName = DEFAULT_THEME): ThemePalette =>
+  THEMES[name] ?? THEMES[DEFAULT_THEME];
+
+/** The palette anything outside React falls back to. Components read `useTheme().color`. */
+export const DEFAULT_PALETTE = themePalette(DEFAULT_THEME);
+
+/**
+ * Every token, with a `color` block pinned to the **default** theme.
+ *
+ * `tokens.color.*` is what the app read before themes existed, kept while the
+ * remaining call sites move over. It is the dark palette and does not follow the
+ * user's choice, so anything it paints is stuck dark on a light theme.
+ *
+ * @deprecated for color — read `useTheme().color` instead. The non-color groups
+ * (`radius`, `space`, `type`, `motion`, …) are fine to read from here.
+ */
+export const tokens = {
+  ...rawTokens,
+  color: {
+    bg: DEFAULT_PALETTE.bg,
+    text: {
+      ...DEFAULT_PALETTE.text,
+      onAccent: DEFAULT_PALETTE.accent.onAccent,
+    },
+    accent: DEFAULT_PALETTE.accent,
+    state: DEFAULT_PALETTE.state,
+    border: DEFAULT_PALETTE.border,
+    scrim: { backdrop: DEFAULT_PALETTE.scrim },
+  },
+};
 
 // ---------------------------------------------------------------------------
-// Colour helpers
+// Color helpers
 // ---------------------------------------------------------------------------
 
 /**
- * `rgba("#1FC7B5", 0.12)` -> `"rgba(31,199,181,0.12)"`.
+ * `rgba("#3CDDFC", 0.12)` -> `"rgba(60,221,252,0.12)"`.
  *
  * React Native has no `color-mix()` and no eight-digit hex on every platform,
  * so tinted fills (a chip behind an accent glyph, a pressed row) go through
@@ -85,11 +162,11 @@ export const rgba = (hex: string, alpha: number): string => {
 };
 
 /**
- * The same colour at a different alpha, `"transparent"` left alone.
+ * The same color at a different alpha, `"transparent"` left alone.
  *
  * A disabled filled button fades its fill rather than the whole control, so
- * `fade(accent[500], 0.35)` is the fill and `fade(onAccent, 0.6)` the label —
- * see `interaction` in the token JSON for why the two alphas differ.
+ * `fade(color.accent[500], 0.35)` is the fill and `fade(onAccent, 0.6)` the
+ * label — see `interaction` in the token JSON for why the two alphas differ.
  */
 export const fade = (color: string, alpha: number): string =>
   color === "transparent" || !color.startsWith("#")
@@ -106,16 +183,22 @@ export type ElevationLevel = 1 | 2;
  * e1 is a card lifting on hover, e2 is a sheet or dialog over the page.
  *
  * Returns iOS/web shadow props *and* Android's `elevation` in one style, the
- * way every RN shadow has to be written; `shadowColor` is black at the token's
- * opacity rather than a translucent colour, because Android reads only
+ * way every RN shadow has to be written; `shadowColor` is black at the theme's
+ * opacity rather than a translucent color, because Android reads only
  * `elevation` and would otherwise drop the alpha entirely.
+ *
+ * The opacity comes from the palette: the same 0.35 that reads as depth on
+ * near-black reads as soot under a card on white.
  */
-export const elevation = (level: ElevationLevel): ViewStyle => {
+export const elevation = (
+  level: ElevationLevel,
+  palette: ThemePalette = DEFAULT_PALETTE,
+): ViewStyle => {
   const spec = rawTokens.elevation[String(level) as "1" | "2"];
   return {
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: spec.offsetY },
-    shadowOpacity: spec.opacity,
+    shadowOpacity: palette.elevationOpacity[level],
     shadowRadius: spec.blur,
     elevation: spec.android,
   };
@@ -155,21 +238,21 @@ export const typeStyle = (
   return { fontSize, lineHeight: Math.round(fontSize * spec.lineHeight) };
 };
 
-const TONE_COLORS: Record<TextTone, (accent: AccentPalette) => string> = {
-  primary: () => rawTokens.color.text.primary,
-  secondary: () => rawTokens.color.text.secondary,
-  tertiary: () => rawTokens.color.text.tertiary,
-  disabled: () => rawTokens.color.text.disabled,
-  accent: (accent) => accent[500],
-  danger: () => rawTokens.color.state.danger,
-  onAccent: (accent) => accent.onAccent,
+const TONE_COLORS: Record<TextTone, (palette: ThemePalette) => string> = {
+  primary: (p) => p.text.primary,
+  secondary: (p) => p.text.secondary,
+  tertiary: (p) => p.text.tertiary,
+  disabled: (p) => p.text.disabled,
+  accent: (p) => p.accent[500],
+  danger: (p) => p.state.danger,
+  onAccent: (p) => p.accent.onAccent,
 };
 
-/** The colour a tone resolves to under a given accent. */
+/** The color a tone resolves to under a given theme. */
 export const toneColor = (
   tone: TextTone,
-  accent: AccentName = DEFAULT_ACCENT,
-): string => TONE_COLORS[tone](accentPalette(accent));
+  palette: ThemePalette = DEFAULT_PALETTE,
+): string => TONE_COLORS[tone](palette);
 
 /**
  * The whole text style for a variant/tone/weight/breakpoint, in one call.
@@ -189,10 +272,10 @@ export const resolveTextStyle = (
   tone: TextTone = "primary",
   weight: TextWeight = "regular",
   breakpoint: BreakpointName = "compact",
-  accent: AccentName = DEFAULT_ACCENT,
+  palette: ThemePalette = DEFAULT_PALETTE,
 ): TextStyle => ({
   ...typeStyle(variant, breakpoint),
-  color: toneColor(tone, accent),
+  color: toneColor(tone, palette),
   fontFamily: rawTokens.fontFamily[weight],
   fontWeight: rawTokens.fontWeight[weight] as TextStyle["fontWeight"],
 });
@@ -217,12 +300,12 @@ export const resolveTextStyle = (
  */
 export const webFocusRing = (
   focused: boolean,
-  accent: AccentName = DEFAULT_ACCENT,
+  palette: ThemePalette = DEFAULT_PALETTE,
 ): ViewStyle => {
   const style = {
     outlineStyle: focused ? "solid" : "none",
     outlineWidth: focused ? rawTokens.focus.web.width : 0,
-    outlineColor: accentPalette(accent)[400],
+    outlineColor: palette.accent.ring,
     outlineOffset: rawTokens.focus.web.offset,
   };
   return style as unknown as ViewStyle;
@@ -232,10 +315,18 @@ export const webFocusRing = (
 // Flat aliases, for the places that only want one value
 // ---------------------------------------------------------------------------
 
-export const surface = rawTokens.color.bg;
-export const textColor = rawTokens.color.text;
-export const stateColor = rawTokens.color.state;
-export const borderColor = rawTokens.color.border;
+/** @deprecated the default theme's surfaces. Read `useTheme().color.bg`. */
+export const surface = DEFAULT_PALETTE.bg;
+/** @deprecated the default theme's ink. Read `useTheme().color.text`. */
+export const textColor = {
+  ...DEFAULT_PALETTE.text,
+  onAccent: DEFAULT_PALETTE.accent.onAccent,
+};
+/** @deprecated the default theme's state colors. Read `useTheme().color.state`. */
+export const stateColor = DEFAULT_PALETTE.state;
+/** @deprecated the default theme's borders. Read `useTheme().color.border`. */
+export const borderColor = DEFAULT_PALETTE.border;
+
 export const radius = rawTokens.radius;
 export const space = rawTokens.space;
 export const gutter = rawTokens.gutter;

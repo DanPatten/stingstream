@@ -7,7 +7,7 @@ import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, tokens } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
   type QualityProfileView,
@@ -57,6 +57,7 @@ export function QualityProfilesSection({
   onSave: (next: string) => Promise<void>;
   saving: boolean;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const [editing, setEditing] = useState<QualityProfileView | null>(null);
   const [creating, setCreating] = useState(false);
@@ -165,7 +166,7 @@ export function QualityProfilesSection({
                 {editing?.Name === p.Name && (
                   <View
                     style={{
-                      backgroundColor: tokens.color.bg["2"],
+                      backgroundColor: color.bg["2"],
                       paddingHorizontal: 16,
                       paddingVertical: 12,
                     }}
@@ -231,7 +232,7 @@ export function QualityProfilesSection({
  *
  * The one shape every control on this screen now takes: formats, format groups, the cutoff, and
  * which profile is the default. Shared so they cannot drift apart -- four near-identical
- * `Pressable`s with hand-written colours is how three of them ended up looking like buttons and
+ * `Pressable`s with hand-written colors is how three of them ended up looking like buttons and
  * one like a tag.
  */
 function ChoicePill({
@@ -243,7 +244,7 @@ function ChoicePill({
   selected: boolean;
   onPress: () => void;
 }) {
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   return (
     <Pressable
       accessibilityRole='button'
@@ -253,7 +254,7 @@ function ChoicePill({
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: radius.pill,
-        backgroundColor: selected ? accent[500] : tokens.color.bg["3"],
+        backgroundColor: selected ? accent[500] : color.bg["3"],
       }}
     >
       <Text
@@ -285,6 +286,7 @@ function PresetPicker({
   existing: string[];
   onDone: () => void;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const vocabulary = useQualityVocabulary();
   const save = useSaveQualityProfile();
@@ -330,7 +332,7 @@ function PresetPicker({
       testID='quality-presets'
       style={{
         borderRadius: radius.lg,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 16,
         marginBottom: 12,
       }}
@@ -419,7 +421,7 @@ function ProfileEditor({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
-  const { accent } = useTheme();
+  const { color, accent } = useTheme();
   const vocabulary = useQualityVocabulary();
   const save = useSaveQualityProfile();
   const isNew = initial === null;
@@ -498,7 +500,7 @@ function ProfileEditor({
     <View
       style={{
         borderRadius: radius.lg,
-        backgroundColor: tokens.color.bg["1"],
+        backgroundColor: color.bg["1"],
         padding: 16,
         marginBottom: 12,
       }}
@@ -607,7 +609,7 @@ function ProfileEditor({
               borderRadius: radius.pill,
               backgroundColor: allowed.includes(q)
                 ? accent[500]
-                : tokens.color.bg["3"],
+                : color.bg["3"],
             }}
           >
             <Text
@@ -647,8 +649,7 @@ function ProfileEditor({
               paddingHorizontal: 12,
               paddingVertical: 6,
               borderRadius: radius.pill,
-              backgroundColor:
-                cutoff === q ? accent[500] : tokens.color.bg["3"],
+              backgroundColor: cutoff === q ? accent[500] : color.bg["3"],
             }}
           >
             <Text

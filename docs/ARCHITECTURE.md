@@ -1179,7 +1179,7 @@ Live TV has been using the mechanism all along.
 **Bandwidth has to be real, or the test passes for the wrong reason.** The harness caps node C's
 link with the mesh's own serving-side throttle rather than simulating a slow peer with a smaller
 file, because file size is not the input the scorer weighs. The same principle bit once more, one
-level down: the generated clips are encoded **constant-bitrate**, because a colour-bar test pattern
+level down: the generated clips are encoded **constant-bitrate**, because a color-bar test pattern
 is a static image and x264 compresses twelve seconds of it to a couple of hundred kilobytes whatever
 `-b:v` says. With the fictional bitrate that produced, every source "fit" every link and Speed-first
 and Quality-first returned the same answer — a green run that proved nothing. `-minrate` with

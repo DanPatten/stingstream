@@ -4,17 +4,20 @@
 // never disagree. See that file's $comment for the rules.
 //
 // NativeWind v2 compiles these classes at build time and has no CSS variables,
-// so the accent baked in here is the DEFAULT one (teal). A user who picks
-// violet or amber in Appearance gets it through `useTheme().accent` as an
-// inline style, never through a class. Anything that must follow the user's
-// accent has to read the hook; `text-accent`/`bg-accent-500` are the brand
-// colour, which is teal.
+// so the colors baked in here are the DEFAULT theme's. A person who picks
+// Light or StingStream in Appearance gets their palette through
+// `useTheme().color` as an inline style, never through a class.
+//
+// These color classes have no callers left and are on their way out; see the
+// note on `colors` below. Everything else here — spacing, radii, type, screens
+// — is theme-independent and stays.
 //
 // Token edits are invisible until Metro's cache is cleared: run
 // `bunx expo start -c` (or `expo export` fresh) after touching this file.
 const tokens = require("./constants/theme.tokens.json");
 
-const defaultAccent = tokens.color.accent[tokens.defaultAccent];
+const defaultTheme = tokens.theme[tokens.defaultTheme];
+const defaultAccent = defaultTheme.accent;
 
 /** `{compact: 34, ...}` -> the compact value; Tailwind's scale is the phone one. */
 const compactType = Object.fromEntries(
@@ -32,8 +35,10 @@ const px = (scale) =>
     Object.entries(scale).map(([name, value]) => [name, `${value}px`]),
   );
 
-const shadow = (level) =>
-  `0px ${level.offsetY}px ${level.blur}px rgba(0,0,0,${level.opacity})`;
+// The shadow's alpha is per-theme now, so a class can only carry the default
+// theme's. Use `elevation(level, palette)` from `constants/theme.ts` instead.
+const shadow = (level, opacity) =>
+  `0px ${level.offsetY}px ${level.blur}px rgba(0,0,0,${opacity})`;
 
 module.exports = {
   darkMode: "class",
@@ -60,26 +65,26 @@ module.exports = {
         // Surfaces. `bg0..bg3` are the raw names from the token table;
         // `surface-0..3` is the same thing read as a role, so
         // `bg-surface-1` and `bg-bg1` are interchangeable.
-        bg0: tokens.color.bg["0"],
-        bg1: tokens.color.bg["1"],
-        bg2: tokens.color.bg["2"],
-        bg3: tokens.color.bg["3"],
+        bg0: defaultTheme.bg["0"],
+        bg1: defaultTheme.bg["1"],
+        bg2: defaultTheme.bg["2"],
+        bg3: defaultTheme.bg["3"],
         surface: {
-          0: tokens.color.bg["0"],
-          1: tokens.color.bg["1"],
-          2: tokens.color.bg["2"],
-          3: tokens.color.bg["3"],
+          0: defaultTheme.bg["0"],
+          1: defaultTheme.bg["1"],
+          2: defaultTheme.bg["2"],
+          3: defaultTheme.bg["3"],
         },
 
         // Text tones. Top-level on purpose: the plan's vocabulary is
         // `text-secondary`, not `text-text-secondary`.
-        primary: tokens.color.text.primary,
-        secondary: tokens.color.text.secondary,
-        tertiary: tokens.color.text.tertiary,
-        disabled: tokens.color.text.disabled,
+        primary: defaultTheme.text.primary,
+        secondary: defaultTheme.text.secondary,
+        tertiary: defaultTheme.text.tertiary,
+        disabled: defaultTheme.text.disabled,
         "on-accent": defaultAccent.onAccent,
 
-        // The brand accent (teal). Runtime-selected accents are inline styles.
+        // The default theme's accent. Other themes are inline styles.
         accent: {
           400: defaultAccent["400"],
           500: defaultAccent["500"],
@@ -87,16 +92,16 @@ module.exports = {
           DEFAULT: defaultAccent["500"],
         },
 
-        success: tokens.color.state.success,
-        warning: tokens.color.state.warning,
-        danger: tokens.color.state.danger,
-        info: tokens.color.state.info,
+        success: defaultTheme.state.success,
+        warning: defaultTheme.state.warning,
+        danger: defaultTheme.state.danger,
+        info: defaultTheme.state.info,
 
         // `border-subtle` / `border-strong`; `border-focus` is the accent ring.
-        subtle: tokens.color.border.subtle,
-        strong: tokens.color.border.strong,
-        focus: defaultAccent["400"],
-        scrim: tokens.color.scrim.backdrop,
+        subtle: defaultTheme.border.subtle,
+        strong: defaultTheme.border.strong,
+        focus: defaultAccent.ring,
+        scrim: defaultTheme.scrim,
       },
       borderRadius: px(tokens.radius),
       spacing: {
@@ -114,8 +119,8 @@ module.exports = {
         "sans-bold": [tokens.fontFamily.bold],
       },
       boxShadow: {
-        e1: shadow(tokens.elevation["1"]),
-        e2: shadow(tokens.elevation["2"]),
+        e1: shadow(tokens.elevation["1"], defaultTheme.elevationOpacity["1"]),
+        e2: shadow(tokens.elevation["2"], defaultTheme.elevationOpacity["2"]),
       },
       transitionDuration: {
         fast: `${tokens.motion.fast}ms`,

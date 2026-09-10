@@ -1,6 +1,7 @@
 import { FlashList, type FlashListProps } from "@shopify/flash-list";
 import React, { useImperativeHandle, useRef } from "react";
 import { View, type ViewStyle } from "react-native";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "./Text";
 
 export interface HorizontalScrollRef {
@@ -25,6 +26,7 @@ export const HorizontalScroll = <T,>(
     ref?: React.ForwardedRef<HorizontalScrollRef>;
   },
 ) => {
+  const { color } = useTheme();
   const {
     data = [],
     keyExtractor,
@@ -59,8 +61,14 @@ export const HorizontalScroll = <T,>(
   if (!data || loading) {
     return (
       <View className='px-4'>
-        <View className='bg-neutral-950 h-24 w-full rounded-md mb-2' />
-        <View className='bg-neutral-950 h-10 w-full rounded-md mb-1' />
+        <View
+          style={{ backgroundColor: color.bg["0"] }}
+          className='h-24 w-full rounded-md mb-2'
+        />
+        <View
+          style={{ backgroundColor: color.bg["0"] }}
+          className='h-10 w-full rounded-md mb-1'
+        />
       </View>
     );
   }
@@ -81,7 +89,7 @@ export const HorizontalScroll = <T,>(
         keyExtractor={keyExtractor}
         ListEmptyComponent={() => (
           <View className='flex-1 justify-center items-center'>
-            <Text className='text-center text-gray-500'>
+            <Text tone='tertiary' className='text-center'>
               {noItemsText || "No data available"}
             </Text>
           </View>

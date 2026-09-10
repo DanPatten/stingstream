@@ -16,7 +16,7 @@ import { isAxiosError } from "axios";
 import * as BackgroundTask from "expo-background-task";
 import * as Device from "expo-device";
 import { Image } from "expo-image";
-import { DarkTheme, ThemeProvider } from "expo-router/react-navigation";
+import { ThemeProvider } from "expo-router/react-navigation";
 import { Platform } from "react-native";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { GlobalModal } from "@/components/GlobalModal";
@@ -24,7 +24,8 @@ import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin
 import { PendingAccountSave } from "@/components/PendingAccountSave";
 import { useInterFonts } from "@/constants/fonts";
 import { TVImageBudget } from "@/constants/TVImageBudget";
-import { tokens } from "@/constants/theme";
+import { useNavigationTheme } from "@/hooks/useNavigationTheme";
+import { useTheme } from "@/hooks/useTheme";
 import { enableTVMenuKeyInterception } from "@/hooks/useTVBackHandler";
 import i18n from "@/i18n";
 import { DownloadProvider } from "@/providers/DownloadProvider";
@@ -255,38 +256,7 @@ const checkAndRequestPermissions = async () => {
   }
 };
 
-/**
- * The navigation theme, built from the design tokens.
- *
- * `DarkTheme` is React Navigation's own dark palette — a #1C1C1E card on a
- * #000 background with the iOS system blue as its accent — and it paints every
- * native stack header, back chevron and screen background in the app. Left
- * alone it is the one surface the design system does not reach, and it shows:
- * a header one shade off the page it sits above is exactly the kind of seam
- * that reads as "not quite an app".
- *
- * Spread from `DarkTheme` rather than written out, so a future React Navigation
- * release that adds a colour gets a sensible default instead of a crash.
- */
-const NAVIGATION_THEME = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: tokens.color.bg["0"],
-    card: tokens.color.bg["1"],
-    text: tokens.color.text.primary,
-    border: tokens.color.border.subtle,
-    // The brand accent, not the user-selected one: this object is read once,
-    // outside React, and a header tint that changed under the navigator would
-    // not repaint anyway.
-    primary: tokens.color.accent[tokens.defaultAccent as "teal"]["500"],
-    notification: tokens.color.state.danger,
-  },
-};
-
 function RootLayout() {
-  Appearance.setColorScheme("dark");
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <JotaiProvider store={jotaiStore}>
@@ -419,6 +389,23 @@ const mmkvPersister = createSyncStoragePersister({
 function Layout() {
   useInterFonts();
   const { settings } = useSettings();
+  const { color, scheme } = useTheme();
+  const navTheme = useNavigationTheme();
+
+  /**
+   * The platform's own chrome follows the chosen theme.
+   *
+   * This used to be an unconditional `Appearance.setColorScheme("dark")` in
+   * `RootLayout`, which sits outside `JotaiProvider` and so cannot read a
+   * setting. It lives here instead, and in an effect rather than in render,
+   * because `Appearance` is a native side effect and calling it during render
+   * fires it on every commit. `lib/platform/web-polyfills.ts` reflects it onto
+   * the document's `color-scheme`, so scrollbars, form controls and the
+   * browser's own overscroll follow too.
+   */
+  useEffect(() => {
+    Appearance.setColorScheme(scheme);
+  }, [scheme]);
   const [user] = useAtom(userAtom);
   const [api] = useAtom(apiAtom);
   const _segments = useSegments();
@@ -598,9 +585,11 @@ function Layout() {
                               <GlobalModalProvider>
                                 <BottomSheetModalProvider>
                                   <IntroSheetProvider>
-                                    <ThemeProvider value={NAVIGATION_THEME}>
+                                    <ThemeProvider value={navTheme}>
                                       <SystemBars
-                                        style='light'
+                                        style={
+                                          scheme === "dark" ? "light" : "dark"
+                                        }
                                         hidden={false}
                                       />
                                       <Stack initialRouteName='(auth)/(tabs)'>
@@ -756,17 +745,15 @@ function Layout() {
                                         }}
                                         toastOptions={{
                                           style: {
-                                            backgroundColor:
-                                              tokens.color.bg["2"],
-                                            borderColor:
-                                              tokens.color.border.strong,
+                                            backgroundColor: color.bg["2"],
+                                            borderColor: color.border.strong,
                                             borderWidth: 1,
                                           },
                                           titleStyle: {
-                                            color: tokens.color.text.primary,
+                                            color: color.text.primary,
                                           },
                                           descriptionStyle: {
-                                            color: tokens.color.text.secondary,
+                                            color: color.text.secondary,
                                           },
                                         }}
                                         closeButton

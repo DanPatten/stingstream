@@ -1,28 +1,31 @@
-import { accentPalette, rgba, tokens } from "./theme";
+import { DEFAULT_PALETTE, rgba, tokens } from "./theme";
 
 /**
- * The fork's original nine-colour palette, kept as aliases of the design
+ * The fork's original nine-color palette, kept as aliases of the design
  * tokens.
  *
- * Eighty-odd call sites import `Colors`, and rewriting them all in one commit
- * would collide with every other package in flight. So the names stay and the
- * values move: `Colors.primary` is now the brand accent rather than Streamyfin's
- * purple, `Colors.background` is `bg0`, and so on. New code should read
- * `constants/theme.ts` (or `useTheme()`, which follows the user's chosen accent)
- * instead — this object cannot express a tone, a variant or a runtime accent.
+ * Eighty-odd call sites imported `Colors`, and rewriting them all in one commit
+ * would have collided with every other package in flight. So the names stayed
+ * and the values moved.
+ *
+ * **It cannot follow the theme.** These are module constants, so everything they
+ * paint is stuck on the default theme's colors whatever the person picked in
+ * Appearance. That is why the remaining call sites are being moved to
+ * `useTheme().color`, and why this file is on its way out — do not add to it.
  */
-const brand = accentPalette();
+const brand = DEFAULT_PALETTE.accent;
 
 export const Colors = {
   /** Accent 500 — the rest state of anything accented. */
   primary: brand[500],
   primaryRGB: rgba(brand[500], 1),
-  /** Accent 400 — hover, and the focus ring on web. */
+  /** Accent 400 — hover. */
   primaryLightRGB: rgba(brand[400], 1),
-  text: tokens.color.text.primary,
-  background: tokens.color.bg["0"],
-  tint: "#FFFFFF",
-  icon: tokens.color.text.secondary,
-  tabIconDefault: tokens.color.text.secondary,
-  tabIconSelected: brand[500],
+  text: DEFAULT_PALETTE.text.primary,
+  background: DEFAULT_PALETTE.bg["0"],
+  /** The TV focus ring, which is white on every theme. See docs/conventions/tv.md. */
+  tint: tokens.focus.tv.color,
+  icon: DEFAULT_PALETTE.text.secondary,
+  tabIconDefault: DEFAULT_PALETTE.text.secondary,
+  tabIconSelected: brand.active,
 };

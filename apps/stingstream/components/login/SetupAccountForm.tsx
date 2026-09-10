@@ -8,6 +8,7 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 import {
   isSetupFormValid,
   PASSWORD_MIN_LENGTH,
@@ -51,6 +52,7 @@ export interface SetupAccountFormProps {
 export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
   onSubmit,
 }) => {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const { isCompact } = useBreakpoint();
 
@@ -117,7 +119,7 @@ export const SetupAccountForm: React.FC<SetupAccountFormProps> = ({
       <Ionicons
         name={revealed ? "eye-off-outline" : "eye-outline"}
         size={18}
-        color={tokens.color.text.tertiary}
+        color={color.text.tertiary}
       />
     </FocusPressable>
   );
