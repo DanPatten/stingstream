@@ -171,6 +171,25 @@ export function FindSection({ term = "" }: { term?: string }) {
     }
   };
 
+  /**
+   * What a poster does.
+   *
+   * Not `act`. A row's button is labelled with what pressing it will do; a tile is artwork, and the
+   * whole card is the target, so a press that spent a group download outright would be one
+   * mis-aimed thumb away on a grid of sixty. A title nobody has asked for yet opens the sheet,
+   * where the overview the tile cannot show is, and Request is a deliberate second press.
+   *
+   * A title that already has a request open goes through `act` exactly as its row does: a show
+   * reopens its seasons, and a film, which has nothing to edit, is withdrawn after a confirmation.
+   */
+  const openFromGrid = (result: RequestSearchResult) => {
+    if (searchAction(result).intent === "manage") {
+      void act(result);
+      return;
+    }
+    setPicking(result);
+  };
+
   // Guarded on being different so a re-render cannot push a stale `q` back over what is being
   // typed now. Same shape, and the same reason, as the guard in `SearchField`.
   useEffect(() => {
@@ -309,7 +328,7 @@ export function FindSection({ term = "" }: { term?: string }) {
       <RequestDiscoverGrid
         results={feed}
         loading={discover.isLoading}
-        onPress={act}
+        onPress={openFromGrid}
       />
     );
   };
