@@ -214,11 +214,16 @@ public sealed class RequestService
         var policy = _store.Policy(group);
         var user = User(userId);
 
-        // Somebody already asked for this and it has not finished. Fold the request in rather than
-        // making a second one: five people wanting the same film on a Sunday evening is one
-        // download, and a season list that grows is exactly what Sonarr wants anyway.
-        var existing = _store.OpenForItem(itemKey);
-        if (existing is not null)
+        // One row per title, whatever became of the last one. Two rows for the same film are never
+        // two pieces of information -- the second says only that the button was pressed twice --
+        // and they then have to be approved twice, grabbed twice and deleted twice.
+        //
+        // A request still running absorbs the new one outright: five people wanting the same film on
+        // a Sunday evening is one download, and a season list that grows is exactly what Sonarr
+        // wants anyway. One that finished is *reopened* below rather than filed beside, so what has
+        // already been tried stays attached to the title it was tried on.
+        var existing = _store.OpenForItem(itemKey) ?? _store.LatestMineForItem(itemKey);
+        if (existing is not null && RequestStates.IsOpen(existing.State))
         {
             var merged = MergeSeasons(existing.Seasons, body.Seasons);
             if (merged.Count != existing.Seasons.Count)
@@ -244,10 +249,16 @@ public sealed class RequestService
             };
         }
 
-        var row = new RequestRow
+        var now = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+
+        // Declined, failed, or filled and since gone: the same row is asked again, keeping its id
+        // and its event trail. Everything the last attempt left behind is cleared, exactly as
+        // RetryAsync clears it -- a stale fulfilling node would make the group think somebody was
+        // already grabbing this, and a stale decision would attribute an approval nobody just gave.
+        var reopening = existing is not null;
+        var row = existing ?? new RequestRow
         {
             Id = Guid.NewGuid().ToString("N"),
-            Group = group ?? string.Empty,
             Kind = kind,
             ItemKey = itemKey,
             Provider = isMovie ? "tmdb" : "tvdb",
@@ -255,12 +266,27 @@ public sealed class RequestService
             Title = body.Title ?? string.Empty,
             Year = body.Year,
             PosterUrl = body.PosterUrl,
-            Seasons = MergeSeasons(new List<int>(), body.Seasons),
             RequestedBy = userId,
             RequestedByName = user.UserName,
-            RequestedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             Mine = true,
         };
+
+        row.Group = group ?? string.Empty;
+        row.Seasons = MergeSeasons(reopening ? row.Seasons : new List<int>(), body.Seasons);
+
+        // The claim race is timed from this, so it has to be the moment of *this* ask: leaving an
+        // hour-old timestamp on a reopened request would put every volunteer's 20 second delay in
+        // the past, and the home node would lose the race it is meant to win (docs/REQUESTS.md 4.4).
+        row.RequestedAt = now;
+        if (reopening)
+        {
+            row.DecidedBy = null;
+            row.DecidedByName = null;
+            row.DecidedAt = null;
+            row.FulfillingNode = null;
+            row.FulfillingNodeName = null;
+            await _store.SetPublishedAsync(row.Id, false, cancellationToken).ConfigureAwait(false);
+        }
 
         // Fill in the title from the arr's own metadata lookup when the caller did not carry one.
         // Not cosmetic: an approvals queue listing "tvdb 73739" instead of "Lost" cannot be
@@ -289,7 +315,7 @@ public sealed class RequestService
                 row.Id,
                 itemKey,
                 string.Join(", ", holders));
-            return new CreateRequestResult { Request = row, Created = true };
+            return new CreateRequestResult { Request = row, Created = !reopening };
         }
 
         var autoApproved = IsAutoApproved(policy, user.IsAdministrator, user.Trusted);
@@ -326,7 +352,7 @@ public sealed class RequestService
             row.Describe(),
             itemKey,
             row.State);
-        return new CreateRequestResult { Request = row, Created = true };
+        return new CreateRequestResult { Request = row, Created = !reopening };
     }
 
     /// <summary>Approve a pending request.</summary>

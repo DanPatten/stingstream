@@ -213,15 +213,15 @@ describe("what the request button offers", () => {
     }
   });
 
-  test("a declined or failed request may be asked for again", () => {
+  test("a declined or failed request may be asked for again, and says so", () => {
     // The first was refused by a person who may have changed their mind; the second failed for
-    // reasons that may have gone away. Neither is a permanent no.
-    expect(searchAction(result({ requestState: "declined" })).disabled).toBe(
-      false,
-    );
-    expect(searchAction(result({ requestState: "failed" })).disabled).toBe(
-      false,
-    );
+    // reasons that may have gone away. Neither is a permanent no. The node reopens the row that is
+    // already there rather than making a second one, and the label says which press this is.
+    for (const state of ["declined", "failed"] as const) {
+      const action = searchAction(result({ requestState: state }));
+      expect(action.disabled).toBe(false);
+      expect(action.label).toBe("Request again");
+    }
   });
 
   test("an untouched title is offered", () => {

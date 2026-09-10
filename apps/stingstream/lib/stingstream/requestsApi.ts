@@ -393,7 +393,12 @@ export const searchAction = (
       return { label: "Already requested", disabled: true };
     // A declined or failed request is not a reason to refuse a new one: the first was refused by a
     // person who may since have changed their mind, and the second failed for reasons that may
-    // have gone away.
+    // have gone away. Asking reopens the request that is already there rather than filing a second
+    // one, so the label says "again" — a button reading "Request" on a title the list below still
+    // shows as declined invites the press that used to produce the duplicate.
+    case "declined":
+    case "failed":
+      return { label: "Request again", disabled: false };
     default:
       return { label: "Request", disabled: false };
   }

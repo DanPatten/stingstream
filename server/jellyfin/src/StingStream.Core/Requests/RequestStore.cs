@@ -198,6 +198,35 @@ public sealed class RequestStore
         return rows.Count > 0 ? rows[0] : null;
     }
 
+    /// <summary>
+    /// The most recent request this node made for a title, in any state.
+    /// </summary>
+    /// <param name="itemKey">The item key, or the series prefix.</param>
+    /// <returns>The row, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// What <see cref="OpenForItem"/> cannot answer: whether this title has been asked for here
+    /// before and <em>finished</em> -- declined, failed, or filled and since gone. Asking again
+    /// reopens that row rather than filing a second one beside it, so a list never shows the same
+    /// title twice and everything already tried stays attached to the title it was tried on.
+    /// </para>
+    /// <para>
+    /// Restricted to <c>mine = 1</c>, unlike <see cref="LatestForItem"/>. A row heard over gossip
+    /// belongs to the node that made it; reopening one would be this node quietly rewriting
+    /// somebody else's request, and only the origin may approve, decline or delete one.
+    /// </para>
+    /// </remarks>
+    public RequestRow? LatestMineForItem(string itemKey)
+    {
+        EnsureSchema();
+        var rows = _db.Read(c => CoreDatabase.Query(
+            c,
+            Select + " WHERE item_key = $k AND mine = 1 ORDER BY requested_at DESC;",
+            Map,
+            ("$k", itemKey)));
+        return rows.Count > 0 ? rows[0] : null;
+    }
+
     /// <summary>The most recent request for a title in any state.</summary>
     /// <param name="itemKey">The item key.</param>
     /// <returns>The row, or null.</returns>
