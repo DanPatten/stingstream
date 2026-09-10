@@ -36,10 +36,24 @@ const TMDB_WIDTHS = [154, 185, 342, 500, 780] as const;
  */
 const TVDB_THUMB_WIDTH = 210;
 
+/**
+ * TVmaze's two poster variants, and roughly how wide the smaller one is.
+ *
+ * Same binary choice as TVDB, and the same reason to care: `original_untouched`
+ * is 960x1440 and 322 KB, `medium_portrait` is 25 KB. These arrive from the
+ * artwork fallback the node runs for series TVDB has no poster for, so without
+ * this they would be the only posters on the screen still shipped whole.
+ */
+const TVMAZE_FULL = "original_untouched";
+const TVMAZE_THUMB = "medium_portrait";
+const TVMAZE_THUMB_WIDTH = 210;
+
 const isTmdb = (host: string): boolean => host === "image.tmdb.org";
 
 const isTvdb = (host: string): boolean =>
   host === "artworks.thetvdb.com" || host === "www.thetvdb.com";
+
+const isTvmaze = (host: string): boolean => host === "static.tvmaze.com";
 
 /**
  * The poster URL to actually request, given how wide it will be drawn.
@@ -88,6 +102,10 @@ export function sizedPosterUrl(
     return withTvdbVariant(parsed, target);
   }
 
+  if (isTvmaze(parsed.hostname)) {
+    return withTvmazeVariant(parsed, target);
+  }
+
   return url;
 }
 
@@ -126,5 +144,29 @@ function withTvdbVariant(parsed: URL, target: number): string {
   const [, stem, , extension] = match;
   parsed.pathname =
     target <= TVDB_THUMB_WIDTH ? `${stem}_t${extension}` : `${stem}${extension}`;
+  return parsed.toString();
+}
+
+/**
+ * Swap TVmaze's variant segment.
+ *
+ * The shape is `/uploads/images/{variant}/{bucket}/{file}`, and swapping the
+ * one segment is idempotent for the same reason the TMDB rewrite is: it sets
+ * the segment rather than matching on one particular value of it.
+ */
+function withTvmazeVariant(parsed: URL, target: number): string {
+  const wanted = target <= TVMAZE_THUMB_WIDTH ? TVMAZE_THUMB : TVMAZE_FULL;
+  const segments = parsed.pathname.split("/");
+  // ["", "uploads", "images", "{variant}", "{bucket}", "{file}"]
+  if (
+    segments.length < 6 ||
+    segments[1] !== "uploads" ||
+    segments[2] !== "images"
+  ) {
+    return parsed.toString();
+  }
+
+  segments[3] = wanted;
+  parsed.pathname = segments.join("/");
   return parsed.toString();
 }

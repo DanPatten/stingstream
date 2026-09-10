@@ -89,6 +89,33 @@ describe("sizedPosterUrl: TVDB", () => {
   });
 });
 
+describe("sizedPosterUrl: TVmaze", () => {
+  // These arrive from the node's artwork fallback, for series TVDB has no
+  // poster for. 322 KB against 25 KB, measured.
+  const FULL =
+    "https://static.tvmaze.com/uploads/images/original_untouched/363/907578.jpg";
+  const THUMB =
+    "https://static.tvmaze.com/uploads/images/medium_portrait/363/907578.jpg";
+
+  test("a small poster takes medium_portrait", () => {
+    expect(sizedPosterUrl(FULL, 56, 3)).toBe(THUMB);
+  });
+
+  test("a large poster keeps original_untouched", () => {
+    expect(sizedPosterUrl(FULL, 220, 2)).toBe(FULL);
+  });
+
+  test("the swap works in both directions and is idempotent", () => {
+    expect(sizedPosterUrl(THUMB, 56, 3)).toBe(THUMB);
+    expect(sizedPosterUrl(THUMB, 220, 2)).toBe(FULL);
+  });
+
+  test("an unexpected TVmaze path is left alone", () => {
+    const odd = "https://static.tvmaze.com/something.jpg";
+    expect(sizedPosterUrl(odd, 56, 3)).toBe(odd);
+  });
+});
+
 describe("sizedPosterUrl: everything it must not touch", () => {
   test("Jellyfin's own image URLs pass through", () => {
     // These already carry fillWidth and are sized by the server. Rewriting them
