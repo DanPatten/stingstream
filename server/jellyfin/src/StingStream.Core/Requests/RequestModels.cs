@@ -160,6 +160,27 @@ public sealed class RequestRow
     /// <summary>Poster URL from the arr's own metadata lookup, so the app has something to draw.</summary>
     public string? PosterUrl { get; set; }
 
+    /// <summary>
+    /// The blurb, copied from the search result the request was made from.
+    /// </summary>
+    /// <remarks>
+    /// Kept here because there is nowhere else to read it later: the managers hold their own
+    /// overview only for titles they track, and a request the group fulfilled elsewhere is tracked
+    /// by nothing here. The edit sheet opened on a poster and a title without it.
+    /// </remarks>
+    public string? Overview { get; set; }
+
+    /// <summary>
+    /// How many seasons the show has, excluding specials. <c>0</c> for a film, and for a request
+    /// made before this was recorded.
+    /// </summary>
+    /// <remarks>
+    /// So the season picker can offer the seasons that exist rather than a fixed range. Nothing
+    /// asks TVDB how long a show is once the request exists, so it is captured when the request is
+    /// made or not at all.
+    /// </remarks>
+    public int SeasonCount { get; set; }
+
     /// <summary>Season numbers wanted. Empty means every season, which is what Sonarr calls "all".</summary>
     public List<int> Seasons { get; set; } = new();
 
@@ -281,6 +302,12 @@ public sealed class CreateRequestBody
 
     /// <summary>The release year.</summary>
     public int? Year { get; set; }
+
+    /// <summary>The blurb from the search result, so the request keeps it after the search is gone.</summary>
+    public string? Overview { get; set; }
+
+    /// <summary>How many seasons the show has, from the search result. Zero for a film.</summary>
+    public int SeasonCount { get; set; }
 
     /// <summary>A poster URL from the search result, so the request list has artwork immediately.</summary>
     public string? PosterUrl { get; set; }

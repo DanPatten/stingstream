@@ -272,10 +272,20 @@ public sealed class RequestService
             Title = body.Title ?? string.Empty,
             Year = body.Year,
             PosterUrl = body.PosterUrl,
+            Overview = body.Overview,
+            SeasonCount = body.SeasonCount,
             RequestedBy = userId,
             RequestedByName = user.UserName,
             Mine = true,
         };
+
+        // A row made before these were recorded, or reopened from a result that has them now: fill
+        // the gaps without overwriting what is already there.
+        row.Overview ??= body.Overview;
+        if (row.SeasonCount == 0)
+        {
+            row.SeasonCount = body.SeasonCount;
+        }
 
         row.Group = group ?? string.Empty;
         row.Seasons = MergeSeasons(reopening ? row.Seasons : new List<int>(), body.Seasons);

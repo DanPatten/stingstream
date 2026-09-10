@@ -2,18 +2,15 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Icon } from "@/components/common/Icon";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
-import { ListItem } from "@/components/list/ListItem";
-import { PlatformDropdown } from "@/components/PlatformDropdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
   useDeleteLibraryItem,
-  useQualityProfiles,
   useUpdateLibraryItem,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
+import { QualityProfileRow } from "./QualityProfileRow";
 
 /**
  * What this server does about one title: keep it current, at what quality, or not at all.
@@ -55,7 +52,6 @@ export function ManageTitleFields({
   const { color, accent } = useTheme();
   const update = useUpdateLibraryItem(kind);
   const remove = useDeleteLibraryItem(kind);
-  const profiles = useQualityProfiles(active);
 
   const toggleMonitored = async (next: boolean) => {
     try {
@@ -68,17 +64,6 @@ export function ManageTitleFields({
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("manage.monitor_error"),
-      );
-    }
-  };
-
-  const setProfile = async (name: string) => {
-    try {
-      await update.mutateAsync({ providerId, qualityProfileName: name });
-      toast.success(t("manage.profile_set_toast", { title, profile: name }));
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("manage.profile_error"),
       );
     }
   };
@@ -135,46 +120,13 @@ export function ManageTitleFields({
           marginTop: 4,
         }}
       >
-        {/*
-          A select, not a button that reveals a list. It answers "which profile is this on" as well
-          as "change it", which the old shape could not: the current profile was invisible until you
-          pressed something. `PlatformDropdown` is the same control the language row uses, so it is
-          a menu on a browser and a sheet on a phone without this knowing which.
-        */}
-        <ListItem title={t("manage.quality_profile_action")}>
-          <PlatformDropdown
-            title={t("manage.quality_profile_action")}
-            groups={[
-              {
-                options: (profiles.data ?? []).map((p) => ({
-                  type: "radio" as const,
-                  label: `${p.Name}${p.InSync === false ? t("manage.out_of_sync_suffix") : ""}`,
-                  value: p.Name ?? "",
-                  selected: p.Name === profileName,
-                  onPress: () => void setProfile(p.Name ?? ""),
-                })),
-              },
-            ]}
-            trigger={
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  paddingVertical: 6,
-                  paddingLeft: 12,
-                }}
-              >
-                <Text tone={profileName ? "primary" : "secondary"}>
-                  {profiles.isLoading
-                    ? "…"
-                    : (profileName ?? t("manage.no_profiles_hint"))}
-                </Text>
-                <Icon name='chevronDown' size={16} tone='secondary' />
-              </View>
-            }
-          />
-        </ListItem>
+        <QualityProfileRow
+          kind={kind}
+          providerId={providerId}
+          title={title}
+          profileName={profileName}
+          active={active}
+        />
 
         {/*
           Two removals, and the labels are the only thing that tells them apart, so they say what

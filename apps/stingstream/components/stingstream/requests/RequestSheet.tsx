@@ -22,7 +22,7 @@ import {
   useDeleteRequest,
   useSetRequestSeasons,
 } from "@/lib/stingstream/requests";
-import { ManageTitleFields } from "../arr/ManageTitleFields";
+import { QualityProfileRow } from "../arr/QualityProfileRow";
 import { confirmDestructive } from "../shared/confirm";
 import { requestMadeToast } from "./requestMadeToast";
 import {
@@ -200,6 +200,10 @@ export function RequestSheet({
         title: shown.title,
         year: shown.year,
         posterUrl: shown.posterUrl,
+        // Kept on the request: the search result they came from is gone by the time anybody edits
+        // it, and nothing else can answer either question later.
+        overview: shown.overview,
+        seasonCount: shown.seasonCount,
       });
       requestMadeToast(made, t);
       onClose();
@@ -321,16 +325,14 @@ export function RequestSheet({
         ) : null}
 
         {/*
-          What this server does about the title, on the same sheet as what was asked for. It was a
-          second button on the row — "Manage on this server" — beside Edit and Delete, which is
-          three controls for one title and a name nobody had to learn.
+          Quality is the one thing here that is about the *request*: how good a copy has to be
+          before it counts as answered. Monitoring and the two removals were on this sheet for a
+          while, merged in from "Manage on this server", and they are things done to a library item
+          — which a request is not. Dan: *"this is a request not a libary item."* They live on the
+          title's own page, where the title is.
 
-          Gated on the *title* being tracked, not on the request still being open, because that is
-          what these three are about. Gating them on the request as well is what left a failed film
-          with an Edit button on its row (the row asks "is it tracked") and an empty sheet behind it
-          (the sheet asked "is the request open"). A request that failed still has a film in the
-          manager to monitor, re-profile or remove — and the button below says Request, so asking
-          again is here too.
+          Only when this node's manager tracks it: there is no profile to set on a film no manager
+          here has heard of.
         */}
         {managed.row ? (
           <View
@@ -338,18 +340,15 @@ export function RequestSheet({
               borderTopWidth: 1,
               borderTopColor: color.border.subtle,
               marginTop: 16,
-              paddingTop: 8,
+              paddingTop: 4,
             }}
           >
-            <ManageTitleFields
+            <QualityProfileRow
               kind={shown.kind === "series" ? "series" : "movie"}
               providerId={providerId}
               title={requestTitle(shown)}
-              monitored={managed.row.monitored ?? false}
               profileName={managed.profileName}
               active={!!result}
-              onDone={onClose}
-              onRemovedWithFiles={onClose}
             />
           </View>
         ) : null}

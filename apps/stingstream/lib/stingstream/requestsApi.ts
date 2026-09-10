@@ -93,6 +93,10 @@ export interface MemberRequest {
   title: string;
   year?: number | null;
   posterUrl?: string | null;
+  /** The blurb, kept from the search result the request was made from. */
+  overview?: string | null;
+  /** Seasons the show has, specials excluded. `0` for a film, and for a request made before this was recorded. */
+  seasonCount?: number;
   /** Season numbers wanted. Empty means every season. */
   seasons: number[];
   state: RequestState;
@@ -214,6 +218,9 @@ export interface RequestNotification {
 export interface CreateRequestInput {
   tmdbId?: number;
   tvdbId?: number;
+  /** The blurb and season count off the search result, so the request keeps them. */
+  overview?: string | null;
+  seasonCount?: number;
   /** Seasons wanted. Omit or leave empty for all of them. */
   seasons?: number[];
   group?: string;
@@ -235,6 +242,8 @@ export const toRequest = (raw: unknown): MemberRequest => ({
   title: field<string>(raw, ...both("title")) ?? "",
   year: field<number>(raw, ...both("year")),
   posterUrl: field<string>(raw, ...both("posterUrl")),
+  overview: field<string>(raw, ...both("overview")),
+  seasonCount: field<number>(raw, ...both("seasonCount")) ?? 0,
   seasons: field<number[]>(raw, ...both("seasons")) ?? [],
   state: (field<string>(raw, ...both("state")) ?? "pending") as RequestState,
   requestedBy: field<string>(raw, ...both("requestedBy")) ?? "",
@@ -498,8 +507,10 @@ const isSearchResult = (
  * row is mapped onto the one it already knows: the ids come off `provider`/`providerId`, and the
  * request's own state and id come with it so the sheet opens in edit mode.
  *
- * `seasonCount` is 0, because a stored request does not carry one — nothing asked TVDB how long the
- * show is when it was made. `SeasonPicker` falls back to its fixed range, which is what it is for.
+ * The blurb and the season count come off the request itself: both are captured when it is made and
+ * kept on the row, because there is nowhere else to read them later. A request made before they were
+ * recorded has neither, and the sheet degrades the way it used to — no blurb, and the picker's fixed
+ * range instead of the show's real seasons.
  */
 export const requestAsSearchResult = (
   request: MemberRequest,
@@ -507,12 +518,12 @@ export const requestAsSearchResult = (
   kind: request.kind,
   title: request.title,
   year: request.year,
-  overview: null,
+  overview: request.overview ?? null,
   posterUrl: request.posterUrl,
   tmdbId: request.provider === "tmdb" ? request.providerId : 0,
   tvdbId: request.provider === "tvdb" ? request.providerId : 0,
   itemKey: request.itemKey,
-  seasonCount: 0,
+  seasonCount: request.seasonCount ?? 0,
   availableInGroup: false,
   holders: [],
   requestState: request.state,

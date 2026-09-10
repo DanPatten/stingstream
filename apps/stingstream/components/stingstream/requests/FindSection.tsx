@@ -128,6 +128,10 @@ export function FindSection({ term = "" }: { term?: string }) {
         title: result.title,
         year: result.year,
         posterUrl: result.posterUrl,
+        // Kept on the request: the search result they came from is gone by the time anybody edits
+        // it, and nothing else can answer either question later.
+        overview: result.overview,
+        seasonCount: result.seasonCount,
       });
       requestMadeToast(made, t);
     } catch (err) {

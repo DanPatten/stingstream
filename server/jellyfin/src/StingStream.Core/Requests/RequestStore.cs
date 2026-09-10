@@ -169,7 +169,35 @@ public sealed class RequestStore
                     PRIMARY KEY (source, source_id, target)
                 );
                 """);
+
+            // What the request was made from, kept so the app can show it later. Both come off the
+            // search result that created the row and are on nothing else: the overview is not
+            // stored by either manager in a form this can reach, and nobody asks TVDB how long a
+            // show is once the request exists. Without them the edit sheet opened on a poster with
+            // no blurb and a fixed twenty season squares for a four-season show.
+            //
+            // Additive, nullable, and swallowed when already there -- the same shape `InviteStore`
+            // uses, and for the same reason: the CREATE above only runs on a database that does not
+            // exist yet.
+            AddColumn(c, "ALTER TABLE requests ADD COLUMN overview TEXT;");
+            AddColumn(c, "ALTER TABLE requests ADD COLUMN season_count INTEGER NOT NULL DEFAULT 0;");
             _schemaReady = true;
+        }
+    }
+
+    /// <summary>Run an additive migration, and say nothing when it has already been run.</summary>
+    /// <param name="connection">The open connection.</param>
+    /// <param name="sql">An <c>ALTER TABLE ... ADD COLUMN</c>.</param>
+    private static void AddColumn(Microsoft.Data.Sqlite.SqliteConnection connection, string sql)
+    {
+        try
+        {
+            CoreDatabase.Execute(connection, sql);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException e)
+            when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already migrated.
         }
     }
 
@@ -295,16 +323,18 @@ public sealed class RequestStore
                 """
                 INSERT INTO requests
                     (id, group_id, kind, item_key, provider, provider_id, title, year, poster_url,
+                     overview, season_count,
                      seasons, state, requested_by, requested_by_name, requested_at, decided_by,
                      decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine,
                      updated_at)
-                VALUES ($id, $g, $k, $ik, $p, $pid, $t, $y, $pu, $s, $st, $rb, $rbn, $ra, $db, $dbn,
-                        $da, $fn, $fnn, $n, $m, $u)
+                VALUES ($id, $g, $k, $ik, $p, $pid, $t, $y, $pu, $ov, $sc, $s, $st, $rb, $rbn, $ra,
+                        $db, $dbn, $da, $fn, $fnn, $n, $m, $u)
                 ON CONFLICT(id) DO UPDATE SET
                     group_id = excluded.group_id, kind = excluded.kind,
                     item_key = excluded.item_key, provider = excluded.provider,
                     provider_id = excluded.provider_id, title = excluded.title,
                     year = excluded.year, poster_url = excluded.poster_url,
+                    overview = excluded.overview, season_count = excluded.season_count,
                     seasons = excluded.seasons, state = excluded.state,
                     requested_by = excluded.requested_by,
                     requested_by_name = excluded.requested_by_name,
@@ -323,6 +353,8 @@ public sealed class RequestStore
                 ("$t", row.Title),
                 ("$y", row.Year),
                 ("$pu", row.PosterUrl),
+                ("$ov", row.Overview),
+                ("$sc", row.SeasonCount),
                 ("$s", JsonSerializer.Serialize(row.Seasons, _json)),
                 ("$st", row.State),
                 ("$rb", row.RequestedBy),
@@ -860,7 +892,7 @@ public sealed class RequestStore
         "SELECT id, group_id, kind, item_key, provider, provider_id, title, year, poster_url, "
         + "seasons, state, requested_by, requested_by_name, requested_at, decided_by, "
         + "decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine, "
-        + "updated_at FROM requests";
+        + "updated_at, overview, season_count FROM requests";
 
     private const string PolicySelect =
         "SELECT group_id, auto_approve, weekly_quota, minimum_height, updated_at FROM request_policy";
@@ -891,6 +923,8 @@ public sealed class RequestStore
         Note = r.GetString(19),
         Mine = r.GetInt64(20) != 0,
         UpdatedAt = r.GetString(21),
+        Overview = r.IsDBNull(22) ? null : r.GetString(22),
+        SeasonCount = (int)r.GetInt64(23),
     };
 
     private static RequestPolicy MapPolicy(IDataRecord r) => new()
