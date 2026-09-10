@@ -44,6 +44,7 @@ import { usePlaybackManager } from "@/hooks/usePlaybackManager";
 import type { SegmentType } from "@/hooks/useSegmentSkipper";
 import { useTrickplay } from "@/hooks/useTrickplay";
 import { useTVOptionModal } from "@/hooks/useTVOptionModal";
+import { useSourceSelection } from "@/hooks/useSourceSelection";
 import { useTVSourceChooser } from "@/hooks/useTVSourceChooser";
 import { useTVSubtitleModal } from "@/hooks/useTVSubtitleModal";
 import type { SourceChoice } from "@/lib/stingstream/sourceChooser";
@@ -1253,6 +1254,13 @@ export const Controls: FC<Props> = ({
 
   const { showSourceChooser } = useTVSourceChooser();
 
+  // Auto and the pin, from the same hook the details page uses. React Query dedupes it onto the
+  // one key, so asking again here is a read of the cache rather than a second mesh round trip.
+  const sourceSelection = useSourceSelection(item, {
+    currentMediaSourceId: mediaSource?.Id,
+    onSelectMediaSource: (mediaSourceId) => onSwitchMediaSource?.(mediaSourceId),
+  });
+
   // Only a button when there is somewhere else to go: a one-row modal on a television is four
   // D-pad presses to learn nothing.
   const canChooseSource =
@@ -1269,10 +1277,17 @@ export const Controls: FC<Props> = ({
   const handleOpenSourceChooser = useCallback(() => {
     if (!canChooseSource || !sourceChoices) return;
     showSourceChooser({
-      choices: sourceChoices,
-      onSelect: (mediaSourceId) => onSwitchMediaSource?.(mediaSourceId),
+      menu: sourceSelection.menu,
+      autoTarget: sourceSelection.autoTarget,
+      onSelect: sourceSelection.choose,
     });
-  }, [canChooseSource, sourceChoices, showSourceChooser, onSwitchMediaSource]);
+  }, [
+    canChooseSource,
+    showSourceChooser,
+    sourceSelection.menu,
+    sourceSelection.autoTarget,
+    sourceSelection.choose,
+  ]);
 
   // The pill sits above the transport row, so it joins the same upward chain the skip and
   // next-episode cards use. Without it, UP from the play button jumps past the pill to whichever
