@@ -1,15 +1,16 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetTextInput,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetTextInput,
+  SheetView,
+} from "@/components/common/Sheet";
 import { useHaptic } from "@/hooks/useHaptic";
 import { Button } from "./Button";
 import { Text } from "./common/Text";
@@ -29,7 +30,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -63,12 +64,8 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -94,7 +91,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
   };
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       snapPoints={snapPoints}
       onChange={handleSheetChanges}
@@ -106,7 +103,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
       android_keyboardInputMode='adjustResize'
       topInset={isAndroid ? 0 : undefined}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -130,7 +127,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
             <Text className='text-neutral-400 text-sm mb-2'>
               {t("login.password_placeholder")}
             </Text>
-            <BottomSheetTextInput
+            <SheetTextInput
               value={password}
               onChangeText={(text) => {
                 setPassword(text);
@@ -179,7 +176,7 @@ export const PasswordEntryModal: React.FC<PasswordEntryModalProps> = ({
             </Button>
           </View>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

@@ -1,10 +1,16 @@
-# Global Modal System with Gorhom Bottom Sheet
+# Global Modal System
 
 This guide explains how to use the global modal system implemented in this project.
 
 ## Overview
 
-The global modal system allows you to trigger a bottom sheet modal from anywhere in your app programmatically, and render any component inside it.
+The global modal system allows you to trigger a modal from anywhere in your app programmatically, and render any component inside it.
+
+What that modal looks like is decided in one place, `components/common/Sheet.tsx`: a
+`@gorhom/bottom-sheet` on a device, a centred card on the web. Content rendered into it therefore
+has to use the `Sheet*` scrollables (`SheetScrollView`, `SheetFlatList`, `SheetView`,
+`SheetTextInput`) rather than `@gorhom/bottom-sheet`'s own, which throw when they are not inside a
+sheet.
 
 ## Architecture
 
@@ -217,8 +223,14 @@ const optionGroups: OptionGroup[] = [
 ### Content is cut off
 - Use `enableDynamicSizing: true` for auto-sizing
 - Or specify appropriate `snapPoints`
+- Both are device-only. The web card sizes to its content and stops at 85% of the window.
 
 ### Modal won't close
 - Ensure `enablePanDownToClose` is `true`
 - Check that backdrop is clickable
 - Use `hideModal()` for programmatic closing
+- On the web, Escape and a click outside close it unless the caller passed `webDismissible: false`
+
+### A red box saying "'Scrollable' cannot be used out of the BottomSheet!"
+- Content imported `BottomSheetScrollView` or `BottomSheetFlatList` from `@gorhom/bottom-sheet`
+- Import `SheetScrollView` / `SheetFlatList` from `@/components/common/Sheet` instead

@@ -1,10 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetTextInput,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import React, {
   useCallback,
   useEffect,
@@ -16,6 +9,14 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetTextInput,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useCreatePlaylist } from "@/hooks/usePlaylistMutations";
 
@@ -32,7 +33,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
   onPlaylistCreated,
   initialTrackId,
 }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const createPlaylist = useCreatePlaylist();
@@ -60,12 +61,8 @@ export const CreatePlaylistModal: React.FC<Props> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -87,7 +84,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
   const isValid = name.trim().length > 0;
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       index={0}
       snapPoints={snapPoints}
@@ -102,7 +99,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
       keyboardBehavior='interactive'
       keyboardBlurBehavior='restore'
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -117,7 +114,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
         <Text className='text-neutral-400 mb-2 text-sm'>
           {t("music.playlists.playlist_name")}
         </Text>
-        <BottomSheetTextInput
+        <SheetTextInput
           placeholder={t("music.playlists.enter_name")}
           placeholderTextColor='#737373'
           value={name}
@@ -151,7 +148,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
             </Text>
           )}
         </Button>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

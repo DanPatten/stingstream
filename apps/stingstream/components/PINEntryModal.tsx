@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +9,13 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
@@ -44,7 +45,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [pinCode, setPinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -80,12 +81,8 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -158,7 +155,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
   };
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       snapPoints={snapPoints}
       onChange={handleSheetChanges}
@@ -170,7 +167,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
       android_keyboardInputMode='adjustResize'
       topInset={isAndroid ? 0 : undefined}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -223,7 +220,7 @@ export const PINEntryModal: React.FC<PINEntryModalProps> = ({
             {t("common.cancel")}
           </Button>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

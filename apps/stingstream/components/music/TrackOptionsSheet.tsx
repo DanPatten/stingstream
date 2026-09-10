@@ -1,10 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useAtom } from "jotai";
 import React, {
@@ -23,6 +17,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "@/components/common/ServerImage";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useFavorite } from "@/hooks/useFavorite";
@@ -56,7 +57,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
   playlistId,
   onRemoveFromPlaylist,
 }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const router = useRouter();
@@ -129,12 +130,8 @@ export const TrackOptionsSheet: React.FC<Props> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -229,7 +226,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
   if (!track) return null;
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       enableDynamicSizing
       onChange={handleSheetChanges}
@@ -241,7 +238,7 @@ export const TrackOptionsSheet: React.FC<Props> = ({
         backgroundColor: "#171717",
       }}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -451,8 +448,8 @@ export const TrackOptionsSheet: React.FC<Props> = ({
             )}
           </View>
         )}
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };
 

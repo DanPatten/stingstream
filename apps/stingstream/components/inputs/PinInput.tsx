@@ -1,4 +1,3 @@
-import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
 import React, { useCallback, useImperativeHandle, useRef } from "react";
 import {
   type StyleProp,
@@ -8,6 +7,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { SheetTextInput } from "@/components/common/Sheet";
 
 interface PinInputProps
   extends Omit<TextInputProps, "value" | "onChangeText" | "style"> {
@@ -50,7 +50,7 @@ const PinInputComponent = React.forwardRef<PinInputRef, PinInputProps>(
 
     return (
       <View style={[styles.container, style]}>
-        <BottomSheetTextInput
+        <SheetTextInput
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}

@@ -1,9 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-} from "@gorhom/bottom-sheet";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,6 +13,12 @@ import {
 import { Slider } from "react-native-awesome-slider";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSharedValue } from "react-native-reanimated";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { Stepper } from "@/components/inputs/Stepper";
 import {
@@ -228,7 +229,7 @@ const DropdownView = ({
   const { subtitleTracks, audioTracks } = useVideoContext();
   const { item, mediaSource } = usePlayerContext();
   const { settings, pluginSettings } = useSettings();
-  const subtitleScaleModalRef = useRef<BottomSheetModal>(null);
+  const subtitleScaleModalRef = useRef<SheetModalRef>(null);
   const router = useRouter();
   const isOffline = useOfflineMode();
   const { t } = useTranslation();
@@ -288,12 +289,8 @@ const DropdownView = ({
   }, [onOpenSubtitleScale]);
 
   const renderSubtitleScaleBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -456,7 +453,7 @@ const DropdownView = ({
         }}
       />
       {Platform.OS !== "android" && (
-        <BottomSheetModal
+        <SheetModal
           ref={subtitleScaleModalRef}
           enableDynamicSizing
           enablePanDownToClose
@@ -466,7 +463,7 @@ const DropdownView = ({
           handleIndicatorStyle={{ backgroundColor: "white" }}
         >
           <SubtitleScaleControl />
-        </BottomSheetModal>
+        </SheetModal>
       )}
     </>
   );

@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { isEqual } from "lodash";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Input } from "@/components/common/Input";
+import { SheetFlatList } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 
 interface Props<T> {
@@ -27,7 +27,7 @@ const ROW_RADIUS = 20;
  * component owns the selection state locally and mirrors changes back to the
  * caller through `set`.
  *
- * Uses a virtualized BottomSheetFlatList — filter lists (genres, tags, years)
+ * Uses a virtualized SheetFlatList — filter lists (genres, tags, years)
  * can contain thousands of entries.
  *
  * The sheet sizes itself to this content, and it measures the scrollable's
@@ -78,7 +78,7 @@ export const FilterSheetContent = <T,>({
   };
 
   return (
-    <BottomSheetFlatList
+    <SheetFlatList
       data={filteredData}
       keyExtractor={(item, index) => `${renderItemLabel(item)}-${index}`}
       keyboardShouldPersistTaps='handled'

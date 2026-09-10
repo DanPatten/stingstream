@@ -1,10 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import { requireOptionalNativeModule } from "expo-modules-core";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -12,6 +6,13 @@ import { useTranslation } from "react-i18next";
 import { TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Button } from "../Button";
 import { Text } from "../common/Text";
 
@@ -30,7 +31,7 @@ interface Props {
 export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const snapPoints = useMemo(() => ["50%"], []);
   const isPresentedRef = useRef(false);
 
@@ -61,12 +62,8 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -84,7 +81,7 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
   }, [code, t]);
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       snapPoints={snapPoints}
       onChange={handleSheetChanges}
@@ -92,7 +89,7 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
       backgroundStyle={{ backgroundColor: "#171717" }}
       backdropComponent={renderBackdrop}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -131,7 +128,7 @@ export const QuickConnectCodeModal: React.FC<Props> = ({ code, onClose }) => {
             {t("login.got_it")}
           </Button>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

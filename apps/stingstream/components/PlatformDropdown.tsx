@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import React, { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SheetScrollView } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 
@@ -186,7 +186,7 @@ const BottomSheetContent: React.FC<{
   }));
 
   return (
-    <BottomSheetScrollView
+    <SheetScrollView
       className='px-4 pb-8 pt-2'
       style={{
         paddingLeft: Math.max(16, insets.left),
@@ -197,7 +197,7 @@ const BottomSheetContent: React.FC<{
       {wrappedGroups.map((group, index) => (
         <OptionGroupComponent key={index} group={group} />
       ))}
-    </BottomSheetScrollView>
+    </SheetScrollView>
   );
 };
 

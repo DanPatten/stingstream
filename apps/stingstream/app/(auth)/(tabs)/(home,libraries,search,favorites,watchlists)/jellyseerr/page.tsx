@@ -1,12 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetTextInput,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
-import type { BottomSheetModalMethods } from "@gorhom/bottom-sheet/lib/typescript/types";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import type React from "react";
@@ -17,6 +9,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Image } from "@/components/common/ServerImage";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetTextInput,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { GenreTags } from "@/components/GenreTags";
 import Cast from "@/components/jellyseerr/Cast";
@@ -80,8 +80,8 @@ const MobilePage: React.FC = () => {
   const [issueMessage, setIssueMessage] = useState<string>();
   const [requestBody, _setRequestBody] = useState<MediaRequestBody>();
   const [issueTypeDropdownOpen, setIssueTypeDropdownOpen] = useState(false);
-  const advancedReqModalRef = useRef<BottomSheetModalMethods>(null);
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const advancedReqModalRef = useRef<SheetModalRef>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
 
   const {
     data: details,
@@ -148,12 +148,8 @@ const MobilePage: React.FC = () => {
   }, [jellyseerrApi, pendingRequest, refetch, t]);
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -480,7 +476,7 @@ const MobilePage: React.FC = () => {
       />
       {!Platform.isTV && (
         // This is till it's fixed because the menu isn't selectable on TV
-        <BottomSheetModal
+        <SheetModal
           ref={bottomSheetModalRef}
           enableDynamicSizing
           handleIndicatorStyle={{
@@ -493,7 +489,7 @@ const MobilePage: React.FC = () => {
           stackBehavior='push'
           onDismiss={handleIssueModalDismiss}
         >
-          <BottomSheetView>
+          <SheetView>
             <View className='flex flex-col space-y-4 px-4 pb-8 pt-2'>
               <View>
                 <Text className='font-bold text-2xl text-neutral-100'>
@@ -523,7 +519,7 @@ const MobilePage: React.FC = () => {
                 </View>
 
                 <View className='p-4 border border-neutral-800 rounded-xl bg-neutral-900 w-full'>
-                  <BottomSheetTextInput
+                  <SheetTextInput
                     multiline
                     maxLength={254}
                     style={{ color: "white" }}
@@ -541,8 +537,8 @@ const MobilePage: React.FC = () => {
                 {t("jellyseerr.submit_button")}
               </Button>
             </View>
-          </BottomSheetView>
-        </BottomSheetModal>
+          </SheetView>
+        </SheetModal>
       )}
     </View>
   );

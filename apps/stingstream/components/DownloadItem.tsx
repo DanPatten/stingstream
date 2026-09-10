@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type {
   BaseItemDto,
   MediaSourceInfo,
@@ -18,6 +12,13 @@ import { Platform, Switch, View, type ViewProps } from "react-native";
 import { toast } from "sonner-native";
 import { HEADER_ICON_SIZE } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
@@ -108,14 +109,14 @@ export const DownloadItems: React.FC<DownloadProps> = ({
     [user],
   );
 
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
 
   const handlePresentModalPress = useCallback(() => {
     bottomSheetModalRef.current?.present();
   }, []);
 
   const handleSheetChanges = useCallback((_index: number) => {
-    // Modal state tracking handled by BottomSheetModal
+    // Modal state tracking handled by SheetModal
   }, []);
 
   const closeModal = useCallback(() => {
@@ -353,12 +354,8 @@ export const DownloadItems: React.FC<DownloadProps> = ({
   }, [closeModal, initiateDownload, itemsToDownload, userCanDownload]);
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -415,7 +412,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
       <RoundButton size={size} onPress={onButtonPress}>
         {renderButtonContent()}
       </RoundButton>
-      <BottomSheetModal
+      <SheetModal
         ref={bottomSheetModalRef}
         enableDynamicSizing
         handleIndicatorStyle={{
@@ -432,7 +429,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
         keyboardBehavior='interactive'
         keyboardBlurBehavior='restore'
       >
-        <BottomSheetView>
+        <SheetView>
           <View className='flex flex-col space-y-4 px-4 pb-8 pt-2'>
             <View>
               <Text className='font-bold text-2xl text-neutral-100'>
@@ -521,8 +518,8 @@ export const DownloadItems: React.FC<DownloadProps> = ({
               {t("item_card.download.download_button")}
             </Button>
           </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+        </SheetView>
+      </SheetModal>
     </View>
   );
 };

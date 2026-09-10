@@ -1,10 +1,4 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetScrollView,
-} from "@gorhom/bottom-sheet";
 import { Image } from "expo-image";
 import { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +6,13 @@ import { Linking, Platform, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetScrollView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useSettings } from "@/utils/atoms/settings";
@@ -23,7 +24,7 @@ export interface IntroSheetRef {
 }
 
 export const IntroSheet = forwardRef<IntroSheetRef>((_, ref) => {
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const bottomSheetRef = useRef<SheetModalRef>(null);
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -43,12 +44,8 @@ export const IntroSheet = forwardRef<IntroSheetRef>((_, ref) => {
   }));
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -63,14 +60,14 @@ export const IntroSheet = forwardRef<IntroSheetRef>((_, ref) => {
   }, []);
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetRef}
       enableDynamicSizing
       backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: "#171717" }}
       handleIndicatorStyle={{ backgroundColor: "#737373" }}
     >
-      <BottomSheetScrollView
+      <SheetScrollView
         style={{
           paddingLeft: Math.max(16, insets.left),
           paddingRight: Math.max(16, insets.right),
@@ -249,8 +246,8 @@ export const IntroSheet = forwardRef<IntroSheetRef>((_, ref) => {
 
           <View style={{ height: insets.bottom }} />
         </View>
-      </BottomSheetScrollView>
-    </BottomSheetModal>
+      </SheetScrollView>
+    </SheetModal>
   );
 });
 

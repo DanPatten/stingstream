@@ -1,9 +1,3 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useNavigation } from "expo-router";
 import { useAtom } from "jotai";
@@ -20,6 +14,13 @@ import {
 import type { CardData } from "@/components/cards/CardData";
 import { CardRow } from "@/components/cards/CardRow";
 import { HeaderButton } from "@/components/common/HeaderButton";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import ActiveDownloads from "@/components/downloads/ActiveDownloads";
 import { DownloadSize } from "@/components/downloads/DownloadSize";
@@ -48,7 +49,7 @@ export default function DownloadsPage() {
   } = useDownload();
   const confirmDelete = useConfirmDelete();
   const router = useRouter();
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
 
   const [showMigration, setShowMigration] = useState(false);
 
@@ -345,7 +346,7 @@ export default function DownloadsPage() {
           )}
         </View>
       </ScrollView>
-      <BottomSheetModal
+      <SheetModal
         ref={bottomSheetModalRef}
         enableDynamicSizing
         handleIndicatorStyle={{
@@ -354,15 +355,11 @@ export default function DownloadsPage() {
         backgroundStyle={{
           backgroundColor: "#171717",
         }}
-        backdropComponent={(props: BottomSheetBackdropProps) => (
-          <BottomSheetBackdrop
-            {...props}
-            disappearsOnIndex={-1}
-            appearsOnIndex={0}
-          />
+        backdropComponent={(props: SheetBackdropProps) => (
+          <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
         )}
       >
-        <BottomSheetView>
+        <SheetView>
           <View className='p-4 space-y-4 mb-4'>
             <Button
               color='purple'
@@ -403,8 +400,8 @@ export default function DownloadsPage() {
               {t("home.downloads.delete_all_button")}
             </Button>
           </View>
-        </BottomSheetView>
-      </BottomSheetModal>
+        </SheetView>
+      </SheetModal>
     </OfflineModeProvider>
   );
 }

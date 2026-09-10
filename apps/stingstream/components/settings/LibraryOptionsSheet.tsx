@@ -1,10 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type React from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +9,13 @@ import {
   type ViewProps,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 
 interface LibraryOptions {
@@ -132,7 +133,7 @@ export const LibraryOptionsSheet: React.FC<Props> = ({
   updateSettings,
   disabled = false,
 }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
@@ -162,12 +163,8 @@ export const LibraryOptionsSheet: React.FC<Props> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -175,7 +172,7 @@ export const LibraryOptionsSheet: React.FC<Props> = ({
   if (disabled) return null;
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       enableDynamicSizing
       onChange={handleSheetChanges}
@@ -189,7 +186,7 @@ export const LibraryOptionsSheet: React.FC<Props> = ({
       enablePanDownToClose
       enableDismissOnClose
     >
-      <BottomSheetView>
+      <SheetView>
         <View
           className='px-4 pb-8 pt-2'
           style={{
@@ -248,7 +245,7 @@ export const LibraryOptionsSheet: React.FC<Props> = ({
             />
           </OptionGroup>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

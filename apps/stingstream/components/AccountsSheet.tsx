@@ -1,16 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, TouchableOpacity, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
 import { Colors } from "@/constants/Colors";
 import {
@@ -40,7 +41,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
 }) => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
 
   const isAndroid = Platform.OS === "android";
   const snapPoints = useMemo(
@@ -66,12 +67,8 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -114,7 +111,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
   if (!server) return null;
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       snapPoints={snapPoints}
       onChange={handleSheetChanges}
@@ -122,7 +119,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
       backgroundStyle={{ backgroundColor: "#171717" }}
       backdropComponent={renderBackdrop}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -211,7 +208,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
             </View>
           </Button>
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };

@@ -1,14 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from "@gorhom/bottom-sheet";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 
 export type PlaylistSortOption = "SortName" | "DateCreated";
@@ -43,7 +44,7 @@ export const PlaylistSortSheet: React.FC<Props> = ({
   sortOrder,
   onSortChange,
 }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
 
@@ -64,12 +65,8 @@ export const PlaylistSortSheet: React.FC<Props> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -94,7 +91,7 @@ export const PlaylistSortSheet: React.FC<Props> = ({
   );
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       index={0}
       snapPoints={snapPoints}
@@ -107,7 +104,7 @@ export const PlaylistSortSheet: React.FC<Props> = ({
         backgroundColor: "#171717",
       }}
     >
-      <BottomSheetView
+      <SheetView
         style={{
           flex: 1,
           paddingLeft: Math.max(16, insets.left),
@@ -160,8 +157,8 @@ export const PlaylistSortSheet: React.FC<Props> = ({
             );
           })}
         </View>
-      </BottomSheetView>
-    </BottomSheetModal>
+      </SheetView>
+    </SheetModal>
   );
 };
 

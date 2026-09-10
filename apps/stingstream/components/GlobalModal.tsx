@@ -1,18 +1,20 @@
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-} from "@gorhom/bottom-sheet";
 import { useCallback, useEffect } from "react";
 import { useWindowDimensions } from "react-native";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+} from "@/components/common/Sheet";
 import { SHEET_MAX_HEIGHT_RATIO } from "@/constants/Values";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
 
 /**
  * GlobalModal Component
  *
- * This component renders a global bottom sheet modal that can be controlled
- * from anywhere in the app using the useGlobalModal hook.
+ * The one modal every `showModal()` caller in the app is presented through:
+ * dropdowns, action sheets, pickers and the imperative `useDialog`. A bottom
+ * sheet on a device, a centred card in a browser, because that is what
+ * `SheetModal` is (see `components/common/Sheet.tsx`).
  *
  * Place this component at the root level of your app (in _layout.tsx)
  * after BottomSheetModalProvider.
@@ -40,12 +42,8 @@ export const GlobalModal = () => {
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -65,7 +63,7 @@ export const GlobalModal = () => {
   const modalOptions = { ...defaultOptions, ...modalState.options };
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={modalRef}
       {...(modalOptions.snapPoints
         ? // Dynamic sizing is on by default and would add a content-height
@@ -92,6 +90,6 @@ export const GlobalModal = () => {
       style={{ zIndex: 1000 }}
     >
       {modalState.content}
-    </BottomSheetModal>
+    </SheetModal>
   );
 };

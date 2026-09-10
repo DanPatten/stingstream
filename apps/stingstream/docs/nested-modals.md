@@ -1,7 +1,7 @@
 # Nested Modals with PlatformDropdown
 
 ## Issue
-PlatformDropdowns inside BottomSheetModals don't open on Android, or dropdowns reopen unexpectedly after navigation.
+PlatformDropdowns inside SheetModals don't open on Android, or dropdowns reopen unexpectedly after navigation.
 
 ## Solution
 1. **Add controlled state** for each PlatformDropdown:
@@ -55,9 +55,9 @@ PlatformDropdowns inside BottomSheetModals don't open on Android, or dropdowns r
    />
    ```
 
-4. **Add `stackBehavior='push'` to parent BottomSheetModal**:
+4. **Add `stackBehavior='push'` to the parent `SheetModal`**:
    ```tsx
-   <BottomSheetModal
+   <SheetModal
      stackBehavior='push'
      // ...
    />
@@ -72,7 +72,7 @@ PlatformDropdowns inside BottomSheetModals don't open on Android, or dropdowns r
      onDismiss?.();
    }, [onDismiss]);
 
-   <BottomSheetModal
+   <SheetModal
      onDismiss={handleDismiss}
      // ...
    />

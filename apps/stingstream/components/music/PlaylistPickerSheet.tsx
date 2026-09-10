@@ -1,10 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheetBackdrop,
-  type BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetScrollView,
-} from "@gorhom/bottom-sheet";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getItemsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
@@ -26,6 +20,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Input } from "@/components/common/Input";
 import { Image } from "@/components/common/ServerImage";
+import {
+  SheetBackdrop,
+  type SheetBackdropProps,
+  SheetModal,
+  type SheetModalRef,
+  SheetScrollView,
+} from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useAddToPlaylist } from "@/hooks/usePlaylistMutations";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -43,7 +44,7 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
   trackToAdd,
   onCreateNew,
 }) => {
-  const bottomSheetModalRef = useRef<BottomSheetModal>(null);
+  const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const insets = useSafeAreaInsets();
@@ -102,12 +103,8 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
   );
 
   const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-      />
+    (props: SheetBackdropProps) => (
+      <SheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />
     ),
     [],
   );
@@ -143,7 +140,7 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
   );
 
   return (
-    <BottomSheetModal
+    <SheetModal
       ref={bottomSheetModalRef}
       index={0}
       snapPoints={snapPoints}
@@ -156,7 +153,7 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
         backgroundColor: "#171717",
       }}
     >
-      <BottomSheetScrollView
+      <SheetScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingLeft: Math.max(16, insets.left),
@@ -249,8 +246,8 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
             ))}
           </View>
         )}
-      </BottomSheetScrollView>
-    </BottomSheetModal>
+      </SheetScrollView>
+    </SheetModal>
   );
 };
 
