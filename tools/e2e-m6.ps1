@@ -862,6 +862,126 @@ Invoke-Step 'A request for a film the group already has starts no download' {
     Add-HarnessNote 'Requesting a title the group already holds is answered "available" and downloads nothing.'
 }
 
+# ============================================================================================
+Invoke-Step 'Withdrawing takes the request off the group and keeps what already downloaded' {
+    # The two halves of one rule, and they are the two halves a person pressing Delete cares about.
+    # It used to be neither: `DELETE` deleted the row, the dialog said "a download already in
+    # progress continues", and it did -- to the end, on somebody else's disk.
+
+    # (a) The request that already landed. Withdrawing it takes the row off A and out of the
+    #     group's list, and must not touch the episode: it is in a library, somebody can watch it,
+    #     and nobody asked for it to be thrown away.
+    $episodesBefore = @((Invoke-Jellyfin $NodeB `
+        "/Items?IncludeItemTypes=Episode&Recursive=true&userId=$($NodeB.UserId)" -TimeoutSec 30).Items).Count
+    $seriesBefore = Get-RecordCount (Invoke-Node $NodeB '/stingstream/api/v1/series' -TimeoutSec 120)
+
+    Invoke-AsMember "/stingstream/api/v1/requests/$($SeriesRequest.id)" -Method DELETE -TimeoutSec 60 | Out-Null
+
+    $readable = $true
+    try { Invoke-AsMember "/stingstream/api/v1/requests/$($SeriesRequest.id)" -TimeoutSec 30 | Out-Null }
+    catch { $readable = $false }
+    if ($readable) { throw 'the withdrawn request is still readable on A.' }
+
+    # And out of the mesh, which is the half with no UI. A row left there is re-published on the
+    # next snapshot tick, so this is what stops the request coming back from the dead.
+    $meshPortA = Get-Member-Value (Get-Member-Value $NodeA.Runtime 'mesh') 'api_port'
+    if (-not $meshPortA) { throw "node A's runtime.json carries no mesh.api_port." }
+    $listed = Invoke-Json -Uri "http://127.0.0.1:$meshPortA/mesh/v1/requests?group=$($Group.group)" -TimeoutSec 30
+    if (@($listed.requests | Where-Object { $_.request_id -eq $SeriesRequest.id }).Count -ne 0) {
+        throw "A's mesh still lists the withdrawn request, so its origin will publish it again."
+    }
+
+    $episodesAfter = @((Invoke-Jellyfin $NodeB `
+        "/Items?IncludeItemTypes=Episode&Recursive=true&userId=$($NodeB.UserId)" -TimeoutSec 30).Items).Count
+    if ($episodesAfter -lt $episodesBefore) {
+        throw "B had $episodesBefore episode(s) and now has $episodesAfter; withdrawing deleted a finished download."
+    }
+    Write-Host "      withdrawn, and B still holds $episodesAfter episode(s)"
+
+    # (b) A request that is still being fulfilled, on a node that is not the one withdrawing it.
+    #     Season 2 is a season the indexer stub does not offer, so B claims it, monitors it,
+    #     searches and finds nothing -- which is exactly the state a real slow grab sits in.
+    #     This is a genuinely new row rather than a season added to the first request, and only
+    #     because (a) withdrew that one: a second ask for a title with an open request merges into
+    #     it (§2 of REQUESTS.md), so the order of these two halves is load-bearing.
+    $second = Invoke-AsMember '/stingstream/api/v1/requests' -Method POST -Body @{
+        tvdbId = $SeriesTvdb; title = $SeriesTitle; year = $SeriesYear; seasons = @(2)
+        group = $Group.group
+    } -TimeoutSec 180
+    if ($second.state -eq 'pending') {
+        $second = Invoke-Node $NodeA "/stingstream/api/v1/requests/$($second.id)/approve" -Method POST -Body @{} `
+            -TimeoutSec 60
+    }
+    Write-Host "      asked for season 2: request $($second.id) is $($second.state)"
+
+    $claimed = Wait-Until -What 'B to claim the season 2 request' -Seconds 300 -PollSeconds 5 -Condition {
+        Invoke-Node $NodeA '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
+        Invoke-Node $NodeB '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
+        $rows = try { Invoke-Node $NodeB '/stingstream/api/v1/requests' -TimeoutSec 30 } catch { $null }
+        if (-not $rows) { return $null }
+        $row = $rows | Where-Object { $_.id -eq $second.id } | Select-Object -First 1
+        if ($row -and $row.state -eq 'fulfilling') { return $row }
+        return $null
+    }
+    Write-Host "      B is fulfilling it: $($claimed.note)"
+
+    # Season 2 has to be monitored on B before withdrawing it means anything, and it is not
+    # monitored the instant the state flips: for a series Sonarr already tracks, the grab only sets
+    # the series-level flag, and the season list is applied by `EnsureSeriesSearchAsync` on a later
+    # pass once Sonarr has refreshed the episode list. So this waits for the state the withdrawal
+    # is supposed to undo rather than assuming it is already there.
+    $before = Wait-Until -What 'B to monitor season 2' -Seconds 300 -PollSeconds 5 -Condition {
+        Invoke-Node $NodeB '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
+        $series = try { Invoke-Node $NodeB '/stingstream/api/v1/series' -TimeoutSec 120 } catch { $null }
+        if ($null -eq $series) { return $null }
+        $row = $series | Where-Object { $_.tvdbId -eq $SeriesTvdb } | Select-Object -First 1
+        if (-not $row) { return $null }
+        if (@($row.seasons | Where-Object { $_.seasonNumber -eq 2 -and $_.monitored }).Count -ne 1) {
+            return $null
+        }
+        return $row
+    }
+    Write-Host "      season 2 is monitored on B, series $($before.id)"
+
+    Invoke-AsMember "/stingstream/api/v1/requests/$($second.id)" -Method DELETE -TimeoutSec 60 | Out-Null
+
+    # B hears about it the only way it can: the request stops being in the group's list.
+    Wait-Until -What 'B to drop the withdrawn request' -Seconds 120 -PollSeconds 5 -Condition {
+        Invoke-Node $NodeB '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
+        $rows = try { Invoke-Node $NodeB '/stingstream/api/v1/requests' -TimeoutSec 30 } catch { $null }
+        # `Invoke-Json` answers $null for `[]`, which here means B holds no requests at all -- so
+        # the withdrawn one is certainly not among them.
+        if ($null -eq $rows) { return $true }
+        return @($rows | Where-Object { $_.id -eq $second.id }).Count -eq 0
+    } | Out-Null
+
+    $after = (Invoke-Node $NodeB '/stingstream/api/v1/series' -TimeoutSec 120) |
+        Where-Object { $_.tvdbId -eq $SeriesTvdb } | Select-Object -First 1
+    if (-not $after) {
+        throw 'withdrawing the season 2 request deleted the whole series from Sonarr, episode file and all.'
+    }
+    if (@($after.seasons | Where-Object { $_.seasonNumber -eq 2 -and $_.monitored }).Count -ne 0) {
+        throw 'season 2 is still monitored after the request was withdrawn; the next RSS pass will grab it.'
+    }
+    $seriesAfter = Get-RecordCount (Invoke-Node $NodeB '/stingstream/api/v1/series' -TimeoutSec 120)
+    if ($seriesAfter -ne $seriesBefore) {
+        throw "Sonarr on B went from $seriesBefore to $seriesAfter series; withdrawing touched an entry that has files."
+    }
+    $queue = Invoke-Node $NodeB '/stingstream/api/v1/queue' -TimeoutSec 120
+    $sonarrQueue = @((Get-Member-Value $queue 'sonarr') | Where-Object { $_.seriesId -eq $before.id })
+    if ($sonarrQueue.Count -gt 0) {
+        throw "Sonarr on B still has $($sonarrQueue.Count) queued item(s) for the withdrawn request."
+    }
+    $episodesEnd = @((Invoke-Jellyfin $NodeB `
+        "/Items?IncludeItemTypes=Episode&Recursive=true&userId=$($NodeB.UserId)" -TimeoutSec 30).Items).Count
+    if ($episodesEnd -lt $episodesBefore) {
+        throw "B had $episodesBefore episode(s) and now has $episodesEnd; withdrawing deleted a finished download."
+    }
+
+    Write-Host "      B dropped it, season 2 is unmonitored, its queue is empty, $episodesEnd episode(s) kept"
+    Add-HarnessNote 'Withdrawing a request stops the grab on whichever node is doing it, unmonitors what it asked for, and keeps every finished download.'
+}
+
 } finally {
     Write-HarnessSummary
 

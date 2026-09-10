@@ -676,8 +676,11 @@ other's; a non-administrator's request under `admins_only` lands `pending` and n
 administrator; the non-administrator can neither approve it nor see anybody else's; an administrator
 approves it; B adopts, claims and **is the only live claimant**; B grabs and imports; it reaches A's
 group index and A's TV Shows, and A's request flips to `available` on its own; the requester has an
-unread `request_available` notification and Jellyfin's activity log has the entry; and a second
-request for a film B already holds is answered `available` with Radarr on B never hearing about it.
+unread `request_available` notification and Jellyfin's activity log has the entry; a second
+request for a film B already holds is answered `available` with Radarr on B never hearing about it;
+and **withdrawing** (§2.1) takes the request off A and out of the group's list while the episode B
+already imported stays, then, for a season the indexer cannot serve, B unmonitors it, empties its
+queue, drops the row and keeps the series entry that has a file in it.
 
 Run it with `-PrivateCopy <dir>` on a machine where several people share the checkout, per
 `RUNNING.md` — a running node holds the repository's build outputs open. This is the first harness
