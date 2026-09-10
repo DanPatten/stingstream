@@ -48,6 +48,11 @@ third_party/pebble/bin/
 # === in the tree ever reads one back — committing them only makes the tree dirty on every loop. ===
 .playwright-mcp/
 
+# === Loose screenshots dropped at the repository root: an agent comparing a UI change before ===
+# === and after, or an image saved out of a chat. Root only — the app's real artwork lives under ===
+# === apps/stingstream/assets/, and nothing at the top level is ever a committed asset. ===
+/*.png
+
 # === Editors / OS ===
 .idea/
 .vscode/*
