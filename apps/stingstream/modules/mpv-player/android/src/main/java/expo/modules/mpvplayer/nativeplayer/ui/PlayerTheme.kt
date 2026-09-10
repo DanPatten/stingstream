@@ -7,8 +7,8 @@ import androidx.compose.ui.graphics.Color
 
 val PlayerDarkScrim = Color(0x99000000)
 val PlayerPillBackground = Color(0x8C000000)
-// Streamyfin primary purple — keep in sync with constants/Colors.ts `primary`.
-val PlayerAccentColor = Color(0xFF9334E9)
+// Keep in sync with the default theme's accent in constants/theme.tokens.json.
+val PlayerAccentColor = Color(0xFF3CDDFC)
 val PlayerTrackBackground = Color(0x40FFFFFF)
 val PlayerBufferTrack = Color(0x66FFFFFF)
 val PlayerProgressTrack = Color(0xFFFFFFFF)

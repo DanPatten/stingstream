@@ -17,6 +17,7 @@ import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
+import { useTheme } from "@/hooks/useTheme";
 import { useUpdateWatchlist } from "@/hooks/useWatchlistMutations";
 import { useWatchlistDetailQuery } from "@/hooks/useWatchlists";
 import type {
@@ -45,6 +46,7 @@ const SORT_OPTIONS: Array<{
 ];
 
 export default function EditWatchlistScreen() {
+  const { color } = useTheme();
   useDismissKeyboardOnLeave();
   const { t } = useTranslation();
   const router = useRouter();
@@ -205,14 +207,22 @@ export default function EditWatchlistScreen() {
               <TouchableOpacity
                 key={type.value ?? "all"}
                 onPress={() => setAllowedItemType(type.value)}
-                className={`px-4 py-2 rounded-lg ${allowedItemType === type.value ? "bg-purple-600" : "bg-neutral-800"}`}
+                style={{
+                  backgroundColor:
+                    allowedItemType === type.value
+                      ? color.accent[500]
+                      : color.bg["2"],
+                }}
+                className='px-4 py-2 rounded-lg'
               >
                 <Text
-                  className={
-                    allowedItemType === type.value
-                      ? "text-white font-medium"
-                      : "text-neutral-300"
-                  }
+                  weight={allowedItemType === type.value ? "medium" : "regular"}
+                  style={{
+                    color:
+                      allowedItemType === type.value
+                        ? color.accent.onAccent
+                        : color.text.secondary,
+                  }}
                 >
                   {type.label}
                 </Text>
@@ -231,14 +241,24 @@ export default function EditWatchlistScreen() {
               <TouchableOpacity
                 key={sort.value}
                 onPress={() => setDefaultSortOrder(sort.value)}
-                className={`px-4 py-2 rounded-lg ${defaultSortOrder === sort.value ? "bg-purple-600" : "bg-neutral-800"}`}
+                style={{
+                  backgroundColor:
+                    defaultSortOrder === sort.value
+                      ? color.accent[500]
+                      : color.bg["2"],
+                }}
+                className='px-4 py-2 rounded-lg'
               >
                 <Text
-                  className={
-                    defaultSortOrder === sort.value
-                      ? "text-white font-medium"
-                      : "text-neutral-300"
+                  weight={
+                    defaultSortOrder === sort.value ? "medium" : "regular"
                   }
+                  style={{
+                    color:
+                      defaultSortOrder === sort.value
+                        ? color.accent.onAccent
+                        : color.text.secondary,
+                  }}
                 >
                   {sort.label}
                 </Text>

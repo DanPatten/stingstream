@@ -5,6 +5,7 @@ import { Text, View } from "react-native";
 import { Slider } from "react-native-awesome-slider";
 import { type SharedValue } from "react-native-reanimated";
 import { Image } from "@/components/common/ServerImage";
+import { useTheme } from "@/hooks/useTheme";
 import { useTrickplay } from "@/hooks/useTrickplay";
 import { formatTimeString, msToTicks, ticksToSeconds } from "@/utils/time";
 
@@ -31,6 +32,7 @@ const SliderScrubber: React.FC<SliderScrubberProps> = ({
   remainingTime,
   item,
 }) => {
+  const { color } = useTheme();
   const [time, setTime] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const { trickPlayUrl, calculateTrickplayUrl, trickplayInfo } =
     useTrickplay(item);
@@ -83,8 +85,9 @@ const SliderScrubber: React.FC<SliderScrubberProps> = ({
                 marginLeft: -tileWidth / 4,
                 marginTop: -tileHeight / 4 - 60,
                 zIndex: 10,
+                backgroundColor: color.bg["2"],
               }}
-              className=' bg-neutral-800 overflow-hidden'
+              className='overflow-hidden'
             >
               <Image
                 cachePolicy={"memory-disk"}
@@ -126,10 +129,10 @@ const SliderScrubber: React.FC<SliderScrubberProps> = ({
         maximumValue={max}
       />
       <View className='flex flex-row items-center justify-between mt-0.5'>
-        <Text className='text-[12px] text-neutral-400'>
+        <Text style={{ color: color.text.secondary }} className='text-[12px]'>
           {formatTimeString(currentTime, "ms")}
         </Text>
-        <Text className='text-[12px] text-neutral-400'>
+        <Text style={{ color: color.text.secondary }} className='text-[12px]'>
           -{formatTimeString(remainingTime, "ms")}
         </Text>
       </View>

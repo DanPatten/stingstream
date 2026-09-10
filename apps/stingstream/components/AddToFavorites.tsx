@@ -3,14 +3,15 @@ import type { FC } from "react";
 import { View, type ViewProps } from "react-native";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { RoundButton } from "@/components/RoundButton";
-import { Colors } from "@/constants/Colors";
 import { useFavorite } from "@/hooks/useFavorite";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props extends ViewProps {
   item: BaseItemDto;
 }
 
 export const AddToFavorites: FC<Props> = ({ item, ...props }) => {
+  const { color } = useTheme();
   const { isFavorite, toggleFavorite } = useFavorite(item);
 
   return (
@@ -18,7 +19,7 @@ export const AddToFavorites: FC<Props> = ({ item, ...props }) => {
       <RoundButton size='large' onPress={toggleFavorite}>
         <HeaderIcon
           name={isFavorite ? "favorited" : "favorite"}
-          tintColor={isFavorite ? Colors.primary : "white"}
+          tintColor={isFavorite ? color.accent[500] : "white"}
         />
       </RoundButton>
     </View>

@@ -385,7 +385,12 @@ export const TrackOptionsSheet: React.FC<Props> = ({
               />
             )}
             <Text
-              className={`ml-4 text-base ${isAlreadyDownloaded ? "text-green-500" : "text-white"}`}
+              style={{
+                color: isAlreadyDownloaded
+                  ? color.state.success
+                  : color.text.primary,
+              }}
+              className='ml-4 text-base'
             >
               {isCurrentlyDownloading || isDownloadingTrack
                 ? t("music.track_options.downloading")

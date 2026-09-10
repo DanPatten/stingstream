@@ -15,7 +15,7 @@ import {
 } from "@/lib/stingstream/requestsApi";
 
 /** The same thumbnail `RequestCard` uses, so a result and the request it becomes are one shape. */
-const POSTER_WIDTH = 56;
+const POSTER_WIDTH = 92;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
 const POSTER_RADIUS = radius.sm;
 
@@ -57,7 +57,7 @@ export function RequestResultRow({
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
-  // No corner badge on a 56px thumbnail: `toRequestCard` sizes `badgeLabel` for a grid tile and it
+  // No corner badge on a 92px thumbnail: `toRequestCard` sizes `badgeLabel` for a grid tile and it
   // spills past the artwork's edge here. The pill beside the title says the same thing legibly —
   // the same trade `RequestCard` makes for its own state label.
   const card = { ...toRequestCard(result), badgeLabel: null };
@@ -133,11 +133,17 @@ export function RequestResultRow({
         ) : null}
 
         <View style={{ flexDirection: "row", marginTop: 10 }}>
+          {/*
+            With a request already open the pill above carries the state and this becomes the thing
+            to do about it — Edit for a show, whose seasons can change, Delete for a film, which
+            has nothing else to decide. Delete is the word My requests already uses for this. Secondary rather than primary: managing something you
+            already asked for is not the action this screen is for.
+          */}
           <Button
             testID='requests-result-request'
-            variant='primary'
+            variant={action.intent === "manage" ? "secondary" : "primary"}
             size='sm'
-            icon='requests'
+            icon={action.intent === "manage" ? "settings" : "requests"}
             disabled={action.disabled}
             loading={pending}
             onPress={onPress}
@@ -147,7 +153,11 @@ export function RequestResultRow({
               title: requestTitle(result),
             })}
           >
-            {action.label}
+            {action.intent === "manage"
+              ? result.kind === "series"
+                ? t("requests.edit_button")
+                : t("common.delete")
+              : action.label}
           </Button>
         </View>
       </View>

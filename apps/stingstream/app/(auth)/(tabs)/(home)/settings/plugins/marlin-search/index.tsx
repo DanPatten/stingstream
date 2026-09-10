@@ -16,10 +16,12 @@ import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useServerUrlResolver } from "@/hooks/useServerUrlResolver";
+import { useTheme } from "@/hooks/useTheme";
 import { useSettings } from "@/utils/atoms/settings";
 import { reachabilityProbe } from "@/utils/serverUrl/probes/reachability";
 
 function MarlinSearchPage() {
+  const { color } = useTheme();
   useDismissKeyboardOnLeave();
   const navigation = useNavigation();
   const { t } = useTranslation();
@@ -61,7 +63,7 @@ function MarlinSearchPage() {
       navigation.setOptions({
         headerRight: () => (
           <HeaderButton variant='text' onPress={() => onSave(value)}>
-            <Text className='text-blue-500'>
+            <Text style={{ color: color.state.info }}>
               {t("home.settings.plugins.marlin_search.save_button")}
             </Text>
           </HeaderButton>
@@ -138,7 +140,7 @@ function MarlinSearchPage() {
 
         <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.plugins.marlin_search.marlin_search_hint")}{" "}
-          <Text className='text-blue-500' onPress={handleOpenLink}>
+          <Text style={{ color: color.state.info }} onPress={handleOpenLink}>
             {t("home.settings.plugins.marlin_search.read_more_about_marlin")}
           </Text>
         </Text>

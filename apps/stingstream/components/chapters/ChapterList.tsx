@@ -10,8 +10,8 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { FlatList, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
 import { useControlsSafeAreaInsets } from "@/hooks/useControlsSafeAreaInsets";
+import { useTheme } from "@/hooks/useTheme";
 import {
   type ChapterEntry,
   chapterStartsMs,
@@ -38,6 +38,7 @@ function ChapterListComponent({
   onSeek,
   onClose,
 }: ChapterListProps) {
+  const { color } = useTheme();
   const { t } = useTranslation();
   const safeArea = useControlsSafeAreaInsets();
   const listRef = useRef<FlatList<ChapterEntry>>(null);
@@ -85,6 +86,7 @@ function ChapterListComponent({
           onPress={(e) => e.stopPropagation()}
           style={[
             styles.sheet,
+            { backgroundColor: color.bg["0"] },
             {
               marginLeft: safeArea.left,
               marginRight: safeArea.right,
@@ -93,14 +95,16 @@ function ChapterListComponent({
           ]}
         >
           <View style={styles.header}>
-            <Text style={styles.title}>{t("chapters.title")}</Text>
+            <Text style={[styles.title, { color: color.text.primary }]}>
+              {t("chapters.title")}
+            </Text>
             <Pressable
               onPress={onClose}
               hitSlop={10}
               accessibilityRole='button'
               accessibilityLabel={t("chapters.close")}
             >
-              <Ionicons name='close' size={24} color={Colors.text} />
+              <Ionicons name='close' size={24} color={color.text.primary} />
             </Pressable>
           </View>
           <FlatList
@@ -140,20 +144,26 @@ function ChapterListComponent({
                   }}
                   style={[
                     styles.row,
-                    isActive && { backgroundColor: `${Colors.primary}33` },
+                    isActive && { backgroundColor: `${color.accent[500]}33` },
                   ]}
                 >
                   <Text
                     style={[
                       styles.rowText,
-                      { color: isActive ? Colors.primary : Colors.text },
+                      {
+                        color: isActive
+                          ? color.accent[500]
+                          : color.text.primary,
+                      },
                     ]}
                     numberOfLines={1}
                   >
                     {item.chapter.Name ||
                       t("chapters.chapter_number", { number: index + 1 })}
                   </Text>
-                  <Text style={styles.rowTime}>
+                  <Text
+                    style={[styles.rowTime, { color: color.text.secondary }]}
+                  >
                     {formatChapterTime(positionMs)}
                   </Text>
                 </Pressable>
@@ -174,7 +184,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: Colors.background,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: "70%",
@@ -186,7 +195,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   title: {
-    color: Colors.text,
     fontSize: 17,
     fontWeight: "700",
   },
@@ -202,7 +210,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rowTime: {
-    color: Colors.icon,
     fontSize: 13,
     marginLeft: 12,
   },

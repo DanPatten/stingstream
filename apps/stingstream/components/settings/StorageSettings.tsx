@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
+import { rgba } from "@/constants/theme";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useTheme } from "@/hooks/useTheme";
@@ -76,19 +76,22 @@ export const StorageSettings = () => {
             </Text>
           )}
         </View>
-        <View className='h-3 w-full bg-gray-100/10 rounded-md overflow-hidden flex flex-row'>
+        <View
+          style={{ backgroundColor: rgba(color.overlay, 0.1) }}
+          className='h-3 w-full rounded-md overflow-hidden flex flex-row'
+        >
           {size && (
             <View className='flex flex-row'>
               <View
                 style={{
                   width: `${(size.appSize / size.total) * 100}%`,
-                  backgroundColor: Colors.primaryRGB,
+                  backgroundColor: color.accent[500],
                 }}
               />
               <View
                 style={{
                   width: `${((size.total - size.remaining - size.appSize) / size.total) * 100}%`,
-                  backgroundColor: Colors.primaryLightRGB,
+                  backgroundColor: color.accent[400],
                 }}
               />
             </View>
@@ -109,7 +112,10 @@ export const StorageSettings = () => {
                 </Text>
               </View>
               <View className='flex flex-row items-center'>
-                <View className='w-3 h-3 rounded-full bg-purple-400 mr-1' />
+                <View
+                  style={{ backgroundColor: color.accent[400] }}
+                  className='w-3 h-3 rounded-full mr-1'
+                />
                 <Text className='text-xs'>
                   {t("home.settings.storage.device_usage", {
                     availableSpace: calculatePercentage(

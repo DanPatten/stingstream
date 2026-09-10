@@ -21,6 +21,7 @@ import { CreatePlaylistModal } from "@/components/music/CreatePlaylistModal";
 import { MusicTrackItem } from "@/components/music/MusicTrackItem";
 import { PlaylistPickerSheet } from "@/components/music/PlaylistPickerSheet";
 import { TrackOptionsSheet } from "@/components/music/TrackOptionsSheet";
+import { useTheme } from "@/hooks/useTheme";
 import {
   downloadTrack,
   isPermanentlyDownloaded,
@@ -35,6 +36,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const ARTWORK_SIZE = SCREEN_WIDTH * 0.5;
 
 export default function AlbumDetailScreen() {
+  const { color } = useTheme();
   const { albumId } = useLocalSearchParams<{ albumId: string }>();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
@@ -156,7 +158,10 @@ export default function AlbumDetailScreen() {
   // Only show loading if we have no cached data to display
   if (isLoading && !album) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -164,8 +169,13 @@ export default function AlbumDetailScreen() {
 
   if (!album) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500'>{t("music.album_not_found")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text style={{ color: color.text.tertiary }}>
+          {t("music.album_not_found")}
+        </Text>
       </View>
     );
   }
@@ -178,8 +188,11 @@ export default function AlbumDetailScreen() {
       }}
       ListHeaderComponent={
         <View
-          className='items-center px-4 pb-6 bg-black'
-          style={{ paddingTop: insets.top + 60 }}
+          className='items-center px-4 pb-6'
+          style={{
+            paddingTop: insets.top + 60,
+            backgroundColor: color.bg["0"],
+          }}
         >
           {/* Album artwork */}
           <View
@@ -204,20 +217,26 @@ export default function AlbumDetailScreen() {
                 cachePolicy='memory-disk'
               />
             ) : (
-              <View className='flex-1 items-center justify-center bg-neutral-800'>
+              <View
+                style={{ backgroundColor: color.bg["2"] }}
+                className='flex-1 items-center justify-center'
+              >
                 <Ionicons name='disc' size={60} color='#666' />
               </View>
             )}
           </View>
 
           {/* Album info */}
-          <Text className='text-white text-xl font-bold mt-4 text-center'>
+          <Text
+            style={{ color: color.text.primary }}
+            className='text-xl font-bold mt-4 text-center'
+          >
             {album.Name}
           </Text>
-          <Text className='text-purple-400 text-base mt-1'>
+          <Text style={{ color: color.accent[400] }} className='text-base mt-1'>
             {album.AlbumArtist || album.Artists?.join(", ")}
           </Text>
-          <Text className='text-neutral-500 text-sm mt-1'>
+          <Text style={{ color: color.text.tertiary }} className='text-sm mt-1'>
             {album.ProductionYear && `${album.ProductionYear} • `}
             {tracks?.length} tracks • {totalDuration}
           </Text>
@@ -225,27 +244,36 @@ export default function AlbumDetailScreen() {
           {/* Play buttons */}
           <View className='flex flex-row mt-4 items-center'>
             <TouchableOpacity
+              style={{ backgroundColor: color.accent[500] }}
               onPress={handlePlayAll}
-              className='flex flex-row items-center bg-purple-600 px-6 py-3 rounded-full mr-3'
+              className='flex flex-row items-center px-6 py-3 rounded-full mr-3'
             >
               <Ionicons name='play' size={20} color='white' />
-              <Text className='text-white font-medium ml-2'>
+              <Text
+                style={{ color: color.text.primary }}
+                className='font-medium ml-2'
+              >
                 {t("music.play")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={{ backgroundColor: color.bg["2"] }}
               onPress={handleShuffle}
-              className='flex flex-row items-center bg-neutral-800 px-6 py-3 rounded-full mr-3'
+              className='flex flex-row items-center px-6 py-3 rounded-full mr-3'
             >
               <Ionicons name='shuffle' size={20} color='white' />
-              <Text className='text-white font-medium ml-2'>
+              <Text
+                style={{ color: color.text.primary }}
+                className='font-medium ml-2'
+              >
                 {t("music.shuffle")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={{ backgroundColor: color.bg["2"] }}
               onPress={handleDownloadAlbum}
               disabled={allTracksDownloaded || isDownloading}
-              className='flex items-center justify-center bg-neutral-800 p-3 rounded-full'
+              className='flex items-center justify-center p-3 rounded-full'
             >
               {isDownloading ? (
                 <ActivityIndicator size={20} color='white' />

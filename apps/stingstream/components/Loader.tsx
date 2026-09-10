@@ -21,7 +21,7 @@ interface Props extends Omit<ActivityIndicatorProps, "color"> {
  * The spinner.
  *
  * It was Streamyfin's purple (`#9333ea`) on every platform but iOS, which is
- * why a violet ring kept appearing in a teal app long after `Colors.primary`
+ * why a violet ring kept appearing in a teal app long after `color.accent[500]`
  * moved (F-29). It follows the user's accent now, like every other progress
  * indicator.
  *

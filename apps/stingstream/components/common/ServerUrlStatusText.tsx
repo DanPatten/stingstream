@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, View } from "react-native";
 import type { ServerUrlResolverState } from "@/hooks/useServerUrlResolver";
+import { useTheme } from "@/hooks/useTheme";
 import { Text } from "./Text";
 
 /**
@@ -15,6 +16,7 @@ export function ServerUrlStatusText({
   state: ServerUrlResolverState;
   className?: string;
 }) {
+  const { color } = useTheme();
   const { t } = useTranslation();
 
   if (state.status === "idle") return null;
@@ -32,7 +34,10 @@ export function ServerUrlStatusText({
 
   if (state.status === "ok") {
     return (
-      <Text className={`text-xs text-green-500 ${className}`}>
+      <Text
+        style={{ color: color.state.success }}
+        className={`text-xs ${className}`}
+      >
         {t("server_url.resolved", { url: state.resolvedUrl })}
       </Text>
     );
@@ -45,5 +50,12 @@ export function ServerUrlStatusText({
         ? t("server_url.invalid_url")
         : t("server_url.unreachable");
 
-  return <Text className={`text-xs text-red-500 ${className}`}>{message}</Text>;
+  return (
+    <Text
+      style={{ color: color.state.danger }}
+      className={`text-xs ${className}`}
+    >
+      {message}
+    </Text>
+  );
 }

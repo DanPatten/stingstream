@@ -21,6 +21,7 @@ import {
   saveRequestPolicy,
   saveRequestUser,
   searchRequestable,
+  setRequestSeasons,
 } from "./requestsApi";
 
 /**
@@ -230,6 +231,23 @@ export function useDecideRequest() {
       decision: "approve" | "decline" | "retry";
       reason?: string;
     }) => decideRequest(base!, args.id, args.decision, args.reason, token),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
+  });
+}
+
+/**
+ * Change which seasons an open request is for.
+ *
+ * Distinct from `useCreateRequest` on purpose: creating again on an open request *grows* its season
+ * list, because a second person asking for season 4 means "and season 4", not "only season 4". An
+ * edit is the other intent, so it replaces.
+ */
+export function useSetRequestSeasons() {
+  const { base, token } = useConnection();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; seasons: number[] }) =>
+      setRequestSeasons(base!, args.id, args.seasons, token),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
   });
 }

@@ -19,9 +19,9 @@ import {
   type SheetModalRef,
   SheetView,
 } from "@/components/common/Sheet";
-import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { queueAtom } from "@/utils/atoms/queue";
@@ -83,6 +83,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
   size = "default",
   ...props
 }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const [queue, _setQueue] = useAtom(queueAtom);
@@ -377,7 +378,7 @@ export const DownloadItems: React.FC<DownloadProps> = ({
             size={PROGRESS_RING_SIZE}
             fill={progress}
             width={PROGRESS_RING_WIDTH}
-            tintColor={Colors.primary}
+            tintColor={color.accent[500]}
             backgroundColor='white'
           />
         </View>
@@ -526,6 +527,7 @@ export const DownloadSingleItem: React.FC<{
   size?: "default" | "large";
   item: BaseItemDto;
 }> = ({ item, size = "default" }) => {
+  const { color } = useTheme();
   if (Platform.isTV) return;
 
   return (
@@ -540,7 +542,7 @@ export const DownloadSingleItem: React.FC<{
       items={[item]}
       MissingDownloadIconComponent={() => <HeaderIcon name='downloads' />}
       DownloadedIconComponent={() => (
-        <HeaderIcon name='downloaded' tintColor={Colors.primary} />
+        <HeaderIcon name='downloaded' tintColor={color.accent[500]} />
       )}
     />
   );

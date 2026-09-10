@@ -12,9 +12,9 @@ import {
   useStackScreenOptions,
   useTabRootScreenOptions,
 } from "@/components/stacks/NestedTabPageStack";
-import { Colors } from "@/constants/Colors";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useTheme } from "@/hooks/useTheme";
 
 const Chromecast = Platform.isTV ? null : require("@/components/Chromecast");
 
@@ -447,6 +447,7 @@ export default function IndexLayout() {
  * behind a `navigation.setOptions` in a screen effect.
  */
 const DownloadsButton = () => {
+  const { color } = useTheme();
   const router = useRouter();
   const { t } = useTranslation();
   const { downloadedItems } = useDownload();
@@ -459,7 +460,7 @@ const DownloadsButton = () => {
     >
       <HeaderIcon
         name='downloads'
-        tintColor={downloadedItems.length > 0 ? Colors.primary : "white"}
+        tintColor={downloadedItems.length > 0 ? color.accent[500] : "white"}
       />
     </HeaderButton>
   );
@@ -481,6 +482,7 @@ const SettingsButton = () => {
 };
 
 const SessionsButton = () => {
+  const { color } = useTheme();
   const router = useRouter();
   const { t } = useTranslation();
   const { sessions = [] } = useSessions({} as useSessionsProps);
@@ -493,7 +495,7 @@ const SessionsButton = () => {
     >
       <HeaderIcon
         name='sessions'
-        tintColor={sessions.length === 0 ? "white" : Colors.primary}
+        tintColor={sessions.length === 0 ? "white" : color.accent[500]}
       />
     </HeaderButton>
   );

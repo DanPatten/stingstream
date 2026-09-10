@@ -21,14 +21,12 @@ export const Badge: React.FC<Props> = ({
   const content = (
     <View style={styles.content}>
       {iconLeft && <View style={styles.iconLeft}>{iconLeft}</View>}
-      <Text
-        className={`
-          text-xs
-          ${variant === "purple" && "text-white"}
-      `}
-      >
-        {text}
-      </Text>
+      {/*
+        The badge sits on a blur over artwork, so its label is the theme's
+        primary ink either way; the variant only ever chose between that and
+        the default, which is the same colour.
+      */}
+      <Text className='text-xs'>{text}</Text>
     </View>
   );
 

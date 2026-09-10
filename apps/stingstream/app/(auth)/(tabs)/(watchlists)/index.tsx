@@ -7,6 +7,7 @@ import { Platform, RefreshControl, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { Text } from "@/components/common/Text";
+import { rgba } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -43,7 +44,10 @@ const WatchlistCard: React.FC<WatchlistCardProps> = ({
         </Text>
         <View className='flex-row items-center gap-2'>
           {isOwner && (
-            <View className='bg-purple-600/20 px-2 py-1 rounded'>
+            <View
+              style={{ backgroundColor: rgba(color.accent[500], 0.2) }}
+              className='px-2 py-1 rounded'
+            >
               <Text tone='accent' className='text-xs'>
                 {t("watchlists.you")}
               </Text>

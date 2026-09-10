@@ -117,10 +117,14 @@ const ToggleItem: React.FC<{
       >
         <Text className='flex-1'>{label}</Text>
         <View
-          className={`w-12 h-7 rounded-full ${value ? "bg-purple-600" : "bg-neutral-600"} flex-row items-center`}
+          style={{
+            backgroundColor: value ? color.accent[500] : color.bg["3"],
+          }}
+          className='w-12 h-7 rounded-full flex-row items-center'
         >
           <View
-            className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${
+            style={{ backgroundColor: color.text.primary }}
+            className={`w-5 h-5 rounded-full shadow-md transform transition-transform ${
               value ? "translate-x-6" : "translate-x-1"
             }`}
           />

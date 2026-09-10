@@ -50,8 +50,11 @@ export const LoadingSkeleton: React.FC<Props> = ({ isLoading }) => {
                 />
                 <View className='rounded-md overflow-hidden mb-1 self-start'>
                   <Text
-                    style={{ backgroundColor: color.bg["1"] }}
-                    className='text-neutral-900 rounded-md'
+                    style={{
+                      backgroundColor: color.bg["1"],
+                      color: color.bg["0"],
+                    }}
+                    className='rounded-md'
                     numberOfLines={1}
                   >
                     Nisi mollit voluptate amet.
@@ -59,8 +62,11 @@ export const LoadingSkeleton: React.FC<Props> = ({ isLoading }) => {
                 </View>
                 <View className='rounded-md overflow-hidden self-start mb-1'>
                   <Text
-                    style={{ backgroundColor: color.bg["1"] }}
-                    className='text-neutral-900 text-xs rounded-md'
+                    style={{
+                      backgroundColor: color.bg["1"],
+                      color: color.bg["0"],
+                    }}
+                    className='text-xs rounded-md'
                     numberOfLines={1}
                   >
                     Lorem ipsum

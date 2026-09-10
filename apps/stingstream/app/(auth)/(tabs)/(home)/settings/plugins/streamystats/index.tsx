@@ -108,7 +108,7 @@ function StreamystatsPage() {
     navigation.setOptions({
       headerRight: () => (
         <HeaderButton variant='text' onPress={onSave}>
-          <Text className='text-blue-500 font-medium'>
+          <Text style={{ color: color.state.info }} className='font-medium'>
             {t("home.settings.plugins.streamystats.save")}
           </Text>
         </HeaderButton>
@@ -182,7 +182,7 @@ function StreamystatsPage() {
 
         <Text tone='tertiary' className='px-4 text-xs mt-1'>
           {t("home.settings.plugins.streamystats.streamystats_search_hint")}{" "}
-          <Text className='text-blue-500' onPress={handleOpenLink}>
+          <Text style={{ color: color.state.info }} onPress={handleOpenLink}>
             {t(
               "home.settings.plugins.streamystats.read_more_about_streamystats",
             )}

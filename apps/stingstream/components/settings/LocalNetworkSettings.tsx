@@ -54,7 +54,7 @@ function StatusDisplay({
   const urlType = isUsingLocalUrl
     ? t("home.settings.network.local")
     : t("home.settings.network.remote");
-  const urlTypeColor = isUsingLocalUrl ? "text-green-500" : "text-blue-500";
+  const urlTypeColor = isUsingLocalUrl ? color.state.success : color.state.info;
 
   return (
     <View
@@ -67,7 +67,7 @@ function StatusDisplay({
       </View>
       <View className='flex-row justify-between items-center py-1'>
         <Text tone='secondary'>{t("home.settings.network.using_url")}</Text>
-        <Text className={urlTypeColor}>{urlType}</Text>
+        <Text style={{ color: urlTypeColor }}>{urlType}</Text>
       </View>
 
       {locationBlocked && (
@@ -75,7 +75,7 @@ function StatusDisplay({
           style={{ borderColor: color.border.subtle }}
           className='mt-2 pt-2 border-t'
         >
-          <Text className='text-xs text-amber-400'>
+          <Text style={{ color: color.state.warning }} className='text-xs'>
             {t("home.settings.network.location_off_description")}
           </Text>
           <TouchableOpacity
@@ -83,7 +83,10 @@ function StatusDisplay({
             className='mt-2 self-start'
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text className='text-xs text-blue-400 font-semibold'>
+            <Text
+              style={{ color: color.state.info }}
+              className='text-xs font-semibold'
+            >
               {t("home.settings.network.open_location_settings")}
             </Text>
           </TouchableOpacity>

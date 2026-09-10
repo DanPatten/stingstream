@@ -18,6 +18,7 @@ import { MusicAlbumCard } from "@/components/music/MusicAlbumCard";
 import { MusicTrackItem } from "@/components/music/MusicTrackItem";
 import { PlaylistPickerSheet } from "@/components/music/PlaylistPickerSheet";
 import { TrackOptionsSheet } from "@/components/music/TrackOptionsSheet";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useMusicPlayer } from "@/providers/MusicPlayerProvider";
 import { getPrimaryImageUrl } from "@/utils/jellyfin/image/getPrimaryImageUrl";
@@ -26,6 +27,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const ARTWORK_SIZE = SCREEN_WIDTH * 0.4;
 
 export default function ArtistDetailScreen() {
+  const { color } = useTheme();
   const { artistId } = useLocalSearchParams<{ artistId: string }>();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
@@ -123,7 +125,10 @@ export default function ArtistDetailScreen() {
   // Only show loading if we have no cached data to display
   if (isLoading && !artist) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
         <Loader />
       </View>
     );
@@ -131,8 +136,13 @@ export default function ArtistDetailScreen() {
 
   if (!artist) {
     return (
-      <View className='flex-1 justify-center items-center bg-black'>
-        <Text className='text-neutral-500'>{t("music.artist_not_found")}</Text>
+      <View
+        style={{ backgroundColor: color.bg["0"] }}
+        className='flex-1 justify-center items-center'
+      >
+        <Text style={{ color: color.text.tertiary }}>
+          {t("music.artist_not_found")}
+        </Text>
       </View>
     );
   }
@@ -167,8 +177,11 @@ export default function ArtistDetailScreen() {
       }}
       ListHeaderComponent={
         <View
-          className='items-center px-4 pb-6 bg-black'
-          style={{ paddingTop: insets.top + 50 }}
+          className='items-center px-4 pb-6'
+          style={{
+            paddingTop: insets.top + 50,
+            backgroundColor: color.bg["0"],
+          }}
         >
           {/* Artist image */}
           <View
@@ -193,28 +206,38 @@ export default function ArtistDetailScreen() {
                 cachePolicy='memory-disk'
               />
             ) : (
-              <View className='flex-1 items-center justify-center bg-neutral-800'>
+              <View
+                style={{ backgroundColor: color.bg["2"] }}
+                className='flex-1 items-center justify-center'
+              >
                 <Ionicons name='person' size={60} color='#666' />
               </View>
             )}
           </View>
 
           {/* Artist info */}
-          <Text className='text-white text-2xl font-bold mt-4 text-center'>
+          <Text
+            style={{ color: color.text.primary }}
+            className='text-2xl font-bold mt-4 text-center'
+          >
             {artist.Name}
           </Text>
-          <Text className='text-neutral-500 text-sm mt-1'>
+          <Text style={{ color: color.text.tertiary }} className='text-sm mt-1'>
             {albums?.length || 0} {t("music.tabs.albums").toLowerCase()}
           </Text>
 
           {/* Play button */}
           {topTracks && topTracks.length > 0 && (
             <TouchableOpacity
+              style={{ backgroundColor: color.accent[500] }}
               onPress={handlePlayAllTracks}
-              className='flex flex-row items-center bg-purple-600 px-6 py-3 rounded-full mt-4'
+              className='flex flex-row items-center px-6 py-3 rounded-full mt-4'
             >
               <Ionicons name='play' size={20} color='white' />
-              <Text className='text-white font-medium ml-2'>
+              <Text
+                style={{ color: color.text.primary }}
+                className='font-medium ml-2'
+              >
                 {t("music.play_top_tracks")}
               </Text>
             </TouchableOpacity>

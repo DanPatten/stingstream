@@ -136,7 +136,9 @@ export const PlaylistSortSheet: React.FC<Props> = ({
                     color={isSelected ? "#9334E9" : "#fff"}
                   />
                   <Text
-                    className={`ml-4 text-base flex-1 ${isSelected ? "text-purple-500 font-medium" : "text-white"}`}
+                    tone={isSelected ? "accent" : "primary"}
+                    weight={isSelected ? "medium" : "regular"}
+                    className='ml-4 text-base flex-1'
                   >
                     {t(option.label)}
                   </Text>

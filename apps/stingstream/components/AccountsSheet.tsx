@@ -13,7 +13,6 @@ import {
   SheetView,
 } from "@/components/common/Sheet";
 import { confirmDestructive } from "@/components/stingstream/shared/confirm";
-import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import {
   deleteAccountCredential,
@@ -157,10 +156,12 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
                     setOpen(false);
                     onAccountSelect(account);
                   }}
-                  className={`flex-row items-center p-4 bg-neutral-800 ${
-                    index < server.accounts.length - 1
-                      ? "border-b border-neutral-700"
-                      : ""
+                  style={{
+                    backgroundColor: color.bg["2"],
+                    borderBottomColor: color.border.strong,
+                  }}
+                  className={`flex-row items-center p-4 ${
+                    index < server.accounts.length - 1 ? "border-b" : ""
                   }`}
                 >
                   {/* Avatar */}
@@ -187,7 +188,7 @@ export const AccountsSheet: React.FC<AccountsSheetProps> = ({
                   <Ionicons
                     name={getSecurityIcon(account.securityType)}
                     size={18}
-                    color={Colors.primary}
+                    color={color.accent[500]}
                   />
                 </TouchableOpacity>
               </Swipeable>

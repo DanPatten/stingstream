@@ -28,7 +28,7 @@ cadence meant knowing both existed, and nothing would have failed if only one ha
 | File | Holds |
 | --- | --- |
 | `constants/Values.ts` | Cross cutting app values with no better home (tab height, carousel height, sheet ratio) |
-| `constants/Colors.ts` | Color tokens |
+| `constants/theme.tokens.json` | Every design token, including one palette per theme |
 | `constants/MediaTypes.ts` | Media type unions |
 | `constants/TVSizes.ts` | TV poster sizes, gaps, padding, animation timings |
 | `constants/TVTypography.ts` | TV type scale and the `useScaledTVTypography` hook |

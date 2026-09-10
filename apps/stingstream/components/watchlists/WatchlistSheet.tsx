@@ -62,7 +62,8 @@ const WatchlistRow: React.FC<WatchlistRowProps> = ({
     <TouchableOpacity
       onPress={onToggle}
       disabled={disabled || isLoading}
-      className={`bg-neutral-800 px-4 py-3 flex-row items-center justify-between ${disabled ? "opacity-40" : ""}`}
+      style={{ backgroundColor: color.bg["2"] }}
+      className={`px-4 py-3 flex-row items-center justify-between ${disabled ? "opacity-40" : ""}`}
       activeOpacity={0.7}
     >
       <View className='flex-1 mr-4'>

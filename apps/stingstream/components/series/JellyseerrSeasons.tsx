@@ -19,6 +19,7 @@ import { textShadowStyle } from "@/components/jellyseerr/discover/GenericSlideCa
 import JellyseerrStatusIcon from "@/components/jellyseerr/JellyseerrStatusIcon";
 import { RoundButton } from "@/components/RoundButton";
 import { confirmAction } from "@/components/stingstream/shared/confirm";
+import { rgba } from "@/constants/theme";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -100,7 +101,10 @@ const RenderItem = ({ item }: any) => {
             />
             {upcomingAirDate && (
               <View className='absolute justify-center bottom-0 right-0.5 items-center'>
-                <View className='rounded-full bg-purple-600/30 p-1'>
+                <View
+                  style={{ backgroundColor: rgba(color.accent[500], 0.3) }}
+                  className='rounded-full p-1'
+                >
                   <Text
                     className='text-center text-xs'
                     style={textShadowStyle.shadow}
@@ -160,6 +164,7 @@ const JellyseerrSeasons: React.FC<{
   hasAdvancedRequest,
   onAdvancedRequest,
 }) => {
+  const { color } = useTheme();
   const { jellyseerrApi, requestMedia } = useJellyseerr();
   const [seasonStates, setSeasonStates] = useState<{ [key: number]: boolean }>(
     {},
@@ -297,7 +302,8 @@ const JellyseerrSeasons: React.FC<{
             className='px-4'
           >
             <View
-              className='flex flex-row justify-between items-center bg-gray-100/10 rounded-xl z-20 h-12 w-full px-4'
+              style={{ backgroundColor: rgba(color.overlay, 0.1) }}
+              className='flex flex-row justify-between items-center rounded-xl z-20 h-12 w-full px-4'
               key={season.id}
             >
               <Tags
@@ -319,7 +325,11 @@ const JellyseerrSeasons: React.FC<{
                     onPress={() =>
                       requestSeason(canRequest, season.seasonNumber)
                     }
-                    className={canRequest ? "bg-gray-700/40" : undefined}
+                    style={
+                      canRequest
+                        ? { backgroundColor: rgba(color.bg["3"], 0.4) }
+                        : undefined
+                    }
                     mediaStatus={season.status}
                     showRequestIcon={canRequest}
                   />

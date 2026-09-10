@@ -1,6 +1,8 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import React, { useMemo } from "react";
 import { Platform, View } from "react-native";
+import { tokens } from "@/constants/theme";
+import { useTheme } from "@/hooks/useTheme";
 
 interface ProgressBarProps {
   item: BaseItemDto;
@@ -29,6 +31,7 @@ export const getItemProgressPercentage = (item: BaseItemDto): number => {
 };
 
 export const ProgressBar: React.FC<ProgressBarProps> = ({ item }) => {
+  const { color } = useTheme();
   const progress = useMemo(() => getItemProgressPercentage(item), [item]);
 
   if (progress <= 0) {
@@ -38,17 +41,19 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ item }) => {
   return (
     <>
       <View
-        className={
-          "absolute bottom-0 left-0 h-1 bg-neutral-700 opacity-80 w-full"
-        }
+        style={{ backgroundColor: color.bg["3"], opacity: 0.8 }}
+        className='absolute bottom-0 left-0 h-1 w-full'
       />
       <View
-        style={
-          Platform.isTV
-            ? { width: `${progress}%`, backgroundColor: "#ffffff" }
-            : { width: `${progress}%` }
-        }
-        className={`absolute bottom-0 left-0 h-1 ${Platform.isTV ? "" : "bg-purple-600"}`}
+        style={{
+          width: `${progress}%`,
+          // A television's progress bar is white, like the rest of its focus
+          // vocabulary. See docs/conventions/tv.md.
+          backgroundColor: Platform.isTV
+            ? tokens.focus.tv.color
+            : color.accent[500],
+        }}
+        className='absolute bottom-0 left-0 h-1'
       />
     </>
   );

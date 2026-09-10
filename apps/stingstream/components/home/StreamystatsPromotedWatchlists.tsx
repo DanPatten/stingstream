@@ -193,8 +193,11 @@ export const StreamystatsPromotedWatchlists: React.FC<
               />
               <View className='rounded-md overflow-hidden mb-1 self-start'>
                 <Text
-                  style={{ backgroundColor: color.bg["1"] }}
-                  className='text-neutral-900 rounded-md'
+                  style={{
+                    backgroundColor: color.bg["1"],
+                    color: color.bg["0"],
+                  }}
+                  className='rounded-md'
                   numberOfLines={1}
                 >
                   Loading...

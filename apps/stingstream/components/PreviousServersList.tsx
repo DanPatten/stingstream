@@ -12,7 +12,6 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import { useMMKVString } from "react-native-mmkv";
 import { toast } from "sonner-native";
-import { Colors } from "@/constants/Colors";
 import { radius } from "@/constants/theme";
 import { useConfirmDelete } from "@/hooks/useConfirmDelete";
 import { useTheme } from "@/hooks/useTheme";
@@ -432,6 +431,7 @@ const ServerItem: React.FC<ServerItemProps> = ({
   subtitle,
   securityIcon,
 }) => {
+  const { color } = useTheme();
   const swipeableRef = useRef<Swipeable>(null);
   const hasAccounts = server.accounts?.length > 0;
 
@@ -444,7 +444,7 @@ const ServerItem: React.FC<ServerItemProps> = ({
       disabled={loadingServer === server.address}
     >
       {loadingServer === server.address ? (
-        <ActivityIndicator size='small' color={Colors.primary} />
+        <ActivityIndicator size='small' color={color.accent[500]} />
       ) : (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           {hasAccounts && securityIcon ? (
@@ -456,7 +456,11 @@ const ServerItem: React.FC<ServerItemProps> = ({
               className='p-1'
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name={securityIcon} size={16} color={Colors.primary} />
+              <Ionicons
+                name={securityIcon}
+                size={16}
+                color={color.accent[500]}
+              />
             </TouchableOpacity>
           ) : null}
           {inlineActions}

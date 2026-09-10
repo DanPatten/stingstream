@@ -28,6 +28,7 @@ import {
   SheetScrollView,
 } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
+import { rgba } from "@/constants/theme";
 import { useAddToPlaylist } from "@/hooks/usePlaylistMutations";
 import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -184,7 +185,8 @@ export const PlaylistPickerSheet: React.FC<Props> = ({
         {/* Create New Playlist Button */}
         <TouchableOpacity
           onPress={handleCreateNew}
-          className='flex-row items-center bg-purple-900/30 rounded-xl px-4 py-3.5 mb-4'
+          style={{ backgroundColor: rgba(color.accent[500], 0.15) }}
+          className='flex-row items-center rounded-xl px-4 py-3.5 mb-4'
         >
           <View
             style={{ backgroundColor: color.accent[500] }}

@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
-import { Colors } from "@/constants/Colors";
 import { useTheme } from "@/hooks/useTheme";
 import { useNodeMeshGroups, useNodeMeshStatus } from "@/lib/stingstream/mesh";
 import {
@@ -119,7 +118,7 @@ export function WatchTogetherBanner() {
         accessibilityRole='button'
         accessibilityLabel={`Join ${invite.leaderName}'s watch party`}
         className='rounded-lg px-3 py-2'
-        style={{ backgroundColor: Colors.primary }}
+        style={{ backgroundColor: color.accent[500] }}
       >
         {join.isPending ? (
           <ActivityIndicator color='white' />

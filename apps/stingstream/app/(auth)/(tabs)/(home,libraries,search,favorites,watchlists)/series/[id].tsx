@@ -27,9 +27,9 @@ import { SeasonPicker } from "@/components/series/SeasonPicker";
 import { TVSeriesPage } from "@/components/series/TVSeriesPage";
 import { useSetScreenTitle } from "@/components/shell/useScreenTitle";
 import { SourceSelector } from "@/components/stingstream/sources/SourceSelector";
-import { Colors } from "@/constants/Colors";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import useDefaultPlaySettings from "@/hooks/useDefaultPlaySettings";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { OfflineModeProvider } from "@/providers/OfflineModeProvider";
@@ -48,6 +48,7 @@ const SECTION_GAP = 32;
 const COMPACT_HEADER_HEIGHT = 460;
 
 const page: React.FC = () => {
+  const { color } = useTheme();
   const navigation = useNavigation();
   const { t } = useTranslation();
   const params = useLocalSearchParams();
@@ -226,7 +227,7 @@ const page: React.FC = () => {
             items={episodes}
             MissingDownloadIconComponent={() => <HeaderIcon name='downloads' />}
             DownloadedIconComponent={() => (
-              <HeaderIcon name='downloaded' tintColor={Colors.primary} />
+              <HeaderIcon name='downloaded' tintColor={color.accent[500]} />
             )}
           />
         ),

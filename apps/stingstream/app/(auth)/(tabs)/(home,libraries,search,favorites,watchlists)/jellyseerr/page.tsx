@@ -29,9 +29,11 @@ import { PlatformDropdown } from "@/components/PlatformDropdown";
 import { JellyserrRatings } from "@/components/Ratings";
 import JellyseerrSeasons from "@/components/series/JellyseerrSeasons";
 import { ItemActions } from "@/components/series/SeriesActions";
+import { rgba } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useDismissKeyboardOnLeave } from "@/hooks/useDismissKeyboardOnLeave";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import { useJellyseerrCanRequest } from "@/utils/_jellyseerr/useJellyseerrCanRequest";
 import { ANIME_KEYWORD_ID } from "@/utils/jellyseerr/server/api/themoviedb/constants";
 import {
@@ -58,6 +60,7 @@ import { writeErrorLog } from "@/utils/log";
 
 // Mobile page component
 const MobilePage: React.FC = () => {
+  const { color } = useTheme();
   useDismissKeyboardOnLeave();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
@@ -278,8 +281,10 @@ const MobilePage: React.FC = () => {
                 style={{
                   width: "100%",
                   height: "100%",
+                  borderColor: color.border.subtle,
+                  backgroundColor: color.bg["1"],
                 }}
-                className='flex flex-col items-center justify-center border border-neutral-800 bg-neutral-900'
+                className='flex flex-col items-center justify-center border'
               >
                 <Ionicons
                   name='image-outline'
@@ -312,7 +317,8 @@ const MobilePage: React.FC = () => {
                   <Text className='opacity-50'>{releaseYear}</Text>
                 </View>
                 <Image
-                  className='absolute bottom-1 right-1 rounded-lg w-28 aspect-[10/15] border-2 border-neutral-800/50 drop-shadow-2xl'
+                  style={{ borderColor: color.border.subtle }}
+                  className='absolute bottom-1 right-1 rounded-lg w-28 aspect-[10/15] border-2 drop-shadow-2xl'
                   cachePolicy={"memory-disk"}
                   transition={300}
                   source={{
@@ -339,7 +345,7 @@ const MobilePage: React.FC = () => {
                   <View className='flex flex-row space-x-2 mt-4'>
                     {!Platform.isTV && (
                       <Button
-                        className='flex-1 bg-yellow-500/50 border-yellow-400 ring-yellow-400 text-yellow-100'
+                        className='flex-1'
                         color='transparent'
                         onPress={() => bottomSheetModalRef?.current?.present()}
                         iconLeft={
@@ -352,6 +358,8 @@ const MobilePage: React.FC = () => {
                         style={{
                           borderWidth: 1,
                           borderStyle: "solid",
+                          backgroundColor: rgba(color.state.warning, 0.5),
+                          borderColor: color.state.warning,
                         }}
                       >
                         <Text className='text-sm'>
@@ -360,7 +368,7 @@ const MobilePage: React.FC = () => {
                       </Button>
                     )}
                     <Button
-                      className='flex-1 bg-purple-600/50 border-purple-400 ring-purple-400 text-purple-100'
+                      className='flex-1'
                       onPress={() => {
                         router.push({
                           pathname:
@@ -379,6 +387,8 @@ const MobilePage: React.FC = () => {
                       style={{
                         borderWidth: 1,
                         borderStyle: "solid",
+                        backgroundColor: rgba(color.accent[500], 0.5),
+                        borderColor: color.accent[400],
                       }}
                     >
                       <Text className='text-sm'>{t("common.play")}</Text>
@@ -390,7 +400,7 @@ const MobilePage: React.FC = () => {
                 <View className='flex flex-col space-y-2 mt-4'>
                   <View className='flex flex-row items-center space-x-2'>
                     <Ionicons name='person-outline' size={16} color='#9CA3AF' />
-                    <Text className='text-sm text-neutral-400'>
+                    <Text tone='secondary' className='text-sm'>
                       {t("jellyseerr.requested_by", {
                         user:
                           pendingRequest.requestedBy?.displayName ||
@@ -402,7 +412,7 @@ const MobilePage: React.FC = () => {
                   </View>
                   <View className='flex flex-row space-x-2'>
                     <Button
-                      className='flex-1 bg-green-600/50 border-green-400 ring-green-400 text-green-100'
+                      className='flex-1'
                       color='transparent'
                       onPress={handleApproveRequest}
                       iconLeft={
@@ -415,12 +425,14 @@ const MobilePage: React.FC = () => {
                       style={{
                         borderWidth: 1,
                         borderStyle: "solid",
+                        backgroundColor: rgba(color.state.success, 0.5),
+                        borderColor: color.state.success,
                       }}
                     >
                       <Text className='text-sm'>{t("jellyseerr.approve")}</Text>
                     </Button>
                     <Button
-                      className='flex-1 bg-red-600/50 border-red-400 ring-red-400 text-red-100'
+                      className='flex-1'
                       color='transparent'
                       onPress={handleDeclineRequest}
                       iconLeft={
@@ -433,6 +445,8 @@ const MobilePage: React.FC = () => {
                       style={{
                         borderWidth: 1,
                         borderStyle: "solid",
+                        backgroundColor: rgba(color.state.danger, 0.5),
+                        borderColor: color.state.danger,
                       }}
                     >
                       <Text className='text-sm'>{t("jellyseerr.decline")}</Text>
@@ -453,7 +467,11 @@ const MobilePage: React.FC = () => {
               />
             )}
             <DetailFacts
-              className='p-2 border border-neutral-800 bg-neutral-900 rounded-xl'
+              style={{
+                borderColor: color.border.subtle,
+                backgroundColor: color.bg["1"],
+              }}
+              className='p-2 border rounded-xl'
               details={details}
             />
             <Cast details={details} />
@@ -492,7 +510,7 @@ const MobilePage: React.FC = () => {
           <SheetView>
             <View className='flex flex-col space-y-4 px-4 pb-8 pt-2'>
               <View>
-                <Text className='font-bold text-2xl text-neutral-100'>
+                <Text weight='bold' className='text-2xl'>
                   {t("jellyseerr.whats_wrong")}
                 </Text>
               </View>
@@ -504,7 +522,13 @@ const MobilePage: React.FC = () => {
                   <PlatformDropdown
                     groups={issueTypeOptionGroups}
                     trigger={
-                      <View className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'>
+                      <View
+                        style={{
+                          backgroundColor: color.bg["1"],
+                          borderColor: color.border.subtle,
+                        }}
+                        className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
+                      >
                         <Text numberOfLines={1}>
                           {issueType
                             ? IssueTypeName[issueType]
@@ -518,7 +542,13 @@ const MobilePage: React.FC = () => {
                   />
                 </View>
 
-                <View className='p-4 border border-neutral-800 rounded-xl bg-neutral-900 w-full'>
+                <View
+                  style={{
+                    borderColor: color.border.subtle,
+                    backgroundColor: color.bg["1"],
+                  }}
+                  className='p-4 border rounded-xl w-full'
+                >
                   <SheetTextInput
                     multiline
                     maxLength={254}

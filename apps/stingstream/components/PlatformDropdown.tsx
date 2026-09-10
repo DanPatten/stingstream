@@ -69,15 +69,21 @@ interface PlatformDropdownProps {
   };
 }
 
-const ToggleSwitch: React.FC<{ value: boolean }> = ({ value }) => (
-  <View
-    className={`w-12 h-7 rounded-full ${value ? "bg-purple-600" : "bg-neutral-600"} flex-row items-center`}
-  >
+const ToggleSwitch: React.FC<{ value: boolean }> = ({ value }) => {
+  const { color } = useTheme();
+
+  return (
     <View
-      className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${value ? "translate-x-6" : "translate-x-1"}`}
-    />
-  </View>
-);
+      style={{ backgroundColor: value ? color.accent[500] : color.bg["3"] }}
+      className='w-12 h-7 rounded-full flex-row items-center'
+    >
+      <View
+        style={{ backgroundColor: color.text.primary }}
+        className={`w-5 h-5 rounded-full shadow-md transform transition-transform ${value ? "translate-x-6" : "translate-x-1"}`}
+      />
+    </View>
+  );
+};
 
 const OptionItem: React.FC<{ option: Option; isLast?: boolean }> = ({
   option,

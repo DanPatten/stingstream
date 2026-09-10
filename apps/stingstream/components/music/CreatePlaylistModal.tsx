@@ -19,6 +19,7 @@ import {
 } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useCreatePlaylist } from "@/hooks/usePlaylistMutations";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props {
   open: boolean;
@@ -33,6 +34,7 @@ export const CreatePlaylistModal: React.FC<Props> = ({
   onPlaylistCreated,
   initialTrackId,
 }) => {
+  const { color } = useTheme();
   const bottomSheetModalRef = useRef<SheetModalRef>(null);
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -136,13 +138,20 @@ export const CreatePlaylistModal: React.FC<Props> = ({
         <Button
           onPress={handleCreate}
           disabled={!isValid || createPlaylist.isPending}
-          className={`py-4 rounded-xl ${isValid ? "bg-purple-600" : "bg-neutral-700"}`}
+          style={{
+            backgroundColor: isValid ? color.accent[500] : color.bg["3"],
+          }}
+          className='py-4 rounded-xl'
         >
           {createPlaylist.isPending ? (
             <ActivityIndicator color='white' />
           ) : (
             <Text
-              className={`text-center font-semibold ${isValid ? "text-white" : "text-neutral-500"}`}
+              weight='semibold'
+              style={{
+                color: isValid ? color.accent.onAccent : color.text.tertiary,
+              }}
+              className='text-center'
             >
               {t("music.playlists.create")}
             </Text>

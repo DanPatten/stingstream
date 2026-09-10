@@ -167,12 +167,20 @@ export default function Page() {
                 }
               >
                 <View className='flex flex-row justify-between'>
+                  {/*
+                    The level is the one thing on the row worth colouring, and
+                    it maps onto the state colours the rest of the app uses.
+                  */}
                   <Text
-                    className={`mb-1
-                      ${log.level === "INFO" && "text-blue-500"}
-                      ${log.level === "ERROR" && "text-red-500"}
-                      ${log.level === "DEBUG" && "text-purple-500"}
-                    `}
+                    style={{
+                      color:
+                        log.level === "ERROR"
+                          ? color.state.danger
+                          : log.level === "INFO"
+                            ? color.state.info
+                            : color.text.tertiary,
+                    }}
+                    className='mb-1'
                   >
                     {log.level}
                   </Text>

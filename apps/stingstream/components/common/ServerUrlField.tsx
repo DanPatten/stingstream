@@ -146,7 +146,7 @@ export function ServerUrlField({
         onSubmitEditing={runResolve}
         placeholder={placeholder}
         editable={editable}
-        extraClassName='border border-neutral-800'
+        extraClassName='border'
         keyboardType='url'
         autoCapitalize='none'
         autoCorrect={false}

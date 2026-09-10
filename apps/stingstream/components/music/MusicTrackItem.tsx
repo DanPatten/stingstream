@@ -6,6 +6,7 @@ import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { AnimatedEqualizer } from "@/components/music/AnimatedEqualizer";
+import { rgba } from "@/constants/theme";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useTheme } from "@/hooks/useTheme";
@@ -131,8 +132,13 @@ export const MusicTrackItem: React.FC<Props> = ({
       onLongPress={handleLongPress}
       delayLongPress={300}
       disabled={isUnavailableOffline}
-      className={`flex-row items-center py-1.5 pl-4 pr-3 ${isCurrentTrack ? "bg-purple-900/20" : ""}`}
-      style={isUnavailableOffline ? { opacity: 0.5 } : undefined}
+      style={[
+        isCurrentTrack
+          ? { backgroundColor: rgba(color.accent[500], 0.12) }
+          : null,
+        isUnavailableOffline ? { opacity: 0.5 } : null,
+      ]}
+      className='flex-row items-center py-1.5 pl-4 pr-3'
     >
       {/* Album artwork */}
       {showArtwork && (
@@ -186,7 +192,9 @@ export const MusicTrackItem: React.FC<Props> = ({
           {isCurrentTrack && isPlaying && <AnimatedEqualizer />}
           <Text
             numberOfLines={1}
-            className={`flex-1 text-sm ${isCurrentTrack ? "text-purple-400 font-medium" : "text-white"}`}
+            tone={isCurrentTrack ? "accent" : "primary"}
+            weight={isCurrentTrack ? "medium" : "regular"}
+            className='flex-1 text-sm'
           >
             {track.Name}
           </Text>

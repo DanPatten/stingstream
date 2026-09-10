@@ -140,7 +140,7 @@ const DetailFacts: React.FC<
       <View className='p-4'>
         <Text className='text-lg font-bold'>{t("jellyseerr.details")}</Text>
         <View
-          className={`${className} flex flex-col justify-center divide-y-2 divide-neutral-800`}
+          className={`${className} flex flex-col justify-center`}
           {...props}
         >
           <Fact title={t("jellyseerr.status")} fact={details?.status} />

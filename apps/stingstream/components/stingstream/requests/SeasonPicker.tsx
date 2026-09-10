@@ -87,7 +87,23 @@ export function SeasonPicker({
     );
 
   return (
-    <View testID='requests-season-picker' style={{ marginTop: 4 }}>
+    <View
+      testID='requests-season-picker'
+      // The inset is on the whole picker, not on the chip row, so the header sits on the same left
+      // edge as season 1 and the same right edge as the last chip. It was on the chips alone, which
+      // put Seasons and Clear all four pixels wide of the row they label.
+      //
+      // Negative margin cancels it again against the dialog's own padding, so the picker still
+      // lines up with the title above it. The four pixels exist for `webFocusRing`, which draws its
+      // outline *outside* the control: without them the ring on the first chip and on Clear all is
+      // sheared off flat against the edge of the card.
+      style={{
+        marginTop: 4,
+        marginHorizontal: -4,
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+      }}
+    >
       <View
         style={{
           flexDirection: "row",
@@ -110,11 +126,7 @@ export function SeasonPicker({
           flexDirection: "row",
           flexWrap: "wrap",
           gap: 8,
-          // Room for the focus ring, which `webFocusRing` draws *outside* the chip: 2px of outline
-          // 2px clear of the edge. Without it the first chip's ring is sheared off flat against
-          // the dialog's own edge, which reads as a chip that has been cut in half.
-          padding: 4,
-          marginTop: 6,
+          marginTop: 8,
         }}
       >
         {allSeasons(total).map((season) => (

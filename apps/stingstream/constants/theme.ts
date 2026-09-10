@@ -110,29 +110,16 @@ export const themePalette = (name: ThemeName = DEFAULT_THEME): ThemePalette =>
 export const DEFAULT_PALETTE = themePalette(DEFAULT_THEME);
 
 /**
- * Every token, with a `color` block pinned to the **default** theme.
+ * Every token that is *not* a colour: radius, space, type, motion, focus,
+ * control, interaction, elevation geometry.
  *
- * `tokens.color.*` is what the app read before themes existed, kept while the
- * remaining call sites move over. It is the dark palette and does not follow the
- * user's choice, so anything it paints is stuck dark on a light theme.
- *
- * @deprecated for color — read `useTheme().color` instead. The non-color groups
- * (`radius`, `space`, `type`, `motion`, …) are fine to read from here.
+ * There is no `tokens.color`. Colour is a runtime value now — three palettes,
+ * one bundle, and NativeWind v2 has no CSS variables — so it reaches a
+ * component through `useTheme().color` and a pure function through a
+ * `ThemePalette` parameter. A `tokens.color` would only ever be one theme's
+ * answer baked in, which is what this whole module exists to stop.
  */
-export const tokens = {
-  ...rawTokens,
-  color: {
-    bg: DEFAULT_PALETTE.bg,
-    text: {
-      ...DEFAULT_PALETTE.text,
-      onAccent: DEFAULT_PALETTE.accent.onAccent,
-    },
-    accent: DEFAULT_PALETTE.accent,
-    state: DEFAULT_PALETTE.state,
-    border: DEFAULT_PALETTE.border,
-    scrim: { backdrop: DEFAULT_PALETTE.scrim },
-  },
-};
+export const tokens = rawTokens;
 
 // ---------------------------------------------------------------------------
 // Color helpers
@@ -314,18 +301,6 @@ export const webFocusRing = (
 // ---------------------------------------------------------------------------
 // Flat aliases, for the places that only want one value
 // ---------------------------------------------------------------------------
-
-/** @deprecated the default theme's surfaces. Read `useTheme().color.bg`. */
-export const surface = DEFAULT_PALETTE.bg;
-/** @deprecated the default theme's ink. Read `useTheme().color.text`. */
-export const textColor = {
-  ...DEFAULT_PALETTE.text,
-  onAccent: DEFAULT_PALETTE.accent.onAccent,
-};
-/** @deprecated the default theme's state colors. Read `useTheme().color.state`. */
-export const stateColor = DEFAULT_PALETTE.state;
-/** @deprecated the default theme's borders. Read `useTheme().color.border`. */
-export const borderColor = DEFAULT_PALETTE.border;
 
 export const radius = rawTokens.radius;
 export const space = rawTokens.space;

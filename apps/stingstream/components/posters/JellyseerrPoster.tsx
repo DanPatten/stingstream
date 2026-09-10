@@ -13,7 +13,6 @@ import { Tag, Tags } from "@/components/GenreTags";
 import { textShadowStyle } from "@/components/jellyseerr/discover/GenericSlideCard";
 import JellyseerrMediaIcon from "@/components/jellyseerr/JellyseerrMediaIcon";
 import JellyseerrStatusIcon from "@/components/jellyseerr/JellyseerrStatusIcon";
-import { Colors } from "@/constants/Colors";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
 import { useTheme } from "@/hooks/useTheme";
 import { useJellyseerrCanRequest } from "@/utils/_jellyseerr/useJellyseerrCanRequest";
@@ -133,7 +132,8 @@ const JellyseerrPoster: React.FC<Props> = ({
     >
       <View className={"flex flex-col mr-2 h-auto"}>
         <View
-          className={`relative rounded-lg overflow-hidden border border-neutral-900 ${size} aspect-[${ratio}]`}
+          style={{ borderColor: color.border.subtle }}
+          className={`relative rounded-lg overflow-hidden border ${size} aspect-[${ratio}]`}
         >
           <Animated.View style={imageAnimatedStyle}>
             <Image
@@ -153,7 +153,8 @@ const JellyseerrPoster: React.FC<Props> = ({
           {mediaRequest && showDownloadInfo && (
             <>
               <View
-                className={`absolute w-full h-full bg-black ${!available ? "opacity-70" : "opacity-0"}`}
+                style={{ backgroundColor: color.scrim }}
+                className={`absolute w-full h-full ${!available ? "opacity-70" : "opacity-0"}`}
               />
               {!available && !Number.isNaN(progress) && (
                 <>
@@ -161,7 +162,7 @@ const JellyseerrPoster: React.FC<Props> = ({
                     className='absolute left-0 h-full opacity-40'
                     style={{
                       width: `${progress || 0}%`,
-                      backgroundColor: Colors.primaryRGB,
+                      backgroundColor: color.accent[500],
                     }}
                   />
                   <View className='absolute w-full h-full justify-center items-center'>
@@ -172,15 +173,19 @@ const JellyseerrPoster: React.FC<Props> = ({
                 </>
               )}
               <Tag
-                style={{ backgroundColor: color.bg["0"] }}
-                className='absolute right-1 top-1 text-right border border-neutral-800/50'
+                style={{
+                  backgroundColor: color.bg["0"],
+                  borderColor: color.border.subtle,
+                }}
+                className='absolute right-1 top-1 text-right border'
                 text={mediaRequest?.requestedBy.displayName}
               />
               {requestedSeasons.length > 0 && (
                 <Tags
                   className='absolute bottom-1 left-0.5 w-32'
                   tagProps={{
-                    className: "bg-black rounded-full px-1",
+                    className: "rounded-full px-1",
+                    style: { backgroundColor: color.scrim },
                   }}
                   tags={requestedSeasons}
                 />

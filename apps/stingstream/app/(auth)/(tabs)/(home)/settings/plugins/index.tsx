@@ -57,7 +57,7 @@ function PluginsPage() {
               onPress={handleRefreshFromServer}
               className='py-3 rounded-xl'
             >
-              <Text className='text-center text-blue-500'>
+              <Text style={{ color: color.state.info }} className='text-center'>
                 {t("home.settings.plugins.streamystats.refresh_from_server")}
               </Text>
             </TouchableOpacity>

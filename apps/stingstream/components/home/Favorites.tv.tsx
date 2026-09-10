@@ -10,9 +10,9 @@ import heart from "@/assets/icons/heart.fill.png";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList.tv";
-import { Colors } from "@/constants/Colors";
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
+import { useTheme } from "@/hooks/useTheme";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 
 const SECTION_GAP = 10;
@@ -27,6 +27,7 @@ type FavoriteTypes =
 type EmptyState = Record<FavoriteTypes, boolean>;
 
 export const Favorites = () => {
+  const { color } = useTheme();
   const typography = useScaledTVTypography();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -143,7 +144,7 @@ export const Favorites = () => {
             width: 64,
             height: 64,
             marginBottom: 16,
-            tintColor: Colors.primary,
+            tintColor: color.accent[500],
           }}
           contentFit='contain'
           source={heart}

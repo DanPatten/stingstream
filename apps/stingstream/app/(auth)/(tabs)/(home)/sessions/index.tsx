@@ -232,7 +232,10 @@ const SessionCard = ({ session }: SessionCardProps) => {
                 {formatTimeString(remainingTicks, "tick")} left
               </Text>
             </View>
-            <View className='align-bottom bg-gray-800 h-1'>
+            <View
+              style={{ backgroundColor: color.bg["2"] }}
+              className='align-bottom h-1'
+            >
               <View
                 className='h-full'
                 style={{

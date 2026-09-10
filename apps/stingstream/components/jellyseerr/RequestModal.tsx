@@ -13,6 +13,7 @@ import {
 import { Text } from "@/components/common/Text";
 import { PlatformDropdown } from "@/components/PlatformDropdown";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
+import { useTheme } from "@/hooks/useTheme";
 import type {
   QualityProfile,
   RootFolder,
@@ -38,6 +39,7 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
     { id, title, requestBody, type, isAnime = false, onRequested, onDismiss },
     ref,
   ) => {
+    const { color } = useTheme();
     const { jellyseerrApi, jellyseerrUser, requestMedia } = useJellyseerr();
     const [requestOverrides, setRequestOverrides] = useState<MediaRequestBody>({
       mediaId: Number(id),
@@ -317,11 +319,16 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
         <SheetView>
           <View className='flex flex-col space-y-4 px-4 pb-8 pt-2'>
             <View>
-              <Text className='font-bold text-2xl text-neutral-100'>
+              <Text
+                style={{ color: color.text.primary }}
+                className='font-bold text-2xl'
+              >
                 {t("jellyseerr.advanced")}
               </Text>
               {seasonTitle && (
-                <Text className='text-neutral-300'>{seasonTitle}</Text>
+                <Text style={{ color: color.text.secondary }}>
+                  {seasonTitle}
+                </Text>
               )}
             </View>
             <View className='flex flex-col space-y-2'>
@@ -334,7 +341,13 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
                     <PlatformDropdown
                       groups={qualityProfileOptions}
                       trigger={
-                        <View className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'>
+                        <View
+                          style={{
+                            backgroundColor: color.bg["1"],
+                            borderColor: color.border.subtle,
+                          }}
+                          className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
+                        >
                           <Text numberOfLines={1}>
                             {defaultServiceDetails.profiles.find(
                               (p) =>
@@ -358,7 +371,13 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
                     <PlatformDropdown
                       groups={rootFolderOptions}
                       trigger={
-                        <View className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'>
+                        <View
+                          style={{
+                            backgroundColor: color.bg["1"],
+                            borderColor: color.border.subtle,
+                          }}
+                          className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
+                        >
                           <Text numberOfLines={1}>
                             {selectedFolder
                               ? pathTitleExtractor(selectedFolder)
@@ -379,7 +398,13 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
                     <PlatformDropdown
                       groups={tagsOptions}
                       trigger={
-                        <View className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'>
+                        <View
+                          style={{
+                            backgroundColor: color.bg["1"],
+                            borderColor: color.border.subtle,
+                          }}
+                          className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
+                        >
                           <Text numberOfLines={1}>
                             {requestOverrides.tags
                               ? defaultServiceDetails.tags
@@ -406,7 +431,13 @@ const RequestModal = forwardRef<SheetModalRef, Props & Omit<ViewProps, "id">>(
                     <PlatformDropdown
                       groups={usersOptions}
                       trigger={
-                        <View className='bg-neutral-900 h-10 rounded-xl border-neutral-800 border px-3 py-2 flex flex-row items-center justify-between'>
+                        <View
+                          style={{
+                            backgroundColor: color.bg["1"],
+                            borderColor: color.border.subtle,
+                          }}
+                          className='h-10 rounded-xl border px-3 py-2 flex flex-row items-center justify-between'
+                        >
                           <Text numberOfLines={1}>
                             {users.find(
                               (u) =>

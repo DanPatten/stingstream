@@ -264,11 +264,8 @@ export default function NowPlayingScreen() {
               className='px-3 py-1'
             >
               <Text
-                className={
-                  viewMode === "player"
-                    ? "text-white font-semibold"
-                    : "text-neutral-500"
-                }
+                tone={viewMode === "player" ? "primary" : "tertiary"}
+                weight={viewMode === "player" ? "semibold" : "regular"}
               >
                 {t("music.now_playing")}
               </Text>
@@ -278,11 +275,8 @@ export default function NowPlayingScreen() {
               className='px-3 py-1'
             >
               <Text
-                className={
-                  viewMode === "queue"
-                    ? "text-white font-semibold"
-                    : "text-neutral-500"
-                }
+                tone={viewMode === "queue" ? "primary" : "tertiary"}
+                weight={viewMode === "queue" ? "semibold" : "regular"}
               >
                 Queue ({queue.length})
               </Text>
@@ -801,7 +795,9 @@ const QueueView: React.FC<QueueViewProps> = ({
             <View className='flex-1 mr-2'>
               <Text
                 numberOfLines={1}
-                className={`text-base ${isCurrentTrack ? "text-purple-400 font-semibold" : "text-white"}`}
+                tone={isCurrentTrack ? "accent" : "primary"}
+                weight={isCurrentTrack ? "semibold" : "regular"}
+                className='text-base'
               >
                 {item.Name}
               </Text>

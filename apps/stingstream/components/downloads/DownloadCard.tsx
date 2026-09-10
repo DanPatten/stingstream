@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
+import { rgba } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useNetworkAwareQueryClient } from "@/hooks/useNetworkAwareQueryClient";
 import { useTheme } from "@/hooks/useTheme";
@@ -135,8 +136,9 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
     >
       {process.status === "downloading" && (
         <View
-          className={`bg-purple-600 h-1 absolute bottom-0 left-0 ${isTranscoding ? "animate-pulse" : ""}`}
+          className={`h-1 absolute bottom-0 left-0 ${isTranscoding ? "animate-pulse" : ""}`}
           style={{
+            backgroundColor: color.accent[500],
             width:
               sanitizedProgress > 0
                 ? `${Math.max(5, sanitizedProgress)}%`
@@ -180,7 +182,10 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
             </Text>
 
             {isTranscoding && (
-              <View className='bg-purple-600/20 px-2 py-0.5 rounded-md mt-1 self-start'>
+              <View
+                style={{ backgroundColor: rgba(color.accent[500], 0.2) }}
+                className='px-2 py-0.5 rounded-md mt-1 self-start'
+              >
                 <Text tone='accent' className='text-xs'>
                   {t("home.downloads.transcoding")}
                 </Text>
@@ -214,7 +219,10 @@ export const DownloadCard = ({ process, ...props }: DownloadCardProps) => {
                 </Text>
               )}
               {eta && (
-                <Text className='text-xs text-green-400'>
+                <Text
+                  style={{ color: color.state.success }}
+                  className='text-xs'
+                >
                   {t("home.downloads.eta", { eta: eta })}
                 </Text>
               )}

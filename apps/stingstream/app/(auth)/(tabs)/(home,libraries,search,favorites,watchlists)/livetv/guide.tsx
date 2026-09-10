@@ -183,9 +183,8 @@ const PageButtons: React.FC<PageButtonsProps> = ({
           color={currentPage === 1 ? "gray" : "white"}
         />
         <Text
-          className={`ml-1 ${
-            currentPage === 1 ? "text-gray-500" : "text-white"
-          }`}
+          tone={currentPage === 1 ? "tertiary" : "primary"}
+          className='ml-1'
         >
           {t("live_tv.previous")}
         </Text>
@@ -196,9 +195,7 @@ const PageButtons: React.FC<PageButtonsProps> = ({
         disabled={isNextDisabled}
         className='flex flex-row items-center'
       >
-        <Text
-          className={`mr-1 ${isNextDisabled ? "text-gray-500" : "text-white"}`}
-        >
+        <Text tone={isNextDisabled ? "tertiary" : "primary"} className='mr-1'>
           {t("live_tv.next")}
         </Text>
         <Ionicons

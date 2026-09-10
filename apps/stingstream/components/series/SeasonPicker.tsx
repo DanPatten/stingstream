@@ -10,7 +10,7 @@ import {
   SeasonDropdown,
   type SeasonIndexState,
 } from "@/components/series/SeasonDropdown";
-import { Colors } from "@/constants/Colors";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
@@ -35,6 +35,7 @@ type Props = {
 export const seasonIndexAtom = atom<SeasonIndexState>({});
 
 export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
+  const { color } = useTheme();
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
   const [seasonIndexState, setSeasonIndexState] = useAtom(seasonIndexAtom);
@@ -228,7 +229,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
               DownloadedIconComponent={() => (
                 <HeaderIcon
                   name='downloaded'
-                  tintColor={Colors.primary}
+                  tintColor={color.accent[500]}
                   size={18}
                 />
               )}
