@@ -281,6 +281,28 @@ import { apiAtom } from "@/providers/JellyfinProvider";
   sheet, so a `BottomSheetScrollView` that reaches the web card is a blank page rather than a
   layout nit. Use `SheetView`, `SheetScrollView`, `SheetFlatList` and `SheetTextInput`.
   `components/common/oneModalSurface.test.ts` fails on a stray import.
+- **Three themes, and every colour comes from the active one.** `dark`, `light` and `sting` are all
+  shipping, and a screen is not finished until it has been looked at in all three. Read colours
+  from `useTheme()` — `color.bg`, `color.text`, `color.border`, `accent` — never from a hex
+  literal, never from the static `tokens.color`, which is the default palette frozen at import and
+  ignores whatever the reader chose. The traps, all of them real:
+  - **Selected means the accent.** `accent[500]` filled, with `accent.onAccent` for the text on top
+    of it, is what `FilterChip` and the primary `Button` already do. Anything else has to be read
+    twice: near-white said *unselected* in dark, because white is that palette's neutral, and a
+    low-alpha accent tint was a dark smudge on a dark sheet and near-white on a light one.
+  - **`onAccent` is not white.** It is `#04202A` on dark, `#FFFFFF` on light, `#16082E` on sting.
+    Hard-coding white puts invisible text on the cyan and lilac accents.
+  - **`border.subtle` is 8–12% and disappears** on a surface one step up from the page. A control
+    that needs a visible edge in all three themes wants `border.strong`.
+  - **The scrim, the elevation and the accent ring differ per theme too.** If it is a colour, it is
+    in the palette; if it is not in the palette, it is probably a bug.
+- **A focus ring needs room, and a modal will clip it.** `webFocusRing` draws an `outline` 2px
+  *outside* the control, and `SheetModal`'s web card is `overflow: hidden` over an
+  `overflow: hidden auto` body — so any control flush with that edge has its ring sheared off flat.
+  Give the block ~4px of real padding. Real: `marginHorizontal: -4` against `paddingHorizontal: 4`
+  cancels exactly and looks like a fix while changing nothing, which cost several rounds on the
+  season picker. **Measure it** — `getBoundingClientRect()` on the control against the nearest
+  ancestor whose `overflow` is not `visible` — rather than judging it from a screenshot.
 - Conventional Commits for commits and PR titles: `feat(scope):`, `fix(scope):`,
   `chore(scope):`. CI validates the PR title.
 
