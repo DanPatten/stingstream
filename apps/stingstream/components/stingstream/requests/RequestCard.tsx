@@ -24,7 +24,7 @@ const TONE: Record<ReturnType<typeof stateTone>, PillTone> = {
   stopped: "danger",
 };
 
-const POSTER_WIDTH = 56;
+const POSTER_WIDTH = 92;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
 const POSTER_RADIUS = radius.sm;
 
@@ -55,7 +55,7 @@ export function RequestCard({
   const { color } = useTheme();
   const { t } = useTranslation();
   // No `badgeLabel` on the row's small poster: `toRequestCard` sets it to the state's full label
-  // ("Could not be filled", "Waiting for approval"), sized for a Discover grid tile — on a 56 px
+  // ("Could not be filled", "Waiting for approval"), sized for a Discover grid tile — on a 92 px
   // row thumbnail it has nowhere to fit and spills past the artwork's edge. The `Pill` beside the
   // title already says the same thing at a size that reads.
   const card = { ...toRequestCard(request), badgeLabel: null };
