@@ -184,7 +184,7 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <para>
     /// The test runs against <em>every</em> configured app rather than one, even though both get
     /// the same indexer: the two send different category lists, and a Torznab endpoint that has
-    /// films but no television is a real thing that would otherwise pass here and fail on the first
+    /// films but no TV is a real thing that would otherwise pass here and fail on the first
     /// series search.
     /// </para>
     /// </remarks>

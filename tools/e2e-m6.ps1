@@ -21,7 +21,7 @@
     What it asserts, in order:
 
       1. A advertises `canFulfilMovies: false, canFulfilTv: false`. B, whose only indexer is a
-         television one, advertises `canFulfilTv: true` and `canFulfilMovies: false` -- so the two
+         TV one, advertises `canFulfilTv: true` and `canFulfilMovies: false` -- so the two
          flags are shown to be independent, which is the whole reason there are two of them.
       2. Under `auto_approve: admins_only`, a non-administrator's request lands `pending` and every
          administrator on the node is notified.
@@ -507,7 +507,7 @@ Invoke-Step 'Start node B (the fulfiller) and give it the film it already has' {
 }
 
 # ============================================================================================
-Invoke-Step 'B: add the Torznab indexer, for television only' {
+Invoke-Step 'B: add the Torznab indexer, for TV only' {
     # `forSeries` but not `forMovies`, and that is not a shortcut. The stub serves one TV release
     # and nothing in a movie category, and Radarr refuses an indexer whose test search returns
     # nothing in the categories it was configured with -- correctly, since such an indexer is
@@ -590,7 +590,7 @@ Invoke-Step 'Each node advertises what it can fulfil, and they disagree' {
         throw "node A has no arrs and no indexers, but says it can fulfil (movies=$($passA.canFulfilMovies) tv=$($passA.canFulfilTv))."
     }
     if (-not $passB.canFulfilTv) { throw 'node B has Sonarr and a TV indexer but says it cannot fulfil a series.' }
-    # And *not* films, because its only indexer is television-only. The two flags are separate for
+    # And *not* films, because its only indexer is TV-only. The two flags are separate for
     # exactly this reason: a node with a TV tracker is a volunteer for a series and no use at all
     # for a film, and one "can fulfil" bit could not say so.
     if ($passB.canFulfilMovies) {

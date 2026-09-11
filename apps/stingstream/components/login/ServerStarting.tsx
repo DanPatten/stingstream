@@ -71,20 +71,18 @@ export const ServerStarting: React.FC<ServerStartingProps> = ({
               : t("login.starting_title")}
       </Text>
 
-      <Text
-        variant='body'
-        tone='secondary'
-        align='center'
-        style={{ marginTop: 8 }}
-      >
-        {exhausted
-          ? t("login.starting_stalled_description")
-          : t(
-              routing
-                ? "login.routing_description"
-                : "login.starting_description",
-            )}
-      </Text>
+      {exhausted || routing ? (
+        <Text
+          variant='body'
+          tone='secondary'
+          align='center'
+          style={{ marginTop: 8 }}
+        >
+          {exhausted
+            ? t("login.starting_stalled_description")
+            : t("login.routing_description")}
+        </Text>
+      ) : null}
 
       {exhausted && addresses.length > 0 ? (
         <View style={{ marginTop: 20, gap: 8, alignSelf: "stretch" }}>

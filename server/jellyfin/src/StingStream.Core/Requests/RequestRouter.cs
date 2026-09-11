@@ -82,7 +82,7 @@ public static class RequestRouter
     /// </summary>
     /// <remarks>
     /// Twenty gigabytes: comfortably more than one film at any sane bitrate and more than a season
-    /// of television at 1080p, and small enough that an ordinary home server still qualifies. The
+    /// of TV at 1080p, and small enough that an ordinary home server still qualifies. The
     /// point is not to predict the release size — nobody knows it at request time — but to keep a
     /// nearly-full node from claiming a request it will fail an hour later, by which time the
     /// requester has been told it is being fulfilled.
