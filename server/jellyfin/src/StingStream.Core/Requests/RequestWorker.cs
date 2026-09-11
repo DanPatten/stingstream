@@ -1291,6 +1291,15 @@ public sealed class RequestWorker : BackgroundService
             return;
         }
 
+        // A destructive request is not failed by the clock either. Nothing here can see whether the
+        // manager swapped the file, so "could not find it in six hours" would be asserting something
+        // this node does not know -- and saying it about a title that is sitting right there reads
+        // as a fault rather than as an answer. It waits for a person, like the watch step above.
+        if (RequestReasons.IsDestructive(row.Reason))
+        {
+            return;
+        }
+
         await _requestMesh
             .ClaimAsync(group, row.Id, ClaimStates.Failed, "gave up after six hours", cancellationToken)
             .ConfigureAwait(false);
@@ -1320,6 +1329,19 @@ public sealed class RequestWorker : BackgroundService
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            // A request to replace or add to a copy the group already has can never be answered by
+            // this check, and must not be closed by it. The item key of a better encode is the item
+            // key of the bad one -- the index cannot tell the two apart, so a holder is found the
+            // instant the request is made and the row would close against the very file somebody is
+            // complaining about. Seen doing exactly that: a bad_copy request went straight to
+            // "In the library, held by ..." with nothing done. These are closed by a person instead;
+            // see RequestReasons and docs/REQUESTS.md §2b.
+            if (RequestReasons.IsDestructive(row.Reason))
+            {
+                continue;
+            }
+
             var holders = await HoldersAsync(row, cancellationToken).ConfigureAwait(false);
             if (holders.Count == 0)
             {

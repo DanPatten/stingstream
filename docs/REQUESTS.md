@@ -149,6 +149,22 @@ has decided about files it owns. One asymmetry is accepted rather than solved: a
 the request's origin node, which is not necessarily the node whose disk is affected. That was
 already true for ordinary requests.
 
+**A destructive request is closed by a person, never by the index**, and this is a limitation worth
+stating plainly rather than working around. Everything else here resolves by watching the group
+index for the item key the request carries — but a better encode of a film has *the same item key*
+as the bad one, so that check finds a holder the instant the request is made. Left alone it closed
+the row against the very file somebody was complaining about: a `bad_copy` request went straight to
+"In the library, held by …" with nothing done, which is how this was found. `WatchAsync` therefore
+skips destructive rows, and `CheckDeadlineAsync` does too — failing one after six hours would assert
+that nothing better was found, which this node cannot know, about a title that is sitting right
+there. They wait until somebody dismisses them.
+
+Resolving them automatically would need a signal the node does not currently have. The arr's import
+webhook is the obvious candidate and is not usable as it stands: `ArrEvent` records the app, the
+event type and a timestamp, with nothing identifying *which* title was imported, so an import could
+not be matched to the request that asked for it. Adding that is the way in if this is ever worth
+doing.
+
 `RequestPolicy.MinimumHeight` interacts here and the result is right. A copy below the floor is
 already filtered out of the holder list, so a genuinely low-resolution copy never reaches this
 question and is simply grabbed afresh. The two acting reasons therefore only ever describe a quality
