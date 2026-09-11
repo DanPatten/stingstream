@@ -800,12 +800,15 @@ public sealed class RequestWorker : BackgroundService
         var holders = await HoldersAsync(row, cancellationToken).ConfigureAwait(false);
         if (holders.Count > 0 && !RequestReasons.IsDestructive(row.Reason))
         {
+            _logger.LogInformation(
+                "Request {Id} for {ItemKey} is already held by {Holders}",
+                row.Id,
+                row.ItemKey,
+                Names(holders));
             await MarkAvailableAsync(
                     group,
                     row,
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"Already in the group, held by {Names(holders)}. Nothing was downloaded."),
+                    HeldNote(downloaded: false),
                     cancellationToken)
                 .ConfigureAwait(false);
             report.Deduped++;
@@ -1358,7 +1361,7 @@ public sealed class RequestWorker : BackgroundService
             await MarkAvailableAsync(
                     group,
                     row,
-                    string.Create(CultureInfo.InvariantCulture, $"In the library, held by {Names(holders)}."),
+                    HeldNote(downloaded: true),
                     cancellationToken)
                 .ConfigureAwait(false);
             report.Landed++;
@@ -1515,9 +1518,13 @@ public sealed class RequestWorker : BackgroundService
         return holders;
     }
 
-    /// <summary>The holders' display names, for a sentence on a request.</summary>
+    /// <summary>The holders' display names, for a log line.</summary>
     /// <param name="holders">The holders.</param>
     /// <returns>A comma separated list.</returns>
+    /// <remarks>
+    /// Diagnostics only. Node names do not belong in a sentence a person reads -- see
+    /// <see cref="HeldNote"/>.
+    /// </remarks>
     private static string Names(IReadOnlyList<HolderInfo> holders)
     {
         var names = new string[holders.Count];
@@ -1528,6 +1535,22 @@ public sealed class RequestWorker : BackgroundService
 
         return string.Join(", ", names);
     }
+
+    /// <summary>The sentence a request carries once the group turns out to have the title.</summary>
+    /// <param name="downloaded">Whether anything was actually fetched to get here.</param>
+    /// <returns>A sentence for the request row.</returns>
+    /// <remarks>
+    /// Deliberately names nobody. This used to read "In the library, held by StingStream." on the
+    /// ordinary one-server setup: the node's own name, which tells the reader nothing they can act
+    /// on. In a group it is worse than useless, because it asks somebody to care which machine the
+    /// file sits on, and that is an implementation detail of ours rather than anything about their
+    /// library. The holders are still logged, where the answer is a diagnostic rather than a
+    /// sentence.
+    /// </remarks>
+    private static string HeldNote(bool downloaded)
+        => downloaded
+            ? "In your library."
+            : "Already in your library. Nothing was downloaded.";
 
     /// <summary>
     /// The season number out of an episode key, or null when it is not one.

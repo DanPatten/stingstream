@@ -150,15 +150,12 @@ export function RequestResultRow({
         </View>
 
         {/*
-          The group-dedupe answer, and the one thing a Seerr cannot say: somebody in the group has
-          this already, so asking for it will start no download. Above the overview because it
-          changes what the button below means.
+          There used to be a line here naming which server held the title, which on the ordinary
+          one-server setup read "Held by StingStream." -- the node's own name, telling the reader
+          nothing they could act on, directly under a pill already saying "In library". Which
+          machine has the file is an implementation detail of ours, and the button beneath now says
+          "Request anyway", which is the part that actually changed.
         */}
-        {result.holders.length > 0 ? (
-          <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
-            {t("requests.held_by", { holders: result.holders.join(", ") })}
-          </Text>
-        ) : null}
 
         {result.overview ? (
           <Text

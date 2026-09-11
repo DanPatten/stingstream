@@ -417,9 +417,9 @@ describe("the Discover poster's badge", () => {
   });
 
   test("held by the group reads as in the library, named holder or not", () => {
-    // Kept to "In library" for both — the two-word badge is the longest string that fits the
-    // artwork it sits on without overflowing (see the function's own comment); "Held by ..." is
-    // the sheet's job, with room for the full sentence.
+    // Kept to "In library" for both. The two-word badge is the longest string that fits the
+    // artwork it sits on without overflowing (see the function's own comment), and it is now the
+    // only thing said about it: naming which node holds a title told the reader nothing they
     expect(
       searchBadgeLabel(result({ availableInGroup: true, holders: ["loft"] })),
     ).toBe("In library");

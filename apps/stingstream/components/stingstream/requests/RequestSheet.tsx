@@ -56,7 +56,7 @@ const RATING_STAR = "#E0B34A";
 const isWeb = Platform.OS === "web";
 
 /**
- * Which seasons, and a "held by …" notice when a member already has it.
+ * Which seasons, and what to do when the library already has it.
  *
  * **Opened from a row only when there is something to choose, and from a poster always.** It used
  * to open for anything, and that was wrong for a *row*: the sheet was the row it was opened from,
@@ -106,6 +106,7 @@ export function RequestSheet({
   const [seasons, setSeasons] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState<RequestReason | null>(null);
+  const [reasonNote, setReasonNote] = useState("");
   const create = useCreateRequest();
   const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
@@ -143,6 +144,7 @@ export function RequestSheet({
     setSeasons(current.length > 0 ? current : allSeasons(total));
     setError(null);
     setReason(null);
+    setReasonNote("");
   }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
 
   // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
@@ -256,6 +258,7 @@ export function RequestSheet({
         overview: shown.overview,
         seasonCount: shown.seasonCount,
         reason: reason ?? undefined,
+        reasonNote: reasonNote.trim() || undefined,
       });
       requestMadeToast(made, t);
       onClose();
@@ -427,12 +430,14 @@ export function RequestSheet({
                 size={16}
                 style={{ marginTop: 1 }}
               />
+              {/*
+                One sentence, and no node names in it. This used to read "Held by StingStream." on
+                the ordinary one-server setup, which names the machine rather than answering the
+                question, and in a group it asked the reader to care which box the file is on. It
+                is their library either way, and the button below it is what plays it.
+              */}
               <Text variant='caption' tone='secondary' style={{ flex: 1 }}>
-                {shown.holders.length > 0
-                  ? t("requests.held_by", {
-                      holders: shown.holders.join(", "),
-                    })
-                  : t("requests.duplicate_intro")}
+                {t("requests.duplicate_intro")}
               </Text>
             </View>
             {/*
@@ -454,7 +459,13 @@ export function RequestSheet({
         ) : null}
 
         {needsReason ? (
-          <ReasonPicker kind={shown.kind} value={reason} onChange={setReason} />
+          <ReasonPicker
+            kind={shown.kind}
+            value={reason}
+            onChange={setReason}
+            note={reasonNote}
+            onNoteChange={setReasonNote}
+          />
         ) : null}
 
         {isSeries ? (

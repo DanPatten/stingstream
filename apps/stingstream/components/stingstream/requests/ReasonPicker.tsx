@@ -1,10 +1,21 @@
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { Icon } from "@/components/common/Icon";
+import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { type RequestReason, reasonsFor } from "@/lib/stingstream/requestsApi";
+
+/**
+ * How long a note may be.
+ *
+ * One line, because the field is one line: `Input` draws a fixed-height box, so anything longer
+ * scrolls out of sight while it is being typed. Long enough for what somebody actually writes here
+ * ("audio is out of sync from season 2") and short enough that a request card can show it whole
+ * rather than truncating the half that mattered.
+ */
+const REASON_NOTE_MAX = 120;
 
 /**
  * Why somebody wants a title the library already has.
@@ -21,10 +32,14 @@ export function ReasonPicker({
   kind,
   value,
   onChange,
+  note,
+  onNoteChange,
 }: {
   kind: "movie" | "series";
   value: RequestReason | null;
   onChange: (reason: RequestReason) => void;
+  note: string;
+  onNoteChange: (note: string) => void;
 }) {
   const { t } = useTranslation();
 
@@ -44,6 +59,26 @@ export function ReasonPicker({
           </ListItem>
         ))}
       </ListGroup>
+
+      {/*
+        Only once a reason is chosen, and never required. The three reasons carry the part an
+        administrator can act on; this is for the half a list cannot hold -- which episode, which
+        track, what is actually wrong with the encode. Asking for it before a reason is picked would
+        be asking somebody to explain something they have not said yet, and requiring it would put a
+        writing task in front of a button that already works.
+      */}
+      {value ? (
+        <View style={{ marginTop: 12 }}>
+          <Input
+            placeholder={t("requests.reason_note_placeholder")}
+            value={note}
+            onChangeText={onNoteChange}
+            maxLength={REASON_NOTE_MAX}
+            autoCapitalize='sentences'
+            returnKeyType='done'
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
