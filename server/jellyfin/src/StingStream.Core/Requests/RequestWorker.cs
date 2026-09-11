@@ -139,7 +139,7 @@ public sealed class RequestWorker : BackgroundService
     private readonly RequestWithdrawal _withdrawal;
 
     private string _nodeId = string.Empty;
-    private string _nodeName = string.Empty;
+    private string _serverName = string.Empty;
 
     public RequestWorker(
         RequestStore store,
@@ -359,7 +359,7 @@ public sealed class RequestWorker : BackgroundService
         var capability = new FulfilCapability
         {
             Node = _nodeId,
-            ServerName = string.IsNullOrWhiteSpace(_nodeName) ? runtime?.ServerName ?? string.Empty : _nodeName,
+            ServerName = string.IsNullOrWhiteSpace(_serverName) ? runtime?.ServerName ?? string.Empty : _serverName,
             Online = true,
             FreeSpace = FreeSpace(runtime?.Paths.MediaMovies ?? runtime?.Paths.MediaTv),
         };
@@ -724,7 +724,7 @@ public sealed class RequestWorker : BackgroundService
         }
 
         row.FulfillingNode = node;
-        row.FulfillingNodeName = name;
+        row.FulfillingServerName = name;
         row.Note = note;
         if (winner is not null && row.State == RequestStates.Approved)
         {
@@ -874,8 +874,8 @@ public sealed class RequestWorker : BackgroundService
 
         row.State = RequestStates.Fulfilling;
         row.FulfillingNode = _nodeId;
-        row.FulfillingNodeName = _nodeName;
-        row.Note = string.Create(CultureInfo.InvariantCulture, $"{_nodeName} is grabbing it.");
+        row.FulfillingServerName = _serverName;
+        row.Note = string.Create(CultureInfo.InvariantCulture, $"{_serverName} is grabbing it.");
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         await _store.AddEventAsync(row.Id, row.State, _nodeId, row.Note, cancellationToken).ConfigureAwait(false);
         if (group.Length > 0)
@@ -1311,7 +1311,7 @@ public sealed class RequestWorker : BackgroundService
                 row,
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{_nodeName} could not find it in six hours and stopped trying."),
+                    $"{_serverName} could not find it in six hours and stopped trying."),
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -1388,8 +1388,8 @@ public sealed class RequestWorker : BackgroundService
         var grabbed = _webhooks.RecentEvents(20)
             .Any(e => string.Equals(e.EventType, "Grab", StringComparison.OrdinalIgnoreCase));
         var note = grabbed
-            ? string.Create(CultureInfo.InvariantCulture, $"{_nodeName} grabbed a release; downloading.")
-            : string.Create(CultureInfo.InvariantCulture, $"{_nodeName} is searching for a release.");
+            ? string.Create(CultureInfo.InvariantCulture, $"{_serverName} grabbed a release; downloading.")
+            : string.Create(CultureInfo.InvariantCulture, $"{_serverName} is searching for a release.");
         if (string.Equals(row.Note, note, StringComparison.Ordinal))
         {
             return;
@@ -1495,7 +1495,7 @@ public sealed class RequestWorker : BackgroundService
         // wanted request could never resolve on a node in no group, or in one whose index has not
         // been published -- and resolving is the whole of manual fulfilment.
         var candidates = new List<SourceCandidate>(group);
-        candidates.AddRange(_sources.LocalHoldings(row.ItemKey, !isMovie, _nodeId, _nodeName));
+        candidates.AddRange(_sources.LocalHoldings(row.ItemKey, !isMovie, _nodeId, _serverName));
 
         // For a season-limited series request, only an episode of a season that was asked for
         // counts. Otherwise a show whose season 1 the group already had would mark a request for
@@ -1605,7 +1605,7 @@ public sealed class RequestWorker : BackgroundService
         }
 
         _nodeId = status.Node;
-        _nodeName = string.IsNullOrWhiteSpace(status.ServerName) ? status.Node : status.ServerName;
+        _serverName = string.IsNullOrWhiteSpace(status.ServerName) ? status.Node : status.ServerName;
     }
 }
 

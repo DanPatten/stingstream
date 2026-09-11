@@ -222,14 +222,14 @@ function Write-M6NodeConfig {
     #>
     param(
         [Parameter(Mandatory)]$Node,
-        [Parameter(Mandatory)][string]$NodeName,
+        [Parameter(Mandatory)][string]$ServerName,
         [bool]$WithArrs
     )
 
     $arrs = if ($WithArrs) { 'true' } else { 'false' }
     $config = @"
 # Written by tools/e2e-m6.ps1. Children take ephemeral ports so two nodes never collide.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gateway]
 bind = "127.0.0.1"
@@ -263,7 +263,7 @@ console = true
 
     $mesh = @"
 # Written by tools/e2e-m6.ps1.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gossip]
 heartbeat_secs = 5
@@ -492,7 +492,7 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
 
 # ============================================================================================
 Invoke-Step 'Start node B (the fulfiller) and give it the film it already has' {
-    Write-M6NodeConfig -Node $NodeB -NodeName 'stingstream-b' -WithArrs $true
+    Write-M6NodeConfig -Node $NodeB -ServerName 'stingstream-b' -WithArrs $true
 
     # On disk before the node starts, so its first library scan finds it and the group index has it
     # from the moment A joins. Placing it rather than grabbing it is both faster and more
@@ -528,7 +528,7 @@ Invoke-Step 'B: add the Torznab indexer, for TV only' {
 
 # ============================================================================================
 Invoke-Step 'Start node A (the asker) with no arrs at all' {
-    Write-M6NodeConfig -Node $NodeA -NodeName 'stingstream-a' -WithArrs $false
+    Write-M6NodeConfig -Node $NodeA -ServerName 'stingstream-a' -WithArrs $false
     Start-HarnessNode -Node $NodeA -ClientId 'e2e-m6'
 
     $items = Invoke-Jellyfin $NodeA "/Items?IncludeItemTypes=Movie,Episode&Recursive=true&userId=$($NodeA.UserId)"
@@ -737,10 +737,10 @@ Invoke-Step 'B adopts the request, claims it, and is the only claimant' {
         -TimeoutSec 30
     $live = @($claims.claims | Where-Object { $_.state -notin 'released', 'failed' })
     if ($live.Count -ne 1) {
-        throw "the request has $($live.Count) live claim(s): $((@($live | ForEach-Object { "$($_.node_name)=$($_.state)" })) -join ', ')."
+        throw "the request has $($live.Count) live claim(s): $((@($live | ForEach-Object { "$($_.server_name)=$($_.state)" })) -join ', ')."
     }
     if ($claims.winner -ne $NodeB.MeshId) { throw "the winning claim is $($claims.winner), not B." }
-    Write-Host "      one live claim, winner $($live[0].node_name), claimed_at $($live[0].claimed_at)"
+    Write-Host "      one live claim, winner $($live[0].server_name), claimed_at $($live[0].claimed_at)"
     Add-HarnessNote 'Exactly one node claimed the request; the node that could not fulfil it never did.'
 }
 

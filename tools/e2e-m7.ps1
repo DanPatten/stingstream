@@ -205,11 +205,11 @@ function Write-M7NodeConfig {
         harnesses -- the shipped defaults declare a peer offline sixty seconds after its last
         heartbeat, and an acceptance run should not spend a minute per liveness assertion.
     #>
-    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$NodeName)
+    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$ServerName)
 
     Set-Content -Path (Join-Path $Node.DataDir 'config.toml') -Encoding utf8 -Value @"
 # Written by tools/e2e-m7.ps1. Children take ephemeral ports so three nodes never collide.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gateway]
 bind = "127.0.0.1"
@@ -238,7 +238,7 @@ console = true
 
     Set-Content -Path (Join-Path $Node.DataDir 'mesh.toml') -Encoding utf8 -Value @"
 # Written by tools/e2e-m7.ps1.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gossip]
 heartbeat_secs = 5
@@ -591,7 +591,7 @@ Invoke-Step 'Generate the media' {
 
 # ============================================================================================
 Invoke-Step 'Start node B (the holder) with a film, its subtitle and a DVR recording' {
-    Write-M7NodeConfig -Node $NodeB -NodeName 'loft'
+    Write-M7NodeConfig -Node $NodeB -ServerName 'loft'
     $script:FilmOnB = Install-Film -Node $NodeB -Title $Film -SourceFile $script:FilmSource
     $script:SubtitleOnB = Install-Subtitle -FilmPath $script:FilmOnB
     $script:RecordingOnB = Install-Recording -Node $NodeB -SourceFile $script:RecordingSource
@@ -600,7 +600,7 @@ Invoke-Step 'Start node B (the holder) with a film, its subtitle and a DVR recor
 
 # ============================================================================================
 Invoke-Step 'Start node C, holding byte-identical copies' {
-    Write-M7NodeConfig -Node $NodeC -NodeName 'shed'
+    Write-M7NodeConfig -Node $NodeC -ServerName 'shed'
     # The same bytes, so a stream that has to leave B has somewhere to go: same-hash failover is
     # the only kind that can continue a body mid-transfer.
     Install-Film -Node $NodeC -Title $Film -SourceFile $script:FilmSource | Out-Null
@@ -677,7 +677,7 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
 
 # ============================================================================================
 Invoke-Step 'Start node A (the watcher), empty' {
-    Write-M7NodeConfig -Node $NodeA -NodeName 'attic'
+    Write-M7NodeConfig -Node $NodeA -ServerName 'attic'
     Start-HarnessNode -Node $NodeA -ClientId 'e2e-m7'
 }
 
@@ -1227,7 +1227,7 @@ Invoke-Step 'The leader knows how far off its follower is, and ending it takes t
     $participants = @(Get-Member-Value $session 'Participants')
     Write-Host "      $($participants.Count) node(s) in the session"
 
-    $follower = $participants | Where-Object { (Get-Member-Value $_ 'NodeName') -eq 'loft' } | Select-Object -First 1
+    $follower = $participants | Where-Object { (Get-Member-Value $_ 'ServerName') -eq 'loft' } | Select-Object -First 1
     if ($follower) {
         $drift = Get-Member-Value $follower 'DriftMs'
         $rtt = Get-Member-Value $follower 'RttMs'

@@ -800,7 +800,7 @@ mod tests {
     /// A server name is attacker-supplied on any node somebody else configured, and it lands inside
     /// a `<script>`. `</script>` must not be able to close the element.
     #[test]
-    fn a_node_name_cannot_break_out_of_the_script_element() {
+    fn a_server_name_cannot_break_out_of_the_script_element() {
         let html = marker("</script><script>alert(1)</script>", true, None).html();
         assert_eq!(
             html.matches("</script>").count(),

@@ -986,5 +986,5 @@ function Start-HarnessNode {
     # obvious way to write an assertion that quietly never fires.
     $status = Invoke-Node $Node '/stingstream/api/v1/mesh/status'
     $Node.MeshId = $status.node
-    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.nodeName)'"
+    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.serverName)'"
 }

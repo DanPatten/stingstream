@@ -171,7 +171,7 @@ Invoke-Step 'Wipe -> start (fresh data dir, mirrors a first run)' {
     $withArrsBool = if ($WithArrs) { 'true' } else { 'false' }
     $config = @"
 # Written by tools/ui-startup.ps1 for one golden-startup acceptance run.
-node_name = "ui-startup"
+server_name = "ui-startup"
 
 [gateway]
 bind = "0.0.0.0"

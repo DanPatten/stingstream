@@ -147,7 +147,7 @@ export interface MemberRequest {
   decidedAt?: string | null;
   /** The node that claimed it, once one has. */
   fulfillingNode?: string | null;
-  fulfillingNodeName?: string | null;
+  fulfillingServerName?: string | null;
   /** A sentence a person can read: why it is where it is. */
   note: string;
   /** Why it was asked for when the library already had it. Absent on an ordinary request. */
@@ -339,7 +339,7 @@ export const toRequest = (raw: unknown): MemberRequest => ({
   decidedByName: field<string>(raw, ...both("decidedByName")),
   decidedAt: field<string>(raw, ...both("decidedAt")),
   fulfillingNode: field<string>(raw, ...both("fulfillingNode")),
-  fulfillingNodeName: field<string>(raw, ...both("fulfillingNodeName")),
+  fulfillingServerName: field<string>(raw, ...both("fulfillingServerName")),
   note: field<string>(raw, ...both("note")) ?? "",
   reason: field<string>(raw, ...both("reason")) as RequestReason | undefined,
   reasonNote: field<string>(raw, ...both("reasonNote")),

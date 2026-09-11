@@ -405,7 +405,7 @@ public sealed class RequestService
             row.DecidedByName = null;
             row.DecidedAt = null;
             row.FulfillingNode = null;
-            row.FulfillingNodeName = null;
+            row.FulfillingServerName = null;
             await _store.SetPublishedAsync(row.Id, false, cancellationToken).ConfigureAwait(false);
         }
 
@@ -603,7 +603,7 @@ public sealed class RequestService
 
         row.State = RequestStates.Approved;
         row.FulfillingNode = null;
-        row.FulfillingNodeName = null;
+        row.FulfillingServerName = null;
         row.Note = "Retried by " + _notifier.NameOf(adminId) + ".";
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         await _store.SetPublishedAsync(row.Id, false, cancellationToken).ConfigureAwait(false);

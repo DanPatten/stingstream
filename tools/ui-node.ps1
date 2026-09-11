@@ -164,7 +164,7 @@ if (Test-Path $configPath) {
     $config = @"
 # Written by tools/ui-node.ps1 for the UI iterate loop. Not rewritten once it exists -- see
 # docs/UI-LOOP.md. Delete this file (or run with -Fresh) to regenerate it.
-node_name = "ui-loop"
+server_name = "ui-loop"
 
 [gateway]
 bind = "$Bind"

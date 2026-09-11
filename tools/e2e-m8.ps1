@@ -162,7 +162,7 @@ function Start-MeshNode {
         # Heartbeats every second rather than every thirty, so a step that waits for a peer to go
         # quiet waits seconds rather than minutes. Everything else is off.
         @"
-node_name = "node-$Name"
+server_name = "node-$Name"
 
 [api]
 bind = "127.0.0.1"
@@ -184,7 +184,7 @@ peer_timeout_secs = 10
         '--data-dir', $dir,
         '--api-port', $Ports[$Name],
         'serve',
-        '--node-name', "node-$Name"
+        '--server-name', "node-$Name"
     )
     Wait-Until -What "mesh-$Name to answer" -Seconds 90 -PollSeconds 1 -Condition {
         try { (Invoke-WebRequest -Uri (Mesh-Url -Node $Name -Path '/healthz') -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 }

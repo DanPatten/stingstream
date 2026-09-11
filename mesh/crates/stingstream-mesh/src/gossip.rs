@@ -913,7 +913,7 @@ async fn handle(
                 );
                 return;
             }
-            session.leader_name.clone_from(&node_name_of(db, group, &author_s));
+            session.leader_name.clone_from(&server_name_of(db, group, &author_s));
             let id = session.id.clone();
             let item_key = session.item_key.clone();
             if watch.merge(session) {
@@ -997,7 +997,7 @@ async fn handle(
 /// The announcement itself does not carry it: the leader's own `server_name` in the record is what it
 /// calls *itself*, and every member already has the peers table, which is the one place a name is
 /// kept up to date.
-fn node_name_of(db: &Db, group: &GroupId, node: &str) -> String {
+fn server_name_of(db: &Db, group: &GroupId, node: &str) -> String {
     db.peer(group, node)
         .ok()
         .flatten()

@@ -636,7 +636,7 @@ Invoke-Step 'Start the node' {
     $config = @"
 # Written by tools/e2e-m1.ps1. Children take ephemeral ports so this node never collides with a
 # development node on the same machine.
-node_name = "e2e"
+server_name = "e2e"
 
 [gateway]
 # 0.0.0.0, not loopback: one of the properties this harness checks is that somebody on the
@@ -734,7 +734,7 @@ $Runtime = Invoke-Step 'First-run wiring complete' {
     } | Out-Null
 
     $r = Get-Content $runtimePath -Raw | ConvertFrom-Json
-    Write-Host "      node $($r.node_name), bootstrap account $($r.jellyfin_admin.username)"
+    Write-Host "      node $($r.server_name), bootstrap account $($r.jellyfin_admin.username)"
     return $r
 }
 
@@ -990,7 +990,7 @@ Invoke-Step 'The served page carries a node marker a browser would actually run'
 
     $json = [regex]::Match($visible, 'window\.__STINGSTREAM_NODE__=(\{.*?\})</script>').Groups[1].Value
     $marker = $json | ConvertFrom-Json
-    Write-Host "      marker: node=$(Get-Member-Value $marker 'node') name=$(Get-Member-Value $marker 'nodeName')"
+    Write-Host "      marker: node=$(Get-Member-Value $marker 'node') name=$(Get-Member-Value $marker 'serverName')"
     if ((Get-Member-Value $marker 'node') -ne $true) { throw "The marker does not claim to be a node: $json" }
 
     # It has to run before the bundle, not merely somewhere in the document.

@@ -125,11 +125,11 @@ function Write-InviteNodeConfig {
         harnesses turn them down — the shipped defaults declare a peer offline sixty seconds after
         its last heartbeat, and an acceptance run should not spend a minute per liveness assertion.
     #>
-    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$NodeName)
+    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$ServerName)
 
     Set-Content -Path (Join-Path $Node.DataDir 'config.toml') -Encoding utf8 -Value @"
 # Written by tools/e2e-invite.ps1. Children take ephemeral ports so two nodes never collide.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gateway]
 bind = "127.0.0.1"
@@ -158,7 +158,7 @@ console = true
 
     Set-Content -Path (Join-Path $Node.DataDir 'mesh.toml') -Encoding utf8 -Value @"
 # Written by tools/e2e-invite.ps1.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gossip]
 heartbeat_secs = 5
@@ -288,14 +288,14 @@ $Media = Invoke-Step 'Generate three short films' {
 
 # ============================================================================================
 Invoke-Step 'Start node B, holding the film the guest will end up watching' {
-    Write-InviteNodeConfig -Node $NodeB -NodeName 'stingstream-b'
+    Write-InviteNodeConfig -Node $NodeB -ServerName 'stingstream-b'
     Install-Movie -Node $NodeB -Title $Remote -SourceFile $Media['remote']
     Start-HarnessNode -Node $NodeB -ClientId 'e2e-invite'
 }
 
 # ============================================================================================
 Invoke-Step 'Start node A with two libraries: one to share, one to withhold' {
-    Write-InviteNodeConfig -Node $NodeA -NodeName 'stingstream-a'
+    Write-InviteNodeConfig -Node $NodeA -ServerName 'stingstream-a'
     Install-Movie -Node $NodeA -Title $Shared -SourceFile $Media['shared'] -Root 'Movies'
     # A second root folder, which first-run wiring does not create, so the library is added below.
     Install-Movie -Node $NodeA -Title $Private -SourceFile $Media['private'] -Root 'Private'

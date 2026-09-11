@@ -59,7 +59,7 @@ const camel = {
   requestedBy: "aaaabbbbccccddddeeeeffff00001111",
   requestedByName: "dan",
   requestedAt: "2026-09-05T10:00:00Z",
-  fulfillingNodeName: "loft",
+  fulfillingServerName: "loft",
   note: "loft is grabbing it.",
   mine: true,
   updatedAt: "2026-09-05T10:00:10Z",

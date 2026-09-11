@@ -275,7 +275,7 @@ public sealed class RequestRow
     /// <summary>The node that claimed it, once one has.</summary>
     public string? FulfillingNode { get; set; }
 
-    public string? FulfillingNodeName { get; set; }
+    public string? FulfillingServerName { get; set; }
 
     /// <summary>A sentence a person can read: why it is where it is.</summary>
     public string Note { get; set; } = string.Empty;

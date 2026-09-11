@@ -191,7 +191,7 @@ mod tests {
 
 
     #[test]
-    fn a_blank_node_name_falls_back_rather_than_becoming_blank() {
+    fn a_blank_server_name_falls_back_rather_than_becoming_blank() {
         let cfg = MeshConfigInput::parse(r#"{"serverName":"   "}"#).unwrap();
         assert!(!cfg
             .to_mesh_config(Path::new("/tmp/x"))

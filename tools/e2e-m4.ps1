@@ -235,7 +235,7 @@ function Write-M4NodeConfig {
     #>
     param(
         [Parameter(Mandatory)]$Node,
-        [Parameter(Mandatory)][string]$NodeName,
+        [Parameter(Mandatory)][string]$ServerName,
         [long]$ThrottleBytesPerSec = 0,
         [int]$MaxStreams = 8,
         [int]$StallSeconds = 15
@@ -243,7 +243,7 @@ function Write-M4NodeConfig {
 
     $config = @"
 # Written by tools/e2e-m4.ps1. Children take ephemeral ports so three nodes never collide.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gateway]
 bind = "127.0.0.1"
@@ -273,7 +273,7 @@ console = true
 
     $mesh = @"
 # Written by tools/e2e-m4.ps1.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gossip]
 heartbeat_secs = 5
@@ -530,7 +530,7 @@ $Media = Invoke-Step 'Generate two encodes of one film, and two more films' {
 
 # ============================================================================================
 Invoke-Step 'Start node B (the fast holder) with two films and a 1080p Big Buck Bunny' {
-    Write-M4NodeConfig -Node $NodeB -NodeName 'stingstream-b' -ThrottleBytesPerSec $ThrottleB -MaxStreams 8
+    Write-M4NodeConfig -Node $NodeB -ServerName 'stingstream-b' -ThrottleBytesPerSec $ThrottleB -MaxStreams 8
     Install-Movie -Node $NodeB -Title $Bunny -SourceFile $Media['bunny1080'] | Out-Null
     Install-Movie -Node $NodeB -Title $Sita -SourceFile $Media['sita'] | Out-Null
     Install-Movie -Node $NodeB -Title $Notld -SourceFile $Media['notld'] | Out-Null
@@ -540,7 +540,7 @@ Invoke-Step 'Start node B (the fast holder) with two films and a 1080p Big Buck 
 
 # ============================================================================================
 Invoke-Step 'Start node C (the throttled holder) with a 4K Big Buck Bunny and the same Sita bytes' {
-    Write-M4NodeConfig -Node $NodeC -NodeName 'stingstream-c' `
+    Write-M4NodeConfig -Node $NodeC -ServerName 'stingstream-c' `
         -ThrottleBytesPerSec $ThrottleC -MaxStreams $MaxStreamsC
     Install-Movie -Node $NodeC -Title $Bunny -SourceFile $Media['bunny2160'] | Out-Null
     # Byte-identical to B's copy, so both publish the same BLAKE3 and one can continue the other's
@@ -582,7 +582,7 @@ Invoke-Step 'B and C build inventory records for what they hold' {
 
 # ============================================================================================
 Invoke-Step 'Start node A (the watcher), empty' {
-    Write-M4NodeConfig -Node $NodeA -NodeName 'stingstream-a' -StallSeconds $StallSecondsA
+    Write-M4NodeConfig -Node $NodeA -ServerName 'stingstream-a' -StallSeconds $StallSecondsA
     Start-HarnessNode -Node $NodeA -ClientId 'e2e-m4'
     $items = Invoke-Jellyfin $NodeA "/Items?IncludeItemTypes=Movie&Recursive=true&userId=$($NodeA.UserId)"
     if (@($items.Items).Count -ne 0) { throw "node A should start empty; it has $(@($items.Items).Count) item(s)." }
@@ -640,15 +640,15 @@ Invoke-Step "Both holders' inventories reach A's index" {
         # turned CI runs 34053018232 and 34060142479 from a mystery into a publisher bug.
         $short = @($index.entries |
             Where-Object { [string]::IsNullOrEmpty((Get-Member-Value $_ 'fileHash')) } |
-            ForEach-Object { "$($_.itemKey) from $(Get-Member-Value $_ 'nodeName')" })
+            ForEach-Object { "$($_.itemKey) from $(Get-Member-Value $_ 'serverName')" })
         $text = "index has $(@($index.entries).Count) entr(ies), $($hashed.Count) hashed"
         if ($short.Count -gt 0) { $text += "; still unhashed: $($short -join ', ')" }
         $text
     }
 
-    foreach ($e in ($entries | Sort-Object itemKey, nodeName)) {
+    foreach ($e in ($entries | Sort-Object itemKey, serverName)) {
         Write-Host ("      {0} from {1}: {2}, {3:N0} bps, hash {4}" -f `
-            $e.itemKey, $e.nodeName, (Get-Member-Value $e.media 'resolution'), `
+            $e.itemKey, $e.serverName, (Get-Member-Value $e.media 'resolution'), `
             [int](Get-Member-Value $e.media 'bitrate'), `
             (Get-ShortHash (Get-Member-Value $e 'fileHash')))
     }
@@ -794,11 +794,11 @@ Invoke-Step 'Speed first picks B; Quality first picks C' {
         $sources = Invoke-Node $NodeA "/stingstream/api/v1/items/$($BunnyItem.Id)/sources" -TimeoutSec 120
         Write-Host "      $($case.Policy): $($sources.itemKey)"
         foreach ($s in $sources.sources) {
-            Write-Host ("        {0,-16} {1,7:N1}  {2}" -f $s.nodeName, $s.score, ($s.reasons -join '; '))
+            Write-Host ("        {0,-16} {1,7:N1}  {2}" -f $s.serverName, $s.score, ($s.reasons -join '; '))
         }
         if ($sources.policy -ne $case.Policy) { throw "/sources scored under $($sources.policy), not $($case.Policy)." }
         if ($sources.sources[0].node -ne $case.Expect.MeshId) {
-            throw "$($case.Policy) should choose node $($case.Expect.Name) -- $($case.Why) -- but chose $($sources.sources[0].nodeName)."
+            throw "$($case.Policy) should choose node $($case.Expect.Name) -- $($case.Why) -- but chose $($sources.sources[0].serverName)."
         }
 
         # PlaybackInfo has to agree, because that is what the player actually reads.
@@ -939,7 +939,7 @@ Invoke-Step 'Adding a film the group already holds starts no download' {
     Write-Host "      state: $($result.state), downloading: $($result.downloading)"
     Write-Host "      note: $($result.note)"
     foreach ($h in $result.holders) {
-        Write-Host ("        held by {0} ({1}), online={2}" -f $h.nodeName, (Get-Member-Value $h 'resolution'), $h.online)
+        Write-Host ("        held by {0} ({1}), online={2}" -f $h.serverName, (Get-Member-Value $h 'resolution'), $h.online)
     }
 
     if ($result.downloading) { throw 'A started a download for a film the group already holds.' }
@@ -967,7 +967,7 @@ Invoke-Step 'Adding a film the group already holds starts no download' {
 Invoke-Step 'Pinning it copies it here, drops the pointer, and makes A a holder' {
     $pin = Invoke-Node $NodeA "/stingstream/api/v1/items/$([Uri]::EscapeDataString($Notld.ItemKey))/pin" `
         -Method POST -TimeoutSec 120
-    Write-Host "      queued from $($pin.nodeName), $([int]$pin.totalBytes) bytes"
+    Write-Host "      queued from $($pin.serverName), $([int]$pin.totalBytes) bytes"
 
     $done = Wait-Until -What 'the pin to finish' -Seconds 420 -PollSeconds 3 -Condition {
         $row = try {
@@ -1010,13 +1010,13 @@ Invoke-Step 'Pinning it copies it here, drops the pointer, and makes A a holder'
         if ($rows.Count -ge 2) { return $rows }
         return $null
     }
-    $names = @($holders | ForEach-Object { $_.nodeName })
+    $names = @($holders | ForEach-Object { $_.serverName })
     Write-Host "      $($Notld.ItemKey) is now held by: $($names -join ', ')"
     if (@($holders | Where-Object { $_.node -eq $NodeA.MeshId }).Count -eq 0) {
         throw "A pinned the film but does not appear in the index as a holder."
     }
     Add-HarnessNote ("Pin: {0} copied from {1} to {2}; holders went from 1 to {3}." -f `
-        $Notld.Title, $done.nodeName, $done.targetPath, $holders.Count)
+        $Notld.Title, $done.serverName, $done.targetPath, $holders.Count)
 }
 
 # ============================================================================================
@@ -1057,11 +1057,11 @@ Invoke-Step 'A film dropped into a running holder reaches the group on its own' 
         "B has $onB record(s) for it, A's index has $onA"
     }
 
-    if ((Get-Member-Value $entry 'nodeName') -ne 'stingstream-b') {
-        throw "the dropped film reached A's index from $(Get-Member-Value $entry 'nodeName'), not from B."
+    if ((Get-Member-Value $entry 'serverName') -ne 'stingstream-b') {
+        throw "the dropped film reached A's index from $(Get-Member-Value $entry 'serverName'), not from B."
     }
     Write-Host ("      {0} reached A's index from {1} without anyone asking for a rebuild" -f `
-        $Dropped.ItemKey, (Get-Member-Value $entry 'nodeName'))
+        $Dropped.ItemKey, (Get-Member-Value $entry 'serverName'))
     Add-HarnessNote ("A file dropped into a running holder reached the group's index on its own, " +
         'via the library-event watcher.')
 }

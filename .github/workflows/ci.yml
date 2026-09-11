@@ -814,7 +814,7 @@ jobs:
               {
                 echo "===== node-$node mesh.db request_claims"
                 sqlite3 -header -column "$mesh" \
-                  'SELECT request_id, node_name, claimed_at, state, note FROM request_claims;' || true
+                  'SELECT request_id, server_name, claimed_at, state, note FROM request_claims;' || true
               } >> .e2e-m6-artifacts/claims.txt
             fi
           done

@@ -88,7 +88,7 @@ public sealed class RequestStore
                     decided_by_name     TEXT,
                     decided_at          TEXT,
                     fulfilling_node     TEXT,
-                    fulfilling_node_name TEXT,
+                    fulfilling_server_name TEXT,
                     note                TEXT NOT NULL DEFAULT '',
                     mine                INTEGER NOT NULL DEFAULT 1,
                     published           INTEGER NOT NULL DEFAULT 0,
@@ -199,6 +199,11 @@ public sealed class RequestStore
 
             // Why somebody asked for a title the group already held, and anything they added in
             // their own words. Null for an ordinary request, which is nearly all of them.
+            // A server has one name, and the column that holds the fulfiller's says so. Renamed
+            // rather than added so no request forgets who filled it.
+            RenameColumn(
+                c,
+                "ALTER TABLE requests RENAME COLUMN fulfilling_node_name TO fulfilling_server_name;");
             AddColumn(c, "ALTER TABLE requests ADD COLUMN reason TEXT;");
             AddColumn(c, "ALTER TABLE requests ADD COLUMN reason_note TEXT;");
             _schemaReady = true;
@@ -216,6 +221,24 @@ public sealed class RequestStore
         }
         catch (Microsoft.Data.Sqlite.SqliteException e)
             when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already migrated.
+        }
+    }
+
+    /// <summary>Rename a column, ignoring a database that has already had it done.</summary>
+    /// <remarks>
+    /// The sibling of <c>AddColumn</c>, and it swallows a different error: a rename that has
+    /// already happened reports the *old* name as missing rather than the new one as duplicated.
+    /// </remarks>
+    private static void RenameColumn(Microsoft.Data.Sqlite.SqliteConnection connection, string sql)
+    {
+        try
+        {
+            CoreDatabase.Execute(connection, sql);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException e)
+            when (e.Message.Contains("no such column", StringComparison.OrdinalIgnoreCase))
         {
             // Already migrated.
         }
@@ -349,7 +372,7 @@ public sealed class RequestStore
                     (id, group_id, kind, item_key, provider, provider_id, title, year, poster_url,
                      overview, season_count,
                      seasons, state, requested_by, requested_by_name, requested_at, decided_by,
-                     decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine,
+                     decided_by_name, decided_at, fulfilling_node, fulfilling_server_name, note, mine,
                      updated_at, reason, reason_note)
                 VALUES ($id, $g, $k, $ik, $p, $pid, $t, $y, $pu, $ov, $sc, $s, $st, $rb, $rbn, $ra,
                         $db, $dbn, $da, $fn, $fnn, $n, $m, $u, $rsn, $rsnn)
@@ -365,7 +388,7 @@ public sealed class RequestStore
                     requested_at = excluded.requested_at, decided_by = excluded.decided_by,
                     decided_by_name = excluded.decided_by_name, decided_at = excluded.decided_at,
                     fulfilling_node = excluded.fulfilling_node,
-                    fulfilling_node_name = excluded.fulfilling_node_name,
+                    fulfilling_server_name = excluded.fulfilling_server_name,
                     note = excluded.note, mine = excluded.mine, updated_at = excluded.updated_at,
                     reason = excluded.reason, reason_note = excluded.reason_note;
                 """,
@@ -389,7 +412,7 @@ public sealed class RequestStore
                 ("$dbn", row.DecidedByName),
                 ("$da", row.DecidedAt),
                 ("$fn", row.FulfillingNode),
-                ("$fnn", row.FulfillingNodeName),
+                ("$fnn", row.FulfillingServerName),
                 ("$n", row.Note),
                 ("$m", row.Mine ? 1 : 0),
                 ("$u", row.UpdatedAt),
@@ -1059,7 +1082,7 @@ public sealed class RequestStore
     private const string Select =
         "SELECT id, group_id, kind, item_key, provider, provider_id, title, year, poster_url, "
         + "seasons, state, requested_by, requested_by_name, requested_at, decided_by, "
-        + "decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine, "
+        + "decided_by_name, decided_at, fulfilling_node, fulfilling_server_name, note, mine, "
         + "updated_at, overview, season_count, reason, reason_note FROM requests";
 
     private const string PolicySelect =
@@ -1087,7 +1110,7 @@ public sealed class RequestStore
         DecidedByName = r.IsDBNull(15) ? null : r.GetString(15),
         DecidedAt = r.IsDBNull(16) ? null : r.GetString(16),
         FulfillingNode = r.IsDBNull(17) ? null : r.GetString(17),
-        FulfillingNodeName = r.IsDBNull(18) ? null : r.GetString(18),
+        FulfillingServerName = r.IsDBNull(18) ? null : r.GetString(18),
         Note = r.GetString(19),
         Mine = r.GetInt64(20) != 0,
         UpdatedAt = r.GetString(21),

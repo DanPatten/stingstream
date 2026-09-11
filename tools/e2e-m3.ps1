@@ -584,11 +584,11 @@ function Write-NodeConfig {
         real pair of nodes behind NATs takes. mesh/tests/nat/run.sh is the run that removes the
         route between them.
     #>
-    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$NodeName)
+    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)][string]$ServerName)
 
     $config = @"
 # Written by tools/e2e-m3.ps1. Children take ephemeral ports so the two nodes never collide.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gateway]
 bind = "127.0.0.1"
@@ -617,7 +617,7 @@ console = true
 
     $mesh = @"
 # Written by tools/e2e-m3.ps1.
-node_name = "$NodeName"
+server_name = "$ServerName"
 
 [gossip]
 heartbeat_secs = 5
@@ -678,7 +678,7 @@ function Start-Node {
     # obvious way to write an assertion that quietly never fires.
     $status = Invoke-Node $Node '/stingstream/api/v1/mesh/status'
     $Node.MeshId = $status.node
-    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.nodeName)'"
+    Write-Host "      node $($Node.Name): mesh id $($status.node), name '$($status.serverName)'"
 }
 
 trap {
@@ -796,7 +796,7 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
 
 # ============================================================================================
 Invoke-Step 'Start node B (the holder)' {
-    Write-NodeConfig -Node $NodeB -NodeName 'stingstream-b'
+    Write-NodeConfig -Node $NodeB -ServerName 'stingstream-b'
     Start-Node -Node $NodeB
 }
 
@@ -846,7 +846,7 @@ Invoke-Step 'B: grab and import a movie and an episode' {
 
 # ============================================================================================
 Invoke-Step 'Start node A (the watcher)' {
-    Write-NodeConfig -Node $NodeA -NodeName 'stingstream-a'
+    Write-NodeConfig -Node $NodeA -ServerName 'stingstream-a'
     Start-Node -Node $NodeA
     $items = Invoke-Jellyfin $NodeA "/Items?IncludeItemTypes=Movie,Episode&Recursive=true&userId=$($NodeA.UserId)"
     if (@($items.Items).Count -ne 0) { throw "node A should start empty; it has $(@($items.Items).Count) item(s)." }
@@ -1022,7 +1022,7 @@ Invoke-Step "B's inventory appears in A's group index" {
         if ($index) { "index has $(@($index.entries).Count) entr(ies)" } else { 'no answer' }
     }
     foreach ($e in $entries) {
-        Write-Host "      $($e.itemKey) from $($e.nodeName) -- $($e.metadata.title) ($(Get-Member-Value $e.media 'resolution')), online=$($e.online)"
+        Write-Host "      $($e.itemKey) from $($e.serverName) -- $($e.metadata.title) ($(Get-Member-Value $e.media 'resolution')), online=$($e.online)"
         if (-not $e.metadata.title) { throw "$($e.itemKey) arrived with no title." }
     }
     # local_path must never travel. This is the assertion that keeps that true end to end, not
