@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { type StyleProp, View, type ViewStyle } from "react-native";
 import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
@@ -35,6 +35,7 @@ export function TextFieldRow({
   autoCapitalize,
   onBlur,
   disabledByAdmin = false,
+  style,
 }: {
   title: string;
   subtitle?: string;
@@ -45,6 +46,10 @@ export function TextFieldRow({
   editable?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   onBlur?: () => void;
+  /** `ListGroup` clones this onto each child to draw the hairline between rows. A row that does
+   * not accept and forward it silently loses its rule, which is what every text field row in the
+   * app was doing. */
+  style?: StyleProp<ViewStyle>;
   /** Locked by server policy: says so in place of the subtitle, and cannot be typed in. */
   disabledByAdmin?: boolean;
 }) {
@@ -80,11 +85,14 @@ export function TextFieldRow({
   if (compact) {
     return (
       <View
-        style={{
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-          backgroundColor: color.bg["1"],
-        }}
+        style={[
+          {
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            backgroundColor: color.bg["1"],
+          },
+          style,
+        ]}
       >
         <Text numberOfLines={2}>{title}</Text>
         {detail ? (
@@ -107,6 +115,7 @@ export function TextFieldRow({
       title={title}
       subtitle={subtitle}
       disabledByAdmin={disabledByAdmin}
+      style={style}
     >
       {field}
     </ListItem>

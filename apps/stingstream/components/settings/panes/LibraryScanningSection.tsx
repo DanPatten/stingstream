@@ -7,7 +7,10 @@ import {
   TextFieldRow,
 } from "@/components/stingstream/settings/fields";
 import { useAutosave } from "@/components/stingstream/settings/useAutosave";
-import { QueryState } from "@/components/stingstream/shared/ScreenState";
+import {
+  QueryState,
+  stateOf,
+} from "@/components/stingstream/shared/ScreenState";
 import {
   useServerConfiguration,
   useUpdateServerConfiguration,
@@ -44,42 +47,52 @@ export const LibraryScanningSection: React.FC = () => {
   });
 
   return (
-    <QueryState
-      isLoading={query.isLoading}
-      error={query.error}
-      onRetry={query.refetch}
-    >
-      {draft ? (
-        <View>
-          <ListGroup title={t("home.settings.storage.scanning_title")}>
-            <TextFieldRow
-              title={t("home.settings.storage.monitor_delay_title")}
-              subtitle={t("home.settings.storage.monitor_delay_detail")}
-              keyboardType='number-pad'
-              value={String(draft.LibraryMonitorDelay ?? 60)}
-              onChangeText={(v) =>
-                set((d) => ({
-                  ...d,
-                  LibraryMonitorDelay: Number.parseInt(v, 10) || 0,
-                }))
-              }
-            />
-            <TextFieldRow
-              title={t("home.settings.storage.scan_concurrency_title")}
-              subtitle={t("home.settings.storage.scan_concurrency_detail")}
-              keyboardType='number-pad'
-              value={String(draft.LibraryScanFanoutConcurrency ?? 0)}
-              onChangeText={(v) =>
-                set((d) => ({
-                  ...d,
-                  LibraryScanFanoutConcurrency: Number.parseInt(v, 10) || 0,
-                }))
-              }
-            />
-          </ListGroup>
-          <SaveStatus saving={saving} />
-        </View>
-      ) : null}
+    // The heading is outside the draft gate on purpose. It used to be inside, so a node that
+    // never answered rendered this whole section as an empty region -- no title, no fields,
+    // nothing saying why. `QueryState` now catches that case before we get here; keeping the
+    // group visible means even an unforeseen empty draft looks like a section with nothing in
+    // it rather than like a screen that forgot a chunk of itself.
+    //
+    // The rows are an array rather than a fragment because `ListGroup` draws its dividers by
+    // cloning `style` onto each child, and `Children.toArray` flattens an array but treats a
+    // fragment as one child -- which would put a `style` prop on the fragment and drop both
+    // rules.
+    <QueryState {...stateOf(query)}>
+      <View>
+        <ListGroup title={t("home.settings.storage.scanning_title")}>
+          {draft
+            ? [
+                <TextFieldRow
+                  key='monitor-delay'
+                  title={t("home.settings.storage.monitor_delay_title")}
+                  subtitle={t("home.settings.storage.monitor_delay_detail")}
+                  keyboardType='number-pad'
+                  value={String(draft.LibraryMonitorDelay ?? 60)}
+                  onChangeText={(v) =>
+                    set((d) => ({
+                      ...d,
+                      LibraryMonitorDelay: Number.parseInt(v, 10) || 0,
+                    }))
+                  }
+                />,
+                <TextFieldRow
+                  key='scan-concurrency'
+                  title={t("home.settings.storage.scan_concurrency_title")}
+                  subtitle={t("home.settings.storage.scan_concurrency_detail")}
+                  keyboardType='number-pad'
+                  value={String(draft.LibraryScanFanoutConcurrency ?? 0)}
+                  onChangeText={(v) =>
+                    set((d) => ({
+                      ...d,
+                      LibraryScanFanoutConcurrency: Number.parseInt(v, 10) || 0,
+                    }))
+                  }
+                />,
+              ]
+            : null}
+        </ListGroup>
+        <SaveStatus saving={saving} />
+      </View>
     </QueryState>
   );
 };

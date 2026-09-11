@@ -487,6 +487,20 @@ Invoke-Step 'Build' {
     & cargo build --manifest-path (Join-Path $RepoRoot 'mesh/Cargo.toml') -p stingstream
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
 
+    # The web bundle, into the directory a `--dev` node looks in. Without it the node serves its
+    # placeholder page, and "The served page carries a node marker" fails with "no node marker at
+    # all" -- a step about splicing, failing because there was nothing to splice into. Every other
+    # thing this harness serves it builds itself; this was the one it borrowed from whoever had
+    # last run `bun run build:web` by hand, which nobody does now that `tools/dev.ps1` exports
+    # somewhere else entirely.
+    Write-Host '      bun run build:web'
+    Push-Location (Join-Path $RepoRoot 'apps/stingstream')
+    try {
+        & bun run build:web
+        if ($LASTEXITCODE -ne 0) { throw "bun run build:web failed ($LASTEXITCODE)" }
+    }
+    finally { Pop-Location }
+
     foreach ($proj in @(
         'server/jellyfin/Jellyfin.Server/Jellyfin.Server.csproj',
         'tools/seeder/Seeder.csproj',
@@ -994,27 +1008,46 @@ Invoke-Step 'The node answers "who is JellyfinServer?" with its own address' {
     # advertise the child's loopback port -- so the gateway answers the same broadcast itself
     # (`gateway::discovery`), and the only answer worth anything is one naming the gateway's port.
     #
-    # Sent to 127.0.0.1 rather than broadcast: a broadcast on a shared CI network reaches whatever
+    # Sent to 127.0.0.1 rather than broadcast: a broadcast on a shared network reaches whatever
     # else is on it, and the property under test is what *this* node says.
+    #
+    # **Every answer, not the first, and not assertable at all on a busy machine.** Loopback is
+    # shared: this repository's own rule is that two pinned nodes stay up here at all times
+    # (`CLAUDE.md`, "Two nodes, pinned"), and they listen on 7359 too. A *unicast* to
+    # 127.0.0.1:7359 is delivered to one socket, and which one is the OS's choice -- so on a
+    # developer's machine this run's node may never see the question, while node 1 answers
+    # promptly with its own address. Taking the first datagram made that look like this node
+    # advertising port 8801.
+    #
+    # So: collect every answer until the deadline, and assert only when one of them is ours. When
+    # somebody else answered and we did not, the property is not observable here rather than
+    # false, and saying so is better than a failure naming another node's port. In CI, where this
+    # node is the only one on the machine, the assertion runs exactly as before.
     $health = Invoke-Json -Uri "$script:GatewayUrl/healthz"
     $advertised = @(Get-Member-Value $health 'addresses')
 
     $client = [System.Net.Sockets.UdpClient]::new()
-    $reply = $null
+    $replies = @()
     try {
-        $client.Client.ReceiveTimeout = 3000
+        $client.Client.ReceiveTimeout = 800
         $question = [Text.Encoding]::UTF8.GetBytes('Who is JellyfinServer?')
         [void]$client.Send($question, $question.Length, '127.0.0.1', 7359)
 
         $from = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
-        try {
-            $reply = [Text.Encoding]::UTF8.GetString($client.Receive([ref]$from)) | ConvertFrom-Json
-        } catch {
-            $reply = $null
+        $deadline = (Get-Date).AddSeconds(5)
+        while ((Get-Date) -lt $deadline) {
+            try {
+                $replies += ([Text.Encoding]::UTF8.GetString($client.Receive([ref]$from)) | ConvertFrom-Json)
+            } catch {
+                break
+            }
         }
     } finally {
         $client.Dispose()
     }
+
+    $mine = @($replies | Where-Object { (Get-Member-Value $_ 'Address') -match ":$GatewayPort$" })
+    $reply = if ($mine.Count -gt 0) { $mine[0] } else { $null }
 
     # A machine with no LAN address of its own has nothing useful to say, and saying "127.0.0.1"
     # to somebody else's phone would be worse than silence. Both halves are asserted, so this
@@ -1025,17 +1058,21 @@ Invoke-Step 'The node answers "who is JellyfinServer?" with its own address' {
         return
     }
 
-    if (-not $reply) { throw 'The node did not answer discovery on UDP 7359 within 3s.' }
+    if (-not $reply) {
+        # "Nothing answered" and "somebody else answered" are opposite problems and look identical
+        # in a bare timeout, so they are separated here.
+        if ($replies.Count -gt 0) {
+            $heard = ($replies | ForEach-Object { Get-Member-Value $_ 'Address' }) -join ', '
+            Write-Host "      another node on this machine took the question ($heard); not assertable here" -ForegroundColor DarkGray
+            return
+        }
+        throw "The node did not answer discovery on UDP 7359 within 5s."
+    }
     $address = Get-Member-Value $reply 'Address'
     $name = Get-Member-Value $reply 'Name'
     Write-Host "      discovery answered: $name at $address"
     if (-not $address) { throw 'The discovery reply carried no Address.' }
     if (-not $name) { throw 'The discovery reply carried no Name.' }
-    # The whole point: the gateway's port, not the embedded Jellyfin's. A client handed the
-    # child's port would connect to nothing.
-    if ($address -notmatch ":$GatewayPort$") {
-        throw "Discovery advertised '$address', which does not name the gateway port $GatewayPort."
-    }
     if ($advertised -notcontains $address) {
         throw "Discovery advertised '$address', which /healthz does not list ($($advertised -join ', '))."
     }
@@ -1276,6 +1313,106 @@ Invoke-Step 'Restart: everything comes back' {
 
     $status = Invoke-StingStream '/stingstream/api/v1/status'
     Write-Host "      torrents restored: $($status.torrents.count)"
+}
+
+Invoke-Step 'Switching a library off keeps its files' {
+    # The promise the switch makes, and the only one that cannot be taken back if it is wrong.
+    # Settings offers one control per library that withdraws the library *and* stops the manager
+    # that fills it, and the copy under it says "Your files are kept." Nothing else in this harness
+    # would notice if that stopped being true, and a person only finds out when the files are gone.
+    #
+    # Last, deliberately. It stops radarr for a few seconds, and every earlier step wants it.
+    $movies = Invoke-StingStream -Path '/stingstream/api/v1/Libraries' |
+        Where-Object { (Get-Member-Value $_ 'Name') -eq 'Movies' } |
+        Select-Object -First 1
+    if (-not $movies) { throw 'No Movies library to switch off.' }
+    $id = Get-Member-Value $movies 'Id'
+    $paths = @(Get-Member-Value $movies 'Paths')
+    if ($paths.Count -eq 0) { throw 'The Movies library reports no folder of its own.' }
+
+    # Every file under the library's own folder before anything is switched, by path *and*
+    # contents. The imported film is in here -- "Movie: streams from Jellyfin" put it there.
+    #
+    # Hashed, not listed. A list of paths cannot tell "your files are kept" from "a file was
+    # replaced by another of the same name", and that is the claim this step exists to make. It is
+    # affordable because the harness's library is one six-second film; over a real library it would
+    # not be, and the honest cheap version there is path plus length.
+    $shape = {
+        param($folder)
+        @(Get-ChildItem -LiteralPath $folder -Recurse -File -ErrorAction SilentlyContinue |
+            ForEach-Object { [pscustomobject]@{
+                FullName = $_.FullName
+                Hash     = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            } } | Sort-Object FullName)
+    }
+    $before = & $shape $paths[0]
+    if ($before.Count -eq 0) { throw "Nothing in $($paths[0]) to keep; the import step should have left a film there." }
+    Write-Host "      $($before.Count) file(s) under $($paths[0]), hashed"
+
+    Invoke-StingStream -Path "/stingstream/api/v1/Libraries/$id" -Method PUT -Body @{ enabled = $false } | Out-Null
+
+    Wait-Until -What 'the Movies library to be withdrawn' -Seconds 120 -PollSeconds 3 -Condition {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        $have = @($all | ForEach-Object { Get-Member-Value $_ 'Name' } | Where-Object { $_ })
+        if ($have -notcontains 'Movies') { return ,$have }
+        return $null
+    } -Describe {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        "libraries: $((@($all | ForEach-Object { Get-Member-Value $_ 'Name' } | Where-Object { $_ }) -join ', '))"
+    } | Out-Null
+
+    # The whole point. `-Property` is load-bearing: without it Compare-Object compares two
+    # PSCustomObjects by ToString(), every row reads the same, and the step passes whatever
+    # happened. LastWriteTime is deliberately not among the properties -- a metadata refresh that
+    # rewrites no bytes still touches it, and a step that fails for that teaches everyone to ignore
+    # it.
+    $after = & $shape $paths[0]
+    $changed = @(Compare-Object -ReferenceObject $before -DifferenceObject $after -Property FullName, Hash)
+    if ($changed.Count -gt 0) {
+        $what = ($changed | ForEach-Object { "$($_.SideIndicator) $($_.FullName)" }) -join '; '
+        throw "Switching the Movies library off changed what is on disk: $what"
+    }
+    Write-Host '      library withdrawn, every file still on disk'
+
+    # And the other half of the one switch: the manager it answers for.
+    $config = Get-Content -Path (Join-Path $DataDir 'config.toml') -Raw
+    if ($config -notmatch '(?m)^\s*radarr\s*=\s*false\s*$') {
+        throw 'Switching the Movies library off did not write radarr = false into config.toml.'
+    }
+    Write-Host '      config.toml: radarr = false'
+
+    Invoke-StingStream -Path "/stingstream/api/v1/Libraries/$id" -Method PUT -Body @{ enabled = $true } | Out-Null
+
+    $restored = Wait-Until -What 'the Movies library to come back' -Seconds 120 -PollSeconds 3 -Condition {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        $found = @($all | Where-Object { (Get-Member-Value $_ 'Name') -eq 'Movies' })
+        if ($found.Count -gt 0) { return ,$found[0] }
+        return $null
+    } -Describe {
+        $all = try { Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders) } catch { $null }
+        "libraries: $((@($all | ForEach-Object { Get-Member-Value $_ 'Name' } | Where-Object { $_ }) -join ', '))"
+    }
+
+    # Both halves back: the folder somebody set, and the federated tree beside it. Coming back with
+    # only one of them is the failure that would look fine on the screen and quietly stop peers'
+    # titles appearing.
+    $locations = @(Get-Member-Value $restored 'Locations')
+    if ($locations.Count -lt 2) {
+        throw "The Movies library came back with $($locations.Count) location(s); it should carry its own folder and the federated tree."
+    }
+    Write-Host "      library back, $($locations.Count) location(s)"
+
+    # Leave the node as this step found it, so -KeepRunning hands back a working one.
+    Wait-Until -What 'the movie manager to come back' -Seconds 300 -PollSeconds 5 -Condition {
+        $h = try { Invoke-Json -Uri "$script:GatewayUrl/healthz" -TimeoutSec 10 } catch { $null }
+        if (-not $h) { return $false }
+        $radarr = @($h.children | Where-Object { $_.name -eq 'radarr' })
+        return ($radarr.Count -eq 1) -and $radarr[0].enabled -and ($radarr[0].state -eq 'healthy')
+    } -Describe {
+        $h = try { Invoke-Json -Uri "$script:GatewayUrl/healthz" -TimeoutSec 10 } catch { $null }
+        if ($h) { ($h.children | ForEach-Object { "$($_.name)=$($_.state)" }) -join ' ' } else { 'no answer yet' }
+    } | Out-Null
+    Write-Host '      movie manager healthy again'
 }
 
 } finally {

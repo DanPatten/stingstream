@@ -8,7 +8,10 @@ import {
   TextFieldRow,
 } from "@/components/stingstream/settings/fields";
 import { useAutosave } from "@/components/stingstream/settings/useAutosave";
-import { QueryState } from "@/components/stingstream/shared/ScreenState";
+import {
+  QueryState,
+  stateOf,
+} from "@/components/stingstream/shared/ScreenState";
 import { space } from "@/constants/theme";
 import { SERVER_NAME_QUERY_KEY } from "@/hooks/useServerName";
 import {
@@ -62,11 +65,7 @@ export const ThisServerPane: React.FC = () => {
 
   return (
     <SettingsPane title={t("sharing.this_server")}>
-      <QueryState
-        isLoading={query.isLoading}
-        error={query.error}
-        onRetry={query.refetch}
-      >
+      <QueryState {...stateOf(query)}>
         {draft ? (
           <View style={{ gap: space["2"] }}>
             <ListGroup>

@@ -6,10 +6,7 @@ export default function NetworkSettingsPage() {
   return (
     <SettingsPage
       categoryKey='network'
-      invalidate={[
-        ["stingstream", "jellyfin-config"],
-        ["stingstream", "jellyfin-libraries"],
-      ]}
+      invalidate={[["stingstream", "jellyfin-config"]]}
     >
       {/* Inside the page, not around it: a member who pasted this URL still gets
           the settings they can open, with the refusal in the pane. */}

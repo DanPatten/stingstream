@@ -8,7 +8,10 @@ import {
   TextFieldRow,
 } from "@/components/stingstream/settings/fields";
 import { useAutosave } from "@/components/stingstream/settings/useAutosave";
-import { QueryState } from "@/components/stingstream/shared/ScreenState";
+import {
+  QueryState,
+  stateOf,
+} from "@/components/stingstream/shared/ScreenState";
 import { space } from "@/constants/theme";
 import {
   useServerConfiguration,
@@ -84,11 +87,7 @@ const RemoteLimits: React.FC = () => {
   });
 
   return (
-    <QueryState
-      isLoading={query.isLoading}
-      error={query.error}
-      onRetry={query.refetch}
-    >
+    <QueryState {...stateOf(query)}>
       {draft ? (
         <View>
           <ListGroup title={t("home.settings.transcoding.remote_title")}>

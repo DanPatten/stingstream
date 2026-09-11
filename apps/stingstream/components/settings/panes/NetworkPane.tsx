@@ -12,7 +12,10 @@ import {
   ToggleRow,
 } from "@/components/stingstream/settings/fields";
 import { useAutosave } from "@/components/stingstream/settings/useAutosave";
-import { QueryState } from "@/components/stingstream/shared/ScreenState";
+import {
+  QueryState,
+  stateOf,
+} from "@/components/stingstream/shared/ScreenState";
 import { space } from "@/constants/theme";
 import {
   formatList,
@@ -83,11 +86,7 @@ export const NetworkPane: React.FC = () => {
       <CurrentAddresses />
 
       <View style={{ marginTop: space["6"] }}>
-        <QueryState
-          isLoading={query.isLoading}
-          error={query.error}
-          onRetry={query.refetch}
-        >
+        <QueryState {...stateOf(query)}>
           {draft ? (
             <View style={{ gap: space["4"] }}>
               <FocusTarget
