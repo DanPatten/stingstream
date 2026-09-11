@@ -6,11 +6,11 @@ import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { requestChallenge } from "@/lib/stingstream/identityApi";
-import { probeCandidate } from "@/lib/stingstream/sidedoor";
 import {
   buildAuthorizeUrl,
   returnTargetFromLocation,
 } from "@/utils/identity/handoff";
+import { resolveServerOrigin } from "@/utils/identity/resolveServer";
 
 /**
  * "I already run StingStream" — the start of signing in with your own server.
@@ -37,49 +37,10 @@ import {
  *
  * Everything in both hops rides in the URL fragment, which a browser never sends. See
  * `utils/identity/handoff.ts`.
- */
-/**
- * Turn what somebody typed into the origin of their node, or null.
  *
- * **`/sidedoor/v1/hello`, not `/System/Info/Public`.** This probe is cross-origin by construction —
- * the page was served by the server being *joined*, and it is asking about a different one — and a
- * node answers no other route to another origin. `checkJellyfinServer` was used here first and
- * could never have worked outside a test where both were the same host: the browser blocked it on
- * CORS before the node ever saw it. The side door exists for exactly this question
- * (`docs/SIDEDOOR.md` §4).
- *
- * HTTPS first, then plain HTTP, unless they typed a scheme themselves. A bare `host:port` on a LAN
- * is the common case and is almost never HTTPS; a domain almost always is.
+ * The address probe itself is `utils/identity/resolveServer.ts`, shared with Settings, Servers,
+ * *Add server* -- the same act started from the other end.
  */
-const resolveOwnServer = async (typed: string): Promise<string | null> => {
-  const bare = typed.replace(/\/+$/, "");
-  const candidates = /^https?:\/\//i.test(bare)
-    ? [bare]
-    : [`https://${bare}`, `http://${bare}`];
-
-  for (const url of candidates) {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return null;
-    }
-    // No expected node id: nobody has told us which node lives there, and the answer is what
-    // tells us it is a node at all.
-    const outcome = await probeCandidate(
-      {
-        kind: "own",
-        host: parsed.hostname,
-        port: Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80),
-        url,
-      },
-      "",
-    );
-    if (outcome.ok) return url;
-  }
-  return null;
-};
-
 export const SignInWithOwnServer: React.FC<{
   /** This server's origin — the one being signed in to. */
   nodeOrigin: string;
@@ -120,7 +81,7 @@ export const SignInWithOwnServer: React.FC<{
       // anybody anywhere, and the error belongs on the screen they are still looking at.
       const challenge = await requestChallenge(nodeOrigin);
 
-      const found = await resolveOwnServer(typed);
+      const found = await resolveServerOrigin(typed);
       if (!found) {
         setError(t("identity.own_server_not_found"));
         return;

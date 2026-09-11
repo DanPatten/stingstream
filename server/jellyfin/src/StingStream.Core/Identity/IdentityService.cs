@@ -444,6 +444,7 @@ public sealed class IdentityService
             {
                 IssuerNodeId = row.IssuerNodeId,
                 IssuerName = row.IssuerName,
+                IssuerAddress = row.IssuerAddress,
                 RequestedByName = Guid.TryParse(row.RequestedBy, out var id)
                     ? _users.GetUserById(id)?.Username ?? string.Empty
                     : string.Empty,
@@ -461,25 +462,193 @@ public sealed class IdentityService
     /// <summary>What the person who asked is told about their own request.</summary>
     /// <param name="localUserId">Their account here.</param>
     /// <returns>The status, and the code once it is approved.</returns>
+    /// <remarks>
+    /// <b>Two ways to be the asker, and both have to be found.</b> Somebody who arrived from
+    /// another server is found through their <c>linked_identities</c> row, which is how this
+    /// worked when signing in was the only way to ask. Somebody who pressed <em>Add server</em>
+    /// has always been a local account and has no such row, so their own request is found by the
+    /// only thing that names them: <c>requested_by</c>. Without the second lookup a member could
+    /// offer their server, be told it was pending, reload the page and find no trace of it.
+    /// </remarks>
     public MyLinkRequest MyRequest(string localUserId)
     {
         var link = _store.ForLocalUser(localUserId);
-        if (link is null)
+        var row = link is null
+            ? _store.FindRequestByRequester(localUserId)
+            : _store.FindRequest(link.IssuerNodeId);
+
+        if (row is null)
         {
             return new MyLinkRequest { ServerName = _host.FriendlyName };
         }
 
-        var row = _store.FindRequest(link.IssuerNodeId);
         return new MyLinkRequest
         {
-            Exists = row is not null,
-            Status = row?.Status ?? string.Empty,
-            IssuerNodeId = link.IssuerNodeId,
+            Exists = true,
+            Status = row.Status,
+            IssuerNodeId = row.IssuerNodeId,
             ServerName = _host.FriendlyName,
-            // Only ever handed to the account the request belongs to, which is what `ForLocalUser`
-            // above establishes.
-            Code = row?.Status == "approved" ? row.Code : null,
+            // Only ever handed to the account the request belongs to, which is what both lookups
+            // above establish: either the link row is theirs, or the request names them.
+            Code = row.Status == "approved" ? row.Code : null,
+            IssuerAddress = row.IssuerAddress,
         };
+    }
+
+    /// <summary>Offer the server somebody runs, from an assertion it signed for this one.</summary>
+    /// <param name="assertion">What their node signed.</param>
+    /// <param name="address">Where that node answers a browser, as the wizard resolved it.</param>
+    /// <param name="localUserId">The account here that is asking.</param>
+    /// <param name="callerIsAdmin">Whether that account administers this server.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>What came of it, or a sentence saying why nothing did.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The other end of <see cref="SignInAsync"/>'s link request.</b> That one is reached by
+    /// somebody with no account here, arriving on an invite; this one by somebody who has had an
+    /// account all along and has just typed the address of a server they run. Dan:
+    /// <em>"if you are already on a server you may either own a 2nd server or you are an end user
+    /// who has their own server"</em>. Neither of those people has anybody to invite.
+    /// </para>
+    /// <para>
+    /// <b>Nothing about their account here changes.</b> No <c>linked_identities</c> row, no salt,
+    /// no verifier: <c>/authorize</c> returns one regardless and the app drops it on this path.
+    /// They already have a password on this server, and quietly replacing it with a derivation of
+    /// their <em>other</em> server's password would change how they sign in here as a side effect
+    /// of adding a server. All the assertion is read for is which node is being offered.
+    /// </para>
+    /// <para>
+    /// <b>An administrator's own offer is approved as it is made.</b> The pending queue exists so
+    /// that a member cannot decide what their server links to; putting that question to the person
+    /// who answers it is not a safeguard, it is a second click.
+    /// </para>
+    /// </remarks>
+    public async Task<(LinkStartResult? Result, string? Problem)> StartLinkAsync(
+        string? assertion,
+        string? address,
+        string localUserId,
+        bool callerIsAdmin,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        MeshVouchClaims? claims;
+        try
+        {
+            claims = await _mesh.VerifyVouchAsync(assertion ?? string.Empty, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The mesh being unreachable is not the same as an assertion being bad, and reporting
+            // it as one would send somebody hunting a problem on the other server.
+            _logger.LogError(ex, "Could not check an identity assertion while adding a server");
+            return (null, "This server cannot check another one right now. Try again shortly.");
+        }
+
+        // Spent first, and spent even when the rest fails: a nonce that survives a failed attempt
+        // is a nonce that can be retried, which is what single use is there to stop.
+        var challengeMatched = claims is not null && _challenges.Take(claims.Nonce, now);
+
+        var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
+        var problem = IdentityGate.DecideLinkStart(
+            claims is not null,
+            challengeMatched,
+            !string.IsNullOrWhiteSpace(localUserId),
+            claims is not null && IdentityGate.SameNode(claims.Iss, status?.Node));
+        if (problem is not null)
+        {
+            return (null, problem);
+        }
+
+        await _store.SaveRequestAsync(
+            new LinkRequest
+            {
+                IssuerNodeId = claims!.Iss,
+                IssuerName = claims.Server,
+                IssuerAddress = NormaliseAddress(address),
+                RequestedBy = localUserId,
+                CreatedAt = now,
+                Status = "pending",
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        // Read back rather than assumed. The upsert refuses to reopen a decided row, so what is on
+        // disk now may be an older answer: an approval whose link is exactly what this person came
+        // for, or a decline that asking again does not undo.
+        var row = _store.FindRequest(claims.Iss);
+        if (row is null)
+        {
+            return (null, "That could not be recorded. Try again.");
+        }
+
+        if (row.Status == "declined")
+        {
+            return (null, "An administrator here has already declined that server.");
+        }
+
+        if (row.Status != "approved" && callerIsAdmin)
+        {
+            var (ok, why) = await ApproveRequestAsync(
+                claims.Iss,
+                null,
+                localUserId,
+                now,
+                cancellationToken).ConfigureAwait(false);
+            if (!ok)
+            {
+                return (null, why ?? "That could not be completed. Try again.");
+            }
+
+            row = _store.FindRequest(claims.Iss) ?? row;
+        }
+
+        _logger.LogInformation(
+            "{Server} was offered to this one and is {Status}",
+            row.IssuerName,
+            row.Status);
+
+        // The code admits a node to this server's link, so it goes back only to somebody who is
+        // entitled to it: an administrator here, or the account the request was recorded for.
+        //
+        // The narrowing matters because a standing approval can be met again. Offering an
+        // already-approved server returns its answer, and without this a *second*, ordinary member
+        // of that server -- anybody who can get it to vouch for them -- could ask for the standing
+        // code and redeem it on a node of their own. The approval was for one server, and the
+        // code is bearer; this is what keeps the two in step.
+        var mayHoldTheCode =
+            IdentityGate.MayHoldTheCode(callerIsAdmin, row.RequestedBy, localUserId);
+
+        return (
+            new LinkStartResult
+            {
+                Status = row.Status,
+                IssuerNodeId = row.IssuerNodeId,
+                IssuerName = row.IssuerName,
+                IssuerAddress = row.IssuerAddress,
+                GroupId = row.GroupId,
+                Code = row.Status == "approved" && mayHoldTheCode ? row.Code : null,
+            },
+            null);
+    }
+
+    /// <summary>The origin of an address somebody typed, or null when it is not one.</summary>
+    /// <remarks>
+    /// Only ever used to build a link to send somebody to. Refused rather than stored when it is
+    /// not an absolute http(s) address, because what would otherwise be kept is a string that
+    /// builds a link that fails later, on a screen with nothing left to explain it.
+    /// </remarks>
+    private static string? NormaliseAddress(string? raw)
+    {
+        var typed = (raw ?? string.Empty).Trim().TrimEnd('/');
+        if (typed.Length == 0
+            || !Uri.TryCreate(typed, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return null;
+        }
+
+        return uri.GetLeftPart(UriPartial.Authority);
     }
 
     /// <summary>Let another server into one of this one's groups.</summary>
@@ -514,23 +683,33 @@ public sealed class IdentityService
             return (false, "That request has already been answered.");
         }
 
+        // One link per server, named after that server. Dan chose that over one shared pool, so
+        // that "which of my libraries do they get" can be answered per server instead of once for
+        // everybody, and so a row on the Servers page and a link page are the same thing.
+        //
+        // It also deletes the question this used to ask. With no pool to choose from, "which of
+        // your links should they join?" has nothing to mean, and the screen no longer poses it.
+        // An explicit group is still honoured, which is what keeps adding a third server to an
+        // existing link possible.
         var chosen = groupId?.Trim();
+        var ours = false;
         if (string.IsNullOrEmpty(chosen))
         {
-            var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
-            if (groups is null || groups.Count == 0)
+            var name = string.IsNullOrWhiteSpace(row.IssuerName)
+                ? ShortNode(row.IssuerNodeId)
+                : row.IssuerName;
+            try
             {
-                return (false, "Create a link with another server first, then approve this.");
+                var created = await _mesh.CreateGroupAsync(name, cancellationToken)
+                    .ConfigureAwait(false);
+                chosen = created.Group;
+                ours = true;
             }
-
-            if (groups.Count > 1)
+            catch (Exception ex)
             {
-                // Which group a new server joins decides what it can see. That is a choice, and
-                // guessing at it here would be this code making it.
-                return (false, "Choose which of your links to add them to.");
+                _logger.LogError(ex, "Could not create a link while approving a link request");
+                return (false, "Could not create a link for them. Try again shortly.");
             }
-
-            chosen = groups[0].Group;
         }
 
         MeshInvite invite;
@@ -541,6 +720,7 @@ public sealed class IdentityService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Could not mint an invite while approving a link request");
+            await AbandonAsync(ours ? chosen : null, cancellationToken).ConfigureAwait(false);
             return (false, "Could not create an invite for them. Try again shortly.");
         }
 
@@ -557,12 +737,70 @@ public sealed class IdentityService
         {
             // Somebody else got there first. Their code is the one that stands; this one is simply
             // never handed out, and an unspent mesh invite costs nothing.
+            //
+            // A link does cost something -- it would sit on the Servers page for ever with nobody
+            // in it -- so one this call made and could not use is left again. Only one it made: a
+            // group the caller named is theirs and may already hold members.
+            await AbandonAsync(ours ? chosen : null, cancellationToken).ConfigureAwait(false);
             return (false, "That request has already been answered.");
         }
 
         _logger.LogInformation("{Server} was approved to join {Group}", row.IssuerName, chosen);
         return (true, null);
     }
+
+    /// <summary>Leave a link this call made moments ago and then could not use.</summary>
+    /// <remarks>
+    /// Best effort on purpose. The approval has already failed and the caller is being told why;
+    /// reporting a failed tidy-up instead would replace an accurate answer with an unrelated one.
+    /// </remarks>
+    private async Task AbandonAsync(string? group, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(group))
+        {
+            return;
+        }
+
+        try
+        {
+            await _mesh.LeaveGroupAsync(group, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not clean up the link {Group} after an approval that did not complete",
+                group);
+        }
+    }
+
+    /// <summary>Enough of a node id to name a link by, when its server has not said what it calls itself.</summary>
+    private static string ShortNode(string? nodeId)
+    {
+        var id = (nodeId ?? string.Empty).Trim();
+        return id.Length > 8 ? id[..8] : id;
+    }
+
+    /// <summary>Forget a request entirely, so that server can ask again.</summary>
+    /// <param name="issuerNodeId">The asking node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when a row went.</returns>
+    /// <remarks>
+    /// <b>The way back from a decline.</b> A decision is deliberately sticky — the upsert refuses
+    /// to reset a decided row to pending, so asking again cannot get a different answer by itself
+    /// — and until there was a way to clear one, "by itself" was doing work nothing backed up: an
+    /// administrator who declined by mistake had shut that server out for ever, with no screen
+    /// anywhere able to undo it. That was survivable while the only way to ask was to be invited.
+    /// It is not now that <em>Add server</em> makes asking a thing anybody does.
+    /// <para>
+    /// Deleting rather than re-opening, so the next ask is a fresh question with a fresh answer,
+    /// and so the row cannot sit in a fourth state nothing else understands.
+    /// </para>
+    /// </remarks>
+    public Task<bool> ForgetRequestAsync(
+        string issuerNodeId,
+        CancellationToken cancellationToken)
+        => _store.DeleteRequestAsync(issuerNodeId, cancellationToken);
 
     /// <summary>Say no.</summary>
     /// <param name="issuerNodeId">The asking node.</param>

@@ -19,7 +19,7 @@ involve.
 | Users & access | Settings → Users & access (`/users` redirects) | phone, web | yes |
 | Logs & status | Settings → Logs & status | phone, web | yes |
 | Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
-| Servers (mesh links, and the server you run) | Settings → Servers | phone, web | **no** — but the linked-servers block inside it is only *mounted* for an administrator, so a member fires none of the elevated calls and keeps the half that is theirs |
+| Servers (mesh links, and the server you run) | Settings → Servers | phone, web | **no** — but the linked-servers block inside it is only *mounted* for an administrator, so a member fires none of the elevated calls and keeps the half that is theirs. *Add server* is offered to every member: the question it asks is one a member can answer, and the decision it leads to is still an administrator's |
 
 Finding something to request is the Requests tab's own first section, **Find**: one box, films and
 series together, chips to narrow to one, and a Request button on every row. It briefly lived on the
@@ -72,6 +72,12 @@ The gate is unchanged: hiding a category is the courtesy, `RequiresAdmin` (or th
 wrapper) on the route is the control, because a URL can be pasted. **The server I run** is still the
 deliberate exception in the other direction — it is a block inside Servers rather than a row of its
 own, still ungated, because it is about the server the *reader* runs. See `docs/INVITES.md` §11.
+
+`/settings/servers/join` is the second exception, and a newer one. Accepting a link is still
+elevated on the server and inside the screen; what changed is that somebody is now *sent* there by a
+link somebody else pressed Add server to make, and a member who follows one is doing the right
+thing. `JoinGroupScreen` answers them with the link to forward rather than a refusal, which needs
+the invite code, which only that screen has — so the gate moved inside it.
 
 Above 1024 px (`SETTINGS_TWO_PANE_MIN_WIDTH`, `constants/Settings.ts`) the categories are a column
 beside the page; below it they are the list they always were.

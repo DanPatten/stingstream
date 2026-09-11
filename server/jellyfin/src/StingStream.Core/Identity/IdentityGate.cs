@@ -247,6 +247,94 @@ public static class IdentityGate
             : "You do not have an account on this server yet. Ask for an invite link.";
     }
 
+    /// <summary>
+    /// Why this offer of another server cannot be recorded, or <see langword="null"/> when it can.
+    /// </summary>
+    /// <param name="verified">Whether the mesh confirmed the signature and the audience.</param>
+    /// <param name="challengeMatched">Whether the nonce was one we issued and had not spent.</param>
+    /// <param name="callerIsSignedIn">Whether the request carried a session on this server.</param>
+    /// <param name="issuerIsThisNode">Whether the assertion was signed by this very node.</param>
+    /// <returns>One sentence, or <see langword="null"/>.</returns>
+    /// <remarks>
+    /// <para>
+    /// The same order as <see cref="DecideSignIn"/>, for the same reason: an assertion that was
+    /// never genuine is not told which of our nonces it missed.
+    /// </para>
+    /// <para>
+    /// <b>And no invite, which is the difference.</b> <see cref="DecideSignIn"/> demands one the
+    /// first time because a genuine assertion from a stranger is not permission to have an account
+    /// here. Nobody is asking for an account on this path: they already hold one, the session
+    /// proves it, and all the assertion adds is which server they run. Requiring an invite as well
+    /// would mean an administrator needed an invite to their own server to add their second one.
+    /// </para>
+    /// <para>
+    /// A node offering itself is refused outright. It would otherwise be possible to approve a
+    /// link with yourself, mint an invite to your own group and join it, which the mesh answers by
+    /// doing nothing and the screens answer by listing this server twice.
+    /// </para>
+    /// </remarks>
+    public static string? DecideLinkStart(
+        bool verified,
+        bool challengeMatched,
+        bool callerIsSignedIn,
+        bool issuerIsThisNode)
+    {
+        if (!verified)
+        {
+            return "That server could not be verified. Check the address and try again.";
+        }
+
+        if (!challengeMatched)
+        {
+            return "That took too long to come back. Start again from Servers.";
+        }
+
+        if (!callerIsSignedIn)
+        {
+            return "Sign in on this server before adding another one.";
+        }
+
+        return issuerIsThisNode
+            ? "That is this server. Enter the address of the other one."
+            : null;
+    }
+
+    /// <summary>Whether this caller may be handed an approved request's invite code.</summary>
+    /// <param name="callerIsAdmin">Whether they administer this server.</param>
+    /// <param name="requestedBy">The account the request was recorded for.</param>
+    /// <param name="localUserId">The account asking now.</param>
+    /// <returns><see langword="true"/> when the code may go back to them.</returns>
+    /// <remarks>
+    /// <b>The code is bearer, and an approval is not.</b> An approval is a decision about one
+    /// server; the code it minted admits whoever redeems it. A standing approval can be met again
+    /// — offering an already-approved server returns its answer — so without this rule a
+    /// <em>second</em>, ordinary member of that server, anybody who can get it to vouch for them,
+    /// could ask for the standing code and redeem it on a node of their own. That is a link
+    /// nobody approved.
+    /// <para>
+    /// So: an administrator here, who could mint another in a tap anyway, or the account the
+    /// request names. The same principle <c>MyRequest</c> is written on.
+    /// </para>
+    /// </remarks>
+    public static bool MayHoldTheCode(
+        bool callerIsAdmin,
+        string? requestedBy,
+        string? localUserId)
+    {
+        if (callerIsAdmin)
+        {
+            return true;
+        }
+
+        var asked = (requestedBy ?? string.Empty).Trim();
+        var asking = (localUserId ?? string.Empty).Trim();
+        // Never on two empties. An account with no id is not "the same person" as a row with no
+        // requester; both are the absence of an answer, and the absence of an answer is not a yes.
+        return asked.Length > 0
+            && asking.Length > 0
+            && string.Equals(asked, asking, StringComparison.Ordinal);
+    }
+
     /// <summary>Whether two node ids name the same server.</summary>
     /// <remarks>
     /// Case-insensitive because a node id is hex and both cases are the same value, and one of

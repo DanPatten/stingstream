@@ -184,6 +184,87 @@ public class IdentityGateTests
     }
 
     [Fact]
+    public void AddingAServerReportsABadSignatureBeforeASpentNonce()
+    {
+        // Same order as DecideSignIn, and for the same reason: an assertion that was never genuine
+        // is not told which of our nonces it missed.
+        var problem = IdentityGate.DecideLinkStart(
+            verified: false,
+            challengeMatched: false,
+            callerIsSignedIn: true,
+            issuerIsThisNode: false);
+
+        Assert.NotNull(problem);
+        Assert.Contains("could not be verified", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddingAServerRefusesAReplayedOrExpiredNonce()
+    {
+        var problem = IdentityGate.DecideLinkStart(true, false, true, false);
+
+        Assert.NotNull(problem);
+        Assert.Contains("too long", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddingAServerNeedsNoInvite()
+    {
+        // The difference from DecideSignIn, and the whole point of the second decision existing.
+        // Nobody is asking for an account here: they already hold one, the session proves it, and
+        // all the assertion adds is which server they run. Requiring an invite as well would mean
+        // an administrator needed an invite to their own server to add their second one.
+        Assert.Null(IdentityGate.DecideLinkStart(true, true, callerIsSignedIn: true, issuerIsThisNode: false));
+    }
+
+    [Fact]
+    public void AddingAServerNeedsASessionHere()
+    {
+        var problem = IdentityGate.DecideLinkStart(true, true, callerIsSignedIn: false, issuerIsThisNode: false);
+
+        Assert.NotNull(problem);
+        Assert.Contains("Sign in", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AServerCannotOfferItselfToItself()
+    {
+        // Otherwise it is possible to approve a link with yourself, mint an invite to your own
+        // group and join it: the mesh answers by doing nothing and the screens answer by listing
+        // this server twice.
+        var problem = IdentityGate.DecideLinkStart(true, true, true, issuerIsThisNode: true);
+
+        Assert.NotNull(problem);
+        Assert.Contains("this server", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnApprovedCodeGoesBackToTheAccountItWasApprovedFor()
+    {
+        Assert.True(IdentityGate.MayHoldTheCode(false, "user-1", "user-1"));
+        // An administrator here could mint another in a tap, so withholding this one buys nothing.
+        Assert.True(IdentityGate.MayHoldTheCode(true, "user-1", "somebody-else"));
+    }
+
+    [Fact]
+    public void AndNotToAnotherMemberOfTheSameServer()
+    {
+        // The rule that matters. An approval is a decision about one server; the code it minted
+        // admits whoever redeems it. A second, ordinary member of the approved server could
+        // otherwise meet the standing approval, be handed the code, and redeem it on a node of
+        // their own -- a link nobody approved.
+        Assert.False(IdentityGate.MayHoldTheCode(false, "user-1", "user-2"));
+    }
+
+    [Fact]
+    public void TwoAbsentAnswersAreNotTheSamePerson()
+    {
+        Assert.False(IdentityGate.MayHoldTheCode(false, null, null));
+        Assert.False(IdentityGate.MayHoldTheCode(false, "", ""));
+        Assert.False(IdentityGate.MayHoldTheCode(false, "   ", "user-1"));
+    }
+
+    [Fact]
     public void NodeIdsAreComparedAsValuesRatherThanAsText()
     {
         var node = NodeId();

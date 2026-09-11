@@ -38,6 +38,7 @@ import {
   writeInfoLog,
   writeToLog,
 } from "@/utils/log";
+import { hasPendingInvite } from "@/utils/mesh/pendingInvite";
 import { storage } from "@/utils/mmkv";
 import { onAppForeground } from "@/utils/onAppForeground";
 import { nextQuickConnectAction } from "@/utils/quickConnect/nextAction";
@@ -1236,7 +1237,16 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
       !isJoinRoute &&
       !isAuthorizeRoute
     ) {
-      router.replace("/(auth)/(tabs)/(home)/");
+      // Home, unless a server link is waiting to be finished. Somebody who opened one while
+      // signed out was sent here to sign in, and the code they arrived with is still held in
+      // memory — Home would strand it, because the Accept screen is the only thing that reads it
+      // and nothing else would ever navigate there. This is the whole of "authenticate and
+      // complete the link"; without it the link says it will finish the join and does not.
+      router.replace(
+        hasPendingInvite()
+          ? "/settings/servers/join"
+          : "/(auth)/(tabs)/(home)/",
+      );
     }
   }, [user, segments, loaded]);
 }

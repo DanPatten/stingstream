@@ -74,6 +74,16 @@ public sealed class LinkRequest
     /// <summary>What it calls itself.</summary>
     public string IssuerName { get; set; } = string.Empty;
 
+    /// <summary>Where a browser reaches it, or null.</summary>
+    /// <remarks>
+    /// <b>Kept so the link that finishes the join can be built for somebody who never typed it.</b>
+    /// An administrator answering a request has not seen the address; the person who asked gave it
+    /// once, on another screen, possibly weeks ago. Null for a request that arrived before this
+    /// existed, or through the sign-in path, which asks for no address: those approve exactly as
+    /// they did, and the code is all there is to hand back.
+    /// </remarks>
+    public string? IssuerAddress { get; set; }
+
     /// <summary>The local account of the person who asked.</summary>
     public string RequestedBy { get; set; } = string.Empty;
 
@@ -109,6 +119,9 @@ public sealed class LinkRequestSummary
     /// <summary>What it calls itself.</summary>
     public string IssuerName { get; set; } = string.Empty;
 
+    /// <summary>Where a browser reaches it, or null. What the finishing link is built from.</summary>
+    public string? IssuerAddress { get; set; }
+
     /// <summary>The name of the account here that asked.</summary>
     public string RequestedByName { get; set; } = string.Empty;
 
@@ -143,6 +156,14 @@ public sealed class MyLinkRequest
 
     /// <summary>The invite to redeem on their own server, once it is approved.</summary>
     public string? Code { get; set; }
+
+    /// <summary>Where their own server answers a browser, or null.</summary>
+    /// <remarks>
+    /// With <see cref="Code"/>, this is the whole of the link that finishes the join. Null when the
+    /// request arrived without an address, in which case the screen has the code and nothing to
+    /// point it at.
+    /// </remarks>
+    public string? IssuerAddress { get; set; }
 }
 
 /// <summary>An administrator approving one, into a group of their choosing.</summary>
@@ -157,6 +178,53 @@ public sealed class ApproveLinkRequest
     /// server joins decides what it can see, and a default would be this code deciding that.
     /// </remarks>
     public string? GroupId { get; set; }
+}
+
+/// <summary>Somebody already signed in here, offering the server they run.</summary>
+/// <remarks>
+/// <b>The other half of the invite hand-off, started from the other end.</b> The sign-in path
+/// (<see cref="IdentitySignInRequest"/>) is for a person with no account here yet; this is for one
+/// who has had an account all along and has just proved, with the same signed assertion, that they
+/// also run a node. Nothing about their account here changes: no salt, no verifier, no link row.
+/// See <c>docs/INVITES.md</c> §11.
+/// </remarks>
+public sealed class StartLinkRequest
+{
+    /// <summary>The assertion their own server signed for this one.</summary>
+    public string? Assertion { get; set; }
+
+    /// <summary>Where that server answers a browser, as the wizard resolved it.</summary>
+    /// <remarks>
+    /// Only ever used to build a link to send somebody back to, never to decide anything: the node
+    /// id comes from the signature, which is the half nobody can choose for themselves.
+    /// </remarks>
+    public string? Address { get; set; }
+}
+
+/// <summary>What came of offering it.</summary>
+public sealed class LinkStartResult
+{
+    /// <summary><c>pending</c> or <c>approved</c>.</summary>
+    /// <remarks>
+    /// An administrator's own offer is approved as it is made: they are the person the pending
+    /// queue exists to ask, and putting a question to yourself is not a safeguard.
+    /// </remarks>
+    public string Status { get; set; } = "pending";
+
+    /// <summary>The asking server's node id, as the assertion gave it.</summary>
+    public string IssuerNodeId { get; set; } = string.Empty;
+
+    /// <summary>What that server calls itself.</summary>
+    public string IssuerName { get; set; } = string.Empty;
+
+    /// <summary>Where it answers a browser, or null.</summary>
+    public string? IssuerAddress { get; set; }
+
+    /// <summary>The link created for it, once there is one.</summary>
+    public string? GroupId { get; set; }
+
+    /// <summary>The invite to redeem over there, once there is one.</summary>
+    public string? Code { get; set; }
 }
 
 /// <summary>A challenge this server issued, for somebody to have their own server sign.</summary>

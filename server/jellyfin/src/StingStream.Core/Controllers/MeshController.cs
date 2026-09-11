@@ -337,14 +337,27 @@ public sealed class MeshController : StingStreamControllerBase
     /// <response code="204">Left.</response>
     /// <response code="404">This node is not a member of that group.</response>
     /// <returns>No content.</returns>
+    /// <remarks>
+    /// The share list goes with it. <see cref="Sharing.SharedLibraryStore.RemoveAsync"/> had no
+    /// caller at all, so leaving left the row behind — harmless while a group id was never seen
+    /// again, and not harmless now that one link is one server: the tidy way back from a link that
+    /// went wrong is to leave it and add the server again, and a stale row would decide what the
+    /// new link shares before anybody had been asked.
+    /// </remarks>
     [HttpDelete("groups/{group}")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> Leave(string group, CancellationToken cancellationToken)
-        => await _mesh.LeaveGroupAsync(group, cancellationToken).ConfigureAwait(false)
-            ? NoContent()
-            : NotFound();
+    {
+        if (!await _mesh.LeaveGroupAsync(group, cancellationToken).ConfigureAwait(false))
+        {
+            return NotFound();
+        }
+
+        await _shared.RemoveAsync(group, cancellationToken).ConfigureAwait(false);
+        return NoContent();
+    }
 
     /// <summary>The merged group index: every member's titles.</summary>
     /// <param name="group">The group id.</param>

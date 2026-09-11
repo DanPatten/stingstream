@@ -1,9 +1,8 @@
 import { useTranslation } from "react-i18next";
 import {
-  InviteUserButton,
+  AddServerButton,
   ServersScreen,
 } from "@/components/stingstream/mesh/ServersScreen";
-import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import { SettingsPane } from "./SettingsPane";
 
 /**
@@ -16,7 +15,6 @@ import { SettingsPane } from "./SettingsPane";
  */
 export const ServersPane: React.FC = () => {
   const { t } = useTranslation();
-  const isAdmin = useIsStingStreamAdmin();
 
   return (
     <SettingsPane
@@ -24,7 +22,12 @@ export const ServersPane: React.FC = () => {
       detail={t("home.settings.nav.servers_hint")}
       // Beside the title, because the list below no longer carries a heading of its own to hang it
       // from — two *Servers* headings down one column was the thing being fixed.
-      accessory={isAdmin ? <InviteUserButton /> : null}
+      //
+      // For every member, not only an administrator. The question it asks is one a member can
+      // answer — *do you run a server?* — and the decision it leads to is still an
+      // administrator's. Gating the button would leave the person it is most for, an end user with
+      // a server of their own, with no way to say so.
+      accessory={<AddServerButton />}
     >
       <ServersScreen />
     </SettingsPane>

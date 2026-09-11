@@ -316,6 +316,39 @@ public sealed class IdentityController : ControllerBase
             });
     }
 
+    /// <summary>Offer the server you run to this one, having just proved you run it.</summary>
+    /// <param name="request">The assertion that server signed, and where it answers.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">Recorded. Approved outright for an administrator, pending otherwise.</response>
+    /// <response code="400">Why it could not be recorded.</response>
+    /// <returns>The status, and the invite when there is one.</returns>
+    /// <remarks>
+    /// Any member, because asking is not deciding: an administrator's own offer is approved as it
+    /// is made, and everybody else's waits for one of them. Unlike <c>link-requests</c> above,
+    /// which reads the node being offered out of the caller's link row, this one reads it out of a
+    /// signature, so it works for an account that has always been local. Either way the node id is
+    /// proved rather than typed.
+    /// </remarks>
+    [HttpPost("link-requests/start", Name = "StingStreamStartLinkRequest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(IdentityError), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<LinkStartResult>> StartLink(
+        [FromBody] StartLinkRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (result, problem) = await _identity.StartLinkAsync(
+            request?.Assertion,
+            request?.Address,
+            User?.FindFirst("Jellyfin-UserId")?.Value ?? string.Empty,
+            User?.IsInRole("Administrator") ?? false,
+            DateTimeOffset.UtcNow,
+            cancellationToken).ConfigureAwait(false);
+
+        return result is null
+            ? BadRequest(new IdentityError { Error = problem ?? "That could not be recorded." })
+            : Ok(result);
+    }
+
     /// <summary>What this account's own link request is doing.</summary>
     /// <response code="200">The status, and the invite once it is approved.</response>
     /// <returns>The request.</returns>
@@ -394,6 +427,28 @@ public sealed class IdentityController : ControllerBase
             cancellationToken).ConfigureAwait(false);
         return declined ? NoContent() : NotFound();
     }
+
+    /// <summary>Forget a request, so that server can ask again.</summary>
+    /// <param name="issuer">The asking node's id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">Forgotten.</response>
+    /// <response code="404">There was no request from that server.</response>
+    /// <returns>Nothing.</returns>
+    /// <remarks>
+    /// The way back from a decline, and the only one. A decision is sticky on purpose — the upsert
+    /// refuses to reset a decided row to pending — so without this an administrator who declined by
+    /// mistake had shut that server out permanently, with no screen anywhere able to undo it.
+    /// </remarks>
+    [HttpDelete("link-requests/{issuer}", Name = "StingStreamForgetLinkRequest")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> ForgetLinkRequest(
+        [FromRoute] string issuer,
+        CancellationToken cancellationToken)
+        => await _identity.ForgetRequestAsync(issuer, cancellationToken).ConfigureAwait(false)
+            ? NoContent()
+            : NotFound();
 
     /// <summary>Which people on other servers hold an account here.</summary>
     /// <response code="200">The links, newest first.</response>

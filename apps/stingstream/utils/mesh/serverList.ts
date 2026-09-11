@@ -27,6 +27,28 @@ export interface ServerRow {
    * belongs to every link it has and so to none in particular.
    */
   group: string | null;
+  /**
+   * What this row is still waiting for, or null when it is a link that exists.
+   *
+   * `approval` is an administrator here who has not answered yet; `them` is an administrator over
+   * there who has not accepted yet. A waiting row is not a peer and never will be until somebody
+   * acts, which is exactly why it is on the list: a page that showed nothing between *Add server*
+   * and the other side accepting would be a page lying about its own state.
+   */
+  waiting: "approval" | "them" | null;
+}
+
+/** A server that has been offered but is not a peer yet. */
+export interface WaitingServer {
+  /** Node id of the server that was offered. */
+  node: string;
+  name: string;
+  /** Where a browser reaches it, or null. */
+  address: string | null;
+  /** `pending` here, or `approved` here and waiting for them. */
+  status: "pending" | "approved";
+  /** The link it was approved into, when there is one. */
+  group: string | null;
 }
 
 /** Where a browser can reach a peer, preferring its own name over a plain-HTTP LAN address. */
@@ -55,10 +77,17 @@ export const peerAddress = (peer: MeshNodePeer): string | null => {
  * paint there was nothing to compare against and this server was drawn twice, once labelled and
  * once as a stranger with the same name. The id decides whenever it is known; the name is the
  * fallback for the moment before, and only then, because two servers really can share a name.
+ *
+ * **Servers still being added come last, and only while they are still being added.** A link takes
+ * two administrators to make, so there is a real interval — sometimes days, if the link went off
+ * to somebody by message — when a server has been offered and is not yet a peer. It is listed,
+ * greyed and labelled with what it is waiting for. The moment it joins it is a peer like any
+ * other and the waiting row is deduped away by node id, so the two can never both be drawn.
  */
 export function buildServerList(
   thisServer: { node: string | null; name: string; address: string | null },
   peers: readonly MeshNodePeer[] | null | undefined,
+  waiting: readonly WaitingServer[] | null | undefined = [],
 ): ServerRow[] {
   const rows: ServerRow[] = [
     {
@@ -68,6 +97,7 @@ export function buildServerList(
       isThisServer: true,
       online: true,
       group: null,
+      waiting: null,
     },
   ];
 
@@ -95,8 +125,29 @@ export function buildServerList(
       isThisServer: false,
       online: Boolean(peer.online),
       group: peer.group || null,
+      waiting: null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return [...rows, ...remote];
+  const unfinished = [...(waiting ?? [])]
+    .filter((server) => {
+      const key = (server.node ?? "").toLowerCase();
+      // A server that has joined is a peer, and a peer is the truer row: it has a live address, a
+      // group and an online state, none of which a request row knows.
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map<ServerRow>((server) => ({
+      node: server.node,
+      name: server.name || server.node.slice(0, 8),
+      address: server.address,
+      isThisServer: false,
+      online: false,
+      group: server.group,
+      waiting: server.status === "approved" ? "them" : "approval",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return [...rows, ...remote, ...unfinished];
 }

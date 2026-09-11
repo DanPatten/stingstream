@@ -189,6 +189,16 @@ the removed member straight back in with the new key.
 secret and can run its own admit endpoint. That is inherent to a shared-secret group. The mitigation
 is visibility: a server the other side adds appears in your member list.
 
+**And admission is not consent.** `admit::decide` hands the secret to anybody presenting an unspent
+token, with no human in the loop — there is no pending state at this layer and there never was. The
+consent lives one level up, in Core's `link_requests`: an administrator decides to mint the code at
+all, and an administrator on the other side decides to redeem it. `docs/INVITES.md` §11e.
+
+**A link made that way is one group per server**, named after the other server, so that what a node
+shares can be chosen per server rather than once for everybody. Nothing about the protocol assumes
+it: a group of three is still a group of three, and approving into an existing one is still
+possible.
+
 ### Invite links
 
 `POST /mesh/v1/groups/{g}/invite` returns the code and, when this node has a host, a link:

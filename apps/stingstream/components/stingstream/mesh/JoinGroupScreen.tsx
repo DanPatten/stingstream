@@ -8,10 +8,12 @@ import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import useRouter from "@/hooks/useAppRouter";
+import { useNodeContext } from "@/hooks/useNodeContext";
 import { useJoinMeshGroupOnNode } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
-import { parseInviteInput } from "@/utils/mesh/inviteLink";
+import { buildInviteLink, parseInviteInput } from "@/utils/mesh/inviteLink";
 import { takePendingInvite } from "@/utils/mesh/pendingInvite";
+import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { FormCard } from "./FormCard";
 
 /**
@@ -50,13 +52,19 @@ const ExpoCamera: CameraModule | null =
  * before the router can navigate, remembers it, and replaces to this route — see `/join`'s own
  * docblock for why the code cannot simply be read here.
  *
- * So this is the far end of exactly one journey: somebody asked to link the server they run, an
- * administrator approved it, and the invite that came back opens here on *their* server. The code
- * is filled in rather than submitted, because joining puts this server into somebody else's group
- * and that is worth one deliberate tap.
+ * So this is the far end of exactly one journey: somebody added this server from another one, an
+ * administrator there approved it, and the link that came back opens here. The code is filled in
+ * rather than submitted, because joining puts this server into somebody else's group and that is
+ * worth one deliberate tap. **This tap is the consent** — the other side chose to offer, and this
+ * side chooses to accept, and neither can do both.
  *
  * The paste and scan controls stay for the same journey's awkward cases — a link whose fragment a
  * chat client ate, or a TV with no browser to open it in.
+ *
+ * **Whoever opens the link is not always an administrator**, which is the point of being able to
+ * send it to somebody rather than only open it. A member who lands here is told so and given the
+ * link to forward, because "you do not have permission" over a page somebody was deliberately sent
+ * to is an answer with nothing to do next in it.
  */
 export function JoinGroupScreen() {
   const { t } = useTranslation();
@@ -66,6 +74,7 @@ export function JoinGroupScreen() {
   const [error, setError] = useState<string | null>(null);
   const join = useJoinMeshGroupOnNode();
   const mesh = useMesh();
+  const isAdmin = useIsStingStreamAdmin();
 
   // Somebody arrived here by opening an invite link. `/join` caught the code before the router
   // could navigate; this is where it lands. Filled in rather than submitted: joining puts this
@@ -128,6 +137,8 @@ export function JoinGroupScreen() {
     const text = await Clipboard.getStringAsync();
     if (text?.trim()) setCode(text.trim());
   }, [t]);
+
+  if (!isAdmin) return <ForwardToAdministrator code={code} />;
 
   if (scanning && ExpoCamera) {
     return (
@@ -206,6 +217,69 @@ export function JoinGroupScreen() {
           {t("sharing.join_tv_hint")}
         </Text>
       )}
+    </FormCard>
+  );
+}
+
+/**
+ * What a member sees when somebody sends them a server link.
+ *
+ * Accepting one puts this server into another's group and is an administrator's decision, so there
+ * is nothing for a member to press. What there *is* is the link itself, which they can pass on —
+ * and handing it back to them is the whole difference between a dead end and an errand.
+ *
+ * The link is rebuilt from this server's own address rather than remembered, because that is
+ * exactly what it was: the address they opened, with the code in the fragment.
+ */
+function ForwardToAdministrator({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const node = useNodeContext();
+  const link = code.trim()
+    ? buildInviteLink(node?.addresses?.[0] ?? node?.origin ?? null, code.trim())
+    : null;
+
+  const copy = useCallback(async () => {
+    const text = link ?? code.trim();
+    if (!text) return;
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success(t("sharing.invite_copied"));
+      } catch {
+        toast.error(t("sharing.invite_copy_failed"));
+      }
+      return;
+    }
+    if (!requireOptionalNativeModule("ExpoClipboard")) {
+      toast.error(t("sharing.invite_clipboard_unavailable"));
+      return;
+    }
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(text);
+    toast.success(t("sharing.invite_copied"));
+  }, [code, link, t]);
+
+  return (
+    <FormCard>
+      <Text variant='title' weight='semibold'>
+        {t("sharing.join_needs_admin_title")}
+      </Text>
+      <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
+        {t("sharing.join_needs_admin_detail")}
+      </Text>
+
+      {link || code.trim() ? (
+        <>
+          <View style={{ height: 16 }} />
+          <Text variant='caption' tone='tertiary' selectable>
+            {link ?? code.trim()}
+          </Text>
+          <View style={{ height: 12 }} />
+          <Button variant='secondary' icon='share' onPress={() => void copy()}>
+            {t("sharing.join_needs_admin_copy")}
+          </Button>
+        </>
+      ) : null}
     </FormCard>
   );
 }

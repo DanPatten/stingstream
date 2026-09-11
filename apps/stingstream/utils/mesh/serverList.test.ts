@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MeshNodePeer } from "@/lib/stingstream/meshApi";
-import { buildServerList, peerAddress } from "./serverList";
+import { buildServerList, peerAddress, type WaitingServer } from "./serverList";
 
 // Which servers the page lists, in what order, and which one is this one. Pinned here for the
 // reason `buildUserRows` is: they are rules, and they should not need a mesh to check.
@@ -112,6 +112,76 @@ describe("buildServerList", () => {
   test("no peers at all is just this server", () => {
     expect(buildServerList(here, null)).toHaveLength(1);
     expect(buildServerList(here, [])).toHaveLength(1);
+  });
+});
+
+describe("buildServerList, servers still being added", () => {
+  const waiting = (over: Partial<WaitingServer> = {}): WaitingServer => ({
+    node: "waiting-node",
+    name: "Nans Box",
+    address: "https://nan.example",
+    status: "approved",
+    group: "g9",
+    ...over,
+  });
+
+  test("a server that has been offered is listed, after the ones that joined", () => {
+    // A link takes two administrators to make, so there is a real interval when a server has been
+    // offered and is not a peer. A page that showed nothing in it would be a page lying about its
+    // own state.
+    const rows = buildServerList(here, [peer()], [waiting()]);
+    expect(rows.map((r) => [r.name, r.waiting])).toEqual([
+      ["Loft", null],
+      ["Sams Server", null],
+      ["Nans Box", "them"],
+    ]);
+  });
+
+  test("what it is waiting for is which of the two answers is missing", () => {
+    const rows = buildServerList(here, [], [waiting({ status: "pending" })]);
+    expect(rows[1].waiting).toBe("approval");
+    expect(rows[1].online).toBe(false);
+  });
+
+  test("a server that has since joined is drawn once, as the peer", () => {
+    // The peer row is the truer one: it has a live address, a group and an online state, none of
+    // which a request row knows. Drawing both would be the same machine twice.
+    const rows = buildServerList(
+      here,
+      [peer({ node: "waiting-node", nodeName: "Nans Box" })],
+      [waiting()],
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[1].waiting).toBe(null);
+    expect(rows[1].online).toBe(true);
+  });
+
+  test("node ids are matched however they are spelled", () => {
+    const rows = buildServerList(
+      here,
+      [peer({ node: "WAITING-NODE" })],
+      [waiting({ node: "waiting-node" })],
+    );
+    expect(rows).toHaveLength(2);
+  });
+
+  test("this server can never be one of them", () => {
+    const rows = buildServerList(here, [], [waiting({ node: "this-node" })]);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("a nameless one falls back to a readable stub of its id", () => {
+    const rows = buildServerList(
+      here,
+      [],
+      [waiting({ node: "abcdef0123456789", name: "" })],
+    );
+    expect(rows[1].name).toBe("abcdef01");
+  });
+
+  test("none of them is the ordinary case, and costs nothing", () => {
+    expect(buildServerList(here, [peer()])).toHaveLength(2);
+    expect(buildServerList(here, [peer()], null)).toHaveLength(2);
   });
 });
 
