@@ -22,7 +22,8 @@
          identity, and every discovery service off. No relays, no DNS, no DHT: the only addressing
          anybody has is what an invite code carries, so a dial that succeeds succeeded for the
          reason under test.
-      3. A creates a group; B and C join with the same invite code. C publishes an inventory record
+      3. A creates a group; B and C each join with an invite code of their own -- an invite has
+         been single use since minor 3 (docs/UPGRADING.md) -- and C publishes an inventory record
          so there is a holding whose fate can be watched.
       4. **The protocol version** is reported by every node and matches across all three.
       5. **A removes C.** Asserts: a new epoch; B took the new secret while the caller waited; A and
@@ -283,16 +284,30 @@ Invoke-Step 'Every node reports the same protocol version' {
     }
 }
 
-Invoke-Step 'A creates a group, B and C join with one invite code' {
+Invoke-Step 'A creates a group; B and C each join with their own invite code' {
+    <#
+        One code per joiner. An invite has been single use since minor 3 (docs/UPGRADING.md,
+        "Minor 3, and invites that are spent"): the code carries a token the minting node honours
+        once, so a second node presenting the same code is refused -- correctly. This step used to
+        mint one code for both and read that refusal as C failing to join.
+    #>
     $group = Mesh-Json -Node 'a' -Path '/mesh/v1/groups' -Method POST -Body @{ name = 'The House' }
     $script:GroupId = $group.group
-    $script:OldInvite = (Mesh-Json -Node 'a' -Path "/mesh/v1/groups/$($group.group)/invite" -Method POST -Body @{}).code
+    $invitePath = "/mesh/v1/groups/$($group.group)/invite"
 
     foreach ($n in 'b', 'c') {
-        $joined = Mesh-Json -Node $n -Path '/mesh/v1/groups/join' -Method POST -Body @{ code = $script:OldInvite } -TimeoutSec 300
+        $code = (Mesh-Json -Node 'a' -Path $invitePath -Method POST -Body @{}).code
+        if (-not $code) { throw "A minted no invite code for $n" }
+        $joined = Mesh-Json -Node $n -Path '/mesh/v1/groups/join' -Method POST -Body @{ code = $code } -TimeoutSec 300
         Write-Host "      $n joined via '$($joined.via)'"
         if ($joined.via -eq 'none') { throw "$n reached nobody, so nothing below would prove anything" }
     }
+
+    # And one more, minted now and deliberately never presented: the fixture for step 6, which
+    # needs a code that was live *before* the rotation. Spending it here would make that step pass
+    # for the wrong reason -- "already used" rather than "the rotation killed it".
+    $script:OldInvite = (Mesh-Json -Node 'a' -Path $invitePath -Method POST -Body @{}).code
+    if (-not $script:OldInvite) { throw 'A minted no pre-rotation invite code' }
 
     Wait-Until -What 'A to see both B and C as members' -Seconds $TimeoutSeconds -Condition {
         (@(Mesh-Json -Node 'a' -Path "/mesh/v1/groups/$($script:GroupId)/members").members).Count -ge 3
@@ -409,9 +424,14 @@ Invoke-Step "A removal is not a deletion: C's title is still in A's index" {
 
 Invoke-Step 'The old invite code is dead and a new one works' {
     <#
-        Nothing regenerates an invite code, because nothing has to: a code carries the secret, so a
-        rotation kills every code minted before it and the next `POST /invite` mints one that works.
-        Asserted with a fourth node, because that is the only way to find out what a code does.
+        A rotation kills every invite minted before it, and the next `POST /invite` mints one that
+        works. It used to kill them by arithmetic -- a code carried the secret, so a new secret made
+        every old code useless -- and since minor 3 it does it deliberately: a code carries a token
+        rather than the secret, and rotating deletes the outstanding tokens, because otherwise an
+        unspent one minted before somebody was removed would let them back in with the new key.
+        Either way the code under test here is one that was never presented, so what is being
+        proved is the rotation's doing and not the single-use rule's. Asserted with a fourth node,
+        because that is the only way to find out what a code does.
     #>
     Start-MeshNode -Name 'd' | Out-Null
 

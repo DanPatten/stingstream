@@ -281,6 +281,10 @@ jobs:
   e2e-m1:
     name: "e2e: one node — grab, import, play, first run"
     runs-on: ubuntu-latest
+    # For the web bundle, which this harness asserts a browser-runnable node marker in. The
+    # bundle is the `node` job's output and is taken from its artifact below rather than exported
+    # a second time here.
+    needs: node
     # Building Jellyfin, Radarr and Sonarr, then running the whole download path, takes a while.
     timeout-minutes: 60
     steps:
@@ -382,6 +386,18 @@ jobs:
           find server/jellyfin/Jellyfin.Server/bin -maxdepth 3 -name 'jellyfin*' | sort
           echo "--- nzbget ---"
           find third_party/nzbget/bin -maxdepth 4 \( -name 'nzbget' -o -name 'nzbget.conf.template' \) | sort
+
+      # The harness asserts that the page a browser gets carries the node marker, so the node needs
+      # a real web bundle to splice it into. With none it serves its placeholder and the step fails
+      # with "no node marker at all" -- a test about splicing, failing because there was nothing to
+      # splice into. The harness exports one itself, but only in the build step that `-SkipBuild`
+      # turns off here, so this takes the bundle the `node` job already published. The node looks
+      # in `apps/stingstream/dist` when it is run with `--dev` and given no `--web-dist`.
+      - name: Take the web bundle the node job exported
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: stingstream-web-dist
+          path: apps/stingstream/dist
 
       # -WorkDir inside the workspace: the harness defaults to a directory beside the repository,
       # which keeps a whole node's data out of git status locally, but actions/upload-artifact

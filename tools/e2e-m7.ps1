@@ -717,11 +717,21 @@ Invoke-Step 'B joins from STINGSTREAM_JOIN_CODE, with nobody at the keyboard' {
         B is restarted with the variable set rather than a fourth node being started, so this is the
         same node and the same data directory -- which also exercises the idempotent half, since B
         has already been up once.
+
+        **B gets a code of its own.** An invite has been single use since minor 3
+        (docs/UPGRADING.md, "Minor 3, and invites that are spent"), and C spent the one minted
+        above, so handing B the same string joined nothing and this step read the refusal as the
+        environment path being broken.
     #>
     Stop-Tool -Tool $NodeB.Tool
     Start-Sleep -Seconds 3
 
-    $env:STINGSTREAM_JOIN_CODE = $script:InviteCode
+    $bInvite = Invoke-Node $NodeA "/stingstream/api/v1/mesh/groups/$($script:GroupId)/invite" `
+        -Method POST -TimeoutSec 120
+    $bCode = [string](Get-Member-Value $bInvite 'Code')
+    if (-not $bCode) { throw 'A minted no invite code for B' }
+
+    $env:STINGSTREAM_JOIN_CODE = $bCode
     try {
         Start-HarnessNode -Node $NodeB -Suffix '-joined' -ClientId 'e2e-m7'
     } finally {
