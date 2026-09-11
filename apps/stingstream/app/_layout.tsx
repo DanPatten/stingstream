@@ -287,8 +287,10 @@ onlineManager.setEventListener((setOnline) => {
 // Every React Query failure funnels through here instead of needing per-call
 // handlers. Skipped: anything while offline, aborted requests, connectivity
 // failures — no HTTP response or a gateway error, axios or fetch — (an
-// unreachable server is the user's environment, not an app bug), and 401s
-// (session expiry has its own interceptor in JellyfinProvider).
+// unreachable server is the user's environment, not an app bug), and 401s.
+// The axios check below catches Jellyfin's; the node's API clients throw a
+// SessionExpiredError already tagged by markExpectedError, so they are dropped
+// by isExpectedError above rather than needing a status check of their own.
 const shouldReportDataError = (error: unknown): boolean => {
   if (!onlineManager.isOnline()) return false;
   if (isExpectedError(error) || isErrorReported(error)) return false;

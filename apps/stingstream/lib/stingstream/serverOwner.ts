@@ -1,3 +1,4 @@
+import { reportSessionExpired } from "@/utils/sessionExpiry";
 import { authHeaders } from "./meshApi";
 
 /**
@@ -44,6 +45,9 @@ export async function fetchServerOwner(
         signal: controller.signal,
       },
     );
+    // Null either way, as the caller expects, but a revoked token ends the session on the way past
+    // rather than reading as a server that simply has no owner recorded.
+    if (response.status === 401) reportSessionExpired();
     if (!response.ok) return null;
 
     const body = (await response.json().catch(() => null)) as Record<

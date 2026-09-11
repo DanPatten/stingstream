@@ -18,6 +18,13 @@
  * the next time that document is regenerated for other reasons.
  */
 
+import { t } from "i18next";
+import { markExpectedError } from "@/utils/errors";
+import {
+  reportSessionExpired,
+  SessionExpiredError,
+} from "@/utils/sessionExpiry";
+
 const PATH = "/Libraries";
 
 /** What a library type means to the server. Matches `LibraryTypes` on the node. */
@@ -123,6 +130,20 @@ const toProblem = (body: unknown): LibraryProblem | null => {
 };
 
 async function readError(res: Response, what: string): Promise<Error> {
+  // Same split as `meshApi`'s own reader: a revoked token ends the session rather than describing a
+  // library that could not be read. This reader is separate from that one because it has to turn a
+  // ProblemDetails body into a `LibraryPathError`, not because 401 means anything different here.
+  if (res.status === 401) {
+    reportSessionExpired();
+    return markExpectedError(
+      new SessionExpiredError(t("server.please_login_again")),
+    );
+  }
+  if (res.status === 403) {
+    return markExpectedError(
+      new Error(`${what}: ${t("common.no_permission")}`),
+    );
+  }
   let body: unknown;
   try {
     body = await res.json();

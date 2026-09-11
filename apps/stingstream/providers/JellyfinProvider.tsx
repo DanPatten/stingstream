@@ -55,6 +55,7 @@ import {
   updateAccountToken,
 } from "@/utils/secureCredentials";
 import { normalizeHttpBaseUrl } from "@/utils/serverUrl/urlMatching";
+import { onSessionExpired } from "@/utils/sessionExpiry";
 import { store } from "@/utils/store";
 import { clearTVDiscoverySafely } from "@/utils/tvDiscovery/sync";
 import { APP_VERSION } from "@/utils/version";
@@ -425,8 +426,18 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
         return Promise.reject(error);
       },
     );
+    // The interceptor above only sees Jellyfin's calls, because it is attached to this `Api`'s own
+    // axios instance. The node's API is reached three other ways — the hand-rolled
+    // `lib/stingstream/*Api.ts` clients, the generated `openapi-fetch` client, and a few modules
+    // that read a status and return null — none of which touch axios. They report through
+    // `utils/sessionExpiry` instead, and land here. Same guard, so a 401 arriving with nobody
+    // signed in still finds an empty registry and does nothing.
+    const stopSessionExpiryReports = onSessionExpired(
+      () => handleSessionExpired,
+    );
     return () => {
       api.axiosInstance.interceptors.response.eject(interceptorId);
+      stopSessionExpiryReports();
     };
   }, [api, handleSessionExpired]);
 
@@ -907,13 +918,18 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
       } catch (error) {
         // Check for axios error
         if (axios.isAxiosError(error)) {
-          // Token is invalid/expired - remove it
-          if (
-            error.response?.status === 401 ||
-            error.response?.status === 403
-          ) {
+          // Token is invalid/expired - remove it.
+          // 401 only. A 403 used to delete the saved credential too, which threw away a working
+          // password: the server answers 403 to an account whose remote access is turned off, or
+          // one inside a blocked parental schedule, and in both cases the credential is fine and
+          // the refusal is temporary. Deleting it meant the saved login silently disappeared and
+          // could only come back by typing it in again.
+          if (error.response?.status === 401) {
             await deleteAccountCredential(serverUrl, userId);
             throw markExpectedError(new Error(t("server.session_expired")));
+          }
+          if (error.response?.status === 403) {
+            throw markExpectedError(new Error(t("common.no_permission")));
           }
 
           // Network error - server not reachable (no response means server didn't respond)

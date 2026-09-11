@@ -1,15 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import i18n from "i18next";
+import { isExpectedError } from "@/utils/errors";
+import { onSessionExpired, SessionExpiredError } from "@/utils/sessionExpiry";
+import en from "../../translations/en.json";
 import {
   ageOf,
   canManageMembers,
   canRemoveMember,
   confirmedAction,
+  fetchMeshGroups,
   groupCounts,
   groupSyncState,
   initials,
   latestPeerActivity,
   type MeshMember,
   type MeshNodePeer,
+  MeshUnavailableError,
   memberDisplayName,
   memberRoster,
   pathCategory,
@@ -18,6 +24,22 @@ import {
   toMembers,
   toRotation,
 } from "./meshApi";
+
+/**
+ * The real catalogue on the real i18next instance `meshApi.ts` imports `t` from. Without it every
+ * message is the empty string and the assertions below pass vacuously; with it, this spec fails if
+ * one of the keys it names is removed from `en.json`.
+ */
+beforeAll(async () => {
+  if (!i18n.isInitialized) {
+    await i18n.init({
+      lng: "en",
+      fallbackLng: "en",
+      resources: { en: { translation: en } },
+      interpolation: { escapeValue: false },
+    });
+  }
+});
 
 /**
  * The member-management half of the Group screen: the casing it has to survive, the roster it
@@ -489,5 +511,101 @@ describe("confirmedAction", () => {
     expect(calls).toBe(1);
     expect(result?.epoch).toBe(5);
     expect(result?.reached).toEqual(["aaaa1111"]);
+  });
+});
+
+/**
+ * The status mapping in `readError`, which had no coverage at all until a revoked token reached a
+ * user as "this needs an administrator account on your server" on an endpoint that never required
+ * one. 401 and 403 are opposite answers and the sentences must not be interchangeable.
+ */
+describe("readError", () => {
+  const BASE = "https://node.example.com/stingstream/api/v1";
+  const realFetch = globalThis.fetch;
+
+  const stub = (status: number, body?: unknown) => {
+    globalThis.fetch = (async () =>
+      new Response(body === undefined ? "" : JSON.stringify(body), {
+        status,
+      })) as unknown as typeof fetch;
+  };
+
+  /** Count the reports, the way `JellyfinProvider` registers to receive them. */
+  const countReports = () => {
+    const seen = { count: 0 };
+    const stop = onSessionExpired(() => () => {
+      seen.count += 1;
+    });
+    return { seen, stop };
+  };
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("401 is a session that ended, not an account that lacks a permission", async () => {
+    stub(401);
+
+    await expect(fetchMeshGroups(BASE)).rejects.toBeInstanceOf(
+      SessionExpiredError,
+    );
+  });
+
+  test("401 ends the session, so the app stops asking with a dead token", async () => {
+    // Without this the node's own API had no route to the teardown at all: it lives on the Jellyfin
+    // axios instance, which none of these clients go through.
+    stub(401);
+    const { seen, stop } = countReports();
+
+    await expect(fetchMeshGroups(BASE)).rejects.toBeInstanceOf(
+      SessionExpiredError,
+    );
+
+    expect(seen.count).toBe(1);
+    stop();
+  });
+
+  test("403 does not mention an administrator, and does not end the session", async () => {
+    // The node answers 403 to a caller whose account has remote access turned off and to one inside
+    // a blocked parental schedule, both with a valid session and neither about being an admin.
+    stub(403);
+    const { seen, stop } = countReports();
+
+    const error = await fetchMeshGroups(BASE).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(SessionExpiredError);
+    expect((error as Error).message).not.toMatch(/administrator/i);
+    expect((error as Error).message).toContain(
+      "Your account does not have permission to do this.",
+    );
+    expect(seen.count).toBe(0);
+    stop();
+  });
+
+  test("neither reaches Sentry", async () => {
+    // The global React Query handler drops anything markExpectedError has tagged. A session ending
+    // and a permission being refused are both outcomes, not defects.
+    for (const status of [401, 403]) {
+      stub(status);
+      const error = await fetchMeshGroups(BASE).catch((e: Error) => e);
+      expect(isExpectedError(error)).toBe(true);
+    }
+  });
+
+  test("503 is still the mesh being unreachable", async () => {
+    stub(503);
+
+    await expect(fetchMeshGroups(BASE)).rejects.toBeInstanceOf(
+      MeshUnavailableError,
+    );
+  });
+
+  test("anything else still carries the node's own sentence", async () => {
+    stub(400, { error: "That group id is not a group." });
+
+    await expect(fetchMeshGroups(BASE)).rejects.toThrow(
+      "That group id is not a group.",
+    );
   });
 });

@@ -1,7 +1,13 @@
 import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
 import { useQuery } from "@tanstack/react-query";
+import { t } from "i18next";
 import { useAtomValue } from "jotai";
 import { apiAtom } from "@/providers/JellyfinProvider";
+import { markExpectedError } from "@/utils/errors";
+import {
+  reportSessionExpired,
+  SessionExpiredError,
+} from "@/utils/sessionExpiry";
 
 /**
  * Whether this node has anywhere to search, and whether it still works.
@@ -74,6 +80,12 @@ export function useIndexerHealth(enabled: boolean) {
           ? { Authorization: `MediaBrowser Token="${token}"` }
           : {},
       });
+      if (res.status === 401) {
+        reportSessionExpired();
+        throw markExpectedError(
+          new SessionExpiredError(t("server.please_login_again")),
+        );
+      }
       if (!res.ok) throw new Error(`GET ${PATH} failed (${res.status})`);
       return toHealth(await res.json());
     },

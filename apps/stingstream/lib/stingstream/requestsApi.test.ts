@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import i18n from "i18next";
+import { SessionExpiredError } from "@/utils/sessionExpiry";
+import en from "../../translations/en.json";
 import {
+  DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
+  discoverRequestable,
   fetchRequestsAvailable,
   type LibraryIdentity,
   type MemberRequest,
@@ -641,5 +646,56 @@ describe("fetchRequestsAvailable", () => {
     // Rejects rather than resolving false, so react-query holds `data` undefined and the screen
     // renders its sections instead of the gate.
     await expect(fetchRequestsAvailable(BASE)).rejects.toThrow("offline");
+  });
+});
+
+/**
+ * The endpoint the original report came in on. `GET /requests/discover` carries only the
+ * controller's class-level `[Authorize]` — no elevation policy — so it never required an
+ * administrator, and saying so to somebody whose token had been revoked sent them looking for a
+ * permissions problem that did not exist.
+ */
+describe("discoverRequestable and an expired session", () => {
+  const realFetch = globalThis.fetch;
+
+  beforeAll(async () => {
+    if (!i18n.isInitialized) {
+      await i18n.init({
+        lng: "en",
+        fallbackLng: "en",
+        resources: { en: { translation: en } },
+        interpolation: { escapeValue: false },
+      });
+    }
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const stub = (status: number) => {
+    globalThis.fetch = (async () =>
+      new Response("", { status })) as unknown as typeof fetch;
+  };
+
+  const state = DEFAULT_REQUEST_FILTERS;
+
+  test("401 no longer blames an administrator account", async () => {
+    stub(401);
+
+    const error = await discoverRequestable(BASE, state, 1).catch(
+      (e: Error) => e,
+    );
+
+    expect(error).toBeInstanceOf(SessionExpiredError);
+    expect((error as Error).message).not.toMatch(/administrator/i);
+  });
+
+  test("503 is still requests not being set up, ahead of everything else", async () => {
+    stub(503);
+
+    await expect(discoverRequestable(BASE, state, 1)).rejects.toBeInstanceOf(
+      RequestsUnavailableError,
+    );
   });
 });

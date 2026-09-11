@@ -24,6 +24,8 @@
  * when the viewer has asked for quality and the link has been measured able to carry it.
  */
 
+import { reportSessionExpired } from "@/utils/sessionExpiry";
+
 /** One scored source, as `ItemsController.Present` shapes it. */
 export interface ItemSource {
   node: string;
@@ -159,6 +161,10 @@ export async function fetchItemSources(
       `${apiBaseUrl}/items/${encodeURIComponent(itemId)}/sources${qs ? `?${qs}` : ""}`,
       { headers: authHeaders(opts.accessToken), signal: opts.signal },
     );
+    // Still null: the caller's contract is "no sources" and every screen depends on it. But a
+    // revoked token has to end the session on its way past, or a dead session reads here as an
+    // item nobody can play rather than as a session that needs signing in again.
+    if (res.status === 401) reportSessionExpired();
     if (!res.ok) return null;
     return toResponse(await res.json());
   } catch {

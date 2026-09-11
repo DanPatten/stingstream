@@ -16,6 +16,13 @@
  * sensible empty value, and anything else throws a sentence that names the endpoint and the status.
  */
 
+import { t } from "i18next";
+import { markExpectedError } from "@/utils/errors";
+import {
+  reportSessionExpired,
+  SessionExpiredError,
+} from "@/utils/sessionExpiry";
+
 export interface FetchResult<T> {
   data?: T;
   error?: unknown;
@@ -48,6 +55,17 @@ export function unwrap<T>(
   fallback?: T,
 ): T {
   const status = result.response?.status ?? 0;
+
+  // Before the error branch, deliberately. `openapi-fetch` fills in `error` only when it could
+  // parse a body, and ASP.NET's 401 challenge carries none — so a revoked token used to fall all
+  // the way through to "answered 401 with no body", which reads like a broken endpoint rather than
+  // a session that ended. Checking the status first catches it either way.
+  if (status === 401) {
+    reportSessionExpired();
+    throw markExpectedError(
+      new SessionExpiredError(t("server.please_login_again")),
+    );
+  }
 
   if (result.error !== undefined && result.error !== null) {
     throw new ApiError(describe(result.error, what, status), status);

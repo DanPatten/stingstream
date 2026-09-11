@@ -28,6 +28,13 @@
  * regenerated for other reasons.
  */
 
+import { t } from "i18next";
+import { markExpectedError } from "@/utils/errors";
+import {
+  reportSessionExpired,
+  SessionExpiredError,
+} from "@/utils/sessionExpiry";
+
 const PATH = "/downloading";
 
 export interface DownloadingSettings {
@@ -92,6 +99,18 @@ export class DownloadingUnmanagedError extends Error {
 }
 
 async function readError(res: Response, what: string): Promise<Error> {
+  // Ahead of the 503 check, which is about the server's shape rather than the caller's session.
+  if (res.status === 401) {
+    reportSessionExpired();
+    return markExpectedError(
+      new SessionExpiredError(t("server.please_login_again")),
+    );
+  }
+  if (res.status === 403) {
+    return markExpectedError(
+      new Error(`${what}: ${t("common.no_permission")}`),
+    );
+  }
   if (res.status === 503) {
     return new DownloadingUnmanagedError(
       "This server is not managed by StingStream, so downloading cannot be switched here.",

@@ -942,6 +942,7 @@
     "close": "Close",
     "server_not_answering": "This server is not answering.",
     "server_not_answering_detail": "These settings cannot be read or changed until it is back.",
+    "no_permission": "Your account does not have permission to do this.",
     "something_went_wrong": "Something went wrong",
     "show": "Show",
     "hide": "Hide",

@@ -1,3 +1,9 @@
+import { t } from "i18next";
+import { markExpectedError } from "@/utils/errors";
+import {
+  reportSessionExpired,
+  SessionExpiredError,
+} from "@/utils/sessionExpiry";
 import type { SideDoorRecord } from "./sidedoor";
 
 /**
@@ -694,9 +700,24 @@ export const readError = async (
   res: Response,
   what: string,
 ): Promise<Error> => {
-  if (res.status === 401 || res.status === 403) {
-    return new Error(
-      `${what}: this needs an administrator account on your server.`,
+  // 401 and 403 are opposite answers and used to share one sentence, which is how a revoked token
+  // came back as "this needs an administrator account on your server" on an endpoint that never
+  // required an administrator. 401 is the node not knowing who is asking: the session is over, and
+  // the only thing that helps is signing in again. Reporting it is what gives the node's own API
+  // the clean logout Jellyfin's calls have always had through the axios interceptor.
+  if (res.status === 401) {
+    reportSessionExpired();
+    return markExpectedError(
+      new SessionExpiredError(t("server.please_login_again")),
+    );
+  }
+  // 403 is the node knowing exactly who is asking and refusing, which signing in again cannot fix.
+  // Not necessarily about being an administrator either: Jellyfin's own default policy answers 403
+  // to a remote caller whose account has remote access turned off, and to one inside a blocked
+  // parental schedule, both with a perfectly valid session.
+  if (res.status === 403) {
+    return markExpectedError(
+      new Error(`${what}: ${t("common.no_permission")}`),
     );
   }
   // Core answers 503 when it cannot reach the mesh child, rather than an empty result — because

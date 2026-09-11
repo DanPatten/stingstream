@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+import i18n from "i18next";
+import { isExpectedError } from "@/utils/errors";
+import { onSessionExpired, SessionExpiredError } from "@/utils/sessionExpiry";
+import en from "../../translations/en.json";
 import { ApiError, unwrap } from "./unwrap";
 
 const result = <T>(
@@ -89,5 +93,74 @@ describe("unwrap", () => {
     ).toEqual({
       Items: [],
     });
+  });
+});
+
+/**
+ * The generated `openapi-fetch` client is the third way this app reaches the node, and it had no
+ * 401 handling of its own: a revoked token came back as "answered 401 with no body", which reads
+ * like a broken endpoint rather than a session that ended.
+ */
+describe("unwrap and an expired session", () => {
+  beforeAll(async () => {
+    if (!i18n.isInitialized) {
+      await i18n.init({
+        lng: "en",
+        fallbackLng: "en",
+        resources: { en: { translation: en } },
+        interpolation: { escapeValue: false },
+      });
+    }
+  });
+
+  test("a bodyless 401 is a session that ended, not a missing endpoint", () => {
+    // ASP.NET's 401 challenge carries no body, so `openapi-fetch` fills in neither `data` nor
+    // `error`. Checking the status ahead of both is what catches it.
+    let thrown: unknown;
+    try {
+      unwrap(result(401), "GET /downloads");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(SessionExpiredError);
+    expect((thrown as Error).message).toBe(
+      "Your session has expired. Sign in again.",
+    );
+    expect(isExpectedError(thrown)).toBe(true);
+  });
+
+  test("a 401 ends the session", () => {
+    let reports = 0;
+    const stop = onSessionExpired(() => () => {
+      reports += 1;
+    });
+
+    expect(() => unwrap(result(401), "GET /downloads")).toThrow();
+
+    expect(reports).toBe(1);
+    stop();
+  });
+
+  test("a 403 is left alone, because signing in again cannot fix it", () => {
+    let reports = 0;
+    const stop = onSessionExpired(() => () => {
+      reports += 1;
+    });
+
+    let thrown: unknown;
+    try {
+      unwrap(
+        result(403, { error: { error: "Administrators only." } }),
+        "POST /requests/1/approve",
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown).not.toBeInstanceOf(SessionExpiredError);
+    expect(reports).toBe(0);
+    stop();
   });
 });
