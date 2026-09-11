@@ -172,9 +172,9 @@ export function RequestResultRow({
         <View style={{ flexDirection: "row", marginTop: 10 }}>
           {/*
             With a request already open the pill above carries the state and this becomes the thing
-            to do about it. Edit for both kinds now: a film used to get Delete here, on the grounds
-            that seasons were the only editable thing and a film has none, but the sheet carries
-            what this server does about the title too — monitoring, quality, removal — and a film
+            to do about it. Edit for both kinds now: a movie used to get Delete here, on the grounds
+            that seasons were the only editable thing and a movie has none, but the sheet carries
+            what this server does about the title too — monitoring, quality, removal — and a movie
             has all of those. Deleting the request is inside the sheet, where it sits next to what
             it would undo.
 

@@ -56,7 +56,7 @@ export type DownloadResult = StreamResult & DownloadTransport;
  * original unless the person doing the downloading said otherwise. `PlaybackInfo` setting
  * `TranscodingUrl` is *not* that: it is the server saying "this device's download profile cannot
  * direct-play this", which for a 4K federated source means "the home node will now pull the whole
- * film over the mesh and re-encode it in real time so the phone can save it" — two hops, an ffmpeg,
+ * movie over the mesh and re-encode it in real time so the phone can save it" — two hops, an ffmpeg,
  * and a timeout, to produce a worse copy of a file the phone could have fetched directly.
  *
  * Two things count as asking:
@@ -186,7 +186,7 @@ const getDownloadUrl = async (
   // **`TranscodingUrl` is deliberately not consulted here** (M7; the guard that used to be part of
   // this condition is what M5's 4K download fell through). PlaybackInfo sets it whenever the
   // download profile cannot direct-play the source, and honouring that for a federated item means
-  // the home node pulls the whole film over the mesh and re-encodes it in real time so the phone
+  // the home node pulls the whole movie over the mesh and re-encodes it in real time so the phone
   // can save a worse copy of a file it could have fetched itself — slowly enough to hit the
   // downloader's timeout in practice. Offline is the case where the *original* matters most: it is
   // the copy that has to still be worth watching in a month, and MPV plays it. See

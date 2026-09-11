@@ -23,7 +23,7 @@ interface Props {
  * The file's technical facts, folded away until asked for.
  *
  * Pass-02 put this block — size, resolution, SDR, codec, bitrate, fps — *above*
- * the overview, so the first thing the pre-play page said about a film was its
+ * the overview, so the first thing the pre-play page said about a movie was its
  * average bitrate (F-26). Almost nobody wants this, and the few who do want all
  * of it, which is what a disclosure is for: one line at the bottom of the page,
  * everything behind it.

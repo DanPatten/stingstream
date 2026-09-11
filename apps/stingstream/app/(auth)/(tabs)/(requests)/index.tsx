@@ -17,7 +17,7 @@ import useRouter from "@/hooks/useAppRouter";
  *
  * Three route params, all optional. `q` is the search term, written by Search's `Request "…"`
  * button; `tab` is the open section, so that button can land on Find directly — and so a reload, a
- * bookmark or a shared link comes back to the section it named; `kind` narrows Find's bar to films
+ * bookmark or a shared link comes back to the section it named; `kind` narrows Find's bar to movies
  * or to shows, written by an empty Movies or TV shows library alongside `tab=find`. The page reads
  * all three and owns the writing of `tab`, because the router belongs up here rather than in a
  * section component.

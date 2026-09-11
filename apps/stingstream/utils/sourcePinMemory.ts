@@ -38,7 +38,7 @@ export interface SourcePin {
   /**
    * BLAKE3 of the pinned file, when it was known.
    *
-   * Only used to tell two local cuts apart — a folder holding a 1080p and a 720p of the same film
+   * Only used to tell two local cuts apart — a folder holding a 1080p and a 720p of the same movie
    * gives two rows that both mean "this server", and the node id cannot separate them.
    */
   fileHash?: string;

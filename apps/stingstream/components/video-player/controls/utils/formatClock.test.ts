@@ -17,12 +17,12 @@ describe("formatClock", () => {
     expect(formatClock(10 * 3_600_000 + 59 * 60_000 + 59_000)).toBe("10:59:59");
   });
 
-  test("truncates, so the reading never shows a second the film has not reached", () => {
+  test("truncates, so the reading never shows a second the movie has not reached", () => {
     expect(formatClock(3_999)).toBe("0:03");
     expect(formatClock(59_999)).toBe("0:59");
   });
 
-  test("anything unusable is the start of the film, not NaN", () => {
+  test("anything unusable is the start of the movie, not NaN", () => {
     expect(formatClock(null)).toBe("0:00");
     expect(formatClock(undefined)).toBe("0:00");
     expect(formatClock(Number.NaN)).toBe("0:00");

@@ -737,7 +737,7 @@ export const Controls: FC<Props> = ({
   const openSubtitleScale = useCallback(() => setShowSubtitleScale(true), []);
   const closeSubtitleScale = useCallback(() => setShowSubtitleScale(false), []);
 
-  // Auto-hide was switched off here, so on a phone the OSD sat over the film until it was tapped
+  // Auto-hide was switched off here, so on a phone the OSD sat over the movie until it was tapped
   // away — the one behaviour every other player has. It is on now, suspended only while a menu
   // that lives *inside* the controls is open, since hiding those out from under a finger is worse
   // than leaving them up.

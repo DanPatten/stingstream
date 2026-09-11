@@ -593,7 +593,7 @@ describe("a local file and a peer's copy on one item", () => {
   });
 
   test("the local copy is marked as the same file when a peer holds identical bytes", () => {
-    // The direction that matters for a mid-film failover off a local disk: the app has to know
+    // The direction that matters for a mid-movie failover off a local disk: the app has to know
     // there are identical bytes elsewhere before it can resume by offset rather than restarting.
     const local = { ...localSource("local"), ETag: 'W/"b3-abc123"' };
     const choices = build(

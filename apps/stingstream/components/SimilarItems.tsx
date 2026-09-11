@@ -14,7 +14,7 @@ interface SimilarItemsProps extends ViewProps {
 /**
  * "Related" — what the server thinks is like this.
  *
- * Films *and* series, where this used to filter everything but `Movie` away and
+ * Movies *and* series, where this used to filter everything but `Movie` away and
  * then draw "No similar items found" under a heading on every episode page. A
  * section with nothing in it is not a section: `hideIfEmpty` takes it off the
  * page instead of leaving a heading over an apology.

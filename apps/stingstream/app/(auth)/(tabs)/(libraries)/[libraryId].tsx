@@ -924,7 +924,7 @@ const Page = () => {
                 <SkeletonGrid kind='portrait' columns={grid.columns} />
               ) : (
                 // Three situations, three different next moves: a filter to
-                // clear, a film or a show to go and ask for, or nothing to be
+                // clear, a movie or a show to go and ask for, or nothing to be
                 // done. `LibraryEmptyState` holds which is which.
                 <LibraryEmptyState
                   collectionType={library?.CollectionType}

@@ -891,7 +891,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                   itemId={item.Id}
                   minHeight={TV_ACTION_BUTTON_HEIGHT}
                 />
-                {/* Renders nothing unless this is a film or a series with a provider id, which is
+                {/* Renders nothing unless this is a movie or a series with a provider id, which is
                     what an item key -- and therefore a request -- needs. See M6's TVRequestButton. */}
                 <TVRequestButton
                   item={item}

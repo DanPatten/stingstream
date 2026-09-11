@@ -10,7 +10,7 @@ import { authHeaders, both, field, readError } from "./meshApi";
  * **Watching together with somebody on your own node needs none of it.** Jellyfin's own SyncPlay
  * already synchronises two people signed in to the same server, and a federated title is an
  * ordinary library item to it â€” a `.strm` whose bytes happen to come off somebody else's disk â€” so
- * the SyncPlay UI works on a peer's film unchanged. This is only for the case Jellyfin cannot
+ * the SyncPlay UI works on a peer's movie unchanged. This is only for the case Jellyfin cannot
  * reach: two friends on two different nodes, whose servers have no session in common.
  *
  * ## The shape that follows from that

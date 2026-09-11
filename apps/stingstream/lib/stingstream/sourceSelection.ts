@@ -14,7 +14,7 @@
  *  * `pinned-offline` — it is listed but switched off. Auto plays; the row says why.
  *  * `pinned-missing` — it no longer holds this title at all.
  *
- * In both failure modes the film still plays, and **the pin is not deleted**. A machine that was
+ * In both failure modes the movie still plays, and **the pin is not deleted**. A machine that was
  * asleep comes back, and silently forgetting a deliberate choice because of that is the failure
  * people report as "it keeps resetting".
  */
@@ -55,7 +55,7 @@ const findPinned = (
   pin: SourcePin,
 ): SourceChoice | undefined => {
   if (pin.node === null) {
-    // The copy on this server. A folder can hold two cuts of one film, and both rows are `local`
+    // The copy on this server. A folder can hold two cuts of one movie, and both rows are `local`
     // with no node id to tell them apart, so the hash is the tiebreak when there was one.
     const locals = choices.filter((c) => c.local);
     if (locals.length === 0) return undefined;

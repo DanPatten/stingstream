@@ -58,7 +58,7 @@ interface HeaderControlsProps {
   onOpenSubtitleScale?: () => void;
 }
 
-/** `The Bear · S1E3` above the title, or the year for a film. */
+/** `The Bear · S1E3` above the title, or the year for a movie. */
 const subtitleFor = (item: BaseItemDto): string | null => {
   if (item?.Type === "Episode") {
     const code =

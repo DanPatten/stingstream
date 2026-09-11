@@ -26,7 +26,7 @@ export type CardData = {
    *
    * Deliberately only aggregates. A single unwatched movie used to draw a bare
    * accent dot in the same corner, which said nothing a viewer could read (a
-   * whole library of films is unwatched; a dot on every poster is noise). A
+   * whole library of movies is unwatched; a dot on every poster is noise). A
    * count on a series does say something: how much of it is left.
    */
   unplayedCount?: number;

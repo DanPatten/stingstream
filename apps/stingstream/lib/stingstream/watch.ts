@@ -55,7 +55,7 @@ export function useWatchSessions(group?: string | null) {
     refetchInterval: 15_000,
     queryFn: () => fetchWatchSessions(base as string, token, group ?? null),
     // An invite that never arrives is a feature that does not exist, but a node whose mesh is
-    // restarting must not put a red banner in front of somebody trying to watch a film. It answers
+    // restarting must not put a red banner in front of somebody trying to watch a movie. It answers
     // with an error here, and that is simply "no invites".
     retry: false,
   });

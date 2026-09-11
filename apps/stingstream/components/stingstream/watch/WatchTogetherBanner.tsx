@@ -20,7 +20,7 @@ import {
  *
  * Mounted app-wide next to the mini player, because an invite is not a screen anybody would think
  * to go and look at — it arrives while you are doing something else, which is the whole character
- * of being asked to watch a film with a friend.
+ * of being asked to watch a movie with a friend.
  *
  * **It says nothing at all in the ordinary case.** No group, no session, or a session this node is
  * already in: the component renders `null` and costs one loopback poll every fifteen seconds. That
@@ -29,7 +29,7 @@ import {
  * ## What it deliberately does not do
  *
  * Watching with somebody on *your own* node needs none of this — Jellyfin's own SyncPlay covers it,
- * federated titles included, and the app's existing SyncPlay surface works on a peer's film
+ * federated titles included, and the app's existing SyncPlay surface works on a peer's movie
  * unchanged. This is only the cross-node case, so the banner is about *nodes* joining a room rather
  * than people, and joining it here is joining on behalf of everybody signed in to this node. That
  * is also why leaving says what it says when this node is the leader: ending it ends it for

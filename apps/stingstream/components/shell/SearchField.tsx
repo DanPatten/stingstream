@@ -42,7 +42,7 @@ const LIVE_UPDATE_DELAY = 250;
  *
  * **On a settings route** it stops being a media search entirely and becomes
  * "Search settings…", answering out of `settingsSearchIndex` in a panel below
- * itself. A box offering to find films while you are configuring a transcoder
+ * itself. A box offering to find movies while you are configuring a transcoder
  * is the least useful control on the screen, and settings are the thing people
  * genuinely cannot find. The index reaches individual *controls*, not pages, so
  * "transcode" lands on the hardware-acceleration toggle and lights it rather
@@ -83,7 +83,7 @@ export const SearchField: React.FC = () => {
     setValue((current) => (routeTerm === current ? current : routeTerm));
   }, [routeTerm]);
 
-  // Crossing into or out of settings changes what the box is *for*, and a film
+  // Crossing into or out of settings changes what the box is *for*, and a movie
   // title left sitting in a field labelled "Search settings…" reads as a result
   // set nobody asked for.
   useEffect(() => {

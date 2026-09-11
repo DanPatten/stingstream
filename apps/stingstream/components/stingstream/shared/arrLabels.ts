@@ -7,11 +7,11 @@ import type { TFunction } from "i18next";
  * so the brand guard's static scan of string literals cannot catch it. Every place that would
  * otherwise print one of those two words raw comes through here instead.
  *
- * **What they turn into is "Films" and "Series", not two managers.** StingStream is one
+ * **What they turn into is "Movies" and "Series", not two managers.** StingStream is one
  * application (root `CLAUDE.md`, "StingStream is one app"), so the only split a reader may be
  * shown is the one that is true of their own library rather than of our process table. That also
  * happens to be what these fields actually mean to somebody reading a queue: not "which service
- * fetched this" but "is this a film or a series".
+ * fetched this" but "is this a movie or a series".
  */
 
 const KEY_FOR: Record<string, "movie" | "series"> = {
@@ -19,7 +19,7 @@ const KEY_FOR: Record<string, "movie" | "series"> = {
   sonarr: "series",
 };
 
-/** Title-case, for a heading or a short standalone tag: "Films", "Series". */
+/** Title-case, for a heading or a short standalone tag: "Movies", "Series". */
 export function arrAppLabel(
   t: TFunction,
   app: string | null | undefined,
@@ -30,7 +30,7 @@ export function arrAppLabel(
   return app ?? "";
 }
 
-/** Lower case with an article, for a sentence fragment: "tracked as a film". */
+/** Lower case with an article, for a sentence fragment: "tracked as a movie". */
 export function arrAppLabelWithArticle(
   t: TFunction,
   app: string | null | undefined,

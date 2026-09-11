@@ -121,8 +121,8 @@ async function findEntityId(imdbId: string): Promise<string | null> {
  *
  * The two `pq:P1686` ("for work") branches are what make the counts match what
  * people expect. Most craft Oscars — cinematography, editing, score — are
- * recorded against the person who won them rather than the film, so reading
- * only the film's own statements reports Dune as winning nothing when it won
+ * recorded against the person who won them rather than the movie, so reading
+ * only the movie's own statements reports Dune as winning nothing when it won
  * six. Oscar-ness is decided structurally, by the category being part of or an
  * instance of the Academy Awards, rather than by matching label text.
  */

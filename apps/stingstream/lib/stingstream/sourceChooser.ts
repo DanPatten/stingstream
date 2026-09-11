@@ -121,7 +121,7 @@ export function buildSourceChoices(
     locals.push({ choice, mediaSource });
   }
 
-  // One server, two files: a folder holding a 1080p and a 720p cut of the same film is an ordinary
+  // One server, two files: a folder holding a 1080p and a 720p cut of the same movie is an ordinary
   // library, and two rows both reading "This server" would be a coin toss. Naming them only in
   // this case keeps the common one — a single local copy — reading as the place rather than the
   // file.
@@ -207,7 +207,7 @@ const fromLocalSource = (
     rttMs: null,
     // From the ETag rather than from the scored list, because the MediaSource is the authority on
     // a file this server actually holds. It is what "the copy on your server is the same file as
-    // the one on Dan's" is decided on, which is what makes a mid-film failover silent.
+    // the one on Dan's" is decided on, which is what makes a mid-movie failover silent.
     fileHash: normaliseHash(fileHashFromETag(mediaSource.ETag)),
   };
 };

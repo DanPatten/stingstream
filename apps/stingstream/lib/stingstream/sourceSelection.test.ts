@@ -90,7 +90,7 @@ describe("resolveSourceSelection", () => {
   });
 
   test("a pinned holder that is switched off still plays, via Auto", () => {
-    // The film has to start. What must not happen is silently playing something else with no
+    // The movie has to start. What must not happen is silently playing something else with no
     // explanation, which is why the mode is distinct from `auto`.
     const offline = { ...attic, online: false, disabled: true };
     const choices = [{ ...local, recommended: true }, offline];

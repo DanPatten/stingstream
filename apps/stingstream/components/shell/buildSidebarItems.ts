@@ -392,7 +392,7 @@ const SHARED_GROUP_SCREENS = [
  *
  * The one exception is a shared-group screen (see `SHARED_GROUP_SCREENS`),
  * which never falls through to that third rule: it lights the library it was
- * opened from, or nothing. Nothing is the honest answer — a film is not a
+ * opened from, or nothing. Nothing is the honest answer — a movie is not a
  * section — and the top bar names the item itself through `useSetScreenTitle`
  * rather than falling back to a tab label.
  */

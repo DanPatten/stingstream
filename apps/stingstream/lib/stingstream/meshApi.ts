@@ -47,7 +47,7 @@ export interface MeshNodePeer {
   freeSpace?: number | null;
   /**
    * Where a browser can reach *this peer* over HTTPS, as the peer last gossiped it. What a cast
-   * sender races when it hands a receiver a URL for a film held by another node.
+   * sender races when it hands a receiver a URL for a movie held by another node.
    */
   sideDoor?: SideDoorRecord | null;
 }

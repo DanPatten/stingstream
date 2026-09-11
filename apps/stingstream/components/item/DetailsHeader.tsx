@@ -273,7 +273,7 @@ const Poster: React.FC<{ item: BaseItemDto; url?: string | null }> = ({
  * words every other second of the page's life.
  *
  * A logo replaces the words rather than sitting above them: pass-02 drew both,
- * plus a clapperboard glyph, which is three titles for one film. But pass-03
+ * plus a clapperboard glyph, which is three titles for one movie. But pass-03
  * showed what "replaces" costs when the replacement never arrives — the logo
  * laid out at 0×0 and the header had **no title at all** (F-50). So the words
  * are what renders until the image says it loaded, and they come back if it

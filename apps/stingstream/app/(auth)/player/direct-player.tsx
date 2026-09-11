@@ -744,7 +744,7 @@ export default function DirectPlayerPage() {
     // refuses the request outright on a hidden or unfocused document and then
     // throws "has not activated yet" on release. That is the browser's answer,
     // not a fault, and an unhandled rejection here is a console error over a
-    // film that is playing perfectly well.
+    // movie that is playing perfectly well.
     deactivateKeepAwake().catch(() => {});
   }, [
     videoRef,
@@ -780,7 +780,7 @@ export default function DirectPlayerPage() {
 
   // Hold the embedded mesh open for as long as this player is mounted.
   //
-  // Backgrounding the app mid-film is normal — a message arrives, the screen turns off with audio
+  // Backgrounding the app mid-movie is normal — a message arrives, the screen turns off with audio
   // still playing — and the mesh's idle timer would otherwise close the QUIC socket the stream is
   // running over. Released on unmount, including the error paths, because a leaked hold costs
   // battery until the app is next foregrounded.

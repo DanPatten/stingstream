@@ -85,7 +85,7 @@ export interface MemberRequest {
   group: string;
   /** `movie` or `series`. */
   kind: "movie" | "series";
-  /** The film's item key, or the prefix a series' episodes share. */
+  /** The movie's item key, or the prefix a series' episodes share. */
   itemKey: string;
   /** `tmdb` or `tvdb`. */
   provider: string;
@@ -95,7 +95,7 @@ export interface MemberRequest {
   posterUrl?: string | null;
   /** The blurb, kept from the search result the request was made from. */
   overview?: string | null;
-  /** Seasons the show has, specials excluded. `0` for a film, and for a request made before this was recorded. */
+  /** Seasons the show has, specials excluded. `0` for a movie, and for a request made before this was recorded. */
   seasonCount?: number;
   /** Season numbers wanted. Empty means every season. */
   seasons: number[];
@@ -349,7 +349,7 @@ export const toNotification = (raw: unknown): RequestNotification => ({
  * The one-line label for a state, in the words a member would use.
  *
  * Deliberately not the state string: "fulfilling" is a word about the *system*, and the person who
- * asked for a film wants to know it is being downloaded.
+ * asked for a movie wants to know it is being downloaded.
  */
 export const stateLabel = (state: RequestState): string => {
   switch (state) {
@@ -407,7 +407,7 @@ export const seasonsLabel = (seasons: number[] | undefined): string => {
  * is a way out to the page the score came from rather than a decoration. The node sends an IMDb id
  * whenever the lookup carried one, which is most of the time; when it did not, the fallback is
  * IMDb's own search for the title and year, which lands one press away from the same page rather
- * than nowhere. `ttype=ft|tv` narrows that search to titles, so a film does not answer with the
+ * than nowhere. `ttype=ft|tv` narrows that search to titles, so a movie does not answer with the
  * actor who shares its name.
  */
 export const imdbUrl = (result: {
@@ -625,15 +625,15 @@ export const selectMine = (
 
 /**
  * The Requests page asks the node for one term and the node asks *both* arrs, so a title that
- * exists as a film and as a series — or one film listed under two ids by the same provider — comes
+ * exists as a movie and as a series — or one movie listed under two ids by the same provider — comes
  * back twice. Everything in this block decides when two answers are the same title, and it lives
  * here rather than in a component because it is pure and `requestsApi.test.ts` can pin it.
  *
  * The identity of a title is a *set* of keys rather than one id, because the sources do not always
- * agree on which id they carry: a film lookup comes back keyed on TMDB, a series lookup on
+ * agree on which id they carry: a movie lookup comes back keyed on TMDB, a series lookup on
  * TheTVDB, and a Jellyfin item carries whatever the metadata provider wrote into `ProviderIds` —
  * often TMDB and IMDb, sometimes neither. Matching on any single one of them would list the same
- * film twice in a row, which is what makes a result list look like it is not to be trusted.
+ * movie twice in a row, which is what makes a result list look like it is not to be trusted.
  */
 
 /** Case, punctuation and spacing removed, so "WALL·E" and "Wall-E" are the same title. */
@@ -662,7 +662,7 @@ export const providerKey = (
  * normal state of anything added before its metadata was fetched.
  *
  * The year is required and the kind is part of the key: "Alien" with no year would match the
- * series, the 1979 film and the 2026 one all at once, and hiding a title the user *can* ask for is
+ * series, the 1979 movie and the 2026 one all at once, and hiding a title the user *can* ask for is
  * a worse failure than showing one they cannot.
  */
 export const titleKey = (
@@ -734,9 +734,9 @@ export const shouldOfferRequest = (
  * a request the member has already made for it.
  *
  * The node asks both arrs and hands back everything either matched, so a title that exists as a
- * film and as a series comes back twice, as does one film listed under two ids by the same
- * provider. Order is the node's — films first — and the first answer for a title wins, so
- * narrowing to Films or Series never reorders what stays.
+ * movie and as a series comes back twice, as does one movie listed under two ids by the same
+ * provider. Order is the node's — movies first — and the first answer for a title wins, so
+ * narrowing to Movies or Series never reorders what stays.
  *
  * `myRequests` fills in a `requestState` the node did not send. It normally does send one — the
  * search endpoint annotates every result from its own store — but that annotation is a round trip
@@ -1204,7 +1204,7 @@ export const discoverQuery = (
  *
  * The default sort deliberately does *not* reorder. A search's own order is relevance, and the
  * reader has not asked for anything else yet; sorting by popularity the moment the screen opens
- * would push the show somebody typed the name of below a dozen films that outrank it.
+ * would push the show somebody typed the name of below a dozen movies that outrank it.
  */
 export const applyRequestFilters = (
   results: readonly RequestSearchResult[],

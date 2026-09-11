@@ -62,7 +62,7 @@ export interface QualityPreset {
    * Stop upgrading once this group is reached. Its *best* member becomes the cutoff.
    *
    * A profile with no cutoff keeps replacing a perfectly good file with a marginally better one
-   * forever, which is how a server ends up re-downloading the same film all month.
+   * forever, which is how a server ends up re-downloading the same movie all month.
    */
   cutoff: FormatGroup;
 }

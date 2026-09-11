@@ -311,7 +311,7 @@ function TVRequestsScreen() {
  * actually has.
  *
  * `term` is the `q` route param, handed over by Search's `Request "…"` button. It picks Find when
- * `tab` is silent: somebody who arrives at Requests with a film's name is asking for it, not
+ * `tab` is silent: somebody who arrives at Requests with a movie's name is asking for it, not
  * filtering their own list.
  *
  * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows

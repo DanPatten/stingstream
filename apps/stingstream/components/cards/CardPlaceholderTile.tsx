@@ -8,7 +8,7 @@ import type { CardPlaceholder } from "./CardData";
  * Content-type glyphs, on raw Ionicons rather than `components/common/Icon`.
  *
  * `Icon`'s registry is semantic — what an icon *means* as an action or a
- * destination — and has no film/series/album entry, because a content type is
+ * destination — and has no movie/series/album entry, because a content type is
  * not an action. `components/library/LibraryItemCard.tsx` reached the same
  * conclusion for the same reason and carries the same kind of map. Adding these
  * to `Icon` is WP0's call, not this package's.

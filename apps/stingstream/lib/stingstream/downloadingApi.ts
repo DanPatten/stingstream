@@ -31,7 +31,7 @@
 const PATH = "/downloading";
 
 export interface DownloadingSettings {
-  /** Whether this node fetches films. */
+  /** Whether this node fetches movies. */
   films?: boolean | null;
   /** Whether this node fetches series. */
   series?: boolean | null;

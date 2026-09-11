@@ -54,14 +54,14 @@ const isWeb = Platform.OS === "web";
  *
  * **Opened from a row only when there is something to choose, and from a poster always.** It used
  * to open for anything, and that was wrong for a *row*: the sheet was the row it was opened from,
- * drawn again at a larger size, with a second button also called Request, so asking for a film
- * meant pressing Request twice to say one thing. A row still submits a film directly.
+ * drawn again at a larger size, with a second button also called Request, so asking for a movie
+ * meant pressing Request twice to say one thing. A row still submits a movie directly.
  *
  * A poster is the opposite case. A tile is artwork and a title, the overview is not on it, and the
  * press target is the whole card rather than a button labelled with what it will do, so a tap
  * that spent a group download outright would be one mis-aimed thumb away on a grid of sixty. From
- * the catalogue the sheet is where a film is read and then asked for, which is also why the season
- * picker is drawn only for a series: a film has nothing to pick, and a row of twenty numbered
+ * the catalogue the sheet is where a movie is read and then asked for, which is also why the season
+ * picker is drawn only for a series: a movie has nothing to pick, and a row of twenty numbered
  * squares over one is an invitation to wonder what it means.
  *
  * The poster and the blurb went with it for a while, on the reasoning that the row behind the sheet
@@ -179,8 +179,8 @@ export function RequestSheet({
     // Editing says Save, not Request: the request exists, and "Request all" on a row that is
     // already awaiting approval would read as asking for it a second time.
     if (editingNow) return t("requests.save_button");
-    // A film has no seasons, so it has only ever meant one thing. Below the editing case on
-    // purpose: a film whose request is open is being changed, not asked for again.
+    // A movie has no seasons, so it has only ever meant one thing. Below the editing case on
+    // purpose: a movie whose request is open is being changed, not asked for again.
     if (!isSeries) return t("requests.request_button");
     if (seasons.length === total) return t("requests.request_all_seasons");
     return t("requests.request_n_seasons", { count: seasons.length });
@@ -266,7 +266,7 @@ export function RequestSheet({
               {
                 // Named for what it deletes. On a dialog that is already about one title a bare
                 // "Delete" is the shortest label that still leaves the reader checking what it
-                // means, and the thing it deletes is the request, not the film.
+                // means, and the thing it deletes is the request, not the movie.
                 label: t("requests.delete_action"),
                 // `danger`, like the same button on My requests. It was ghost, on the idea that
                 // playing it down keeps it away from the one everybody means to press -- but a
@@ -398,7 +398,7 @@ export function RequestSheet({
           — which a request is not. Dan: *"this is a request not a libary item."* They live on the
           title's own page, where the title is.
 
-          Only when this node's manager tracks it: there is no profile to set on a film no manager
+          Only when this node's manager tracks it: there is no profile to set on a movie no manager
           here has heard of.
         */}
         {managed.row ? (

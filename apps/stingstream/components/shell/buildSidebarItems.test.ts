@@ -371,7 +371,7 @@ describe("activeSidebarKey", () => {
     // pass-02 F-26. `/items/page?id=…` typed or pasted cold carries no group,
     // and expo-router resolves the shared
     // `(home,libraries,search,favorites,watchlists)` group alphabetically — so
-    // this is the exact segment list a deep-linked film produces, and it used
+    // this is the exact segment list a deep-linked movie produces, and it used
     // to light "Favorites" on a page showing Nosferatu.
     expect(
       at(["(auth)", "(tabs)", "(favorites)", "items", "page"]),
@@ -387,7 +387,7 @@ describe("activeSidebarKey", () => {
   test("...but it still lights the library it was opened from", () => {
     // Navigating in-app keeps the library screen underneath in the stack, so
     // its `libraryId` is still in the global params — the more specific rule
-    // above wins and the Movies row stays lit behind the film.
+    // above wins and the Movies row stays lit behind the movie.
     expect(at(["(auth)", "(tabs)", "(libraries)", "items", "page"], "m")).toBe(
       "library:m",
     );

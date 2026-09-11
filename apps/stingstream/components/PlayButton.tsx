@@ -52,7 +52,7 @@ interface Props {
  *
  * **It is the accent, always.** It used to be tinted from the poster's own
  * palette (`useImageColorsReturn`), which meant the most important control in
- * the app was a different color on every title — a mustard bar on one film, a
+ * the app was a different color on every title — a mustard bar on one movie, a
  * washed-out lilac on the next — and on a dark poster it disappeared entirely
  * (plan bug 5). Poster color is atmosphere; it belongs behind the header, not
  * on the button you are looking for.

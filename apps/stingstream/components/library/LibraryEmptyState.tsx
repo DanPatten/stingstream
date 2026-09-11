@@ -39,7 +39,7 @@ const REQUESTABLE: Record<
  *
  * - **Filters emptied it.** The library is fine and the last chip pressed is the problem, so the
  *   action is Clear rather than anything to do with requesting. Offering Request here would send
- *   somebody off to ask for a film they very likely already have.
+ *   somebody off to ask for a movie they very likely already have.
  * - **A Movies or TV shows library really is empty.** This is the one worth acting on, and Find is
  *   where the acting happens: the button carries `tab=find` and the `kind` of the library it was
  *   pressed in, so the catalogue that opens is already narrowed to what the reader was looking at.

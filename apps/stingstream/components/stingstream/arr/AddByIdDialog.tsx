@@ -15,7 +15,7 @@ import { SegmentedControlBar } from "../shared/SegmentedControl";
  *
  * The escape hatch, and the only reason it exists: search-by-title needs a metadata provider to
  * answer with something recognisable, and when it will not, a TMDB or TVDB id is the one thing
- * that still identifies a film. `?term=tmdb:550` is a lookup the managers *can* always answer, so
+ * that still identifies a movie. `?term=tmdb:550` is a lookup the managers *can* always answer, so
  * this resolves the id to a real title first and then asks for it exactly as Find does.
  *
  * **It files a request rather than adding straight to the manager**, and that is the whole

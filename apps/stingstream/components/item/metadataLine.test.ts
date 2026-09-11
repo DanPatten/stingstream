@@ -41,7 +41,7 @@ describe("formatRemaining", () => {
 });
 
 describe("formatYears", () => {
-  test("a film is one year", () => {
+  test("a movie is one year", () => {
     expect(
       formatYears({ Type: "Movie", ProductionYear: 1922 } as BaseItemDto),
     ).toBe("1922");

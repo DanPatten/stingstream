@@ -6,7 +6,7 @@ import { SettingsPane } from "./SettingsPane";
 import { useSharedSettingsField } from "./useSharedSettingsField";
 
 /**
- * How a film or an episode is named and filed once it has arrived.
+ * How a movie or an episode is named and filed once it has arrived.
  *
  * One of the six tabs the old *Server settings* row hid behind a single click,
  * and the reason that row's subtitle had to list all six. A page now, with an

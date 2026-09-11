@@ -72,7 +72,7 @@ describe("buildSettingsCategories", () => {
     // The switch that decides whether any of it does anything is not in this
     // group at all any more. It is a library's own switch, on Libraries, next
     // to the folder that library writes to -- because "can this server have
-    // films" and "where do the films go" were never two questions.
+    // movies" and "where do the movies go" were never two questions.
     const downloading = buildSettingsCategories(admin, t).find(
       (group) => group.key === "downloading",
     );

@@ -35,7 +35,7 @@ import { useAutosave } from "./useAutosave";
  * Server settings → Quality profiles. Gap 4 closed.
  *
  * A profile is one thing with one name, written wherever this server fetches from — which is why
- * there is no picker for that here. What films and series do not share is the quality vocabulary
+ * there is no picker for that here. What movies and series do not share is the quality vocabulary
  * itself, so the editor offers the *shared* names by default and says plainly when a profile asks
  * for something one half does not have (`Unsupported`) or when the two have drifted apart
  * (`InSync`). Both are real states somebody needs to see, not errors to hide.

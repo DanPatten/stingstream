@@ -18,7 +18,7 @@ export const REQUEST_SEARCH_DEBOUNCE_MS = 400;
 /**
  * Below this the search does not run at all (`useRequestSearch`'s own `enabled` is `> 2`).
  *
- * Two characters would be a real search — "Up", "It" and "Us" are all films somebody will type —
+ * Two characters would be a real search — "Up", "It" and "Us" are all movies somebody will type —
  * but one matches everything ever made, and the node pays for the difference.
  */
 export const REQUEST_SEARCH_MIN_LENGTH = 3;

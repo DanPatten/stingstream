@@ -99,7 +99,7 @@ describe("watchApi", () => {
     expect(session.participants[1].driftMs).toBe(-120);
   });
 
-  test("a view carries where the film is right now", () => {
+  test("a view carries where the movie is right now", () => {
     const view = toWatchSessionView({
       Session: pascal,
       PositionMs: 44_500,

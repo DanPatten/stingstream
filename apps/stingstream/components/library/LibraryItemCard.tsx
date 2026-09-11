@@ -53,7 +53,7 @@ const ASPECT_RATIO = 16 / 9;
  * A library, drawn as a wide tile with its name underneath.
  *
  * The name sits **below** the artwork, never over it. A library folder's image
- * is not a poster the way a film's is: Jellyfin builds one from whatever is
+ * is not a poster the way a movie's is: Jellyfin builds one from whatever is
  * inside, and a seeded or hand-made one may well have the library's own name
  * painted into the bitmap — which is exactly what happened, and put "Movies" on
  * the same card twice. Below the tile, that can't recur whatever the image

@@ -27,7 +27,7 @@ interface Props {
  * search for a common word is a dozen sequels and re-releases whose posters are near-identical, so
  * the overview is the only thing that tells them apart. A curated feed is the opposite: it is
  * sixty titles that have nothing to do with each other, nobody reads sixty blurbs, and the poster
- * is how anyone recognises a film at a glance.
+ * is how anyone recognises a movie at a glance.
  *
  * Pressing a poster does exactly what pressing a row's button does, which is why the handler comes
  * in from the screen rather than living here. A title must not mean one thing as a tile and
@@ -50,7 +50,7 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
 
   // The year, and how long the show is when the catalogue knows: a run of twenty seasons is the
   // difference between "I'll start that tonight" and "not this year", and it is the one thing a
-  // poster never says. A film has no season count and gets the year alone.
+  // poster never says. A movie has no season count and gets the year alone.
   const cards = useMemo(
     () =>
       results.map((result) => {
@@ -98,8 +98,8 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
     // Nobody holds these titles yet, so nothing here plays. A play disc on hover would be a
     // promise the press does not keep: it opens the request sheet.
     hoverPlayGlyph: false,
-    // Films and shows are mixed on one grid here, and which one a poster is decides whether the
-    // press ahead asks for a film or for twenty seasons of something.
+    // Movies and shows are mixed on one grid here, and which one a poster is decides whether the
+    // press ahead asks for a movie or for twenty seasons of something.
     kindGlyph: true,
     onPressId: (id) => {
       const result = byId.get(id);

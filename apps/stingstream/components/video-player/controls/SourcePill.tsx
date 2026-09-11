@@ -7,7 +7,7 @@
  * the player, and is the way into "Play from…".
  *
  * **Nothing renders for ordinary playback.** `useMeshSourceStatus` returns `null` for a source that
- * is not a mesh URL, and a badge over every local film would be noise that trains people to ignore
+ * is not a mesh URL, and a badge over every local movie would be noise that trains people to ignore
  * the badge, which is the one time it matters.
  *
  * The exception is the one case where silence would be a dead end: the local copy of a title other

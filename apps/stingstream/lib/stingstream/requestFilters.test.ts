@@ -131,7 +131,7 @@ describe("applyRequestFilters", () => {
    * The default sort leaves the answer alone.
    *
    * A search's own order is relevance. Sorting by popularity the moment the screen opens would push
-   * the show somebody typed the name of below a dozen films that outrank it.
+   * the show somebody typed the name of below a dozen movies that outrank it.
    */
   it("does not reorder under the default sort", () => {
     const first = result({ itemKey: "movie:tmdb:1", popularity: 1 });

@@ -4,7 +4,7 @@
  *
  * A phone has a tap to summon controls and a television has a D-pad; a desktop browser has neither,
  * and a player whose controls only appear on click steals the click that should have paused it.
- * Hiding the cursor with the controls is the other half — a mouse arrow parked over a film is the
+ * Hiding the cursor with the controls is the other half — a mouse arrow parked over a movie is the
  * single most obvious "this is a web page pretending to be a player" tell.
  *
  * Inert off the web, so the player's one `Controls.tsx` can call it unconditionally.

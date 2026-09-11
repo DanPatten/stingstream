@@ -5,7 +5,7 @@
  * `utils/time.ts`'s `formatTimeString` writes "0m 0s" and "1h 5m 3s", which is right for a library
  * row describing a runtime — a duration you read once — and wrong for a readout that ticks. Beside
  * a seek bar it reads as a measurement rather than a position, its width jumps as the words change
- * length, and "0m 0s" is a lot of characters for the start of a film. The two want different
+ * length, and "0m 0s" is a lot of characters for the start of a movie. The two want different
  * things, so this is a second formatter rather than a change to the first: `formatRuntimeTicksExact`
  * and friends are used by rows and cards all over the app, and none of them want `0:00`.
  *
@@ -21,9 +21,9 @@ const SECONDS_PER_HOUR = 3600;
 /**
  * `0:00`, `12:34`, `1:02:03`.
  *
- * Anything that is not a finite, positive number of milliseconds is the start of the film: a
+ * Anything that is not a finite, positive number of milliseconds is the start of the movie: a
  * player whose duration has not arrived yet shows `0:00`, never `NaN:aN` and never nothing at all.
- * Truncated rather than rounded, so the reading never shows a second the film has not reached.
+ * Truncated rather than rounded, so the reading never shows a second the movie has not reached.
  */
 export const formatClock = (ms: number | null | undefined): string => {
   const totalSeconds =

@@ -26,7 +26,7 @@ describe("sourcePinKey", () => {
     expect(sourcePinKey(orphan)).toBe("e1");
   });
 
-  test("files a film and a series under themselves", () => {
+  test("files a movie and a series under themselves", () => {
     expect(sourcePinKey({ Id: "m1", Type: "Movie" } as BaseItemDto)).toBe("m1");
     expect(sourcePinKey({ Id: "s1", Type: "Series" } as BaseItemDto)).toBe(
       "s1",

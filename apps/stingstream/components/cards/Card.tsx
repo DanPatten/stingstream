@@ -41,7 +41,7 @@ type CardProps = {
   hoverPlayGlyph?: boolean;
   /**
    * Draws the item type's glyph at the head of the metadata line. Off by default: a library of
-   * films says "film" on every card, which is sixty copies of something nobody was wondering. A
+   * movies says "movie" on every card, which is sixty copies of something nobody was wondering. A
    * screen that mixes the two — Find — turns it on, and it is the one thing there that cannot be
    * read off a poster at a glance.
    */
@@ -302,7 +302,7 @@ export const Card: React.FC<CardProps> = ({
               ) : null}
               {Boolean(card.subtitle) && (
                 // Shrinks, so a long subtitle — an episode title, where a year
-                // would be on a film — ellipses inside the card rather than
+                // would be on a movie — ellipses inside the card rather than
                 // pushing the score off the end of it.
                 <Text
                   variant='micro'

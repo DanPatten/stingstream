@@ -189,8 +189,8 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
 
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
 
-  // What this node's movie manager does about this film, if it manages it at
-  // all. A film on a pooled library is often held by somebody else's node and
+  // What this node's movie manager does about this movie, if it manages it at
+  // all. A movie on a pooled library is often held by somebody else's node and
   // tracked by no manager here, and then there is nothing to offer.
   const tmdbId = Number(item?.ProviderIds?.Tmdb) || undefined;
   const managed = useArrTitle(
@@ -269,7 +269,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       });
     }
 
-    // Last, and only for a film this server actually manages: it is the one
+    // Last, and only for a movie this server actually manages: it is the one
     // row here that changes what the server does rather than what this session
     // sees, and the only one that can remove something.
     if (managed.row) {
@@ -326,7 +326,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
   );
 
   // Overview first, technical facts last — the order the critique asked for and
-  // the order a person reads a film in.
+  // the order a person reads a movie in.
   const body = (
     <PageContainer bleed style={{ paddingTop: 28, gap: SECTION_GAP }}>
       <OverviewText text={item.Overview} gutter />
@@ -363,7 +363,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         profileName={managed.profileName}
         visible={managing}
         onClose={() => setManaging(false)}
-        // The film and its files are gone; the page is showing something that
+        // The movie and its files are gone; the page is showing something that
         // no longer exists.
         onRemovedWithFiles={() => router.back()}
       />

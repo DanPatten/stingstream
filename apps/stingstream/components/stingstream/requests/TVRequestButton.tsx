@@ -18,7 +18,7 @@ import { scaleSize } from "@/utils/scaleSize";
  * is a phone away. What it *can* do is the case that actually comes up on a television — you are
  * looking at a series whose later seasons the group does not hold, and you want them.
  *
- * Only shown for a series with a TVDB id, or a film with a TMDB id. Without a provider id there is
+ * Only shown for a series with a TVDB id, or a movie with a TMDB id. Without a provider id there is
  * no item key, and without an item key the node has nothing to look up, dedupe against or ask an
  * arr for; offering a button that could only fail would be worse than not offering one.
  */

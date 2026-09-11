@@ -1680,7 +1680,7 @@
     "filter_kind_all": "All",
     "filter_kind_films": "Movies",
     "filter_kind_series": "TV shows",
-    "kind_movie": "Film",
+    "kind_movie": "Movie",
     "kind_series": "TV show",
     "request_title": "Request {{title}}",
     "policy_hint_admins_only": "Requests on this server wait for an administrator.",

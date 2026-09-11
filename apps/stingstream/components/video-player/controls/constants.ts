@@ -4,7 +4,7 @@ import { type ThemePalette, themePalette } from "@/constants/theme";
 /**
  * The palette the over-video controls are drawn from, on every theme.
  *
- * The OSD is not a surface of the app: it is chrome laid over a film, and its
+ * The OSD is not a surface of the app: it is chrome laid over a movie, and its
  * legibility comes from contrast against the picture rather than against a page.
  * The light theme's near-black ink on a translucent white chip is unreadable
  * over bright footage, and the theme a person picked for their library is not a

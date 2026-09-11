@@ -190,7 +190,7 @@ export default function SearchPage() {
             recursive: true,
             userId: user?.Id,
             // What the catalogue half of this screen dedupes against. Without
-            // it Jellyfin sends no `ProviderIds` at all, and every film the
+            // it Jellyfin sends no `ProviderIds` at all, and every movie the
             // server already holds would also be offered as one to request.
             fields: [ItemFields.ProviderIds],
           },
@@ -435,7 +435,7 @@ export default function SearchPage() {
   // ask. Asking lives on the Requests tab now, and this screen's job is to
   // hand over to it at the moment somebody wants it.
   //
-  // Only films and series are compared: an episode's `Name` is the episode's
+  // Only movies and series are compared: an episode's `Name` is the episode's
   // own, so "Pilot" would count as an exact match for a search for a show
   // called Pilot and silently withdraw the offer.
   const offerRequest = useMemo(

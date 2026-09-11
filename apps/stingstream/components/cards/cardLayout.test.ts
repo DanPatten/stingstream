@@ -285,7 +285,7 @@ describe("card artwork", () => {
   const movie = (extra: Record<string, unknown> = {}) =>
     ({
       Id: "movie-1",
-      Name: "A Film",
+      Name: "A Movie",
       Type: "Movie",
       ProductionYear: 1997,
       ...extra,
@@ -398,12 +398,12 @@ describe("card artwork", () => {
   test("no movie carries an unwatched flag any more, only series a count", () => {
     // F-05: the accent dot on every unplayed movie is gone; a series says how
     // many episodes are left, which is a number a viewer can act on.
-    const [film] = buildItemCards(
+    const [card] = buildItemCards(
       [movie({ UserData: { Played: false, UnplayedItemCount: 3 } })],
       { api, kind: "portrait" },
     );
-    expect(film.unplayedCount).toBe(0);
-    expect("unwatched" in film).toBe(false);
+    expect(card.unplayedCount).toBe(0);
+    expect("unwatched" in card).toBe(false);
 
     const [series] = buildItemCards(
       [

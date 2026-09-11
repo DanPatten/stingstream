@@ -228,7 +228,7 @@ const HomeMobile = () => {
     );
   }, [userViews]);
 
-  /** Where "See all" on the suggested-films row goes, when there is one. */
+  /** Where "See all" on the suggested-movies row goes, when there is one. */
   const movieLibraryId = useMemo(
     () => collections.find((c) => c.CollectionType === "movies")?.Id,
     [collections],
@@ -445,7 +445,7 @@ const HomeMobile = () => {
               orientation: "vertical" as const,
               pageSize: 10,
               priority: 2 as const,
-              // These are films out of the movie library, so "See all" opens
+              // These are movies out of the movie library, so "See all" opens
               // it — sorted by name, because "suggested" is not an order the
               // library screen can reproduce and pretending otherwise would
               // give the viewer a list that looks arbitrary.
@@ -791,7 +791,7 @@ const HomeMobile = () => {
             // after this change is every row except the first.
             //
             // pass-02's complaint was that "Suggested movies" was the odd one
-            // out — a row of films from the movie library with no way into it
+            // out — a row of movies from the movie library with no way into it
             // while the rows above it had one. It has one now. "Continue
             // watching" is the one row that is not a slice of a library but a
             // list about you, and there is no screen of it to send anyone to;

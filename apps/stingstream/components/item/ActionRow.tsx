@@ -43,7 +43,7 @@ interface Props {
  * One primary and the rest as ghosts, because a row where everything is filled
  * is a row where nothing is primary — the pass-02 page had a white-outlined
  * "0m" bar and a circle of the same weight beside it and no way to tell which
- * one started the film.
+ * one started the movie.
  *
  * Every control here carries an `accessibilityLabel` even when it also carries a
  * word, and the icon-only ones carry nothing else (F-24): the accessibility

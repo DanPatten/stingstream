@@ -92,7 +92,7 @@ export function FindSection({
   const [debounced, setDebounced] = useState(term);
   // `kind` is the other half of that handoff, and the same shape: an *entry* filter rather than a
   // mirror of the bar. A Movies library's empty state hands `kind=movie` over, so somebody who came
-  // here looking for a film is shown films rather than everything the catalogue has. Nothing on
+  // here looking for a movie is shown movies rather than everything the catalogue has. Nothing on
   // this screen writes it back, so pressing All is a real choice and stays.
   const [filters, setFilters] = useState<RequestFilterState>(
     entryKind
@@ -166,7 +166,7 @@ export function FindSection({
    * where the overview the tile cannot show is, and Request is a deliberate second press.
    *
    * A title that already has a request open goes through `act` exactly as its row does: a show
-   * reopens its seasons, and a film, which has nothing to edit, is withdrawn after a confirmation.
+   * reopens its seasons, and a movie, which has nothing to edit, is withdrawn after a confirmation.
    */
   const openFromGrid = (result: RequestSearchResult) => {
     if (searchAction(result).intent === "manage") {

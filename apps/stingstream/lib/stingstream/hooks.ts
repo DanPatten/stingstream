@@ -270,7 +270,7 @@ export function useMovies(enabled = true) {
     // each one, purely to learn something /healthz already knows for free.
     enabled: enabled && !!client && arrReady === "ready",
     retry: false,
-    // The whole tracked list, and `useArrTitle` asks for it from every film and
+    // The whole tracked list, and `useArrTitle` asks for it from every movie and
     // series page an administrator opens, and from every request row. Without
     // this, walking a library refetches it per navigation.
     //
@@ -362,7 +362,7 @@ export function useTitleLookup(kind: "movie" | "series", term: string) {
 }
 
 export interface UpdateLibraryItemInput {
-  /** TMDB id for a film, TVDB id for a series. */
+  /** TMDB id for a movie, TVDB id for a series. */
   providerId: number;
   monitored?: boolean;
   qualityProfileName?: string;
@@ -445,7 +445,7 @@ export function useDeleteLibraryItem(kind: "movie" | "series") {
 /**
  * What this node's manager knows about a title the app is already showing.
  *
- * The manage actions on a film's or a show's own page need three things a
+ * The manage actions on a movie's or a show's own page need three things a
  * Jellyfin item cannot answer: whether a manager here tracks it at all, whether
  * it is monitored, and which quality profile it is on. `PATCH` and `DELETE` are
  * keyed on the TMDB/TVDB id directly, so the row is wanted for those answers,

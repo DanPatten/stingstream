@@ -43,7 +43,7 @@ const year = (value: string | null | undefined): number | null => {
 /**
  * The years a title covers.
  *
- * A film is one year. A series is a span, and an ongoing one has no end — which
+ * A movie is one year. A series is a span, and an ongoing one has no end — which
  * is written the way a reference book writes it, `1962–` with an en dash, not
  * `1962 - undefined`.
  */

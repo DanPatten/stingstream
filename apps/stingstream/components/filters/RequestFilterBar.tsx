@@ -111,7 +111,7 @@ export const RequestFilterBar: React.FC<Props> = ({ state, set, genres }) => {
         id='requests'
         // Keyed on both the kind and the length, because `FilterButton` fetches its own options and
         // would otherwise hold the first answer it got. The kind decides which genres exist at all
-        // (there is no film called Sci-Fi & Fantasy), and the length changes from nought to a real
+        // (there is no movie called Sci-Fi & Fantasy), and the length changes from nought to a real
         // list the moment the first page of the feed lands.
         queryKey={`requestGenres:${state.kind}:${genres.length}`}
         queryFn={async () => genres}

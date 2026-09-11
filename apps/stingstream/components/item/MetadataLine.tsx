@@ -24,7 +24,7 @@ interface Props {
  * segments: punctuation that recedes reads as a separator, punctuation in the
  * same color as the words reads as part of them. `flexWrap` is deliberate —
  * "one line" is the goal at every width the design targets, but a 320 dp phone
- * with a five-genre film has to put the rest somewhere, and wrapping is better
+ * with a five-genre movie has to put the rest somewhere, and wrapping is better
  * than truncating the age rating away.
  */
 export const MetadataLine: React.FC<Props> = ({ item, streams, style }) => {

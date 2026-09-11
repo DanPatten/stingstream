@@ -2,7 +2,7 @@
  * The wire for `/stingstream/api/v1/libraries` — types, shaping, and plain `fetch`.
  *
  * A library is now the whole answer to "what does this server hold, and does it go and get more":
- * its folder is where films or shows are written, and its switch is what starts the manager that
+ * its folder is where movies or shows are written, and its switch is what starts the manager that
  * fetches them. `LibrariesController` writes both the settings row and `config.toml` in one call,
  * which is why the app makes one call rather than two and why there is no separate downloading
  * endpoint left to keep in step.

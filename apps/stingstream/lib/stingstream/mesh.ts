@@ -397,7 +397,7 @@ export function useJoinMeshGroupOnNode() {
  * Every member of one group, removed ones included. Administrator only.
  *
  * Elevated where `useNodeMeshPeers` is not, because the two answer different questions: peers is
- * liveness and paths, which anybody watching a film has a reason to see, and this is the roster —
+ * liveness and paths, which anybody watching a movie has a reason to see, and this is the roster —
  * node ids, last-seen times and who has been removed — which is the screen the Remove action lives
  * on. So pass `null` for `group` whenever the account cannot manage the group and the query never
  * runs at all, rather than firing a request that comes back 403.

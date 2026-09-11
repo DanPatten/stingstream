@@ -480,14 +480,14 @@ describe("the same title, answered twice", () => {
     expect(titleKey("movie", "Alien", null)).toBeNull();
     expect(titleKey("movie", "", 1979)).toBeNull();
     expect(titleKey("movie", "WALL·E", 2008)).toBe("movie:wall e:2008");
-    // The film and the series of the same name and year are not the same title.
+    // The movie and the series of the same name and year are not the same title.
     expect(titleKey("series", "Alien", 1979)).not.toBe(
       titleKey("movie", "Alien", 1979),
     );
   });
 
   test("the same title answered twice by two lookups is listed once", () => {
-    // A film and a series lookup are two calls against two providers; the film comes back keyed on
+    // A movie and a series lookup are two calls against two providers; the movie comes back keyed on
     // TMDB and the series on TheTVDB, and the shared title and year is what ties them together.
     expect(
       dedupeSearchResults([
@@ -497,7 +497,7 @@ describe("the same title, answered twice", () => {
     ).toHaveLength(1);
   });
 
-  test("two genuinely different films are both kept, in the node's order", () => {
+  test("two genuinely different movies are both kept, in the node's order", () => {
     const rows = dedupeSearchResults([
       result(),
       result({

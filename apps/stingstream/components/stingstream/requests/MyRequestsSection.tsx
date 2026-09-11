@@ -140,7 +140,7 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
                     {/*
                       On every row, not only the ones with seasons to change. It used to be gated on
                       the request still being open *or* this node's manager tracking the title,
-                      which meant three rows in the same state — three films nobody could grab —
+                      which meant three rows in the same state — three movies nobody could grab —
                       showed Edit on the one that happened to have been added here and nothing on
                       the other two. A list where the buttons come and go by something the reader
                       cannot see reads as broken, and the sheet always has something to offer:

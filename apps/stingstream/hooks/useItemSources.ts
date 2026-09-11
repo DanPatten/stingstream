@@ -3,7 +3,7 @@
  *
  * Gated hard on the item actually being federated — at least one `MediaSource.Path` that parses as
  * a mesh pointer. `GET /items/{id}/sources` is a mesh round trip per call, and asking it about the
- * ordinary local films that make up most of a library would put a group-index read behind every
+ * ordinary local movies that make up most of a library would put a group-index read behind every
  * pre-play screen for an answer that is always "this server, and nothing else".
  *
  * Keyed on the policy as well as the item because the answer genuinely differs: the server ranks
