@@ -138,9 +138,11 @@ public sealed class LibraryController : StingStreamControllerBase
         {
             row.State = LibraryStates.AvailableViaGroup;
             row.Monitored = false;
-            row.Note = string.Create(
-                CultureInfo.InvariantCulture,
-                $"Already held by {string.Join(", ", acceptable.Select(h => h.NodeName).Distinct())}; no download started.");
+            // Names nobody on purpose. This used to read "Already held by StingStream; no download
+            // started." on the ordinary one-server setup: the node's own name, which answers
+            // nothing a reader can act on, and in a group it asks them to care which machine the
+            // file is on. The holders are logged below, where that is a diagnostic.
+            row.Note = "Already in your library; no download started.";
 
             IActionResult? arrResult = null;
             if (request.TrackForUpgrades)

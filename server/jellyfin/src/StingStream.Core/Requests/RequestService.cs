@@ -1087,6 +1087,16 @@ public sealed class RequestService
             result.Holders = holders.Distinct().ToList();
             result.AvailableInGroup = holders.Count > 0;
 
+            // Only for the ones the group has, which is a small part of a search page. Telling
+            // somebody their library already has a title and giving them no way to reach it is the
+            // unhelpful half of the answer, and this is the id the sheet's Play control needs.
+            if (result.AvailableInGroup)
+            {
+                result.LocalItemId = ResolveLibraryItemId(
+                    IsMovie(result),
+                    IsMovie(result) ? result.TmdbId : result.TvdbId);
+            }
+
             var existing = _store.LatestForItem(result.ItemKey);
             if (existing is not null)
             {

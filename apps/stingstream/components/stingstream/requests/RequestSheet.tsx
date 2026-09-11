@@ -180,7 +180,15 @@ export function RequestSheet({
     shown.availableInGroup || shown.requestState === "available";
   // Nothing ticked is not a request. There is no way to say "no seasons" on the wire — an empty
   // list means every season — so the button waits rather than sending the opposite of the screen.
-  const nothingChosen = seasons.length === 0;
+  //
+  // Only a series can have nothing chosen. A film has no seasons, so its list is empty by
+  // definition, and testing it without this guard disabled the button permanently: Edit on a film
+  // opened a sheet whose only enabled control was Delete, with a dead Save beside it.
+  const nothingChosen = isSeries && seasons.length === 0;
+  // Editing a film has nothing to submit either. Seasons are the only thing this sheet can change
+  // about an existing request, so a film being edited gets Delete and the close control, rather
+  // than a Save that would send a season list to a request that cannot have one.
+  const nothingToSave = editingNow && !isSeries;
 
   /**
    * The button says what pressing it will ask for.
@@ -325,19 +333,24 @@ export function RequestSheet({
           : []),
         // No Cancel. The dialog closes on its own dismiss — the X, the scrim, Escape — so a button
         // for it is a third control competing with the two that actually do something.
-        {
-          label: submitLabel(),
-          testID: "requests-submit",
-          onPress: submit,
-          // A reason is required rather than optional. Without one the node cannot tell this from
-          // asking for something the group already has, which it would answer by doing nothing.
-          disabled:
-            action.disabled ||
-            nothingChosen ||
-            busy ||
-            (needsReason && !reason),
-          loading: create.isPending || setSeasonsOn.isPending,
-        },
+        ...(nothingToSave
+          ? []
+          : [
+              {
+                label: submitLabel(),
+                testID: "requests-submit",
+                onPress: submit,
+                // A reason is required rather than optional. Without one the node cannot tell this
+                // from asking for something the group already has, which it would answer by doing
+                // nothing.
+                disabled:
+                  action.disabled ||
+                  nothingChosen ||
+                  busy ||
+                  (needsReason && !reason),
+                loading: create.isPending || setSeasonsOn.isPending,
+              },
+            ]),
       ]}
     >
       <View testID='requests-sheet'>

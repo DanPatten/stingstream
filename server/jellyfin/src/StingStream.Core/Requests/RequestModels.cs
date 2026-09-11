@@ -525,6 +525,18 @@ public sealed class RequestSearchResult
     /// <summary>Who holds it.</summary>
     public List<string> Holders { get; set; } = new();
 
+    /// <summary>
+    /// The library item to play, when the group's copy has resolved to one on this node.
+    /// </summary>
+    /// <remarks>
+    /// Set only for a result the group already holds, because that is the one case anybody needs
+    /// it: being told "your library already has this" without a way to go and watch it is the
+    /// unhelpful half of the answer. Null is ordinary rather than an error -- a peer's copy becomes
+    /// an item here only once the federated materialiser has caught up -- and the app simply offers
+    /// no link then.
+    /// </remarks>
+    public string? LocalItemId { get; set; }
+
     /// <summary>The state of an existing request for the same title, if there is one.</summary>
     public string? RequestState { get; set; }
 
