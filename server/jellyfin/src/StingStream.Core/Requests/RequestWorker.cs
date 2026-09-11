@@ -1487,9 +1487,15 @@ public sealed class RequestWorker : BackgroundService
     private async Task<List<HolderInfo>> HoldersAsync(RequestRow row, CancellationToken cancellationToken)
     {
         var isMovie = string.Equals(row.Kind, "movie", StringComparison.Ordinal);
-        IReadOnlyList<SourceCandidate> candidates = isMovie
+        var group = isMovie
             ? await _sources.CandidatesEverywhereAsync(row.ItemKey, cancellationToken).ConfigureAwait(false)
             : await _sources.GroupsHoldingPrefixAsync(row.ItemKey, cancellationToken).ConfigureAwait(false);
+
+        // Plus this node's own library, which the group index does not speak for. Without it a
+        // wanted request could never resolve on a node in no group, or in one whose index has not
+        // been published -- and resolving is the whole of manual fulfilment.
+        var candidates = new List<SourceCandidate>(group);
+        candidates.AddRange(_sources.LocalHoldings(row.ItemKey, !isMovie, _nodeId, _nodeName));
 
         // For a season-limited series request, only an episode of a season that was asked for
         // counts. Otherwise a show whose season 1 the group already had would mark a request for

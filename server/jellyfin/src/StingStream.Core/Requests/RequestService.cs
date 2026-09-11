@@ -93,6 +93,8 @@ public sealed class RequestService
     private readonly MediaBrowser.Controller.Library.IUserManager _users;
 
     private readonly MediaBrowser.Controller.Library.ILibraryManager _library;
+
+    private readonly StingStream.Core.Configuration.INodeRuntimeProvider _runtime;
     private readonly ILogger<RequestService> _logger;
 
     public RequestService(
@@ -105,6 +107,7 @@ public sealed class RequestService
         TmdbCatalog catalogue,
         MediaBrowser.Controller.Library.IUserManager users,
         MediaBrowser.Controller.Library.ILibraryManager library,
+        StingStream.Core.Configuration.INodeRuntimeProvider runtime,
         ILogger<RequestService> logger)
     {
         _store = store;
@@ -116,6 +119,7 @@ public sealed class RequestService
         _catalogue = catalogue;
         _users = users;
         _library = library;
+        _runtime = runtime;
         _logger = logger;
     }
 
@@ -1126,9 +1130,20 @@ public sealed class RequestService
         IReadOnlyList<int> seasons,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<SourceCandidate> candidates = isMovie
+        var group = isMovie
             ? await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken).ConfigureAwait(false)
             : await _sources.GroupsHoldingPrefixAsync(itemKey, cancellationToken).ConfigureAwait(false);
+
+        // Plus this node's own library. The group index only carries what has been published into a
+        // group, so without this a single-server install said "nobody has this" about a film on its
+        // own disk -- offering Request for something already on the shelf, and never asking the
+        // "you already have this" question at all.
+        var candidates = new List<SourceCandidate>(group);
+        candidates.AddRange(_sources.LocalHoldings(
+            itemKey,
+            !isMovie,
+            string.Empty,
+            _runtime.Current?.NodeName ?? string.Empty));
 
         return Holders(candidates, minimumHeight, seasons, isMovie);
     }

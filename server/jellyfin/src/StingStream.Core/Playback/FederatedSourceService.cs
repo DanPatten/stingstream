@@ -35,13 +35,95 @@ public sealed class FederatedSourceService
     public static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(5);
 
     private readonly IMeshClient _mesh;
+
+    private readonly IInventoryService _inventory;
     private readonly ILogger<FederatedSourceService> _logger;
     private readonly ConcurrentDictionary<string, Snapshot> _cache = new(StringComparer.Ordinal);
 
-    public FederatedSourceService(IMeshClient mesh, ILogger<FederatedSourceService> logger)
+    public FederatedSourceService(
+        IMeshClient mesh,
+        IInventoryService inventory,
+        ILogger<FederatedSourceService> logger)
     {
         _mesh = mesh;
+        _inventory = inventory;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// What **this node itself** holds, as candidates, read straight from its own inventory.
+    /// </summary>
+    /// <param name="itemKey">The item key, or a series prefix when <paramref name="prefix"/>.</param>
+    /// <param name="prefix">True to match every key starting with <paramref name="itemKey"/>.</param>
+    /// <param name="nodeId">This node's id, so a caller comparing holders against it agrees.</param>
+    /// <param name="nodeName">This node's display name.</param>
+    /// <returns>One candidate per matching record. Empty when this node holds none.</returns>
+    /// <remarks>
+    /// <para>
+    /// Everything else here answers "what does the *group* hold", by reading the gossiped index.
+    /// That is right for playback, where a federated source means somebody else's copy and the
+    /// local file is Jellyfin's own business. It is wrong for "do we already have this", which is
+    /// what the request system asks before deciding whether anything needs fetching: the index only
+    /// contains what has been published into a group, so a node in **no group at all** — the
+    /// ordinary single-server install — answered "nobody holds it" about a film sitting in its own
+    /// library. A group whose index has not been published yet did the same.
+    /// </para>
+    /// <para>
+    /// The consequences were not cosmetic. The search row offered Request for something already on
+    /// the shelf, asking for it never reached the "you already have this" question, and a request
+    /// on the wanted list could never resolve itself, because resolving means noticing that the
+    /// library now serves that item. Found by Dan on a node whose group index was empty.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<SourceCandidate> LocalHoldings(
+        string itemKey,
+        bool prefix,
+        string nodeId,
+        string nodeName)
+    {
+        if (string.IsNullOrEmpty(itemKey))
+        {
+            return Array.Empty<SourceCandidate>();
+        }
+
+        var records = new List<InventoryRecord>();
+        if (prefix)
+        {
+            foreach (var key in _inventory.Keys)
+            {
+                if (key.StartsWith(itemKey, StringComparison.OrdinalIgnoreCase)
+                    && _inventory.ByKey(key) is { } match)
+                {
+                    records.Add(match);
+                }
+            }
+        }
+        else if (_inventory.ByKey(itemKey) is { } exact)
+        {
+            records.Add(exact);
+        }
+
+        var candidates = new List<SourceCandidate>(records.Count);
+        foreach (var record in records)
+        {
+            candidates.Add(new SourceCandidate
+            {
+                Group = string.Empty,
+                Node = nodeId,
+                NodeName = nodeName,
+                ItemKey = record.ItemKey,
+                // This node is reachable from this node. Nothing about a group's view of it, which
+                // is where the old answer came from, changes that.
+                Online = true,
+                FileHash = record.FileHash,
+                Bitrate = record.Media.VideoBitRate,
+                Size = record.Media.SizeBytes,
+                Height = record.Media.Height,
+                Width = record.Media.Width,
+            });
+        }
+
+        return candidates;
     }
 
     /// <summary>Every holder of one item in one group, ready to score.</summary>
