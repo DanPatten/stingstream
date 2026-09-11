@@ -125,7 +125,12 @@ export function FindSection({
     const action = searchAction(result);
     // Anything already asked for opens the sheet, whatever kind it is: that is where the seasons,
     // what this server does about the title, and deleting the request all live.
-    if (action.intent === "manage") {
+    //
+    // A title the group already holds opens it too, and that one matters more: a film used to be
+    // created straight from here with one press, which for a held title meant silently filing a
+    // request the node would answer by doing nothing. The sheet is where it says what is already
+    // there, offers to play it, and asks why it is wanted anyway.
+    if (action.intent === "manage" || action.intent === "duplicate") {
       setPicking(result);
       return;
     }

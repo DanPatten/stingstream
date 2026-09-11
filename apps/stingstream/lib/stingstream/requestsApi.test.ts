@@ -7,11 +7,13 @@ import {
   dedupeSearchResults,
   discoverRequestable,
   fetchRequestsAvailable,
+  impliesApproval,
   type LibraryIdentity,
   type MemberRequest,
   providerKey,
   type RequestSearchResult,
   RequestsUnavailableError,
+  reasonsFor,
   requestTitle,
   sameUser,
   searchAction,
@@ -121,6 +123,51 @@ describe("reading what the node sent", () => {
     const counts = toCounts({});
     expect(counts.pendingApproval).toBe(0);
     expect(counts.canApprove).toBe(false);
+    expect(counts.wanted).toBe(0);
+  });
+
+  test("a node that says nothing about its mode is treated as automatic", () => {
+    // The upgrade case. A node built before manual mode existed has always behaved automatically,
+    // and reading silence as manual would take an administrator's approval queue away on upgrade.
+    expect(toCounts({}).requestsMode).toBe("automatic");
+    expect(toCounts({ RequestsMode: "weird" }).requestsMode).toBe("automatic");
+  });
+
+  test("a node with no indexer says so, in either casing", () => {
+    expect(toCounts({ RequestsMode: "manual" }).requestsMode).toBe("manual");
+    expect(toCounts({ requestsMode: "manual" }).requestsMode).toBe("manual");
+    expect(toCounts({ Wanted: 4 }).wanted).toBe(4);
+  });
+
+  test("which reasons apply depends on there being episodes to be missing", () => {
+    expect(reasonsFor("movie")).toEqual(["better_quality", "bad_copy"]);
+    expect(reasonsFor("series")[0]).toBe("missing_episode");
+  });
+
+  test("only the states that wait on a person imply an approval", () => {
+    // What the manual-mode label hangs off. A wanted request is waiting, but not on a decision:
+    // saying "waiting for approval" there names a queue manual mode does not show.
+    expect(impliesApproval("pending")).toBe(true);
+    expect(impliesApproval("approved")).toBe(true);
+    expect(impliesApproval("wanted")).toBe(false);
+    expect(impliesApproval("fulfilling")).toBe(false);
+    expect(impliesApproval("available")).toBe(false);
+    expect(impliesApproval("declined")).toBe(false);
+    expect(impliesApproval("failed")).toBe(false);
+  });
+
+  test("a reason survives the wire in either casing", () => {
+    expect(toRequest({ Reason: "bad_copy" }).reason).toBe("bad_copy");
+    expect(toRequest({ reasonNote: "out of sync" }).reasonNote).toBe(
+      "out of sync",
+    );
+    expect(toRequest({}).reason).toBeUndefined();
+  });
+
+  test("a search result carries the item to play when one resolved", () => {
+    expect(toSearchResult({ LocalItemId: "abc" }).localItemId).toBe("abc");
+    // Absent is ordinary: a peer's copy becomes an item here only once materialisation catches up.
+    expect(toSearchResult({}).localItemId).toBeUndefined();
   });
 
   test("a notification reads its request id so the app can link to it", () => {
@@ -241,14 +288,16 @@ describe("what the request button offers", () => {
     ...over,
   });
 
-  test("a title the group already holds is not offered again", () => {
-    // The whole point of annotating search results: finding out after pressing Request that no
-    // download was going to happen is too late to be useful.
+  test("a title the group already holds can still be asked for, with a reason", () => {
+    // It used to be disabled, which answered "you already have this" and then refused to let
+    // anybody say "yes, and the audio is broken". The pill beside the title still says it is in the
+    // library; the button now starts the conversation about why it is being asked for anyway.
     const action = searchAction(
       result({ availableInGroup: true, holders: ["loft"] }),
     );
-    expect(action.disabled).toBe(true);
-    expect(action.label).toBe("In your library");
+    expect(action.intent).toBe("duplicate");
+    expect(action.disabled).toBe(false);
+    expect(action.label).toBe("Request anyway");
   });
 
   test("a request already in flight is managed rather than made again", () => {
@@ -262,11 +311,29 @@ describe("what the request button offers", () => {
     }
   });
 
-  test("a title the group already has is the one case with nothing to do", () => {
-    // Not "manage": there is no request left to change, the thing is simply there.
+  test("a filled request is a duplicate rather than a dead end", () => {
+    // Not "manage": there is no request left to change. But the thing being there is exactly when
+    // somebody wants a missing episode, a better release, or a replacement for a bad copy.
     const action = searchAction(result({ requestState: "available" }));
-    expect(action.intent).toBe("none");
-    expect(action.disabled).toBe(true);
+    expect(action.intent).toBe("duplicate");
+    expect(action.disabled).toBe(false);
+  });
+
+  test("a wanted request is the requester's to change, not a duplicate", () => {
+    // Nothing is searching for it, so "Already requested" would overstate it and there is no
+    // approval to be awaiting. It is still theirs to edit or withdraw.
+    const action = searchAction(result({ requestState: "wanted" }));
+    expect(action.intent).toBe("manage");
+    expect(action.label).toBe("Waiting");
+  });
+
+  test("an open request wins over the group already holding the title", () => {
+    // Somebody who asked for a missing season should land on their own request, not be sent round
+    // the "you already have this" question for a title they know the group has.
+    const action = searchAction(
+      result({ availableInGroup: true, requestState: "pending" }),
+    );
+    expect(action.intent).toBe("manage");
   });
 
   test("a declined or failed request may be asked for again, and says so", () => {
@@ -522,7 +589,7 @@ describe("the same title, answered twice", () => {
       result({ availableInGroup: true, holders: ["loft"] }),
     ]);
     expect(only.holders).toEqual(["loft"]);
-    expect(searchAction(only).disabled).toBe(true);
+    expect(searchAction(only).intent).toBe("duplicate");
   });
 
   test("a request the member has already made shows as requested before the node says so", () => {

@@ -24,6 +24,7 @@ import { settingsTwoPane } from "@/constants/Settings";
 import { space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
+import { useRequestsMode } from "@/lib/stingstream/requests";
 import { userAtom } from "@/providers/JellyfinProvider";
 
 // TV keeps its own settings screen entirely — see `docs/conventions/tv.md`.
@@ -79,7 +80,13 @@ const CategoryList: React.FC = () => {
   const [term, setTerm] = useState("");
 
   const groups = useMemo(() => buildSettingsCategories(user, t), [user, t]);
-  const index = useMemo(() => buildSettingsSearchIndex(user, t), [user, t]);
+  // The request policy controls disappear with the tab that holds them when no indexer is
+  // configured, so a search result cannot lead to a pane that will not draw them.
+  const requestsMode = useRequestsMode();
+  const index = useMemo(
+    () => buildSettingsSearchIndex(user, t, requestsMode),
+    [user, t, requestsMode],
+  );
   const matches = useMemo(() => searchSettings(index, term), [index, term]);
   const searching = term.trim().length > 0;
 

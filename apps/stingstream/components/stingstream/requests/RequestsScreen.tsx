@@ -35,7 +35,12 @@ import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
 import { RequestsNotSetUp } from "./RequestsNotSetUp";
-import { sectionFromRoute } from "./requestsSections";
+import { RequestsWantedSection } from "./RequestsWantedSection";
+import {
+  type RequestSegmentKey,
+  sectionFromRoute,
+  visibleRequestSegmentKeys,
+} from "./requestsSections";
 
 /** The same four tones the phone pills use, so a state means one thing everywhere. */
 const TV_TONE_STYLES: Record<
@@ -351,6 +356,11 @@ export function RequestsScreen({
 
   const pending = counts.data?.pendingApproval ?? 0;
   const unread = counts.data?.unreadNotifications ?? 0;
+  const wantedCount = counts.data?.wanted ?? 0;
+  // Undefined until counts arrive, and treated as automatic until then, so the tab bar does not
+  // flicker an approvals queue in and straight back out on a manual node. The loading gate below
+  // holds the screen for the first fetch; this covers a refetch.
+  const manual = counts.data?.requestsMode === "manual";
   // Everything of this member's own that is not finished: waiting, approved, downloading, declined,
   // failed. Not the whole list — a title that arrived is over, and a badge that counts things
   // nobody has to do anything about only ever goes up, which is how a badge stops being read.
@@ -365,35 +375,27 @@ export function RequestsScreen({
   // carried a Request button that only appeared under a pointer and a section
   // that drew nothing whatever when the node's lookup came back empty. A
   // screen whose whole purpose is asking has to be able to ask.
-  const segments: Segment[] = [
-    { key: "find", label: t("requests.tab_find") },
-    {
-      key: "mine",
-      label: t("requests.tab_mine"),
-      badge: mineOpen > 0 ? mineOpen : undefined,
-    },
-    {
-      key: "alerts",
-      label: t("requests.tab_alerts"),
-      badge: unread > 0 ? unread : undefined,
-    },
-    // The elevated half, appended rather than nested. Activity joined it when
-    // the Manage tab was folded in: a request that is `fulfilling` is a row in
-    // Radarr's queue, and checking whether one had landed used to mean visiting
-    // a second tab. `canApprove` is `IsAdministrator`, which is also the gate
-    // every arr endpoint behind Activity requires.
-    ...(canApprove
-      ? [
-          {
-            key: "approvals",
-            label: t("requests.tab_approvals"),
-            badge: pending > 0 ? pending : undefined,
-          },
-          { key: "activity", label: t("requests.tab_activity") },
-          { key: "policy", label: t("requests.tab_policy") },
-        ]
-      : []),
-  ];
+  // The elevated half is appended rather than nested. Activity joined it when the Manage tab was
+  // folded in: a request that is `fulfilling` is a row in the transfer queue, and checking whether
+  // one had landed used to mean visiting a second tab. `canApprove` is `IsAdministrator`, which is
+  // also the gate every endpoint behind Activity requires.
+  //
+  // Which of them appear is a pure function, so it can be tested without rendering anything, and so
+  // the one rule that matters is visible in one place: with no indexer there is nothing to approve,
+  // so the queue becomes a plain list of what people want and the policy governing it goes with it.
+  const badges: Partial<Record<RequestSegmentKey, number>> = {
+    mine: mineOpen,
+    alerts: unread,
+    approvals: pending,
+    wanted: wantedCount,
+  };
+  const segments: Segment[] = visibleRequestSegmentKeys(canApprove, manual).map(
+    (key) => ({
+      key,
+      label: t(`requests.tab_${key}`),
+      badge: (badges[key] ?? 0) > 0 ? badges[key] : undefined,
+    }),
+  );
 
   // Derived, never held: the URL is the one place the open section is written
   // down, so there is no second copy to fall out of step with it.
@@ -414,7 +416,9 @@ export function RequestsScreen({
   //
   // `isLoading`, not `isPending`: the query is disabled until a server is connected, and a disabled
   // query is pending forever — this screen would have held a skeleton up for the whole session.
-  if (available.isLoading) {
+  // Counts as well as availability: the tab bar's shape depends on them, and drawing Approvals and
+  // Policy for a moment before replacing them with Wanted is worse than a beat of nothing.
+  if (available.isLoading || counts.isLoading) {
     return (
       <PageContainer width='media'>
         <LoadingState rows={3} />
@@ -454,6 +458,7 @@ export function RequestsScreen({
       )}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
+      {section === "wanted" && canApprove && <RequestsWantedSection />}
       {section === "activity" && canApprove && <ActivitySection />}
       {section === "policy" && canApprove && <RequestPolicySection />}
     </PageContainer>

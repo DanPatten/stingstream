@@ -139,6 +139,26 @@ export function RequestCard({
             </Text>
           ) : null}
         </View>
+        {/*
+          Why it was asked for when the library already had it. This is what makes the wanted list
+          a list of jobs rather than a list of titles: "The current copy is bad" tells an
+          administrator what to go and do, where the title alone tells them nothing.
+        */}
+        {request.reason ? (
+          <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
+            {t(`requests.reason_${request.reason}`)}
+          </Text>
+        ) : null}
+        {request.reasonNote ? (
+          <Text
+            variant='caption'
+            tone='tertiary'
+            numberOfLines={2}
+            style={{ marginTop: 2 }}
+          >
+            {request.reasonNote}
+          </Text>
+        ) : null}
         {request.note ? (
           <Text
             variant='caption'

@@ -9,6 +9,7 @@ import { elevation, radius, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
+import { useRequestsMode } from "@/lib/stingstream/requests";
 import { userAtom } from "@/providers/JellyfinProvider";
 import {
   buildSettingsSearchIndex,
@@ -104,9 +105,13 @@ export const SearchField: React.FC = () => {
   }, [value, onTermScreen]);
 
   const user = useAtomValue(userAtom);
+  // Only polled while the reader is in Settings. This bar is mounted on every screen, and a
+  // capability query behind a search box nobody is using is a request every thirty seconds for
+  // nothing.
+  const requestsMode = useRequestsMode(inSettings);
   const index = useMemo(
-    () => (inSettings ? buildSettingsSearchIndex(user, t) : []),
-    [inSettings, user, t],
+    () => (inSettings ? buildSettingsSearchIndex(user, t, requestsMode) : []),
+    [inSettings, user, t, requestsMode],
   );
   const matches = useMemo(
     () => (inSettings ? searchSettings(index, value) : []),

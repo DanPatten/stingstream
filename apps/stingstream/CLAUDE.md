@@ -167,7 +167,11 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
 - Tab groups: `(home)`, `(search)`, `(favorites)`, `(libraries)`, `(watchlists)`,
   `(custom-links)`, `(settings)`, `(downloads)`, `(requests)`. `(downloads)` is
   administrator-only and hidden on TV; `(requests)` is visible to every member and present
-  on TV, with its elevated sections (Approvals, Activity, Policy) dropped there. Routes
+  on TV, with its elevated sections (Approvals or Wanted, Activity, Policy) dropped there.
+  Which of those an administrator sees depends on whether any indexer is configured:
+  with none, Approvals becomes Wanted and Policy goes, because nothing can be searched for
+  and so there is nothing to approve. `requestsSections.visibleRequestSegmentKeys` is the
+  whole rule and `docs/REQUESTS.md` §2a is why. Routes
   shared by several tabs live in the combined group
   `(home,libraries,search,favorites,watchlists)`.
 - There is no `(manage)` group, and no arr library screen either. Both were folded into

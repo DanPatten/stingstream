@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -9,18 +10,22 @@ import {
   type ViewStyle,
 } from "react-native";
 import { toast } from "sonner-native";
+import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { radius } from "@/constants/theme";
+import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
   imdbUrl,
   type MemberRequest,
   RequestFinishedError,
+  type RequestReason,
   type RequestSearchResult,
   requestTitle,
   searchAction,
@@ -32,6 +37,7 @@ import {
 } from "@/lib/stingstream/requests";
 import { QualityProfileRow } from "../arr/QualityProfileRow";
 import { confirmDestructive } from "../shared/confirm";
+import { ReasonPicker } from "./ReasonPicker";
 import { requestMadeToast } from "./requestMadeToast";
 import {
   allSeasons,
@@ -95,9 +101,11 @@ export function RequestSheet({
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
+  const router = useRouter();
   const [shown, setShown] = useState<RequestSearchResult | null>(null);
   const [seasons, setSeasons] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState<RequestReason | null>(null);
   const create = useCreateRequest();
   const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
@@ -134,6 +142,7 @@ export function RequestSheet({
       : [];
     setSeasons(current.length > 0 ? current : allSeasons(total));
     setError(null);
+    setReason(null);
   }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
 
   // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
@@ -161,6 +170,12 @@ export function RequestSheet({
   // rightly answered "This request has already finished." Falling back to creating is what the row
   // behind the sheet is offering by then anyway: it reads "Request again".
   const editingNow = editing !== null && action.intent === "manage";
+  // The group already has it and there is no open request to edit, so the only sensible reading of
+  // pressing the button is "I know, and I want something done about it anyway". The sheet asks
+  // which of the three things, and will not submit until it has an answer.
+  const needsReason = !editingNow && action.intent === "duplicate";
+  const heldAlready =
+    shown.availableInGroup || shown.requestState === "available";
   // Nothing ticked is not a request. There is no way to say "no seasons" on the wire — an empty
   // list means every season — so the button waits rather than sending the opposite of the screen.
   const nothingChosen = seasons.length === 0;
@@ -175,6 +190,10 @@ export function RequestSheet({
    */
   const submitLabel = () => {
     if (action.disabled) return action.label;
+    // Before the season branches on purpose. "Request all" on a title the library already has
+    // describes the wrong thing entirely: nothing is being asked for wholesale, one specific
+    // complaint is being made about a copy that exists.
+    if (needsReason) return t("requests.request_anyway");
     if (nothingChosen) return t("requests.request_button");
     // Editing says Save, not Request: the request exists, and "Request all" on a row that is
     // already awaiting approval would read as asking for it a second time.
@@ -184,6 +203,25 @@ export function RequestSheet({
     if (!isSeries) return t("requests.request_button");
     if (seasons.length === total) return t("requests.request_all_seasons");
     return t("requests.request_n_seasons", { count: seasons.length });
+  };
+
+  /**
+   * Open the copy the library already has.
+   *
+   * Closes the sheet first: leaving it stacked over the title somebody just asked to watch means
+   * dismissing a dialog about requesting a thing they are now looking at.
+   */
+  const playExisting = (itemId: string) => {
+    onClose();
+    // Through the app's own router rather than a path written here, so a title opened from a
+    // request lands exactly where one opened from search or the library does.
+    const target = getItemNavigation(
+      { Id: itemId, Type: isSeries ? "Series" : "Movie" } as BaseItemDto,
+      "",
+    );
+    // The cast every caller of this helper uses: its return is a union of every route shape in the
+    // app, which expo-router's own overloads cannot narrow back down.
+    router.push(target as never);
   };
 
   const submit = async () => {
@@ -217,6 +255,7 @@ export function RequestSheet({
         // it, and nothing else can answer either question later.
         overview: shown.overview,
         seasonCount: shown.seasonCount,
+        reason: reason ?? undefined,
       });
       requestMadeToast(made, t);
       onClose();
@@ -287,7 +326,13 @@ export function RequestSheet({
           label: submitLabel(),
           testID: "requests-submit",
           onPress: submit,
-          disabled: action.disabled || nothingChosen || busy,
+          // A reason is required rather than optional. Without one the node cannot tell this from
+          // asking for something the group already has, which it would answer by doing nothing.
+          disabled:
+            action.disabled ||
+            nothingChosen ||
+            busy ||
+            (needsReason && !reason),
           loading: create.isPending || setSeasonsOn.isPending,
         },
       ]}
@@ -364,27 +409,52 @@ export function RequestSheet({
           </View>
         </View>
 
-        {shown.availableInGroup && shown.holders.length > 0 ? (
+        {heldAlready ? (
           <View
             style={{
-              flexDirection: "row",
-              alignItems: "flex-start",
-              gap: 8,
+              gap: 10,
               padding: 12,
               borderRadius: radius.md,
               backgroundColor: color.bg["2"],
             }}
           >
-            <Icon
-              name='info'
-              tone='accent'
-              size={16}
-              style={{ marginTop: 1 }}
-            />
-            <Text variant='caption' tone='secondary' style={{ flex: 1 }}>
-              {t("requests.held_by", { holders: shown.holders.join(", ") })}
-            </Text>
+            <View
+              style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+            >
+              <Icon
+                name='info'
+                tone='accent'
+                size={16}
+                style={{ marginTop: 1 }}
+              />
+              <Text variant='caption' tone='secondary' style={{ flex: 1 }}>
+                {shown.holders.length > 0
+                  ? t("requests.held_by", {
+                      holders: shown.holders.join(", "),
+                    })
+                  : t("requests.duplicate_intro")}
+              </Text>
+            </View>
+            {/*
+              Somebody told they already have something should be one press from watching it.
+              Absent when the copy has not resolved to an item here yet, which happens for a few
+              seconds after a peer first announces one: naming the holder with no link is still
+              better than a button that goes nowhere.
+            */}
+            {shown.localItemId ? (
+              <Button
+                variant='secondary'
+                size='sm'
+                onPress={() => playExisting(shown.localItemId!)}
+              >
+                {t("requests.play_existing")}
+              </Button>
+            ) : null}
           </View>
+        ) : null}
+
+        {needsReason ? (
+          <ReasonPicker kind={shown.kind} value={reason} onChange={setReason} />
         ) : null}
 
         {isSeries ? (

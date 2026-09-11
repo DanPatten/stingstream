@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
+import type { RequestsMode } from "@/lib/stingstream/requestsApi";
 import en from "@/translations/en.json";
 import {
   buildSettingsCategories,
@@ -43,7 +44,8 @@ const t = (key: string): string => {
   return typeof value === "string" ? value : key;
 };
 
-const index = (user: UserDto | null) => buildSettingsSearchIndex(user, t);
+const index = (user: UserDto | null, mode?: RequestsMode) =>
+  buildSettingsSearchIndex(user, t, mode);
 const find = (user: UserDto | null, query: string) =>
   searchSettings(index(user), query).map((entry) => entry.id);
 
@@ -175,5 +177,26 @@ describe("searchSettings", () => {
 
   test("case and surrounding space do not matter", () => {
     expect(find(admin, "  NVENC ")[0]).toBe("hardware-acceleration");
+  });
+});
+
+describe("the request policy controls follow the tab that holds them", () => {
+  test("a node with an indexer offers them", () => {
+    // Pinned so the default cannot be flipped by accident: an administrator who has configured a
+    // source must still be able to search their way to the quota and the trusted list.
+    const ids = index(admin).map((entry) => entry.id);
+    expect(ids).toContain("request-quota");
+    expect(ids).toContain("trusted-requesters");
+  });
+
+  test("with no indexer they go, and the rest of Users and access stays", () => {
+    // There is nothing to approve, so the policy deciding who needs approving has nothing to
+    // govern and its tab is not drawn. A result leading to a pane that will not render it is worse
+    // than no result. The category survives on its other controls, which is what keeps the
+    // "every visible category contributes a control" invariant true.
+    const ids = index(admin, "manual").map((entry) => entry.id);
+    expect(ids).not.toContain("request-quota");
+    expect(ids).not.toContain("trusted-requesters");
+    expect(ids).toContain("accounts");
   });
 });

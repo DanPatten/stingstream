@@ -74,7 +74,46 @@ export type RequestState =
   | "fulfilling"
   | "available"
   | "declined"
-  | "failed";
+  | "failed"
+  | "wanted";
+
+/**
+ * How a group fulfils requests.
+ *
+ * `automatic` is the behaviour that has always existed: a policy decides whether a request needs an
+ * administrator, and a node with an indexer goes and gets it. `manual` is a group where nobody has
+ * configured an indexer, so nothing is going to search for anything: requests go onto the
+ * administrator's list and close themselves once the library serves that title.
+ */
+export type RequestsMode = "automatic" | "manual";
+
+/**
+ * Why somebody asked for a title the library already has.
+ *
+ * Mirrors `RequestReasons` in Core. The last two act on a file that already exists, which is why
+ * they always wait for an administrator whatever the policy says.
+ */
+export type RequestReason = "missing_episode" | "better_quality" | "bad_copy";
+
+/**
+ * Which reasons apply to a kind.
+ *
+ * A film has no episodes, so it only ever has two. Pure so the picker cannot drift from what the
+ * server will accept.
+ */
+export const reasonsFor = (kind: "movie" | "series"): RequestReason[] =>
+  kind === "series"
+    ? ["missing_episode", "better_quality", "bad_copy"]
+    : ["better_quality", "bad_copy"];
+
+/**
+ * Whether a state means somebody is waiting on an administrator's decision.
+ *
+ * What the manual-mode label hangs off: in a group with no indexer there is no approval to wait
+ * for, so these read as waiting rather than naming a queue that is not shown.
+ */
+export const impliesApproval = (state: RequestState): boolean =>
+  state === "pending" || state === "approved";
 
 /** Who may request without asking. Mirrors `AutoApprove` in Core. */
 export type AutoApproveMode = "everyone" | "trusted" | "admins_only";
@@ -111,6 +150,10 @@ export interface MemberRequest {
   fulfillingNodeName?: string | null;
   /** A sentence a person can read: why it is where it is. */
   note: string;
+  /** Why it was asked for when the library already had it. Absent on an ordinary request. */
+  reason?: RequestReason | null;
+  /** Anything the requester added in their own words. */
+  reasonNote?: string | null;
   /** False for a request this node heard about over gossip rather than made. */
   mine: boolean;
   updatedAt: string;
@@ -160,6 +203,16 @@ export interface RequestCounts {
   mineOpen: number;
   unreadNotifications: number;
   canApprove: boolean;
+  /** Requests on the wanted list, for an administrator. */
+  wanted: number;
+  /**
+   * How this group fulfils requests.
+   *
+   * Carried here rather than on an endpoint of its own because every member needs it and every
+   * screen that touches requests already polls this. The detailed indexer health behind the
+   * administrator's banner is a separate, admin-only call.
+   */
+  requestsMode: RequestsMode;
 }
 
 /** One search result, with what the group already holds attached. */
@@ -205,6 +258,13 @@ export interface RequestSearchResult {
   /** True when a member of the group already holds it at an acceptable quality. */
   availableInGroup: boolean;
   holders: string[];
+  /**
+   * The library item to play, when the held copy has resolved to one here.
+   *
+   * Absent is ordinary rather than an error: a peer's copy becomes an item on this node only once
+   * the federated materialiser has caught up. The caller then names the holder and offers no link.
+   */
+  localItemId?: string | null;
   /** The state of an existing request for the same title, when there is one. */
   requestState?: RequestState | null;
   requestId?: string | null;
@@ -235,6 +295,24 @@ export interface CreateRequestInput {
   title?: string;
   year?: number | null;
   posterUrl?: string | null;
+  /**
+   * Why this is wanted when the library already has it.
+   *
+   * Omitted on a first ask. A title the group already holds is refused with what it has and
+   * something to play; asking again with this set is how somebody says they want it anyway.
+   */
+  reason?: RequestReason;
+  /** Anything they added in their own words. */
+  reasonNote?: string;
+}
+
+/** What the server says when the group already holds what was asked for. */
+export interface AlreadyHeldAnswer {
+  alreadyHeld: true;
+  /** Who has it, by display name. */
+  holders: string[];
+  /** The item to play, when one resolved. */
+  playableItemId?: string | null;
 }
 
 // --- shaping ------------------------------------------------------------------------------------
@@ -263,6 +341,8 @@ export const toRequest = (raw: unknown): MemberRequest => ({
   fulfillingNode: field<string>(raw, ...both("fulfillingNode")),
   fulfillingNodeName: field<string>(raw, ...both("fulfillingNodeName")),
   note: field<string>(raw, ...both("note")) ?? "",
+  reason: field<string>(raw, ...both("reason")) as RequestReason | undefined,
+  reasonNote: field<string>(raw, ...both("reasonNote")),
   // Absent means "made here". A request adopted from another node always carries an explicit
   // false, so defaulting the other way would make every foreign request look like the user's own.
   mine: field<boolean>(raw, ...both("mine")) ?? true,
@@ -306,6 +386,14 @@ export const toCounts = (raw: unknown): RequestCounts => ({
   mineOpen: field<number>(raw, ...both("mineOpen")) ?? 0,
   unreadNotifications: field<number>(raw, ...both("unreadNotifications")) ?? 0,
   canApprove: field<boolean>(raw, ...both("canApprove")) ?? false,
+  wanted: field<number>(raw, ...both("wanted")) ?? 0,
+  // Anything that is not the word "manual" is automatic, including the absence of the field. A node
+  // built before this existed has an indexer or it does not, but it has always behaved
+  // automatically, and reading silence as manual would hide its approval queue on upgrade.
+  requestsMode:
+    field<string>(raw, ...both("requestsMode")) === "manual"
+      ? "manual"
+      : "automatic",
 });
 
 export const toSearchResult = (raw: unknown): RequestSearchResult => ({
@@ -326,6 +414,7 @@ export const toSearchResult = (raw: unknown): RequestSearchResult => ({
   runtime: field<number>(raw, ...both("runtime")),
   availableInGroup: field<boolean>(raw, ...both("availableInGroup")) ?? false,
   holders: field<string[]>(raw, ...both("holders")) ?? [],
+  localItemId: field<string>(raw, ...both("localItemId")),
   requestState: field<string>(raw, ...both("requestState")) as
     | RequestState
     | undefined,
@@ -355,6 +444,11 @@ export const stateLabel = (state: RequestState): string => {
   switch (state) {
     case "pending":
       return "Waiting for approval";
+    // Deliberately says nothing about why. Nobody is searching for this because the group has no
+    // indexer, and a member can do nothing about that, so telling them only raises a question they
+    // cannot answer.
+    case "wanted":
+      return "Waiting";
     case "approved":
       return "Approved";
     case "fulfilling":
@@ -382,6 +476,7 @@ export const stateTone = (
   switch (state) {
     case "pending":
     case "approved":
+    case "wanted":
       return "waiting";
     case "fulfilling":
       return "working";
@@ -442,7 +537,12 @@ export const requestTitle = (request: {
  * * `request` — ask for it.
  * * `manage` — there is already an open request for this title, and the person looking at it can
  *   change or withdraw it.
- * * `none` — the group has it. Nothing to do here.
+ * * `duplicate` — the group has it. Still actionable: an episode may be missing, the copy may be
+ *   poor, or a better release may exist, and those are the three things the sheet asks about.
+ *
+ * `duplicate` replaced a dead `none` that disabled the button. A held title is the one case where
+ * somebody most often has a real reason to press anyway, and answering "In your library" with no
+ * way to say "yes, and the audio is broken" is the gap this closes.
  *
  * A title with a request open used to be `disabled: true` and nothing else, which answered "you
  * asked for this already" and then refused to let anybody act on it: the only way to drop a request
@@ -451,19 +551,22 @@ export const requestTitle = (request: {
  * delete the request - dont just disable the button."* The state moved to the pill beside the
  * title (`searchBadgeLabel`, which already said it) and the button became the action.
  */
-export type SearchIntent = "request" | "manage" | "none";
+export type SearchIntent = "request" | "manage" | "duplicate";
 
 export const searchAction = (
   result: RequestSearchResult,
 ): { label: string; disabled: boolean; intent: SearchIntent } => {
-  if (result.availableInGroup) {
-    return { label: "In your library", disabled: true, intent: "none" };
-  }
+  // An open request wins over the group holding it. Somebody who already asked for a missing season
+  // should be able to edit that request, not be sent round the "you already have this" question
+  // again for a title they know the group has.
   switch (result.requestState) {
-    case "available":
-      return { label: "In your library", disabled: true, intent: "none" };
     case "pending":
       return { label: "Awaiting approval", disabled: false, intent: "manage" };
+    // On the wanted list. Nothing is searching for it, so "Already requested" would overstate what
+    // is happening, and there is no approval to be awaiting either. It is still the requester's to
+    // change or withdraw, which is what manage gets them.
+    case "wanted":
+      return { label: "Waiting", disabled: false, intent: "manage" };
     case "approved":
     case "fulfilling":
       return { label: "Already requested", disabled: false, intent: "manage" };
@@ -476,7 +579,9 @@ export const searchAction = (
     case "failed":
       return { label: "Request again", disabled: false, intent: "request" };
     default:
-      return { label: "Request", disabled: false, intent: "request" };
+      return result.availableInGroup || result.requestState === "available"
+        ? { label: "Request anyway", disabled: false, intent: "duplicate" }
+        : { label: "Request", disabled: false, intent: "request" };
   }
 };
 

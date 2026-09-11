@@ -1,4 +1,5 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
+import type { RequestsMode } from "@/lib/stingstream/requestsApi";
 import {
   buildSettingsCategories,
   flattenCategories,
@@ -57,6 +58,14 @@ interface Control {
    * which really is on Users & access.
    */
   route?: string;
+  /**
+   * Dropped when the group has no indexer configured.
+   *
+   * For the controls on the request policy, which decides who needs approving. With nothing able to
+   * search there is nothing to approve, the tab holding them is not drawn, and a search result
+   * leading to a pane that will not render it is worse than no result at all.
+   */
+  hiddenInManual?: boolean;
 }
 
 /**
@@ -114,8 +123,18 @@ const CONTROLS: Control[] = [
   { id: "accounts", category: "users", tab: "people" },
   { id: "invitations", category: "users", tab: "people" },
   { id: "library-access", category: "users", tab: "people" },
-  { id: "request-quota", category: "users", tab: "policy" },
-  { id: "trusted-requesters", category: "users", tab: "policy" },
+  {
+    id: "request-quota",
+    category: "users",
+    tab: "policy",
+    hiddenInManual: true,
+  },
+  {
+    id: "trusted-requesters",
+    category: "users",
+    tab: "policy",
+    hiddenInManual: true,
+  },
 
   // Media services
   { id: "indexers", category: "services" },
@@ -184,6 +203,7 @@ const hrefFor = (control: Control, category: SettingsCategory): string => {
 export function buildSettingsSearchIndex(
   user: UserDto | null | undefined,
   t: Translate,
+  mode: RequestsMode = "automatic",
 ): SettingsSearchEntry[] {
   const categories = new Map(
     flattenCategories(buildSettingsCategories(user, t)).map((category) => [
@@ -193,6 +213,7 @@ export function buildSettingsSearchIndex(
   );
 
   return CONTROLS.flatMap((control) => {
+    if (mode === "manual" && control.hiddenInManual) return [];
     const category = categories.get(control.category);
     if (!category) return [];
 

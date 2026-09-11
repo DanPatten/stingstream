@@ -26,6 +26,7 @@ import {
   type RequestFilterState,
   type RequestPolicy,
   type RequestState,
+  type RequestsMode,
   saveRequestPolicy,
   saveRequestUser,
   searchRequestable,
@@ -139,16 +140,28 @@ export function useRequestsAvailable() {
   });
 }
 
-export function useRequestCounts() {
+export function useRequestCounts(options: { enabled?: boolean } = {}) {
   const { base, token } = useConnection();
   return useQuery({
     queryKey: keys.counts,
     queryFn: () => fetchRequestCounts(base!, token),
-    enabled: !!base,
+    enabled: (options.enabled ?? true) && !!base,
     refetchInterval: 30000,
     // A badge is a nicety. One failed poll must not put an error state in the tab bar.
     retry: 1,
   });
+}
+
+/**
+ * Whether this group fulfils requests on its own, or by somebody adding the file.
+ *
+ * Shares `useRequestCounts`' query and key, so a screen already polling counts pays nothing for
+ * this. `undefined` while it is still being fetched, which callers must hold the current UI for
+ * rather than guessing: flickering an approval queue in and straight back out is worse than a
+ * moment of nothing.
+ */
+export function useRequestsMode(enabled = true): RequestsMode | undefined {
+  return useRequestCounts({ enabled }).data?.requestsMode;
 }
 
 /**

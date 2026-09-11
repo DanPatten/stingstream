@@ -51,6 +51,41 @@ export const sectionFromRoute = (
     tab || (term.trim() ? TERM_SECTION : DEFAULT_REQUEST_SECTION),
   ) ?? DEFAULT_REQUEST_SECTION;
 
+/** Every section the Requests screen can show. */
+export type RequestSegmentKey =
+  | "find"
+  | "mine"
+  | "alerts"
+  | "approvals"
+  | "wanted"
+  | "activity"
+  | "policy";
+
+/**
+ * Which sections this member sees, in order.
+ *
+ * Two things decide it. Only an administrator gets the last few at all, which has always been true.
+ * And in a group where nobody has configured an indexer there is nothing to approve: approving
+ * would authorise a download that is never going to start, so the approvals queue becomes a plain
+ * list of what people want and the policy screen governing it disappears with it.
+ *
+ * Activity stays in both. It is the transfer and history view, which is a different question from
+ * how a request is governed, and hiding more than was asked for is its own kind of surprise.
+ *
+ * A member's own three tabs are identical either way, deliberately: the mode changes what an
+ * administrator does, not what anybody else sees.
+ */
+export const visibleRequestSegmentKeys = (
+  canApprove: boolean,
+  manual: boolean,
+): RequestSegmentKey[] => {
+  const mine: RequestSegmentKey[] = ["find", "mine", "alerts"];
+  if (!canApprove) return mine;
+  return manual
+    ? [...mine, "wanted", "activity"]
+    : [...mine, "approvals", "activity", "policy"];
+};
+
 /**
  * The kind chip a `?kind=` names, if it names a real one.
  *

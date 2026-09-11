@@ -71,7 +71,9 @@ export function RequestResultRow({
   const card = { ...toRequestCard(result), badgeLabel: null };
   const action = searchAction(result);
   const badge = searchBadgeLabel(result);
-  const openable = action.intent === "manage";
+  // Both open the sheet rather than doing something outright, so the poster and title are pressable
+  // targets for the same thing the button does.
+  const openable = action.intent === "manage" || action.intent === "duplicate";
 
   return (
     <View
@@ -183,7 +185,7 @@ export function RequestResultRow({
           */}
           <Button
             testID='requests-result-request'
-            variant={action.intent === "manage" ? "secondary" : "primary"}
+            variant={action.intent === "request" ? "primary" : "secondary"}
             size='sm'
             icon={action.intent === "manage" ? "settings" : "requests"}
             disabled={action.disabled}
