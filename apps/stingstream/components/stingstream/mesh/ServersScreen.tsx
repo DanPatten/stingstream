@@ -29,6 +29,7 @@ import type { MeshNodePeer } from "@/lib/stingstream/meshApi";
 import {
   clearFragment,
   fragmentFromLocation,
+  linkToFromLocation,
   parseAssertion,
   parseReturnLink,
 } from "@/utils/identity/handoff";
@@ -42,7 +43,7 @@ import { GapNotice } from "../shared/GapNotice";
 import { IconAction } from "../shared/IconAction";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { AddServerFinish, type FinishedLink } from "./AddServerFinish";
-import { AddServerSheet, LINK_TO_PARAM } from "./AddServerSheet";
+import { AddServerSheet } from "./AddServerSheet";
 import { LinkRequests } from "./LinkRequests";
 
 /**
@@ -138,16 +139,7 @@ function useAddServerReturn() {
     const fragment = fragmentFromLocation();
     const assertion = parseAssertion(fragment);
     if (!assertion || !parseReturnLink(fragment)) return null;
-    const search = (globalThis as { location?: { search?: string } }).location
-      ?.search;
-    let address: string | null = null;
-    try {
-      address = new URLSearchParams(search ?? "").get(LINK_TO_PARAM);
-    } catch {
-      // A query string somebody hand-edited. The assertion still names the node, so the offer is
-      // recorded without an address and the panel shows the code instead of a link.
-    }
-    return { assertion, address };
+    return { assertion, address: linkToFromLocation() };
   });
 
   // The fragment is read above, at mount; the request goes out here. Deliberately not in the

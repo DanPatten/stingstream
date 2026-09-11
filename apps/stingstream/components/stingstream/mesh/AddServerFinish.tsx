@@ -127,7 +127,12 @@ export const AddServerFinish: React.FC<{
         </Text>
         <Text variant='caption' tone='secondary' style={{ marginTop: 4 }}>
           {link.status === "approved"
-            ? t("sharing.add_server_ready_detail")
+            ? // "Open this link" is only true when there is one. A request that arrived without an
+              // address has a code and nothing to point it at, and telling somebody to open a link
+              // they cannot see is worse than telling them where to paste what they can.
+              url
+              ? t("sharing.add_server_ready_detail")
+              : t("sharing.add_server_ready_detail_code")
             : mine
               ? t("sharing.add_server_pending_detail_mine")
               : t("sharing.add_server_pending_detail", { server })}

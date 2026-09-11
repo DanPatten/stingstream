@@ -12,7 +12,6 @@ import {
   InviteAccountForm,
   InviteLibraryList,
 } from "@/components/stingstream/invites/InviteAccountForm";
-import { tokens } from "@/constants/theme";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { useTheme } from "@/hooks/useTheme";
 import { signInWithAssertion } from "@/lib/stingstream/identityApi";
@@ -26,6 +25,7 @@ import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import {
   clearFragment,
   fragmentFromLocation,
+  linkToFromLocation,
   parseAssertion,
   parseReturnCredential,
   parseReturnInvite,
@@ -92,6 +92,13 @@ export default function JoinFromLinkPage() {
   const [returnedInvite] = useState(() =>
     parseReturnInvite(fragmentFromLocation()),
   );
+  /**
+   * Their own server's address, as this page resolved it before sending them away.
+   *
+   * Read at mount like everything else here, and for the same reason. It is what lets the
+   * administrator who approves the request hand back a link rather than a code.
+   */
+  const [ownServer] = useState(() => linkToFromLocation());
 
   const [phase, setPhase] = useState<
     | "checking"
@@ -154,6 +161,7 @@ export default function JoinFromLinkPage() {
             // refused without it, and this page no longer holds the one it sent.
             inviteToken: returnedInvite,
             requestLink: wantsLink,
+            address: ownServer,
             salt: credential?.salt,
             verifier: credential?.verifier,
             iterations: credential?.iterations,
@@ -256,6 +264,7 @@ export default function JoinFromLinkPage() {
     code,
     credential,
     nodeContext,
+    ownServer,
     returnedInvite,
     wantsLink,
     setServer,

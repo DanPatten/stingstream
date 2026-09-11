@@ -247,6 +247,13 @@ export async function signInWithAssertion(
     assertion: string;
     inviteToken?: string | null;
     requestLink?: boolean;
+    /**
+     * Where their own server answers a browser, when the client resolved one.
+     *
+     * Only used to build the link that finishes the link request, so an approval here ends in
+     * something to open rather than a code to paste.
+     */
+    address?: string | null;
     /** The salt their own server derived the verifier with, for this one to keep. */
     salt?: string | null;
     /** PBKDF2 of their password. Becomes their password here; this server never sees the real one. */
@@ -263,6 +270,7 @@ export async function signInWithAssertion(
       Assertion: input.assertion,
       InviteToken: input.inviteToken ?? null,
       RequestLink: input.requestLink === true,
+      Address: input.address ?? null,
       // All three or none. The server treats a partial as none and keeps generating a password
       // nobody knows, which is the old behaviour and the safe one.
       Salt: input.salt ?? null,

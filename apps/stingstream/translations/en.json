@@ -1560,6 +1560,7 @@
     "add_server_pending_title": "Waiting for approval",
     "add_server_pending_title_mine": "Waiting for approval",
     "add_server_ready_detail": "Open this link on that server to accept, or send it to an administrator there.",
+    "add_server_ready_detail_code": "Paste this on that server, on Settings, Servers, Accept an invite.",
     "add_server_ready_title": "Finish on {{server}}",
     "add_server_ready_title_mine": "Finish linking your server",
     "add_server_title": "Add a server",

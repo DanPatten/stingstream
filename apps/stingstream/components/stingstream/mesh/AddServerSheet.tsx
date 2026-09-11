@@ -12,18 +12,9 @@ import { requestChallenge } from "@/lib/stingstream/identityApi";
 import {
   buildAuthorizeUrl,
   returnTargetFromLocation,
+  withLinkTo,
 } from "@/utils/identity/handoff";
 import { resolveServerOrigin } from "@/utils/identity/resolveServer";
-
-/**
- * The query parameter that carries the other server's address home again.
- *
- * The page that asks the question is replaced by a navigation to another origin, so nothing it was
- * holding survives to the answer. The assertion and the invite already ride back in the fragment
- * for that reason; this one rides in the query string instead, because it is an address rather
- * than a credential and the page it lands on has to be able to read it after a reload.
- */
-export const LINK_TO_PARAM = "link_to";
 
 /**
  * Add another server: type its address, prove you run it, come back with a link that finishes it.
@@ -86,9 +77,10 @@ export const AddServerSheet: React.FC<{
         return;
       }
 
-      const here = returnTargetFromLocation() ?? node.origin;
-      const separator = here.includes("?") ? "&" : "?";
-      const returnTo = `${here}${separator}${LINK_TO_PARAM}=${encodeURIComponent(found)}`;
+      const returnTo = withLinkTo(
+        returnTargetFromLocation() ?? node.origin,
+        found,
+      );
 
       const url = buildAuthorizeUrl(found, {
         audience: challenge.audience,

@@ -9,6 +9,7 @@ import { requestChallenge } from "@/lib/stingstream/identityApi";
 import {
   buildAuthorizeUrl,
   returnTargetFromLocation,
+  withLinkTo,
 } from "@/utils/identity/handoff";
 import { resolveServerOrigin } from "@/utils/identity/resolveServer";
 
@@ -92,7 +93,9 @@ export const SignInWithOwnServer: React.FC<{
       const url = buildAuthorizeUrl(found, {
         audience: challenge.audience,
         nonce: challenge.nonce,
-        returnTo: returnTargetFromLocation() ?? nodeOrigin,
+        // Carried back so an approval here can hand over a link to open rather than a code to
+        // paste, which is what Settings' *Add server* already does. Same journey, same ending.
+        returnTo: withLinkTo(returnTargetFromLocation() ?? nodeOrigin, found),
         serverName: serverName ?? challenge.serverName,
         invite: inviteToken ?? undefined,
         link: requestLink,

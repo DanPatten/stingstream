@@ -163,7 +163,8 @@ public sealed class IdentityController : ControllerBase
             IdentityGate.ReadCredential(
                 request?.Salt,
                 request?.Verifier,
-                request?.Iterations)).ConfigureAwait(false);
+                request?.Iterations),
+            request?.Address).ConfigureAwait(false);
 
         if (user is null)
         {

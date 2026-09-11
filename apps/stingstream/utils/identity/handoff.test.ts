@@ -8,6 +8,7 @@ import {
   parseAuthorizeRequest,
   parseReturnCredential,
   parseReturnInvite,
+  withLinkTo,
 } from "./handoff";
 
 // The two fragments the cross-server sign-in hops on. Pure string work, pinned here for the same
@@ -251,5 +252,58 @@ describe("the invite on the return leg", () => {
     expect(parseReturnInvite(back.slice(back.indexOf("#")))).toBe(null);
     expect(parseReturnInvite("#assertion=S&invite=")).toBe(null);
     expect(parseReturnInvite(null)).toBe(null);
+  });
+});
+
+describe("the other server's address, carried home", () => {
+  // Not a credential, so it rides in the query string rather than the fragment -- where it also
+  // survives the reload the return leg can involve. What it buys is that an approval can hand back
+  // a link to open instead of a code to paste.
+  test("it is added to a return target that has no query of its own", () => {
+    expect(withLinkTo("https://a.example/join", "https://b.example")).toBe(
+      "https://a.example/join?link_to=https%3A%2F%2Fb.example",
+    );
+  });
+
+  test("and appended to one that already has", () => {
+    expect(
+      withLinkTo("https://a.example/settings/servers?x=1", "https://b.example"),
+    ).toBe(
+      "https://a.example/settings/servers?x=1&link_to=https%3A%2F%2Fb.example",
+    );
+  });
+
+  test("it survives being encoded and read back", () => {
+    const origin = "http://127.0.0.1:8802";
+    const target = withLinkTo("http://127.0.0.1:5173/join", origin);
+    const search = target.slice(target.indexOf("?"));
+    expect(new URLSearchParams(search).get("link_to")).toBe(origin);
+  });
+
+  test("nothing to add is the target unchanged", () => {
+    expect(withLinkTo("https://a.example/join", "")).toBe(
+      "https://a.example/join",
+    );
+    expect(withLinkTo("https://a.example/join", "   ")).toBe(
+      "https://a.example/join",
+    );
+  });
+
+  test("it goes out beside the rest of the hand-off, not instead of it", () => {
+    // The address is the *return* target's business; the fragment still carries what it carried.
+    const url = buildAuthorizeUrl("https://b.example", {
+      audience: "AUD",
+      nonce: "N",
+      returnTo: withLinkTo("https://a.example/join", "https://b.example"),
+      link: true,
+    })!;
+    const request = parseAuthorizeRequest(url.slice(url.indexOf("#")))!;
+    expect(request.link).toBe(true);
+    expect(request.returnTo).toContain("link_to=");
+    expect(
+      new URLSearchParams(
+        request.returnTo.slice(request.returnTo.indexOf("?")),
+      ).get("link_to"),
+    ).toBe("https://b.example");
   });
 });

@@ -294,6 +294,14 @@ public sealed class IdentitySignInRequest
     /// </remarks>
     public bool RequestLink { get; set; }
 
+    /// <summary>Where their own server answers a browser, when the client resolved one.</summary>
+    /// <remarks>
+    /// Only ever used to build the link that finishes a link request, and only when
+    /// <see cref="RequestLink"/> is set. Absent from an older client, which is why a request can
+    /// still have no address: it then has a code and nothing to point it at.
+    /// </remarks>
+    public string? Address { get; set; }
+
     /// <summary>The salt their own server derived <see cref="Verifier"/> with.</summary>
     public string? Salt { get; set; }
 

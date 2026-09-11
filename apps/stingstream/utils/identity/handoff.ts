@@ -39,6 +39,42 @@
 /** Where `/authorize` lives, on whichever server is being asked to vouch. */
 export const AUTHORIZE_PATH = "/authorize";
 
+/**
+ * The query parameter that carries the other server's address home again.
+ *
+ * The page that asks is replaced by a navigation to another origin, so nothing it was holding
+ * survives to the answer. The assertion and the invite ride back in the fragment for that reason;
+ * an address is not a credential, so it rides in the query string, where it also survives a
+ * reload of the page that lands on it.
+ *
+ * Both doors set it -- `/join`'s "I already run StingStream" and Settings' *Add server* -- because
+ * both end in the same place: a request whose approval should hand back a link to open rather than
+ * a code to paste.
+ */
+export const LINK_TO_PARAM = "link_to";
+
+/** Add the resolved address to a return target, so it comes back with the answer. */
+export const withLinkTo = (returnTo: string, origin: string): string => {
+  const target = returnTo?.trim();
+  if (!target || !origin?.trim()) return target ?? "";
+  const separator = target.includes("?") ? "&" : "?";
+  return `${target}${separator}${LINK_TO_PARAM}=${encodeURIComponent(origin.trim())}`;
+};
+
+/** Read it back off the page that was returned to, or null. */
+export const linkToFromLocation = (): string | null => {
+  if (typeof globalThis === "undefined") return null;
+  const search = (globalThis as { location?: { search?: string } }).location
+    ?.search;
+  try {
+    return new URLSearchParams(search ?? "").get(LINK_TO_PARAM);
+  } catch {
+    // A query string somebody hand-edited. The assertion still names the node, so the offer is
+    // recorded without an address and the screen shows the code instead of a link.
+    return null;
+  }
+};
+
 /** What the signing server is being asked for. */
 export interface AuthorizeRequest {
   /** Node id of the server that wants the assertion. */

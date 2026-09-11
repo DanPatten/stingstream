@@ -170,7 +170,8 @@ public sealed class IdentityService
         DateTimeOffset now,
         CancellationToken cancellationToken,
         bool requestLink = false,
-        (string Salt, string Verifier, int Iterations)? credential = null)
+        (string Salt, string Verifier, int Iterations)? credential = null,
+        string? address = null)
     {
         MeshVouchClaims? claims;
         try
@@ -232,7 +233,8 @@ public sealed class IdentityService
                 await RequestLinkAsync(
                     result.User.Id.ToString("N"),
                     now,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    address).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -409,7 +411,8 @@ public sealed class IdentityService
     public async Task<bool> RequestLinkAsync(
         string localUserId,
         DateTimeOffset now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? address = null)
     {
         var link = _store.ForLocalUser(localUserId);
         if (link is null)
@@ -422,6 +425,10 @@ public sealed class IdentityService
             {
                 IssuerNodeId = link.IssuerNodeId,
                 IssuerName = link.IssuerName,
+                // Whatever the client resolved on its way here, so this path ends in a link to
+                // open rather than a code to paste -- the same answer Add server gives, for the
+                // same question. Null from an older client, and null is still handled.
+                IssuerAddress = NormaliseAddress(address),
                 RequestedBy = localUserId,
                 CreatedAt = now,
                 Status = "pending",
