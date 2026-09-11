@@ -89,16 +89,13 @@ export function SeasonPicker({
   return (
     <View
       testID='requests-season-picker'
-      // One inset for the whole picker, so the header and the squares share both edges: Seasons
-      // lines up with season 1, and Select all with the right-hand edge the row is measured to.
+      // The picker lines up with the title above it: Seasons sits over season 1, and Select all
+      // over the right-hand edge the row is measured to.
       //
-      // The four pixels are not decoration. `webFocusRing` draws its outline *outside* the control
-      // and the dialog's body is an `overflow: hidden auto` scroller, so anything flush with that
-      // scroller's edge has its ring sheared off flat. This was `marginHorizontal: -4` against the
-      // same padding for a while, on the idea that the picker should still line up with the title
-      // above it -- which cancelled the inset exactly and put the ring back against the edge.
-      // Measured, not guessed: the chip's left edge and the scroller's were the same pixel.
-      style={{ marginTop: 4, paddingHorizontal: 4, paddingVertical: 4 }}
+      // This used to carry four pixels of horizontal padding to keep the focus ring off the
+      // dialog body's `overflow: hidden auto` edge, which sheared it flat. `webFocusRing` draws
+      // the ring inside the control now, so nothing can clip it and the inset can go.
+      style={{ marginTop: 4, paddingVertical: 4 }}
     >
       <View
         style={{
@@ -161,9 +158,16 @@ function SelectAll({ all, onPress }: { all: boolean; onPress: () => void }) {
       onBlur={() => setFocused(false)}
       testID='requests-seasons-select-all'
       style={[
-        // No horizontal padding: this sits at the row's right-hand edge, and any of its own would
-        // hold the text short of the edge the squares below are aligned to.
-        { paddingVertical: 2, borderRadius: radius.xs },
+        // Padding out and the same amount of margin back in: the focus ring is drawn inside the
+        // control, and on a bare text action with no padding it would land on the words. The
+        // margin puts the text back on the right-hand edge the squares below are aligned to.
+        {
+          paddingVertical: 4,
+          paddingHorizontal: 4,
+          marginVertical: -4,
+          marginHorizontal: -4,
+          borderRadius: radius.xs,
+        },
         isWeb
           ? ({ cursor: "pointer", ...webFocusRing(focused) } as ViewStyle)
           : null,
@@ -244,7 +248,13 @@ function SeasonChip({
           ? ({
               cursor: "pointer",
               transitionDuration: `${motion.fast}ms`,
-              ...webFocusRing(focused),
+              // Selected is an accent fill, and the ring is drawn inside the
+              // square, so it takes the label's colour there or disappears.
+              ...webFocusRing(
+                focused,
+                color,
+                selected ? accent.onAccent : undefined,
+              ),
             } as ViewStyle)
           : null,
       ]}

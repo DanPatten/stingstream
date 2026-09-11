@@ -88,7 +88,14 @@ export const FilterChip: React.FC<FilterChipProps> = ({
           ? ({
               cursor: disabled ? "default" : "pointer",
               transitionDuration: `${motion.fast}ms`,
-              ...webFocusRing(focused),
+              // An active chip is filled with the accent, so an accent ring
+              // drawn inside it would be invisible; `onAccent` is the colour
+              // its own label is already using.
+              ...webFocusRing(
+                focused,
+                color,
+                active ? accent.onAccent : undefined,
+              ),
             } as ViewStyle)
           : null,
         style,

@@ -303,13 +303,21 @@ import { apiAtom } from "@/providers/JellyfinProvider";
     that needs a visible edge in all three themes wants `border.strong`.
   - **The scrim, the elevation and the accent ring differ per theme too.** If it is a colour, it is
     in the palette; if it is not in the palette, it is probably a bug.
-- **A focus ring needs room, and a modal will clip it.** `webFocusRing` draws an `outline` 2px
-  *outside* the control, and `SheetModal`'s web card is `overflow: hidden` over an
-  `overflow: hidden auto` body — so any control flush with that edge has its ring sheared off flat.
-  Give the block ~4px of real padding. Real: `marginHorizontal: -4` against `paddingHorizontal: 4`
-  cancels exactly and looks like a fix while changing nothing, which cost several rounds on the
-  season picker. **Measure it** — `getBoundingClientRect()` on the control against the nearest
-  ancestor whose `overflow` is not `visible` — rather than judging it from a screenshot.
+- **A focus ring is drawn inside the control, never outside it.** `webFocusRing` sets a negative
+  `outline-offset`, and `public/index.html` does the same for anything still falling back to the
+  browser's own outline. It used to sit 2px outside, which is the prettier place for it and the
+  wrong one: a CSS outline is painted outside the border box, so every ancestor that clips cut it
+  off. A horizontal `ScrollView` is `overflow-y: hidden` on web, so every chip bar and tab strip
+  sheared the ring flat along the top; a rounded card with `overflow: hidden` swallowed it whole.
+  445 controls were clipped, measured across the app at two viewports. Padding the containers was
+  the old rule and it did not hold — it is four pixels every new scroller, sheet and card has to
+  remember. **Do not reintroduce an outside ring, and do not add padding for one.**
+  - **A filled control passes `ringColor`.** Drawn inside, an accent ring on an accent fill is
+    invisible. Pass the colour the control's own label already uses — `accent.onAccent` on a
+    `FilterChip`, `Fill.ring` on a `Button` — through `usePressableStates({ ringColor })` or as
+    `webFocusRing`'s third argument.
+  - **Measure it** — `getBoundingClientRect()` on the control against the nearest ancestor whose
+    `overflow` is not `visible` — rather than judging it from a screenshot.
 - Conventional Commits for commits and PR titles: `feat(scope):`, `fix(scope):`,
   `chore(scope):`. CI validates the PR title.
 

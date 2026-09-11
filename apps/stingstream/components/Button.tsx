@@ -223,9 +223,17 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
   const { color: palette } = useTheme();
   const lightHapticFeedback = useHaptic("light");
   const resolved = resolveButtonVariant(variant, color);
+  // Read before the states hook because the ring colour comes out of it: a
+  // filled variant's ring is its own label colour, which is already chosen to
+  // be legible on that fill. See `Fill.ring`.
+  const fills = FILLS[resolved.variant](palette);
   // `loading` counts as disabled: the press is already in flight, and a button
   // that still lights up under the cursor invites a second one.
-  const states = usePressableStates({ disabled: disabled || loading });
+  const states = usePressableStates({
+    disabled: disabled || loading,
+    // An outlined button has no fill for the ring to disappear into.
+    ringColor: resolved.outlined ? undefined : fills.ring,
+  });
 
   if (Platform.isTV) {
     const animateTo = (v: number) =>
@@ -289,7 +297,6 @@ export const Button: React.FC<PropsWithChildren<ButtonProps>> = ({
 
   const metrics = SIZES[size];
   const isInert = disabled || loading;
-  const fills = FILLS[resolved.variant](palette);
   // "disabled" is not one of the three fills; it is the rest fill faded. Doing
   // it here rather than with an `opacity` on the whole button is what the
   // critique asked for (F-32/F-37): a uniform fade leaves a fully legible
@@ -403,6 +410,15 @@ interface Fill {
   label: string;
   /** Rule and label when the button is outlined rather than filled. */
   outline: string;
+  /**
+   * The focus ring, where the accent one would not be seen.
+   *
+   * `webFocusRing` draws inside the control, so a primary button's ring lands
+   * on the accent fill it is meant to stand out from. Unset means "the accent
+   * ring is fine here", which is true of every variant whose rest fill is a
+   * neutral surface or nothing at all.
+   */
+  ring?: string;
 }
 
 /**
@@ -421,6 +437,7 @@ const FILLS: Record<ButtonVariant, (palette: ThemePalette) => Fill> = {
     border: "transparent",
     label: p.accent.onAccent,
     outline: p.accent[400],
+    ring: p.accent.onAccent,
   }),
   secondary: (p) => ({
     rest: p.bg["2"],
@@ -449,5 +466,6 @@ const FILLS: Record<ButtonVariant, (palette: ThemePalette) => Fill> = {
     // page behind it rather than white, which would only reach 3:1.
     label: p.scheme === "dark" ? p.bg["0"] : p.text.primary,
     outline: p.state.danger,
+    ring: p.scheme === "dark" ? p.bg["0"] : p.text.primary,
   }),
 };

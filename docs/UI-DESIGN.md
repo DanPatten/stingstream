@@ -202,7 +202,7 @@ white.
 | Text | `primary` · `secondary` · `tertiary` · `disabled` |
 | Accent | 400 hover / 500 rest / 600 pressed · `ring` · `active` · `onAccent` |
 | States | `success` · `warning` · `danger` · `info` |
-| Borders | `subtle` · `strong`; the focus ring is `accent.ring` |
+| Borders | `subtle` · `strong`; the focus ring is `accent.ring`, drawn *inside* the control so nothing can clip it |
 | Wash | `overlay` (white on dark, black on light) · `scrim` · `elevationOpacity` |
 | Radii | xs 4 · sm 8 · md 12 · lg 16 · xl 24 · pill 999 |
 | Spacing | 4-pt scale 4…64; gutters 16 / 24 / 32 by breakpoint |

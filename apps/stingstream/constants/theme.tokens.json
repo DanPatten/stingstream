@@ -280,7 +280,7 @@
   "focus": {
     "web": {
       "width": 2,
-      "offset": 2
+      "inset": 2
     },
     "tv": {
       "color": "#FFFFFF",

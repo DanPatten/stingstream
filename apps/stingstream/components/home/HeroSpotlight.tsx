@@ -22,6 +22,7 @@ import {
   type HeroSlide as HeroSlideData,
   useHeroItems,
 } from "@/hooks/useHeroItems";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { HeroDots } from "./HeroDots";
 import { HeroSlide } from "./HeroSlide";
 
@@ -273,46 +274,61 @@ const HeroArrow: React.FC<{
   inset: number;
   label: string;
   onPress: () => void;
-}> = ({ direction, visible, inset, label, onPress }) => (
-  <Pressable
-    accessibilityRole='button'
-    accessibilityLabel={label}
-    onPress={onPress}
-    // Reachable by keyboard whether or not the pointer is over the hero: the
-    // fade is a pointer affordance, not a permission.
-    style={
-      [
-        {
-          position: "absolute",
-          top: 0,
-          bottom: 0,
-          width: 44,
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: visible ? 1 : 0,
-          ...(direction === "left"
-            ? { left: inset / 2 }
-            : { right: inset / 2 }),
-        },
-        { transitionDuration: `${motion.fast}ms` },
-      ] as ViewStyle[]
-    }
-  >
-    <View
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: radius.pill,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: rgba("#000000", 0.55),
-      }}
+}> = ({ direction, visible, inset, label, onPress }) => {
+  const states = usePressableStates();
+
+  return (
+    <Pressable
+      accessibilityRole='button'
+      accessibilityLabel={label}
+      onPress={onPress}
+      {...states.handlers}
+      // Reachable by keyboard whether or not the pointer is over the hero: the
+      // fade is a pointer affordance, not a permission. Focus reveals it too,
+      // because a ring on something at zero opacity shows nothing.
+      style={
+        [
+          {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            width: 44,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: visible || states.focused ? 1 : 0,
+            ...(direction === "left"
+              ? { left: inset / 2 }
+              : { right: inset / 2 }),
+          },
+          { transitionDuration: `${motion.fast}ms` },
+          // The disc below carries the ring, so this must not draw the
+          // browser's own on top of it.
+          isWeb ? { outlineStyle: "none" } : null,
+        ] as ViewStyle[]
+      }
     >
-      <Icon
-        name={direction === "left" ? "chevronLeft" : "chevronRight"}
-        size={20}
-        color='#FFFFFF'
-      />
-    </View>
-  </Pressable>
-);
+      {/* The ring goes on the disc rather than on the press target, which is a
+          44px column the full height of the hero: a ring around that is a
+          stripe down the artwork, and the hero clips it at the top anyway. */}
+      <View
+        style={
+          {
+            width: 40,
+            height: 40,
+            borderRadius: radius.pill,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: rgba("#000000", 0.55),
+            ...states.webStyle,
+          } as ViewStyle
+        }
+      >
+        <Icon
+          name={direction === "left" ? "chevronLeft" : "chevronRight"}
+          size={20}
+          color='#FFFFFF'
+        />
+      </View>
+    </Pressable>
+  );
+};

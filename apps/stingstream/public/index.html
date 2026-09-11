@@ -38,6 +38,34 @@
       }
     </style>
 
+    <!--
+      No focus ring is ever drawn outside the control it belongs to.
+
+      A CSS outline is painted outside the border box, so every ancestor that clips cuts it off:
+      a horizontal ScrollView is `overflow-y: hidden` on web, which shears the ring flat along the
+      top of every chip bar and tab strip, and a rounded card with `overflow: hidden` around a
+      full-bleed row swallows it whole. The app's own ring is drawn inside the control for exactly
+      that reason (`constants/theme.ts`, `webFocusRing`); this is the same rule for the controls
+      that still fall back to the browser's default outline -- a plain link, a `<Switch>`'s
+      checkbox, a Pressable that has not been moved onto `usePressableStates` yet.
+
+      `solid`, not the browser's `auto`: Chrome clamps a negative `outline-offset` to zero on an
+      `auto` outline, so the offset alone was silently ignored on exactly the elements it was
+      written for. `currentColor` because this rule cannot know the theme -- but a control's own
+      text colour is already chosen to be legible on the surface behind it, so it is always a ring
+      that can be seen.
+
+      react-native-web injects its own stylesheet after this one and the app's ring is an atomic
+      class in it, so a control that styles itself keeps its own accent ring and this stays the
+      fallback it is meant to be.
+    -->
+    <style id="focus-ring-inset">
+      :focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: -2px;
+      }
+    </style>
+
     <!-- Brand icons, all written by `bun scripts/brand/generate.ts` into public/. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-192.png" sizes="192x192" type="image/png" />

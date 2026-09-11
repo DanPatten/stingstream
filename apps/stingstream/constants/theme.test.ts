@@ -14,6 +14,7 @@ import {
   themePalette,
   tokens,
   typeStyle,
+  webFocusRing,
 } from "./theme";
 
 // The design system's three promises, pinned:
@@ -550,6 +551,47 @@ describe("helpers", () => {
       expect(style.shadowRadius).toBe(tokens.elevation[`${level}`].blur);
       expect(style.shadowOpacity).toBe(DEFAULT_PALETTE.elevationOpacity[level]);
     }
+  });
+
+  test("the focus ring is drawn inside the control, never outside it", () => {
+    // The whole reason this helper exists. A CSS outline is painted outside the
+    // border box, so a positive offset puts the ring where any ancestor with
+    // `overflow` other than `visible` can cut it off -- a horizontal ScrollView
+    // (`overflow-y: hidden` on web) shears it flat along the top of every chip
+    // bar and tab strip, and a rounded card with `overflow: hidden` swallows it
+    // whole. Measured across the app at two viewports before this was fixed:
+    // 445 clipped controls. A negative offset cannot be clipped by anything.
+    const ring = webFocusRing(true) as Record<string, unknown>;
+    expect(ring.outlineOffset).toBe(-tokens.focus.web.inset);
+    expect(tokens.focus.web.inset).toBeGreaterThan(0);
+    expect(ring.outlineWidth).toBe(tokens.focus.web.width);
+    expect(ring.outlineStyle).toBe("solid");
+  });
+
+  test("the ring is the accent by default and the caller's colour on a fill", () => {
+    // Drawn inside the control, an accent ring on an accent-filled chip is
+    // invisible -- so a filled control passes the colour its own label uses.
+    for (const [name, p] of eachTheme()) {
+      const at = `${name}.ring`;
+      expect({
+        at,
+        color: (webFocusRing(true, p) as Record<string, unknown>).outlineColor,
+      }).toEqual({ at, color: p.accent.ring });
+      const onFill = webFocusRing(true, p, p.accent.onAccent) as Record<
+        string,
+        unknown
+      >;
+      expect({ at, color: onFill.outlineColor }).toEqual({
+        at,
+        color: p.accent.onAccent,
+      });
+    }
+  });
+
+  test("an unfocused control draws no ring at all", () => {
+    const ring = webFocusRing(false) as Record<string, unknown>;
+    expect(ring.outlineStyle).toBe("none");
+    expect(ring.outlineWidth).toBe(0);
   });
 
   test("elevation takes its opacity from the theme it is drawn on", () => {

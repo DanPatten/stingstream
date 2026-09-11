@@ -67,6 +67,17 @@ export interface PressableStatesOptions {
    * always wants a different wash too, so it takes the whole palette.
    */
   palette?: ThemePalette;
+  /**
+   * The focus ring's colour, for a control whose surface is not a neutral one.
+   *
+   * The ring is drawn *inside* the control (see `webFocusRing` for why), so on
+   * a filled surface the accent ring can land on a colour close enough to
+   * vanish — a focused, selected `FilterChip` is an accent ring on an accent
+   * fill. Pass the control's own label colour: it is already chosen to be
+   * legible against that fill, and a ring that matches the glyphs reads as
+   * deliberate rather than as a second accent nobody asked for.
+   */
+  ringColor?: string;
 }
 
 /**
@@ -94,7 +105,12 @@ export interface PressableStatesOptions {
 export const usePressableStates = (
   options: PressableStatesOptions = {},
 ): PressableStates => {
-  const { disabled = false, focusRingWhenDisabled = false, palette } = options;
+  const {
+    disabled = false,
+    focusRingWhenDisabled = false,
+    palette,
+    ringColor,
+  } = options;
   const { color } = useTheme();
   const active = palette ?? color;
   const [hovered, setHovered] = useState(false);
@@ -153,6 +169,7 @@ export const usePressableStates = (
           ...webFocusRing(
             focusVisible && (!disabled || focusRingWhenDisabled),
             active,
+            ringColor,
           ),
         } as ViewStyle)
       : {};

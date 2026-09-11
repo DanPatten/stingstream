@@ -282,18 +282,41 @@ export const resolveTextStyle = (
  * runtime react-native import: it is read by `tailwind.config.js`'s test and by
  * plain `bun test` specs, neither of which can load React Native.
  *
+ * **The ring is drawn *inside* the control** — a negative `outline-offset` — and
+ * that is the whole point of this function. It used to sit 2px outside, which
+ * is the prettier place for it and the wrong one: a CSS outline is painted
+ * outside the border box, so every ancestor that clips cuts it off. A
+ * horizontal `ScrollView` is `overflow-x: auto; overflow-y: hidden` on web, so
+ * every chip bar and tab strip sheared the ring flat along the top; a rounded
+ * card with `overflow: hidden` around a full-bleed row swallowed it whole, so
+ * the focused row showed nothing at all. Measured across the app at two
+ * viewports, 445 controls were clipped — Dan: *"happens all over the site"*.
+ *
+ * Padding the containers was the previous answer and it does not hold: it is
+ * four pixels that every new scroller, sheet and card has to remember, and the
+ * one it forgets looks like a rendering fault rather than a missing rule. An
+ * inset ring cannot be clipped by anything, needs no cooperation from any
+ * container, and still shifts no layout.
+ *
+ * The one thing it costs is contrast, because the ring now lands on the
+ * control's own surface: an accent ring inside an accent-filled chip is
+ * invisible. Pass `ringColor` where the surface is not a neutral one — the
+ * control's own label colour is always the right answer, since it is already
+ * chosen to be legible on that fill.
+ *
  * TV focus is the white ring and scale in `docs/conventions/tv.md`, never the
  * accent.
  */
 export const webFocusRing = (
   focused: boolean,
   palette: ThemePalette = DEFAULT_PALETTE,
+  ringColor?: string,
 ): ViewStyle => {
   const style = {
     outlineStyle: focused ? "solid" : "none",
     outlineWidth: focused ? rawTokens.focus.web.width : 0,
-    outlineColor: palette.accent.ring,
-    outlineOffset: rawTokens.focus.web.offset,
+    outlineColor: ringColor ?? palette.accent.ring,
+    outlineOffset: -rawTokens.focus.web.inset,
   };
   return style as unknown as ViewStyle;
 };
