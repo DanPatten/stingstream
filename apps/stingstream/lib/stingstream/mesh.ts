@@ -145,11 +145,25 @@ const useMeshApi = () => {
 
 export const MESH_QUERY_KEY = ["stingstream", "mesh"] as const;
 
+/**
+ * Keep this out of the persisted cache, but not out of memory. See `LIVE` in
+ * `lib/stingstream/requests.ts` for the whole reasoning; the short of it is that these answers
+ * change without anybody touching this app -- a peer goes offline, an administrator answers a
+ * request, somebody leaves a link -- so a copy written to disk yesterday is a screen that opens
+ * on something that is no longer true.
+ *
+ * Measured against a real node: the cache was still holding this server's shared-library answer
+ * for a link that had been deleted seventy-five minutes earlier, and it was painted before
+ * anything was asked.
+ */
+const LIVE = { persist: false } as const;
+
 /** The groups the home node belongs to. */
 export function useNodeMeshGroups(): UseQueryResult<MeshNodeGroup[]> {
   const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "groups", base],
+    meta: LIVE,
     queryFn: async () => (await request<unknown[]>("/groups")).map(toGroup),
     enabled: authed,
     // Membership changes rarely; the peer list below is what needs to be fresh.
@@ -168,6 +182,7 @@ export function useNodeMeshPeers(
   const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "peers", base, group ?? "all"],
+    meta: LIVE,
     queryFn: async () =>
       (
         await request<unknown[]>(
@@ -184,6 +199,7 @@ export function useNodeMeshStatus(): UseQueryResult<MeshNodeStatus> {
   const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "status", base],
+    meta: LIVE,
     queryFn: async () => toStatus(await request<unknown>("/status")),
     enabled: authed,
     refetchInterval: 15_000,
@@ -408,6 +424,7 @@ export function useNodeMeshMembers(
   const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "members", base, group ?? "none"],
+    meta: LIVE,
     queryFn: async () =>
       toMembers(
         await request<unknown>(
@@ -485,6 +502,7 @@ export function useSharedLibraries(group: string | null | undefined) {
   const { base, authed, request } = useMeshApi();
   return useQuery({
     queryKey: [...MESH_QUERY_KEY, "libraries", base, group ?? ""],
+    meta: LIVE,
     queryFn: async () =>
       toSharedLibraries(
         await request<unknown>(

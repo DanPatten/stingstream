@@ -41,6 +41,19 @@ import { MESH_QUERY_KEY } from "./mesh";
 
 export const IDENTITY_QUERY_KEY = ["stingstream", "identity"] as const;
 
+/**
+ * Keep this out of the persisted cache, but not out of memory. See `LIVE` in
+ * `lib/stingstream/requests.ts` for the whole reasoning; the short of it is that these answers
+ * change without anybody touching this app -- a peer goes offline, an administrator answers a
+ * request, somebody leaves a link -- so a copy written to disk yesterday is a screen that opens
+ * on something that is no longer true.
+ *
+ * Measured against a real node: the cache was still holding this server's shared-library answer
+ * for a link that had been deleted seventy-five minutes earlier, and it was painted before
+ * anything was asked.
+ */
+const LIVE = { persist: false } as const;
+
 const useIdentityApi = () => {
   const api = useAtomValue(apiAtom);
   const user = useAtomValue(userAtom);
@@ -60,6 +73,7 @@ export function useMyLinkRequest(): UseQueryResult<MyLinkRequest> {
   const { base, token, authed } = useIdentityApi();
   return useQuery({
     queryKey: [...IDENTITY_QUERY_KEY, "my-link-request"],
+    meta: LIVE,
     queryFn: () => fetchMyLinkRequest(base!, token),
     enabled: authed,
   });
@@ -111,6 +125,7 @@ export function useLinkRequests(): UseQueryResult<LinkRequestSummary[]> {
   const { base, token, authed, isAdmin } = useIdentityApi();
   return useQuery({
     queryKey: [...IDENTITY_QUERY_KEY, "link-requests"],
+    meta: LIVE,
     queryFn: () => fetchLinkRequests(base!, token),
     enabled: authed && isAdmin,
   });
@@ -170,6 +185,7 @@ export function useLinkedIdentities(): UseQueryResult<LinkedIdentity[]> {
   const { base, token, authed, isAdmin } = useIdentityApi();
   return useQuery({
     queryKey: [...IDENTITY_QUERY_KEY, "links"],
+    meta: LIVE,
     queryFn: () => fetchLinks(base!, token),
     enabled: authed && isAdmin,
   });

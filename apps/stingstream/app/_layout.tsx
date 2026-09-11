@@ -379,6 +379,37 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * The areas whose answers are about *right now*, keyed rather than tagged.
+ *
+ * `meta.persist === false` above says the same thing and says it better, next to the query it is
+ * about — but it only works while the query is live. **Dehydration does not carry `meta`**, so a
+ * query restored from a previous session comes back without it, and if nothing remounts that hook
+ * this session, the restored copy is written straight back out for another 24 hours. Nothing ever
+ * evicts it: `maxAge` bounds the whole blob, and the blob's timestamp is refreshed on every save.
+ *
+ * Found exactly that way, against a real node: the cache was still serving this server's
+ * shared-library answer for a link deleted seventy-five minutes earlier, and an approval queue
+ * from seventy-one minutes before that, because no screen had reopened either one since.
+ *
+ * So the rule is stated twice, on purpose: by tag for the queries this session runs, and by key
+ * for the ones it inherits.
+ */
+const LIVE_QUERY_KEYS: readonly (readonly string[])[] = [
+  ["stingstream", "mesh"],
+  ["stingstream", "identity"],
+  // Who is watching what, right now. The cache was holding four of these for links that had been
+  // deleted, which is the same zombie by another name.
+  ["stingstream", "watch"],
+  ["stingstream", "requests", "list"],
+  ["stingstream", "requests", "detail"],
+  ["stingstream", "requests", "counts"],
+  ["stingstream", "requests", "notifications"],
+];
+
+const isLiveQueryKey = (key: readonly unknown[]): boolean =>
+  LIVE_QUERY_KEYS.some((prefix) => prefix.every((part, i) => key[i] === part));
+
 // Create MMKV-based persister for offline support
 const mmkvPersister = createSyncStoragePersister({
   storage: {
@@ -564,10 +595,25 @@ function Layout() {
         persister: mmkvPersister,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours max cache age
         dehydrateOptions: {
+          // Two ways out of the persisted cache, and they are not the same way.
+          //
+          // `gcTime: 0` drops a query from memory the moment nothing is looking at it, so it also
+          // re-fetches on every remount. That is right for an answer that must never be read back
+          // stale at all (`useRequestsAvailable` says why) and wrong for anything a screen returns
+          // to, which would then show a skeleton on every visit.
+          //
+          // `meta.persist === false` is the other one: keep the in-memory cache, so moving between
+          // tabs is instant, but never write it to disk. It is for state that *changes on its own*
+          // — a request that was Downloading an hour ago and is Available now. Persisting that
+          // means the screen opens on an answer that was true yesterday and corrects itself when
+          // the network answers, which is the flicker this exists to stop. Measured against a real
+          // node: the cache held request counts ten minutes old and an identity answer seventy-one
+          // minutes old, and both were painted before anything was asked.
           shouldDehydrateQuery: (query) => {
-            return (
-              query.state.status === "success" && query.options.gcTime !== 0
-            );
+            if (query.state.status !== "success") return false;
+            if (query.options.gcTime === 0) return false;
+            if (query.meta?.persist === false) return false;
+            return !isLiveQueryKey(query.queryKey);
           },
         },
       }}

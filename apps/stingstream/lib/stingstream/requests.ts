@@ -66,6 +66,21 @@ const keys = {
 };
 
 /** The node's StingStream API root and the token, or nulls before a server is connected. */
+/**
+ * Keep this answer out of the persisted cache, but not out of memory.
+ *
+ * A request moves through pending, downloading and available on its own, without anybody touching
+ * this app. `app/_layout.tsx` writes every successful query to MMKV for 24 hours, so without this
+ * the screen opens on whatever was true when it was last looked at — "Downloading" over a film
+ * that landed last night — and corrects itself once the network answers. On a server across the
+ * internet rather than a laptop, that correction is the visible flicker.
+ *
+ * Not `gcTime: 0`, which is the other way out and a heavier one: it would also drop the query the
+ * moment the screen unmounts, so every return to the tab would start from a skeleton. The point
+ * here is only that yesterday's answer must not survive a reload.
+ */
+const LIVE = { persist: false } as const;
+
 function useConnection() {
   const api = useAtomValue(apiAtom);
   const base = api?.basePath ? getStingStreamApiBaseUrl(api.basePath) : null;
@@ -92,6 +107,7 @@ export function useRequests(
     queryKey: keys.list(options.mine, options.state),
     queryFn: () => fetchRequests(base!, options, token),
     enabled: !!base,
+    meta: LIVE,
     // Ten seconds, matching the node's own fulfilment pass. Polling faster would only show the
     // same row again; polling slower would leave "Downloading" on screen after it had landed.
     refetchInterval: 10000,
@@ -109,6 +125,7 @@ export function useRequest(id: string | undefined) {
     queryFn: () => fetchRequest(base!, id!, token),
     enabled: !!base && !!id,
     refetchInterval: 10000,
+    meta: LIVE,
   });
 }
 
@@ -147,6 +164,9 @@ export function useRequestCounts(options: { enabled?: boolean } = {}) {
     queryFn: () => fetchRequestCounts(base!, token),
     enabled: (options.enabled ?? true) && !!base,
     refetchInterval: 30000,
+    // A badge that is wrong is worse than a badge that is a moment late: it sends somebody to a
+    // screen to answer approvals that were answered yesterday.
+    meta: LIVE,
     // A badge is a nicety. One failed poll must not put an error state in the tab bar.
     retry: 1,
   });
@@ -229,6 +249,7 @@ export function useRequestNotifications(unreadOnly = false) {
   const { base, token } = useConnection();
   return useQuery({
     queryKey: keys.notifications(unreadOnly),
+    meta: LIVE,
     queryFn: () => fetchNotifications(base!, unreadOnly, token),
     enabled: !!base,
     refetchInterval: 30000,
