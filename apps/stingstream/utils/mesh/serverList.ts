@@ -112,7 +112,7 @@ export function buildServerList(
     .filter((peer) => {
       const key = (peer.node ?? "").toLowerCase();
       if (!key || seen.has(key)) return false;
-      if (ownName && (peer.nodeName ?? "").trim().toLowerCase() === ownName) {
+      if (ownName && (peer.serverName ?? "").trim().toLowerCase() === ownName) {
         return false;
       }
       seen.add(key);
@@ -120,7 +120,7 @@ export function buildServerList(
     })
     .map<ServerRow>((peer) => ({
       node: peer.node,
-      name: peer.nodeName || peer.node.slice(0, 8),
+      name: peer.serverName || peer.node.slice(0, 8),
       address: peerAddress(peer),
       isThisServer: false,
       online: Boolean(peer.online),

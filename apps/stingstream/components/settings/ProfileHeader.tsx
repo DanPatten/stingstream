@@ -98,7 +98,7 @@ const looksLikeHostnameOrDefault = (name: string): boolean =>
  * The Plex-style card at the top of Settings: who you are, on what, and which build.
  *
  * The server label is never derived from a URL, a Jellyfin server name or a machine hostname —
- * only the node marker's own `nodeName` (set by the admin at first run) or a generic fallback,
+ * only the node marker's own `serverName` (set by the admin at first run) or a generic fallback,
  * so this card can never leak or guess at an upstream product's identity.
  */
 export const ProfileHeader: React.FC = () => {

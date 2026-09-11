@@ -186,9 +186,10 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
 - There is no Downloading page either. Whether this node fetches a kind of title is a
   library's own switch, on Settings → Libraries
   (`components/stingstream/settings/LibrariesSection.tsx` over `lib/stingstream/libraries.ts`),
-  beside the folder that library writes to: turning Movies on is what starts the movie
-  manager. One endpoint writes both halves, so they cannot drift. Usenet is not about a
-  library and lives under Indexers & engines.
+  beside the folder that library writes to. Turning Movies on does not by itself start the movie
+  manager: that also needs an enabled indexer covering films (`ArrEnablement`, reconciled in the
+  background by `ArrEnablementWorker`). The row is a plain switch with no status on it. Usenet is
+  not about a library and lives under Indexers & engines.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
   navigation.

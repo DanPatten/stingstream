@@ -214,7 +214,7 @@ public sealed class SetupController : ControllerBase
                     _serverConfig.SaveConfiguration();
                 }
 
-                _runtime.SetNodeName(serverName);
+                _runtime.SetServerName(serverName);
             }
             catch (Exception ex)
             {

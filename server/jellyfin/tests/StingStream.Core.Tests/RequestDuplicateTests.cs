@@ -139,7 +139,7 @@ public sealed class RequestDuplicateTests : IDisposable
         {
         }
 
-        public void SetNodeName(string name)
+        public void SetServerName(string name)
         {
         }
     }

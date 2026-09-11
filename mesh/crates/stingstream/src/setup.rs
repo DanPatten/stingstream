@@ -358,7 +358,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "version": crate::runtime::RUNTIME_VERSION,
             "node_id": "abc123",
-            "node_name": "attic",
+            "server_name": "attic",
             "first_run": true,
             "dev": false,
             "data_dir": "/data/node",

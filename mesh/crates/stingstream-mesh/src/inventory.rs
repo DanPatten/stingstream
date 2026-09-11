@@ -314,7 +314,7 @@ pub struct Heartbeat {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IndexEntry {
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
     pub online: bool,
     #[serde(flatten)]
     pub record: WireRecord,

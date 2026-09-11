@@ -136,7 +136,7 @@ describe("resolveCastStreamUrl", () => {
           {
             Group: GROUP,
             Node: PEER_NODE,
-            NodeName: "loft",
+            ServerName: "loft",
             Online: true,
             SideDoor: {
               node: "peerz32",
@@ -182,7 +182,7 @@ describe("resolveCastStreamUrl", () => {
       [STATUS_URL]: {
         body: {
           Node: HOME_NODE,
-          NodeName: "attic",
+          ServerName: "attic",
           SideDoor: {
             node: "homez32",
             candidates: [

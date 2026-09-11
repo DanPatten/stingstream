@@ -231,7 +231,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "version": 1,
             "node_id": "abc123",
-            "node_name": "attic",
+            "server_name": "attic",
             "first_run": false,
             "dev": false,
             "data_dir": "/data/node",

@@ -213,7 +213,12 @@ const HEADER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub struct PeerState {
     pub db: Arc<Db>,
     pub node_key: SecretKey,
-    pub node_name: String,
+    /// What this server calls itself, as it is now.
+    ///
+    /// Behind a lock for the reason `MeshNode::name` is: a rename has to reach the handshake and
+    /// the inventory answers too, not only the gossip, or a peer that connects after a rename is
+    /// told the old name by the node that changed it.
+    pub server_name: std::sync::RwLock<String>,
     /// Caps concurrent file streams, so one peer cannot starve the rest.
     pub streams: Arc<Semaphore>,
     pub chunk_bytes: usize,
@@ -241,6 +246,24 @@ pub struct PeerState {
     /// bridge is the one part that needs the node's clocks and group table, so it is the one part
     /// that pays for an upgrade per request.
     pub node: std::sync::OnceLock<std::sync::Weak<crate::node::MeshNode>>,
+}
+
+impl PeerState {
+    /// What this server calls itself right now.
+    pub fn server_name(&self) -> String {
+        self.server_name
+            .read()
+            .map(|n| n.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
+    }
+
+    /// Rename it. Called by `MeshNode::set_server_name`, never on its own.
+    pub fn set_server_name(&self, name: &str) {
+        match self.server_name.write() {
+            Ok(mut held) => *held = name.to_string(),
+            Err(e) => *e.into_inner() = name.to_string(),
+        }
+    }
 }
 
 /// Whether a light node should refuse this peer route outright.
@@ -277,7 +300,7 @@ impl iroh::protocol::ProtocolHandler for PeerProtocol {
         let session = match auth::server_handshake(
             &conn,
             &state.node_key,
-            &state.node_name,
+            &state.server_name(),
             move |gid| {
                 let group = db.group(gid).ok().flatten()?;
                 let state = db.rekey_state(gid).unwrap_or_default();
@@ -440,7 +463,7 @@ async fn serve(
         ["peer", "v1", "status"] => {
             let body = serde_json::json!({
                 "node": state.node_key.public().to_string(),
-                "node_name": state.node_name,
+                "server_name": state.server_name(),
                 "version": env!("CARGO_PKG_VERSION"),
                 "available_streams": state.streams.available_permits(),
             });
@@ -455,7 +478,7 @@ async fn serve(
                 Ok(records) => json_response(&serde_json::json!({
                     "group": group.to_string(),
                     "node": me,
-                    "node_name": state.node_name,
+                    "server_name": state.server_name(),
                     "records": records,
                 })),
                 Err(e) => {
@@ -1161,7 +1184,7 @@ pub async fn connect(
     group: &GroupId,
     secret: &GroupSecret,
     node_key: &SecretKey,
-    node_name: &str,
+    server_name: &str,
 ) -> Result<PeerConnection> {
     let peer = addr.id;
     let conn = endpoint
@@ -1169,7 +1192,7 @@ pub async fn connect(
         .await
         .map_err(err)
         .with_context(|| format!("connecting to peer {}", peer.fmt_short()))?;
-    let session = auth::client_handshake(&conn, group, secret, node_key, node_name).await?;
+    let session = auth::client_handshake(&conn, group, secret, node_key, server_name).await?;
     let (path, rtt) = path_summary(&conn);
     tracing::info!(
         %group,

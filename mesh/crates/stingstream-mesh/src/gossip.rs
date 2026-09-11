@@ -165,7 +165,7 @@ pub enum Body {
     /// everything known about the author; every chunk after it merges. Both fields default to zero,
     /// so a message from a build that predates chunking still reads as "one chunk, replace".
     Snapshot {
-        node_name: String,
+        server_name: String,
         seq: u64,
         #[serde(default)]
         chunk: u32,
@@ -176,14 +176,14 @@ pub enum Body {
     /// Incremental changes since the last snapshot or delta. Chunked for the same reason, but with
     /// no replace semantics to preserve, so each chunk stands alone.
     Delta {
-        node_name: String,
+        server_name: String,
         seq: u64,
         upserts: Vec<WireRecord>,
         removals: Vec<String>,
     },
     /// Liveness plus advertised capacity.
     Heartbeat {
-        node_name: String,
+        server_name: String,
         heartbeat: Heartbeat,
     },
     /// The membership list as this node knows it. Every member gossips its own view, and the union
@@ -261,7 +261,7 @@ pub enum Body {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Member {
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
 }
 
 /// The signed envelope, before sealing.
@@ -441,7 +441,7 @@ pub async fn spawn(
     group: GroupId,
     secret: GroupSecret,
     node_key: SecretKey,
-    node_name: String,
+    server_name: String,
     bootstrap: Vec<EndpointId>,
     cfg: GossipConfig,
     watch: crate::watch::Registry,
@@ -460,7 +460,7 @@ pub async fn spawn(
         let db = db.clone();
         let sender = sender.clone();
         let node_key = node_key.clone();
-        let node_name = node_name.clone();
+        let server_name = server_name.clone();
         let watch = watch.clone();
         tokio::spawn(async move {
             loop {
@@ -485,7 +485,7 @@ pub async fn spawn(
                         }
                         // Send them what we hold, and ask for theirs. Both are cheap and make a
                         // fresh join converge without waiting for the next snapshot tick.
-                        publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
+                        publish_snapshot(&db, &sender, &group, &secret, &node_key, &server_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_revocations(&db, &sender, &group, &secret, &node_key).await;
                         publish_watch_sessions(&watch, &sender, &group, &secret, &node_key).await;
@@ -518,7 +518,7 @@ pub async fn spawn(
                         match open(&group, &secret, &msg.content, &from) {
                             Ok((author, body)) => {
                                 handle(
-                                    &db, &sender, &group, &secret, &node_key, &node_name, author,
+                                    &db, &sender, &group, &secret, &node_key, &server_name, author,
                                     body, &watch,
                                 )
                                 .await;
@@ -547,7 +547,7 @@ pub async fn spawn(
         let db = db.clone();
         let sender = sender.clone();
         let node_key = node_key.clone();
-        let node_name = node_name.clone();
+        let server_name = server_name.clone();
         let watch = watch.clone();
         let heartbeat_secs = cfg.heartbeat_secs.max(1);
         let snapshot_secs = cfg.snapshot_interval_secs.max(heartbeat_secs);
@@ -563,11 +563,11 @@ pub async fn spawn(
                         let hb = stored_capacity(&db);
                         publish(
                             &sender, &group, &secret, &node_key,
-                            &Body::Heartbeat { node_name: node_name.clone(), heartbeat: hb },
+                            &Body::Heartbeat { server_name: server_name.clone(), heartbeat: hb },
                         ).await;
                     }
                     _ = snap.tick() => {
-                        publish_snapshot(&db, &sender, &group, &secret, &node_key, &node_name).await;
+                        publish_snapshot(&db, &sender, &group, &secret, &node_key, &server_name).await;
                         publish_open_requests(&db, &sender, &group, &secret, &node_key).await;
                         publish_revocations(&db, &sender, &group, &secret, &node_key).await;
                         watch.sweep(crate::watch::now_ms());
@@ -623,7 +623,7 @@ pub async fn publish_snapshot(
     group: &GroupId,
     secret: &GroupSecret,
     node_key: &SecretKey,
-    node_name: &str,
+    server_name: &str,
 ) {
     let me = node_key.public().to_string();
     let records = match db.local_wire_records(group, &me) {
@@ -643,7 +643,7 @@ pub async fn publish_snapshot(
             secret,
             node_key,
             &Body::Snapshot {
-                node_name: node_name.to_string(),
+                server_name: server_name.to_string(),
                 seq,
                 chunk: i as u32,
                 chunks,
@@ -818,7 +818,7 @@ async fn handle(
     group: &GroupId,
     secret: &GroupSecret,
     node_key: &SecretKey,
-    node_name: &str,
+    server_name: &str,
     author: EndpointId,
     body: Body,
     watch: &crate::watch::Registry,
@@ -831,7 +831,7 @@ async fn handle(
     let author_s = author.to_string();
     match body {
         Body::Snapshot {
-            node_name: peer_name,
+            server_name: peer_name,
             seq,
             chunk,
             chunks,
@@ -856,7 +856,7 @@ async fn handle(
             }
         }
         Body::Delta {
-            node_name: peer_name,
+            server_name: peer_name,
             seq,
             upserts,
             removals,
@@ -875,7 +875,7 @@ async fn handle(
             }
         }
         Body::Heartbeat {
-            node_name: peer_name,
+            server_name: peer_name,
             heartbeat,
         } => {
             if let Err(e) = db.set_heartbeat(group, &author_s, &peer_name, &heartbeat) {
@@ -884,11 +884,11 @@ async fn handle(
         }
         Body::Membership { members } => {
             for m in members {
-                let _ = db.note_member(group, &m.node, &m.node_name);
+                let _ = db.note_member(group, &m.node, &m.server_name);
             }
         }
         Body::RequestSnapshot => {
-            publish_snapshot(db, sender, group, secret, node_key, node_name).await;
+            publish_snapshot(db, sender, group, secret, node_key, server_name).await;
         }
         Body::Request { request } => {
             tracing::debug!(
@@ -994,14 +994,14 @@ async fn handle(
 
 /// A peer's human name from the membership table, or its short id when it has never said.
 ///
-/// The announcement itself does not carry it: the leader's own `node_name` in the record is what it
+/// The announcement itself does not carry it: the leader's own `server_name` in the record is what it
 /// calls *itself*, and every member already has the peers table, which is the one place a name is
 /// kept up to date.
 fn node_name_of(db: &Db, group: &GroupId, node: &str) -> String {
     db.peer(group, node)
         .ok()
         .flatten()
-        .map(|p| p.node_name)
+        .map(|p| p.server_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| node.chars().take(12).collect())
 }
@@ -1012,7 +1012,7 @@ mod tests {
 
     fn body() -> Body {
         Body::Heartbeat {
-            node_name: "attic".into(),
+            server_name: "attic".into(),
             heartbeat: Heartbeat {
                 max_direct_streams: 4,
                 free_space: 12345,
@@ -1102,7 +1102,7 @@ mod tests {
 
         for (i, batch) in chunk_records(records).into_iter().enumerate() {
             let body = Body::Snapshot {
-                node_name: "attic".into(),
+                server_name: "attic".into(),
                 seq: 1,
                 chunk: i as u32,
                 chunks: 3,
@@ -1123,7 +1123,7 @@ mod tests {
     fn a_snapshot_from_a_build_that_did_not_chunk_reads_as_chunk_zero() {
         // `chunk` and `chunks` are `#[serde(default)]`, so an older message means "one chunk,
         // replace" -- which is exactly what it used to mean.
-        let json = r#"{"Snapshot":{"node_name":"attic","seq":7,"records":[]}}"#;
+        let json = r#"{"Snapshot":{"server_name":"attic","seq":7,"records":[]}}"#;
         let body: Body = serde_json::from_str(json).unwrap();
         match body {
             Body::Snapshot { chunk, chunks, seq, .. } => {
@@ -1195,13 +1195,13 @@ mod tests {
             &secret,
             &key,
             &Body::Heartbeat {
-                node_name: "a-very-distinctive-node-name".into(),
+                server_name: "a-very-distinctive-server-name".into(),
                 heartbeat: Heartbeat::default(),
             },
         )
         .unwrap();
         let haystack = String::from_utf8_lossy(&wire).to_string();
-        assert!(!haystack.contains("a-very-distinctive-node-name"));
+        assert!(!haystack.contains("a-very-distinctive-server-name"));
         // The author's public key is inside the sealed envelope too, not in the clear.
         assert!(!wire.windows(32).any(|w| w == key.public().as_bytes()));
     }
@@ -1242,7 +1242,7 @@ mod tests {
             claim: crate::requests::ClaimRecord {
                 request_id: "req-1".into(),
                 node: key.public().to_string(),
-                node_name: "loft".into(),
+                server_name: "loft".into(),
                 claimed_at: 1_757_000_000_000,
                 state: crate::requests::ClaimStates::CLAIMED.into(),
                 note: String::new(),
@@ -1294,7 +1294,7 @@ mod tests {
         let secret = GroupSecret::generate();
         let key = SecretKey::generate();
         let b = Body::Delta {
-            node_name: "loft".into(),
+            server_name: "loft".into(),
             seq: 7,
             upserts: vec![WireRecord {
                 item_key: "movie:tmdb:1".into(),

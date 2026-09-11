@@ -56,6 +56,18 @@ struct RunningGroup {
 /// The node.
 pub struct MeshNode {
     pub cfg: MeshConfig,
+    /// What this server calls itself, as it is *now*.
+    ///
+    /// Seeded from `cfg.server_name` and then owned here, because the name can change while the
+    /// node is running: somebody renames the server on the Settings screen, Core writes it to
+    /// `runtime.json` and tells the mesh, and every gossip frame and peer row from that moment
+    /// carries the new one. Reading it out of `cfg` meant the name a node announced was the name
+    /// it booted with, so a rename did not reach its peers until a restart -- which is how two
+    /// freshly named servers both ended up announcing themselves as the string in the config
+    /// template they were built from.
+    name: std::sync::RwLock<String>,
+    /// The peer protocol's own copy of the things it answers with, kept so a rename can reach it.
+    peer_state: Arc<peer::PeerState>,
     pub secret_key: SecretKey,
     pub endpoint: Endpoint,
     pub gossip: Gossip,
@@ -101,7 +113,7 @@ impl std::fmt::Debug for MeshNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MeshNode")
             .field("node", &self.node_id())
-            .field("node_name", &self.cfg.node_name)
+            .field("server_name", &self.server_name())
             .finish()
     }
 }
@@ -160,7 +172,7 @@ impl MeshNode {
         let peer_state = Arc::new(PeerState {
             db: db.clone(),
             node_key: secret_key.clone(),
-            node_name: cfg.node_name.clone(),
+            server_name: std::sync::RwLock::new(cfg.server_name.clone()),
             streams: streams.clone(),
             chunk_bytes: cfg.peer.stream_chunk_bytes,
             light: cfg.peer.light,
@@ -192,6 +204,8 @@ impl MeshNode {
         }
 
         let node = Arc::new(Self {
+            name: std::sync::RwLock::new(cfg.server_name.clone()),
+            peer_state: peer_state.clone(),
             cfg,
             secret_key,
             endpoint,
@@ -246,7 +260,7 @@ impl MeshNode {
 
         tracing::info!(
             node = %node.node_id(),
-            node_name = %node.cfg.node_name,
+            server_name = %node.cfg.server_name,
             "mesh node started"
         );
         Ok(node)
@@ -275,8 +289,62 @@ impl MeshNode {
     }
 
     /// What this node calls itself, for a screen on the other end of an assertion.
-    pub fn node_name(&self) -> &str {
-        &self.cfg.node_name
+    /// What this server calls itself right now. Cloned rather than borrowed: it can change.
+    pub fn server_name(&self) -> String {
+        self.name
+            .read()
+            .map(|n| n.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
+    }
+
+    /// Rename this server, and tell everyone it is linked with.
+    ///
+    /// Announcing is the point. A name nobody else learns is a name only its owner can see, so
+    /// this republishes into every running group rather than waiting for the next snapshot: a
+    /// rename is a deliberate act and the person who did it is looking at the screen.
+    pub async fn set_server_name(&self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() || name == self.server_name() {
+            return;
+        }
+        match self.name.write() {
+            Ok(mut held) => *held = name.to_string(),
+            Err(e) => *e.into_inner() = name.to_string(),
+        }
+        self.peer_state.set_server_name(name);
+        tracing::info!(server_name = %name, "this server was renamed");
+
+        // The roster keeps a name per member, including this one, so correct our own row before
+        // saying anything: a peer that asks for the member list in between would otherwise be
+        // told the old name by the very node that just changed it.
+        let ids: Vec<GroupId> = self.groups.lock().await.keys().copied().collect();
+        for id in ids {
+            let _ = self.db.note_member(&id, &self.node_id(), name);
+        }
+        self.publish_all_snapshots().await;
+    }
+
+    /// Republish this node's inventory into every group it is running.
+    ///
+    /// A snapshot carries the publishing node's name beside its records, so this is also how a
+    /// rename reaches the other side without waiting for whatever would have caused the next one.
+    async fn publish_all_snapshots(&self) {
+        let name = self.server_name();
+        let groups = self.groups.lock().await;
+        for (id, rg) in groups.iter() {
+            let Ok(Some(group)) = self.db.group(id) else {
+                continue;
+            };
+            gossip::publish_snapshot(
+                &self.db,
+                &rg.gossip.sender,
+                id,
+                &group.secret,
+                &self.secret_key,
+                &name,
+            )
+            .await;
+        }
     }
 
     pub fn endpoint_id(&self) -> EndpointId {
@@ -330,7 +398,7 @@ impl MeshNode {
         };
         self.db.upsert_group(&group)?;
         self.db
-            .note_member(&group.id, &self.node_id(), &self.cfg.node_name)?;
+            .note_member(&group.id, &self.node_id(), &self.server_name())?;
         self.db.set_peer_online(&group.id, &self.node_id(), true)?;
         self.start_group(group.clone(), Vec::new()).await?;
         // The creator is the first member, so it belongs in the rendezvous list from the start:
@@ -500,7 +568,7 @@ impl MeshNode {
         };
         self.db.upsert_group(&group)?;
         self.db
-            .note_member(&group.id, &self.node_id(), &self.cfg.node_name)?;
+            .note_member(&group.id, &self.node_id(), &self.server_name())?;
         self.db.set_peer_online(&group.id, &self.node_id(), true)?;
 
 
@@ -575,7 +643,7 @@ impl MeshNode {
             group.id,
             group.secret,
             self.secret_key.clone(),
-            self.cfg.node_name.clone(),
+            self.server_name(),
             boot,
             self.cfg.gossip.clone(),
             self.watch.clone(),
@@ -591,7 +659,7 @@ impl MeshNode {
             &Body::Membership {
                 members: vec![Member {
                     node: self.node_id(),
-                    node_name: self.cfg.node_name.clone(),
+                    server_name: self.server_name(),
                 }],
             },
         )
@@ -602,7 +670,7 @@ impl MeshNode {
             &group.id,
             &group.secret,
             &self.secret_key,
-            &self.cfg.node_name,
+            &self.server_name(),
         )
         .await;
 
@@ -656,12 +724,12 @@ impl MeshNode {
         struct Snapshot {
             node: String,
             #[serde(default)]
-            node_name: String,
+            server_name: String,
             records: Vec<crate::inventory::WireRecord>,
         }
         let snap: Snapshot = serde_json::from_slice(&bytes).context("decoding a peer inventory")?;
         let n = snap.records.len();
-        self.db.note_member(&group.id, &snap.node, &snap.node_name)?;
+        self.db.note_member(&group.id, &snap.node, &snap.server_name)?;
         self.db.set_peer_online(&group.id, &snap.node, true)?;
         self.db
             .replace_peer_records(&group.id, &snap.node, &snap.records)?;
@@ -763,7 +831,7 @@ impl MeshNode {
             group,
             secret,
             &self.secret_key,
-            &self.cfg.node_name,
+            &self.server_name(),
         )
         .await
     }
@@ -1141,7 +1209,7 @@ impl MeshNode {
             .peers(Some(id))?
             .into_iter()
             .map(|p| MemberView {
-                node_name: p.node_name.clone(),
+                server_name: p.server_name.clone(),
                 online: p.online,
                 last_seen: p.last_seen.clone(),
                 is_self: p.node == me,
@@ -1155,7 +1223,7 @@ impl MeshNode {
             if !out.iter().any(|m| m.node == node) {
                 out.push(MemberView {
                     node: node.clone(),
-                    node_name: String::new(),
+                    server_name: String::new(),
                     online: false,
                     last_seen: None,
                     is_self: false,
@@ -1187,7 +1255,7 @@ impl MeshNode {
                 group_id,
                 &group.secret,
                 &self.secret_key,
-                &self.cfg.node_name,
+                &self.server_name(),
             )
             .await;
         }
@@ -1220,7 +1288,7 @@ impl MeshNode {
                     &group.secret,
                     &self.secret_key,
                     &Body::Delta {
-                        node_name: self.cfg.node_name.clone(),
+                        server_name: self.server_name(),
                         seq,
                         upserts: batch,
                         removals: if i == 0 { removals.to_vec() } else { Vec::new() },
@@ -1244,7 +1312,7 @@ impl MeshNode {
         let mut entries = self.db.index(group_id)?;
         for entry in &mut entries {
             if entry.node == me {
-                entry.node_name.clone_from(&self.cfg.node_name);
+                entry.server_name = self.server_name();
                 entry.online = true;
             }
         }
@@ -1352,7 +1420,7 @@ impl MeshNode {
         let mut rows = self.db.peers(group_id)?;
         for row in &mut rows {
             if row.node == me {
-                row.node_name.clone_from(&self.cfg.node_name);
+                row.server_name = self.server_name();
                 row.online = true;
             }
         }
@@ -1459,7 +1527,7 @@ impl MeshNode {
         let claim = crate::requests::ClaimRecord {
             request_id: request_id.to_string(),
             node: me,
-            node_name: self.cfg.node_name.clone(),
+            server_name: self.server_name(),
             // Frozen on the first claim. See the module docs in `crate::requests`.
             claimed_at: existing
                 .as_ref()
@@ -1889,10 +1957,10 @@ impl MeshNode {
             item_key: item_key.to_string(),
             title: title.to_string(),
             leader: self.node_id(),
-            leader_name: self.cfg.node_name.clone(),
+            leader_name: self.server_name(),
             participants: vec![crate::watch::WatchParticipant {
                 node: self.node_id(),
-                node_name: self.cfg.node_name.clone(),
+                server_name: self.server_name(),
                 viewers,
                 last_seen_ms: now,
                 rtt_ms: Some(0),
@@ -1962,7 +2030,7 @@ impl MeshNode {
         let report = crate::watch::Report {
             session: session_id.to_string(),
             node: self.node_id(),
-            node_name: self.cfg.node_name.clone(),
+            server_name: self.server_name(),
             state: crate::watch::WatchState::Idle,
             position_ms: 0,
             at_ms: crate::watch::now_ms(),
@@ -2009,7 +2077,7 @@ impl MeshNode {
             let report = crate::watch::Report {
                 session: session_id.to_string(),
                 node: me,
-                node_name: self.cfg.node_name.clone(),
+                server_name: self.server_name(),
                 state: crate::watch::WatchState::Idle,
                 position_ms: 0,
                 at_ms: crate::watch::now_ms(),
@@ -2159,7 +2227,7 @@ impl MeshNode {
         self.watch.update(&report.session, |s| {
             match s.participants.iter_mut().find(|p| p.node == report.node) {
                 Some(p) => {
-                    p.node_name = report.node_name.clone();
+                    p.server_name = report.server_name.clone();
                     p.viewers = report.viewers;
                     p.last_seen_ms = now;
                     p.buffering = report.buffering;
@@ -2170,7 +2238,7 @@ impl MeshNode {
                 }
                 None => s.participants.push(crate::watch::WatchParticipant {
                     node: report.node.clone(),
-                    node_name: report.node_name.clone(),
+                    server_name: report.server_name.clone(),
                     viewers: report.viewers,
                     last_seen_ms: now,
                     rtt_ms: rtt,
@@ -3435,7 +3503,7 @@ fn serialize_group<S: serde::Serializer>(g: &GroupId, s: S) -> Result<S::Ok, S::
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MemberView {
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
     pub online: bool,
     pub last_seen: Option<String>,
     /// This is the node the caller is talking to.
@@ -3709,7 +3777,7 @@ mod tests {
     fn holder(node: &str, hash: Option<&str>, online: bool) -> crate::score::Candidate {
         crate::score::Candidate {
             node: node.to_string(),
-            node_name: node.to_string(),
+            server_name: node.to_string(),
             online,
             file_hash: hash.map(str::to_string),
             bitrate: Some(5_000_000),

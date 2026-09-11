@@ -181,7 +181,7 @@ public sealed class LibraryController : StingStreamControllerBase
             _logger.LogInformation(
                 "{ItemKey} is already held by {Holders}; no download started",
                 itemKey,
-                string.Join(", ", acceptable.Select(h => h.NodeName)));
+                string.Join(", ", acceptable.Select(h => h.ServerName)));
             return new AddToLibraryResponse
             {
                 ItemKey = itemKey,
@@ -281,7 +281,7 @@ public sealed class LibraryController : StingStreamControllerBase
     private static HolderSummary ToHolder(StingStream.Core.Playback.SourceCandidate c) => new()
     {
         Node = c.Node,
-        NodeName = string.IsNullOrEmpty(c.NodeName) ? c.Node : c.NodeName,
+        ServerName = string.IsNullOrEmpty(c.ServerName) ? c.Node : c.ServerName,
         Online = c.Online,
         Group = c.Group,
         Resolution = c.Resolution,

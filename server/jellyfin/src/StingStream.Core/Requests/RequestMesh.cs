@@ -17,7 +17,7 @@ public sealed class MeshClaim
     /// <summary>The claiming node's iroh id.</summary>
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>Milliseconds since the epoch, frozen at the first claim.</summary>
     public long ClaimedAt { get; set; }
@@ -352,7 +352,7 @@ public sealed class RequestMesh : IRequestMesh
             list.Add(new FulfilCapability
             {
                 Node = row.Node,
-                NodeName = string.IsNullOrWhiteSpace(row.NodeName) ? row.Node : row.NodeName,
+                ServerName = string.IsNullOrWhiteSpace(row.ServerName) ? row.Node : row.ServerName,
                 Online = row.Online,
                 CanFulfilMovies = row.CanFulfilMovies,
                 CanFulfilTv = row.CanFulfilTv,
@@ -376,7 +376,7 @@ public sealed class RequestMesh : IRequestMesh
     {
         public string Node { get; set; } = string.Empty;
 
-        public string NodeName { get; set; } = string.Empty;
+        public string ServerName { get; set; } = string.Empty;
 
         public bool Online { get; set; }
 

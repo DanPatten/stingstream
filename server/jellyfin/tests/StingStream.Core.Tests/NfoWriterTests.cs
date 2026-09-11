@@ -32,7 +32,7 @@ public sealed class NfoWriterTests : IDisposable
     private static MeshIndexEntry Sample() => new()
     {
         Node = "n1",
-        NodeName = "attic",
+        ServerName = "attic",
         Online = true,
         ItemKey = "movie:tmdb:10378",
         Media = new MeshMedia { Resolution = "1080p", DurationMs = 596_000 },

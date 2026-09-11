@@ -76,7 +76,7 @@ export type WatchState = "idle" | "paused" | "playing";
 /** One node taking part in a session. */
 export interface WatchParticipant {
   node: string;
-  nodeName: string;
+  serverName: string;
   /** How many of that node's own users are in its local SyncPlay group. Display only. */
   viewers: number;
   /** Round-trip time the leader measured to it, milliseconds. */
@@ -119,7 +119,7 @@ export interface WatchSessionView {
 
 const toParticipant = (raw: unknown): WatchParticipant => ({
   node: field<string>(raw, ...both("node")) ?? "",
-  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  serverName: field<string>(raw, ...both("serverName")) ?? "",
   viewers: field<number>(raw, ...both("viewers")) ?? 0,
   rttMs: field<number>(raw, ...both("rttMs"), "RttMs"),
   driftMs: field<number>(raw, ...both("driftMs")),

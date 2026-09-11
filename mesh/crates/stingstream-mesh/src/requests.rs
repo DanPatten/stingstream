@@ -78,7 +78,7 @@ pub struct ClaimRecord {
     /// The claiming node's iroh id.
     pub node: String,
     #[serde(default)]
-    pub node_name: String,
+    pub server_name: String,
     /// Milliseconds since the epoch, frozen at the first claim. The primary sort key.
     pub claimed_at: u64,
     /// One of [`ClaimStates`].
@@ -172,7 +172,7 @@ mod tests {
         ClaimRecord {
             request_id: "r1".into(),
             node: node.into(),
-            node_name: node.into(),
+            server_name: node.into(),
             claimed_at: at,
             state: state.into(),
             ..Default::default()

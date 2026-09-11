@@ -297,8 +297,8 @@ QUIC/TLS already proves *which* node is on the other end — the node id is the 
 nothing about whether that node is in the group, which is what this adds:
 
 ```
-client -> server   Hello     { group_id, client_nonce, node_name }
-server -> client   Challenge { server_nonce, node_name }
+client -> server   Hello     { group_id, client_nonce, server_name }
+server -> client   Challenge { server_nonce, server_name }
 client -> server   Proof     { mac, sig }
 server -> client   Outcome   Ok { mac, stale } | Denied { reason }
 
@@ -338,7 +338,7 @@ minute) logged; the minor both ends use is `min(theirs, ours)`. `docs/UPGRADING.
 
 | Method | Path | |
 |---|---|---|
-| `GET` | `/peer/v1/status` | node name, version, remaining stream capacity |
+| `GET` | `/peer/v1/status` | server name, version, remaining stream capacity |
 | `GET`/`POST` | `/peer/v1/group/rekey` | the newest secret rotation this node holds / push one to it (M8b). The only route a peer holding the *previous* secret may reach. |
 | `GET` | `/peer/v1/inventory` | this node's full inventory for the group, as JSON. Used on join, before gossip converges. |
 | `GET`/`HEAD` | `/peer/v1/file/{item_key}/{file_hash}` | the file, with full `Range` support |
@@ -447,9 +447,9 @@ whose fields disappear on the way out.
 
 | | |
 |---|---|
-| `Snapshot { node_name, seq, chunk, chunks, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. **Chunked** — see below. |
-| `Delta { node_name, seq, upserts, removals }` | incremental changes, chunked the same way; the removals ride the first chunk |
-| `Heartbeat { node_name, heartbeat }` | liveness, advertised capacity, and **where a browser can reach this node** — see below |
+| `Snapshot { server_name, seq, chunk, chunks, records }` | the author's complete inventory. Sent on join, on request, and every `snapshot_interval_secs` so a missed delta repairs itself. **Chunked** — see below. |
+| `Delta { server_name, seq, upserts, removals }` | incremental changes, chunked the same way; the removals ride the first chunk |
+| `Heartbeat { server_name, heartbeat }` | liveness, advertised capacity, and **where a browser can reach this node** — see below |
 | `Membership { members }` | the author's view of the member list; the union is what each node stores |
 | `RequestSnapshot` | "I just joined, please re-send" |
 
@@ -700,7 +700,7 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 | Table | |
 |---|---|
 | `groups` | `group_id, name, secret, created_at` |
-| `peers` | `group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
+| `peers` | `group_id, node_id, server_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
 | `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, local_images, local_subtitles, jellyfin_item_id, updated_at` |
 | `meta` | schema version and the per-group gossip sequence number |
 
@@ -762,7 +762,7 @@ The mesh's own copy of the source-selection answer:
 
 ```json
 { "group": "…", "item_key": "movie:tmdb:10378", "policy": "speed_first",
-  "sources": [ { "node": "…", "node_name": "loft", "online": true, "file_hash": "…",
+  "sources": [ { "node": "…", "server_name": "loft", "online": true, "file_hash": "…",
                  "bitrate": 2000000, "height": 1080, "resolution": "1080p",
                  "path": "direct", "rtt_ms": 4, "throughput_bps": 31200000,
                  "score": 92.4, "needed_bps": 2500000, "fits": true, "measured": true,
@@ -929,7 +929,7 @@ between those groups.
   "title": "Sita Sings the Blues",
   "leader": "…",                 // node id
   "participants": [
-    { "node": "…", "node_name": "loft", "viewers": 2,
+    { "node": "…", "server_name": "loft", "viewers": 2,
       "rtt_ms": 8, "drift_ms": 40, "buffering": false, "last_seen_ms": 1788… }
   ],
   "state": "playing",            // idle | paused | playing

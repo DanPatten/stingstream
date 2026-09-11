@@ -32,7 +32,7 @@ public sealed class HolderSummary
 {
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public bool Online { get; set; }
 

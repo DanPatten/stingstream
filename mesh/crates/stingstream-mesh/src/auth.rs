@@ -6,8 +6,8 @@
 //! group secret, in both directions, over a transcript both sides bind to:
 //!
 //! ```text
-//! client -> server   Hello     { group_id, client_nonce, node_name }
-//! server -> client   Challenge { server_nonce, node_name }
+//! client -> server   Hello     { group_id, client_nonce, server_name }
+//! server -> client   Challenge { server_nonce, server_name }
 //! client -> server   Proof     { mac, sig }
 //! server -> client   Outcome   Ok { mac, stale } | Denied(reason)
 //! ```
@@ -111,14 +111,14 @@ impl GroupAuth {
 pub struct Hello {
     pub group_id: [u8; 32],
     pub client_nonce: [u8; 32],
-    /// Human-readable node name, used for logs and the `<node-label>` in federated filenames.
-    pub node_name: String,
+    /// Human-readable server name, used for logs and the `<node-label>` in federated filenames.
+    pub server_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Challenge {
     pub server_nonce: [u8; 32],
-    pub node_name: String,
+    pub server_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,7 +302,7 @@ pub async fn client_handshake(
     group_id: &GroupId,
     secret: &GroupSecret,
     node_key: &SecretKey,
-    node_name: &str,
+    server_name: &str,
 ) -> Result<ClientSession> {
     let (mut send, mut recv) = conn.open_bi().await.map_err(err)?;
     let server_id = conn.remote_id();
@@ -312,7 +312,7 @@ pub async fn client_handshake(
         &Hello {
             group_id: *group_id.as_bytes(),
             client_nonce,
-            node_name: node_name.to_string(),
+            server_name: server_name.to_string(),
         },
     )
     .await?;
@@ -359,7 +359,7 @@ pub async fn client_handshake(
     };
     let _ = send.finish();
     Ok(ClientSession {
-        peer_name: challenge.node_name,
+        peer_name: challenge.server_name,
         minor,
         stale_secret,
     })
@@ -390,7 +390,7 @@ async fn deny(send: &mut iroh::endpoint::SendStream) {
 pub async fn server_handshake<F>(
     conn: &Connection,
     node_key: &SecretKey,
-    node_name: &str,
+    server_name: &str,
     lookup: F,
 ) -> Result<Session>
 where
@@ -436,7 +436,7 @@ where
         &mut send,
         &Challenge {
             server_nonce,
-            node_name: node_name.to_string(),
+            server_name: server_name.to_string(),
         },
     )
     .await?;
@@ -522,7 +522,7 @@ where
     Ok(Session {
         group_id,
         peer,
-        peer_name: hello.node_name,
+        peer_name: hello.server_name,
         minor,
         stale_secret: stale,
     })

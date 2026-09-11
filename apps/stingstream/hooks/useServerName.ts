@@ -10,7 +10,7 @@ export const SERVER_NAME_QUERY_KEY = ["stingstream", "server-name"] as const;
 /**
  * What this server is called, from the server itself.
  *
- * **The page marker is a placeholder, not the answer.** `window.__STINGSTREAM_NODE__.nodeName` is
+ * **The page marker is a placeholder, not the answer.** `window.__STINGSTREAM_NODE__.serverName` is
  * spliced into the HTML at serve time from the `runtime.json` the gateway read when it started, so
  * it is the value most likely to be stale — and it was stale for exactly the person who had just
  * renamed their server during setup. Dan, on the sidebar: *"why is this server name still ui-loop
@@ -42,6 +42,6 @@ export function useServerName(): string | undefined {
   const reported = data?.trim();
   if (reported && !looksLikeHostname(reported)) return reported;
 
-  const marker = nodeContext?.nodeName?.trim();
+  const marker = nodeContext?.serverName?.trim();
   return marker && marker.length > 0 ? marker : undefined;
 }

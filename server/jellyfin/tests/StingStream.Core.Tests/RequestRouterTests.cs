@@ -27,7 +27,7 @@ public class RequestRouterTests
         => new()
         {
             Node = id,
-            NodeName = id,
+            ServerName = id,
             Online = online,
             CanFulfilMovies = movies,
             CanFulfilTv = tv,

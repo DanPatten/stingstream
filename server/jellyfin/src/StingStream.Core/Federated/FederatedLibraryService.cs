@@ -414,7 +414,7 @@ public sealed class FederatedLibraryService : BackgroundService
                 _logger.LogInformation(
                     "{Node} has held {ItemKey} but been offline since {Since}; past the {Days}-day "
                     + "grace period, so its pointer is being removed",
-                    pointer.NodeName,
+                    pointer.ServerName,
                     pointer.ItemKey,
                     pointer.OfflineSince,
                     graceDays);
@@ -501,7 +501,7 @@ public sealed class FederatedLibraryService : BackgroundService
                         titleOwners,
                         labels.TryGetValue((itemKey, node), out var label)
                             ? label
-                            : FederatedLayout.VersionLabel(entry.NodeName, entry.Node, entry.Media.Resolution),
+                            : FederatedLayout.VersionLabel(entry.ServerName, entry.Node, entry.Media.Resolution),
                         settings,
                         alsoHeldLocally.Contains(itemKey),
                         cancellationToken)
@@ -520,8 +520,8 @@ public sealed class FederatedLibraryService : BackgroundService
                     ex,
                     "Could not materialize {ItemKey} from {Node}",
                     entry.ItemKey,
-                    entry.NodeName);
-                report.Errors.Add($"{entry.ItemKey}@{entry.NodeName}: {ex.Message}");
+                    entry.ServerName);
+                report.Errors.Add($"{entry.ItemKey}@{entry.ServerName}: {ex.Message}");
             }
         }
 
@@ -571,7 +571,7 @@ public sealed class FederatedLibraryService : BackgroundService
     private static Dictionary<(string ItemKey, string Node), string> AssignLabels(
         Dictionary<(string Group, string ItemKey, string Node), MeshIndexEntry> desired)
     {
-        var byItem = new Dictionary<string, List<(string Node, string? NodeName, string? Quality)>>(StringComparer.Ordinal);
+        var byItem = new Dictionary<string, List<(string Node, string? ServerName, string? Quality)>>(StringComparer.Ordinal);
         foreach (var ((_, itemKey, node), entry) in desired)
         {
             if (!byItem.TryGetValue(itemKey, out var holders))
@@ -582,7 +582,7 @@ public sealed class FederatedLibraryService : BackgroundService
 
             if (!holders.Any(h => string.Equals(h.Node, node, StringComparison.Ordinal)))
             {
-                holders.Add((node, entry.NodeName, entry.Media.Resolution));
+                holders.Add((node, entry.ServerName, entry.Media.Resolution));
             }
         }
 
@@ -784,7 +784,7 @@ public sealed class FederatedLibraryService : BackgroundService
             Group = group,
             ItemKey = entry.ItemKey,
             Node = entry.Node,
-            NodeName = entry.NodeName ?? string.Empty,
+            ServerName = entry.ServerName ?? string.Empty,
             Kind = isRecording ? "recording" : isEpisode ? "episode" : "movie",
             Quality = entry.Media.Resolution ?? string.Empty,
             Folder = folder,
@@ -804,7 +804,7 @@ public sealed class FederatedLibraryService : BackgroundService
         _logger.LogDebug(
             "Materialized {ItemKey} from {Node} at {Path}",
             entry.ItemKey,
-            pointer.NodeName,
+            pointer.ServerName,
             strmPath);
         return pointer;
     }
@@ -1097,7 +1097,7 @@ public sealed class FederatedLibraryService : BackgroundService
         _logger.LogInformation(
             "Removed the federated pointer for {ItemKey} from {Node}",
             pointer.ItemKey,
-            string.IsNullOrEmpty(pointer.NodeName) ? pointer.Node : pointer.NodeName);
+            string.IsNullOrEmpty(pointer.ServerName) ? pointer.Node : pointer.ServerName);
     }
 
     /// <summary>

@@ -234,6 +234,102 @@ public sealed class TmdbCatalog
         }
     }
 
+    /// <summary>
+    /// Search the catalogue by name, without needing a download manager to be running.
+    /// </summary>
+    /// <param name="term">What the person typed.</param>
+    /// <param name="kind"><c>movie</c>, <c>series</c>, or null for both.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matches, films first. Empty when the catalogue could not be read.</returns>
+    /// <remarks>
+    /// <para>
+    /// Searching used to go only through Radarr and Sonarr, on the reasoning that a title which
+    /// cannot be looked up there could not have been added anyway. That stopped being true the
+    /// moment a manager only runs when an indexer covers it: a node with nothing configured could
+    /// not look anything up, so the whole Requests screen was replaced by "Requests are not set up
+    /// on this server". Dan: *"downloading shouldnt be required to put in requests"*. Asking for
+    /// something is not the same act as fetching it, and the wanted list exists precisely so the
+    /// asking can happen first.
+    /// </para>
+    /// <para>
+    /// The provider ships its own key, so this path is always available. Results are the same shape
+    /// the managers' lookup produced, because both go through
+    /// <see cref="FromTmdbMovie"/>/<see cref="FromTmdbSeries"/> -- which also keeps the item keys
+    /// identical, so a title found here is the same title the group index is asked about.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<RequestSearchResult>> SearchAsync(
+        string term,
+        string? kind,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = (term ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return Array.Empty<RequestSearchResult>();
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_passTimeout);
+
+        try
+        {
+            var wantMovies = !string.Equals(kind, "series", StringComparison.OrdinalIgnoreCase);
+            var wantSeries = !string.Equals(kind, "movie", StringComparison.OrdinalIgnoreCase);
+            var query = Uri.EscapeDataString(trimmed);
+
+            var results = new List<RequestSearchResult>();
+            if (wantMovies)
+            {
+                results.AddRange(await SearchPageAsync(query, true, budget.Token).ConfigureAwait(false));
+            }
+
+            if (wantSeries)
+            {
+                results.AddRange(await SearchPageAsync(query, false, budget.Token).ConfigureAwait(false));
+            }
+
+            return Dedupe(results);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("The catalogue did not answer a search inside {Budget}", _passTimeout);
+            return Array.Empty<RequestSearchResult>();
+        }
+    }
+
+    /// <summary>One kind's worth of search results.</summary>
+    /// <param name="query">The term, already URL-encoded.</param>
+    /// <param name="isMovie">Whether to search films.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matches for that kind.</returns>
+    /// <remarks>
+    /// One page, not the feed's several: somebody typing a name wants the title they named, and a
+    /// hundred further matches for a word that happens to appear in other titles is noise. Cached
+    /// on the same schedule as a feed, because a search for "alien" answers the same today as it
+    /// did this morning.
+    /// </remarks>
+    private async Task<List<RequestSearchResult>> SearchPageAsync(
+        string query,
+        bool isMovie,
+        CancellationToken cancellationToken)
+    {
+        var path = isMovie
+            ? $"/search/movie?query={query}&include_adult=false"
+            : $"/search/tv?query={query}&include_adult=false";
+
+        var body = await GetAsync(path, _feedTtl, cancellationToken).ConfigureAwait(false);
+        if (body?["results"] is not JsonArray entries || entries.Count == 0)
+        {
+            return new List<RequestSearchResult>();
+        }
+
+        var genres = await GenresAsync(isMovie, cancellationToken).ConfigureAwait(false);
+        return isMovie
+            ? await MoviesAsync(entries, genres, cancellationToken).ConfigureAwait(false)
+            : await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>The genres this kind can be filtered by.</summary>
     /// <param name="kind"><c>movie</c>, <c>series</c>, or anything else for both.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

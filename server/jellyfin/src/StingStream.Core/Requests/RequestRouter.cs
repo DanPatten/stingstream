@@ -10,7 +10,7 @@ public sealed class FulfilCapability
     /// <summary>The node id. Empty for "this node", which does not know its own id yet.</summary>
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public bool Online { get; set; } = true;
 
@@ -136,7 +136,7 @@ public static class RequestRouter
             IsHome = false,
             Reason = string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"{volunteers[0].NodeName} has the indexers and {volunteers[0].FreeSpace / (1024L * 1024 * 1024)} GB free."),
+                $"{volunteers[0].ServerName} has the indexers and {volunteers[0].FreeSpace / (1024L * 1024 * 1024)} GB free."),
         };
     }
 
@@ -245,7 +245,7 @@ public static class RequestRouter
         return new FulfilCapability
         {
             Node = node.Node,
-            NodeName = node.NodeName,
+            ServerName = node.ServerName,
             Online = node.Online,
             CanFulfilMovies = false,
             CanFulfilTv = false,

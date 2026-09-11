@@ -28,7 +28,7 @@ const FILE_BYTES: u64 = 4 * 1024 * 1024;
 /// The full node's configuration: a holder, with nothing hosted anywhere.
 fn full_config(dir: &std::path::Path) -> MeshConfig {
     MeshConfig {
-        node_name: "attic".into(),
+        server_name: "attic".into(),
         data_dir: dir.to_path_buf(),
         api: ApiConfig {
             port: 0,
@@ -52,7 +52,7 @@ fn full_config(dir: &std::path::Path) -> MeshConfig {
 
 /// The light node's configuration, in the JSON shape the app passes.
 fn light_json() -> String {
-    r#"{"nodeName":"loft-tv","light":true,"apiPort":0,
+    r#"{"serverName":"loft-tv","light":true,"apiPort":0,
         "n0Dns":false,"n0Relays":false,"mainlineDht":false,
         "fallbackCoordinator":"","heartbeatSecs":1,"peerTimeoutSecs":30}"#
         .to_string()
@@ -207,7 +207,7 @@ fn a_light_node_joins_streams_from_a_holder_and_serves_nothing_itself() -> Resul
             .into_iter()
             .find(|p| p.node == full.node_id() && p.online)
     })?;
-    assert_eq!(holder.node_name, "attic");
+    assert_eq!(holder.server_name, "attic");
     assert!(!holder.is_self);
 
     // --- the player's request: a mid-file range through 127.0.0.1 -----------------------------

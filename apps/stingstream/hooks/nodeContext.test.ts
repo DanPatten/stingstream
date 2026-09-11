@@ -13,7 +13,7 @@ const marker = (overrides: Record<string, unknown> = {}) => ({
   loopback: true,
   trustedPeer: true,
   setupPending: true,
-  nodeName: "attic",
+  serverName: "attic",
   version: "0.2.0",
   addresses: [] as string[],
   ...overrides,
@@ -35,7 +35,7 @@ describe("parseNodeMarker", () => {
       trustedPeer: true,
       addresses: [],
       setupPending: true,
-      nodeName: "attic",
+      serverName: "attic",
       version: "0.2.0",
     });
   });
@@ -84,13 +84,13 @@ describe("parseNodeMarker", () => {
       expect(context?.apiPath).toBe("/stingstream/api/v1");
     });
 
-    test("empty node name and version read as absent, not as empty strings", () => {
+    test("empty server name and version read as absent, not as empty strings", () => {
       const context = parseNodeMarker({
-        marker: marker({ nodeName: "   ", version: "" }),
+        marker: marker({ serverName: "   ", version: "" }),
         origin: ORIGIN,
       });
 
-      expect(context?.nodeName).toBeNull();
+      expect(context?.serverName).toBeNull();
       expect(context?.version).toBeNull();
     });
 
@@ -111,7 +111,7 @@ describe("parseNodeMarker", () => {
         trustedPeer: true, // ORIGIN is localhost
         addresses: [],
         setupPending: null,
-        nodeName: null,
+        serverName: null,
         version: null,
       });
     });
@@ -126,7 +126,7 @@ describe("parseNodeMarker", () => {
         expect(context?.origin).toBe(ORIGIN);
         // Nothing is claimed about it beyond where it is.
         expect(context?.setupPending).toBeNull();
-        expect(context?.nodeName).toBeNull();
+        expect(context?.serverName).toBeNull();
         expect(jellyfinUrlFor(context!)).toBe(`${ORIGIN}/jellyfin`);
       }
     });
@@ -160,7 +160,7 @@ describe("parseNodeMarker", () => {
         trustedPeer: true,
         addresses: [],
         setupPending: null,
-        nodeName: null,
+        serverName: null,
         version: null,
       });
     });

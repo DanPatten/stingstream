@@ -53,7 +53,7 @@ const localSource = (
 });
 
 const source = (over: Partial<ItemSource> & { node: string }): ItemSource => ({
-  nodeName: `Node ${over.node[0]}`,
+  serverName: `Node ${over.node[0]}`,
   group: GROUP,
   online: true,
   score: 0,
@@ -94,25 +94,25 @@ describe("buildSourceChoices — the join", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response([
-        source({ node: NODE_B, nodeName: "Kitchen", rttMs: 8 }),
-        source({ node: NODE_A, nodeName: "Loft", rttMs: 40 }),
+        source({ node: NODE_B, serverName: "Kitchen", rttMs: 8 }),
+        source({ node: NODE_A, serverName: "Loft", rttMs: 40 }),
       ]),
     );
 
-    expect(choices.map((c) => c.nodeName).sort()).toEqual(["Kitchen", "Loft"]);
-    expect(choices.find((c) => c.nodeName === "Kitchen")?.mediaSourceId).toBe(
+    expect(choices.map((c) => c.serverName).sort()).toEqual(["Kitchen", "Loft"]);
+    expect(choices.find((c) => c.serverName === "Kitchen")?.mediaSourceId).toBe(
       "ms-b",
     );
-    expect(choices.find((c) => c.nodeName === "Loft")?.rttMs).toBe(40);
+    expect(choices.find((c) => c.serverName === "Loft")?.rttMs).toBe(40);
   });
 
   test("matches node ids without regard to case", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A.toUpperCase())],
-      response([source({ node: NODE_A, nodeName: "Loft" })]),
+      response([source({ node: NODE_A, serverName: "Loft" })]),
     );
     expect(choices).toHaveLength(1);
-    expect(choices[0].nodeName).toBe("Loft");
+    expect(choices[0].serverName).toBe("Loft");
   });
 
   test("omits a source the group index lists but this node has no MediaSource for", () => {
@@ -120,17 +120,17 @@ describe("buildSourceChoices — the join", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A)],
       response([
-        source({ node: NODE_A, nodeName: "Loft" }),
-        source({ node: NODE_C, nodeName: "Ghost" }),
+        source({ node: NODE_A, serverName: "Loft" }),
+        source({ node: NODE_C, serverName: "Ghost" }),
       ]),
     );
-    expect(choices.map((c) => c.nodeName)).toEqual(["Loft"]);
+    expect(choices.map((c) => c.serverName)).toEqual(["Loft"]);
   });
 
   test("omits a pointer whose holder has left the group index", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A), meshSource("ms-stale", NODE_C)],
-      response([source({ node: NODE_A, nodeName: "Loft" })]),
+      response([source({ node: NODE_A, serverName: "Loft" })]),
     );
     expect(choices.map((c) => c.mediaSourceId)).toEqual(["ms-a"]);
   });
@@ -138,10 +138,10 @@ describe("buildSourceChoices — the join", () => {
   test("labels the local file rather than trying to join it", () => {
     const choices = build(
       [localSource("ms-local", 2160), meshSource("ms-a", NODE_A)],
-      response([source({ node: NODE_A, nodeName: "Loft" })]),
+      response([source({ node: NODE_A, serverName: "Loft" })]),
     );
     const local = choices.find((c) => c.local);
-    expect(local?.nodeName).toBe("This server");
+    expect(local?.serverName).toBe("This server");
     expect(local?.resolution).toBe("2160p");
     expect(local?.online).toBe(true);
     expect(local?.rttMs).toBeNull();
@@ -159,13 +159,13 @@ describe("buildSourceChoices — the join", () => {
       Name: "Title (2020) - 720p",
     };
     const two = build([hd, sd], null, "quality_first");
-    expect(two.map((c) => c.nodeName)).toEqual([
+    expect(two.map((c) => c.serverName)).toEqual([
       "This server · Title (2020) - 1080p",
       "This server · Title (2020) - 720p",
     ]);
 
     const one = build([hd], null);
-    expect(one.map((c) => c.nodeName)).toEqual(["This server"]);
+    expect(one.map((c) => c.serverName)).toEqual(["This server"]);
   });
 
   test("ignores a remote MediaSource that is not a mesh pointer", () => {
@@ -193,7 +193,7 @@ describe("buildSourceChoices — ordering", () => {
   const res = response([
     source({
       node: NODE_A,
-      nodeName: "Loft",
+      serverName: "Loft",
       height: 2160,
       bitrate: 45_000_000,
       rttMs: 90,
@@ -201,7 +201,7 @@ describe("buildSourceChoices — ordering", () => {
     }),
     source({
       node: NODE_B,
-      nodeName: "Kitchen",
+      serverName: "Kitchen",
       height: 1080,
       bitrate: 8_000_000,
       rttMs: 12,
@@ -211,7 +211,7 @@ describe("buildSourceChoices — ordering", () => {
 
   test("speed_first puts the local copy first, then the direct hop", () => {
     const choices = build(sources, res, "speed_first");
-    expect(choices.map((c) => c.nodeName)).toEqual([
+    expect(choices.map((c) => c.serverName)).toEqual([
       "This server",
       "Kitchen",
       "Loft",
@@ -220,7 +220,7 @@ describe("buildSourceChoices — ordering", () => {
 
   test("quality_first puts the best encode first, local last", () => {
     const choices = build(sources, res, "quality_first");
-    expect(choices.map((c) => c.nodeName)).toEqual([
+    expect(choices.map((c) => c.serverName)).toEqual([
       "Loft",
       "Kitchen",
       "This server",
@@ -231,17 +231,17 @@ describe("buildSourceChoices — ordering", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response([
-        source({ node: NODE_A, nodeName: "Unmeasured", path: null }),
+        source({ node: NODE_A, serverName: "Unmeasured", path: null }),
         source({
           node: NODE_B,
-          nodeName: "Measured",
+          serverName: "Measured",
           rttMs: 200,
           path: "direct",
         }),
       ]),
       "speed_first",
     );
-    expect(choices.map((c) => c.nodeName)).toEqual(["Measured", "Unmeasured"]);
+    expect(choices.map((c) => c.serverName)).toEqual(["Measured", "Unmeasured"]);
   });
 
   test("offline holders sort last and are disabled under both policies", () => {
@@ -252,7 +252,7 @@ describe("buildSourceChoices — ordering", () => {
     const res2 = response([
       source({
         node: NODE_A,
-        nodeName: "Dark",
+        serverName: "Dark",
         online: false,
         height: 2160,
         bitrate: 60_000_000,
@@ -260,7 +260,7 @@ describe("buildSourceChoices — ordering", () => {
       }),
       source({
         node: NODE_B,
-        nodeName: "Lit",
+        serverName: "Lit",
         online: true,
         height: 720,
         bitrate: 3_000_000,
@@ -271,7 +271,7 @@ describe("buildSourceChoices — ordering", () => {
 
     for (const policy of ["speed_first", "quality_first"] as const) {
       const choices = build(mediaSources, res2, policy);
-      expect(choices.map((c) => c.nodeName)).toEqual(["Lit", "Dark"]);
+      expect(choices.map((c) => c.serverName)).toEqual(["Lit", "Dark"]);
       expect(choices.map((c) => c.disabled)).toEqual([false, true]);
     }
   });
@@ -285,10 +285,10 @@ describe("buildSourceChoices — recommendation", () => {
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response(
         [
-          source({ node: NODE_A, nodeName: "Loft", rttMs: 90, path: "direct" }),
+          source({ node: NODE_A, serverName: "Loft", rttMs: 90, path: "direct" }),
           source({
             node: NODE_B,
-            nodeName: "Kitchen",
+            serverName: "Kitchen",
             rttMs: 12,
             path: "direct",
           }),
@@ -297,7 +297,7 @@ describe("buildSourceChoices — recommendation", () => {
       ),
       "speed_first",
     );
-    expect(choices.find((c) => c.recommended)?.nodeName).toBe("Loft");
+    expect(choices.find((c) => c.recommended)?.serverName).toBe("Loft");
   });
 
   test("re-sorts under the client policy when the server used another one", () => {
@@ -307,14 +307,14 @@ describe("buildSourceChoices — recommendation", () => {
         [
           source({
             node: NODE_A,
-            nodeName: "Loft",
+            serverName: "Loft",
             height: 2160,
             rttMs: 90,
             path: "relay",
           }),
           source({
             node: NODE_B,
-            nodeName: "Kitchen",
+            serverName: "Kitchen",
             height: 1080,
             rttMs: 12,
             path: "direct",
@@ -324,7 +324,7 @@ describe("buildSourceChoices — recommendation", () => {
       ),
       "speed_first",
     );
-    expect(choices.find((c) => c.recommended)?.nodeName).toBe("Kitchen");
+    expect(choices.find((c) => c.recommended)?.serverName).toBe("Kitchen");
   });
 
   test("falls back to the client ordering when the server's pick has no MediaSource", () => {
@@ -333,31 +333,31 @@ describe("buildSourceChoices — recommendation", () => {
       response(
         [
           // The local node's own index entry: real to the server, unplayable as a pointer.
-          source({ node: NODE_C, nodeName: "Here", rttMs: 1 }),
-          source({ node: NODE_A, nodeName: "Loft", rttMs: 40 }),
+          source({ node: NODE_C, serverName: "Here", rttMs: 1 }),
+          source({ node: NODE_A, serverName: "Loft", rttMs: 40 }),
         ],
         "speed_first",
       ),
       "speed_first",
     );
-    expect(choices.find((c) => c.recommended)?.nodeName).toBe("This server");
+    expect(choices.find((c) => c.recommended)?.serverName).toBe("This server");
   });
 
   test("never recommends an offline holder", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response([
-        source({ node: NODE_A, nodeName: "Dark", online: false, rttMs: 1 }),
-        source({ node: NODE_B, nodeName: "Lit", rttMs: 400, path: "relay" }),
+        source({ node: NODE_A, serverName: "Dark", online: false, rttMs: 1 }),
+        source({ node: NODE_B, serverName: "Lit", rttMs: 400, path: "relay" }),
       ]),
     );
-    expect(choices.find((c) => c.recommended)?.nodeName).toBe("Lit");
+    expect(choices.find((c) => c.recommended)?.serverName).toBe("Lit");
   });
 
   test("recommends nothing when nothing is playable", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A)],
-      response([source({ node: NODE_A, nodeName: "Dark", online: false })]),
+      response([source({ node: NODE_A, serverName: "Dark", online: false })]),
     );
     expect(choices.some((c) => c.recommended)).toBe(false);
   });
@@ -373,23 +373,23 @@ describe("buildSourceChoices — same file", () => {
         meshSource("ms-c", NODE_C),
       ],
       response([
-        source({ node: NODE_A, nodeName: "Loft", fileHash: hash }),
-        source({ node: NODE_B, nodeName: "Kitchen", fileHash: hash }),
-        source({ node: NODE_C, nodeName: "Shed", fileHash: "b3:other" }),
+        source({ node: NODE_A, serverName: "Loft", fileHash: hash }),
+        source({ node: NODE_B, serverName: "Kitchen", fileHash: hash }),
+        source({ node: NODE_C, serverName: "Shed", fileHash: "b3:other" }),
       ]),
       "speed_first",
       "ms-a",
     );
 
-    expect(choices.find((c) => c.nodeName === "Loft")?.current).toBe(true);
+    expect(choices.find((c) => c.serverName === "Loft")?.current).toBe(true);
     // The source playing is not "the same file as" itself — that badge is about the alternatives.
-    expect(choices.find((c) => c.nodeName === "Loft")?.sameFileAsCurrent).toBe(
+    expect(choices.find((c) => c.serverName === "Loft")?.sameFileAsCurrent).toBe(
       false,
     );
     expect(
-      choices.find((c) => c.nodeName === "Kitchen")?.sameFileAsCurrent,
+      choices.find((c) => c.serverName === "Kitchen")?.sameFileAsCurrent,
     ).toBe(true);
-    expect(choices.find((c) => c.nodeName === "Shed")?.sameFileAsCurrent).toBe(
+    expect(choices.find((c) => c.serverName === "Shed")?.sameFileAsCurrent).toBe(
       false,
     );
   });
@@ -403,7 +403,7 @@ describe("buildSourceChoices — same file", () => {
     const choices = build(
       [local, meshSource("ms-a", NODE_A)],
       response([
-        source({ node: NODE_A, nodeName: "Loft", fileHash: "deadbeef" }),
+        source({ node: NODE_A, serverName: "Loft", fileHash: "deadbeef" }),
       ]),
       "speed_first",
       "ms-a",
@@ -425,8 +425,8 @@ describe("buildSourceChoices — same file", () => {
     const choices = build(
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response([
-        source({ node: NODE_A, nodeName: "Loft" }),
-        source({ node: NODE_B, nodeName: "Kitchen" }),
+        source({ node: NODE_A, serverName: "Loft" }),
+        source({ node: NODE_B, serverName: "Kitchen" }),
       ]),
       "speed_first",
       "ms-a",
@@ -442,7 +442,7 @@ describe("formatSourceChoice", () => {
       response([
         source({
           node: NODE_A,
-          nodeName: "Loft",
+          serverName: "Loft",
           height: 2160,
           bitrate: 45_000_000,
           rttMs: 18,
@@ -459,7 +459,7 @@ describe("formatSourceChoice", () => {
   test("drops the parts the holder never reported", () => {
     const [choice] = build(
       [meshSource("ms-a", NODE_A)],
-      response([source({ node: NODE_A, nodeName: "Loft", path: "relay" })]),
+      response([source({ node: NODE_A, serverName: "Loft", path: "relay" })]),
     );
     expect(formatSourceChoice(choice, LABELS).subtitle).toBe("Relayed");
   });
@@ -468,7 +468,7 @@ describe("formatSourceChoice", () => {
     const [choice] = build(
       [meshSource("ms-a", NODE_A)],
       response([
-        source({ node: NODE_A, nodeName: "Dark", online: false, height: 1080 }),
+        source({ node: NODE_A, serverName: "Dark", online: false, height: 1080 }),
       ]),
     );
     expect(formatSourceChoice(choice, LABELS).badges).toEqual(["Offline"]);
@@ -492,14 +492,14 @@ describe("a local file and a peer's copy on one item", () => {
     const choices = build(
       [localSource("local", 1080), meshSource("ms-a", NODE_A)],
       response(
-        [source({ node: NODE_A, nodeName: "Attic", height: 2160, rttMs: 18 })],
+        [source({ node: NODE_A, serverName: "Attic", height: 2160, rttMs: 18 })],
         "quality_first",
       ),
       "quality_first",
     );
 
     expect(choices[0].local).toBe(false);
-    expect(choices[0].nodeName).toBe("Attic");
+    expect(choices[0].serverName).toBe("Attic");
   });
 
   test("speed_first keeps the local file even against a direct 2160p at 1 ms", () => {
@@ -509,7 +509,7 @@ describe("a local file and a peer's copy on one item", () => {
       response([
         source({
           node: NODE_A,
-          nodeName: "Attic",
+          serverName: "Attic",
           height: 2160,
           rttMs: 1,
           path: "direct",
@@ -528,8 +528,8 @@ describe("a local file and a peer's copy on one item", () => {
         meshSource("ms-b", NODE_B),
       ],
       response([
-        source({ node: NODE_A, nodeName: "Attic" }),
-        source({ node: NODE_B, nodeName: "Loft" }),
+        source({ node: NODE_A, serverName: "Attic" }),
+        source({ node: NODE_B, serverName: "Loft" }),
       ]),
     );
 
@@ -547,12 +547,12 @@ describe("a local file and a peer's copy on one item", () => {
       response([
         source({
           node: "local",
-          nodeName: "This server",
+          serverName: "This server",
           isLocal: true,
           mediaSourceId: "local",
           height: 2160,
         }),
-        source({ node: NODE_A, nodeName: "Attic", height: 1080 }),
+        source({ node: NODE_A, serverName: "Attic", height: 1080 }),
       ]),
     );
 
@@ -565,11 +565,11 @@ describe("a local file and a peer's copy on one item", () => {
       response([
         source({
           node: "local",
-          nodeName: "This server",
+          serverName: "This server",
           isLocal: true,
           height: 2160,
         }),
-        source({ node: NODE_A, nodeName: "Attic", height: 1080 }),
+        source({ node: NODE_A, serverName: "Attic", height: 1080 }),
       ]),
     );
 
@@ -581,15 +581,15 @@ describe("a local file and a peer's copy on one item", () => {
       [localSource("local"), meshSource("ms-a", NODE_A)],
       response(
         [
-          source({ node: NODE_A, nodeName: "Attic", height: 2160 }),
-          source({ node: "local", nodeName: "This server", isLocal: true }),
+          source({ node: NODE_A, serverName: "Attic", height: 2160 }),
+          source({ node: "local", serverName: "This server", isLocal: true }),
         ],
         "quality_first",
       ),
       "quality_first",
     );
 
-    expect(choices.find((c) => c.recommended)?.nodeName).toBe("Attic");
+    expect(choices.find((c) => c.recommended)?.serverName).toBe("Attic");
   });
 
   test("the local copy is marked as the same file when a peer holds identical bytes", () => {
@@ -599,13 +599,13 @@ describe("a local file and a peer's copy on one item", () => {
     const choices = build(
       [local, meshSource("ms-a", NODE_A)],
       response([
-        source({ node: NODE_A, nodeName: "Attic", fileHash: "ABC123" }),
+        source({ node: NODE_A, serverName: "Attic", fileHash: "ABC123" }),
       ]),
       "speed_first",
       "local",
     );
 
-    expect(choices.find((c) => c.nodeName === "Attic")?.sameFileAsCurrent).toBe(
+    expect(choices.find((c) => c.serverName === "Attic")?.sameFileAsCurrent).toBe(
       true,
     );
   });

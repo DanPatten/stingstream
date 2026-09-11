@@ -34,7 +34,7 @@ public sealed class SourceCandidate
     public string Node { get; set; } = string.Empty;
 
     /// <summary>The holding node's human name.</summary>
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>The item key this candidate holds.</summary>
     public string ItemKey { get; set; } = string.Empty;

@@ -64,7 +64,7 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
     const confirmed = await confirmDestructive(
       t("requests.delete_confirm_title", { title }),
       t("requests.delete_confirm_detail"),
-      t("common.delete"),
+      t("requests.delete_confirm_action"),
     );
     if (!confirmed) return;
     try {
@@ -163,7 +163,7 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
                         withdraw(request.id, requestTitle(request))
                       }
                     >
-                      {t("common.delete")}
+                      {t("requests.delete_action")}
                     </Button>
                   </>
                 )

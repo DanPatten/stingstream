@@ -233,7 +233,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
                     Group = parsed.Group,
                     Node = parsed.Node,
                     ItemKey = parsed.ItemKey,
-                    NodeName = source.Name ?? parsed.Node,
+                    ServerName = source.Name ?? parsed.Node,
                     Online = false,
                 };
             }
@@ -283,7 +283,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
     {
         var itemKey = federated.Count > 0 ? federated[0].Parsed?.ItemKey : null;
         var federatedRoot = _runtime.Current?.Paths.Federated;
-        (string Node, string NodeName)? self = null;
+        (string Node, string ServerName)? self = null;
 
         foreach (var source in sources)
         {
@@ -297,7 +297,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
                 source,
                 itemKey,
                 self.Value.Node,
-                self.Value.NodeName,
+                self.Value.ServerName,
                 federatedRoot);
             if (candidate is null)
             {
@@ -381,7 +381,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
             _logger.LogInformation(
                 "{Node} holds {ItemKey} at {Needed:F1} Mbit/s but measures {Measured:F1} Mbit/s from here; "
                 + "falling back to a transcode on this node",
-                candidate.NodeName,
+                candidate.ServerName,
                 parsed.ItemKey,
                 scored.NeededBps / 1e6,
                 (candidate.ThroughputBps ?? 0) / 1e6);
@@ -458,7 +458,7 @@ public sealed class FederatedSourceDecorator : IMediaSourceDecorator
 
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{scored.Candidate.NodeName}={scored.Score:F1} ({string.Join(", ", scored.Reasons)})"));
+                $"{scored.Candidate.ServerName}={scored.Score:F1} ({string.Join(", ", scored.Reasons)})"));
         }
 
         if (lines.Count > 0)

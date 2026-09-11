@@ -24,7 +24,7 @@ const FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
     MeshConfig {
-        node_name: name.to_string(),
+        server_name: name.to_string(),
         data_dir: dir.to_path_buf(),
         api: stingstream_mesh::config::ApiConfig {
             port: 0,
@@ -168,7 +168,7 @@ async fn two_nodes_join_gossip_and_stream_with_no_coordinator() -> Result<()> {
             .find(|e| e.node == b.node_id() && e.record.item_key == item_key)
     })
     .await?;
-    assert_eq!(entry.node_name, "loft");
+    assert_eq!(entry.server_name, "loft");
     assert_eq!(entry.record.media.size, Some(FILE_BYTES));
     assert_eq!(entry.record.metadata.title, "Sita Sings the Blues");
     assert_eq!(entry.record.file_hash.as_deref(), Some(hash));
@@ -733,7 +733,7 @@ async fn two_nodes_watch_the_same_film_in_sync() -> Result<()> {
         &stingstream_mesh::watch::Report {
             session: session.id.clone(),
             node: b.node_id(),
-            node_name: "loft".into(),
+            server_name: "loft".into(),
             state: theirs.state,
             position_ms: theirs.position_at(now),
             at_ms: now,

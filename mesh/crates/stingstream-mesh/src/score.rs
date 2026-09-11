@@ -105,7 +105,7 @@ pub const ASSUMED_BITRATE_BPS: f64 = 8_000_000.0;
 pub struct Candidate {
     pub node: String,
     #[serde(default)]
-    pub node_name: String,
+    pub server_name: String,
     pub online: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
@@ -308,7 +308,7 @@ mod tests {
     fn candidate(node: &str, height: u32, bitrate_mbps: f64, throughput_mbps: Option<f64>) -> Candidate {
         Candidate {
             node: node.to_string(),
-            node_name: node.to_string(),
+            server_name: node.to_string(),
             online: true,
             file_hash: Some(format!("hash-{node}")),
             bitrate: Some((bitrate_mbps * 1e6) as u64),

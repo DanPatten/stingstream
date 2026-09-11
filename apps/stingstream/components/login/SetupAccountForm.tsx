@@ -20,7 +20,7 @@ import { FocusPressable } from "./FocusPressable";
 /**
  * What a server is called before anybody says otherwise.
  *
- * `config.toml`'s `node_name` is the machine's own, or whatever a container was told, and it leaked
+ * `config.toml`'s `server_name` is the machine's own, or whatever a container was told, and it leaked
  * into the places a person actually reads: *"You have been invited to ui-loop"*. So setup asks, and
  * this is the answer for anybody who does not care.
  */

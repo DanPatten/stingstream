@@ -214,7 +214,7 @@ mod tests {
         let runtime = Runtime {
             version: RUNTIME_VERSION,
             node_id: "n".into(),
-            node_name: "n".into(),
+            server_name: "n".into(),
             first_run: true,
             dev: true,
             data_dir: PathBuf::from("/d"),

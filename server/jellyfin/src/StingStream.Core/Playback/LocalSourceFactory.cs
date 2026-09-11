@@ -80,7 +80,7 @@ public sealed class LocalSourceFactory
     /// client caches its status. A node with no mesh at all still gets a usable row: the id falls
     /// back to a marker the app can recognise, and the name to the node's own name.
     /// </remarks>
-    public async Task<(string Node, string NodeName)> SelfAsync(CancellationToken cancellationToken)
+    public async Task<(string Node, string ServerName)> SelfAsync(CancellationToken cancellationToken)
     {
         MeshStatus? status = null;
         try
@@ -94,9 +94,9 @@ public sealed class LocalSourceFactory
         }
 
         var node = string.IsNullOrWhiteSpace(status?.Node) ? LocalNodeMarker : status!.Node;
-        var name = !string.IsNullOrWhiteSpace(status?.NodeName)
-            ? status!.NodeName
-            : _runtime.Current?.NodeName ?? string.Empty;
+        var name = !string.IsNullOrWhiteSpace(status?.ServerName)
+            ? status!.ServerName
+            : _runtime.Current?.ServerName ?? string.Empty;
         return (node, name);
     }
 
@@ -116,14 +116,14 @@ public sealed class LocalSourceFactory
     /// <param name="source">The media source, from Jellyfin's own item.</param>
     /// <param name="itemKey">The item key it is a copy of, for the file hash lookup.</param>
     /// <param name="node">This node's id, from <see cref="SelfAsync"/>.</param>
-    /// <param name="nodeName">This node's name.</param>
+    /// <param name="serverName">This node's name.</param>
     /// <param name="federatedRoot">The federated tree, so a pointer cannot pose as a local file.</param>
     /// <returns>The candidate, or null when the source is not a local file.</returns>
     public SourceCandidate? FromMediaSource(
         MediaSourceInfo? source,
         string? itemKey,
         string node,
-        string nodeName,
+        string serverName,
         string? federatedRoot)
     {
         if (source is null || FederatedSourceDecorator.IsFederatedPointer(source))
@@ -152,7 +152,7 @@ public sealed class LocalSourceFactory
         return new SourceCandidate
         {
             Node = node,
-            NodeName = nodeName,
+            ServerName = serverName,
             ItemKey = itemKey ?? string.Empty,
             Online = true,
             IsLocal = true,
@@ -180,14 +180,14 @@ public sealed class LocalSourceFactory
     /// </summary>
     /// <param name="itemKey">The item key.</param>
     /// <param name="node">This node's id.</param>
-    /// <param name="nodeName">This node's name.</param>
+    /// <param name="serverName">This node's name.</param>
     /// <returns>The candidate, or null when this node does not hold the title.</returns>
     /// <remarks>
     /// What <c>GET /items/{id}/sources</c> uses. It answers for a title rather than for a
     /// <c>MediaSourceInfo</c>, and can therefore also list a holder this node never materialized —
     /// so the local copy has to come from the same place its inventory record does.
     /// </remarks>
-    public SourceCandidate? FromInventory(string? itemKey, string node, string nodeName)
+    public SourceCandidate? FromInventory(string? itemKey, string node, string serverName)
     {
         if (string.IsNullOrWhiteSpace(itemKey))
         {
@@ -203,7 +203,7 @@ public sealed class LocalSourceFactory
         return new SourceCandidate
         {
             Node = node,
-            NodeName = nodeName,
+            ServerName = serverName,
             ItemKey = itemKey,
             Online = true,
             IsLocal = true,

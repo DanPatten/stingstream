@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS revocations (
 CREATE TABLE IF NOT EXISTS peers (
     group_id             TEXT NOT NULL,
     node_id              TEXT NOT NULL,
-    node_name            TEXT NOT NULL DEFAULT '',
+    server_name            TEXT NOT NULL DEFAULT '',
     online               INTEGER NOT NULL DEFAULT 0,
     first_seen           TEXT NOT NULL,
     last_seen            TEXT,
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS request_claims (
     group_id   TEXT NOT NULL,
     request_id TEXT NOT NULL,
     node_id    TEXT NOT NULL,
-    node_name  TEXT NOT NULL DEFAULT '',
+    server_name  TEXT NOT NULL DEFAULT '',
     claimed_at INTEGER NOT NULL,
     state      TEXT NOT NULL,
     note       TEXT NOT NULL DEFAULT '',
@@ -240,10 +240,19 @@ impl Db {
             "ALTER TABLE groups ADD COLUMN prev_secret_until INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN rekey_at INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN rekey_by TEXT NOT NULL DEFAULT ''",
+            // A node has one name and it is the server's, so the column says so. A database
+            // written before the rename still calls it `node_name`; renaming rather than adding
+            // keeps the value, which is the point -- every peer's name would otherwise be blank
+            // until it gossiped again. Already-renamed databases report "no such column", which
+            // is swallowed below exactly as "duplicate column name" is.
+            "ALTER TABLE peers RENAME COLUMN node_name TO server_name",
+            "ALTER TABLE request_claims RENAME COLUMN node_name TO server_name",
         ] {
             match conn.execute(statement, []) {
                 Ok(_) => tracing::info!(statement, "migrated mesh.db"),
                 Err(e) if e.to_string().contains("duplicate column name") => {}
+                // The rename statements above, on a database that has already had them.
+                Err(e) if e.to_string().contains("no such column") => {}
                 Err(e) => {
                     return Err(anyhow::Error::new(e))
                         .with_context(|| format!("migrating mesh.db: {statement}"))
@@ -674,14 +683,14 @@ impl Db {
     // --- peers --------------------------------------------------------------------------------
 
     /// Record that a node is a member of a group, without changing its liveness.
-    pub fn note_member(&self, group: &GroupId, node: &str, node_name: &str) -> Result<()> {
+    pub fn note_member(&self, group: &GroupId, node: &str, server_name: &str) -> Result<()> {
         self.lock()
             .execute(
-                "INSERT INTO peers (group_id, node_id, node_name, online, first_seen)
+                "INSERT INTO peers (group_id, node_id, server_name, online, first_seen)
                  VALUES (?1, ?2, ?3, 0, ?4)
                  ON CONFLICT(group_id, node_id) DO UPDATE SET
-                     node_name = CASE WHEN excluded.node_name <> '' THEN excluded.node_name ELSE peers.node_name END",
-                params![group.to_string(), node, node_name, now_rfc3339()],
+                     server_name = CASE WHEN excluded.server_name <> '' THEN excluded.server_name ELSE peers.server_name END",
+                params![group.to_string(), node, server_name, now_rfc3339()],
             )
             .context("recording a group member")?;
         Ok(())
@@ -728,10 +737,10 @@ impl Db {
         &self,
         group: &GroupId,
         node: &str,
-        node_name: &str,
+        server_name: &str,
         hb: &Heartbeat,
     ) -> Result<()> {
-        self.note_member(group, node, node_name)?;
+        self.note_member(group, node, server_name)?;
         self.lock()
             .execute(
                 "UPDATE peers SET online = 1, last_seen = ?3,
@@ -810,18 +819,18 @@ impl Db {
 
     pub fn peers(&self, group: Option<&GroupId>) -> Result<Vec<PeerRow>> {
         let conn = self.lock();
-        let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
+        let sql = "SELECT group_id, node_id, server_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
                           active_transcodes, free_space, throughput_bps, throughput_samples,
                           throughput_at, can_fulfil_movies, can_fulfil_tv, side_door, has_indexers
-                   FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
+                   FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, server_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
             .query_map(params![group.map(|g| g.to_string())], |r| {
                 Ok(PeerRow {
                     group: r.get(0)?,
                     node: r.get(1)?,
-                    node_name: r.get(2)?,
+                    server_name: r.get(2)?,
                     online: r.get::<_, i64>(3)? != 0,
                     first_seen: r.get(4)?,
                     last_seen: r.get(5)?,
@@ -1212,7 +1221,7 @@ impl Db {
         let conn = self.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT i.node_id, COALESCE(p.node_name, ''), COALESCE(p.online, 0), i.record
+                "SELECT i.node_id, COALESCE(p.server_name, ''), COALESCE(p.online, 0), i.record
                  FROM inventory i
                  LEFT JOIN peers p ON p.group_id = i.group_id AND p.node_id = i.node_id
                  WHERE i.group_id = ?1
@@ -1231,11 +1240,11 @@ impl Db {
             .context("reading the group index")?;
         let mut out = Vec::new();
         for row in rows {
-            let (node, node_name, online, json) = row.context("reading an index row")?;
+            let (node, server_name, online, json) = row.context("reading an index row")?;
             match serde_json::from_str::<WireRecord>(&json) {
                 Ok(record) => out.push(IndexEntry {
                     node,
-                    node_name,
+                    server_name,
                     online,
                     record,
                 }),
@@ -1278,7 +1287,7 @@ impl Db {
         let conn = self.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT i.node_id, COALESCE(p.node_name, ''), COALESCE(p.online, 0), i.file_hash,
+                "SELECT i.node_id, COALESCE(p.server_name, ''), COALESCE(p.online, 0), i.file_hash,
                         i.record, i.updated_at, p.path, p.rtt_ms, p.throughput_bps,
                         p.max_direct_streams, p.active_direct_streams, p.max_transcodes,
                         p.active_transcodes, p.free_space
@@ -1312,7 +1321,7 @@ impl Db {
         for row in rows {
             let (
                 node,
-                node_name,
+                server_name,
                 online,
                 file_hash,
                 record,
@@ -1331,7 +1340,7 @@ impl Db {
                 .unwrap_or_default();
             out.push(crate::score::Candidate {
                 node,
-                node_name,
+                server_name,
                 online,
                 file_hash,
                 bitrate: media.bitrate,
@@ -1442,11 +1451,11 @@ impl Db {
         self.lock()
             .execute(
                 "INSERT INTO request_claims
-                     (group_id, request_id, node_id, node_name, claimed_at, state, note, updated_at)
+                     (group_id, request_id, node_id, server_name, claimed_at, state, note, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(group_id, request_id, node_id) DO UPDATE SET
-                     node_name = CASE WHEN excluded.node_name <> '' THEN excluded.node_name
-                                      ELSE request_claims.node_name END,
+                     server_name = CASE WHEN excluded.server_name <> '' THEN excluded.server_name
+                                      ELSE request_claims.server_name END,
                      state = excluded.state,
                      note = excluded.note,
                      updated_at = excluded.updated_at",
@@ -1454,7 +1463,7 @@ impl Db {
                     group.to_string(),
                     claim.request_id,
                     claim.node,
-                    claim.node_name,
+                    claim.server_name,
                     claim.claimed_at as i64,
                     claim.state,
                     claim.note,
@@ -1470,7 +1479,7 @@ impl Db {
         let conn = self.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT request_id, node_id, node_name, claimed_at, state, note, updated_at
+                "SELECT request_id, node_id, server_name, claimed_at, state, note, updated_at
                  FROM request_claims WHERE group_id = ?1 AND request_id = ?2",
             )
             .context("listing request claims")?;
@@ -1479,7 +1488,7 @@ impl Db {
                 Ok(ClaimRecord {
                     request_id: r.get(0)?,
                     node: r.get(1)?,
-                    node_name: r.get(2)?,
+                    server_name: r.get(2)?,
                     claimed_at: r.get::<_, i64>(3)? as u64,
                     state: r.get(4)?,
                     note: r.get(5)?,
@@ -1648,7 +1657,7 @@ pub struct MeshInviteRow {
 pub struct PeerRow {
     pub group: String,
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
     pub online: bool,
     pub first_seen: String,
     pub last_seen: Option<String>,
@@ -1844,7 +1853,7 @@ mod tests {
         db.set_heartbeat(&g.id, "peer", "loft", &Heartbeat::default())
             .unwrap();
         let idx = db.index(&g.id).unwrap();
-        assert_eq!(idx[0].node_name, "loft");
+        assert_eq!(idx[0].server_name, "loft");
         assert!(idx[0].online);
     }
 
@@ -1868,7 +1877,7 @@ mod tests {
         ClaimRecord {
             request_id: request_id.into(),
             node: node.into(),
-            node_name: node.into(),
+            server_name: node.into(),
             claimed_at: at,
             state: state.into(),
             note: String::new(),
@@ -2122,7 +2131,7 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         let c = &candidates[0];
         assert_eq!(c.node, "b");
-        assert_eq!(c.node_name, "loft");
+        assert_eq!(c.server_name, "loft");
         assert!(c.online);
         assert_eq!(c.bitrate, Some(5_000_000));
         assert_eq!(c.height, Some(1080));

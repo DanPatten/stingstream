@@ -24,7 +24,7 @@ public class SourceScorerTests
         => new()
         {
             Node = node,
-            NodeName = node,
+            ServerName = node,
             Group = "g",
             ItemKey = "movie:tmdb:1",
             Online = true,

@@ -232,7 +232,7 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         "addresses": state.addresses.get(),
         "node": {
             "id": state.node.runtime.node_id,
-            "name": state.node.runtime.node_name,
+            "name": state.node.runtime.server_name,
             "dev": state.node.dev,
             "first_run": state.first_run.get(),
             "data_dir": state.node.runtime.data_dir,
@@ -292,7 +292,7 @@ fn public_health(state: &GatewayState, ok: bool, children: usize) -> serde_json:
         "node": {
             // The id is already public: it is the label in `pub.<nodeid>.direct.<host>`.
             "id": state.node.runtime.node_id,
-            "name": state.node.runtime.node_name,
+            "name": state.node.runtime.server_name,
             "dev": state.node.dev,
             "first_run": state.first_run.get(),
         },
@@ -357,7 +357,7 @@ fn marker_for<'a>(
 ) -> web::Marker<'a> {
     let peer = peer_addr(req);
     web::Marker {
-        node_name: &state.node.runtime.node_name,
+        server_name: &state.node.runtime.server_name,
         // The real socket peer, per request. `index.html` is already `no-cache`, so the answer
         // cannot be cached from one client and handed to another.
         loopback: is_local(peer),
@@ -376,7 +376,7 @@ async fn index(State(state): State<GatewayState>, req: Request) -> Response {
         }
         WebSource::DevServer(upstream) => proxy_to_dev_server(&state, upstream.clone(), req).await,
         WebSource::None => {
-            Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response()
+            Html(placeholder_page(&state.node.runtime.server_name, state.node.dev)).into_response()
         }
     }
 }
@@ -414,7 +414,7 @@ async fn web_asset(State(state): State<GatewayState>, req: Request) -> Response 
         // No bundle: the placeholder page is the honest answer for a page request, and a missing
         // asset is still a 404 rather than HTML.
         WebSource::None if !web::looks_like_an_asset(&path) => {
-            Html(placeholder_page(&state.node.runtime.node_name, state.node.dev)).into_response()
+            Html(placeholder_page(&state.node.runtime.server_name, state.node.dev)).into_response()
         }
         WebSource::None => {
             (StatusCode::NOT_FOUND, "no web app is installed on this server").into_response()
@@ -495,8 +495,8 @@ async fn inject_into_html(response: Response, marker: &web::Marker<'_>) -> Respo
 /// The `--dev` note names **paths**, not products: the child UIs at `/radarr/`, `/sonarr/` and
 /// `/nzbget/` are developer plumbing, and a user-visible StingStream page does not print the names
 /// of the projects behind it.
-pub fn placeholder_page(node_name: &str, dev: bool) -> String {
-    let name = html_escape(node_name);
+pub fn placeholder_page(server_name: &str, dev: bool) -> String {
+    let name = html_escape(server_name);
     let dev_note = if dev {
         r#"<p class="dev">Running in <code>--dev</code> mode, so the child UIs are proxied at
         <a href="/radarr/">/radarr/</a>, <a href="/sonarr/">/sonarr/</a> and
@@ -1139,7 +1139,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "version": 1,
             "node_id": "abc123",
-            "node_name": "attic",
+            "server_name": "attic",
             "first_run": false,
             "dev": false,
             "data_dir": "/data/node",
@@ -1315,7 +1315,7 @@ mod tests {
             .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
         let addrs = state.addresses.get();
         let m = marker_for(&state, &local, &addrs);
-        assert_eq!(m.node_name, "attic");
+        assert_eq!(m.server_name, "attic");
         assert!(m.loopback);
         assert!(m.trusted_peer, "loopback is trusted");
         assert_eq!(m.setup_pending, Some(true));
@@ -1556,7 +1556,7 @@ mod tests {
     #[tokio::test]
     async fn the_marker_is_injected_into_proxied_html_and_nothing_else() {
         let marker = web::Marker {
-            node_name: "attic",
+            server_name: "attic",
             loopback: true,
             trusted_peer: true,
             setup_pending: Some(true),

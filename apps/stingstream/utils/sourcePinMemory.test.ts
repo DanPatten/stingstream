@@ -42,10 +42,10 @@ describe("sourcePinKey", () => {
 
 describe("pins", () => {
   test("round-trips a peer", () => {
-    rememberSourcePin("m1", { node: "ABCDEF", nodeName: "Attic PC" });
+    rememberSourcePin("m1", { node: "ABCDEF", serverName: "Attic PC" });
     expect(getSourcePin("m1")).toMatchObject({
       node: "ABCDEF",
-      nodeName: "Attic PC",
+      serverName: "Attic PC",
     });
   });
 
@@ -62,8 +62,8 @@ describe("pins", () => {
   });
 
   test("a second pin replaces the first", () => {
-    rememberSourcePin("m1", { node: "aaa", nodeName: "Attic PC" });
-    rememberSourcePin("m1", { node: "bbb", nodeName: "Loft" });
+    rememberSourcePin("m1", { node: "aaa", serverName: "Attic PC" });
+    rememberSourcePin("m1", { node: "bbb", serverName: "Loft" });
     expect(getSourcePin("m1")?.node).toBe("bbb");
   });
 

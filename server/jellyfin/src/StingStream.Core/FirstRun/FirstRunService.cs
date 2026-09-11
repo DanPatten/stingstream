@@ -185,7 +185,7 @@ public sealed class FirstRunService : BackgroundService
         _logger.LogInformation(
             "{Phase} StingStream wiring for node {Node}",
             firstRun ? "Starting first-run" : "Refreshing",
-            runtime.NodeName);
+            runtime.ServerName);
 
         if (firstRun)
         {

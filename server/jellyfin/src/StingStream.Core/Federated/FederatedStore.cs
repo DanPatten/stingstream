@@ -19,7 +19,7 @@ public sealed class FederatedPointer
     /// <summary>The holding node's iroh id.</summary>
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary><c>movie</c> or <c>episode</c>.</summary>
     public string Kind { get; set; } = string.Empty;
@@ -79,7 +79,7 @@ public sealed class FederatedStore
         => _db.Read(c => CoreDatabase.Query(
             c,
             """
-            SELECT group_id, item_key, node_id, node_name, kind, quality, folder, strm_path,
+            SELECT group_id, item_key, node_id, server_name, kind, quality, folder, strm_path,
                    file_hash, updated_at, written_at, offline_since
             FROM federated WHERE group_id = $g;
             """,
@@ -92,7 +92,7 @@ public sealed class FederatedStore
         => _db.Read(c => CoreDatabase.Query(
             c,
             """
-            SELECT group_id, item_key, node_id, node_name, kind, quality, folder, strm_path,
+            SELECT group_id, item_key, node_id, server_name, kind, quality, folder, strm_path,
                    file_hash, updated_at, written_at, offline_since
             FROM federated;
             """,
@@ -103,7 +103,7 @@ public sealed class FederatedStore
         Group = r.GetString(0),
         ItemKey = r.GetString(1),
         Node = r.GetString(2),
-        NodeName = r.GetString(3),
+        ServerName = r.GetString(3),
         Kind = r.GetString(4),
         Quality = r.GetString(5),
         Folder = r.GetString(6),
@@ -126,11 +126,11 @@ public sealed class FederatedStore
                 c,
                 """
                 INSERT INTO federated
-                    (group_id, item_key, node_id, node_name, kind, quality, folder, strm_path,
+                    (group_id, item_key, node_id, server_name, kind, quality, folder, strm_path,
                      file_hash, record_json, updated_at, written_at, offline_since)
                 VALUES ($g, $k, $n, $nn, $t, $q, $f, $s, $h, '{}', $u, $w, $o)
                 ON CONFLICT(group_id, item_key, node_id) DO UPDATE SET
-                    node_name = excluded.node_name, kind = excluded.kind,
+                    server_name = excluded.server_name, kind = excluded.kind,
                     quality = excluded.quality, folder = excluded.folder,
                     strm_path = excluded.strm_path, file_hash = excluded.file_hash,
                     updated_at = excluded.updated_at, written_at = excluded.written_at,
@@ -139,7 +139,7 @@ public sealed class FederatedStore
                 ("$g", pointer.Group),
                 ("$k", pointer.ItemKey),
                 ("$n", pointer.Node),
-                ("$nn", pointer.NodeName),
+                ("$nn", pointer.ServerName),
                 ("$t", pointer.Kind),
                 ("$q", pointer.Quality),
                 ("$f", pointer.Folder),

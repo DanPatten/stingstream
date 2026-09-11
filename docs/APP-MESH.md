@@ -140,7 +140,7 @@ a native library cannot. Unknown keys are ignored; both camelCase and snake_case
 
 | Key | Default | |
 |---|---|---|
-| `nodeName` | the device model | what other members see in their Group screen |
+| `serverName` | the device model | what other members see in their Group screen |
 | `light` | `true` | the only thing this crate is for |
 | `apiPort` | `0` | ephemeral; a fixed port is somebody else's by the next app launch |
 | `n0Dns` | `true` | |
@@ -265,7 +265,7 @@ authentication of its own; it binds `127.0.0.1` precisely because anything that 
 already on the machine. The gateway binds `0.0.0.0` so phones and TVs can reach the node, so it
 refuses `/stingstream/mesh/*` from anywhere but loopback — a phone gets `403`. `MeshController` is
 the same operations behind Jellyfin's own authentication, which the app already holds a token for.
-**Responses are PascalCase** (`{"Group": …, "NodeName": …}`), despite
+**Responses are PascalCase** (`{"Group": …, "ServerName": …}`), despite
 `StingStreamControllerBase`'s comment saying otherwise — Core runs inside Jellyfin, whose global
 `JsonSerializerOptions` are PascalCase, and the controller base overrides the `[Produces]` media
 types without touching the naming policy. Nulls are omitted rather than serialised. The client in
@@ -513,7 +513,7 @@ On the `stingstream-tv` AVD (`sdk_google_atv64_x86_64`, API 36, x86_64), 2026-09
     ```
     I stingstream-mesh: identity: generated a new node key
         path=/data/user/0/com.fredrikburmester.streamyfin/files/stingstream-mesh/node.key
-    I stingstream-mesh: node: mesh node started node=384eb2052209… node_name=Google sdk_gphone64_x86_64
+    I stingstream-mesh: node: mesh node started node=384eb2052209… server_name=Google sdk_gphone64_x86_64
     I stingstream-mesh: stingstream_mesh_ffi: embedded mesh started node=384eb2052209… port=35533 light=true
     ```
 

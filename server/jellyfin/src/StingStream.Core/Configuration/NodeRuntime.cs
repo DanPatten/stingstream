@@ -30,7 +30,7 @@ public sealed class NodeRuntime
     /// <summary>Stable identifier for this data directory. Not the iroh node key (that arrives in M3).</summary>
     public string NodeId { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>True until first-run wiring has completed successfully.</summary>
     public bool FirstRun { get; set; }
@@ -179,13 +179,13 @@ public interface INodeRuntimeProvider
     /// <summary>Record the name the owner chose for this server.</summary>
     /// <param name="name">The new name. Blank is ignored.</param>
     /// <remarks>
-    /// <c>config.toml</c>'s <c>node_name</c> is the name a node <em>starts</em> with — the machine's,
+    /// <c>config.toml</c>'s <c>server_name</c> is the name a node <em>starts</em> with — the machine's,
     /// or whatever a container was told. Onboarding asks for the real one, and this is where it
     /// goes: the supervisor carries it forward on every start, so the marker, the placeholder page
     /// and the embedded mesh all pick it up. Jellyfin's own <c>ServerName</c> is set separately and
     /// takes effect at once; this is what makes it survive a restart and reach the mesh.
     /// </remarks>
-    void SetNodeName(string name);
+    void SetServerName(string name);
 }
 
 /// <inheritdoc />
@@ -310,7 +310,7 @@ public sealed class NodeRuntimeProvider : INodeRuntimeProvider
     }
 
     /// <inheritdoc />
-    public void SetNodeName(string name)
+    public void SetServerName(string name)
     {
         var trimmed = name?.Trim();
         var path = RuntimeJsonPath;
@@ -322,12 +322,12 @@ public sealed class NodeRuntimeProvider : INodeRuntimeProvider
         lock (_lock)
         {
             var current = ReadFile(path);
-            if (current is null || string.Equals(current.NodeName, trimmed, StringComparison.Ordinal))
+            if (current is null || string.Equals(current.ServerName, trimmed, StringComparison.Ordinal))
             {
                 return;
             }
 
-            current.NodeName = trimmed;
+            current.ServerName = trimmed;
             try
             {
                 // Sibling then rename, as ClearFirstRun does and for the same reason: the

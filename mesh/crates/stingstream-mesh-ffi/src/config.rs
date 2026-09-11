@@ -20,8 +20,8 @@ use stingstream_mesh::config::{ApiConfig, DiscoveryConfig, GossipConfig, MeshCon
 pub struct MeshConfigInput {
     /// Shown to other members in the group screen. Defaults to the device model the app passes,
     /// or the crate's own fallback when it is empty.
-    #[serde(alias = "node_name")]
-    pub node_name: Option<String>,
+    #[serde(alias = "server_name")]
+    pub server_name: Option<String>,
 
     /// A light member: holds no library, publishes no inventory, serves no files.
     ///
@@ -70,7 +70,7 @@ pub struct MeshConfigInput {
 impl Default for MeshConfigInput {
     fn default() -> Self {
         Self {
-            node_name: None,
+            server_name: None,
             light: true,
             api_port: 0,
             n0_dns: true,
@@ -109,13 +109,13 @@ impl MeshConfigInput {
                 .unwrap_or(defaults.gossip.peer_timeout_secs),
             snapshot_interval_secs: defaults.gossip.snapshot_interval_secs,
         };
-        let node_name = self
-            .node_name
+        let server_name = self
+            .server_name
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-            .unwrap_or(defaults.node_name);
+            .unwrap_or(defaults.server_name);
         let join_dial_timeout_secs = self
             .join_dial_timeout_secs
             .unwrap_or(defaults.peer.join_dial_timeout_secs);
@@ -130,7 +130,7 @@ impl MeshConfigInput {
         // is turned off here rather than obeyed.
         #[allow(clippy::needless_update)]
         MeshConfig {
-            node_name,
+            server_name,
             api: ApiConfig {
                 port: self.api_port,
                 ..ApiConfig::default()
@@ -177,25 +177,25 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_ignored_so_a_newer_bundle_can_talk_to_an_older_so() {
-        let cfg = MeshConfigInput::parse(r#"{"nodeName":"Loft TV","somethingFromNextYear":42}"#)
+        let cfg = MeshConfigInput::parse(r#"{"serverName":"Loft TV","somethingFromNextYear":42}"#)
             .expect("an unknown key must not be fatal");
-        assert_eq!(cfg.node_name.as_deref(), Some("Loft TV"));
+        assert_eq!(cfg.server_name.as_deref(), Some("Loft TV"));
     }
 
     #[test]
     fn snake_case_is_accepted_too() {
-        let cfg = MeshConfigInput::parse(r#"{"node_name":"Attic","api_port":9999}"#).unwrap();
-        assert_eq!(cfg.node_name.as_deref(), Some("Attic"));
+        let cfg = MeshConfigInput::parse(r#"{"server_name":"Attic","api_port":9999}"#).unwrap();
+        assert_eq!(cfg.server_name.as_deref(), Some("Attic"));
         assert_eq!(cfg.api_port, 9999);
     }
 
 
     #[test]
     fn a_blank_node_name_falls_back_rather_than_becoming_blank() {
-        let cfg = MeshConfigInput::parse(r#"{"nodeName":"   "}"#).unwrap();
+        let cfg = MeshConfigInput::parse(r#"{"serverName":"   "}"#).unwrap();
         assert!(!cfg
             .to_mesh_config(Path::new("/tmp/x"))
-            .node_name
+            .server_name
             .trim()
             .is_empty());
     }

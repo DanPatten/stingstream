@@ -35,6 +35,7 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             get(get_sharing).put(put_sharing),
         )
         .route("/mesh/v1/settings/sidedoor", put(put_side_door))
+        .route("/mesh/v1/settings/server-name", put(put_server_name))
         .route("/mesh/v1/domains", get(get_domains))
         .route(
             "/mesh/v1/domains/tunnel",
@@ -177,7 +178,7 @@ async fn healthz() -> Json<serde_json::Value> {
 #[derive(Serialize)]
 struct StatusBody {
     node: String,
-    node_name: String,
+    server_name: String,
     version: String,
     groups: usize,
     available_streams: usize,
@@ -211,7 +212,7 @@ async fn status(State(node): State<Arc<MeshNode>>) -> Json<StatusBody> {
     let addr = node.addr();
     Json(StatusBody {
         node: node.node_id(),
-        node_name: node.cfg.node_name.clone(),
+        server_name: node.server_name(),
         version: crate::VERSION.to_string(),
         groups: node.groups().await.len(),
         available_streams: node.available_streams(),
@@ -327,7 +328,7 @@ async fn vouch_issue(
 ) -> ApiResult<Json<VouchBody>> {
     let assertion = crate::vouch::issue(
         &node.secret_key,
-        node.node_name(),
+        &node.server_name(),
         &body.sub,
         &body.name,
         &body.aud,
@@ -339,7 +340,7 @@ async fn vouch_issue(
     Ok(Json(VouchBody {
         assertion,
         iss: node.node_id(),
-        server: node.node_name().to_string(),
+        server: node.server_name().to_string(),
     }))
 }
 
@@ -489,6 +490,28 @@ struct ReconcileBody {
     /// reports the error and the person decides.
     #[serde(skip_serializing_if = "Option::is_none")]
     api_token: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ServerNameBody {
+    server_name: String,
+}
+
+/// `PUT /mesh/v1/settings/server-name` — the server was renamed.
+///
+/// A node has one name and it belongs to the server, so this is the only way it changes while
+/// something is running. `StingStream.Core` calls it when the owner renames the server, having
+/// already written the name to `runtime.json` so it survives a restart; this is what makes it
+/// reach the peers *without* one. Idempotent, and a blank name is ignored rather than accepted:
+/// a server with no name is not a state anything downstream is prepared for.
+async fn put_server_name(
+    State(node): State<Arc<MeshNode>>,
+    Json(body): Json<ServerNameBody>,
+) -> ApiResult<Json<ServerNameBody>> {
+    node.set_server_name(&body.server_name).await;
+    Ok(Json(ServerNameBody {
+        server_name: node.server_name(),
+    }))
 }
 
 /// `PUT /mesh/v1/settings/sidedoor` — the supervisor's reconcile tick.
@@ -1422,7 +1445,7 @@ async fn report_watch(
     let report = crate::watch::Report {
         session: session.clone(),
         node: node.node_id(),
-        node_name: node.cfg.node_name.clone(),
+        server_name: node.server_name(),
         state: body.state,
         position_ms: body.position_ms,
         at_ms: crate::watch::now_ms(),

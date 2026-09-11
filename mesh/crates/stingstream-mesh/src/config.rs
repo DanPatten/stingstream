@@ -27,8 +27,8 @@ pub const DB_FILE: &str = "mesh.db";
 pub const DATA_DIR_ENV: &str = "STINGSTREAM_DATA";
 /// Environment variable that overrides the local API port.
 pub const API_PORT_ENV: &str = "STINGSTREAM_MESH_API_PORT";
-/// Environment variable that overrides the node name.
-pub const NODE_NAME_ENV: &str = "STINGSTREAM_MESH_NODE_NAME";
+/// Environment variable that overrides the server name.
+pub const SERVER_NAME_ENV: &str = "STINGSTREAM_SERVER_NAME";
 
 /// Default local API port. 8791 sits next to the gateway's 8790.
 pub const DEFAULT_API_PORT: u16 = 8791;
@@ -38,7 +38,7 @@ pub const DEFAULT_API_PORT: u16 = 8791;
 pub struct MeshConfig {
     /// Human-readable name for this node. Shown in the group screen and used as the
     /// `<node-label>` in federated pointer filenames.
-    pub node_name: String,
+    pub server_name: String,
     pub api: ApiConfig,
     pub discovery: DiscoveryConfig,
     pub peer: PeerConfig,
@@ -167,7 +167,7 @@ pub struct GossipConfig {
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            node_name: default_node_name(),
+            server_name: default_server_name(),
             api: ApiConfig::default(),
             discovery: DiscoveryConfig::default(),
             peer: PeerConfig::default(),
@@ -224,7 +224,7 @@ impl Default for GossipConfig {
     }
 }
 
-fn default_node_name() -> String {
+fn default_server_name() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
@@ -300,9 +300,9 @@ impl MeshConfig {
                 self.api.port = p;
             }
         }
-        if let Ok(v) = std::env::var(NODE_NAME_ENV) {
+        if let Ok(v) = std::env::var(SERVER_NAME_ENV) {
             if !v.trim().is_empty() {
-                self.node_name = v.trim().to_string();
+                self.server_name = v.trim().to_string();
             }
         }
     }

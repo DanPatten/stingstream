@@ -8,7 +8,7 @@ import { buildServerList, peerAddress, type WaitingServer } from "./serverList";
 const peer = (over: Partial<MeshNodePeer> = {}): MeshNodePeer => ({
   group: "g1",
   node: "peer-node",
-  nodeName: "Sams Server",
+  serverName: "Sams Server",
   online: true,
   firstSeen: "2026-01-01T00:00:00Z",
   ...over,
@@ -71,7 +71,7 @@ describe("buildServerList", () => {
     // this server twice — once labelled and once as a stranger with the same name. Dan: *"why do I
     // see servers listed twice like that"*.
     const rows = buildServerList({ ...here, node: null }, [
-      peer({ node: "this-node", nodeName: "Loft" }),
+      peer({ node: "this-node", serverName: "Loft" }),
     ]);
     expect(rows).toHaveLength(1);
     expect(rows[0].isThisServer).toBe(true);
@@ -81,7 +81,7 @@ describe("buildServerList", () => {
     // Two servers really can share a name. Once the id is known it decides, and a peer that merely
     // shares this one's name keeps its row.
     const rows = buildServerList(here, [
-      peer({ node: "someone-else", nodeName: "Loft" }),
+      peer({ node: "someone-else", serverName: "Loft" }),
     ]);
     expect(rows).toHaveLength(2);
     expect(rows[1].isThisServer).toBe(false);
@@ -89,9 +89,9 @@ describe("buildServerList", () => {
 
   test("peers are ordered by name so the list does not shuffle as they come and go", () => {
     const rows = buildServerList(here, [
-      peer({ node: "c", nodeName: "Zed" }),
-      peer({ node: "a", nodeName: "Attic" }),
-      peer({ node: "b", nodeName: "Mill" }),
+      peer({ node: "c", serverName: "Zed" }),
+      peer({ node: "a", serverName: "Attic" }),
+      peer({ node: "b", serverName: "Mill" }),
     ]);
     expect(rows.map((r) => r.name)).toEqual(["Loft", "Attic", "Mill", "Zed"]);
   });
@@ -104,7 +104,7 @@ describe("buildServerList", () => {
 
   test("a nameless peer falls back to a readable stub of its id", () => {
     const rows = buildServerList(here, [
-      peer({ node: "abcdef0123456789", nodeName: "" }),
+      peer({ node: "abcdef0123456789", serverName: "" }),
     ]);
     expect(rows[1].name).toBe("abcdef01");
   });
@@ -148,7 +148,7 @@ describe("buildServerList, servers still being added", () => {
     // which a request row knows. Drawing both would be the same machine twice.
     const rows = buildServerList(
       here,
-      [peer({ node: "waiting-node", nodeName: "Nans Box" })],
+      [peer({ node: "waiting-node", serverName: "Nans Box" })],
       [waiting()],
     );
     expect(rows).toHaveLength(2);

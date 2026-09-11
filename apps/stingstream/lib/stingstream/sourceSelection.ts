@@ -91,7 +91,7 @@ export function resolveSourceSelection(
   }
 
   const pinnedChoice = findPinned(choices, pin) ?? null;
-  const pinnedName = pinnedChoice?.nodeName ?? pin.nodeName ?? null;
+  const pinnedName = pinnedChoice?.serverName ?? pin.serverName ?? null;
 
   if (!pinnedChoice) {
     return {

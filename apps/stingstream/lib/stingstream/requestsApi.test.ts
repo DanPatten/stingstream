@@ -3,6 +3,8 @@ import i18n from "i18next";
 import { SessionExpiredError } from "@/utils/sessionExpiry";
 import en from "../../translations/en.json";
 import {
+  AlreadyHeldError,
+  createRequest,
   DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
   discoverRequestable,
@@ -764,5 +766,68 @@ describe("discoverRequestable and an expired session", () => {
     await expect(discoverRequestable(BASE, state, 1)).rejects.toBeInstanceOf(
       RequestsUnavailableError,
     );
+  });
+});
+
+describe("createRequest and a library that already has it", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  /** Answers one status and body for whatever it is asked. */
+  const answer = (status: number, body: unknown) => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+  };
+
+  test("a refusal carrying holders becomes something the screen can act on", async () => {
+    // The bug this pins: the refusal used to be read as a generic failure and shown as one. The
+    // sheet needs the holders and the item to play, because it is about to ask why somebody wants a
+    // title they already have. Dan, seeing the raw failure: *"making a post results in 409"*.
+    answer(409, {
+      alreadyHeld: true,
+      holders: ["ui-loop"],
+      playableItemId: "5668552bb932169123ea476a8ed42243",
+    });
+
+    const err = await createRequest(BASE, { tmdbId: 10378 }).then(
+      () => null,
+      (e) => e,
+    );
+
+    expect(err).toBeInstanceOf(AlreadyHeldError);
+    expect((err as AlreadyHeldError).holders).toEqual(["ui-loop"]);
+    expect((err as AlreadyHeldError).playableItemId).toBe(
+      "5668552bb932169123ea476a8ed42243",
+    );
+  });
+
+  test("a 409 of any other shape stays an ordinary failure", async () => {
+    // Only the shape we know is turned into a question about holders. Anything else on this route
+    // is a real refusal and must not be answered with a reason picker.
+    answer(409, { error: "something else entirely" });
+    const err = await createRequest(BASE, { tmdbId: 1 }).then(
+      () => null,
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(AlreadyHeldError);
+  });
+
+  test("a refusal with no holders still asks the question", async () => {
+    // The node resolves a playable item only once materialisation has caught up, and names holders
+    // it can see. Neither is required to know the library has the title.
+    answer(409, { alreadyHeld: true });
+    const err = await createRequest(BASE, { tmdbId: 2 }).then(
+      () => null,
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(AlreadyHeldError);
+    expect((err as AlreadyHeldError).holders).toEqual([]);
+    expect((err as AlreadyHeldError).playableItemId).toBeUndefined();
   });
 });

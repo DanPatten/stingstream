@@ -33,7 +33,7 @@ enum Command {
     Serve {
         /// Node name, shown to peers and used as the federated `<node-label>`.
         #[arg(long)]
-        node_name: Option<String>,
+        server_name: Option<String>,
     },
     /// Print this node's id, addresses and groups.
     Status,
@@ -73,10 +73,10 @@ async fn main() -> Result<()> {
     let data_dir = MeshConfig::resolve_data_dir(cli.data_dir.as_deref())?;
 
     match cli.command {
-        Command::Serve { node_name } => {
+        Command::Serve { server_name } => {
             let mut cfg = MeshConfig::load(&data_dir)?;
-            if let Some(n) = node_name {
-                cfg.node_name = n;
+            if let Some(n) = server_name {
+                cfg.server_name = n;
             }
             if let Some(p) = cli.api_port {
                 cfg.api.port = p;

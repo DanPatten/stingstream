@@ -643,22 +643,28 @@ public sealed class RequestService
     /// <summary>
     /// Whether this node can look anything up at all.
     /// </summary>
-    /// <returns><c>true</c> when at least one of the two managers is configured and keyed.</returns>
+    /// <returns><c>true</c> when a manager or the catalogue can answer a search.</returns>
     /// <remarks>
     /// <para>
-    /// <see cref="SearchAsync"/> answers an empty list for a node with neither manager configured,
-    /// which on the wire is indistinguishable from "nothing matched" — and the app, reasonably,
-    /// draws the same empty state for both. The result was a Requests screen that looked broken
-    /// rather than unset-up: no results, no error, and nothing to act on. A caller that can tell
-    /// the two apart can say which it is.
+    /// <see cref="SearchAsync"/> answers an empty list when nothing can look anything up, which on
+    /// the wire is indistinguishable from "nothing matched" — and the app, reasonably, draws the
+    /// same empty state for both. A caller that can tell the two apart can say which it is.
     /// </para>
     /// <para>
-    /// One manager is enough. A node with Radarr and no Sonarr can still be asked for films, and
-    /// refusing the whole search because half of it is missing would take away the half that works.
+    /// **In practice this is now always true**, and that is the point. It used to ask only whether
+    /// a download manager was configured, so a node with none replaced the whole Requests screen
+    /// with "Requests are not set up on this server. Downloading is turned off." Downloading has
+    /// nothing to do with whether somebody may ask for a title: the catalogue ships its own key and
+    /// can always be searched, and a request made with nothing configured waits on the wanted list
+    /// until an administrator satisfies it. Dan: *"downloading shouldnt be required to put in
+    /// requests"*. What remains is an honest fault check for the case where the catalogue key has
+    /// been deliberately blanked and no manager is running either.
     /// </para>
     /// </remarks>
     public bool CanSearch()
-        => _arrs.Create(ArrKind.Radarr) is not null || _arrs.Create(ArrKind.Sonarr) is not null;
+        => _arrs.Create(ArrKind.Radarr) is not null
+            || _arrs.Create(ArrKind.Sonarr) is not null
+            || _catalogue.CanBrowse();
 
     /// <summary>
     /// Search TMDB and TVDB for something to request, and say what the group already has.
@@ -695,14 +701,23 @@ public sealed class RequestService
         var wantMovies = kind is null || string.Equals(kind, "movie", StringComparison.OrdinalIgnoreCase);
         var wantSeries = kind is null || string.Equals(kind, "series", StringComparison.OrdinalIgnoreCase);
 
+        // The managers first, where they are running: they hold the provider keys, they normalise
+        // both providers onto one shape, and they are what will eventually be asked to grab the
+        // result. But a manager only runs when an indexer covers its kind now, and asking for
+        // something is not the same act as fetching it -- so where one is not running, the same
+        // question goes straight to the catalogue instead of the screen refusing to work at all.
         if (wantMovies)
         {
-            results.AddRange(await LookupManyAsync(ArrKind.Radarr, term, cancellationToken).ConfigureAwait(false));
+            results.AddRange(_arrs.Create(ArrKind.Radarr) is not null
+                ? await LookupManyAsync(ArrKind.Radarr, term, cancellationToken).ConfigureAwait(false)
+                : await _catalogue.SearchAsync(term, "movie", cancellationToken).ConfigureAwait(false));
         }
 
         if (wantSeries)
         {
-            results.AddRange(await LookupManyAsync(ArrKind.Sonarr, term, cancellationToken).ConfigureAwait(false));
+            results.AddRange(_arrs.Create(ArrKind.Sonarr) is not null
+                ? await LookupManyAsync(ArrKind.Sonarr, term, cancellationToken).ConfigureAwait(false)
+                : await _catalogue.SearchAsync(term, "series", cancellationToken).ConfigureAwait(false));
         }
 
         // Posters for the series TVDB had none for, before the per-result loop rather than inside
@@ -1143,7 +1158,7 @@ public sealed class RequestService
             itemKey,
             !isMovie,
             string.Empty,
-            _runtime.Current?.NodeName ?? string.Empty));
+            _runtime.Current?.ServerName ?? string.Empty));
 
         return Holders(candidates, minimumHeight, seasons, isMovie);
     }
@@ -1220,7 +1235,7 @@ public sealed class RequestService
             .Where(c => isMovie
                         || seasons.Count == 0
                         || (RequestWorker.SeasonOf(c.ItemKey) is int s && seasons.Contains(s)))
-            .Select(c => string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName)
+            .Select(c => string.IsNullOrWhiteSpace(c.ServerName) ? c.Node : c.ServerName)
             .ToList();
 
     /// <summary>Union two season lists, sorted, with duplicates removed.</summary>

@@ -34,7 +34,7 @@ export interface SourcePin {
    * not in the list any more — "Attic PC no longer has this" is a sentence that cannot be written
    * from a node id alone, and "a server you chose no longer has this" is not worth saying.
    */
-  nodeName?: string;
+  serverName?: string;
   /**
    * BLAKE3 of the pinned file, when it was known.
    *

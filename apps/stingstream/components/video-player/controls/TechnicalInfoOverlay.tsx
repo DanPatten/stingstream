@@ -363,7 +363,7 @@ export const TechnicalInfoOverlay: FC<TechnicalInfoOverlayProps> = memo(
               ]}
             >
               {meshStatus.label}
-              {meshStatus.nodeName ? ` · ${meshStatus.nodeName}` : ""}
+              {meshStatus.serverName ? ` · ${meshStatus.serverName}` : ""}
               {meshStatus.rttMs != null ? ` · ${meshStatus.rttMs} ms` : ""}
             </Text>
           )}

@@ -74,11 +74,11 @@ struct Cli {
     #[arg(long, value_name = "PORT")]
     port: Option<u16>,
 
-    /// Override node_name from config.toml for this run. Useful in a container, where the name
+    /// Override server_name from config.toml for this run. Useful in a container, where the name
     /// should come from the environment rather than an edited config.toml -- e.g.
     /// deploy/node/compose.yml's storage-node profile.
-    #[arg(long, value_name = "NAME", env = "STINGSTREAM_MESH_NODE_NAME")]
-    node_name: Option<String>,
+    #[arg(long, value_name = "NAME", env = "STINGSTREAM_SERVER_NAME")]
+    server_name: Option<String>,
 
     /// Directory holding the built web bundle to serve at `/`.
     ///
@@ -227,10 +227,10 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     if let Some(url) = &cli.web_dev_server {
         config.gateway.web_dev_server = url.clone();
     }
-    if let Some(name) = &cli.node_name {
+    if let Some(name) = &cli.server_name {
         let name = name.trim();
         if !name.is_empty() {
-            config.node_name = name.to_string();
+            config.server_name = name.to_string();
         }
     }
     config.validate()?;
@@ -342,10 +342,10 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
         // need to know where a browser can reach this node -- that is what tells a client where
         // its server's linked servers are -- but that address changes when a laptop moves network,
         // so it is *pushed on a timer* rather than frozen at start-up. See `side_door_publisher`.
-        // `rt.node_name`, not `config.node_name`: the owner may have renamed the server during
+        // `rt.server_name`, not `config.server_name`: the owner may have renamed the server during
         // setup, and a peer should see the name they chose rather than the one the installer
-        // guessed. See `CarriedSecrets::node_name`.
-        match embedded_mesh::start(&data_dir, port, &rt.node_name, shutdown_rx.clone())
+        // guessed. See `CarriedSecrets::server_name`.
+        match embedded_mesh::start(&data_dir, port, &rt.server_name, shutdown_rx.clone())
         .await
         {
             Ok(m) => {
@@ -574,7 +574,7 @@ async fn run(cli: Cli, shutdown_signal: std::pin::Pin<Box<dyn std::future::Futur
     let discovery = tokio::spawn(gateway::discovery::serve(
         gateway::LanAddresses::new(&config.gateway.bind, config.gateway.port),
         std::sync::Arc::from(rt.node_id.as_str()),
-        std::sync::Arc::from(rt.node_name.as_str()),
+        std::sync::Arc::from(rt.server_name.as_str()),
         shutdown_rx.clone(),
     ));
 
@@ -783,10 +783,10 @@ fn build_runtime(
         node_id: carried
             .node_id
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        node_name: carried
-            .node_name
+        server_name: carried
+            .server_name
             .clone()
-            .unwrap_or_else(|| config.node_name.clone()),
+            .unwrap_or_else(|| config.server_name.clone()),
         first_run: carried.first_run,
         dev: mode.is_dev(),
         data_dir: data_dir.to_path_buf(),
@@ -889,7 +889,7 @@ fn print_banner(
     lan: &[String],
 ) {
     let mut lines = vec![
-        format!("StingStream \"{}\" is up.", rt.node_name),
+        format!("StingStream \"{}\" is up.", rt.server_name),
         format!("  Open         {}", rt.gateway.local_url),
         format!("  Health       {}/healthz", rt.gateway.local_url),
         format!("  StingStream  {}/stingstream/api/v1/", rt.gateway.local_url),

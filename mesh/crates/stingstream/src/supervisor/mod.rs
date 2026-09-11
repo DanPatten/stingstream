@@ -278,8 +278,8 @@ fn mesh_def(runtime: &Runtime, mode: &Mode, port: u16) -> Option<ChildDef> {
             "--api-port".to_string(),
             port.to_string(),
             "serve".to_string(),
-            "--node-name".to_string(),
-            runtime.node_name.clone(),
+            "--server-name".to_string(),
+            runtime.server_name.clone(),
         ],
         cwd: None,
         env,
@@ -711,7 +711,7 @@ pub fn preseed_one(
             preseed::jellyfin::preseed(
                 &layout.jellyfin_config(),
                 &preseed::jellyfin::NetworkSettings::new(c.port),
-                &runtime.node_name,
+                &runtime.server_name,
             )?;
         }
     }

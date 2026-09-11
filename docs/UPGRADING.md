@@ -469,6 +469,36 @@ These do not touch the wire protocol above and so carry no major/minor bump, but
 things a person upgrading the app needs to know. Recorded here, not numbered into §1–6, so this
 section can grow without renumbering anything above it.
 
+### A server has one name, and it is `server_name`
+
+`node_name` is gone: from `config.toml`, from `runtime.json`, from the gossip and handshake frames,
+from the mesh and Core APIs, from the app, and from this documentation. The concept it named was
+never a second thing. A node's name *is* the server's name, and keeping two words for it is what
+let the two values drift apart.
+
+**An existing `config.toml` will not start.** The config structs are `deny_unknown_fields`, so a
+file still saying `node_name` is refused by name rather than ignored:
+
+```
+unknown field `node_name`, expected one of `server_name`, `gateway`, ...
+```
+
+That is deliberate and there is no alias: rename the key. **In both files** -- the supervisor's
+`config.toml` and the mesh's own `mesh.toml`, which has a `server_name` of its own and refuses to
+start the same way. `runtime.json`'s `node_name` is simply
+not read any more, so a node that had been renamed after setup falls back to `config.toml` until
+it is renamed again, which now takes one edit on Settings, This server.
+
+`mesh.db` is migrated rather than rebuilt -- `peers.node_name` and `request_claims.node_name` are
+renamed in place, so no peer loses the name it had learned.
+
+**And renaming now reaches the mesh.** It did not before: the Settings screen writes Jellyfin's own
+configuration, which nothing else was watching, so `runtime.json` kept the name chosen at first run
+and the mesh went on announcing the one it booted with. `ServerNameWatcher` observes the change and
+brings both into line, republishing into every link so peers stop showing the old name without
+waiting for a restart. Found on two freshly installed nodes that both insisted they were called
+`ui-loop`, which was the string in the config template they were built from.
+
 ### v0.2.0: the coordinator, and the account service, are gone
 
 Two removals in one release, and neither leaves anything to migrate.

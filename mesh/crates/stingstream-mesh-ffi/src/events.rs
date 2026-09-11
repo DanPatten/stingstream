@@ -20,7 +20,7 @@ use stingstream_mesh::node::MeshNode;
 pub struct PeerEvent {
     pub group: String,
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
     /// `direct`, `relay`, `mixed`, or absent when no connection has been observed yet.
     pub path: Option<String>,
     pub rtt_ms: Option<u64>,
@@ -141,7 +141,7 @@ pub fn spawn_peer_watcher(node: &Arc<MeshNode>, events: Arc<Events>, tick: Durat
                 let event = PeerEvent {
                     group: row.group,
                     node: row.node,
-                    node_name: row.node_name,
+                    server_name: row.server_name,
                     path: row.path,
                     rtt_ms: row.rtt_ms,
                 };
@@ -287,7 +287,7 @@ mod tests {
         events.peer_online(PeerEvent {
             group: "g".into(),
             node: "n".into(),
-            node_name: "loft".into(),
+            server_name: "loft".into(),
             path: None,
             rtt_ms: None,
         });
@@ -313,7 +313,7 @@ mod tests {
         let event = PeerEvent {
             group: "g".into(),
             node: "n1".into(),
-            node_name: "loft".into(),
+            server_name: "loft".into(),
             path: Some("direct".into()),
             rtt_ms: Some(7),
         };

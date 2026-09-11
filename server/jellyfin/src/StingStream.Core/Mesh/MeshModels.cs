@@ -37,7 +37,7 @@ public sealed class MeshStatus
     /// <summary>This node's iroh node id, 64 hex characters.</summary>
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public string Version { get; set; } = string.Empty;
 
@@ -153,7 +153,7 @@ public sealed class MeshMember
     public string Node { get; set; } = string.Empty;
 
     /// <summary>What the member calls itself. Empty until it has said.</summary>
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public bool Online { get; set; }
 
@@ -402,7 +402,7 @@ public sealed class MeshTunnelRequest
 /// <summary>One node's view of one item, as the merged index serves it.</summary>
 /// <remarks>
 /// The mesh flattens its <c>WireRecord</c> into this object, so the record's own fields sit
-/// alongside <see cref="Node"/>, <see cref="NodeName"/> and <see cref="Online"/>.
+/// alongside <see cref="Node"/>, <see cref="ServerName"/> and <see cref="Online"/>.
 /// </remarks>
 public sealed class MeshIndexEntry
 {
@@ -410,7 +410,7 @@ public sealed class MeshIndexEntry
     public string Node { get; set; } = string.Empty;
 
     /// <summary>The holding node's human name. This is the <c>&lt;node-label&gt;</c> in pointer filenames.</summary>
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>False when the holder has missed its heartbeats.</summary>
     public bool Online { get; set; }
@@ -447,7 +447,7 @@ public sealed class MeshPeer
 
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public bool Online { get; set; }
 
@@ -525,7 +525,7 @@ public sealed class MeshScoredSource
 {
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     public bool Online { get; set; }
 

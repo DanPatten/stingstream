@@ -17,7 +17,7 @@ pub const DEFAULT_GATEWAY_PORT: u16 = 8790;
 pub struct Config {
     /// Human-readable name for this node, shown in the UI and used as the `<node-label>` in
     /// federated pointer filenames from M3 onwards.
-    pub node_name: String,
+    pub server_name: String,
     pub gateway: GatewayConfig,
     pub children: ChildrenConfig,
     pub mesh: MeshSection,
@@ -191,7 +191,7 @@ pub struct LoggingConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            node_name: default_node_name(),
+            server_name: default_server_name(),
             gateway: GatewayConfig::default(),
             children: ChildrenConfig::default(),
             mesh: MeshSection::default(),
@@ -317,7 +317,7 @@ impl Default for LoggingConfig {
     }
 }
 
-fn default_node_name() -> String {
+fn default_server_name() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
@@ -381,8 +381,8 @@ impl Config {
 
     pub fn validate(&self) -> Result<()> {
         anyhow::ensure!(
-            !self.node_name.trim().is_empty(),
-            "config.toml: node_name must not be empty"
+            !self.server_name.trim().is_empty(),
+            "config.toml: server_name must not be empty"
         );
         anyhow::ensure!(
             self.gateway.port != 0,
@@ -473,13 +473,13 @@ embedded = false
     fn partial_toml_merges_over_defaults() {
         let cfg: Config = toml::from_str(
             r#"
-            node_name = "attic"
+            server_name = "attic"
             [ports]
             jellyfin = 9000
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.node_name, "attic");
+        assert_eq!(cfg.server_name, "attic");
         assert_eq!(cfg.ports.jellyfin, 9000);
         // untouched fields keep their defaults
         assert_eq!(cfg.ports.radarr, 7878);

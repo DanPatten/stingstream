@@ -75,6 +75,8 @@ public static class StingStreamCoreExtensions
         });
         services.AddSingleton<ArrClientFactory>();
         services.AddSingleton<OmniarrSyncService>();
+        services.AddSingleton<ArrEnablementWorker>();
+        services.AddHostedService(sp => sp.GetRequiredService<ArrEnablementWorker>());
         services.AddSingleton<QualityProfileService>();
 
         // NZBGet's own control API, which is how the unified Downloads list reaches the usenet half.
@@ -126,6 +128,9 @@ public static class StingStreamCoreExtensions
             client.Timeout = TimeSpan.FromSeconds(30);
         });
         services.AddSingleton<IMeshClient, MeshClient>();
+        // A server has one name. This is what keeps Jellyfin's copy, runtime.json's and the
+        // mesh's from drifting when somebody renames it -- see ServerNameWatcher for what drifted.
+        services.AddHostedService<Configuration.ServerNameWatcher>();
         services.AddSingleton<FederatedStore>();
         services.AddSingleton<InventoryPublisher>();
         services.AddHostedService(sp => sp.GetRequiredService<InventoryPublisher>());

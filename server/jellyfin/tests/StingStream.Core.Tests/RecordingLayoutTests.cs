@@ -28,7 +28,7 @@ public class RecordingLayoutTests
     private static MeshIndexEntry Entry(string itemKey, string? series, string title) => new()
     {
         Node = "abcdef0123456789",
-        NodeName = "attic",
+        ServerName = "attic",
         Online = true,
         ItemKey = itemKey,
         Metadata = new MeshMetadata

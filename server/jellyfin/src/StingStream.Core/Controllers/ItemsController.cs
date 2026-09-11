@@ -110,7 +110,7 @@ public sealed class ItemsController : StingStreamControllerBase
         // "This server" in the list at all -- which reads as the local file not being an option,
         // when it is usually the best one.
         var self = await _local.SelfAsync(cancellationToken).ConfigureAwait(false);
-        var localCandidate = _local.FromInventory(itemKey, self.Node, self.NodeName);
+        var localCandidate = _local.FromInventory(itemKey, self.Node, self.ServerName);
         if (localCandidate is not null)
         {
             candidates.Add(localCandidate);
@@ -320,7 +320,7 @@ public sealed class ItemsController : StingStreamControllerBase
         IReadOnlyDictionary<string, string> mediaSourceIds) => new()
     {
         Node = scored.Candidate.Node,
-        NodeName = scored.Candidate.NodeName,
+        ServerName = scored.Candidate.ServerName,
         IsLocal = scored.Candidate.IsLocal,
         MediaSourceId = scored.Candidate.IsLocal
             ? scored.Candidate.MediaSourceId
@@ -352,7 +352,7 @@ public sealed class ItemsController : StingStreamControllerBase
     private static HolderSummary Holder(SourceCandidate c) => new()
     {
         Node = c.Node,
-        NodeName = c.NodeName,
+        ServerName = c.ServerName,
         Online = c.Online,
         Group = c.Group,
         Resolution = c.Resolution,
@@ -381,7 +381,7 @@ public sealed class ScoredSourceResponse
 {
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>True when this is the copy on the caller's own server.</summary>
     /// <remarks>

@@ -31,7 +31,16 @@ pub struct Runtime {
     /// is just a local identifier so logs and inventory records can be attributed before the mesh
     /// exists.
     pub node_id: String,
-    pub node_name: String,
+    /// What this server calls itself.
+    ///
+    /// `#[serde(default)]` so that a `runtime.json` written before the rename is *read* rather
+    /// than thrown away. There is no alias and the old `node_name` is not honoured -- the name
+    /// falls back to the config and is set again on the next rename -- but the rest of this file
+    /// is the node's carried secrets: the Jellyfin administrator's password, API keys, the
+    /// download client's credentials. Refusing the whole document over one renamed field
+    /// regenerates all of it, which is a far larger thing to lose than a name.
+    #[serde(default)]
+    pub server_name: String,
     /// True until the first fully-successful start-up has completed its first-run wiring.
     /// `StingStream.Core` clears it via [`Runtime::clear_first_run`] once wiring succeeds.
     pub first_run: bool,
@@ -361,12 +370,12 @@ pub struct CarriedSecrets {
     pub node_id: Option<String>,
     /// The name the owner chose during setup, if they have.
     ///
-    /// `config.toml`'s `node_name` is the name a node *starts* with -- the machine's, or whatever a
+    /// `config.toml`'s `server_name` is the name a node *starts* with -- the machine's, or whatever a
     /// container was told. Onboarding asks for the real one, `StingStream.Core` writes it here, and
     /// from then on this file is the answer: carrying it forward is what stops the next start
     /// putting the old one back. Empty is treated as absent, so clearing the field falls back to
     /// the config rather than leaving a node with no name at all.
-    pub node_name: Option<String>,
+    pub server_name: Option<String>,
     pub first_run: bool,
     pub api_keys: BTreeMap<String, String>,
     pub nzbget_username: Option<String>,
@@ -398,7 +407,7 @@ impl CarriedSecrets {
         }
         Self {
             node_id: Some(prev.node_id.clone()),
-            node_name: Some(prev.node_name.clone()).filter(|n| !n.trim().is_empty()),
+            server_name: Some(prev.server_name.clone()).filter(|n| !n.trim().is_empty()),
             first_run: prev.first_run,
             api_keys,
             nzbget_username,
@@ -489,7 +498,7 @@ mod tests {
         Runtime {
             version: RUNTIME_VERSION,
             node_id: "n1".into(),
-            node_name: "attic".into(),
+            server_name: "attic".into(),
             first_run: true,
             dev: true,
             data_dir: layout.root.clone(),

@@ -30,7 +30,7 @@ export function useKnownServers(): void {
     if (status?.sideDoor?.candidates?.length) {
       seen.push({
         nodeId: status.node,
-        name: status.nodeName ?? "",
+        name: status.serverName ?? "",
         record: status.sideDoor,
         lastSeen: at,
       });
@@ -42,7 +42,7 @@ export function useKnownServers(): void {
       if (!peer.sideDoor?.candidates?.length) continue;
       seen.push({
         nodeId: peer.node,
-        name: peer.nodeName ?? "",
+        name: peer.serverName ?? "",
         record: peer.sideDoor,
         // A peer that is offline right now still had its address published at some point, and
         // that address is exactly what this list is for. `lastSeen` records when *we* saw the

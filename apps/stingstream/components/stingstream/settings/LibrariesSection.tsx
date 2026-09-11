@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Pill } from "@/components/common/Pill";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
@@ -16,7 +15,6 @@ import {
   type Library,
   libraryPath,
   useLibraries,
-  useLibraryHealth,
   useSaveLibrary,
 } from "@/lib/stingstream/libraries";
 import { apiAtom } from "@/providers/JellyfinProvider";
@@ -34,15 +32,19 @@ import { useAutosave } from "./useAutosave";
  * and on the third: *"if you can have a library then you can download too, unified that with the
  * downloading settings"*.
  *
- * So a library is a row: its name, whether this server runs it, and the folder it writes to. The
- * switch is the same switch that starts the manager — one call, `LibrariesController`, writes the
- * settings row and `config.toml` together, because two calls is how the two screens drifted apart
- * in the first place.
+ * So a library is a row: its name, whether this server runs it, and the folder it writes to.
  *
- * **The switch is intent; the pill is fact.** The supervisor notices the file within five seconds
- * and a manager starting for the first time migrates its database before it answers, so the two
- * disagree for a minute at a time in the ordinary case and permanently when something is wrong.
- * That is `useLibraryHealth`, and it is the same shape the Downloading page used to draw.
+ * **The switch says whether this server keeps that kind of library. It does not start a manager on
+ * its own**, though it used to. A manager runs when the library is on *and* an enabled indexer
+ * covers the kind, which is the server's rule (`ArrEnablement`) over the saved settings rather than
+ * anything this screen decides. Switching a library on therefore starts nothing until there is
+ * somewhere to search, which is the honest behaviour: a manager with no indexer can do nothing but
+ * look broken.
+ *
+ * **No status here.** There was a Running / Starting / Failed pill and the child's last error, which
+ * turned a settings row into a process monitor for states that are mostly transitional and none of
+ * which a reader could act on from this screen. Dan: *"just a simple toggle, all other work goes
+ * background +logs"*.
  */
 export function LibrariesSection() {
   const { t } = useTranslation();
@@ -125,7 +127,6 @@ function LibraryRow({ library }: { library: Library }) {
   const { t } = useTranslation();
   const { accent } = useTheme();
   const save = useSaveLibrary();
-  const health = useLibraryHealth(library.enabled ? library : undefined);
 
   const { draft, set, saving } = useAutosave({
     value: libraryPath(library),
@@ -153,53 +154,27 @@ function LibraryRow({ library }: { library: Library }) {
     }
   };
 
-  const status = (() => {
-    if (!library.enabled || health.state === undefined) return null;
-    if (health.state === "healthy") {
-      return { label: t("libraries.state_running"), tone: "success" as const };
-    }
-    // On, and not answering yet. A manager's first run migrates its database before it binds a
-    // port, which outlasts the supervisor's five-second tick, so this is the ordinary state for a
-    // minute after the switch goes on rather than a fault.
-    if (health.state === "starting") {
-      return { label: t("libraries.state_starting"), tone: "neutral" as const };
-    }
-    return { label: t("libraries.state_failed"), tone: "danger" as const };
-  })();
-
   return (
     // Keyed on the name, not the type: Recordings is a *movies* library, so keying on the type
     // gave two rows the same handle and a test asking for "the movies switch" found two.
     <View testID={`library-${library.name.toLowerCase().replace(/\s+/g, "-")}`}>
       <ListGroup>
-        <ListItem
-          title={library.name}
-          // `last_error` is what the *last* probe said, and a child that has since answered still
-          // carries it until a healthy tick clears it, so it is offered only while the child is
-          // not healthy — the only time it explains anything.
-          subtitle={
-            library.enabled && health.state !== "healthy" && health.error
-              ? health.error
-              : undefined
-          }
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: space["2"],
-            }}
-          >
-            {status ? (
-              <Pill label={status.label} tone={status.tone} size='sm' />
-            ) : null}
-            <SettingSwitch
-              value={library.enabled}
-              disabled={save.isPending}
-              onValueChange={(next) => void setEnabled(next)}
-              trackColor={{ true: accent[500] }}
-            />
-          </View>
+        {/*
+          A switch, and nothing else. There used to be a Running / Starting / Failed pill here and
+          the child's last error underneath it, which made a settings row into a process monitor:
+          the states it reported were mostly transitional (a manager's first run migrates its
+          database for a minute before it binds a port) and none of them were anything the reader
+          could act on from here. Dan: *"Remove the running and status labels too in the library -
+          just a simple toggle, all other work goes background +logs"*. What the managers are doing
+          goes to the log.
+        */}
+        <ListItem title={library.name}>
+          <SettingSwitch
+            value={library.enabled}
+            disabled={save.isPending}
+            onValueChange={(next) => void setEnabled(next)}
+            trackColor={{ true: accent[500] }}
+          />
         </ListItem>
 
         {library.enabled && library.managed && draft !== null ? (

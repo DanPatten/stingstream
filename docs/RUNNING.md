@@ -183,7 +183,7 @@ and the SPA-fallback path, never an asset — is spliced at serve time, before `
 ```html
 <meta name="stingstream-node" content="1">
 <script>window.__STINGSTREAM_NODE__={"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1",
-  "loopback":true,"trustedPeer":true,"setupPending":true,"nodeName":"attic","version":"0.2.0",
+  "loopback":true,"trustedPeer":true,"setupPending":true,"serverName":"attic","version":"0.2.0",
   "addresses":["http://192.168.0.16:8790"]}</script>
 ```
 
@@ -320,7 +320,7 @@ foreach ($n in @(
     $dir = "E:\Dan\Documents\Repos\StingStream\.local\scratch\stingstream-$($n.Name)"
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     @"
-node_name = "node-$($n.Name)"
+server_name = "node-$($n.Name)"
 
 [gateway]
 bind = "127.0.0.1"
@@ -421,7 +421,7 @@ Written with commented defaults on first run and never touched again, so your ed
 upgrades. The interesting parts:
 
 ```toml
-node_name = "attic"
+server_name = "attic"
 
 [gateway]
 bind = "0.0.0.0"    # the node's one exposed listener
@@ -437,11 +437,12 @@ nzbget = 6789
 infinidysk = false  # a later milestone
 ```
 
-`radarr` and `sonarr` are also written from the app, and only from one place: a library's switch on
-Settings → Libraries. Turning the Movies library on is what starts the movie manager, because "does
-this server hold films" and "does it go and get them" were never two questions.
-`LibrariesController` writes the settings row and this file together for that reason; the supervisor
-notices within five seconds and starts or stops the child with no restart. Editing the file here by
+`radarr` and `sonarr` are also written from the app, but not by any one switch.
+`ArrEnablementWorker` keeps them in line with a rule over the saved settings (`ArrEnablement`): a
+manager runs when a library of its kind is on **and** an enabled indexer covers that kind. Either
+half alone is a manager with nothing to do, and one started that way can only look broken, so
+switching a library on starts nothing until there is somewhere to search. The supervisor notices
+this file within five seconds and starts or stops the child with no restart. Editing the file here by
 hand still works and still wins, and the library row then disagrees with it until somebody presses
 the switch — which writes the file whether or not the row already agreed, so the switch is always a
 way out.

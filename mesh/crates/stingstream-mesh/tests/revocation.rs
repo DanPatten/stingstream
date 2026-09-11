@@ -21,7 +21,7 @@ use stingstream_mesh::proto;
 
 fn offline_config(dir: &std::path::Path, name: &str) -> MeshConfig {
     MeshConfig {
-        node_name: name.to_string(),
+        server_name: name.to_string(),
         data_dir: dir.to_path_buf(),
         api: stingstream_mesh::config::ApiConfig {
             port: 0,
@@ -567,7 +567,7 @@ async fn a_peer_speaking_an_incompatible_major_is_refused_at_the_handshake() -> 
     let hello = stingstream_mesh::auth::Hello {
         group_id: *group.id.as_bytes(),
         client_nonce: [9u8; 32],
-        node_name: "wrong-build".into(),
+        server_name: "wrong-build".into(),
     };
     let body = postcard::to_stdvec(&hello)?;
     let mut frame = ((body.len() + 2) as u32).to_le_bytes().to_vec();

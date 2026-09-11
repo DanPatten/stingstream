@@ -95,9 +95,9 @@ pub fn network_xml(s: &NetworkSettings) -> String {
 /// `SQLite Error 1: 'no such table: __EFMigrationsHistory'`, in a loop the supervisor cannot fix.
 /// `StingStream.Core`'s first-run wiring sets the flag *after* the database exists and the
 /// administrator has been created, which is the only ordering that works.
-pub fn system_xml(node_name: &str) -> String {
+pub fn system_xml(server_name: &str) -> String {
     let mut body = String::new();
-    body.push_str(&xml::element("ServerName", node_name));
+    body.push_str(&xml::element("ServerName", server_name));
     body.push_str(&xml::element("UICulture", "en-US"));
     body.push_str(&xml::element("EnableMetrics", "false"));
     body.push_str(&xml::element("QuickConnectAvailable", "true"));
@@ -125,7 +125,7 @@ pub fn system_xml(node_name: &str) -> String {
 /// `network.xml` is rewritten on every start: the supervisor owns the port and bind address, and a
 /// restart that lands on a different port must not leave Jellyfin listening on the old one.
 /// `system.xml` is written only when absent, because Jellyfin accumulates real state in it.
-pub fn preseed(config_dir: &Path, settings: &NetworkSettings, node_name: &str) -> Result<()> {
+pub fn preseed(config_dir: &Path, settings: &NetworkSettings, server_name: &str) -> Result<()> {
     std::fs::create_dir_all(config_dir)
         .with_context(|| format!("creating {}", config_dir.display()))?;
 
@@ -135,7 +135,7 @@ pub fn preseed(config_dir: &Path, settings: &NetworkSettings, node_name: &str) -
 
     let system = config_dir.join("system.xml");
     if !system.exists() {
-        std::fs::write(&system, system_xml(node_name))
+        std::fs::write(&system, system_xml(server_name))
             .with_context(|| format!("writing {}", system.display()))?;
     }
     Ok(())

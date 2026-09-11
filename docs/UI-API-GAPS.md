@@ -434,7 +434,7 @@ place for the richer version of this question.
 ```
 GET /stingstream/api/v1/items/{id}/sources[?policy=speed_first|quality_first][&userId=]
 ->  { itemKey, policy, heldLocally,
-      sources: [ { node, nodeName, group, online, resolution, width, height, bitrate,
+      sources: [ { node, serverName, group, online, resolution, width, height, bitrate,
                    sizeBytes, fileHash, path, rttMs, throughputBps,
                    maxDirectStreams, activeDirectStreams,
                    score, neededBps, fits, measured, reasons[], streamUrl } ] }
@@ -494,7 +494,7 @@ own; changing somebody else's needs elevation.
 
 ```
 POST   /stingstream/api/v1/items/{id}/pin  -> 202 with the pin row (409 if nobody online holds it)
-GET    /stingstream/api/v1/items/{id}/pin  -> { state, copiedBytes, totalBytes, progress, nodeName,
+GET    /stingstream/api/v1/items/{id}/pin  -> { state, copiedBytes, totalBytes, progress, serverName,
                                                 targetPath, error, startedAt, updatedAt }
 DELETE /stingstream/api/v1/items/{id}/pin  -> 204, and a partial copy is thrown away
 ```

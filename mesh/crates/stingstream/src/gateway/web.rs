@@ -129,7 +129,7 @@ impl WebBundle {
 pub struct Marker<'a> {
     /// This node's display name, for "Sign in to {name}" — never the machine's hostname as seen by
     /// Jellyfin.
-    pub node_name: &'a str,
+    pub server_name: &'a str,
     /// Whether *this request* came from the machine the node runs on.
     pub loopback: bool,
     /// Whether this request came from loopback **or from a private network** — the peers allowed
@@ -157,7 +157,7 @@ struct MarkerJson<'a> {
     loopback: bool,
     trusted_peer: bool,
     setup_pending: Option<bool>,
-    node_name: &'a str,
+    server_name: &'a str,
     version: &'a str,
     addresses: &'a [String],
 }
@@ -172,7 +172,7 @@ impl Marker<'_> {
             loopback: self.loopback,
             trusted_peer: self.trusted_peer,
             setup_pending: self.setup_pending,
-            node_name: self.node_name,
+            server_name: self.server_name,
             version: env!("CARGO_PKG_VERSION"),
             addresses: if self.trusted_peer { self.addresses } else { &[] },
         })
@@ -189,7 +189,7 @@ impl Marker<'_> {
 /// Make a JSON document safe to sit inside a `<script>` element.
 ///
 /// The one that matters is `<`: a node whose *name* is `</script><script>alert(1)</script>` would
-/// otherwise close the element and run whatever followed, and a node name is attacker-supplied on
+/// otherwise close the element and run whatever followed, and a server name is attacker-supplied on
 /// any node somebody else configured. `<` is valid JSON *and* valid JavaScript, and parses
 /// back to the same string, so escaping costs nothing. `>` and `&` go too, so the payload is inert
 /// in an HTML-comment or CDATA context as well.
@@ -725,9 +725,9 @@ mod tests {
 
     // --- the node marker ----------------------------------------------------------------------
 
-    fn marker<'a>(node_name: &'a str, loopback: bool, setup_pending: Option<bool>) -> Marker<'a> {
+    fn marker<'a>(server_name: &'a str, loopback: bool, setup_pending: Option<bool>) -> Marker<'a> {
         Marker {
-            node_name,
+            server_name,
             loopback,
             // Loopback is a private address, so the ordinary fixture is trusted; the tests that
             // care about the difference build their own.
@@ -749,7 +749,7 @@ mod tests {
         assert!(html.contains("window.__STINGSTREAM_NODE__="));
         // Field order is part of the contract other packages read.
         let expected = format!(
-            r#"{{"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1","loopback":true,"trustedPeer":true,"setupPending":true,"nodeName":"attic","version":"{}","addresses":[]}}"#,
+            r#"{{"node":true,"jellyfin":"/jellyfin","api":"/stingstream/api/v1","loopback":true,"trustedPeer":true,"setupPending":true,"serverName":"attic","version":"{}","addresses":[]}}"#,
             env!("CARGO_PKG_VERSION")
         );
         assert!(html.contains(&expected), "{html}");
@@ -763,7 +763,7 @@ mod tests {
         let addrs = vec!["http://192.168.0.16:8790".to_string(), "http://[fd00::1]:8790".to_string()];
 
         let trusted = Marker {
-            node_name: "attic",
+            server_name: "attic",
             loopback: false,
             trusted_peer: true,
             setup_pending: Some(true),
@@ -776,7 +776,7 @@ mod tests {
         // A peer from the internet is told nothing about the shape of the network behind it, on
         // the same reasoning that keeps `lan_ips` off a stranger's /healthz.
         let stranger = Marker {
-            node_name: "attic",
+            server_name: "attic",
             loopback: false,
             trusted_peer: false,
             setup_pending: Some(true),
@@ -797,7 +797,7 @@ mod tests {
         assert!(marker("n", true, None).html().contains(r#""setupPending":null"#));
     }
 
-    /// A node name is attacker-supplied on any node somebody else configured, and it lands inside
+    /// A server name is attacker-supplied on any node somebody else configured, and it lands inside
     /// a `<script>`. `</script>` must not be able to close the element.
     #[test]
     fn a_node_name_cannot_break_out_of_the_script_element() {
@@ -818,7 +818,7 @@ mod tests {
             .unwrap()
             .0;
         let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed["nodeName"], "</script><script>alert(1)</script>");
+        assert_eq!(parsed["serverName"], "</script><script>alert(1)</script>");
     }
 
     #[test]

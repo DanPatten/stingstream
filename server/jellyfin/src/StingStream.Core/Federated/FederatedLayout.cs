@@ -61,13 +61,13 @@ public static class FederatedLayout
     /// <summary>
     /// The label that distinguishes one holder's copy from another's in a filename.
     /// </summary>
-    /// <param name="nodeName">The holding node's human name.</param>
+    /// <param name="serverName">The holding node's human name.</param>
     /// <param name="nodeId">The holding node's iroh id, used when the name is unusable.</param>
     /// <param name="quality">Resolution label such as <c>1080p</c>; may be empty.</param>
     /// <returns>Something like <c>attic 1080p</c>.</returns>
-    public static string VersionLabel(string? nodeName, string nodeId, string? quality)
+    public static string VersionLabel(string? serverName, string nodeId, string? quality)
     {
-        var node = SafePath.Component(nodeName, ShortNode(nodeId));
+        var node = SafePath.Component(serverName, ShortNode(nodeId));
         var q = SafePath.Component(quality, string.Empty);
         // SafePath never returns empty, so an absent quality comes back as the fallback "item".
         // Checking the input rather than the output is what keeps the label clean.
@@ -87,7 +87,7 @@ public static class FederatedLayout
     /// the first, and the group silently has one source where it should have had two.
     /// </para>
     /// <para>
-    /// Collisions are not hypothetical. The mesh's default node name is the machine's hostname, and
+    /// Collisions are not hypothetical. The mesh's default server name is the machine's hostname, and
     /// two people who never renamed their node both call it after a laptop model; a pair of nodes
     /// that both hold the same 1080p encode then both want <c>attic 1080p</c>. When that happens
     /// every colliding holder gets its short node id appended — every one of them, not just the
@@ -96,15 +96,15 @@ public static class FederatedLayout
     /// </para>
     /// </remarks>
     public static IReadOnlyDictionary<string, string> AssignLabels(
-        IReadOnlyList<(string Node, string? NodeName, string? Quality)> holders)
+        IReadOnlyList<(string Node, string? ServerName, string? Quality)> holders)
     {
         ArgumentNullException.ThrowIfNull(holders);
 
         var preferred = new Dictionary<string, string>(StringComparer.Ordinal);
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (node, nodeName, quality) in holders)
+        foreach (var (node, serverName, quality) in holders)
         {
-            var label = VersionLabel(nodeName, node, quality);
+            var label = VersionLabel(serverName, node, quality);
             preferred[node] = label;
             counts[label] = counts.TryGetValue(label, out var n) ? n + 1 : 1;
         }

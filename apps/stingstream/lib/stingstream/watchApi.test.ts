@@ -26,7 +26,7 @@ describe("watchApi", () => {
     Participants: [
       {
         Node: "AAAA",
-        NodeName: "attic",
+        ServerName: "attic",
         Viewers: 1,
         RttMs: 0,
         DriftMs: 0,
@@ -35,7 +35,7 @@ describe("watchApi", () => {
       },
       {
         Node: "BBBB",
-        NodeName: "loft",
+        ServerName: "loft",
         Viewers: 2,
         RttMs: 8,
         DriftMs: -120,
@@ -60,7 +60,7 @@ describe("watchApi", () => {
     participants: [
       {
         node: "AAAA",
-        nodeName: "attic",
+        serverName: "attic",
         viewers: 1,
         rttMs: 0,
         driftMs: 0,
@@ -69,7 +69,7 @@ describe("watchApi", () => {
       },
       {
         node: "BBBB",
-        nodeName: "loft",
+        serverName: "loft",
         viewers: 2,
         rttMs: 8,
         driftMs: -120,

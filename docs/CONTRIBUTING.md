@@ -20,7 +20,7 @@ build failure. Spread its defaults instead, and set only what you have an opinio
 
 ```rust
 MeshConfig {
-    node_name,
+    server_name,
     peer: PeerConfig { light: true, ..PeerConfig::default() },
     ..MeshConfig::default()
 }

@@ -195,7 +195,7 @@ public sealed class RequestWantedStoreTests : IDisposable
         {
         }
 
-        public void SetNodeName(string name)
+        public void SetServerName(string name)
         {
         }
     }

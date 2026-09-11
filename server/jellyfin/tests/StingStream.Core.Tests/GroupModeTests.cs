@@ -27,7 +27,7 @@ public class GroupModeTests
         => new()
         {
             Node = id,
-            NodeName = id,
+            ServerName = id,
             Online = online,
             CanFulfilMovies = canFulfil,
             CanFulfilTv = canFulfil,

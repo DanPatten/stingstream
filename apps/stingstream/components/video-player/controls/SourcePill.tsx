@@ -94,11 +94,11 @@ const kindForChoice = (choice: SourceChoice): MeshConnectionKind => {
 /** `Direct · Kitchen · 18 ms`, with whichever thirds are actually known. */
 const pillLabel = (
   label: string,
-  nodeName: string | null,
+  serverName: string | null,
   rttMs: number | null,
 ): string => {
   const parts = [label];
-  if (nodeName) parts.push(nodeName);
+  if (serverName) parts.push(serverName);
   if (rttMs != null) parts.push(`${Math.round(rttMs)} ms`);
   return parts.join(" · ");
 };
@@ -132,7 +132,7 @@ const usePillContent = (
     if (status && status.kind !== "home-node") {
       return {
         kind: status.kind,
-        label: pillLabel(status.label, status.nodeName, status.rttMs),
+        label: pillLabel(status.label, status.serverName, status.rttMs),
       };
     }
 
@@ -141,7 +141,7 @@ const usePillContent = (
         kind: kindForChoice(choice),
         label: pillLabel(
           routeLabels[choice.route === "local" ? "direct" : choice.route],
-          choice.nodeName,
+          choice.serverName,
           choice.rttMs,
         ),
       };
@@ -152,7 +152,7 @@ const usePillContent = (
     if (status) {
       return {
         kind: status.kind,
-        label: pillLabel(viaServerLabel, status.nodeName, status.rttMs),
+        label: pillLabel(viaServerLabel, status.serverName, status.rttMs),
       };
     }
 

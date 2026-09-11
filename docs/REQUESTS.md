@@ -706,10 +706,18 @@ so mounting is landing, and every way of arriving there — the tab, `?tab=find`
 and the results are under it, and on a phone the keyboard would open over the answer.
 
 `GET /requests/search` answers **503** rather than an empty list when it cannot look at all
-(`RequestService.CanSearch()`: neither `ArrClientFactory.Create` returns a client). "Nothing
-matched" and "I could not look" are the same empty list on the wire and opposite things to the
-person who typed; the app reads a 503 from this controller as "requests are not set up on this
-server" and says so instead of drawing an empty list.
+(`RequestService.CanSearch()`). "Nothing matched" and "I could not look" are the same empty list on
+the wire and opposite things to the person who typed, so the app draws a fault rather than an empty
+list.
+
+**In practice that 503 no longer happens, and that is deliberate.** It used to mean "neither
+download manager is configured", which turned a node with nothing set up into a Requests screen
+replaced by "Requests are not set up on this server. Downloading is turned off." Downloading has
+nothing to do with whether somebody may *ask* for a title. Dan: *"downloading shouldnt be required
+to put in requests"*. Search falls back to `TmdbCatalog.SearchAsync` wherever a manager is not
+running, the catalogue ships its own key, and a request made on a node with nothing configured
+waits on the wanted list (§2a) until somebody satisfies it. What is left is an honest fault check
+for a node that can reach neither a manager nor the catalogue.
 
 **The whole screen is gated on that 503, before its section bar is drawn.** `useRequestsAvailable`
 asks `/requests/search?q=` once per visit — an empty term is a free capability probe, since Core

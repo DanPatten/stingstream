@@ -22,6 +22,7 @@ import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
+  AlreadyHeldError,
   imdbUrl,
   type MemberRequest,
   RequestFinishedError,
@@ -86,6 +87,7 @@ const isWeb = Platform.OS === "web";
 export function RequestSheet({
   result,
   existing = null,
+  heldHint = null,
   onClose,
 }: {
   result: RequestSearchResult | null;
@@ -97,6 +99,13 @@ export function RequestSheet({
    * a Withdraw action appears beside Cancel.
    */
   existing?: MemberRequest | null;
+  /**
+   * What the node said when it refused an ask made from the row behind this sheet.
+   *
+   * Lets the sheet open already knowing the library has the title, so somebody is asked why they
+   * want it once rather than pressing Request a second time to be told what the node already said.
+   */
+  heldHint?: { holders: string[]; playableItemId?: string } | null;
   onClose: () => void;
 }) {
   const { color } = useTheme();
@@ -107,6 +116,17 @@ export function RequestSheet({
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState<RequestReason | null>(null);
   const [reasonNote, setReasonNote] = useState("");
+  /**
+   * The node's own refusal, once it has given one.
+   *
+   * Null until an ask comes back 409. It exists because the search row this sheet opened from is a
+   * cached annotation: it can say the library does not have a title that it does have, in which
+   * case nothing asks for a reason up front and the node is the first thing to know better.
+   */
+  const [heldByNode, setHeldByNode] = useState<{
+    holders: string[];
+    playableItemId?: string;
+  } | null>(null);
   const create = useCreateRequest();
   const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
@@ -136,6 +156,9 @@ export function RequestSheet({
   // is the same thing a fresh sheet starts on.
   const openedExisting = editing?.id;
   const openedExistingSeasons = editing?.seasons?.join(",");
+  // Serialised so the effect depends on a primitive: the hint is a fresh object each render and
+  // would otherwise re-run the reset, wiping a reason somebody had just chosen.
+  const openedHint = heldHint ? JSON.stringify(heldHint) : null;
   useEffect(() => {
     const total = seasonTotal({ seasonCount: openedSeasons });
     const current = openedExistingSeasons
@@ -145,7 +168,15 @@ export function RequestSheet({
     setError(null);
     setReason(null);
     setReasonNote("");
-  }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
+    // Seeded from the row that opened this sheet, when the node had already refused an ask there.
+    setHeldByNode(openedHint ? JSON.parse(openedHint) : null);
+  }, [
+    openedFor,
+    openedSeasons,
+    openedExisting,
+    openedExistingSeasons,
+    openedHint,
+  ]);
 
   // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
   // own queries off when it has nothing to ask about.
@@ -175,9 +206,17 @@ export function RequestSheet({
   // The group already has it and there is no open request to edit, so the only sensible reading of
   // pressing the button is "I know, and I want something done about it anyway". The sheet asks
   // which of the three things, and will not submit until it has an answer.
-  const needsReason = !editingNow && action.intent === "duplicate";
+  //
+  // `heldByNode` is the node's own refusal, and it outranks the search row: that row is a cached
+  // annotation and is routinely stale about what the library has, which is how a request reached
+  // the node at all without a reason attached.
+  const needsReason =
+    !editingNow && (action.intent === "duplicate" || heldByNode !== null);
   const heldAlready =
-    shown.availableInGroup || shown.requestState === "available";
+    heldByNode !== null ||
+    shown.availableInGroup ||
+    shown.requestState === "available";
+  const playableItemId = heldByNode?.playableItemId ?? shown.localItemId;
   // Nothing ticked is not a request. There is no way to say "no seasons" on the wire — an empty
   // list means every season — so the button waits rather than sending the opposite of the screen.
   //
@@ -271,6 +310,19 @@ export function RequestSheet({
       requestMadeToast(made, t);
       onClose();
     } catch (err) {
+      // The node says the library already has it. That is a question, not a failure: stay open,
+      // show what it has with something to play, and ask why they want it anyway. Reached whenever
+      // the search row this sheet opened from was stale about holdings, which a cached or persisted
+      // result routinely is.
+      if (err instanceof AlreadyHeldError) {
+        setHeldByNode({
+          holders: err.holders,
+          playableItemId: err.playableItemId,
+        });
+        setError(null);
+        return;
+      }
+
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -282,7 +334,7 @@ export function RequestSheet({
     const ok = await confirmDestructive(
       t("requests.delete_confirm_title", { title }),
       t("requests.delete_confirm_detail"),
-      t("common.delete"),
+      t("requests.delete_confirm_action"),
     );
     if (!ok) return;
     setError(null);
@@ -459,11 +511,11 @@ export function RequestSheet({
               seconds after a peer first announces one: naming the holder with no link is still
               better than a button that goes nowhere.
             */}
-            {shown.localItemId ? (
+            {playableItemId ? (
               <Button
                 variant='secondary'
                 size='sm'
-                onPress={() => playExisting(shown.localItemId!)}
+                onPress={() => playExisting(playableItemId)}
               >
                 {t("requests.play_existing")}
               </Button>

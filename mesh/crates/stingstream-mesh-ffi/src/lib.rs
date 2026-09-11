@@ -101,7 +101,7 @@ pub struct PeerInfo {
     pub group: String,
     /// 64-character hex node id.
     pub node: String,
-    pub node_name: String,
+    pub server_name: String,
     pub online: bool,
     /// True for this device's own row.
     pub is_self: bool,
@@ -128,7 +128,7 @@ pub struct JoinResult {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MeshStatus {
     pub node_id: String,
-    pub node_name: String,
+    pub server_name: String,
     pub version: String,
     /// The loopback port the `/stream` rewrite targets.
     pub local_port: u16,
@@ -410,7 +410,7 @@ impl MeshHandle {
                         is_self: r.node == me,
                         group: r.group,
                         node: r.node,
-                        node_name: r.node_name,
+                        server_name: r.server_name,
                         online: r.online,
                         path: r.path,
                         rtt_ms: r.rtt_ms,
@@ -448,7 +448,7 @@ impl MeshHandle {
             }
             anyhow::Ok(MeshStatus {
                 node_id: me.clone(),
-                node_name: node.cfg.node_name.clone(),
+                server_name: node.cfg.server_name.clone(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 local_port,
                 light,
@@ -556,7 +556,7 @@ mod tests {
     /// A light node with every discovery service off: no network beyond loopback is touched, so
     /// this runs anywhere and cannot be made flaky by somebody else's infrastructure.
     fn offline_json() -> String {
-        r#"{"nodeName":"test-phone","light":true,"apiPort":0,
+        r#"{"serverName":"test-phone","light":true,"apiPort":0,
             "n0Dns":false,"n0Relays":false,"mainlineDht":false,
             "heartbeatSecs":1,"peerTimeoutSecs":10}"#
             .to_string()
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(s.node_id, h.node_id());
         assert!(s.light);
         assert_eq!(s.groups, 0);
-        assert_eq!(s.node_name, "test-phone");
+        assert_eq!(s.server_name, "test-phone");
         // Discovery is off in this configuration, so there is no relay to be homed on.
         assert!(s.home_relay.is_none());
         assert_eq!(s.direct_peers + s.relayed_peers + s.unknown_peers, 0);

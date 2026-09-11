@@ -45,7 +45,7 @@ export interface SourceChoice {
   /** The holder's node id, or `null` for the copy on this server. */
   node: string | null;
   /** What the row is called: the holder's name, or the "This server" label. */
-  nodeName: string;
+  serverName: string;
   /** The file lives on the server this device is signed in to — no mesh hop at all. */
   local: boolean;
   online: boolean;
@@ -128,7 +128,7 @@ export function buildSourceChoices(
   if (locals.length > 1) {
     for (const { choice, mediaSource } of locals) {
       const name = localSourceName(mediaSource);
-      if (name) choice.nodeName = `${localLabel} · ${name}`;
+      if (name) choice.serverName = `${localLabel} · ${name}`;
     }
   }
 
@@ -162,7 +162,7 @@ const fromMeshSource = (
 ): SourceChoice => ({
   mediaSourceId,
   node: source.node,
-  nodeName: source.nodeName || source.node.slice(0, 8),
+  serverName: source.serverName || source.node.slice(0, 8),
   local: false,
   online: source.online,
   recommended: false,
@@ -189,7 +189,7 @@ const fromLocalSource = (
   return {
     mediaSourceId,
     node: null,
-    nodeName: localLabel,
+    serverName: localLabel,
     local: true,
     // A file on the server this device is already talking to is reachable by definition: if it
     // were not, there would be no library to be looking at.
@@ -303,7 +303,7 @@ export const comparator =
       if (height !== 0) return height;
     }
 
-    return a.nodeName.localeCompare(b.nodeName);
+    return a.serverName.localeCompare(b.serverName);
   };
 
 /**
@@ -401,5 +401,5 @@ export const formatSourceChoice = (
   if (choice.sameFileAsCurrent) badges.push(labels.sameFile);
   if (!choice.online) badges.push(labels.offline);
 
-  return { title: choice.nodeName, subtitle: parts.join(" · "), badges };
+  return { title: choice.serverName, subtitle: parts.join(" · "), badges };
 };

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.Library;
@@ -22,10 +23,15 @@ namespace StingStream.Core.Controllers;
 /// One screen replaced two here. A reader used to set a pair of "root folders" on one page and
 /// switch downloading on from another, with nothing on either saying they were the same subject.
 /// Dan: <i>"if you can have a library then you can download too, unified that with the downloading
-/// settings"</i>. So a library's switch <b>is</b> its manager's switch, and this is the one
-/// endpoint that keeps those two facts from drifting: it writes the settings row and
-/// <c>config.toml</c> together, in that order, rather than leaving an app to make two calls and
-/// hope.
+/// settings"</i>.
+/// </para>
+/// <para>
+/// A library's switch is <b>not</b> its manager's switch, though it used to be. It says whether
+/// this server keeps that kind of library at all; whether a manager runs is
+/// <see cref="ArrEnablement"/>'s rule over the saved settings, which also wants an enabled indexer
+/// covering the kind. Switching a library on therefore starts nothing until there is somewhere to
+/// search, which is the honest behaviour: a manager with no indexer can do nothing but look
+/// broken. This endpoint saves the row and then asks that rule to bring <c>config.toml</c> in line.
 /// </para>
 /// <para>
 /// <b>Why not <c>PUT /Settings</c>.</b> That endpoint replaces the whole document, which is fine
@@ -49,17 +55,6 @@ namespace StingStream.Core.Controllers;
 [Authorize(Policy = Policies.RequiresElevation)]
 public sealed class LibrariesController : StingStreamControllerBase
 {
-    /// <summary>Which manager answers for a library type, when one does.</summary>
-    /// <remarks>
-    /// Recordings is deliberately absent rather than mapped to nothing: it holds peers' pointers
-    /// and there is no process to start for it, so its switch is about the library alone.
-    /// </remarks>
-    private static readonly Dictionary<string, string> ChildFor = new(StringComparer.OrdinalIgnoreCase)
-    {
-        [LibraryTypes.Movies] = "radarr",
-        [LibraryTypes.TvShows] = "sonarr",
-    };
-
     private readonly SettingsStore _settings;
     private readonly LibraryLayoutService _layout;
     private readonly INodeRuntimeProvider _runtime;
@@ -166,7 +161,6 @@ public sealed class LibrariesController : StingStreamControllerBase
             // because the setting already matched would leave the reader with the one control that
             // cannot fix what they are looking at.
             library.Enabled = enabled;
-            SwitchManager(library, enabled);
         }
 
         if (request.Hidden is { } hidden)
@@ -175,53 +169,18 @@ public sealed class LibrariesController : StingStreamControllerBase
         }
 
         await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+
+        // Which managers run is a rule over the saved settings rather than an effect of this
+        // switch: a library on its own has nowhere to search, so switching one on starts nothing
+        // until an indexer covers it. See ArrEnablement.
+        ArrEnablement.Reconcile(settings, _runtime.DataDirectory, _logger);
+
         await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
 
         // Re-read: reconciliation fills in the folder name Jellyfin actually used and the locations
         // this node is now responsible for, and the caller wants those rather than what it sent.
         return _settings.Get().Libraries.FirstOrDefault(
             l => string.Equals(l.Id, library.Id, StringComparison.OrdinalIgnoreCase)) ?? library;
-    }
-
-    /// <summary>Start or stop the manager that answers for a library's type.</summary>
-    /// <param name="library">The library that was switched.</param>
-    /// <param name="enabled">What it was switched to.</param>
-    /// <remarks>
-    /// Best effort, and warned about rather than thrown: a node with no <c>config.toml</c> is one
-    /// somebody started by hand, where there is no supervisor to tell and no child to stop, and
-    /// refusing the whole edit for that would make the library list unusable on exactly the setup
-    /// that has the fewest other ways in.
-    /// </remarks>
-    private void SwitchManager(LibrarySettings library, bool enabled)
-    {
-        if (!ChildFor.TryGetValue(library.Type ?? string.Empty, out var child))
-        {
-            return;
-        }
-
-        var dataDirectory = _runtime.DataDirectory;
-        if (string.IsNullOrWhiteSpace(dataDirectory))
-        {
-            return;
-        }
-
-        try
-        {
-            DownloadingSwitch.Write(DownloadingSwitch.PathFor(dataDirectory), child, enabled);
-            _logger.LogInformation(
-                "{Child} switched {State} with the {Name} library",
-                child,
-                enabled ? "on" : "off",
-                library.Name);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "The {Name} library was saved but {Child} could not be switched",
-                library.Name,
-                child);
-        }
     }
 }
 

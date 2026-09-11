@@ -46,7 +46,7 @@ pub struct EmbeddedMesh {
 pub async fn start(
     data_dir: &Path,
     api_port: u16,
-    node_name: &str,
+    server_name: &str,
     shutdown: watch::Receiver<bool>,
 ) -> Result<EmbeddedMesh> {
     let mut cfg = MeshConfig::load(data_dir).context("loading mesh.toml")?;
@@ -55,8 +55,8 @@ pub async fn start(
     if api_port != 0 {
         cfg.api.port = api_port;
     }
-    if !node_name.trim().is_empty() {
-        cfg.node_name = node_name.trim().to_string();
+    if !server_name.trim().is_empty() {
+        cfg.server_name = server_name.trim().to_string();
     }
     let bind = std::net::SocketAddr::new(cfg.api.bind, cfg.api.port);
     // Bind before spawning the node: a port already in use should be reported as such, not as a
@@ -71,7 +71,7 @@ pub async fn start(
         .context("starting the embedded mesh node")?;
     tracing::info!(
         node = %node.node_id(),
-        node_name = %node.cfg.node_name,
+        server_name = %node.cfg.server_name,
         api_port = bound,
         "mesh running in this process"
     );

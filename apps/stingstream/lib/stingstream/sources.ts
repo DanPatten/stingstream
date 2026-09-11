@@ -29,7 +29,7 @@ import { reportSessionExpired } from "@/utils/sessionExpiry";
 /** One scored source, as `ItemsController.Present` shapes it. */
 export interface ItemSource {
   node: string;
-  nodeName: string;
+  serverName: string;
   group: string;
   online: boolean;
   resolution?: string | null;
@@ -96,7 +96,7 @@ const both = (camel: string): string[] => [
 
 const toSource = (raw: unknown): ItemSource => ({
   node: field<string>(raw, ...both("node")) ?? "",
-  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  serverName: field<string>(raw, ...both("serverName")) ?? "",
   group: field<string>(raw, ...both("group")) ?? "",
   online: field<boolean>(raw, ...both("online")) ?? false,
   resolution: field<string>(raw, ...both("resolution")),

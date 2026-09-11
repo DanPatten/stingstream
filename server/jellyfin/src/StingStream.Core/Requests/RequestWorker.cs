@@ -359,7 +359,7 @@ public sealed class RequestWorker : BackgroundService
         var capability = new FulfilCapability
         {
             Node = _nodeId,
-            NodeName = string.IsNullOrWhiteSpace(_nodeName) ? runtime?.NodeName ?? string.Empty : _nodeName,
+            ServerName = string.IsNullOrWhiteSpace(_nodeName) ? runtime?.ServerName ?? string.Empty : _nodeName,
             Online = true,
             FreeSpace = FreeSpace(runtime?.Paths.MediaMovies ?? runtime?.Paths.MediaTv),
         };
@@ -712,7 +712,7 @@ public sealed class RequestWorker : BackgroundService
     {
         var winner = view?.WinningClaim();
         var node = winner?.Node;
-        var name = winner?.NodeName;
+        var name = winner?.ServerName;
         var note = winner is null
             ? decision.Reason
             : string.Create(CultureInfo.InvariantCulture, $"{name} is fulfilling it.");
@@ -1517,7 +1517,7 @@ public sealed class RequestWorker : BackgroundService
 
             if (seen.Add(c.Node))
             {
-                holders.Add(new HolderInfo(c.Node, string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName));
+                holders.Add(new HolderInfo(c.Node, string.IsNullOrWhiteSpace(c.ServerName) ? c.Node : c.ServerName));
             }
         }
 
@@ -1605,7 +1605,7 @@ public sealed class RequestWorker : BackgroundService
         }
 
         _nodeId = status.Node;
-        _nodeName = string.IsNullOrWhiteSpace(status.NodeName) ? status.Node : status.NodeName;
+        _nodeName = string.IsNullOrWhiteSpace(status.ServerName) ? status.Node : status.ServerName;
     }
 }
 

@@ -39,7 +39,7 @@ export interface MeshNodeGroup {
 export interface MeshNodePeer {
   group: string;
   node: string;
-  nodeName: string;
+  serverName: string;
   online: boolean;
   firstSeen: string;
   lastSeen?: string | null;
@@ -61,7 +61,7 @@ export interface MeshNodePeer {
 /** `GET /mesh/status`. */
 export interface MeshNodeStatus {
   node: string;
-  nodeName: string;
+  serverName: string;
   version: string;
   groups: number;
   availableStreams: number;
@@ -138,7 +138,7 @@ export interface MeshMember {
   /** The member's node id, hex. */
   node: string;
   /** What the member calls itself. Empty until it has said, which is why the UI falls back. */
-  nodeName: string;
+  serverName: string;
   online: boolean;
   lastSeen?: string | null;
   /**
@@ -210,7 +210,7 @@ export const field = <T>(raw: unknown, ...names: string[]): T | undefined => {
   return undefined;
 };
 
-/** Both spellings of one name: `nodeName` and `NodeName`. */
+/** Both spellings of one name: `serverName` and `ServerName`. */
 export const both = (camel: string): string[] => [
   camel,
   camel.charAt(0).toUpperCase() + camel.slice(1),
@@ -225,7 +225,7 @@ export const toGroup = (raw: unknown): MeshNodeGroup => ({
 export const toPeer = (raw: unknown): MeshNodePeer => ({
   group: field<string>(raw, ...both("group")) ?? "",
   node: field<string>(raw, ...both("node")) ?? "",
-  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  serverName: field<string>(raw, ...both("serverName")) ?? "",
   online: field<boolean>(raw, ...both("online")) ?? false,
   firstSeen: field<string>(raw, ...both("firstSeen")) ?? "",
   lastSeen: field<string>(raw, ...both("lastSeen")),
@@ -248,7 +248,7 @@ export const toPeer = (raw: unknown): MeshNodePeer => ({
 
 export const toStatus = (raw: unknown): MeshNodeStatus => ({
   node: field<string>(raw, ...both("node")) ?? "",
-  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  serverName: field<string>(raw, ...both("serverName")) ?? "",
   version: field<string>(raw, ...both("version")) ?? "",
   groups: field<number>(raw, ...both("groups")) ?? 0,
   availableStreams: field<number>(raw, ...both("availableStreams")) ?? 0,
@@ -267,7 +267,7 @@ export const toJoin = (raw: unknown): MeshJoinResponse => ({
 
 export const toMember = (raw: unknown): MeshMember => ({
   node: field<string>(raw, ...both("node")) ?? "",
-  nodeName: field<string>(raw, ...both("nodeName")) ?? "",
+  serverName: field<string>(raw, ...both("serverName")) ?? "",
   online: field<boolean>(raw, ...both("online")) ?? false,
   lastSeen: field<string>(raw, ...both("lastSeen")),
   isSelf: field<boolean>(raw, ...both("isSelf")) ?? false,
@@ -519,7 +519,7 @@ export const memberRoster = (
         }))
       : (peers ?? []).map((p) => ({
           node: p.node,
-          nodeName: p.nodeName,
+          serverName: p.serverName,
           online: p.online,
           lastSeen: p.lastSeen,
           isSelf: false,
@@ -534,7 +534,7 @@ export const memberRoster = (
   return rows.sort((a, b) => {
     if (a.revoked !== b.revoked) return a.revoked ? 1 : -1;
     if (a.online !== b.online) return a.online ? -1 : 1;
-    return (a.nodeName || a.node).localeCompare(b.nodeName || b.node);
+    return (a.serverName || a.node).localeCompare(b.serverName || b.node);
   });
 };
 
@@ -631,8 +631,8 @@ export const rttLabel = (rttMs: number | null | undefined): string | null =>
 
 /** A member's name, or a readable piece of its node id until it has said what it is called. */
 export const memberDisplayName = (
-  member: Pick<MeshMember, "node" | "nodeName">,
-): string => member.nodeName || shortenNodeId(member.node);
+  member: Pick<MeshMember, "node" | "serverName">,
+): string => member.serverName || shortenNodeId(member.node);
 
 /** 64 hex characters do not fit a card, and the first 12 identify a node in a log. */
 export const shortenNodeId = (nodeId: string): string =>

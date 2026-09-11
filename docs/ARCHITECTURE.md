@@ -1299,15 +1299,15 @@ on the component most likely to be busy. The cost is a real one and is paid on p
 that keeps them honest is that both sets of tests assert the same cases in their own languages, and
 `tools/e2e-m4.ps1` asserts that `/items/{id}/sources` and PlaybackInfo agree.
 
-**Jellyfin's own version label truncates a node name at its last hyphen.** A pointer written as
+**Jellyfin's own version label truncates a server name at its last hyphen.** A pointer written as
 `Big Buck Bunny (2008) - stingstream-c 2160p.strm` comes back from PlaybackInfo with the
 `MediaSource.Name` `c 2160p`, not `stingstream-c 2160p`. Cosmetic, and only for clients that read
-Jellyfin's own name — StingStream's own "Play from…" reads `nodeName` from
+Jellyfin's own name — StingStream's own "Play from…" reads `serverName` from
 `GET /items/{id}/sources`, which is the whole name. Recorded because the first reaction to seeing
 `c 2160p` in a log is to go looking for a bug in the materializer, and there isn't one.
 
 **Label collisions are the silent multi-version failure.** Jellyfin groups same-folder files into
-alternate versions *by name*. Two holders that both defaulted their node name to the machine's
+alternate versions *by name*. Two holders that both defaulted their server name to the machine's
 hostname and both hold the same encode produce the same label, and the second `.strm` overwrites the
 first — one source where there should have been two, looking from outside exactly like a peer that
 never published. Labels are therefore decided across every holder of a title at once, and when two
@@ -1689,7 +1689,7 @@ the wide view.
   change in `mesh/crates/stingstream/src/main.rs`: once the embedded mesh is up, the supervisor
   calls `MeshNode::join` directly (no HTTP round-trip needed — it already holds the `Arc<MeshNode>`)
   if the variable is set. Idempotent, so it is safe to leave set across restarts. A second small
-  addition, `--node-name`/`STINGSTREAM_MESH_NODE_NAME`, overrides `config.toml`'s `node_name` the
+  addition, `--server-name`/`STINGSTREAM_SERVER_NAME`, overrides `config.toml`'s `server_name` the
   same way `--port` already overrode the gateway port, for the same container-friendly reason.
 - **Windows service mode** (`--service`, `mesh/crates/stingstream/src/service.rs`, the
   `windows-service` crate) registers the supervisor itself with the Service Control Manager rather

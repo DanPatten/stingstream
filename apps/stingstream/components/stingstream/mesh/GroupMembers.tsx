@@ -80,7 +80,7 @@ export function GroupMembers({
   const removingName = removingRow
     ? memberDisplayName(removingRow)
     : remove.variables
-      ? memberDisplayName({ node: remove.variables.node, nodeName: "" })
+      ? memberDisplayName({ node: remove.variables.node, serverName: "" })
       : "";
 
   const onRemove = useCallback(

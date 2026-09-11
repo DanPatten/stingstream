@@ -134,7 +134,7 @@ export const LoginScreen: React.FC = () => {
   // while it is still being asked, so no link flashes and disappears.
   const passkeys = usePasskeySupport();
   const [serverName, setServerName] = useState<string | null>(
-    nodeContext?.nodeName ?? null,
+    nodeContext?.serverName ?? null,
   );
   const [setupMessage, setSetupMessage] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);

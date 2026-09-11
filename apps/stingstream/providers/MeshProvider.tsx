@@ -75,7 +75,7 @@ export interface MeshSourceStatus {
   /** A short label for the player's info overlay. */
   label: string;
   /** The holder's name, when the mesh knows it. */
-  nodeName: string | null;
+  serverName: string | null;
   rttMs: number | null;
 }
 
@@ -373,7 +373,7 @@ export function useMeshSourceStatus(
       return {
         kind: "home-node",
         label: "Via your server",
-        nodeName: null,
+        serverName: null,
         rttMs: null,
       };
     }
@@ -387,14 +387,14 @@ export function useMeshSourceStatus(
     // connection is made, while a stat is the path the last range actually took.
     const path = lastStats[target.node]?.path ?? peer?.path ?? null;
     const rttMs = lastStats[target.node]?.rttMs ?? peer?.rttMs ?? null;
-    const nodeName = peer?.nodeName ?? null;
+    const serverName = peer?.serverName ?? null;
 
     if (path === "direct" || path === "mixed") {
-      return { kind: "direct", label: "Direct", nodeName, rttMs };
+      return { kind: "direct", label: "Direct", serverName, rttMs };
     }
     if (path === "relay") {
-      return { kind: "relayed", label: "Relayed", nodeName, rttMs };
+      return { kind: "relayed", label: "Relayed", serverName, rttMs };
     }
-    return { kind: "connecting", label: "Connecting", nodeName, rttMs };
+    return { kind: "connecting", label: "Connecting", serverName, rttMs };
   }, [mediaSource?.Path, available, running, groups, peers, lastStats]);
 }

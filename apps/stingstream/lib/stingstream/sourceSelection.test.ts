@@ -25,7 +25,7 @@ const choice = (
   over: Partial<SourceChoice> & { mediaSourceId: string },
 ): SourceChoice => ({
   node: null,
-  nodeName: "This server",
+  serverName: "This server",
   local: false,
   online: true,
   recommended: false,
@@ -44,7 +44,7 @@ const choice = (
 const local = choice({
   mediaSourceId: "local",
   node: null,
-  nodeName: "This server",
+  serverName: "This server",
   local: true,
   route: "local",
   rttMs: null,
@@ -53,7 +53,7 @@ const local = choice({
 const attic = choice({
   mediaSourceId: "attic",
   node: "AAAA",
-  nodeName: "Attic PC",
+  serverName: "Attic PC",
   resolution: "2160p",
   height: 2160,
   rttMs: 18,
@@ -61,7 +61,7 @@ const attic = choice({
 
 const pin = (over: Partial<SourcePin> = {}): SourcePin => ({
   node: "AAAA",
-  nodeName: "Attic PC",
+  serverName: "Attic PC",
   updatedAt: 0,
   ...over,
 });
@@ -118,7 +118,7 @@ describe("resolveSourceSelection", () => {
     const choices = [attic, { ...local, recommended: true }];
     const resolved = resolveSourceSelection(
       choices,
-      pin({ node: null, nodeName: "This server" }),
+      pin({ node: null, serverName: "This server" }),
     );
 
     expect(resolved.mode).toBe("pinned");

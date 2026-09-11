@@ -143,7 +143,7 @@ export const useSourceSelection = (
 
       const next: Omit<SourcePin, "updatedAt"> = {
         node: target.node,
-        nodeName: target.nodeName,
+        serverName: target.serverName,
         ...(target.fileHash ? { fileHash: target.fileHash } : {}),
       };
       rememberSourcePin(pinKey, next);

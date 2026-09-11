@@ -150,7 +150,7 @@ public sealed class PinService : BackgroundService
             ItemKey = itemKey,
             Group = best.Candidate.Group,
             Node = best.Candidate.Node,
-            NodeName = best.Candidate.NodeName,
+            ServerName = best.Candidate.ServerName,
             FileHash = best.Candidate.FileHash,
             TotalBytes = best.Candidate.Size ?? 0,
             CopiedBytes = 0,
@@ -162,7 +162,7 @@ public sealed class PinService : BackgroundService
         _logger.LogInformation(
             "Pinning {ItemKey} from {Node} ({Bytes:N0} bytes)",
             itemKey,
-            row.NodeName,
+            row.ServerName,
             row.TotalBytes);
         return await _pins.SaveAsync(row, cancellationToken).ConfigureAwait(false);
     }
@@ -447,7 +447,7 @@ public sealed class PinService : BackgroundService
             {
                 TryDelete(part);
                 throw new IOException(
-                    $"the copy hashed to {actual}, but {row.NodeName} published {row.FileHash}");
+                    $"the copy hashed to {actual}, but {row.ServerName} published {row.FileHash}");
             }
         }
 
@@ -460,7 +460,7 @@ public sealed class PinService : BackgroundService
             row.ItemKey,
             row.TargetPath,
             row.CopiedBytes,
-            row.NodeName);
+            row.ServerName);
         return true;
     }
 
@@ -485,7 +485,7 @@ public sealed class PinService : BackgroundService
         {
             var retryAfter = response.Headers.RetryAfter?.Delta;
             throw new HttpRequestException(
-                $"{row.NodeName} answered {(int)response.StatusCode} for {row.ItemKey}"
+                $"{row.ServerName} answered {(int)response.StatusCode} for {row.ItemKey}"
                 + (retryAfter is null ? string.Empty : $" (retry after {retryAfter})"));
         }
 
@@ -662,7 +662,7 @@ public sealed class PinService : BackgroundService
         if (entry is null)
         {
             throw new InvalidOperationException(
-                $"{row.NodeName} no longer advertises {row.ItemKey}, so there is nothing to copy.");
+                $"{row.ServerName} no longer advertises {row.ItemKey}, so there is nothing to copy.");
         }
 
         if (candidate?.Size is > 0 && row.TotalBytes == 0)

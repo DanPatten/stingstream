@@ -131,6 +131,17 @@ public interface IMeshClient
         MeshSharingSettings settings,
         CancellationToken cancellationToken);
 
+    /// <summary>Tell the running mesh what this server is called now.</summary>
+    /// <param name="serverName">The new name. Blank is ignored by the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// A node has one name and it is the server's. <c>runtime.json</c> is what makes a rename
+    /// survive a restart; this is what makes it arrive without one, by republishing into every
+    /// link so peers stop showing the old name.
+    /// </remarks>
+    Task SetServerNameAsync(string serverName, CancellationToken cancellationToken);
+
 
     /// <summary>Whether a browser can reach this node, and how.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -601,6 +612,17 @@ public sealed class MeshClient : IMeshClient
             ?? new MeshSharingSettings();
 
     /// <inheritdoc />
+    public async Task SetServerNameAsync(string serverName, CancellationToken cancellationToken)
+    {
+        using var http = Client();
+        using var response = await http.PutAsJsonAsync(
+            "/mesh/v1/settings/server-name",
+            new { server_name = serverName },
+            cancellationToken).ConfigureAwait(false);
+        await ThrowIfFailedAsync(response, "renaming this server", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<MeshSharingSettings> SetSharingSettingsAsync(
         MeshSharingSettings settings,
         CancellationToken cancellationToken)

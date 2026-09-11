@@ -432,6 +432,9 @@ public class InventoryPublisherTests
             CancellationToken cancellationToken)
             => throw Unused();
 
+        public Task SetServerNameAsync(string serverName, CancellationToken cancellationToken)
+            => throw Unused();
+
         public Task<MeshMembers?> MembersAsync(string group, CancellationToken cancellationToken) => throw Unused();
 
         public Task<MeshRotation> RemoveMemberAsync(string group, string node, CancellationToken cancellationToken)
@@ -490,7 +493,7 @@ public class InventoryPublisherTests
 
         // The inventory publisher does not name the node; this exists so the double satisfies the
         // interface.
-        public void SetNodeName(string name)
+        public void SetServerName(string name)
         {
         }
     }

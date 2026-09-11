@@ -73,7 +73,7 @@ public sealed class StatusController : StingStreamControllerBase
         return new NodeStatus
         {
             NodeId = runtime?.NodeId ?? string.Empty,
-            NodeName = runtime?.NodeName ?? string.Empty,
+            ServerName = runtime?.ServerName ?? string.Empty,
             Dev = runtime?.Dev ?? false,
             FirstRun = runtime?.FirstRun ?? false,
             DataDirectory = _runtime.DataDirectory,
@@ -236,7 +236,7 @@ public sealed class NodeStatus
 {
     public string NodeId { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>True when the supervisor was started with <c>--dev</c>.</summary>
     public bool Dev { get; set; }

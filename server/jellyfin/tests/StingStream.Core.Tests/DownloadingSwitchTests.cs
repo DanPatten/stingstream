@@ -44,7 +44,7 @@ public sealed class DownloadingSwitchTests : IDisposable
 
     private const string Sample = """
 # Written by the supervisor. Edit freely; comments are kept.
-node_name = "attic"
+server_name = "attic"
 
 [gateway]
 bind = "127.0.0.1"

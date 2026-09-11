@@ -33,7 +33,7 @@ public class LocalSourceScoringTests
     private static SourceCandidate Local(int height, double bitrateMbps) => new()
     {
         Node = LocalSourceFactory.LocalNodeMarker,
-        NodeName = "this server",
+        ServerName = "this server",
         Group = "g",
         ItemKey = "movie:tmdb:1",
         Online = true,
@@ -62,7 +62,7 @@ public class LocalSourceScoringTests
         long rttMs = 20) => new()
     {
         Node = node,
-        NodeName = node,
+        ServerName = node,
         Group = "g",
         ItemKey = "movie:tmdb:1",
         Online = true,

@@ -54,7 +54,7 @@ describe("toMembers", () => {
     Members: [
       {
         Node: "aaaa1111",
-        NodeName: "attic",
+        ServerName: "attic",
         Online: true,
         LastSeen: "2026-09-05T09:00:00Z",
         IsSelf: true,
@@ -62,7 +62,7 @@ describe("toMembers", () => {
       },
       {
         Node: "bbbb2222",
-        NodeName: "loft",
+        ServerName: "loft",
         Online: false,
         LastSeen: "2026-09-03T09:00:00Z",
         IsSelf: false,
@@ -78,7 +78,7 @@ describe("toMembers", () => {
     members: [
       {
         node: "aaaa1111",
-        nodeName: "attic",
+        serverName: "attic",
         online: true,
         lastSeen: "2026-09-05T09:00:00Z",
         isSelf: true,
@@ -86,7 +86,7 @@ describe("toMembers", () => {
       },
       {
         node: "bbbb2222",
-        nodeName: "loft",
+        serverName: "loft",
         online: false,
         lastSeen: "2026-09-03T09:00:00Z",
         isSelf: false,
@@ -125,7 +125,7 @@ describe("toMembers", () => {
   test("a member that has not said what it is called keeps an empty name", () => {
     // The screen falls back to a short node id; a decoder inventing one would hide the gap.
     const [only] = toMembers({ Members: [{ Node: "cccc3333" }] }).members;
-    expect(only?.nodeName).toBe("");
+    expect(only?.serverName).toBe("");
     expect(only?.online).toBe(false);
     expect(only?.revoked).toBe(false);
   });
@@ -162,7 +162,7 @@ describe("canManageMembers", () => {
 describe("canRemoveMember", () => {
   const member = (over: Partial<MeshMember> = {}): MeshMember => ({
     node: "bbbb2222",
-    nodeName: "loft",
+    serverName: "loft",
     online: true,
     isSelf: false,
     revoked: false,
@@ -195,7 +195,7 @@ describe("memberRoster", () => {
   const peer = (over: Partial<MeshNodePeer> = {}): MeshNodePeer => ({
     group: "gggg",
     node: "bbbb2222",
-    nodeName: "loft",
+    serverName: "loft",
     online: true,
     firstSeen: "2026-09-01T00:00:00Z",
     path: "direct",
@@ -211,7 +211,7 @@ describe("memberRoster", () => {
       [
         {
           node: "self1111",
-          nodeName: "Loft",
+          serverName: "Loft",
           online: false,
           isSelf: true,
           revoked: false,
@@ -227,7 +227,7 @@ describe("memberRoster", () => {
       [
         {
           node: "other222",
-          nodeName: "Sams Server",
+          serverName: "Sams Server",
           online: false,
           isSelf: false,
           revoked: false,
@@ -243,7 +243,7 @@ describe("memberRoster", () => {
       [
         {
           node: "BBBB2222",
-          nodeName: "loft",
+          serverName: "loft",
           online: true,
           isSelf: false,
           revoked: false,
@@ -271,21 +271,21 @@ describe("memberRoster", () => {
       [
         {
           node: "1",
-          nodeName: "gone",
+          serverName: "gone",
           online: false,
           isSelf: false,
           revoked: true,
         },
         {
           node: "2",
-          nodeName: "asleep",
+          serverName: "asleep",
           online: false,
           isSelf: false,
           revoked: false,
         },
         {
           node: "3",
-          nodeName: "attic",
+          serverName: "attic",
           online: true,
           isSelf: true,
           revoked: false,
@@ -293,7 +293,7 @@ describe("memberRoster", () => {
       ],
       [],
     );
-    expect(rows.map((r) => r.nodeName)).toEqual(["attic", "asleep", "gone"]);
+    expect(rows.map((r) => r.serverName)).toEqual(["attic", "asleep", "gone"]);
   });
 });
 
@@ -329,7 +329,7 @@ describe("groupCounts", () => {
   const peer = (over: Partial<MeshNodePeer> = {}): MeshNodePeer => ({
     group: "gggg",
     node: "aaaa",
-    nodeName: "attic",
+    serverName: "attic",
     online: true,
     firstSeen: "2026-09-01T00:00:00Z",
     ...over,
@@ -394,14 +394,14 @@ describe("rttLabel", () => {
 
 describe("memberDisplayName / shortenNodeId", () => {
   test("prefers the name a member has announced", () => {
-    expect(memberDisplayName({ node: "aaaa1111", nodeName: "attic" })).toBe(
+    expect(memberDisplayName({ node: "aaaa1111", serverName: "attic" })).toBe(
       "attic",
     );
   });
 
   test("falls back to a shortened node id when nothing has been announced", () => {
     const long = "0123456789abcdef0123456789abcdef";
-    expect(memberDisplayName({ node: long, nodeName: "" })).toBe(
+    expect(memberDisplayName({ node: long, serverName: "" })).toBe(
       shortenNodeId(long),
     );
     expect(shortenNodeId(long)).toBe("0123456789ab…");
@@ -437,7 +437,7 @@ describe("latestPeerActivity", () => {
       {
         group: "g",
         node: "a",
-        nodeName: "a",
+        serverName: "a",
         online: false,
         firstSeen: "",
         lastSeen: "2026-09-01T00:00:00Z",
@@ -445,7 +445,7 @@ describe("latestPeerActivity", () => {
       {
         group: "g",
         node: "b",
-        nodeName: "b",
+        serverName: "b",
         online: true,
         firstSeen: "",
         lastSeen: "2026-09-05T00:00:00Z",
@@ -457,7 +457,7 @@ describe("latestPeerActivity", () => {
   test("null when no peer has ever been seen", () => {
     expect(
       latestPeerActivity([
-        { group: "g", node: "a", nodeName: "a", online: false, firstSeen: "" },
+        { group: "g", node: "a", serverName: "a", online: false, firstSeen: "" },
       ]),
     ).toBeNull();
     expect(latestPeerActivity([])).toBeNull();

@@ -1025,6 +1025,33 @@ export async function searchRequestable(
 }
 
 /** Ask for something. */
+/**
+ * The library already has this, and no reason was given for wanting it anyway.
+ *
+ * Its own type so a caller can act on it rather than print it. The node refuses the ask with a 409
+ * carrying what it has and something to play, and the right answer is to put that question to the
+ * person rather than to show them a status code.
+ *
+ * **This is the load-bearing path, not a fallback.** The sheet also asks for a reason up front when
+ * the search result says the group holds the title -- but that annotation comes from a search, and
+ * searches are cached for a minute and persisted for a day. On a stale row the button reads
+ * "Request", nothing asks for a reason, and the refusal used to surface as a bare error. Dan:
+ * *"making a post results in 409 - sites seems stale"*. Driving the question off the node's own
+ * answer works whatever the cached row said.
+ */
+export class AlreadyHeldError extends Error {
+  readonly alreadyHeld = true;
+
+  constructor(
+    /** Who has it, by display name. */
+    readonly holders: string[],
+    /** The item to play, when one resolved. */
+    readonly playableItemId?: string,
+  ) {
+    super("Your library already has this.");
+  }
+}
+
 export async function createRequest(
   apiBaseUrl: string,
   input: CreateRequestInput,
@@ -1035,6 +1062,23 @@ export async function createRequest(
     headers: json(accessToken),
     body: JSON.stringify(input),
   });
+
+  if (res.status === 409) {
+    // Read once, and only trust it when it is the shape we know: a 409 from anywhere else on this
+    // route is still an ordinary failure and must not be turned into a question about holders.
+    const body = (await res
+      .json()
+      .catch(() => null)) as AlreadyHeldAnswer | null;
+    if (body?.alreadyHeld) {
+      throw new AlreadyHeldError(
+        Array.isArray(body.holders) ? body.holders : [],
+        body.playableItemId ?? undefined,
+      );
+    }
+
+    throw new Error("That request could not be made.");
+  }
+
   if (!res.ok) throw await readRequestsError(res, "POST /requests");
   return toRequest(await res.json());
 }

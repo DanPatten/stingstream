@@ -58,8 +58,10 @@ restructure is named after them:
    the libraries those folders were already in. Dan: *"I still see root folders and libraries, I
    dont want both"*, and *"if you can have a library then you can download too, unified that with
    the downloading settings"*. So there is one **Libraries** page: one row per library, each with
-   the switch that runs it and the folder it writes to. A library's switch is its manager's switch,
-   written by one endpoint (`LibrariesController`) so the two cannot drift. Usenet went to Indexers
+   the switch that runs it and the folder it writes to. That switch says whether this server keeps
+   that kind of library; whether a manager runs for it also needs an enabled indexer covering the
+   kind (`ArrEnablement`), so switching a library on starts nothing until there is somewhere to
+   search. The row carries no status: what the managers are doing goes to the log. Usenet went to Indexers
    & engines, where it merged with the toggle already there that meant almost the same thing.
 
 3. **Sharing described itself conversationally** — "Other people who run StingStream", "Streams go

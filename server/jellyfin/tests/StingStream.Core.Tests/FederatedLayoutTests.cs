@@ -18,7 +18,7 @@ public class FederatedLayoutTests
         => new()
         {
             Node = "b5ae510e8bf1573bfd1fc3e0c419abcca8fb76957f31511a77ba8658a034d59e",
-            NodeName = "attic",
+            ServerName = "attic",
             Online = true,
             ItemKey = "movie:tmdb:10378",
             Media = new MeshMedia { Resolution = resolution },

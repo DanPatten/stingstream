@@ -179,7 +179,7 @@ function JoinedRow({
 /** "attic and loft" rather than "2 nodes". */
 function describeParticipants(session: WatchSession): string {
   const names = session.participants
-    .map((p) => p.nodeName || p.node.slice(0, 8))
+    .map((p) => p.serverName || p.node.slice(0, 8))
     .filter(Boolean);
   if (names.length === 0) return session.leaderName;
   if (names.length === 1) return names[0];

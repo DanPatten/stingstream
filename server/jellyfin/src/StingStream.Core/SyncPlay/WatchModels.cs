@@ -42,7 +42,7 @@ public sealed class WatchParticipant
     public string Node { get; set; } = string.Empty;
 
     /// <summary>Its human name.</summary>
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>How many of that node's own users are in its local SyncPlay group.</summary>
     public int Viewers { get; set; }

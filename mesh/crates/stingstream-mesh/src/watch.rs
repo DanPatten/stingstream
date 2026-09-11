@@ -67,7 +67,7 @@ pub enum WatchState {
 pub struct WatchParticipant {
     pub node: String,
     #[serde(default)]
-    pub node_name: String,
+    pub server_name: String,
     /// How many of that node's own users are in its local SyncPlay group. Display only.
     #[serde(default)]
     pub viewers: u32,
@@ -278,7 +278,7 @@ pub struct Report {
     pub session: String,
     pub node: String,
     #[serde(default)]
-    pub node_name: String,
+    pub server_name: String,
     pub state: WatchState,
     pub position_ms: u64,
     /// The instant `position_ms` was true, on the **reporting** node's clock. The leader converts.
@@ -585,7 +585,7 @@ mod tests {
         s.participants = vec![
             WatchParticipant {
                 node: "here".into(),
-                node_name: "loft".into(),
+                server_name: "loft".into(),
                 viewers: 1,
                 last_seen_ms: 100_000,
                 rtt_ms: Some(8),
@@ -594,7 +594,7 @@ mod tests {
             },
             WatchParticipant {
                 node: "gone".into(),
-                node_name: "shed".into(),
+                server_name: "shed".into(),
                 viewers: 1,
                 last_seen_ms: 1_000,
                 rtt_ms: None,

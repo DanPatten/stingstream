@@ -11,6 +11,7 @@ import {
   REQUEST_SEARCH_MIN_LENGTH,
 } from "@/constants/Requests";
 import {
+  AlreadyHeldError,
   applyRequestFilters,
   DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
@@ -104,6 +105,12 @@ export function FindSection({
   // Which row is waiting on the node, by item key, so one press spins one button. `create.isPending`
   // is per-mutation rather than per-row and would spin every button in the list at once.
   const [submitting, setSubmitting] = useState<string | null>(null);
+  // What the node said when it refused an ask, so the sheet opens already knowing rather than
+  // making somebody press Request a second time to be told the same thing.
+  const [heldHint, setHeldHint] = useState<{
+    holders: string[];
+    playableItemId?: string;
+  } | null>(null);
   const create = useCreateRequest();
   const remove = useDeleteRequest();
 
@@ -153,6 +160,19 @@ export function FindSection({
       });
       requestMadeToast(made, t);
     } catch (err) {
+      // The node says the library already has it, which this row did not know: its holdings come
+      // from a search, and searches are cached for a minute and persisted for a day, so a row can
+      // offer Request for something that arrived since. Open the sheet on it rather than reporting
+      // a refusal -- the sheet reads the same refusal and asks why they want it anyway.
+      if (err instanceof AlreadyHeldError) {
+        setHeldHint({
+          holders: err.holders,
+          playableItemId: err.playableItemId,
+        });
+        setPicking(result);
+        return;
+      }
+
       // A toast, where the sheet had a `FormError` under its fields: there is no sheet left to
       // hold one, and the row itself must not grow a second height depending on whether the last
       // press worked.
@@ -390,12 +410,16 @@ export function FindSection({
       */}
       <RequestSheet
         result={picking}
+        heldHint={heldHint}
         existing={
           (picking?.requestId &&
             (mine.data ?? []).find((r) => r.id === picking.requestId)) ||
           null
         }
-        onClose={() => setPicking(null)}
+        onClose={() => {
+          setPicking(null);
+          setHeldHint(null);
+        }}
       />
 
       {/*

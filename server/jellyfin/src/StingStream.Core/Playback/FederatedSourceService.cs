@@ -56,7 +56,7 @@ public sealed class FederatedSourceService
     /// <param name="itemKey">The item key, or a series prefix when <paramref name="prefix"/>.</param>
     /// <param name="prefix">True to match every key starting with <paramref name="itemKey"/>.</param>
     /// <param name="nodeId">This node's id, so a caller comparing holders against it agrees.</param>
-    /// <param name="nodeName">This node's display name.</param>
+    /// <param name="serverName">This node's display name.</param>
     /// <returns>One candidate per matching record. Empty when this node holds none.</returns>
     /// <remarks>
     /// <para>
@@ -79,7 +79,7 @@ public sealed class FederatedSourceService
         string itemKey,
         bool prefix,
         string nodeId,
-        string nodeName)
+        string serverName)
     {
         if (string.IsNullOrEmpty(itemKey))
         {
@@ -110,7 +110,7 @@ public sealed class FederatedSourceService
             {
                 Group = string.Empty,
                 Node = nodeId,
-                NodeName = nodeName,
+                ServerName = serverName,
                 ItemKey = record.ItemKey,
                 // This node is reachable from this node. Nothing about a group's view of it, which
                 // is where the old answer came from, changes that.
@@ -336,7 +336,7 @@ public sealed class FederatedSourceService
     {
         Group = group,
         Node = entry.Node,
-        NodeName = string.IsNullOrWhiteSpace(entry.NodeName) ? peer?.NodeName ?? string.Empty : entry.NodeName,
+        ServerName = string.IsNullOrWhiteSpace(entry.ServerName) ? peer?.ServerName ?? string.Empty : entry.ServerName,
         ItemKey = entry.ItemKey,
         // The index's own liveness first: it is the same flag the materializer greys items out on,
         // and a peer row that has never been written is not evidence of anything.

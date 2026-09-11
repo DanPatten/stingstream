@@ -24,7 +24,7 @@ export type MeshStatus = {
   /** 64-character lowercase hex. */
   nodeId: string;
   /** What other members see in their Group screen. */
-  nodeName: string;
+  serverName: string;
   version: string;
   /** The loopback port the URL rewrite targets. `0` when the node is not running. */
   localPort: number;
@@ -54,7 +54,7 @@ export type MeshGroup = {
 export type MeshPeer = {
   group: string;
   node: string;
-  nodeName: string;
+  serverName: string;
   online: boolean;
   isSelf: boolean;
   path: MeshPathKind | null;
@@ -76,7 +76,7 @@ export type MeshJoinResult = {
 export type MeshPeerEvent = {
   group: string;
   node: string;
-  nodeName: string;
+  serverName: string;
   path: MeshPathKind | null;
   rttMs: number | null;
 };
@@ -102,7 +102,7 @@ export type MeshStateEvent = {
 
 /** What {@link startMesh} may override. Everything is optional. */
 export type MeshStartConfig = {
-  nodeName?: string;
+  serverName?: string;
   /** Leave this alone. The app's node is always a light member. */
   light?: boolean;
   n0Dns?: boolean;

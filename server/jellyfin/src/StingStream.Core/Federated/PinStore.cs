@@ -37,7 +37,7 @@ public sealed class PinRow
     /// <summary>The holder chosen to copy from.</summary>
     public string Node { get; set; } = string.Empty;
 
-    public string NodeName { get; set; } = string.Empty;
+    public string ServerName { get; set; } = string.Empty;
 
     /// <summary>BLAKE3 of the file being copied, when the holder published one.</summary>
     public string? FileHash { get; set; }
@@ -123,12 +123,12 @@ public sealed class PinStore
                 c,
                 """
                 INSERT INTO pins
-                    (item_key, group_id, node_id, node_name, file_hash, target_path, total_bytes,
+                    (item_key, group_id, node_id, server_name, file_hash, target_path, total_bytes,
                      copied_bytes, state, error, requested_by, started_at, updated_at)
                 VALUES ($k, $g, $n, $nn, $h, $p, $tb, $cb, $s, $e, $rb, $sa, $u)
                 ON CONFLICT(item_key) DO UPDATE SET
                     group_id = excluded.group_id, node_id = excluded.node_id,
-                    node_name = excluded.node_name, file_hash = excluded.file_hash,
+                    server_name = excluded.server_name, file_hash = excluded.file_hash,
                     target_path = excluded.target_path, total_bytes = excluded.total_bytes,
                     copied_bytes = excluded.copied_bytes, state = excluded.state,
                     error = excluded.error, requested_by = excluded.requested_by,
@@ -137,7 +137,7 @@ public sealed class PinStore
                 ("$k", row.ItemKey),
                 ("$g", row.Group),
                 ("$n", row.Node),
-                ("$nn", row.NodeName),
+                ("$nn", row.ServerName),
                 ("$h", row.FileHash),
                 ("$p", row.TargetPath),
                 ("$tb", row.TotalBytes),
@@ -183,7 +183,7 @@ public sealed class PinStore
             cancellationToken);
 
     private const string Select =
-        "SELECT item_key, group_id, node_id, node_name, file_hash, target_path, total_bytes, "
+        "SELECT item_key, group_id, node_id, server_name, file_hash, target_path, total_bytes, "
         + "copied_bytes, state, error, requested_by, started_at, updated_at FROM pins";
 
     private static PinRow Map(IDataRecord r) => new()
@@ -191,7 +191,7 @@ public sealed class PinStore
         ItemKey = r.GetString(0),
         Group = r.GetString(1),
         Node = r.GetString(2),
-        NodeName = r.GetString(3),
+        ServerName = r.GetString(3),
         FileHash = r.IsDBNull(4) ? null : r.GetString(4),
         TargetPath = r.GetString(5),
         TotalBytes = r.GetInt64(6),

@@ -48,7 +48,7 @@ export interface NodeContext {
    */
   setupPending: boolean | null;
   /** The node's own display name, for "Sign in to …". Never a machine or Jellyfin server name. */
-  nodeName: string | null;
+  serverName: string | null;
   /** The node's version string, when it told us. */
   version: string | null;
 }
@@ -191,7 +191,7 @@ export function parseNodeMarker(
       addresses: addressesFor(fields.addresses),
       setupPending:
         typeof fields.setupPending === "boolean" ? fields.setupPending : null,
-      nodeName: stringOrNull(fields.nodeName),
+      serverName: stringOrNull(fields.serverName),
       version: stringOrNull(fields.version),
     };
   }
@@ -207,7 +207,7 @@ export function parseNodeMarker(
       trustedPeer: trustedPeerFor(origin, undefined),
       addresses: [],
       setupPending: null,
-      nodeName: null,
+      serverName: null,
       version: null,
     };
   }
@@ -223,7 +223,7 @@ export function parseNodeMarker(
       trustedPeer: trustedPeerFor(envOrigin, undefined),
       addresses: [],
       setupPending: null,
-      nodeName: null,
+      serverName: null,
       version: null,
     };
   }
@@ -248,7 +248,7 @@ export function parseNodeMarker(
       trustedPeer: trustedPeerFor(origin, undefined),
       addresses: [],
       setupPending: null,
-      nodeName: null,
+      serverName: null,
       version: null,
     };
   }
