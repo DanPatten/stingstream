@@ -155,4 +155,118 @@ public class RequestRouterTests
             Assert.Equal(first, RequestRouter.Route("movie", home, peers).Node!.Node);
         }
     }
+
+    // --- acting on a copy the group already holds --------------------------
+
+    private static HashSet<string> Holders(params string[] nodes)
+        => new(nodes, StringComparer.Ordinal);
+
+    [Fact]
+    public void An_ordinary_request_is_not_narrowed_at_all()
+    {
+        // Nothing without a destructive reason may be affected by this, including a request for a
+        // missing episode, which adds something the group does not have.
+        foreach (var reason in new[] { null, RequestReasons.MissingEpisode, "nonsense" })
+        {
+            var home = Node("home");
+            var peers = new[] { Node("loft") };
+            var (h, p, blocked) = RequestRouter.ApplyHolderConstraint(reason, home, peers, Holders("home"));
+            Assert.Same(home, h);
+            Assert.Same(peers, p);
+            Assert.Null(blocked);
+        }
+    }
+
+    [Fact]
+    public void Replacing_a_bad_copy_is_left_to_the_node_that_holds_it()
+    {
+        // The disk belongs to whoever runs that node. Nothing here reaches across to it: the peer
+        // that holds the file is the only candidate left standing, and it decides on its own pass.
+        var (h, p, blocked) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BadCopy,
+            Node("home"),
+            new[] { Node("loft"), Node("shed") },
+            Holders("loft"));
+
+        Assert.Null(blocked);
+        Assert.False(h.CanFulfil("movie"));
+        Assert.True(p[0].CanFulfil("movie"));
+        Assert.False(p[1].CanFulfil("movie"));
+    }
+
+    [Fact]
+    public void A_replace_is_blocked_when_no_holder_can_act()
+    {
+        // Somebody asked to replace a copy only an offline peer has. Saying so is better than
+        // routing it to a node that would grab a second copy nobody asked for.
+        var (_, _, blocked) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BadCopy,
+            Node("home"),
+            new[] { Node("loft", online: false) },
+            Holders("loft"));
+
+        Assert.False(string.IsNullOrWhiteSpace(blocked));
+    }
+
+    [Fact]
+    public void Keeping_both_qualities_needs_a_node_that_does_not_hold_it()
+    {
+        // The mirror image: a download manager tracks one file per title, so a second quality has
+        // to be grabbed somewhere else or it would simply upgrade over the first.
+        var (h, p, blocked) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BetterQuality,
+            Node("home"),
+            new[] { Node("loft") },
+            Holders("home"));
+
+        Assert.Null(blocked);
+        Assert.False(h.CanFulfil("movie"));
+        Assert.True(p[0].CanFulfil("movie"));
+    }
+
+    [Fact]
+    public void A_standalone_node_can_never_keep_both_qualities()
+    {
+        // One node, and it is always its own only holder. This can never succeed, so it fails now
+        // with a sentence rather than after six hours of a claim nobody could satisfy.
+        var (_, _, blocked) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BetterQuality,
+            Node("only"),
+            Array.Empty<FulfilCapability>(),
+            Holders("only"));
+
+        Assert.False(string.IsNullOrWhiteSpace(blocked));
+    }
+
+    [Fact]
+    public void A_narrowed_candidate_keeps_everything_except_its_offer_to_grab()
+    {
+        // Route still has to see real free space and a real name for whoever is left, and the
+        // blocked ones have to look incapable rather than absent.
+        var (h, _, _) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BadCopy,
+            Node("home", free: 123),
+            Array.Empty<FulfilCapability>(),
+            Holders("loft"));
+
+        Assert.Equal("home", h.Node);
+        Assert.Equal(123, h.FreeSpace);
+        Assert.False(h.CanFulfilMovies);
+        Assert.False(h.CanFulfilTv);
+    }
+
+    [Fact]
+    public void The_narrowed_result_still_routes_by_the_ordinary_rules()
+    {
+        // The constraint decides who *may* act; everything after it is Route's job, unchanged. Here
+        // two peers may, and the one with more room still wins.
+        var (h, p, _) = RequestRouter.ApplyHolderConstraint(
+            RequestReasons.BetterQuality,
+            Node("home"),
+            new[] { Node("small", free: Plenty), Node("big", free: Plenty * 2) },
+            Holders("home"));
+
+        var decision = RequestRouter.Route("movie", h, p);
+        Assert.Equal("big", decision.Node!.Node);
+    }
 }

@@ -25,8 +25,49 @@ public sealed class CreateRequestResult
     /// <summary>Set when the request was refused, with a sentence saying why.</summary>
     public string? Refused { get; set; }
 
+    /// <summary>
+    /// True when the group already holds this and the caller did not say why they want it anyway.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is created in this case. Asking for something already on the shelf used to file a
+    /// row that was silently already available, which told the person nothing and left them no way
+    /// to reach the copy they had just asked for. It is now a question: here it is, here is how to
+    /// play it, and if you still want it, say why. Answer by calling again with
+    /// <see cref="CreateRequestBody.Reason"/> set.
+    /// </remarks>
+    public bool AlreadyHeld { get; set; }
+
+    /// <summary>Who holds it, by display name, when <see cref="AlreadyHeld"/> is set.</summary>
+    public IReadOnlyList<string> Holders { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The library item to play, when one could be resolved. Null when it could not.
+    /// </summary>
+    /// <remarks>
+    /// Null is ordinary rather than an error: a peer's copy becomes an item here only once the
+    /// federated materialiser has caught up, which is seconds behind the index it was found in. The
+    /// caller names the holder and offers no link, which is still better than what came before.
+    /// </remarks>
+    public string? PlayableItemId { get; set; }
+
     /// <summary>The HTTP status a controller should answer with.</summary>
     public int Status { get; set; } = 200;
+}
+
+/// <summary>What an approve or decline did.</summary>
+public sealed class RequestDecisionResult
+{
+    /// <summary>The updated request, when one changed.</summary>
+    public RequestRow? Request { get; set; }
+
+    /// <summary>True when there is no such request.</summary>
+    public bool NotFound { get; set; }
+
+    /// <summary>
+    /// Set when the request exists but is not in a state this decision applies to, with a sentence
+    /// saying so.
+    /// </summary>
+    public string? Conflict { get; set; }
 }
 
 /// <summary>
@@ -50,6 +91,8 @@ public sealed class RequestService
     private readonly ArtworkFallback _artwork;
     private readonly TmdbCatalog _catalogue;
     private readonly MediaBrowser.Controller.Library.IUserManager _users;
+
+    private readonly MediaBrowser.Controller.Library.ILibraryManager _library;
     private readonly ILogger<RequestService> _logger;
 
     public RequestService(
@@ -61,6 +104,7 @@ public sealed class RequestService
         ArtworkFallback artwork,
         TmdbCatalog catalogue,
         MediaBrowser.Controller.Library.IUserManager users,
+        MediaBrowser.Controller.Library.ILibraryManager library,
         ILogger<RequestService> logger)
     {
         _store = store;
@@ -71,6 +115,7 @@ public sealed class RequestService
         _artwork = artwork;
         _catalogue = catalogue;
         _users = users;
+        _library = library;
         _logger = logger;
     }
 
@@ -176,6 +221,62 @@ public sealed class RequestService
             AutoApprove.Trusted => isTrusted,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// The state a new request opens in.
+    /// </summary>
+    /// <param name="automaticMode">Whether anybody in the group has an indexer configured.</param>
+    /// <param name="policy">The group policy.</param>
+    /// <param name="isAdministrator">Whether the requester administers this node.</param>
+    /// <param name="isTrusted">Whether the requester is marked trusted.</param>
+    /// <param name="isDestructive">
+    /// Whether this request would add to or replace a copy the group already holds. See
+    /// <see cref="RequestReasons.IsDestructive"/>.
+    /// </param>
+    /// <returns>One of <see cref="RequestStates"/>.</returns>
+    /// <remarks>
+    /// <para>
+    /// A branch here rather than a fourth argument to <see cref="IsAutoApproved"/>, whose whole
+    /// value is being a small rule about who may spend the group's bandwidth. Two things now decide
+    /// a request's opening state before that rule is even reached, and folding them into it would
+    /// dilute the one function in M6 whose being wrong is a privacy failure.
+    /// </para>
+    /// <para>
+    /// **Manual mode wins over everything.** With no indexer anywhere in the group there is nothing
+    /// for an approval to authorise: approving would permit a download that is never going to
+    /// start. The request goes onto the administrator's wanted list instead and waits there.
+    /// </para>
+    /// <para>
+    /// **A destructive request always waits**, and deliberately short-circuits *before* the
+    /// administrator check inside <see cref="IsAutoApproved"/>. Replacing a file somebody already
+    /// has, or adding a second copy of it, is not the same act as fetching something the group
+    /// lacks: a "better" release is not always better, and the disk belongs to whoever runs the
+    /// node. An administrator can approve their own in one click, and the trail then records a
+    /// deliberate yes rather than a policy that happened to be permissive.
+    /// </para>
+    /// </remarks>
+    public static string ResolveInitialState(
+        bool automaticMode,
+        RequestPolicy policy,
+        bool isAdministrator,
+        bool isTrusted,
+        bool isDestructive)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        if (!automaticMode)
+        {
+            return RequestStates.Wanted;
+        }
+
+        if (isDestructive)
+        {
+            return RequestStates.Pending;
+        }
+
+        return IsAutoApproved(policy, isAdministrator, isTrusted)
+            ? RequestStates.Approved
+            : RequestStates.Pending;
     }
 
     /// <summary>
@@ -315,32 +416,56 @@ public sealed class RequestService
         // The dedupe rule, applied before anybody is asked to approve anything. A title the group
         // already holds costs nothing to satisfy, so asking an administrator whether it may be
         // downloaded is asking about a download that is not going to happen.
+        //
+        // Unless the person knows it is there and wants something done about it anyway: an episode
+        // that is missing, a better release, or a copy bad enough to replace. That is a question,
+        // not a silent no-op, so the first ask is refused with the holders and something to play,
+        // and the answer comes back on the second.
+        var reason = RequestReasons.Parse(body.Reason);
         var holders = await HoldersAsync(itemKey, isMovie, policy.MinimumHeight, row.Seasons, cancellationToken)
             .ConfigureAwait(false);
-        if (holders.Count > 0)
+        if (holders.Count > 0 && reason is null)
         {
-            row.State = RequestStates.Available;
-            row.Note = string.Create(
-                CultureInfo.InvariantCulture,
-                $"Already in the group, held by {string.Join(", ", holders.Distinct())}. Nothing was downloaded.");
-            await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
-            await _store.AddEventAsync(row.Id, row.State, "system", row.Note, cancellationToken)
-                .ConfigureAwait(false);
             _logger.LogInformation(
-                "Request {Id} for {ItemKey} is already satisfied by {Holders}",
-                row.Id,
+                "Request for {ItemKey} refused: already held by {Holders}",
                 itemKey,
                 string.Join(", ", holders));
-            return new CreateRequestResult { Request = row, Created = !reopening };
+            return new CreateRequestResult
+            {
+                AlreadyHeld = true,
+                Holders = holders.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                PlayableItemId = ResolveLibraryItemId(isMovie, isMovie ? body.TmdbId : body.TvdbId),
+                Status = 409,
+            };
         }
 
-        var autoApproved = IsAutoApproved(policy, user.IsAdministrator, user.Trusted);
-        row.State = autoApproved ? RequestStates.Approved : RequestStates.Pending;
-        row.Note = autoApproved
-            ? "Approved automatically by the group's policy."
-            : "Waiting for an administrator.";
-        if (autoApproved)
+        row.Reason = reason;
+        row.ReasonNote = string.IsNullOrWhiteSpace(body.ReasonNote) ? null : body.ReasonNote.Trim();
+
+        // Manual mode, a destructive reason, or the ordinary policy. Read from the store rather
+        // than worked out here, because the answer depends on what peers advertise and this method
+        // has to answer the moment somebody presses the button, mesh or no mesh.
+        var automatic = _store.IsAutomaticMode(row.Group);
+        row.State = ResolveInitialState(
+            automatic,
+            policy,
+            user.IsAdministrator,
+            user.Trusted,
+            RequestReasons.IsDestructive(reason));
+
+        var autoApproved = row.State == RequestStates.Approved;
+        row.Note = row.State switch
         {
+            RequestStates.Approved => "Approved automatically by the group's policy.",
+            RequestStates.Wanted => "Waiting for somebody to add it.",
+            _ => "Waiting for an administrator.",
+        };
+
+        if (autoApproved || row.State == RequestStates.Wanted)
+        {
+            // A wanted row is decided too, in the sense that nothing is going to be asked about it.
+            // Leaving the decision empty would put it in front of an approvals screen that manual
+            // mode does not show.
             row.DecidedBy = userId;
             row.DecidedByName = user.UserName;
             row.DecidedAt = row.RequestedAt;
@@ -349,7 +474,7 @@ public sealed class RequestService
         await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
         await _store.AddEventAsync(row.Id, row.State, userId, row.Note, cancellationToken).ConfigureAwait(false);
 
-        if (!autoApproved)
+        if (row.State == RequestStates.Pending)
         {
             await _notifier.NotifyAdministratorsAsync(
                     NotificationKinds.RequestPending,
@@ -376,28 +501,34 @@ public sealed class RequestService
     /// <param name="adminId">The administrator approving it.</param>
     /// <param name="reason">Optional sentence for the requester.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The updated request, or null when there is no such request.</returns>
-    public Task<RequestRow?> ApproveAsync(
+    /// <returns>The outcome.</returns>
+    public Task<RequestDecisionResult> ApproveAsync(
         string id,
         string adminId,
         string? reason,
         CancellationToken cancellationToken)
         => DecideAsync(id, adminId, approve: true, reason, cancellationToken);
 
-    /// <summary>Decline a pending request.</summary>
+    /// <summary>Decline a request, or dismiss one from the wanted list.</summary>
     /// <param name="id">The request id.</param>
     /// <param name="adminId">The administrator declining it.</param>
     /// <param name="reason">Optional sentence for the requester.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The updated request, or null.</returns>
-    public Task<RequestRow?> DeclineAsync(
+    /// <returns>The outcome.</returns>
+    /// <remarks>
+    /// The same call serves both, because they are the same act: an administrator saying this is
+    /// not going to happen, and the requester being told. Manual mode shows it as Dismiss and never
+    /// uses the word approval, but a request nobody is ever going to satisfy has to be clearable or
+    /// the wanted list stops being a list of things to do.
+    /// </remarks>
+    public Task<RequestDecisionResult> DeclineAsync(
         string id,
         string adminId,
         string? reason,
         CancellationToken cancellationToken)
         => DecideAsync(id, adminId, approve: false, reason, cancellationToken);
 
-    private async Task<RequestRow?> DecideAsync(
+    private async Task<RequestDecisionResult> DecideAsync(
         string id,
         string adminId,
         bool approve,
@@ -407,7 +538,24 @@ public sealed class RequestService
         var row = _store.Get(id);
         if (row is null)
         {
-            return null;
+            return new RequestDecisionResult { NotFound = true };
+        }
+
+        // Deciding used to have no precondition at all, so a stray call could flip a finished
+        // request back into the queue, or approve something already grabbed. Approving only makes
+        // sense for a row that is waiting to be approved; declining also covers a wanted row,
+        // because that is what Dismiss is.
+        var allowed = approve
+            ? row.State == RequestStates.Pending
+            : row.State is RequestStates.Pending or RequestStates.Wanted;
+        if (!allowed)
+        {
+            return new RequestDecisionResult
+            {
+                Conflict = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"This request is {row.State}, so it cannot be {(approve ? "approved" : "declined")}."),
+            };
         }
 
         row.State = approve ? RequestStates.Approved : RequestStates.Declined;
@@ -428,7 +576,7 @@ public sealed class RequestService
                 row.Id,
                 cancellationToken)
             .ConfigureAwait(false);
-        return row;
+        return new RequestDecisionResult { Request = row };
     }
 
     /// <summary>Put a failed request back in the queue.</summary>
@@ -476,6 +624,15 @@ public sealed class RequestService
                 && RequestStates.IsOpen(r.State)),
             UnreadNotifications = _store.UnreadCount(userId),
             CanApprove = isAdmin,
+            Wanted = isAdmin
+                ? mine.Count(r => string.Equals(r.State, RequestStates.Wanted, StringComparison.Ordinal))
+                : 0,
+
+            // Which group a request lands in needs the mesh to answer, and this is read while a
+            // screen is being drawn, so it asks the coarse question instead: can anything this node
+            // is part of fulfil a request on its own. Same answer either way for a node in one
+            // group, which is nearly all of them.
+            RequestsMode = _store.AnyGroupAutomatic() ? "automatic" : "manual",
         };
     }
 
@@ -964,6 +1121,63 @@ public sealed class RequestService
             : await _sources.GroupsHoldingPrefixAsync(itemKey, cancellationToken).ConfigureAwait(false);
 
         return Holders(candidates, minimumHeight, seasons, isMovie);
+    }
+
+    /// <summary>
+    /// The library item for a title, so somebody told "you already have this" can go and play it.
+    /// </summary>
+    /// <param name="isMovie">Whether this is a film.</param>
+    /// <param name="providerId">The TMDB id for a film, the TVDB id for a series.</param>
+    /// <returns>The Jellyfin item id, or null when nothing matches yet.</returns>
+    /// <remarks>
+    /// <para>
+    /// By provider id rather than by title, for the same reason the inventory is keyed that way:
+    /// two films share a name far more often than they share a TMDB id, and sending somebody to
+    /// the wrong one is worse than sending them nowhere.
+    /// </para>
+    /// <para>
+    /// A copy held by a peer resolves here too. The federated materialiser writes every peer's
+    /// holdings into this node's own library carrying the same provider ids, so there is no second
+    /// lookup for the remote case and no way for the two to disagree. It does mean this can return
+    /// null for a few seconds after a peer first announces something, which the caller treats as
+    /// ordinary rather than as a failure.
+    /// </para>
+    /// </remarks>
+    private string? ResolveLibraryItemId(bool isMovie, int providerId)
+    {
+        if (providerId <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var query = new MediaBrowser.Controller.Entities.InternalItemsQuery
+            {
+                IncludeItemTypes = new[]
+                {
+                    isMovie ? Jellyfin.Data.Enums.BaseItemKind.Movie : Jellyfin.Data.Enums.BaseItemKind.Series,
+                },
+                Recursive = true,
+                Limit = 1,
+            };
+            query.HasAnyProviderId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [isMovie ? MediaBrowser.Model.Entities.MetadataProvider.Tmdb.ToString()
+                         : MediaBrowser.Model.Entities.MetadataProvider.Tvdb.ToString()] =
+                    providerId.ToString(CultureInfo.InvariantCulture),
+            };
+
+            var items = _library.GetItemList(query);
+            return items.Count > 0 ? items[0].Id.ToString("N", CultureInfo.InvariantCulture) : null;
+        }
+        catch (Exception ex)
+        {
+            // A link is a courtesy. Losing it must never turn "you already have this" into an error
+            // on a request somebody is trying to make.
+            _logger.LogDebug(ex, "Could not resolve a library item for provider id {Id}", providerId);
+            return null;
+        }
     }
 
     /// <summary>Which of these candidates count as holding the title, and what to call them.</summary>

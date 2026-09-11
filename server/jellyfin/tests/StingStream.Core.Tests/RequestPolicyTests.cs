@@ -137,8 +137,142 @@ public class RequestPolicyTests
         Assert.True(RequestStates.IsOpen(RequestStates.Pending));
         Assert.True(RequestStates.IsOpen(RequestStates.Approved));
         Assert.True(RequestStates.IsOpen(RequestStates.Fulfilling));
+        // Wanted is open. Nothing is grabbing it, but the library serving that title still closes
+        // it without anybody pressing anything, which is exactly what open means here.
+        Assert.True(RequestStates.IsOpen(RequestStates.Wanted));
         Assert.False(RequestStates.IsOpen(RequestStates.Available));
         Assert.False(RequestStates.IsOpen(RequestStates.Declined));
         Assert.False(RequestStates.IsOpen(RequestStates.Failed));
+    }
+
+    // --- opening state -----------------------------------------------------
+
+    private static readonly string[] EveryMode =
+    {
+        AutoApprove.Everyone, AutoApprove.Trusted, AutoApprove.AdminsOnly,
+    };
+
+    [Fact]
+    public void Manual_mode_puts_every_request_on_the_wanted_list()
+    {
+        // Nobody can search, so there is nothing an approval would authorise. This holds for an
+        // administrator under the most permissive policy there is, because the constraint is the
+        // absence of an indexer rather than anything about who asked.
+        foreach (var mode in EveryMode)
+        {
+            foreach (var admin in new[] { true, false })
+            {
+                foreach (var trusted in new[] { true, false })
+                {
+                    Assert.Equal(
+                        RequestStates.Wanted,
+                        RequestService.ResolveInitialState(
+                            automaticMode: false,
+                            Policy(mode),
+                            isAdministrator: admin,
+                            isTrusted: trusted,
+                            isDestructive: false));
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Manual_mode_beats_a_destructive_reason_too()
+    {
+        // A replace with no indexer anywhere is still just something for the administrator to do by
+        // hand, so it belongs on the same list as everything else rather than in a queue waiting
+        // for an approval screen that manual mode does not show.
+        Assert.Equal(
+            RequestStates.Wanted,
+            RequestService.ResolveInitialState(
+                automaticMode: false,
+                Policy(AutoApprove.Everyone),
+                isAdministrator: true,
+                isTrusted: true,
+                isDestructive: true));
+    }
+
+    [Fact]
+    public void A_destructive_request_always_waits_for_an_administrator()
+    {
+        // Replacing a file somebody already has is not the same act as fetching one they lack, so
+        // no policy auto-approves it and being an administrator does not skip it either. An
+        // administrator approves their own in one click; the point is that the trail records it.
+        foreach (var mode in EveryMode)
+        {
+            foreach (var admin in new[] { true, false })
+            {
+                Assert.Equal(
+                    RequestStates.Pending,
+                    RequestService.ResolveInitialState(
+                        automaticMode: true,
+                        Policy(mode),
+                        isAdministrator: admin,
+                        isTrusted: true,
+                        isDestructive: true));
+            }
+        }
+    }
+
+    [Fact]
+    public void An_ordinary_request_still_follows_the_policy_exactly()
+    {
+        // The regression that matters: nothing above may have changed what an ordinary request does
+        // in a group that has always worked. This mirrors the IsAutoApproved cases one for one.
+        foreach (var mode in EveryMode)
+        {
+            foreach (var admin in new[] { true, false })
+            {
+                foreach (var trusted in new[] { true, false })
+                {
+                    var policy = Policy(mode);
+                    var expected = RequestService.IsAutoApproved(policy, admin, trusted)
+                        ? RequestStates.Approved
+                        : RequestStates.Pending;
+                    Assert.Equal(
+                        expected,
+                        RequestService.ResolveInitialState(
+                            automaticMode: true,
+                            policy,
+                            isAdministrator: admin,
+                            isTrusted: trusted,
+                            isDestructive: false));
+                }
+            }
+        }
+    }
+
+    // --- reasons -----------------------------------------------------------
+
+    [Fact]
+    public void A_reason_is_parsed_from_the_spellings_a_client_might_send()
+    {
+        Assert.Equal(RequestReasons.MissingEpisode, RequestReasons.Parse("missing_episode"));
+        Assert.Equal(RequestReasons.MissingEpisode, RequestReasons.Parse("  MissingEpisode "));
+        Assert.Equal(RequestReasons.BetterQuality, RequestReasons.Parse("BETTER_QUALITY"));
+        Assert.Equal(RequestReasons.BadCopy, RequestReasons.Parse("bad"));
+    }
+
+    [Fact]
+    public void An_unknown_reason_is_no_reason_at_all()
+    {
+        // Fails closed, exactly as AutoApprove.Parse does. A reason nobody recognises must not
+        // become a destructive one by being truthy.
+        Assert.Null(RequestReasons.Parse(null));
+        Assert.Null(RequestReasons.Parse(string.Empty));
+        Assert.Null(RequestReasons.Parse("delete_everything"));
+        Assert.False(RequestReasons.IsDestructive("delete_everything"));
+    }
+
+    [Fact]
+    public void Only_the_two_reasons_that_touch_an_existing_file_are_destructive()
+    {
+        Assert.True(RequestReasons.IsDestructive(RequestReasons.BetterQuality));
+        Assert.True(RequestReasons.IsDestructive(RequestReasons.BadCopy));
+        // A missing episode adds something the group does not have. Nothing existing is touched,
+        // so it follows the ordinary policy like any other request.
+        Assert.False(RequestReasons.IsDestructive(RequestReasons.MissingEpisode));
+        Assert.False(RequestReasons.IsDestructive(null));
     }
 }

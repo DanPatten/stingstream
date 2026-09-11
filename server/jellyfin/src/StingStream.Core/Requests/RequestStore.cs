@@ -120,6 +120,21 @@ public sealed class RequestStore
                     updated_at     TEXT NOT NULL
                 );
 
+                -- One row per group: whether anybody in it has an indexer configured, and so
+                -- whether requests are governed by the approval policy or go onto an
+                -- administrator's wanted list to be satisfied by hand.
+                --
+                -- Written by the request loop, which is the only thing that hears what peers
+                -- advertise. Read by RequestService when a request is made, which must answer
+                -- synchronously and cannot wait on the mesh -- see CreateAsync's own remarks.
+                -- Absent means manual, which is correct for a node whose loop has never run: it is
+                -- a fresh install, and a fresh install has no indexers.
+                CREATE TABLE IF NOT EXISTS request_group_mode (
+                    group_id   TEXT PRIMARY KEY,
+                    automatic  INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
                 -- Per-member trust and quota. Absent means "not trusted, group quota", which is
                 -- what every member starts as.
                 CREATE TABLE IF NOT EXISTS request_trust (
@@ -181,6 +196,11 @@ public sealed class RequestStore
             // exist yet.
             AddColumn(c, "ALTER TABLE requests ADD COLUMN overview TEXT;");
             AddColumn(c, "ALTER TABLE requests ADD COLUMN season_count INTEGER NOT NULL DEFAULT 0;");
+
+            // Why somebody asked for a title the group already held, and anything they added in
+            // their own words. Null for an ordinary request, which is nearly all of them.
+            AddColumn(c, "ALTER TABLE requests ADD COLUMN reason TEXT;");
+            AddColumn(c, "ALTER TABLE requests ADD COLUMN reason_note TEXT;");
             _schemaReady = true;
         }
     }
@@ -245,7 +265,11 @@ public sealed class RequestStore
         EnsureSchema();
         var rows = _db.Read(c => CoreDatabase.Query(
             c,
-            Select + " WHERE item_key = $k AND state IN ('pending','approved','fulfilling') "
+            // 'wanted' belongs here for the same reason the other three do: a title already on the
+            // administrator's list must absorb a second person asking for it, not sit beside a
+            // duplicate. It is the state most likely to be asked for twice, because it is the one
+            // that waits longest.
+            Select + " WHERE item_key = $k AND state IN ('pending','approved','fulfilling','wanted') "
                    + "ORDER BY requested_at DESC;",
             Map,
             ("$k", itemKey)));
@@ -326,9 +350,9 @@ public sealed class RequestStore
                      overview, season_count,
                      seasons, state, requested_by, requested_by_name, requested_at, decided_by,
                      decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine,
-                     updated_at)
+                     updated_at, reason, reason_note)
                 VALUES ($id, $g, $k, $ik, $p, $pid, $t, $y, $pu, $ov, $sc, $s, $st, $rb, $rbn, $ra,
-                        $db, $dbn, $da, $fn, $fnn, $n, $m, $u)
+                        $db, $dbn, $da, $fn, $fnn, $n, $m, $u, $rsn, $rsnn)
                 ON CONFLICT(id) DO UPDATE SET
                     group_id = excluded.group_id, kind = excluded.kind,
                     item_key = excluded.item_key, provider = excluded.provider,
@@ -342,7 +366,8 @@ public sealed class RequestStore
                     decided_by_name = excluded.decided_by_name, decided_at = excluded.decided_at,
                     fulfilling_node = excluded.fulfilling_node,
                     fulfilling_node_name = excluded.fulfilling_node_name,
-                    note = excluded.note, mine = excluded.mine, updated_at = excluded.updated_at;
+                    note = excluded.note, mine = excluded.mine, updated_at = excluded.updated_at,
+                    reason = excluded.reason, reason_note = excluded.reason_note;
                 """,
                 ("$id", row.Id),
                 ("$g", row.Group),
@@ -367,7 +392,9 @@ public sealed class RequestStore
                 ("$fnn", row.FulfillingNodeName),
                 ("$n", row.Note),
                 ("$m", row.Mine ? 1 : 0),
-                ("$u", row.UpdatedAt)),
+                ("$u", row.UpdatedAt),
+                ("$rsn", row.Reason),
+                ("$rsnn", row.ReasonNote)),
             cancellationToken).ConfigureAwait(false);
         return row;
     }
@@ -523,6 +550,147 @@ public sealed class RequestStore
         }
 
         return new RequestPolicy { Group = key, UpdatedAt = Now() };
+    }
+
+    /// <summary>
+    /// Whether a group fulfils requests automatically, as the request loop last worked it out.
+    /// </summary>
+    /// <param name="group">The group id, or empty for a standalone node.</param>
+    /// <returns>True when somebody in the group has an indexer configured.</returns>
+    /// <remarks>
+    /// <para>
+    /// Read rather than computed, because the answer depends on what peers advertise and
+    /// <see cref="RequestService.CreateAsync"/> must decide a request's opening state without
+    /// waiting on the mesh. The loop writes it every pass; this reads the last answer.
+    /// </para>
+    /// <para>
+    /// **Absent means manual**, and not by accident. A node whose request loop has never run is a
+    /// node that has just been installed, and a fresh install has no indexers. Guessing
+    /// "automatic" there would auto-approve the very first request somebody made and then leave it
+    /// waiting on a download nothing was ever going to start.
+    /// </para>
+    /// </remarks>
+    public bool IsAutomaticMode(string? group)
+    {
+        EnsureSchema();
+        var key = group ?? string.Empty;
+        var rows = _db.Read(c => CoreDatabase.Query(
+            c,
+            "SELECT automatic FROM request_group_mode WHERE group_id = $g;",
+            r => r.GetInt64(0) != 0,
+            ("$g", key)));
+        return rows.Count > 0 && rows[0];
+    }
+
+    /// <summary>Whether any group this node belongs to fulfils requests automatically.</summary>
+    /// <returns>True when at least one does.</returns>
+    /// <remarks>
+    /// The coarse question, for telling the app which shape of request UI to draw. It cannot ask
+    /// about a particular group because working out which group a request will land in needs the
+    /// mesh, and the screen asking this is drawn before anybody has chosen anything. A node in one
+    /// group, which is nearly all of them, gets the same answer either way.
+    /// </remarks>
+    public bool AnyGroupAutomatic()
+    {
+        EnsureSchema();
+        var rows = _db.Read(c => CoreDatabase.Query(
+            c,
+            "SELECT 1 FROM request_group_mode WHERE automatic <> 0 LIMIT 1;",
+            r => r.GetInt64(0)));
+        return rows.Count > 0;
+    }
+
+    /// <summary>Record how a group is fulfilling requests.</summary>
+    /// <param name="group">The group id, or empty.</param>
+    /// <param name="automatic">Whether anybody in it has an indexer configured.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public Task SetGroupModeAsync(string? group, bool automatic, CancellationToken cancellationToken)
+    {
+        EnsureSchema();
+        return _db.WriteAsync(
+            c => CoreDatabase.Execute(
+                c,
+                """
+                INSERT INTO request_group_mode (group_id, automatic, updated_at)
+                VALUES ($g, $a, $u)
+                ON CONFLICT(group_id) DO UPDATE SET
+                    automatic = excluded.automatic, updated_at = excluded.updated_at;
+                """,
+                ("$g", group ?? string.Empty),
+                ("$a", automatic ? 1 : 0),
+                ("$u", Now())),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Move a group's unclaimed requests onto the wanted list, for when its last indexer goes.
+    /// </summary>
+    /// <param name="group">The group id, or empty.</param>
+    /// <param name="note">The sentence to leave on each row.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>How many rows moved.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only <c>pending</c> and <c>approved</c>, deliberately. Both are rows nothing has started on,
+    /// and leaving them would strand a request waiting for an approval screen that has just
+    /// disappeared, or waiting to be routed to a node that can no longer search.
+    /// </para>
+    /// <para>
+    /// <c>fulfilling</c> is left alone. Somebody is already grabbing it, possibly on another node
+    /// that still has its own indexers, and it can still legitimately fail through the ordinary
+    /// paths. Reaching into a claim in flight to relabel it would be this node overruling the one
+    /// doing the work.
+    /// </para>
+    /// </remarks>
+    public async Task<int> ConvertUnclaimedToWantedAsync(
+        string? group,
+        string note,
+        CancellationToken cancellationToken)
+    {
+        EnsureSchema();
+        var moved = 0;
+        await _db.WriteAsync(
+            c => moved = CoreDatabase.Execute(
+                c,
+                """
+                UPDATE requests
+                   SET state = 'wanted', note = $n, updated_at = $u
+                 WHERE group_id = $g AND mine = 1 AND state IN ('pending','approved');
+                """,
+                ("$g", group ?? string.Empty),
+                ("$n", note),
+                ("$u", Now())),
+            cancellationToken).ConfigureAwait(false);
+        return moved;
+    }
+
+    /// <summary>Requests in any of several states.</summary>
+    /// <param name="states">The states.</param>
+    /// <returns>The rows.</returns>
+    public IReadOnlyList<RequestRow> InStates(params string[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+        EnsureSchema();
+        if (states.Length == 0)
+        {
+            return Array.Empty<RequestRow>();
+        }
+
+        // Built rather than parameterised because SQLite has no array binding, and every caller
+        // passes constants from RequestStates. Quoted anyway: a literal built by hand is a literal
+        // somebody will one day pass a variable to.
+        var quoted = new string[states.Length];
+        for (var i = 0; i < states.Length; i++)
+        {
+            quoted[i] = "'" + states[i].Replace("'", "''", StringComparison.Ordinal) + "'";
+        }
+
+        var list = string.Join(",", quoted);
+        return _db.Read(c => CoreDatabase.Query(
+            c,
+            Select + " WHERE state IN (" + list + ") ORDER BY requested_at;",
+            Map));
     }
 
     /// <summary>Store a group's policy.</summary>
@@ -892,7 +1060,7 @@ public sealed class RequestStore
         "SELECT id, group_id, kind, item_key, provider, provider_id, title, year, poster_url, "
         + "seasons, state, requested_by, requested_by_name, requested_at, decided_by, "
         + "decided_by_name, decided_at, fulfilling_node, fulfilling_node_name, note, mine, "
-        + "updated_at, overview, season_count FROM requests";
+        + "updated_at, overview, season_count, reason, reason_note FROM requests";
 
     private const string PolicySelect =
         "SELECT group_id, auto_approve, weekly_quota, minimum_height, updated_at FROM request_policy";
@@ -925,6 +1093,8 @@ public sealed class RequestStore
         UpdatedAt = r.GetString(21),
         Overview = r.IsDBNull(22) ? null : r.GetString(22),
         SeasonCount = (int)r.GetInt64(23),
+        Reason = r.IsDBNull(24) ? null : r.GetString(24),
+        ReasonNote = r.IsDBNull(25) ? null : r.GetString(25),
     };
 
     private static RequestPolicy MapPolicy(IDataRecord r) => new()

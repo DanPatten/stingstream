@@ -279,6 +279,23 @@ pub struct Heartbeat {
     /// folder, and room. See [`Heartbeat::can_fulfil_movies`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub can_fulfil_tv: Option<bool>,
+    /// Whether this node has **any** indexer configured, enabled or not.
+    ///
+    /// Deliberately a different question from the two flags above, and the reason it needs its own
+    /// field rather than being inferred from them. Those go false whenever an indexer stops
+    /// answering, an arr restarts, or a disk fills — none of which is a decision anybody made. This
+    /// one only moves when a person adds or removes an indexer.
+    ///
+    /// The group reads it to decide whether requests are governed by an approval policy or go onto
+    /// an administrator's wanted list to be satisfied by hand. Resting that on the flags above
+    /// would mean a three minute outage silently took the approval policy away and let requests
+    /// through unapproved.
+    ///
+    /// `None` means "unchanged" on the receiving side and "no indexers" wherever a decision is
+    /// made, for the same reason the two flags above are `Option`: Core's capacity push does not
+    /// carry it, and a plain `false` there would erase the node's answer on every beat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_indexers: Option<bool>,
     /// Where a **browser** can reach this node: the owner's domain, and its LAN address.
     ///
     /// This is how a client learns the addresses of the servers its own server is linked to, which

@@ -23,6 +23,17 @@ public sealed class FulfilCapability
     /// <summary>Free bytes on the volume holding the node's media.</summary>
     public long FreeSpace { get; set; }
 
+    /// <summary>
+    /// Whether this node has at least one indexer configured, enabled or not.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not the same question as <see cref="CanFulfilMovies"/>. Those go false whenever
+    /// an indexer stops answering or an arr is restarting, which is exactly when the group must
+    /// *not* change its mind about how requests are governed. This one only moves when somebody
+    /// adds or removes an indexer, so <see cref="GroupMode"/> can rest on it without flapping.
+    /// </remarks>
+    public bool HasIndexers { get; set; }
+
     /// <summary>Whether this node could fulfil a request of a given kind.</summary>
     /// <param name="kind"><c>movie</c> or <c>series</c>.</param>
     /// <returns>True when it could.</returns>
@@ -126,6 +137,120 @@ public static class RequestRouter
             Reason = string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"{volunteers[0].NodeName} has the indexers and {volunteers[0].FreeSpace / (1024L * 1024 * 1024)} GB free."),
+        };
+    }
+
+    /// <summary>
+    /// Narrow the candidates to the ones a reason allows to act, before <see cref="Route"/> runs.
+    /// </summary>
+    /// <param name="reason">One of <see cref="RequestReasons"/>, or null for an ordinary request.</param>
+    /// <param name="home">This node's own capability.</param>
+    /// <param name="peers">Every other member's advertised capability.</param>
+    /// <param name="holders">Node ids that already hold the title.</param>
+    /// <returns>
+    /// The narrowed capabilities to hand to <see cref="Route"/>, and a sentence when the reason
+    /// leaves nobody who may act. A non-null reason there means the request cannot proceed.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// A separate function rather than an argument to <see cref="Route"/>, which knows about
+    /// capacity and nothing about who holds what, and whose existing behaviour must not move.
+    /// Candidates the reason forbids are returned with their fulfil flags cleared rather than
+    /// removed, so <see cref="Route"/>'s own ordering, free-space floor and home-first bias all
+    /// still apply to whoever is left.
+    /// </para>
+    /// <para>
+    /// **This is also what keeps one node from acting on another's disk.** Every member runs the
+    /// same pass over the same gossiped request and decides for itself whether to claim. A node
+    /// only passes this filter when it is itself a holder (for a replace) or itself not one (for a
+    /// second version), so whichever node ends up claiming has decided about files it owns. Nothing
+    /// is commanded across the wire, and no message needed inventing to say so.
+    /// </para>
+    /// <para>
+    /// The two reasons pull in opposite directions, which is the whole point. Replacing a bad copy
+    /// has to happen where the bad copy is. Keeping both qualities needs a *second* node, because a
+    /// download manager tracks one file per title and would upgrade over the first rather than sit
+    /// beside it — so a standalone node can never satisfy it, and says so rather than trying.
+    /// </para>
+    /// </remarks>
+    public static (FulfilCapability Home, IReadOnlyList<FulfilCapability> Peers, string? BlockedReason)
+        ApplyHolderConstraint(
+            string? reason,
+            FulfilCapability home,
+            IReadOnlyList<FulfilCapability> peers,
+            IReadOnlySet<string> holders)
+    {
+        ArgumentNullException.ThrowIfNull(home);
+        ArgumentNullException.ThrowIfNull(peers);
+        ArgumentNullException.ThrowIfNull(holders);
+
+        var parsed = RequestReasons.Parse(reason);
+        if (parsed is not (RequestReasons.BetterQuality or RequestReasons.BadCopy))
+        {
+            return (home, peers, null);
+        }
+
+        var wantHolder = parsed == RequestReasons.BadCopy;
+        var narrowedHome = Narrow(home, holders, wantHolder);
+        var narrowedPeers = new List<FulfilCapability>(peers.Count);
+        for (var i = 0; i < peers.Count; i++)
+        {
+            narrowedPeers.Add(Narrow(peers[i], holders, wantHolder));
+        }
+
+        // Online matters here as much as the flags do, the same way it does inside CanFulfil: the
+        // one node allowed to replace a copy being unreachable is precisely the case worth saying
+        // out loud, rather than letting it fall through to Route's much vaguer "nobody advertises
+        // that it can grab a film".
+        var anybody = Usable(narrowedHome);
+        for (var i = 0; !anybody && i < narrowedPeers.Count; i++)
+        {
+            anybody = Usable(narrowedPeers[i]);
+        }
+
+        if (anybody)
+        {
+            return (narrowedHome, narrowedPeers, null);
+        }
+
+        return (
+            narrowedHome,
+            narrowedPeers,
+            wantHolder
+                ? "Only the node holding this copy can replace it, and it cannot do that right now."
+                : "Keeping both versions needs a second node that does not already hold this one.");
+    }
+
+    /// <summary>Whether a candidate could grab anything at all, of either kind.</summary>
+    /// <param name="node">The candidate.</param>
+    /// <returns>True when it is online and offers at least one kind.</returns>
+    private static bool Usable(FulfilCapability node)
+        => node.Online && (node.CanFulfilMovies || node.CanFulfilTv);
+
+    /// <summary>Clear a candidate's fulfil flags when the reason does not let it act.</summary>
+    /// <param name="node">The candidate.</param>
+    /// <param name="holders">Node ids that already hold the title.</param>
+    /// <param name="wantHolder">True to keep only holders, false to keep only non-holders.</param>
+    /// <returns>The candidate, or a copy of it that cannot fulfil anything.</returns>
+    private static FulfilCapability Narrow(
+        FulfilCapability node,
+        IReadOnlySet<string> holders,
+        bool wantHolder)
+    {
+        if (holders.Contains(node.Node) == wantHolder)
+        {
+            return node;
+        }
+
+        return new FulfilCapability
+        {
+            Node = node.Node,
+            NodeName = node.NodeName,
+            Online = node.Online,
+            CanFulfilMovies = false,
+            CanFulfilTv = false,
+            FreeSpace = node.FreeSpace,
+            HasIndexers = node.HasIndexers,
         };
     }
 

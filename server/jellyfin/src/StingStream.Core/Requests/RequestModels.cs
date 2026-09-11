@@ -47,9 +47,81 @@ public static class RequestStates
     /// <summary>Nobody could fulfil it, or the node that tried gave up.</summary>
     public const string Failed = "failed";
 
+    /// <summary>
+    /// On the administrator's wanted list. Nobody in the group can search, so nothing is going to
+    /// grab it: it waits until the library serves the same item, however that happens.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The state a request is born in when the group has no indexer configured at all. It is
+    /// deliberately **not** <see cref="Approved"/> with a flag: the fulfilment loop selects
+    /// <c>approved or fulfilling</c> to publish, route, claim and grab, so a wanted row reusing
+    /// that state would be gossiped and then grabbed by whichever node next gained an indexer,
+    /// which is the opposite of an administrator satisfying it by hand. Being a state those queries
+    /// never select is the whole mechanism, and it is also why this costs nothing on the wire:
+    /// a state that is never published never needs the mesh to understand it.
+    /// </para>
+    /// <para>
+    /// It never fails on its own. The six-hour fulfilment deadline and the "nobody can grab this"
+    /// checks exist for a request somebody is actually trying to satisfy, and a wanted row is not
+    /// one: waiting a month for a disc to arrive is the feature working, not a fault.
+    /// </para>
+    /// </remarks>
+    public const string Wanted = "wanted";
+
     /// <summary>States a request can still change out of on its own.</summary>
     public static bool IsOpen(string? state)
-        => state is Pending or Approved or Fulfilling;
+        => state is Pending or Approved or Fulfilling or Wanted;
+}
+
+/// <summary>Why somebody asked for a title the library already has.</summary>
+/// <remarks>
+/// <para>
+/// Asking for something already held used to create a row that was silently already
+/// <see cref="RequestStates.Available"/>, which told the person nothing and gave them no way to
+/// reach the copy they had just asked for. It is now a question, and this is the answer to it.
+/// </para>
+/// <para>
+/// <see cref="MissingEpisode"/> is ordinary: the group holds the series but not the seasons wanted,
+/// which the existing season handling already covers. The other two are **destructive** — they act
+/// on a file that already exists, which is why <see cref="IsDestructive"/> is separate from simply
+/// having a reason, and why such a request always waits for an administrator whatever the policy
+/// says.
+/// </para>
+/// <para>
+/// A copy below the group's <c>MinimumHeight</c> is already filtered out of the holder list, so it
+/// never reaches this question at all and is simply grabbed afresh. These reasons therefore only
+/// ever describe a quality problem the height check structurally cannot see: the wrong audio or
+/// language, a bad encode, the wrong cut.
+/// </para>
+/// </remarks>
+public static class RequestReasons
+{
+    /// <summary>The group has the series but not the episodes wanted. Not destructive.</summary>
+    public const string MissingEpisode = "missing_episode";
+
+    /// <summary>A better release is wanted, keeping the existing one as another version.</summary>
+    public const string BetterQuality = "better_quality";
+
+    /// <summary>The existing copy is bad and should be replaced outright.</summary>
+    public const string BadCopy = "bad_copy";
+
+    /// <summary>Parse a stored or submitted value, or null when it names none of them.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The canonical spelling, or null.</returns>
+    public static string? Parse(string? value) => (value ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        MissingEpisode or "missingepisode" or "missing" => MissingEpisode,
+        BetterQuality or "betterquality" or "quality" => BetterQuality,
+        BadCopy or "badcopy" or "bad" => BadCopy,
+        _ => null,
+    };
+
+    /// <summary>Whether acting on this reason would touch a file the group already holds.</summary>
+    /// <param name="reason">One of the constants here, or null.</param>
+    /// <returns>True when it would add to or replace an existing copy.</returns>
+    public static bool IsDestructive(string? reason)
+        => Parse(reason) is BetterQuality or BadCopy;
 }
 
 /// <summary>How a group decides whether a request needs an administrator.</summary>
@@ -208,6 +280,15 @@ public sealed class RequestRow
     /// <summary>A sentence a person can read: why it is where it is.</summary>
     public string Note { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Why this was asked for when the group already held it. One of <see cref="RequestReasons"/>,
+    /// or null for an ordinary request, which is almost all of them.
+    /// </summary>
+    public string? Reason { get; set; }
+
+    /// <summary>Anything the requester added in their own words. Shown to the administrator.</summary>
+    public string? ReasonNote { get; set; }
+
     /// <summary>Whether this node originated it, as opposed to hearing about it over gossip.</summary>
     public bool Mine { get; set; } = true;
 
@@ -278,6 +359,21 @@ public sealed class RequestCounts
 
     /// <summary>Whether the caller may see the approvals queue at all.</summary>
     public bool CanApprove { get; set; }
+
+    /// <summary>Requests on the wanted list, for an administrator.</summary>
+    public int Wanted { get; set; }
+
+    /// <summary>
+    /// How this group fulfils requests: <c>automatic</c> or <c>manual</c>.
+    /// </summary>
+    /// <remarks>
+    /// Carried here rather than on an endpoint of its own because every member needs it and every
+    /// screen that touches requests already polls this. The detailed indexer health that drives the
+    /// administrator's banner is a different question on a different, administrator-only endpoint;
+    /// this is the coarse one a member is allowed to know, and it says nothing about what is
+    /// configured beyond how their own request will be treated.
+    /// </remarks>
+    public string RequestsMode { get; set; } = "automatic";
 }
 
 /// <summary>Request to make a request.</summary>
@@ -311,6 +407,20 @@ public sealed class CreateRequestBody
 
     /// <summary>A poster URL from the search result, so the request list has artwork immediately.</summary>
     public string? PosterUrl { get; set; }
+
+    /// <summary>
+    /// Why this is being asked for when the group already holds it. One of
+    /// <see cref="RequestReasons"/>.
+    /// </summary>
+    /// <remarks>
+    /// Absent on a first call. When the group already holds the title, the request is refused with
+    /// the holders and something to play, and the caller asks again carrying the answer. That is
+    /// the whole two-step: there is no separate endpoint, and an ordinary request never sends this.
+    /// </remarks>
+    public string? Reason { get; set; }
+
+    /// <summary>Optional: anything the requester wants to add in their own words.</summary>
+    public string? ReasonNote { get; set; }
 }
 
 /// <summary>Body of an approve or decline.</summary>

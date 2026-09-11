@@ -234,6 +234,7 @@ impl Db {
             "ALTER TABLE peers ADD COLUMN side_door TEXT",
             "ALTER TABLE peers ADD COLUMN can_fulfil_movies INTEGER",
             "ALTER TABLE peers ADD COLUMN can_fulfil_tv INTEGER",
+            "ALTER TABLE peers ADD COLUMN has_indexers INTEGER",
             "ALTER TABLE groups ADD COLUMN secret_epoch INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN prev_secret BLOB",
             "ALTER TABLE groups ADD COLUMN prev_secret_until INTEGER NOT NULL DEFAULT 0",
@@ -738,7 +739,8 @@ impl Db {
                         active_direct_streams = ?6, active_transcodes = ?7, free_space = ?8,
                         can_fulfil_movies = COALESCE(?9, can_fulfil_movies),
                         can_fulfil_tv = COALESCE(?10, can_fulfil_tv),
-                        side_door = COALESCE(?11, side_door)
+                        side_door = COALESCE(?11, side_door),
+                        has_indexers = COALESCE(?12, has_indexers)
                  WHERE group_id = ?1 AND node_id = ?2",
                 params![
                     group.to_string(),
@@ -761,6 +763,10 @@ impl Db {
                     hb.side_door
                         .as_ref()
                         .and_then(|sd| serde_json::to_string(sd).ok()),
+                    // Same COALESCE once more. This one decides whether the group governs requests
+                    // by approval or by hand, so a capacity beat erasing it would take the approval
+                    // policy away until the next request pass put it back.
+                    hb.has_indexers.map(|v| v as i64),
                 ],
             )
             .context("recording a heartbeat")?;
@@ -807,7 +813,7 @@ impl Db {
         let sql = "SELECT group_id, node_id, node_name, online, first_seen, last_seen, path, rtt_ms,
                           max_direct_streams, max_transcodes, active_direct_streams,
                           active_transcodes, free_space, throughput_bps, throughput_samples,
-                          throughput_at, can_fulfil_movies, can_fulfil_tv, side_door
+                          throughput_at, can_fulfil_movies, can_fulfil_tv, side_door, has_indexers
                    FROM peers WHERE (?1 IS NULL OR group_id = ?1) ORDER BY group_id, node_name";
         let mut stmt = conn.prepare(sql).context("listing peers")?;
         let rows = stmt
@@ -839,6 +845,11 @@ impl Db {
                     side_door: r
                         .get::<_, Option<String>>(18)?
                         .and_then(|j| serde_json::from_str(&j).ok()),
+                    // NULL is a peer running a build from before this existed. Reading that as
+                    // "no indexers" is the safe way round: it can only ever put the group into
+                    // manual mode, where nothing is auto-approved and nothing is grabbed without
+                    // somebody asking for it.
+                    has_indexers: r.get::<_, Option<i64>>(19)?.unwrap_or(0) != 0,
                 })
             })
             .context("listing peers")?;
@@ -1668,6 +1679,11 @@ pub struct PeerRow {
     /// Whether this peer advertises that it could grab a series.
     #[serde(default)]
     pub can_fulfil_tv: bool,
+    /// Whether this peer has any indexer configured, enabled or not. False for a peer that has not
+    /// said, and for one running a build that does not publish it. See
+    /// [`crate::inventory::Heartbeat::has_indexers`].
+    #[serde(default)]
+    pub has_indexers: bool,
 }
 
 #[cfg(test)]

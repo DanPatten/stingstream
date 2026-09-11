@@ -231,6 +231,20 @@ public sealed class RequestsController : StingStreamControllerBase
             return StatusCode(result.Status, new { error = result.Refused });
         }
 
+        if (result.AlreadyHeld)
+        {
+            // Nothing was created. The caller shows what is already there, offers to play it, and
+            // asks again with a reason if the person still wants something done.
+            return StatusCode(
+                result.Status,
+                new
+                {
+                    alreadyHeld = true,
+                    holders = result.Holders,
+                    playableItemId = result.PlayableItemId,
+                });
+        }
+
         return Ok(result.Request);
     }
 
@@ -347,10 +361,10 @@ public sealed class RequestsController : StingStreamControllerBase
         [FromBody] RequestDecisionBody? body,
         CancellationToken cancellationToken)
     {
-        var row = await _requests
+        var result = await _requests
             .ApproveAsync(id, CurrentUserId(), body?.Reason, cancellationToken)
             .ConfigureAwait(false);
-        return row is null ? NotFound() : Ok(row);
+        return Decided(result);
     }
 
     /// <summary>Decline a pending request.</summary>
@@ -369,10 +383,25 @@ public sealed class RequestsController : StingStreamControllerBase
         [FromBody] RequestDecisionBody? body,
         CancellationToken cancellationToken)
     {
-        var row = await _requests
+        var result = await _requests
             .DeclineAsync(id, CurrentUserId(), body?.Reason, cancellationToken)
             .ConfigureAwait(false);
-        return row is null ? NotFound() : Ok(row);
+        return Decided(result);
+    }
+
+    /// <summary>Turn a decision outcome into a response.</summary>
+    /// <param name="result">The outcome.</param>
+    /// <returns>The response.</returns>
+    private ActionResult<RequestRow> Decided(RequestDecisionResult result)
+    {
+        if (result.NotFound)
+        {
+            return NotFound();
+        }
+
+        return result.Conflict is not null
+            ? Conflict(new { error = result.Conflict })
+            : Ok(result.Request);
     }
 
     /// <summary>Put a failed request back in the queue.</summary>

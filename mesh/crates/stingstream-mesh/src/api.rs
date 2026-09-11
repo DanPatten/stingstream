@@ -916,6 +916,10 @@ struct Fulfilment {
     can_fulfil_movies: bool,
     #[serde(default)]
     can_fulfil_tv: bool,
+    /// Whether any indexer is configured, enabled or not. See
+    /// [`crate::inventory::Heartbeat::has_indexers`] for why this is not the two flags above.
+    #[serde(default)]
+    has_indexers: bool,
 }
 
 /// `PUT /mesh/v1/fulfilment` — what this node could grab if the group asked (M6).
@@ -929,7 +933,7 @@ async fn put_fulfilment(
     State(node): State<Arc<MeshNode>>,
     Json(body): Json<Fulfilment>,
 ) -> ApiResult<Json<Fulfilment>> {
-    node.set_fulfilment(body.can_fulfil_movies, body.can_fulfil_tv)?;
+    node.set_fulfilment(body.can_fulfil_movies, body.can_fulfil_tv, body.has_indexers)?;
     Ok(Json(fulfilment_of(&node)))
 }
 
@@ -942,6 +946,7 @@ fn fulfilment_of(node: &MeshNode) -> Fulfilment {
     Fulfilment {
         can_fulfil_movies: hb.can_fulfil_movies.unwrap_or(false),
         can_fulfil_tv: hb.can_fulfil_tv.unwrap_or(false),
+        has_indexers: hb.has_indexers.unwrap_or(false),
     }
 }
 

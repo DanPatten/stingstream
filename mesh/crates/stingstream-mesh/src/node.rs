@@ -1283,6 +1283,13 @@ impl MeshNode {
             can_fulfil_tv: capacity
                 .can_fulfil_tv
                 .or_else(|| self.capacity().can_fulfil_tv),
+            // And again for whether this node has indexers configured at all, which the request
+            // loop publishes alongside the two flags above. Losing it on a capacity beat would put
+            // the whole group into manual mode until the next request pass restored it, taking the
+            // approval policy away and back for no reason a person could see.
+            has_indexers: capacity
+                .has_indexers
+                .or_else(|| self.capacity().has_indexers),
             // Same reasoning again: where a browser can reach this node is published by
             // `set_side_door`, and Core's capacity push carries none of it.
             side_door: capacity
@@ -1304,10 +1311,11 @@ impl MeshNode {
     /// the heartbeat, so it converges on the same schedule as liveness and vanishes with the peer --
     /// and a node that has just lost its last indexer stops being volunteered on the next beat
     /// rather than being discovered to be useless one claim later.
-    pub fn set_fulfilment(&self, movies: bool, tv: bool) -> Result<()> {
+    pub fn set_fulfilment(&self, movies: bool, tv: bool, has_indexers: bool) -> Result<()> {
         let mut hb = self.capacity();
         hb.can_fulfil_movies = Some(movies);
         hb.can_fulfil_tv = Some(tv);
+        hb.has_indexers = Some(has_indexers);
         let json = serde_json::to_string(&hb).context("encoding this node's fulfilment capability")?;
         self.db.set_meta(crate::gossip::CAPACITY_META_KEY, &json)
     }

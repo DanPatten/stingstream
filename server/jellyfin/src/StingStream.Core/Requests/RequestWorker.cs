@@ -224,7 +224,11 @@ public sealed class RequestWorker : BackgroundService
         report.FreeSpace = capability.FreeSpace;
 
         await _requestMesh
-            .PublishFulfilmentAsync(capability.CanFulfilMovies, capability.CanFulfilTv, cancellationToken)
+            .PublishFulfilmentAsync(
+                capability.CanFulfilMovies,
+                capability.CanFulfilTv,
+                capability.HasIndexers,
+                cancellationToken)
             .ConfigureAwait(false);
 
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
@@ -256,6 +260,28 @@ public sealed class RequestWorker : BackgroundService
         RequestPassReport report,
         CancellationToken cancellationToken)
     {
+        // Fetched once per pass and unconditionally. Two things need it now: the claim protocol,
+        // which only cares when something is open, and working out whether anybody in this group
+        // has an indexer at all, which has to be answered even when nothing is open. Leaving it
+        // where it was would mean a group that just lost its last indexer stayed in automatic mode
+        // until somebody happened to make a request.
+        var fetched = group.Length == 0
+            ? Array.Empty<FulfilCapability>()
+            : await _requestMesh.CapabilitiesAsync(group, cancellationToken).ConfigureAwait(false);
+
+        var peers = (fetched ?? Array.Empty<FulfilCapability>())
+            .Where(p => !string.Equals(p.Node, _nodeId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        // A null answer means the mesh could not be asked, which is not the same as a group with
+        // no indexers in it. Updating the mode from that would put the group into manual for the
+        // length of a mesh restart, taking the approval policy away for no reason anybody could
+        // see -- the same mistake as reading mode off a health check. Keep the last answer.
+        if (fetched is not null)
+        {
+            await TrackModeAsync(group, capability, peers, cancellationToken).ConfigureAwait(false);
+        }
+
         await PublishApprovedAsync(group, report, cancellationToken).ConfigureAwait(false);
         await AdoptForeignAsync(group, report, cancellationToken).ConfigureAwait(false);
 
@@ -263,8 +289,53 @@ public sealed class RequestWorker : BackgroundService
         // group's list, and this is where a volunteer that is grabbing it finds that out and stops.
         report.Dropped += await _withdrawal.DropWithdrawnAsync(group, cancellationToken)
             .ConfigureAwait(false);
-        await ClaimAndFulfilAsync(group, capability, report, cancellationToken).ConfigureAwait(false);
+        await ClaimAndFulfilAsync(group, capability, peers, report, cancellationToken).ConfigureAwait(false);
         await WatchAsync(group, report, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Record whether this group can fulfil requests automatically, and tidy up when it cannot.
+    /// </summary>
+    /// <param name="group">The group id, or empty.</param>
+    /// <param name="home">This node's own capability.</param>
+    /// <param name="peers">Every other member's, as last advertised.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// The sweep runs on every manual pass rather than only on the change, because it is one UPDATE
+    /// that matches nothing in the ordinary case and it is the only thing that rescues a row left
+    /// behind by an upgrade or by a node that was switched off through the transition. Cheap, and
+    /// self-healing, which a one-shot on the edge would not be.
+    /// </remarks>
+    private async Task TrackModeAsync(
+        string group,
+        FulfilCapability home,
+        IReadOnlyList<FulfilCapability> peers,
+        CancellationToken cancellationToken)
+    {
+        var automatic = GroupMode.IsAutomatic(home, peers);
+        if (automatic != _store.IsAutomaticMode(group))
+        {
+            await _store.SetGroupModeAsync(group, automatic, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Requests in group {Group} are now fulfilled {Mode}",
+                group.Length == 0 ? "(this node)" : group,
+                automatic ? "automatically" : "by hand");
+        }
+
+        if (automatic)
+        {
+            return;
+        }
+
+        var moved = await _store.ConvertUnclaimedToWantedAsync(
+            group,
+            "Waiting for somebody to add it.",
+            cancellationToken).ConfigureAwait(false);
+        if (moved > 0)
+        {
+            _logger.LogInformation("Moved {Count} request(s) onto the wanted list", moved);
+        }
     }
 
     // --- 1. what this node can do ------------------------------------------
@@ -306,6 +377,12 @@ public sealed class RequestWorker : BackgroundService
         capability.CanFulfilTv = tvIndexers
             && tvRoot
             && await ArrIsUpAsync(ArrKind.Sonarr, cancellationToken).ConfigureAwait(false);
+
+        // Configured, not usable, and on purpose: no Enabled filter, no root folder, no arr health
+        // check. This is the one flag that survives an outage, because it decides whether the group
+        // governs requests by an approval policy or by an administrator's wanted list, and a
+        // restarting Radarr has not asked to change that. See GroupMode.
+        capability.HasIndexers = settings.Indexers.Count > 0;
         return capability;
     }
 
@@ -460,6 +537,7 @@ public sealed class RequestWorker : BackgroundService
     private async Task ClaimAndFulfilAsync(
         string group,
         FulfilCapability capability,
+        IReadOnlyList<FulfilCapability> others,
         RequestPassReport report,
         CancellationToken cancellationToken)
     {
@@ -483,14 +561,6 @@ public sealed class RequestWorker : BackgroundService
         {
             return;
         }
-
-        var peers = group.Length == 0
-            ? Array.Empty<FulfilCapability>()
-            : await _requestMesh.CapabilitiesAsync(group, cancellationToken).ConfigureAwait(false)
-              ?? Array.Empty<FulfilCapability>();
-        var others = peers
-            .Where(p => !string.Equals(p.Node, _nodeId, StringComparison.OrdinalIgnoreCase))
-            .ToList();
 
         foreach (var row in open)
         {
@@ -524,7 +594,35 @@ public sealed class RequestWorker : BackgroundService
             return;
         }
 
-        var decision = RequestRouter.Route(row.Kind, home, peers);
+        var routeHome = home;
+        var routePeers = peers;
+        if (RequestReasons.IsDestructive(row.Reason))
+        {
+            // Acting on a copy the group already has is only some nodes' business: a replace has to
+            // happen where the file is, and a second quality has to happen anywhere else. Narrowing
+            // the candidates before routing is also what keeps this node from reaching across to
+            // somebody else's disk, since whoever is left decides for itself on its own pass.
+            var holders = await HoldersAsync(row, cancellationToken).ConfigureAwait(false);
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var holder in holders)
+            {
+                ids.Add(holder.Node);
+            }
+
+            var (narrowedHome, narrowedPeers, blocked) =
+                RequestRouter.ApplyHolderConstraint(row.Reason, home, peers, ids);
+            if (blocked is not null)
+            {
+                await FailAsync(group, row, blocked, cancellationToken).ConfigureAwait(false);
+                report.Failed++;
+                return;
+            }
+
+            routeHome = narrowedHome;
+            routePeers = narrowedPeers;
+        }
+
+        var decision = RequestRouter.Route(row.Kind, routeHome, routePeers);
         var mineToTake = decision.Node is not null
             && (decision.IsHome || string.Equals(decision.Node.Node, _nodeId, StringComparison.OrdinalIgnoreCase));
 
@@ -694,15 +792,20 @@ public sealed class RequestWorker : BackgroundService
         // One last dedupe check on the way in. Between approval and here somebody may have pinned
         // it, or another member may have imported it, and grabbing it now would be the duplicate
         // download the whole system exists to avoid.
+        //
+        // Unless the group already holding it is the entire point. Somebody asking for a better
+        // release, or for a bad copy to be replaced, has asked *because* there is a copy: treating
+        // that as a duplicate would mark the request available against the very file they are
+        // complaining about and download nothing.
         var holders = await HoldersAsync(row, cancellationToken).ConfigureAwait(false);
-        if (holders.Count > 0)
+        if (holders.Count > 0 && !RequestReasons.IsDestructive(row.Reason))
         {
             await MarkAvailableAsync(
                     group,
                     row,
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Already in the group, held by {string.Join(", ", holders)}. Nothing was downloaded."),
+                        $"Already in the group, held by {Names(holders)}. Nothing was downloaded."),
                     cancellationToken)
                 .ConfigureAwait(false);
             report.Deduped++;
@@ -729,6 +832,22 @@ public sealed class RequestWorker : BackgroundService
                 .ConfigureAwait(false);
             report.Failed++;
             return;
+        }
+
+        // A replace that the title's own quality profile forbids can never happen, and searching for
+        // it every few minutes for six hours before timing out tells nobody why. Checked here
+        // rather than inside the add, because an ArrApiException there means "try again shortly"
+        // and this is the opposite: it will still be true next time.
+        if (RequestReasons.Parse(row.Reason) == RequestReasons.BadCopy)
+        {
+            var blocked = await UpgradeBlockedAsync(client, row, isMovie, cancellationToken)
+                .ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                await FailAsync(group, row, blocked, cancellationToken).ConfigureAwait(false);
+                report.Failed++;
+                return;
+            }
         }
 
         try
@@ -765,6 +884,69 @@ public sealed class RequestWorker : BackgroundService
 
         report.Grabbed++;
         _logger.LogInformation("Grabbing {Title} for request {Id} on this node", row.Describe(), row.Id);
+    }
+
+    /// <summary>
+    /// Why replacing this title's file cannot work, or null when it can.
+    /// </summary>
+    /// <param name="client">The manager tracking it.</param>
+    /// <param name="row">The request.</param>
+    /// <param name="isMovie">Whether this is a film.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A sentence for the requester, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// Reads the profile assigned to <em>this title</em> rather than the node's current default.
+    /// A title added a year ago under a different profile keeps it, and checking the default would
+    /// answer a question nobody asked.
+    /// </para>
+    /// <para>
+    /// A title nothing tracks yet is not blocked: the add path takes it, and the manager adopts
+    /// whatever file is already on disk before deciding whether anything it finds beats it.
+    /// </para>
+    /// </remarks>
+    private static async Task<string?> UpgradeBlockedAsync(
+        ArrClient client,
+        RequestRow row,
+        bool isMovie,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var existing = isMovie
+                ? await client.FindMovieByTmdbAsync(row.ProviderId, cancellationToken).ConfigureAwait(false)
+                : await client.FindSeriesByTvdbAsync(row.ProviderId, cancellationToken).ConfigureAwait(false);
+            if (existing?["qualityProfileId"] is not JsonNode assigned)
+            {
+                return null;
+            }
+
+            var profileId = assigned.GetValue<int>();
+            var profiles = await client.QualityProfilesAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var profile in profiles)
+            {
+                if (profile["id"]?.GetValue<int>() != profileId)
+                {
+                    continue;
+                }
+
+                if (profile["upgradeAllowed"]?.GetValue<bool>() == false)
+                {
+                    return "The quality profile on this title does not allow upgrades, so nothing "
+                        + "better can replace it. Change the profile, then try again.";
+                }
+
+                return null;
+            }
+
+            return null;
+        }
+        catch (ArrApiException)
+        {
+            // Unreachable right now is not the same as forbidden. Let the ordinary add path run and
+            // fail or retry on its own terms.
+            return null;
+        }
     }
 
     private async Task AddMovieAsync(ArrClient client, RequestRow row, CancellationToken cancellationToken)
@@ -1126,7 +1308,11 @@ public sealed class RequestWorker : BackgroundService
 
     private async Task WatchAsync(string group, RequestPassReport report, CancellationToken cancellationToken)
     {
-        foreach (var row in _store.InState(RequestStates.Fulfilling))
+        // Wanted rows are watched alongside the ones being grabbed, and that is the entire manual
+        // fulfilment mechanism: nothing is downloading, but the administrator putting the file
+        // where the library can see it produces the same item key, and the same check below closes
+        // the request without anybody pressing anything.
+        foreach (var row in _store.InStates(RequestStates.Fulfilling, RequestStates.Wanted))
         {
             if (row.Group.Length > 0 && !string.Equals(row.Group, group, StringComparison.Ordinal))
             {
@@ -1137,14 +1323,20 @@ public sealed class RequestWorker : BackgroundService
             var holders = await HoldersAsync(row, cancellationToken).ConfigureAwait(false);
             if (holders.Count == 0)
             {
-                await NoteProgressAsync(row, cancellationToken).ConfigureAwait(false);
+                // Nothing is grabbing a wanted row, so there is no webhook tail to summarise and
+                // nothing to say beyond what it already says.
+                if (row.State == RequestStates.Fulfilling)
+                {
+                    await NoteProgressAsync(row, cancellationToken).ConfigureAwait(false);
+                }
+
                 continue;
             }
 
             await MarkAvailableAsync(
                     group,
                     row,
-                    string.Create(CultureInfo.InvariantCulture, $"In the library, held by {string.Join(", ", holders)}."),
+                    string.Create(CultureInfo.InvariantCulture, $"In the library, held by {Names(holders)}."),
                     cancellationToken)
                 .ConfigureAwait(false);
             report.Landed++;
@@ -1256,7 +1448,18 @@ public sealed class RequestWorker : BackgroundService
         base.Dispose();
     }
 
-    private async Task<List<string>> HoldersAsync(RequestRow row, CancellationToken cancellationToken)
+    /// <summary>A node that already holds what a request asked for.</summary>
+    /// <param name="Node">The node id, which is what routing compares.</param>
+    /// <param name="Name">Its display name, which is what a person reads.</param>
+    /// <remarks>
+    /// Both halves are needed and they are not interchangeable. Every sentence written onto a
+    /// request names the holder, and every decision about who may act on an existing copy compares
+    /// node ids. Collapsing to the display name, which is what this used to return, made the second
+    /// impossible: two nodes may be called the same thing, and a name is not an address.
+    /// </remarks>
+    private readonly record struct HolderInfo(string Node, string Name);
+
+    private async Task<List<HolderInfo>> HoldersAsync(RequestRow row, CancellationToken cancellationToken)
     {
         var isMovie = string.Equals(row.Kind, "movie", StringComparison.Ordinal);
         IReadOnlyList<SourceCandidate> candidates = isMovie
@@ -1267,12 +1470,41 @@ public sealed class RequestWorker : BackgroundService
         // counts. Otherwise a show whose season 1 the group already had would mark a request for
         // season 2 available the moment it was made.
         var wanted = row.Seasons;
-        return candidates
-            .Where(c => c.Online)
-            .Where(c => isMovie || wanted.Count == 0 || SeasonOf(c.ItemKey) is int s && wanted.Contains(s))
-            .Select(c => string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var holders = new List<HolderInfo>();
+        foreach (var c in candidates)
+        {
+            if (!c.Online)
+            {
+                continue;
+            }
+
+            if (!isMovie && wanted.Count > 0 && !(SeasonOf(c.ItemKey) is int s && wanted.Contains(s)))
+            {
+                continue;
+            }
+
+            if (seen.Add(c.Node))
+            {
+                holders.Add(new HolderInfo(c.Node, string.IsNullOrWhiteSpace(c.NodeName) ? c.Node : c.NodeName));
+            }
+        }
+
+        return holders;
+    }
+
+    /// <summary>The holders' display names, for a sentence on a request.</summary>
+    /// <param name="holders">The holders.</param>
+    /// <returns>A comma separated list.</returns>
+    private static string Names(IReadOnlyList<HolderInfo> holders)
+    {
+        var names = new string[holders.Count];
+        for (var i = 0; i < holders.Count; i++)
+        {
+            names[i] = holders[i].Name;
+        }
+
+        return string.Join(", ", names);
     }
 
     /// <summary>

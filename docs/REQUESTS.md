@@ -41,7 +41,9 @@ Settings → Plugins is gone.
                               │                              │
                               └──────────────────────────────┘  (retry)
 
-  (made, and the group already has it) ─────────────────► available
+  (made, no indexer anywhere) ──► wanted ──────────────► available
+                                    │                      ▲
+                                    └──► declined          │ (the library serves it)
 ```
 
 | State | Means |
@@ -49,11 +51,12 @@ Settings → Plugins is gone.
 | `pending` | Waiting for an administrator. The policy did not auto-approve it. |
 | `approved` | Allowed to cost the group a download. Waiting to be routed to a node that can. |
 | `fulfilling` | A node has claimed it and is grabbing it. |
+| `wanted` | On the administrator's list. Nobody can search, so nothing is grabbing it. |
 | `available` | It is in the group index. Either somebody grabbed it, or the group already had it. |
-| `declined` | An administrator said no. |
+| `declined` | An administrator said no, or dismissed it from the wanted list. |
 | `failed` | Nobody could fulfil it, or the node that tried gave up. |
 
-Two of these are worth a sentence each.
+Three of these are worth a sentence each.
 
 **`approved` is not "somebody pressed a button".** It is "this request is allowed to cost the group
 a download", which the policy may decide the instant the request is made. Under
@@ -65,6 +68,92 @@ grabbed it, or the group already had it and nothing was downloaded at all. Colla
 make the dedupe rule invisible, which is the same mistake `library_state` exists to avoid (see
 `ARCHITECTURE.md`, "Grab / add / request flow"). A user who presses Request, sees no download start
 and is told nothing reasonably concludes the button is broken.
+
+**`wanted` never fails on its own, and never crosses the wire.** It is where a request is born in a
+group with no indexer configured (§2a), and it waits indefinitely: the six-hour deadline and the
+"nobody can grab this" checks exist for a request somebody is actually trying to satisfy, and
+waiting a month for a disc to arrive is the feature working rather than a fault. It is also what
+makes this free on the mesh — `PublishApprovedAsync` gossips rows in `approved`, and
+`ClaimAndFulfilAsync` selects `approved or fulfilling`, so a state neither query names is never
+published and needs no protocol change to understand. Reusing `approved` with a flag would have
+been gossiped and then grabbed by whichever node next gained an indexer, which is the opposite of
+an administrator satisfying it by hand.
+
+### 2a. Manual mode: a group with no indexer
+
+**Automatic** if at least one member of the group has an indexer configured. **Manual** if none
+does, which is every node the first time it starts, because nothing ships configured.
+
+In manual mode nothing can search, so there is nothing for an approval to authorise: approving
+would permit a download that is never going to start. The approval system is therefore not shown at
+all. A request goes straight to `wanted`, the administrator sees a list of what people want, and
+the row closes itself when the library serves that title, however they got hold of it — a disc
+ripped, a file copied to the NAS, anything. `RequestWorker.WatchAsync` already polls the group
+index every ten seconds for rows it is grabbing; it polls `wanted` rows alongside them, and the
+item key a dropped file produces is the same one the request carries. **That is the whole
+mechanism. There is no upload endpoint, and there is deliberately not going to be one.**
+
+The signal is **configured, not capable** — `FulfilCapability.HasIndexers`, a new additive boolean
+on the fulfilment heartbeat, and not `CanFulfilMovies`/`CanFulfilTv`. Those two also go false when
+an indexer stops answering, an arr is restarting or a disk fills, none of which is a decision
+anybody made. Resting mode on them would mean a three minute outage silently took the approval
+policy away and let requests through unapproved. Offline peers count for the same reason: a closed
+laptop has not stopped having indexers. `GroupMode.IsAutomatic` is the whole rule, and it is pure.
+
+It is group-wide rather than per node, because a request spends the group's bandwidth and the
+group's disk — the same reason `RequestPolicy` is already per group. A laptop with no indexers in a
+household whose server has them does not get to skip the queue that governs them.
+
+Adding an indexer needs nothing: existing rows resume routing on the next pass. Removing the last
+one sweeps every **unclaimed** `pending` and `approved` row in that group to `wanted`. A
+`fulfilling` row is left alone, because somebody is already grabbing it, possibly on a node that
+still has its own indexers, and reaching into a claim in flight would be this node overruling the
+one doing the work.
+
+**Dismiss** is `POST /requests/{id}/decline` under a different label, reusing the same transition
+and the same notification. Manual mode never says "approval" anywhere, but a request nobody is ever
+going to satisfy has to be clearable or the one screen meant to say what to do next becomes a pile.
+Asking again afterwards reopens the row like any other finished request.
+
+### 2b. Asking for something the group already has
+
+This used to create a row that was silently already `available`, which told the person nothing and
+gave them no way to reach the copy they had just asked for. `POST /requests` now **creates nothing**
+and answers `409` with the holders and, when one resolved, a library item to play. If they still
+want it, they ask again carrying a `reason`:
+
+| Reason | Means | Destructive |
+|---|---|---|
+| `missing_episode` | The group has the series but not the seasons wanted. | No |
+| `better_quality` | A better release is wanted, keeping the existing one as another version. | Yes |
+| `bad_copy` | The existing copy is bad and should be replaced outright. | Yes |
+
+A **destructive** request always waits for an administrator, whatever the policy says and including
+an administrator's own. Replacing a file somebody already has is not the same act as fetching one
+they lack: a "better" release is not always better, and the disk belongs to whoever runs the node.
+An administrator approves their own in one click; the point is that the trail records a deliberate
+yes rather than a policy that happened to be permissive.
+
+Acting on one narrows who may do it, through `RequestRouter.ApplyHolderConstraint`, before routing
+runs. `bad_copy` keeps only candidates that **are** holders — a replace has to happen where the file
+is. `better_quality` keeps only those that are **not**, because a download manager tracks one file
+per title and would upgrade over the first rather than sit beside it; the second copy therefore has
+to land on another node, where the existing multi-version materialisation (`VersionMerger`,
+`FederatedLayout.IsEligibleForMultiVersion`) presents both as one title. A standalone node can never
+satisfy `better_quality` and says so immediately rather than timing out after six hours.
+
+**Nothing reaches across to another node's disk, and no message was added to let it.** Every member
+runs the same pass over the same gossiped request and decides for itself whether to claim, so a node
+only passes the filter when it is itself a holder, or itself not one — whichever ends up claiming
+has decided about files it owns. One asymmetry is accepted rather than solved: approval happens on
+the request's origin node, which is not necessarily the node whose disk is affected. That was
+already true for ordinary requests.
+
+`RequestPolicy.MinimumHeight` interacts here and the result is right. A copy below the floor is
+already filtered out of the holder list, so a genuinely low-resolution copy never reaches this
+question and is simply grabbed afresh. The two acting reasons therefore only ever describe a quality
+problem the height check structurally cannot see: the wrong audio or language, a bad encode, the
+wrong cut, HDR against SDR at equal resolution.
 
 ### Asking for the same thing twice
 
@@ -372,13 +461,13 @@ see `APP-MESH.md` §6).
 | Method | Path | Elevation | What |
 |---|---|---|---|
 | `GET` | `/requests?mine=&state=` | member | Requests. A non-administrator always gets only their own, whatever they pass. |
-| `POST` | `/requests` | member | Ask for something. Reuses the row for a title already asked for, whatever state it reached (§2). 400 with neither id; 429 over quota. |
+| `POST` | `/requests` | member | Ask for something. Reuses the row for a title already asked for, whatever state it reached (§2). 400 with neither id; 429 over quota; **409 when the group already holds it and no `reason` was given** (§2b), carrying the holders and a `playableItemId`. |
 | `GET` | `/requests/{id}` | member (own) / admin | One request with its event trail. |
 | `DELETE` | `/requests/{id}` | member (own) / admin | Withdraw, and stop the download: unfinished data is deleted, finished data is kept (§2.1). |
-| `POST` | `/requests/{id}/approve` | **admin** | Approve. |
-| `POST` | `/requests/{id}/decline` | **admin** | Decline, with an optional reason shown to the requester. |
+| `POST` | `/requests/{id}/approve` | **admin** | Approve. 409 unless the request is `pending`. |
+| `POST` | `/requests/{id}/decline` | **admin** | Decline, with an optional reason shown to the requester. Also serves Dismiss, so it takes `wanted` as well as `pending`; 409 otherwise. |
 | `POST` | `/requests/{id}/retry` | **admin** | Put a failed request back in the queue. |
-| `GET` | `/requests/counts` | member | Badge counts for the navigation bar. |
+| `GET` | `/requests/counts` | member | Badge counts for the navigation bar, plus `wanted` and `requestsMode` (§2a). The one member-readable answer for which shape of request UI to draw: `/status/indexers` is administrator-only and cannot serve a member. |
 | `GET` | `/requests/search?q=&kind=` | member | TMDB/TVDB lookup through the node's arrs, annotated with the group's holdings. |
 | `GET` | `/requests/discover?kind=&sort=&order=&genres=&year=&page=` | member | The catalogue: what is popular now, or the best ever made, annotated the same way. |
 | `GET` | `/requests/policy?group=` | member | The group's policy. Readable by everyone — it changes what the Request button should say. |

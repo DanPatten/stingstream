@@ -149,11 +149,16 @@ public interface IRequestMesh
     /// <summary>Tell the mesh what this node could grab, so the group can volunteer it.</summary>
     /// <param name="canFulfilMovies">Whether Radarr, a movie indexer, a root folder and room are all present.</param>
     /// <param name="canFulfilTv">The same for Sonarr.</param>
+    /// <param name="hasIndexers">
+    /// Whether any indexer is configured, enabled or not. Deliberately a different question from
+    /// the two flags above, which also go false during an outage. See <see cref="GroupMode"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when the mesh accepted it.</returns>
     Task<bool> PublishFulfilmentAsync(
         bool canFulfilMovies,
         bool canFulfilTv,
+        bool hasIndexers,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -296,6 +301,7 @@ public sealed class RequestMesh : IRequestMesh
     public async Task<bool> PublishFulfilmentAsync(
         bool canFulfilMovies,
         bool canFulfilTv,
+        bool hasIndexers,
         CancellationToken cancellationToken)
     {
         var http = Client();
@@ -309,7 +315,12 @@ public sealed class RequestMesh : IRequestMesh
             using var response = await http
                 .PutAsJsonAsync(
                     "/mesh/v1/fulfilment",
-                    new { can_fulfil_movies = canFulfilMovies, can_fulfil_tv = canFulfilTv },
+                    new
+                    {
+                        can_fulfil_movies = canFulfilMovies,
+                        can_fulfil_tv = canFulfilTv,
+                        has_indexers = hasIndexers,
+                    },
                     MeshJson.Options,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -346,6 +357,7 @@ public sealed class RequestMesh : IRequestMesh
                 CanFulfilMovies = row.CanFulfilMovies,
                 CanFulfilTv = row.CanFulfilTv,
                 FreeSpace = row.FreeSpace ?? 0,
+                HasIndexers = row.HasIndexers,
             });
         }
 
@@ -373,6 +385,13 @@ public sealed class RequestMesh : IRequestMesh
         public bool CanFulfilTv { get; set; }
 
         public long? FreeSpace { get; set; }
+
+        /// <summary>
+        /// Whether the peer has any indexer configured. False for a peer running a build from
+        /// before this existed, which is the safe way round: it can only put the group into manual
+        /// mode, where nothing is auto-approved.
+        /// </summary>
+        public bool HasIndexers { get; set; }
     }
 
     private HttpClient? Client()
