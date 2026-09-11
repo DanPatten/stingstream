@@ -4,13 +4,18 @@ import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/common/Input";
+import { Pill } from "@/components/common/Pill";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { Pill } from "@/components/common/Pill";
 import { radius, space } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  useDownloading,
+  useDownloadingHealth,
+  useSaveDownloading,
+} from "@/lib/stingstream/downloading";
 import {
   type ConnectivityTestResult,
   type DownloadClientSettings,
@@ -20,11 +25,6 @@ import {
   useExternalDownloadClients,
   useTestExternalDownloadClient,
 } from "@/lib/stingstream/hooks";
-import {
-  useDownloading,
-  useDownloadingHealth,
-  useSaveDownloading,
-} from "@/lib/stingstream/downloading";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";

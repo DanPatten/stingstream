@@ -4,7 +4,8 @@ import { sizedPosterUrl } from "./posterSize";
 // Pure string work, no react-native import anywhere in the chain, so unlike
 // `cardLayout.test.ts` this needs no stub.
 
-const TMDB = "https://image.tmdb.org/t/p/original/ej5C3rQSNXTU3khw5kCugnoA6OZ.jpg";
+const TMDB =
+  "https://image.tmdb.org/t/p/original/ej5C3rQSNXTU3khw5kCugnoA6OZ.jpg";
 const TVDB_FLAT = "https://artworks.thetvdb.com/banners/posters/72955-1.jpg";
 const TVDB_NESTED =
   "https://artworks.thetvdb.com/banners/series/387648/posters/5f59835ecdc21.jpg";
@@ -131,7 +132,9 @@ describe("sizedPosterUrl: everything it must not touch", () => {
   });
 
   test("a relative path passes through", () => {
-    expect(sizedPosterUrl("/local/poster.jpg", 56, 3)).toBe("/local/poster.jpg");
+    expect(sizedPosterUrl("/local/poster.jpg", 56, 3)).toBe(
+      "/local/poster.jpg",
+    );
   });
 
   test("an unknown provider passes through", () => {

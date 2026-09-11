@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { getLibraryApi } from "@jellyfin/sdk/lib/utils/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
@@ -147,7 +147,9 @@ function LibraryRow({ library }: { library: Library }) {
     try {
       await save.mutateAsync({ id: library.id, update: { enabled } });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("libraries.save_error"));
+      toast.error(
+        err instanceof Error ? err.message : t("libraries.save_error"),
+      );
     }
   };
 

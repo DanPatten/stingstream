@@ -84,6 +84,8 @@
     "transfers.restart_count_other",
     "transfers.torrent_engine_running_one",
     "transfers.torrent_engine_running_other",
+    "requests.season_count_one",
+    "requests.season_count_other",
     "users.library_count_one",
     "users.library_count_other"
   ]

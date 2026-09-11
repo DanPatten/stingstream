@@ -143,7 +143,9 @@ function withTvdbVariant(parsed: URL, target: number): string {
 
   const [, stem, , extension] = match;
   parsed.pathname =
-    target <= TVDB_THUMB_WIDTH ? `${stem}_t${extension}` : `${stem}${extension}`;
+    target <= TVDB_THUMB_WIDTH
+      ? `${stem}_t${extension}`
+      : `${stem}${extension}`;
   return parsed.toString();
 }
 

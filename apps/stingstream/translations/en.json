@@ -1385,7 +1385,6 @@
   },
   "shell": {
     "account": "Account",
-    "sign_out": "Sign out",
     "more_browse": "Browse",
     "more_admin": "Administration",
     "more_app": "App",
@@ -1715,6 +1714,7 @@
     "toast_available": "{{title}} is already in your library",
     "toast_pending": "Requested {{title}}. Waiting for approval.",
     "toast_requested": "Requested {{title}}",
+    "season_count": "{{count}} seasons",
     "season_count_one": "{{count}} season",
     "season_count_other": "{{count}} seasons",
     "season_n": "Season {{n}}",
@@ -2089,12 +2089,6 @@
     "quality_profiles_upgrades_on": "upgrades on",
     "remove_completed_title": "Remove completed downloads",
     "remove_failed_title": "Remove failed downloads",
-    "root_folders_movies_detail": "Empty uses the default, media/Movies",
-    "root_folders_movies_title": "Movies",
-    "root_folders_save_success": "Root folders saved",
-    "root_folders_title": "Root folders",
-    "root_folders_tv_detail": "Empty uses the default, media/TV",
-    "root_folders_tv_title": "TV",
     "saving_status": "Saving",
     "save_error": "Could not save",
     "sync_all_synced": "Everything is in sync.",
@@ -2334,7 +2328,6 @@
     "manual_tls_folder": "the tls folder in this server's data directory"
   },
   "libraries": {
-    "title": "Libraries",
     "folder_title": "Folder",
     "folder_detail": "Leave empty to use the default folder.",
     "off_detail": "Your files are kept. Turn it back on to see them again.",

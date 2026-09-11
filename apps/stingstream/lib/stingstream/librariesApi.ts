@@ -83,7 +83,10 @@ const authHeaders = (token?: string | null): Record<string, string> =>
  * and `requestsApi.ts` deal with the same split the same way: the casing is a property of whose
  * serializer ran, not of the contract.
  */
-const field = <T>(raw: Record<string, unknown>, name: string): T | undefined => {
+const field = <T>(
+  raw: Record<string, unknown>,
+  name: string,
+): T | undefined => {
   const upper = `${name[0].toUpperCase()}${name.slice(1)}`;
   return (raw[name] ?? raw[upper]) as T | undefined;
 };
@@ -128,7 +131,8 @@ async function readError(res: Response, what: string): Promise<Error> {
   }
   const problem = toProblem(body);
   if (problem) return new LibraryPathError(problem);
-  const detail = (body as { error?: string; title?: string } | undefined)?.error;
+  const detail = (body as { error?: string; title?: string } | undefined)
+    ?.error;
   return new Error(detail || `${what} failed (${res.status})`);
 }
 
