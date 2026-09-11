@@ -57,7 +57,7 @@ dead directories under `.local\ui-loop\` are what it exists to stop.
 
 | | URL | `-DataDir` | `-PrivateCopy` | `-WebDist` |
 |---|---|---|---|---|
-| **node 1** | `http://127.0.0.1:8801` | `.local\e2e-A\data` | `.local\e2e-A\bin` | `.local\ui-loop\web-dist` |
+| **node 1** | `http://127.0.0.1:5173` | `.local\e2e-A\data` | `.local\e2e-A\bin` | `.local\ui-loop\web-dist` |
 | **node 2** | `http://127.0.0.1:8802` | `.local\e2e-B\data` | `.local\e2e-B\bin` | `.local\ui-loop\web-dist` |
 
 Node 1 for ordinary work; node 2 as well when the change needs a second party — sharing, invites,
@@ -90,7 +90,7 @@ Before touching anything, see what is actually up:
 Get-CimInstance Win32_Process | Where-Object Name -eq 'stingstream.exe' | ForEach-Object { $_.CommandLine }
 ```
 
-Expect exactly two lines, `--port 8801` and `--port 8802`. A third is a violation of the pinned-pair
+Expect exactly two lines, `--port 5173` and `--port 8802`. A third is a violation of the pinned-pair
 rule rather than a colleague's work — stop it by its own `--data-dir` and say so. The exception is a
 `tools/e2e-*.ps1` run in progress under `.local\e2e\`: those build their own throwaway nodes and stop
 them in their `finally`, so leave a live harness alone and let it clean up.
@@ -118,7 +118,7 @@ bunx expo start --web --port 8081      # never `bun run start` — it runs git s
 ```
 
 ```powershell
-powershell tools\ui-node.ps1 -DataDir E:\Dan\Documents\Repos\StingStream\.local\e2e-A\data -Port 8801 -DevServer http://127.0.0.1:8081
+powershell tools\ui-node.ps1 -DataDir E:\Dan\Documents\Repos\StingStream\.local\e2e-A\data -Port 5173 -DevServer http://127.0.0.1:8081
 ```
 
 Then open the **node's** URL, never Metro's on `:8081` — Jellyfin's `CorsHosts` is deliberately
@@ -153,7 +153,7 @@ powershell tools\ui-node.ps1 `
   -DataDir     E:\Dan\Documents\Repos\StingStream\.local\e2e-A\data `
   -PrivateCopy E:\Dan\Documents\Repos\StingStream\.local\e2e-A\bin `
   -WebDist     E:\Dan\Documents\Repos\StingStream\.local\ui-loop\web-dist `
-  -Port 8801 -ForceCopy
+  -Port 5173 -ForceCopy
 ```
 
 `cargo build` itself is safe while a node runs — the node runs from the private copy, not from
@@ -171,7 +171,7 @@ powershell tools\ui-node.ps1 `
   -DataDir     E:\Dan\Documents\Repos\StingStream\.local\e2e-A\data `
   -PrivateCopy E:\Dan\Documents\Repos\StingStream\.local\e2e-A\bin `
   -WebDist     E:\Dan\Documents\Repos\StingStream\.local\ui-loop\web-dist `
-  -Port 8801 -ForceCopy
+  -Port 5173 -ForceCopy
 ```
 
 ### config.toml — restart, no rebuild
@@ -186,7 +186,7 @@ powershell tools\ui-node.ps1 `
   -DataDir     E:\Dan\Documents\Repos\StingStream\.local\e2e-A\data `
   -PrivateCopy E:\Dan\Documents\Repos\StingStream\.local\e2e-A\bin `
   -WebDist     E:\Dan\Documents\Repos\StingStream\.local\ui-loop\web-dist `
-  -Port 8801 -Fresh
+  -Port 5173 -Fresh
 ```
 
 `-Fresh` stops anything running against that data dir and wipes it, so the next start is a genuine
@@ -221,7 +221,7 @@ starts** — not a new instance built from scratch.
 **`-WebDist` is shared on purpose.** Both nodes serve `.local\ui-loop\web-dist`, so one
 `bunx expo export` into it reloads both with no restart. Do not split it.
 
-Ports: 8801 and 8802 are the only ones to pick, and the only ones that may be passed. Every child
+Ports: 5173 and 8802 are the only ones to pick, and the only ones that may be passed. Every child
 takes an ephemeral port recorded in `<DataDir>\runtime.json`, so the two nodes collide on nothing
 else.
 

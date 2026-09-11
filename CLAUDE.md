@@ -91,7 +91,7 @@ between sessions, and everything is done on them:
 
 | | URL | `-DataDir` | `-PrivateCopy` | `-WebDist` |
 |---|---|---|---|---|
-| **node 1** | `http://127.0.0.1:8801` | `.local\e2e-A\data` | `.local\e2e-A\bin` | `.local\ui-loop\web-dist` |
+| **node 1** | `http://127.0.0.1:5173` | `.local\e2e-A\data` | `.local\e2e-A\bin` | `.local\ui-loop\web-dist` |
 | **node 2** | `http://127.0.0.1:8802` | `.local\e2e-B\data` | `.local\e2e-B\bin` | `.local\ui-loop\web-dist` |
 
 Paths are shown relative to the repository root; pass them **absolute**
@@ -100,7 +100,7 @@ shell's current directory and a `-Stop` that misses prints "stopped" having stop
 nodes share one `-WebDist`, so a single `bunx expo export --platform web --output-dir
 .local\ui-loop\web-dist` refreshes both.
 
-- **8801 and 8802 are the only gateway ports.** One node's worth of work goes to node 1; anything
+- **5173 and 8802 are the only gateway ports.** One node's worth of work goes to node 1; anything
   needing a second party — sharing, invites, federation, watch-together — uses node 2 as well.
   Nothing needs a third.
 - **Always pass `-Port` and `-DataDir` explicitly.** `tools/ui-node.ps1` still defaults to
@@ -114,7 +114,7 @@ nodes share one `-WebDist`, so a single `bunx expo export --platform web --outpu
   `-KeepRunning` is what leaks a node, so **do not pass it**; if you already have, stop the nodes by
   their data directories before moving on.
 - **A third node is a rule violation, not a colleague's work.** Before starting or stopping anything,
-  list what is up; if anything other than 8801 and 8802 is running, stop it by its `-DataDir` and say
+  list what is up; if anything other than 5173 and 8802 is running, stop it by its `-DataDir` and say
   so:
 
 ```powershell

@@ -1017,7 +1017,7 @@ Invoke-Step 'The node answers "who is JellyfinServer?" with its own address' {
     # 127.0.0.1:7359 is delivered to one socket, and which one is the OS's choice -- so on a
     # developer's machine this run's node may never see the question, while node 1 answers
     # promptly with its own address. Taking the first datagram made that look like this node
-    # advertising port 8801.
+    # advertising port 5173.
     #
     # So: collect every answer until the deadline, and assert only when one of them is ours. When
     # somebody else answered and we did not, the property is not observable here rather than

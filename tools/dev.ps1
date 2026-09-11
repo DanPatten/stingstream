@@ -74,7 +74,7 @@ if (-not (Test-Path (Join-Path $Repo 'docs/ARCHITECTURE.md'))) {
 # refreshes both.
 $WebDist = Join-Path $Repo '.local\ui-loop\web-dist'
 $Nodes = @(
-    [pscustomobject]@{ Id = '1'; Port = 8801; DataDir = (Join-Path $Repo '.local\e2e-A\data'); PrivateCopy = (Join-Path $Repo '.local\e2e-A\bin') },
+    [pscustomobject]@{ Id = '1'; Port = 5173; DataDir = (Join-Path $Repo '.local\e2e-A\data'); PrivateCopy = (Join-Path $Repo '.local\e2e-A\bin') },
     [pscustomobject]@{ Id = '2'; Port = 8802; DataDir = (Join-Path $Repo '.local\e2e-B\data'); PrivateCopy = (Join-Path $Repo '.local\e2e-B\bin') }
 )
 $Selected = if ($Node -eq 'both') { $Nodes } else { $Nodes | Where-Object Id -eq $Node }
@@ -285,10 +285,10 @@ $running = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
 foreach ($cl in $running) {
     if ($cl -match '--port\s+(\d+)') { Write-Host ("  port {0} up" -f $Matches[1]) -ForegroundColor DarkGray }
 }
-# A node that is neither 8801 nor 8802 is a rule violation rather than a colleague's work, but a
+# A node that is neither 5173 nor 8802 is a rule violation rather than a colleague's work, but a
 # tools/e2e-*.ps1 run in progress builds its own under .local\e2e\ and stops them itself.
 foreach ($cl in $running) {
-    if ($cl -notmatch '--port\s+880[12]\b' -and $cl -notmatch [regex]::Escape('\.local\e2e\')) {
+    if ($cl -notmatch '--port\s+(5173|8802)\b' -and $cl -notmatch [regex]::Escape('\.local\e2e\')) {
         Write-Host '  a node that is not one of the pinned pair is running:' -ForegroundColor Red
         Write-Host "    $cl" -ForegroundColor Red
         Write-Host '  stop it by its own --data-dir. See CLAUDE.md, "Two nodes, pinned. Never a third."' -ForegroundColor Red
