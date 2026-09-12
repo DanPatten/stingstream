@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using MediaBrowser.Model.Entities;
 using StingStream.Core.Configuration;
@@ -34,6 +35,18 @@ public class LibraryLayoutPlanTests
         Federated = FederatedRoot,
     };
 
+    /// <summary>A folder inside the federated tree, joined the way the plan itself joins it.</summary>
+    /// <param name="leaf">The sub-folder.</param>
+    /// <returns>The path.</returns>
+    /// <remarks>
+    /// Not a literal. <see cref="LibraryLayoutPlan"/> joins with <see cref="Path.Combine(string, string)"/>,
+    /// which picks the separator of the platform it is running on, and these tests run on both: CI is
+    /// Linux, where joining a Windows-shaped root gives <c>D:\data\federated/movies</c>. A hard-coded
+    /// backslash was the worst of the two ways round to get this wrong, passing on the machine the
+    /// test was written on and failing only once it reached CI.
+    /// </remarks>
+    private static string Federated(string leaf) => Path.Combine(FederatedRoot, leaf);
+
     private static SharedSettings Migrated()
     {
         var settings = new SharedSettings();
@@ -49,7 +62,7 @@ public class LibraryLayoutPlanTests
         var movies = plan.Single(p => p.Name == LibraryLayoutService.MoviesLibrary);
         Assert.Equal(CollectionTypeOptions.movies, movies.Type);
         Assert.Equal(
-            new[] { @"D:\data\media\Movies", @"D:\data\federated\movies" },
+            new[] { @"D:\data\media\Movies", Federated("movies") },
             movies.Paths);
         Assert.True(movies.Unified);
     }
@@ -105,7 +118,7 @@ public class LibraryLayoutPlanTests
         var plan = LibraryLayoutPlan.Plan(new SharedSettings(), Runtime, FederatedRoot);
 
         var recordings = plan.Single(p => p.Name == LibraryLayoutService.RecordingsLibrary);
-        Assert.Equal(new[] { @"D:\data\federated\recordings" }, recordings.Paths);
+        Assert.Equal(new[] { Federated("recordings") }, recordings.Paths);
         Assert.False(recordings.Unified);
     }
 
@@ -154,7 +167,7 @@ public class LibraryLayoutPlanTests
         var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);
 
         var host = plan.Single(p => p.Name == "Films on the NAS");
-        Assert.Contains(@"D:\data\federated\movies", host.Paths);
+        Assert.Contains(Federated("movies"), host.Paths);
     }
 
     [Fact]
@@ -167,7 +180,7 @@ public class LibraryLayoutPlanTests
 
         var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);
 
-        Assert.Contains(@"D:\data\federated\movies", plan.Single(p => p.Name == LibraryLayoutService.MoviesLibrary).Paths);
+        Assert.Contains(Federated("movies"), plan.Single(p => p.Name == LibraryLayoutService.MoviesLibrary).Paths);
     }
 
     [Fact]

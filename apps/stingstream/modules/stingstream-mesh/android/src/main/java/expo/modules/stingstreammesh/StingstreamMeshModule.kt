@@ -315,7 +315,7 @@ class StingstreamMeshModule : Module() {
   /**
    * Fill in what only Android can know, without overwriting anything the caller set.
    *
-   * The node name is what other members see in the Group screen, so a device that has not been
+   * The server name is what other members see in the Group screen, so a device that has not been
    * named should show up as its model rather than as `localhost`.
    */
   private fun withDefaults(configJson: String?): String {
@@ -324,14 +324,14 @@ class StingstreamMeshModule : Module() {
     } catch (e: Throwable) {
       throw MeshFailedException("the mesh configuration is not valid JSON", e)
     }
-    if (!json.has("nodeName") && !json.has("node_name")) {
-      json.put("nodeName", defaultNodeName())
+    if (!json.has("serverName") && !json.has("server_name")) {
+      json.put("serverName", defaultServerName())
     }
     if (!json.has("light")) json.put("light", true)
     return json.toString()
   }
 
-  private fun defaultNodeName(): String {
+  private fun defaultServerName(): String {
     val model = Build.MODEL?.trim().orEmpty()
     val manufacturer = Build.MANUFACTURER?.trim().orEmpty()
     val name = when {
@@ -368,7 +368,7 @@ class StingstreamMeshModule : Module() {
   private fun statusMap(s: MeshStatus): Map<String, Any?> = mapOf(
     "available" to true,
     "nodeId" to s.nodeId,
-    "nodeName" to s.nodeName,
+    "serverName" to s.serverName,
     "version" to s.version,
     "localPort" to s.localPort.toInt(),
     "light" to s.light,
@@ -392,7 +392,7 @@ class StingstreamMeshModule : Module() {
   private fun peerMap(p: PeerInfo): Map<String, Any?> = mapOf(
     "group" to p.group,
     "node" to p.node,
-    "nodeName" to p.nodeName,
+    "serverName" to p.serverName,
     "online" to p.online,
     "isSelf" to p.isSelf,
     "path" to p.path,
@@ -410,7 +410,7 @@ class StingstreamMeshModule : Module() {
   private fun peerEventMap(e: PeerEvent): Map<String, Any?> = mapOf(
     "group" to e.group,
     "node" to e.node,
-    "nodeName" to e.nodeName,
+    "serverName" to e.serverName,
     "path" to e.path,
     "rttMs" to e.rttMs?.toDouble(),
   )

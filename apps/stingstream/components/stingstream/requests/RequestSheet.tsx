@@ -119,6 +119,11 @@ export function RequestSheet({
     holders: string[];
     playableItemId?: string;
   } | null>(null);
+  // `hovered` is absent from `PressableStateCallbackType` in these typings even though
+  // react-native-web passes it, so the hover state is held here instead -- same as `Button` and
+  // `PreviousServersList`. Reading it off the style callback's argument typechecks against the
+  // typings on one machine and not the other, which is how it reached CI unnoticed.
+  const [ratingHovered, setRatingHovered] = useState(false);
   const create = useCreateRequest();
   const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
@@ -432,12 +437,14 @@ export function RequestSheet({
                   accessibilityRole='link'
                   accessibilityLabel={`${shown.rating.toFixed(1)} out of 10 on IMDb`}
                   onPress={() => void Linking.openURL(imdbUrl(shown))}
-                  style={({ hovered }: { hovered?: boolean }) => [
+                  onHoverIn={() => setRatingHovered(true)}
+                  onHoverOut={() => setRatingHovered(false)}
+                  style={[
                     {
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 5,
-                      opacity: hovered ? 0.7 : 1,
+                      opacity: ratingHovered ? 0.7 : 1,
                     },
                     isWeb ? ({ cursor: "pointer" } as ViewStyle) : null,
                   ]}

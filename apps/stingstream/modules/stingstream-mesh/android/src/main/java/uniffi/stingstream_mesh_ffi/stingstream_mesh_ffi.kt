@@ -2336,7 +2336,7 @@ public object FfiConverterTypeJoinResult: FfiConverterRustBuffer<JoinResult> {
 data class MeshStatus (
     var `nodeId`: kotlin.String
     , 
-    var `nodeName`: kotlin.String
+    var `serverName`: kotlin.String
     , 
     var `version`: kotlin.String
     , 
@@ -2407,7 +2407,7 @@ public object FfiConverterTypeMeshStatus: FfiConverterRustBuffer<MeshStatus> {
 
     override fun allocationSize(value: MeshStatus) = (
             FfiConverterString.allocationSize(value.`nodeId`) +
-            FfiConverterString.allocationSize(value.`nodeName`) +
+            FfiConverterString.allocationSize(value.`serverName`) +
             FfiConverterString.allocationSize(value.`version`) +
             FfiConverterUShort.allocationSize(value.`localPort`) +
             FfiConverterBoolean.allocationSize(value.`light`) +
@@ -2422,7 +2422,7 @@ public object FfiConverterTypeMeshStatus: FfiConverterRustBuffer<MeshStatus> {
 
     override fun write(value: MeshStatus, buf: ByteBuffer) {
             FfiConverterString.write(value.`nodeId`, buf)
-            FfiConverterString.write(value.`nodeName`, buf)
+            FfiConverterString.write(value.`serverName`, buf)
             FfiConverterString.write(value.`version`, buf)
             FfiConverterUShort.write(value.`localPort`, buf)
             FfiConverterBoolean.write(value.`light`, buf)
@@ -2446,7 +2446,7 @@ data class PeerEvent (
     , 
     var `node`: kotlin.String
     , 
-    var `nodeName`: kotlin.String
+    var `serverName`: kotlin.String
     , 
     /**
      * `direct`, `relay`, `mixed`, or absent when no connection has been observed yet.
@@ -2481,7 +2481,7 @@ public object FfiConverterTypePeerEvent: FfiConverterRustBuffer<PeerEvent> {
     override fun allocationSize(value: PeerEvent) = (
             FfiConverterString.allocationSize(value.`group`) +
             FfiConverterString.allocationSize(value.`node`) +
-            FfiConverterString.allocationSize(value.`nodeName`) +
+            FfiConverterString.allocationSize(value.`serverName`) +
             FfiConverterOptionalString.allocationSize(value.`path`) +
             FfiConverterOptionalULong.allocationSize(value.`rttMs`)
     )
@@ -2489,7 +2489,7 @@ public object FfiConverterTypePeerEvent: FfiConverterRustBuffer<PeerEvent> {
     override fun write(value: PeerEvent, buf: ByteBuffer) {
             FfiConverterString.write(value.`group`, buf)
             FfiConverterString.write(value.`node`, buf)
-            FfiConverterString.write(value.`nodeName`, buf)
+            FfiConverterString.write(value.`serverName`, buf)
             FfiConverterOptionalString.write(value.`path`, buf)
             FfiConverterOptionalULong.write(value.`rttMs`, buf)
     }
@@ -2508,7 +2508,7 @@ data class PeerInfo (
      */
     var `node`: kotlin.String
     , 
-    var `nodeName`: kotlin.String
+    var `serverName`: kotlin.String
     , 
     var `online`: kotlin.Boolean
     , 
@@ -2555,7 +2555,7 @@ public object FfiConverterTypePeerInfo: FfiConverterRustBuffer<PeerInfo> {
     override fun allocationSize(value: PeerInfo) = (
             FfiConverterString.allocationSize(value.`group`) +
             FfiConverterString.allocationSize(value.`node`) +
-            FfiConverterString.allocationSize(value.`nodeName`) +
+            FfiConverterString.allocationSize(value.`serverName`) +
             FfiConverterBoolean.allocationSize(value.`online`) +
             FfiConverterBoolean.allocationSize(value.`isSelf`) +
             FfiConverterOptionalString.allocationSize(value.`path`) +
@@ -2566,7 +2566,7 @@ public object FfiConverterTypePeerInfo: FfiConverterRustBuffer<PeerInfo> {
     override fun write(value: PeerInfo, buf: ByteBuffer) {
             FfiConverterString.write(value.`group`, buf)
             FfiConverterString.write(value.`node`, buf)
-            FfiConverterString.write(value.`nodeName`, buf)
+            FfiConverterString.write(value.`serverName`, buf)
             FfiConverterBoolean.write(value.`online`, buf)
             FfiConverterBoolean.write(value.`isSelf`, buf)
             FfiConverterOptionalString.write(value.`path`, buf)
