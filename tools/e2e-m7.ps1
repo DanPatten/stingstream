@@ -702,6 +702,8 @@ Invoke-Step 'A creates a group; C joins through the API' {
     # Sharing is per link and closed by default -- a link publishes nothing until its owner chooses
     # (StingStream.Core/Sharing/). Everything is shared here: this harness is about watching
     # together and about recordings federating, not about scoping.
+    #
+    # A and C only, because B has no link yet: it joins in the step below and opens its own there.
     foreach ($node in @($NodeA, $NodeC)) {
         [void](Share-AllLibraries -Node $node -Group $script:GroupId)
     }
@@ -756,6 +758,16 @@ Invoke-Step 'B joins from STINGSTREAM_JOIN_CODE, with nobody at the keyboard' {
     if ($via -eq 'none') {
         throw 'B joined locally but reached nobody; the storage-node profile would share nothing.'
     }
+
+    # B's own link, opened here rather than in the step above, because B had not joined yet when
+    # that one ran. Without it B publishes `0 of 2 inventory record(s) ... from 0 shared
+    # library(s)` -- which is the product behaving correctly and the harness forgetting to make
+    # the choice a person would. Worse than silence: a snapshot *replaces* this node's rows on
+    # every peer, so B's empty one retracted the film and the recording from A's index as fast as
+    # it could publish them.
+    $shared = @(Share-AllLibraries -Node $NodeB -Group $script:GroupId)
+    if ($shared.Count -eq 0) { throw 'B has no library to share into the group.' }
+    Write-Host "      B shares $($shared.Count) librar(y/ies) into the group"
 }
 
 # ============================================================================================
