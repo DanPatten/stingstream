@@ -159,16 +159,16 @@ public static class ArrEnablement
                         wanted ? "enabled" : "none for this kind");
                 }
             }
-            // `InvalidOperationException` is `DownloadingSwitch` refusing to invent a line it cannot
-            // see, which is the right answer for a file it is only allowed to change one word of.
-            // It must not reach the caller, though: this runs from a background pass and from
-            // saving a library, and neither is a place to report that somebody's config.toml is
-            // shaped unusually. A node whose file the supervisor wrote always has the line, so what
-            // survives here is a hand-trimmed file, and the honest outcome for one of those is that
-            // the manager keeps running and the log says why.
             catch (Exception ex)
                 when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
+                // `InvalidOperationException` is `DownloadingSwitch` refusing to invent a line it
+                // cannot see, which is the right answer for a file it may only change one word of.
+                // It must not reach the caller, though: this runs from a background pass and from
+                // saving a library, and neither is a place to report that somebody's config.toml is
+                // shaped unusually. A node whose file the supervisor wrote always has the line, so
+                // what survives here is a hand-trimmed one, and the honest outcome for that is a
+                // manager that keeps running and a log line saying why.
                 logger.LogWarning(ex, "Could not switch {Child} in config.toml", child);
             }
         }

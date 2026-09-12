@@ -320,13 +320,13 @@ public sealed class FederatedSourceService
     /// </summary>
     /// <param name="movieKeys">Exact item keys, e.g. <c>movie:tmdb:603</c>.</param>
     /// <param name="seriesPrefixes">Series prefixes, e.g. <c>episode:tvdb:73739:</c>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="nodeId">This node's id, or empty where the caller does not compare ids.</param>
     /// <param name="serverName">
     /// This node's display name, carried on its own rows so a title held here is named rather than
     /// blank. Not optional: the caller has it, and defaulting it produced a holder list with an
     /// empty string in it -- "In library", held by nobody.
     /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// One entry per key or prefix that matched something, keyed by the string that was passed in.
     /// A key that matched nothing is absent rather than present and empty.
