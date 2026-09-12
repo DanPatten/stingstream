@@ -87,7 +87,6 @@ const isWeb = Platform.OS === "web";
 export function RequestSheet({
   result,
   existing = null,
-  heldHint = null,
   onClose,
 }: {
   result: RequestSearchResult | null;
@@ -99,13 +98,6 @@ export function RequestSheet({
    * a Withdraw action appears beside Cancel.
    */
   existing?: MemberRequest | null;
-  /**
-   * What the node said when it refused an ask made from the row behind this sheet.
-   *
-   * Lets the sheet open already knowing the library has the title, so somebody is asked why they
-   * want it once rather than pressing Request a second time to be told what the node already said.
-   */
-  heldHint?: { holders: string[]; playableItemId?: string } | null;
   onClose: () => void;
 }) {
   const { color } = useTheme();
@@ -156,9 +148,6 @@ export function RequestSheet({
   // is the same thing a fresh sheet starts on.
   const openedExisting = editing?.id;
   const openedExistingSeasons = editing?.seasons?.join(",");
-  // Serialised so the effect depends on a primitive: the hint is a fresh object each render and
-  // would otherwise re-run the reset, wiping a reason somebody had just chosen.
-  const openedHint = heldHint ? JSON.stringify(heldHint) : null;
   useEffect(() => {
     const total = seasonTotal({ seasonCount: openedSeasons });
     const current = openedExistingSeasons
@@ -168,15 +157,8 @@ export function RequestSheet({
     setError(null);
     setReason(null);
     setReasonNote("");
-    // Seeded from the row that opened this sheet, when the node had already refused an ask there.
-    setHeldByNode(openedHint ? JSON.parse(openedHint) : null);
-  }, [
-    openedFor,
-    openedSeasons,
-    openedExisting,
-    openedExistingSeasons,
-    openedHint,
-  ]);
+    setHeldByNode(null);
+  }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
 
   // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
   // own queries off when it has nothing to ask about.

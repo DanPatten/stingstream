@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
-import { toast } from "sonner-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
@@ -11,7 +10,6 @@ import {
   REQUEST_SEARCH_MIN_LENGTH,
 } from "@/constants/Requests";
 import {
-  AlreadyHeldError,
   applyRequestFilters,
   DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
@@ -19,24 +17,18 @@ import {
   type RequestKind,
   type RequestSearchResult,
   requestFiltersActive,
-  requestTitle,
-  searchAction,
   useCanApproveRequests,
-  useCreateRequest,
-  useDeleteRequest,
   useRequestDiscover,
   useRequestPolicy,
   useRequestSearch,
   useRequests,
 } from "@/lib/stingstream/requests";
 import { AddByIdDialog } from "../arr/AddByIdDialog";
-import { confirmDestructive } from "../shared/confirm";
 import { RequestCardSkeletonList } from "./RequestCard";
 import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestResultRow } from "./RequestResultRow";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
-import { requestMadeToast } from "./requestMadeToast";
 
 /**
  * Find something to ask for — the Requests tab's own screen, on phone and web.
@@ -102,102 +94,24 @@ export function FindSection({
   );
   const [picking, setPicking] = useState<RequestSearchResult | null>(null);
   const [addingById, setAddingById] = useState(false);
-  // Which row is waiting on the node, by item key, so one press spins one button. `create.isPending`
-  // is per-mutation rather than per-row and would spin every button in the list at once.
-  const [submitting, setSubmitting] = useState<string | null>(null);
-  // What the node said when it refused an ask, so the sheet opens already knowing rather than
-  // making somebody press Request a second time to be told the same thing.
-  const [heldHint, setHeldHint] = useState<{
-    holders: string[];
-    playableItemId?: string;
-  } | null>(null);
-  const create = useCreateRequest();
-  const remove = useDeleteRequest();
 
   /**
-   * Do the thing the row's button says.
+   * Open the sheet on a title. Every press on this screen, of every kind, does this.
    *
-   * Four cases, and `searchAction` has already worked out which. A movie goes straight to the node:
-   * there is nothing to decide, and the sheet that used to open here only repeated the row back
-   * with a second Request button on it. A TV show opens the sheet, because which seasons to ask for
-   * is a real choice — an empty selection means all of them, and that default is worth showing
-   * rather than assuming silently. A title with a request already open is managed instead of asked
-   * for again: both kinds reopen the sheet on what the request currently covers, and deleting it is
-   * one of the things the sheet offers.
+   * A film used to be created straight from the row instead, on the reasoning that there was
+   * nothing to decide about one and the sheet only repeated the row back with a second Request
+   * button on it. That stopped being true as the sheet grew: it now says what the library already
+   * has, offers to play it, asks why a held title is wanted again, and carries what this server
+   * does about a title it already tracks. A film has all of that to show and was the one kind that
+   * never got to show it, so the same title read as one thing under Films and another under TV.
    *
-   * A poster on the feed goes through the same four cases. A title must not mean one thing as a
-   * tile and another as a row.
+   * Dan: *"update movies to work like tv shows when requesting (always show the dialog first)"*.
+   *
+   * Which leaves the sheet as the only place a request is ever made from, and this screen with no
+   * opinion about kind: rows, posters, held titles and titles already asked for all arrive at the
+   * same place, and the sheet reads `searchAction` to decide what it offers.
    */
-  const act = async (result: RequestSearchResult) => {
-    const action = searchAction(result);
-    // Anything already asked for opens the sheet, whatever kind it is: that is where the seasons,
-    // what this server does about the title, and deleting the request all live.
-    //
-    // A title the group already holds opens it too, and that one matters more: a film used to be
-    // created straight from here with one press, which for a held title meant silently filing a
-    // request the node would answer by doing nothing. The sheet is where it says what is already
-    // there, offers to play it, and asks why it is wanted anyway.
-    if (action.intent === "manage" || action.intent === "duplicate") {
-      setPicking(result);
-      return;
-    }
-    if (result.kind === "series") {
-      setPicking(result);
-      return;
-    }
-    setSubmitting(result.itemKey);
-    try {
-      const made = await create.mutateAsync({
-        tmdbId: result.tmdbId || undefined,
-        tvdbId: result.tvdbId || undefined,
-        title: result.title,
-        year: result.year,
-        posterUrl: result.posterUrl,
-        // Kept on the request: the search result they came from is gone by the time anybody edits
-        // it, and nothing else can answer either question later.
-        overview: result.overview,
-        seasonCount: result.seasonCount,
-      });
-      requestMadeToast(made, t);
-    } catch (err) {
-      // The node says the library already has it, which this row did not know: its holdings come
-      // from a search, and searches are cached for a minute and persisted for a day, so a row can
-      // offer Request for something that arrived since. Open the sheet on it rather than reporting
-      // a refusal -- the sheet reads the same refusal and asks why they want it anyway.
-      if (err instanceof AlreadyHeldError) {
-        setHeldHint({
-          holders: err.holders,
-          playableItemId: err.playableItemId,
-        });
-        setPicking(result);
-        return;
-      }
-
-      // A toast, where the sheet had a `FormError` under its fields: there is no sheet left to
-      // hold one, and the row itself must not grow a second height depending on whether the last
-      // press worked.
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(null);
-    }
-  };
-
-  /**
-   * What a poster does.
-   *
-   * Not `act`. A row's button is labelled with what pressing it will do; a tile is artwork, and the
-   * whole card is the target, so a press that spent a group download outright would be one
-   * mis-aimed thumb away on a grid of sixty. A title nobody has asked for yet opens the sheet,
-   * where the overview the tile cannot show is, and Request is a deliberate second press.
-   *
-   * A title that already has a request open goes through `act` exactly as its row does: a show
-   * reopens its seasons, and a movie, which has nothing to edit, is withdrawn after a confirmation.
-   */
-  const openFromGrid = (result: RequestSearchResult) => {
-    if (searchAction(result).intent === "manage") {
-      void act(result);
-      return;
-    }
+  const act = (result: RequestSearchResult) => {
     setPicking(result);
   };
 
@@ -301,7 +215,6 @@ export function FindSection({
           <RequestResultRow
             key={result.itemKey || `${result.kind}:${result.title}`}
             result={result}
-            pending={submitting === result.itemKey}
             onPress={() => act(result)}
           />
         ))}
@@ -349,7 +262,7 @@ export function FindSection({
       <RequestDiscoverGrid
         results={feed}
         loading={discover.isLoading}
-        onPress={openFromGrid}
+        onPress={act}
       />
     );
   };
@@ -410,16 +323,12 @@ export function FindSection({
       */}
       <RequestSheet
         result={picking}
-        heldHint={heldHint}
         existing={
           (picking?.requestId &&
             (mine.data ?? []).find((r) => r.id === picking.requestId)) ||
           null
         }
-        onClose={() => {
-          setPicking(null);
-          setHeldHint(null);
-        }}
+        onClose={() => setPicking(null)}
       />
 
       {/*

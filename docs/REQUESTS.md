@@ -614,12 +614,22 @@ term would be a different search rather than a narrower one. The default sort de
 reorder a search: its own order is relevance, and sorting by popularity the moment the screen opened
 would push the show somebody typed the name of below a dozen films that outrank it.
 
-**A poster opens the sheet; a row's button submits.** A row's button is labelled with what pressing
-it will do. A tile is artwork and a title, the overview is not on it, and the whole card is the
-target — so a tap that spent a group download outright would be one mis-aimed thumb away on a grid
-of sixty. From the catalogue a film opens `RequestSheet` (poster, overview, one Request button, no
-season picker) and Request is a deliberate second press. A title that already has a request open
-behaves exactly as its row does either way.
+**Everything opens the sheet, and the sheet is the only place a request is made.** A row's button
+is labelled with what pressing it will do, and what it does is open `RequestSheet` on that title.
+A tile does the same: it is artwork and a title, the overview is not on it, and the whole card is
+the target, so a tap that spent a group download outright would be one mis-aimed thumb away on a
+grid of sixty.
+
+A film was the exception for a while, submitted straight from its row on the reasoning that there
+was nothing to decide about one and the sheet only repeated the row back with a second button also
+called Request. That stopped being true as the sheet grew: it says what the library already has,
+links to play it, asks why a held title is wanted again (§2b), and carries what this server does
+about a title it already tracks. A film had all of that to show and was the one kind that never got
+to show it, so the same title read as one thing under Films and another under TV. The sheet for a
+film is the same sheet without a season picker, and Request is a deliberate second press.
+
+Dan, 2026-09-11: *"update movies to work like tv shows when requesting (always show the dialog
+first)"*.
 
 **A tile says what it is, when it came out, how long it is and what it scored, and promises no
 playback.** A glyph for film or show, because the two are mixed on one grid and which one a poster is

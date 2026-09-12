@@ -41,11 +41,13 @@ const isWeb = Platform.OS === "web";
  * promises something the node would then refuse. `searchBadgeLabel` answers the same question in
  * two words for the pill beside the title.
  *
- * **The button requests.** It used to open a sheet carrying the same poster, the same overview and
- * a second button also called Request, so asking for a movie meant pressing Request to reach
- * Request. A movie is submitted from here now and `pending` draws the spinner; only a TV show
- * still opens {@link RequestSheet}, because which seasons to ask for is a real choice and this row
- * has nowhere to put it.
+ * **The button opens {@link RequestSheet}. Every button, for every kind.** A movie was submitted
+ * straight from here for a while, on the reasoning that there was nothing to decide about one and
+ * the sheet only repeated the row back with a second button also called Request. The sheet has
+ * since grown the things a row cannot hold — what the library already has, a link to play it, why
+ * a held title is wanted again, what this server does about a title it tracks — and a film was the
+ * one kind that never got to show any of them. So the row promises and the sheet decides, and this
+ * row has no opinion about kind.
  *
  * The container is a plain `View` and the button is the only control in it — the row itself is not
  * pressable. A `Pressable` wrapping the whole row renders as a real `<button>` on web, and a
@@ -55,12 +57,9 @@ const isWeb = Platform.OS === "web";
  */
 export function RequestResultRow({
   result,
-  pending = false,
   onPress,
 }: {
   result: RequestSearchResult;
-  /** This row's own request is in flight. Per row, not per screen: a list of spinners would be a lie. */
-  pending?: boolean;
   onPress: () => void;
 }) {
   const { color } = useTheme();
@@ -186,7 +185,6 @@ export function RequestResultRow({
             size='sm'
             icon={action.intent === "manage" ? "settings" : "requests"}
             disabled={action.disabled}
-            loading={pending}
             onPress={onPress}
             // A screenful of buttons all reading "Request" is a screenful of controls with the
             // same name; the title is what tells a screen reader which one this is.
