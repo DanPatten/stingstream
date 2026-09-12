@@ -1090,7 +1090,12 @@ public sealed class RequestService
         }
 
         var held = await _sources
-            .CandidatesForKeysAsync(movieKeys, seriesPrefixes, cancellationToken)
+            .CandidatesForKeysAsync(
+                movieKeys,
+                seriesPrefixes,
+                string.Empty,
+                _runtime.Current?.ServerName ?? string.Empty,
+                cancellationToken)
             .ConfigureAwait(false);
 
         foreach (var result in results)

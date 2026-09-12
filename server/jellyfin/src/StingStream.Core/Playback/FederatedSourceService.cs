@@ -168,6 +168,8 @@ public sealed class FederatedSourceService
     /// <param name="found">The bucket map being built, keyed as the caller asked.</param>
     /// <param name="wantedMovies">The movie keys asked about.</param>
     /// <param name="wantedSeries">The series prefixes asked about.</param>
+    /// <param name="nodeId">This node's id, or empty where the caller does not compare ids.</param>
+    /// <param name="serverName">This node's display name.</param>
     /// <remarks>
     /// <para>
     /// **One walk of the inventory, not one per key**, which is the same reasoning the index walk
@@ -184,7 +186,9 @@ public sealed class FederatedSourceService
     private void AddLocal(
         Dictionary<string, IReadOnlyList<SourceCandidate>> found,
         HashSet<string> wantedMovies,
-        HashSet<string> wantedSeries)
+        HashSet<string> wantedSeries,
+        string nodeId,
+        string serverName)
     {
         if (wantedMovies.Count == 0 && wantedSeries.Count == 0)
         {
@@ -202,7 +206,7 @@ public sealed class FederatedSourceService
                 continue;
             }
 
-            var candidate = Local(record, string.Empty, string.Empty);
+            var candidate = Local(record, nodeId, serverName);
             if (found.TryGetValue(bucket, out var already))
             {
                 // The common bucket holds one entry, so growing it in place beats rebuilding a list
@@ -317,6 +321,12 @@ public sealed class FederatedSourceService
     /// <param name="movieKeys">Exact item keys, e.g. <c>movie:tmdb:603</c>.</param>
     /// <param name="seriesPrefixes">Series prefixes, e.g. <c>episode:tvdb:73739:</c>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="nodeId">This node's id, or empty where the caller does not compare ids.</param>
+    /// <param name="serverName">
+    /// This node's display name, carried on its own rows so a title held here is named rather than
+    /// blank. Not optional: the caller has it, and defaulting it produced a holder list with an
+    /// empty string in it -- "In library", held by nobody.
+    /// </param>
     /// <returns>
     /// One entry per key or prefix that matched something, keyed by the string that was passed in.
     /// A key that matched nothing is absent rather than present and empty.
@@ -332,6 +342,8 @@ public sealed class FederatedSourceService
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<SourceCandidate>>> CandidatesForKeysAsync(
         IReadOnlyCollection<string> movieKeys,
         IReadOnlyCollection<string> seriesPrefixes,
+        string nodeId,
+        string serverName,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(movieKeys);
@@ -355,7 +367,7 @@ public sealed class FederatedSourceService
         // `LocalHoldings` is the same lookup the request path uses. Both had to have it: asking for
         // a held title was refused correctly while the row that offered it said nothing, because
         // only one of the two consulted the library.
-        AddLocal(found, wantedMovies, wantedSeries);
+        AddLocal(found, wantedMovies, wantedSeries, nodeId, serverName);
 
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
         if (groups is null)
