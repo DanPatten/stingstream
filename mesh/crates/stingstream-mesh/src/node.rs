@@ -3032,7 +3032,25 @@ impl MeshNode {
                 }
                 Err(e) => return Err(e),
             };
-            match conn.request(build()?).await {
+            // Bounded on the first attempt only. `connect_node` hands back a cached connection
+            // where it has one, and a cached connection to a peer that has since restarted is not
+            // closed -- it is simply never going to answer, and the request sits there until QUIC's
+            // own idle timeout gives up on it. Measured at 11.8s in `tools/e2e-m4.ps1` after a
+            // holder was killed mid-stream: the 3-second stall clock did its job on time and then
+            // the whole failover waited on a dead socket to the *replacement*. The second attempt
+            // is deliberately unbounded, because by then the connection is known to be fresh.
+            let sent = if attempt == 0 {
+                match tokio::time::timeout(PEER_RESPONSE_TIMEOUT, conn.request(build()?)).await {
+                    Ok(r) => r,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "no response within {}s",
+                        PEER_RESPONSE_TIMEOUT.as_secs()
+                    )),
+                }
+            } else {
+                conn.request(build()?).await
+            };
+            match sent {
                 Ok(resp) => {
                     let (path, rtt) = peer::path_summary(&conn.conn);
                     let _ = self.db.set_peer_path(&group.id, node, &path, rtt);
@@ -3341,6 +3359,18 @@ impl Drop for SwarmReader {
 /// `?any=1` from Jellyfin's own proxying path, a cast receiver, or a client recovering from a
 /// pointer whose holder has left the group.
 pub const ANY_SOURCE: &str = "any";
+
+/// How long a peer has to answer a request before the connection is dropped and re-dialled once.
+///
+/// Matched to the stream stall clock (`stream_stall_secs`, three seconds by default) because it is
+/// the same promise from the other end: milestone 4 asks for failover in about five seconds, and
+/// three of those are already spent noticing that the holder went quiet. A cached connection to a
+/// peer that has restarted is not closed, it is merely never going to answer, so without a bound
+/// here the remaining two seconds become QUIC's idle timeout.
+///
+/// Only the first attempt is bounded. The cost of being wrong is one re-dial, which this loop was
+/// already willing to do, and the retry runs on a connection known to be fresh.
+const PEER_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// How long the leader waits for a follower to acknowledge one watch command.
 ///

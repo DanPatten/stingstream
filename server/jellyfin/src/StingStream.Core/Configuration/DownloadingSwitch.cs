@@ -109,13 +109,23 @@ public static class DownloadingSwitch
     /// </remarks>
     private static System.Text.RegularExpressions.Match Match(string text, string key)
     {
+        // Two things this is careful about, and both of them are the same fact: config.toml is a
+        // text file its owner is invited to edit, and it arrives with a commented header.
+        //
         // `\r?` before the anchor: .NET's multiline `$` matches before the `\n`, so a file saved
         // with CRLF line endings leaves a carriage return between the value and the anchor and
-        // nothing matches at all. The supervisor writes `\n`, but config.toml is a text file its
-        // owner is invited to edit, and an editor on Windows will convert the whole file to suit
-        // itself the first time they save one.
+        // nothing matches at all. The supervisor writes `\n`, and an editor on Windows will convert
+        // the whole file to suit itself the first time somebody saves one.
+        //
+        // The gap between the header and the key is "any run of lines that does not start a new
+        // table", not "any run of characters that is not a bracket". The second is what this used
+        // to say, and a `[` anywhere inside the table -- in a comment naming another table, which
+        // the file's own header does -- ended the search before it reached the key, so the switch
+        // silently refused to write. A table header is a `[` at the start of a line, and that is
+        // what it should have been looking for.
         var pattern =
-            @"^\[children\][^\[]*?^(?<key>[ \t]*" + Regex.Escape(key) + @"[ \t]*=[ \t]*)(?<value>true|false)[ \t]*\r?$";
+            @"^\[children\](?:(?!^\[)[\s\S])*?^(?<key>[ \t]*" + Regex.Escape(key)
+            + @"[ \t]*=[ \t]*)(?<value>true|false)[ \t]*\r?$";
         return Regex.Match(
             text,
             pattern,

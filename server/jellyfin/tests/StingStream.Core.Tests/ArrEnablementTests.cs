@@ -196,6 +196,44 @@ public class ArrEnablementTests
         Assert.Empty(changed);
     }
 
+    [Fact]
+    public void A_comment_naming_another_table_does_not_hide_the_key_below_it()
+    {
+        // config.toml ships with a commented header and invites its owner to edit it, so a comment
+        // mentioning another table by name is ordinary. The gap between the header and the key used
+        // to be "anything that is not a bracket", which such a comment ends: the key below it
+        // became invisible and the switch refused to write, silently, for the life of that file.
+        using var dir = new TempDirectory();
+        File.WriteAllLines(
+            Path.Combine(dir.Path, "config.toml"),
+            new[]
+            {
+                "server_name = \"solo\"",
+                string.Empty,
+                "[children]",
+                "# radarr and sonarr take their ports from [ports] below.",
+                "radarr = true",
+                "sonarr = true",
+                "nzbget = true",
+                string.Empty,
+                "[ports]",
+                "radarr = 7878",
+            });
+
+        var changed = ArrEnablement.Reconcile(
+            SharedSettings.CreateDefault(),
+            dir.Path,
+            NullLogger.Instance,
+            mayStop: true);
+
+        Assert.Equal(new[] { "radarr", "sonarr" }, changed);
+        var written = dir.ReadConfig();
+        Assert.Contains("radarr = false", written, System.StringComparison.Ordinal);
+        // And the table below is untouched: the search must stop at a real header even though it
+        // now reaches past a bracket in a comment.
+        Assert.Contains("radarr = 7878", written, System.StringComparison.Ordinal);
+    }
+
     private sealed class TempDirectory : System.IDisposable
     {
         public TempDirectory()
