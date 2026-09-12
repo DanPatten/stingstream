@@ -63,3 +63,10 @@ third_party/pebble/bin/
 *.swp
 .DS_Store
 Thumbs.db
+
+# === Claude Code, per-machine ===
+# .claude/skills/ and any .claude/settings.json are the team's and stay committed. This one is
+# personal: it carries the Stop hook that runs tools\dev-hook.ps1 after every turn, with the
+# absolute path of one checkout in it, and a contributor who cloned the repo does not want a
+# multi-minute rebuild of two nodes they have never started.
+.claude/settings.local.json

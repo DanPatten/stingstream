@@ -77,6 +77,23 @@ Add `-Strict` before a commit: the fast path builds Jellyfin with its analyzers 
 `-Fresh` wipes the data dirs for a genuine first run, `-Force` rebuilds everything when you suspect
 the change detection rather than the code.
 
+**Nobody asks permission to run it.** Dan, 2026-09-11: *"yes rebuild.. please dont ask to do that"*.
+It is the last step of a change, like committing is, and a question before it only spends a turn
+arriving at the answer that was always yes.
+
+**It also runs on its own when an agent finishes a turn.** A `Stop` hook in
+`.claude/settings.local.json` calls [`tools/dev-hook.ps1`](tools/dev-hook.ps1), a thin wrapper
+around the same script, so the pinned nodes are serving the working tree by the time anyone looks
+at them. The wrapper exists for the three ways an unattended caller differs from a person: output
+goes to `.local/dev-hook.log` and only a failure is announced; a lock directory makes a second
+agent's run a no-op rather than two builds fighting over the same outputs, which the shared
+checkout would otherwise produce several times an hour; and the exit code is always 0, because a
+build error is worth reporting and not worth failing a turn over.
+
+That file is git-ignored, being one machine's absolute paths. It is not a reason to skip running
+`tools\dev.ps1` yourself mid-turn: the hook fires when you *stop*, which is after the point you
+wanted to look at a screenshot.
+
 The [`reload-node`](.claude/skills/reload-node/SKILL.md) skill carries the manual equivalents, for
 when a step has gone wrong and you need to drive them one at a time. Read it before hand-rolling
 any of this. **An instance is identified by its data directory, not its port** — `-Stop` and
