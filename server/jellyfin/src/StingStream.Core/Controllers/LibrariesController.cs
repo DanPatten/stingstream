@@ -173,7 +173,12 @@ public sealed class LibrariesController : StingStreamControllerBase
         // Which managers run is a rule over the saved settings rather than an effect of this
         // switch: a library on its own has nowhere to search, so switching one on starts nothing
         // until an indexer covers it. See ArrEnablement.
-        ArrEnablement.Reconcile(settings, _runtime.DataDirectory, _logger);
+        //
+        // `mayStop` because this is somebody at the Libraries screen. The background worker is the
+        // careful one -- it will not stop a manager on the run that set the node up, since first-run
+        // wiring needs the managers it is configuring -- and by the time a person can press this
+        // switch, that is long over.
+        ArrEnablement.Reconcile(settings, _runtime.DataDirectory, _logger, mayStop: true);
 
         await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
 

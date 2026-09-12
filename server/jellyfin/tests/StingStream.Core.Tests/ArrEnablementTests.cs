@@ -1,3 +1,5 @@
+using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using StingStream.Core.Arr;
 using StingStream.Core.Data;
 using Xunit;
@@ -123,6 +125,117 @@ public class ArrEnablementTests
         // rather than a manager for a library, and Jellyfin is the server doing the asking.
         Assert.False(ArrEnablement.ShouldRunChild(Settings(), "nzbget"));
         Assert.False(ArrEnablement.ShouldRunChild(Settings(), "jellyfin"));
+    }
+
+    [Fact]
+    public void A_run_that_may_not_stop_anything_still_starts_what_is_wanted()
+    {
+        // The half that must keep working while stopping is held back: a node that gains an indexer
+        // during setup gets its manager the moment the rule says so.
+        using var dir = new TempDirectory();
+        dir.WriteConfig(radarr: false, sonarr: false);
+
+        var changed = ArrEnablement.Reconcile(
+            Settings(),
+            dir.Path,
+            NullLogger.Instance,
+            mayStop: false);
+
+        Assert.Equal(new[] { "radarr", "sonarr" }, changed);
+        Assert.Contains("radarr = true", dir.ReadConfig(), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_run_that_may_not_stop_anything_leaves_a_running_manager_alone()
+    {
+        // The bug this exists to stop, and it took out every fresh install: a node being set up has
+        // no libraries and no indexers yet, so the rule says "stop both" about the two managers
+        // first-run wiring is in the middle of configuring. It stopped them three seconds in, wiring
+        // waited five minutes for a manager that was gone, and the node never finished setting up.
+        using var dir = new TempDirectory();
+        dir.WriteConfig(radarr: true, sonarr: true);
+
+        var bare = SharedSettings.CreateDefault();
+        var changed = ArrEnablement.Reconcile(bare, dir.Path, NullLogger.Instance, mayStop: false);
+
+        Assert.Empty(changed);
+        Assert.Contains("radarr = true", dir.ReadConfig(), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_run_that_may_stop_switches_an_unwanted_manager_off()
+    {
+        using var dir = new TempDirectory();
+        dir.WriteConfig(radarr: true, sonarr: true);
+
+        var bare = SharedSettings.CreateDefault();
+        var changed = ArrEnablement.Reconcile(bare, dir.Path, NullLogger.Instance, mayStop: true);
+
+        Assert.Equal(new[] { "radarr", "sonarr" }, changed);
+        Assert.Contains("radarr = false", dir.ReadConfig(), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_config_with_no_children_table_is_left_alone_rather_than_failing_the_save()
+    {
+        // `DownloadingSwitch` refuses to invent a line it cannot see, which is right for a file it
+        // may only change one word of. What must not happen is that refusal reaching the caller:
+        // this runs from saving a library, and a hand-trimmed config.toml is not a reason to answer
+        // a settings screen with an error.
+        using var dir = new TempDirectory();
+        File.WriteAllLines(
+            Path.Combine(dir.Path, "config.toml"),
+            new[] { "server_name = \"solo\"" });
+
+        var changed = ArrEnablement.Reconcile(
+            SharedSettings.CreateDefault(),
+            dir.Path,
+            NullLogger.Instance,
+            mayStop: true);
+
+        Assert.Empty(changed);
+    }
+
+    private sealed class TempDirectory : System.IDisposable
+    {
+        public TempDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "stingstream-arr-" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void WriteConfig(bool radarr, bool sonarr)
+            => File.WriteAllLines(
+                System.IO.Path.Combine(Path, "config.toml"),
+                new[]
+                {
+                    "server_name = \"solo\"",
+                    string.Empty,
+                    "[children]",
+                    "jellyfin = true",
+                    "radarr = " + (radarr ? "true" : "false"),
+                    "sonarr = " + (sonarr ? "true" : "false"),
+                    "nzbget = true",
+                });
+
+        public string ReadConfig()
+            => File.ReadAllText(System.IO.Path.Combine(Path, "config.toml"));
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A temp directory that will not delete is not a test failure.
+            }
+        }
     }
 
     [Fact]

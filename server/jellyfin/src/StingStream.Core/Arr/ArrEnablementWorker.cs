@@ -31,6 +31,15 @@ namespace StingStream.Core.Arr;
 /// forgets. The revision is already bumped on every save, so watching it covers writers that do not
 /// exist yet.
 /// </para>
+/// <para>
+/// <b>It never stops a manager on the run that set the node up.</b> Dan asked for managers that
+/// *"only startup if there is at least 1 indexer enabled and the toggle in libraries is on"*, and a
+/// node being set up for the first time has neither: no libraries, no indexers, because first-run
+/// wiring has not created them yet. So this worker asks what the node looked like when the process
+/// began, once, and declines to stop anything for the life of a process that found first-run wiring
+/// still pending. A fresh node therefore keeps its managers through setup and applies the rule from
+/// its next start, which is the start the rule is about.
+/// </para>
 /// </remarks>
 public sealed class ArrEnablementWorker : BackgroundService
 {
@@ -47,6 +56,12 @@ public sealed class ArrEnablementWorker : BackgroundService
     private readonly ILogger<ArrEnablementWorker> _logger;
 
     private long _lastRevision = -1;
+
+    /// <summary>
+    /// Whether first-run wiring was already finished when this process started. Null until the
+    /// first pass asks; see the remarks on the class for why it is asked only once.
+    /// </summary>
+    private bool? _bootedComplete;
 
     public ArrEnablementWorker(
         SettingsStore settings,
@@ -99,7 +114,17 @@ public sealed class ArrEnablementWorker : BackgroundService
         // would otherwise log the same warning twelve times a minute for the life of the process.
         _lastRevision = settings.Revision;
 
-        var changed = ArrEnablement.Reconcile(settings, _runtime.DataDirectory, _logger);
+        // Latched on the first pass, which is within five seconds of the host starting: after that
+        // `FirstRun` flips to false as wiring completes, and reading it later would answer a
+        // question about now rather than the one being asked, which is what this node was when it
+        // came up.
+        _bootedComplete ??= !(_runtime.Current?.FirstRun ?? false);
+
+        var changed = ArrEnablement.Reconcile(
+            settings,
+            _runtime.DataDirectory,
+            _logger,
+            mayStop: _bootedComplete.Value);
         if (changed.Count == 0)
         {
             return;

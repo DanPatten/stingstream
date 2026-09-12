@@ -109,8 +109,13 @@ public static class DownloadingSwitch
     /// </remarks>
     private static System.Text.RegularExpressions.Match Match(string text, string key)
     {
+        // `\r?` before the anchor: .NET's multiline `$` matches before the `\n`, so a file saved
+        // with CRLF line endings leaves a carriage return between the value and the anchor and
+        // nothing matches at all. The supervisor writes `\n`, but config.toml is a text file its
+        // owner is invited to edit, and an editor on Windows will convert the whole file to suit
+        // itself the first time they save one.
         var pattern =
-            @"^\[children\][^\[]*?^(?<key>[ \t]*" + Regex.Escape(key) + @"[ \t]*=[ \t]*)(?<value>true|false)[ \t]*$";
+            @"^\[children\][^\[]*?^(?<key>[ \t]*" + Regex.Escape(key) + @"[ \t]*=[ \t]*)(?<value>true|false)[ \t]*\r?$";
         return Regex.Match(
             text,
             pattern,

@@ -646,6 +646,17 @@ bind = "0.0.0.0"
 port = $GatewayPort
 expose_child_uis_in_dev = true
 
+[children]
+# Spelled out rather than left to the supervisor's defaults, which are these three values anyway.
+# `DownloadingSwitch` changes the one word on an existing line and refuses to invent one, so a
+# config.toml with no `[children]` table is a node whose library switches cannot be written --
+# and "Switching a library off keeps its files" asserts that exactly that happens. No real node
+# has such a file: `Config::load_or_create` serialises the whole struct when it writes one. Only
+# a hand-written config like this one can be missing the table.
+radarr = true
+sonarr = true
+nzbget = true
+
 [ports]
 jellyfin = 0
 radarr = 0

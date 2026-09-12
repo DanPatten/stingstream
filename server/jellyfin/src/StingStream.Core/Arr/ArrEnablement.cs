@@ -96,12 +96,25 @@ public static class ArrEnablement
     /// <param name="settings">The shared settings.</param>
     /// <param name="dataDirectory">The node's data directory, or null when there is none.</param>
     /// <param name="logger">Where to say what changed.</param>
+    /// <param name="mayStop">
+    /// Whether this caller is allowed to switch a manager <i>off</i>. Switching one on is always
+    /// allowed.
+    /// </param>
     /// <returns>The children whose enablement was rewritten.</returns>
     /// <remarks>
     /// <para>
     /// Called wherever either half of the rule can move -- a library switched, an indexer added,
     /// removed or switched -- and once at startup, so a config edited by hand or left behind by an
     /// older build is corrected rather than obeyed.
+    /// </para>
+    /// <para>
+    /// <b>Stopping is not symmetrical with starting, and <paramref name="mayStop"/> is why.</b> A
+    /// node being set up for the first time has no libraries and no indexers yet, so the rule says
+    /// "no manager should run" about a node whose managers are exactly what first-run wiring is in
+    /// the middle of configuring. Applying it there stops the managers three seconds in, wiring
+    /// then waits five minutes for a manager that is gone, gives up, and leaves <c>first_run</c>
+    /// set so the next start does it all again. That is not a hypothetical: it is what this did on
+    /// every fresh node until the caller was given a say.
     /// </para>
     /// <para>
     /// Best effort by design. A node with no <c>config.toml</c> is one somebody started by hand,
@@ -113,7 +126,8 @@ public static class ArrEnablement
     public static IReadOnlyList<string> Reconcile(
         SharedSettings settings,
         string? dataDirectory,
-        ILogger logger)
+        ILogger logger,
+        bool mayStop)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(logger);
@@ -127,6 +141,11 @@ public static class ArrEnablement
         var path = DownloadingSwitch.PathFor(dataDirectory);
         foreach (var (child, wanted) in Wanted(settings))
         {
+            if (!wanted && !mayStop)
+            {
+                continue;
+            }
+
             try
             {
                 if (DownloadingSwitch.Write(path, child, wanted))
@@ -140,7 +159,15 @@ public static class ArrEnablement
                         wanted ? "enabled" : "none for this kind");
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            // `InvalidOperationException` is `DownloadingSwitch` refusing to invent a line it cannot
+            // see, which is the right answer for a file it is only allowed to change one word of.
+            // It must not reach the caller, though: this runs from a background pass and from
+            // saving a library, and neither is a place to report that somebody's config.toml is
+            // shaped unusually. A node whose file the supervisor wrote always has the line, so what
+            // survives here is a hand-trimmed file, and the honest outcome for one of those is that
+            // the manager keeps running and the log says why.
+            catch (Exception ex)
+                when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 logger.LogWarning(ex, "Could not switch {Child} in config.toml", child);
             }
