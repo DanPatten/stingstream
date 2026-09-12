@@ -538,7 +538,10 @@ function Get-NodeLog {
         $path = Join-Path (Join-Path $WorkDir 'logs') "node-$($Node.Name).$stream.log"
         if (Test-Path $path) { $text += (Get-Content $path -Raw -ErrorAction SilentlyContinue) }
     }
-    return $text
+    # ANSI stripped before anybody matches on it. See the same helper in tools/e2e-m4.ps1: a
+    # coloured `node=abc` is `node<ESC>[0m<ESC>[2m=<ESC>[0mabc`, so a pattern spelling `node=`
+    # matches nothing and an assertion counting log lines reports zero rather than failing to parse.
+    return [regex]::Replace($text, "\[[0-9;]*[A-Za-z]", '')
 }
 
 function Invoke-FederatedRefresh {

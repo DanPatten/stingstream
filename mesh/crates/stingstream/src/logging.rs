@@ -11,7 +11,7 @@
 //! Child output is also mirrored into the supervisor's own log at `debug`, prefixed with the
 //! child's name, so `RUST_LOG=debug` gives one interleaved view of the whole node.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -58,10 +58,16 @@ pub fn init(log_file: &Path, level: &str, console: bool) -> Result<LogGuard> {
     let registry = tracing_subscriber::registry().with(filter).with(json_layer);
 
     if console {
+        // Colour only when somebody is there to see it. `fmt::layer()` defaults to ANSI on, and the
+        // mirrored console log is stderr, which on a server and in CI is a file: the escape codes
+        // go into it and every reader of that file is then reading `node[0m[2m=[0m…`
+        // rather than `node=…`. That is unpleasant by hand and invisible to a regex, which is how
+        // an acceptance harness came to assert on a line it could no longer match.
         registry
             .with(
                 tracing_subscriber::fmt::layer()
                     .with_target(false)
+                    .with_ansi(std::io::stderr().is_terminal())
                     .with_writer(std::io::stderr),
             )
             .init();

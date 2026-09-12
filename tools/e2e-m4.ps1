@@ -434,7 +434,12 @@ function Get-NodeLog {
             $text += (Get-Content $path -Raw -ErrorAction SilentlyContinue)
         }
     }
-    return $text
+    # ANSI stripped before anybody matches on it. `tracing`'s console layer colours its output, and
+    # a coloured `node=abc` is `node<ESC>[0m<ESC>[2m=<ESC>[0mabc` -- so a pattern spelling `node=`
+    # matches nothing, silently, and an assertion counting log lines reports zero rather than
+    # failing to parse. The supervisor now colours only a real terminal, and this makes the
+    # assertions independent of that either way.
+    return [regex]::Replace($text, "\[[0-9;]*[A-Za-z]", '')
 }
 
 trap {
