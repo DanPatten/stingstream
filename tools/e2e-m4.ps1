@@ -992,15 +992,23 @@ Invoke-Step 'Pinning it copies it here, drops the pointer, and makes A a holder'
         throw "the pin landed outside A's data directory: $($done.targetPath)"
     }
 
-    # The pointer must be gone: A holds the file now, and an item that offers both a local file and
-    # a pointer to somebody else's copy of it is two answers to one question.
+    # The peer's pointer stays, and that is the rule rather than a leak. This used to require the
+    # whole folder to disappear -- "an item that offers both a local file and a pointer to somebody
+    # else's copy of it is two answers to one question" -- and `MergePeerVersions` answers that
+    # question the other way round: the peer's copy becomes a second *version* of the same film, so
+    # a 2160p on C still wins over the 1080p just pinned here instead of being hidden by it.
+    #
+    # What must never appear is a pointer to A's own new copy. That would be the film twice, and it
+    # is the one thing the pin can actually get wrong here.
     $federatedRoot = $NodeA.Runtime.paths.federated
-    Wait-Until -What "A's pointer for the pinned film to disappear" -Seconds 180 -PollSeconds 5 -Condition {
-        try { Invoke-Node $NodeA '/stingstream/api/v1/mesh/federated/refresh' -Method POST -TimeoutSec 120 | Out-Null } catch { }
-        $folder = Join-Path (Join-Path $federatedRoot 'movies') "$($Notld.Title) ($($Notld.Year))"
-        return -not (Test-Path $folder)
-    } | Out-Null
-    Write-Host "      the federated pointer folder is gone"
+    try { Invoke-Node $NodeA '/stingstream/api/v1/mesh/federated/refresh' -Method POST -TimeoutSec 120 | Out-Null } catch { }
+    $folder = Join-Path (Join-Path $federatedRoot 'movies') "$($Notld.Title) ($($Notld.Year))"
+    $selfPointers = @(Get-ChildItem -LiteralPath $folder -Filter '*.strm' -File -ErrorAction SilentlyContinue |
+        Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -like "*/$($NodeA.MeshId)*" })
+    if ($selfPointers.Count -gt 0) {
+        throw "A materialised a pointer to its own pinned copy: $(($selfPointers | ForEach-Object { $_.Name }) -join ', ')"
+    }
+    Write-Host "      A points at nobody for a film it now holds itself"
 
     # ...and the index now has two holders where it had one.
     $holders = Wait-Until -What 'the index to show two holders' -Seconds 180 -PollSeconds 5 -Condition {
@@ -1015,7 +1023,7 @@ Invoke-Step 'Pinning it copies it here, drops the pointer, and makes A a holder'
     if (@($holders | Where-Object { $_.node -eq $NodeA.MeshId }).Count -eq 0) {
         throw "A pinned the film but does not appear in the index as a holder."
     }
-    Add-HarnessNote ("Pin: {0} copied from {1} to {2}; holders went from 1 to {3}." -f `
+    Add-HarnessNote ("Pin: {0} copied from {1} to {2}; holders went from 1 to {3}, and A points at no copy of it but its own." -f `
         $Notld.Title, $done.serverName, $done.targetPath, $holders.Count)
 }
 

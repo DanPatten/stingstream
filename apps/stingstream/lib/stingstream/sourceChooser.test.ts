@@ -99,7 +99,10 @@ describe("buildSourceChoices — the join", () => {
       ]),
     );
 
-    expect(choices.map((c) => c.serverName).sort()).toEqual(["Kitchen", "Loft"]);
+    expect(choices.map((c) => c.serverName).sort()).toEqual([
+      "Kitchen",
+      "Loft",
+    ]);
     expect(choices.find((c) => c.serverName === "Kitchen")?.mediaSourceId).toBe(
       "ms-b",
     );
@@ -241,7 +244,10 @@ describe("buildSourceChoices — ordering", () => {
       ]),
       "speed_first",
     );
-    expect(choices.map((c) => c.serverName)).toEqual(["Measured", "Unmeasured"]);
+    expect(choices.map((c) => c.serverName)).toEqual([
+      "Measured",
+      "Unmeasured",
+    ]);
   });
 
   test("offline holders sort last and are disabled under both policies", () => {
@@ -285,7 +291,12 @@ describe("buildSourceChoices — recommendation", () => {
       [meshSource("ms-a", NODE_A), meshSource("ms-b", NODE_B)],
       response(
         [
-          source({ node: NODE_A, serverName: "Loft", rttMs: 90, path: "direct" }),
+          source({
+            node: NODE_A,
+            serverName: "Loft",
+            rttMs: 90,
+            path: "direct",
+          }),
           source({
             node: NODE_B,
             serverName: "Kitchen",
@@ -383,15 +394,15 @@ describe("buildSourceChoices — same file", () => {
 
     expect(choices.find((c) => c.serverName === "Loft")?.current).toBe(true);
     // The source playing is not "the same file as" itself — that badge is about the alternatives.
-    expect(choices.find((c) => c.serverName === "Loft")?.sameFileAsCurrent).toBe(
-      false,
-    );
+    expect(
+      choices.find((c) => c.serverName === "Loft")?.sameFileAsCurrent,
+    ).toBe(false);
     expect(
       choices.find((c) => c.serverName === "Kitchen")?.sameFileAsCurrent,
     ).toBe(true);
-    expect(choices.find((c) => c.serverName === "Shed")?.sameFileAsCurrent).toBe(
-      false,
-    );
+    expect(
+      choices.find((c) => c.serverName === "Shed")?.sameFileAsCurrent,
+    ).toBe(false);
   });
 
   test("pairs the local copy with a remote holder through the ETag", () => {
@@ -468,7 +479,12 @@ describe("formatSourceChoice", () => {
     const [choice] = build(
       [meshSource("ms-a", NODE_A)],
       response([
-        source({ node: NODE_A, serverName: "Dark", online: false, height: 1080 }),
+        source({
+          node: NODE_A,
+          serverName: "Dark",
+          online: false,
+          height: 1080,
+        }),
       ]),
     );
     expect(formatSourceChoice(choice, LABELS).badges).toEqual(["Offline"]);
@@ -492,7 +508,14 @@ describe("a local file and a peer's copy on one item", () => {
     const choices = build(
       [localSource("local", 1080), meshSource("ms-a", NODE_A)],
       response(
-        [source({ node: NODE_A, serverName: "Attic", height: 2160, rttMs: 18 })],
+        [
+          source({
+            node: NODE_A,
+            serverName: "Attic",
+            height: 2160,
+            rttMs: 18,
+          }),
+        ],
         "quality_first",
       ),
       "quality_first",
@@ -605,8 +628,8 @@ describe("a local file and a peer's copy on one item", () => {
       "local",
     );
 
-    expect(choices.find((c) => c.serverName === "Attic")?.sameFileAsCurrent).toBe(
-      true,
-    );
+    expect(
+      choices.find((c) => c.serverName === "Attic")?.sameFileAsCurrent,
+    ).toBe(true);
   });
 });

@@ -457,7 +457,13 @@ describe("latestPeerActivity", () => {
   test("null when no peer has ever been seen", () => {
     expect(
       latestPeerActivity([
-        { group: "g", node: "a", serverName: "a", online: false, firstSeen: "" },
+        {
+          group: "g",
+          node: "a",
+          serverName: "a",
+          online: false,
+          firstSeen: "",
+        },
       ]),
     ).toBeNull();
     expect(latestPeerActivity([])).toBeNull();

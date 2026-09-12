@@ -47,7 +47,6 @@ import { useAutosave } from "./useAutosave";
  * background +logs"*.
  */
 export function LibrariesSection() {
-  const { t } = useTranslation();
   const libraries = useLibraries();
 
   return (

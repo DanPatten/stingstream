@@ -355,6 +355,48 @@ function Get-StatusCode {
     }
 }
 
+function Get-FailureResponse {
+    <#
+    .SYNOPSIS
+        The status *and the body* of a call that is expected to fail.
+    .DESCRIPTION
+        `Get-StatusCode` answers the number and throws the body away, which is enough for "a
+        member may not approve" and not enough for a refusal whose whole point is what it carries
+        back. The body is in a different place on each edition: 7 puts it on the error record as
+        `ErrorDetails.Message`, 5.1 leaves it in the response stream. Both are read here for the
+        same reason `Get-StatusCode` reads both exception shapes -- Dan's machine is 5.1 and CI
+        is 7, so a branch that only works on one is a branch that never fires where it matters.
+    #>
+    param([Parameter(Mandatory)][scriptblock]$Body)
+    try {
+        $ok = & $Body
+        return @{ Status = 200; Body = $ok; Text = $null }
+    } catch {
+        $status = 0
+        $response = $_.Exception.Response
+        if ($response -and $null -ne $response.PSObject.Properties['StatusCode']) {
+            $status = [int]$response.StatusCode
+        } elseif ($null -ne $_.Exception.PSObject.Properties['StatusCode']) {
+            $status = [int]$_.Exception.StatusCode
+        }
+
+        $text = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            $text = $_.ErrorDetails.Message
+        } elseif ($response -is [System.Net.HttpWebResponse]) {
+            try {
+                $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+                $text = $reader.ReadToEnd()
+                $reader.Dispose()
+            } catch { $text = $null }
+        }
+
+        $parsed = $null
+        if ($text) { $parsed = try { $text | ConvertFrom-Json } catch { $null } }
+        return @{ Status = $status; Body = $parsed; Text = $text }
+    }
+}
+
 function Write-MovieNfo {
     param([Parameter(Mandatory)][string]$Folder)
     Set-Content -Path (Join-Path $Folder 'movie.nfo') -Encoding utf8 -Value @"
@@ -830,20 +872,33 @@ Invoke-Step 'A request for a film the group already has starts no download' {
     $before = Get-RecordCount (Invoke-Node $NodeB '/stingstream/api/v1/movies' -TimeoutSec 120)
     Write-Host "      Radarr on B tracks $before movie(s) before the request"
 
-    $made = Invoke-AsMember '/stingstream/api/v1/requests' -Method POST -Body @{
-        tmdbId = $MovieTmdb; title = $MovieTitle; year = $MovieYear; group = $Group.group
-    } -TimeoutSec 180
+    $requestsBefore = Get-RecordCount (Invoke-AsMember '/stingstream/api/v1/requests' -TimeoutSec 60)
 
-    # Straight to available, with no approval step at all: a title the group already holds costs
-    # nothing to satisfy, so asking an administrator whether it may be downloaded is asking about a
-    # download that is not going to happen.
-    if ($made.state -ne 'available') {
-        throw "a film B already holds should be available immediately; the request is '$($made.state)' -- $($made.note)"
+    # Nothing is created at all, where this used to file a row that went straight to `available`.
+    # Such a row answered the bandwidth question and none of the others: the person still wanted
+    # *something*, and a row saying "you already have this" does not find out what. So the first
+    # ask is refused with what the group already holds and where to play it, and only a second ask
+    # carrying a reason files anything. docs/REQUESTS.md section 2b.
+    $refusal = Get-FailureResponse {
+        Invoke-AsMember '/stingstream/api/v1/requests' -Method POST -Body @{
+            tmdbId = $MovieTmdb; title = $MovieTitle; year = $MovieYear; group = $Group.group
+        } -TimeoutSec 180
     }
-    if ($made.note -notmatch 'Nothing was downloaded') {
-        throw "the request does not say why nothing happened: '$($made.note)'"
+    if ($refusal.Status -ne 409) {
+        throw "asking for a film the group holds answered $($refusal.Status), not 409 -- $($refusal.Text)"
     }
-    Write-Host "      request $($made.id): $($made.state) -- $($made.note)"
+    if (-not (Get-Member-Value $refusal.Body 'alreadyHeld')) {
+        throw "the 409 does not say the group already holds it: $($refusal.Text)"
+    }
+    $holders = @((Get-Member-Value $refusal.Body 'holders') | Where-Object { $_ })
+    if ($holders.Count -lt 1) { throw "the refusal names nobody holding it: $($refusal.Text)" }
+    Write-Host "      refused with 409: held by $($holders -join ', '), playable as '$(Get-Member-Value $refusal.Body 'playableItemId')'"
+
+    # Refused means refused. Not a row that is tidied away later, and not a row at all.
+    $requestsAfter = Get-RecordCount (Invoke-AsMember '/stingstream/api/v1/requests' -TimeoutSec 60)
+    if ($requestsAfter -ne $requestsBefore) {
+        throw "the member had $requestsBefore request(s) and now has $requestsAfter; the refusal filed one anyway."
+    }
 
     # The direct proof. Give both nodes a couple of passes to do the wrong thing before checking.
     Invoke-Node $NodeA '/stingstream/api/v1/requests/pass' -Method POST -TimeoutSec 120 | Out-Null
@@ -859,7 +914,7 @@ Invoke-Step 'A request for a film the group already has starts no download' {
     $radarrQueue = Get-RecordCount (Get-Member-Value $queue 'radarr')
     if ($radarrQueue -gt 0) { throw "Radarr on B has $radarrQueue item(s) queued." }
     Write-Host "      Radarr on B still tracks $after movie(s) and its queue is empty"
-    Add-HarnessNote 'Requesting a title the group already holds is answered "available" and downloads nothing.'
+    Add-HarnessNote 'Requesting a title the group already holds is refused with what holds it, files no request and downloads nothing.'
 }
 
 # ============================================================================================

@@ -1327,7 +1327,19 @@ Invoke-Step 'Switching a library off keeps its files' {
         Select-Object -First 1
     if (-not $movies) { throw 'No Movies library to switch off.' }
     $id = Get-Member-Value $movies 'Id'
-    $paths = @(Get-Member-Value $movies 'Paths')
+
+    # The library's folder as the media server actually has it, not as the settings row has it.
+    # A row's `Paths` is empty until somebody sets one: the migration deliberately leaves it that
+    # way and `LibraryLayoutPlan` falls back to the supervisor's path, which is what makes a node
+    # nobody has configured still have working libraries (`LibraryLayoutPlanTests`). Reading the
+    # row asserted a folder that a default install is never going to have.
+    $folders = @(Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders))
+    $moviesFolder = @($folders | Where-Object { (Get-Member-Value $_ 'Name') -eq 'Movies' }) | Select-Object -First 1
+    if (-not $moviesFolder) { throw 'The media server has no Movies library to switch off.' }
+    # Its own folder, not the pointer tree beside it: the federated tree holds peers' `.strm` files
+    # and switching this library off is allowed to change those.
+    $paths = @(@(Get-Member-Value $moviesFolder 'Locations') |
+        Where-Object { $_ -and $_ -notmatch 'federated' })
     if ($paths.Count -eq 0) { throw 'The Movies library reports no folder of its own.' }
 
     # Every file under the library's own folder before anything is switched, by path *and*

@@ -436,20 +436,37 @@ Invoke-Step 'The old invite code is dead and a new one works' {
     Start-MeshNode -Name 'd' | Out-Null
 
     $stale = $null
+    $staleError = $null
     try {
         $stale = Mesh-Json -Node 'd' -Path '/mesh/v1/groups/join' -Method POST -Body @{ code = $script:OldInvite } -TimeoutSec 300
     } catch {
-        $stale = $null
+        # Reported rather than swallowed. A join that throws leaves `$stale` null, and the
+        # assertion below is written so that null is a pass -- so a change that turned every join
+        # into an error would retire this step without failing it.
+        $staleError = $_.Exception.Message
     }
-    # A join with a dead code still *succeeds locally* -- the group is created and its topic goes
-    # live -- and reaches nobody, which is exactly what `via` reports. That distinction is the
-    # honest one: the code is not rejected, it is simply no longer a credential anyone accepts.
+    # The code is not rejected for being malformed, it is simply no longer a credential anyone
+    # accepts, and that shows up as reaching nobody. `via: none` is the usual shape; an outright
+    # refusal is the same answer said louder. What must never happen is a join that reaches
+    # somebody.
     if ($stale -and $stale.via -ne 'none') {
         throw "the pre-rotation invite code still got D into the group via '$($stale.via)'"
     }
-    Write-Host '      the pre-rotation code reaches nobody'
+    if ($staleError) {
+        Write-Host "      the pre-rotation code was refused outright: $staleError"
+    } else {
+        Write-Host '      the pre-rotation code reaches nobody'
+    }
 
-    Mesh-Json -Node 'd' -Path "/mesh/v1/groups/$($script:GroupId)" -Method DELETE | Out-Null
+    # Clear the group off D before the fresh code is tried, *if it is there*. A join that reaches
+    # nobody no longer leaves a local group behind, so this 404s on a node that never got one --
+    # which is the right behaviour and was the wrong assumption: the delete used to be
+    # unconditional and failed the step on its own tidying-up.
+    try {
+        Mesh-Json -Node 'd' -Path "/mesh/v1/groups/$($script:GroupId)" -Method DELETE | Out-Null
+    } catch {
+        Write-Host '      the dead code left no local group to clear'
+    }
 
     $script:FreshInvite = (Mesh-Json -Node 'a' -Path "/mesh/v1/groups/$($script:GroupId)/invite" -Method POST -Body @{}).code
     $fresh = $script:FreshInvite
