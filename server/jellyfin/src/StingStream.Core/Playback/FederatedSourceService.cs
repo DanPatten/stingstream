@@ -40,6 +40,10 @@ public sealed class FederatedSourceService
     private readonly ILogger<FederatedSourceService> _logger;
     private readonly ConcurrentDictionary<string, Snapshot> _cache = new(StringComparer.Ordinal);
 
+    /// <summary>This node's own item keys, and when they were read. See <see cref="LocalKeys"/>.</summary>
+    private volatile IReadOnlyCollection<string>? _localKeys;
+    private DateTime _localKeysAt = DateTime.MinValue;
+
     public FederatedSourceService(
         IMeshClient mesh,
         IInventoryService inventory,
@@ -106,24 +110,110 @@ public sealed class FederatedSourceService
         var candidates = new List<SourceCandidate>(records.Count);
         foreach (var record in records)
         {
-            candidates.Add(new SourceCandidate
-            {
-                Group = string.Empty,
-                Node = nodeId,
-                ServerName = serverName,
-                ItemKey = record.ItemKey,
-                // This node is reachable from this node. Nothing about a group's view of it, which
-                // is where the old answer came from, changes that.
-                Online = true,
-                FileHash = record.FileHash,
-                Bitrate = record.Media.VideoBitRate,
-                Size = record.Media.SizeBytes,
-                Height = record.Media.Height,
-                Width = record.Media.Width,
-            });
+            candidates.Add(Local(record, nodeId, serverName));
         }
 
         return candidates;
+    }
+
+    /// <summary>Every item key this node holds, reused for a few seconds.</summary>
+    /// <returns>The keys.</returns>
+    /// <remarks>
+    /// <see cref="IInventoryService.Keys"/> is a full read of the inventory table, and the feed asks
+    /// about sixty titles at a time while a search asks on a debounce, so an uncached read would
+    /// materialise every key in the library several times a minute. Cached on the same
+    /// <see cref="CacheFor"/> window the group snapshot uses, and for the same reason: a file that
+    /// appeared in the last few seconds showing up on the next pass instead of this one costs
+    /// nothing, and the request path that decides whether to fetch anything does its own uncached
+    /// lookup.
+    /// </remarks>
+    private IReadOnlyCollection<string> LocalKeys()
+    {
+        var now = DateTime.UtcNow;
+        var cached = _localKeys;
+        if (cached is not null && now - _localKeysAt < CacheFor)
+        {
+            return cached;
+        }
+
+        var keys = _inventory.Keys;
+        _localKeys = keys;
+        _localKeysAt = now;
+        return keys;
+    }
+
+    /// <summary>One of this node's own inventory records, as a candidate.</summary>
+    /// <param name="record">The record.</param>
+    /// <param name="nodeId">This node's id, or empty where the caller does not compare ids.</param>
+    /// <param name="serverName">This node's display name, or empty.</param>
+    /// <returns>The candidate.</returns>
+    private static SourceCandidate Local(InventoryRecord record, string nodeId, string serverName)
+        => new()
+        {
+            Group = string.Empty,
+            Node = nodeId,
+            ServerName = serverName,
+            ItemKey = record.ItemKey,
+            // This node is reachable from this node. Nothing about a group's view of it, which is
+            // where the old answer came from, changes that.
+            Online = true,
+            FileHash = record.FileHash,
+            Bitrate = record.Media.VideoBitRate,
+            Size = record.Media.SizeBytes,
+            Height = record.Media.Height,
+            Width = record.Media.Width,
+        };
+
+    /// <summary>Add this node's own holdings for everything the caller asked about.</summary>
+    /// <param name="found">The bucket map being built, keyed as the caller asked.</param>
+    /// <param name="wantedMovies">The movie keys asked about.</param>
+    /// <param name="wantedSeries">The series prefixes asked about.</param>
+    /// <remarks>
+    /// <para>
+    /// **One walk of the inventory, not one per key**, which is the same reasoning the index walk
+    /// below is built on. The catalogue asks about sixty titles at a time; calling the per-title
+    /// lookup once each would scan every record in the library for each series prefix among them,
+    /// so a household with a few thousand episodes would pay hundreds of thousands of comparisons
+    /// to draw one feed. Bucketing as it goes costs the size of the inventory once.
+    /// </para>
+    /// <para>
+    /// Bucketed under the key the caller asked about rather than the record's own, so an episode
+    /// lands under its series prefix exactly as a gossiped entry does.
+    /// </para>
+    /// </remarks>
+    private void AddLocal(
+        Dictionary<string, IReadOnlyList<SourceCandidate>> found,
+        HashSet<string> wantedMovies,
+        HashSet<string> wantedSeries)
+    {
+        if (wantedMovies.Count == 0 && wantedSeries.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var key in LocalKeys())
+        {
+            var bucket = BucketOf(key);
+            var wanted = InventoryKeys.IsEpisode(key)
+                ? wantedSeries.Contains(bucket)
+                : wantedMovies.Contains(bucket);
+            if (!wanted || _inventory.ByKey(key) is not { } record)
+            {
+                continue;
+            }
+
+            var candidate = Local(record, string.Empty, string.Empty);
+            if (found.TryGetValue(bucket, out var already))
+            {
+                // The common bucket holds one entry, so growing it in place beats rebuilding a list
+                // per episode of a series the caller asked about.
+                ((List<SourceCandidate>)already).Add(candidate);
+            }
+            else
+            {
+                found[bucket] = new List<SourceCandidate> { candidate };
+            }
+        }
     }
 
     /// <summary>Every holder of one item in one group, ready to score.</summary>
@@ -255,6 +345,17 @@ public sealed class FederatedSourceService
 
         var wantedMovies = new HashSet<string>(movieKeys, StringComparer.Ordinal);
         var wantedSeries = new HashSet<string>(seriesPrefixes, StringComparer.Ordinal);
+
+        // This node's own library first, and independently of the mesh. Everything below reads the
+        // gossiped index, which holds nothing until something has been published into a group, so a
+        // search on a node with no group -- or with a mesh that is not running -- said "nobody has
+        // this" about every title on its own disk. Dan, pointing at a film he owns: *"I have this in
+        // my library and it doesnt show that"*.
+        //
+        // `LocalHoldings` is the same lookup the request path uses. Both had to have it: asking for
+        // a held title was refused correctly while the row that offered it said nothing, because
+        // only one of the two consulted the library.
+        AddLocal(found, wantedMovies, wantedSeries);
 
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
         if (groups is null)
