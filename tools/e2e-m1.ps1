@@ -1398,9 +1398,16 @@ Invoke-Step 'Switching a library off keeps its files' {
     Write-Host '      library withdrawn, every file still on disk'
 
     # And the other half of the one switch: the manager it answers for.
-    $config = Get-Content -Path (Join-Path $DataDir 'config.toml') -Raw
+    # Read back by path, and the path is reported: "did not write X" is only actionable if it also
+    # says which file it looked in and what was there instead. This assertion spent two CI rounds
+    # saying neither.
+    $configPath = Join-Path $DataDir 'config.toml'
+    $config = Get-Content -Path $configPath -Raw
     if ($config -notmatch '(?m)^\s*radarr\s*=\s*false\s*$') {
-        throw 'Switching the Movies library off did not write radarr = false into config.toml.'
+        $children = ($config -split "`r?`n" |
+            Where-Object { $_ -match '^\s*(\[|radarr|sonarr|nzbget)' }) -join ' | '
+        throw ("Switching the Movies library off did not write radarr = false into $configPath. " +
+               "It holds: $children")
     }
     Write-Host '      config.toml: radarr = false'
 

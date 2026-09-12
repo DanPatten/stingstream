@@ -61,8 +61,17 @@ public static class ArrEnablement
 
         var isMovies = string.Equals(libraryType, LibraryTypes.Movies, StringComparison.OrdinalIgnoreCase);
 
+        // `Managed` as well as `Enabled`, and it is load-bearing. Recordings is a library of
+        // peers' DVR recordings with no folder of this node's in it, and its settings row carries
+        // `Type = movies` so it lands in the right place on screen. Reading the type alone, a node
+        // whose Movies library had just been switched off still looked to this rule like a node
+        // with a films library on, so the film manager was never stopped: the switch appeared to do
+        // nothing. `LibraryLayoutPlan.Host` already picks the library that carries the federated
+        // tree with the same test, for the same reason.
         var libraryOn = settings.Libraries.Any(l =>
-            l.Enabled && string.Equals(l.Type, libraryType, StringComparison.OrdinalIgnoreCase));
+            l.Managed
+            && l.Enabled
+            && string.Equals(l.Type, libraryType, StringComparison.OrdinalIgnoreCase));
 
         var indexed = settings.Indexers.Any(i =>
             i.Enabled && (isMovies ? i.ForMovies : i.ForSeries));

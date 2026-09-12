@@ -277,6 +277,35 @@ public class ArrEnablementTests
     }
 
     [Fact]
+    public void Recordings_does_not_keep_the_film_manager_alive()
+    {
+        // Recordings is peers' DVR recordings and no folder of this node's, and its settings row is
+        // typed `movies` so it sorts with the films on screen. Counted as a films library it made
+        // the Movies switch appear to do nothing: the manager stayed on because "some films
+        // library is enabled" was still true of a library this node holds nothing in.
+        var settings = Settings();
+        settings.Libraries.Add(new LibrarySettings
+        {
+            Name = "Recordings",
+            Type = LibraryTypes.Movies,
+            Enabled = true,
+            Managed = false,
+        });
+
+        foreach (var library in settings.Libraries)
+        {
+            if (library.Managed && library.Type == LibraryTypes.Movies)
+            {
+                library.Enabled = false;
+            }
+        }
+
+        Assert.False(ArrEnablement.ShouldRun(settings, LibraryTypes.Movies));
+        // And the series side is untouched by any of it.
+        Assert.True(ArrEnablement.ShouldRun(settings, LibraryTypes.TvShows));
+    }
+
+    [Fact]
     public void A_second_library_of_the_same_type_keeps_the_manager_on()
     {
         // Libraries are a list, not one row per type: switching one film library off while another
