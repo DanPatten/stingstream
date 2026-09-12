@@ -49,6 +49,8 @@ const ROUTES = {
   counts: "/requests/counts",
   search: "/requests/search",
   discover: "/requests/discover",
+  related: "/requests/related",
+  credits: "/requests/credits",
   policy: "/requests/policy",
   users: "/requests/users",
   user: "/requests/users/{userId}",
@@ -696,6 +698,76 @@ export const toRequestCard = (
       };
 
 /**
+ * The id a requestable card is keyed on.
+ *
+ * Pulled out of `toRequestCard` so a screen's lookup map and the card's own key cannot disagree
+ * about what identifies a result. `itemKey` is blank only for a result the node could not build a
+ * key for, which the fallback still keeps distinct.
+ */
+export const requestCardId = (result: RequestSearchResult): string =>
+  result.itemKey || `${result.kind}:${result.tmdbId || result.tvdbId}`;
+
+/**
+ * What the hover disc on a mixed row should promise for one result.
+ *
+ * **Keyed on `localItemId`, not on `availableInGroup`, and the difference is the whole point.** A
+ * peer's copy is held by the group before the federated materialiser has made it an item on this
+ * node, and in that window there is nothing here to open: a play disc would be a press that goes
+ * nowhere. Erring towards the request glyph under-promises, which is the right side to err on, and
+ * the press then lands on `RequestSheet`, which says "your library already has this", names the
+ * holder and offers Play the moment an id resolves.
+ *
+ * Pure so `requestsApi.test.ts` can pin it away from the React tree: glyph and press are decided
+ * from the same field, and the invariant that they never disagree is what this function is.
+ */
+export const requestHoverGlyph = (
+  result: RequestSearchResult,
+): "play" | "request" => (result.localItemId ? "play" : "request");
+
+/**
+ * `toRequestCard`, plus what a card on a related or credits row promises.
+ *
+ * The artwork's label carries the state as well, because the disc is `pointerEvents: none` with no
+ * label of its own and a screen reader would otherwise hear nothing to distinguish a title that
+ * plays from one that opens a request.
+ */
+export const toRequestableCard = (
+  result: RequestSearchResult,
+  notInLibraryLabel?: string,
+): CardData => {
+  const card = toRequestCard(result);
+  const glyph = requestHoverGlyph(result);
+  return {
+    ...card,
+    hoverGlyph: glyph,
+    imageAlt:
+      glyph === "request" && notInLibraryLabel
+        ? `${card.imageAlt ?? card.title}, ${notInLibraryLabel}`
+        : card.imageAlt,
+  };
+};
+
+/**
+ * A person's credits with the title you are standing on taken out.
+ *
+ * **Guarded on the id existing, not just on the two being unequal.** A title nobody holds carries no
+ * `localItemId`, and a film has no `SeriesId`, so a bare `!==` compares undefined with undefined,
+ * calls it a match and drops every title the library does not have -- which is the whole row, and
+ * exactly the feature. Found on a real page, where the row rendered nothing at all.
+ */
+export const withoutCurrentTitle = (
+  results: RequestSearchResult[],
+  currentItemId?: string | null,
+  currentSeriesId?: string | null,
+): RequestSearchResult[] =>
+  results.filter(
+    (result) =>
+      !result.localItemId ||
+      (result.localItemId !== currentItemId &&
+        result.localItemId !== currentSeriesId),
+  );
+
+/**
  * Whether two Jellyfin user ids name the same person.
  *
  * Jellyfin issues the same GUID in `N` format (dashless) in its auth claim — which is what Core
@@ -1021,6 +1093,55 @@ export async function searchRequestable(
     headers: authHeaders(accessToken),
   });
   if (!res.ok) throw await readRequestsError(res, "GET /requests/search");
+  return ((await res.json()) as unknown[]).map(toSearchResult);
+}
+
+/**
+ * What else is like this, whoever holds it.
+ *
+ * The library item id is what every caller has: a detail screen is handed `item.Id` and nothing
+ * else, and a `BaseItemDto`'s `ProviderIds` is only filled in when the query that fetched it asked
+ * for them. The node resolves it, which also puts the episode-to-series walk in one place.
+ */
+export async function fetchRelated(
+  apiBaseUrl: string,
+  subject: {
+    itemId?: string | null;
+    tmdbId?: number;
+    tvdbId?: number;
+    kind?: "movie" | "series";
+  },
+  accessToken?: string | null,
+): Promise<RequestSearchResult[]> {
+  const query = new URLSearchParams();
+  if (subject.itemId) query.set("itemId", subject.itemId);
+  if (subject.tmdbId) query.set("tmdbId", String(subject.tmdbId));
+  if (subject.tvdbId) query.set("tvdbId", String(subject.tvdbId));
+  if (subject.kind) query.set("kind", subject.kind);
+  const res = await fetch(url(apiBaseUrl, ROUTES.related, {}, query), {
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/related");
+  return ((await res.json()) as unknown[]).map(toSearchResult);
+}
+
+/**
+ * Everything a person appears in, whoever holds it.
+ *
+ * A cast row only ever has the Jellyfin person id -- a `BaseItemPerson` carries a name, a role and
+ * an id and no provider ids at all -- so the node does the resolving, falling back to a name search
+ * for a person the library has no TMDB id for.
+ */
+export async function fetchCredits(
+  apiBaseUrl: string,
+  personId: string,
+  accessToken?: string | null,
+): Promise<RequestSearchResult[]> {
+  const res = await fetch(
+    url(apiBaseUrl, ROUTES.credits, {}, new URLSearchParams({ personId })),
+    { headers: authHeaders(accessToken) },
+  );
+  if (!res.ok) throw await readRequestsError(res, "GET /requests/credits");
   return ((await res.json()) as unknown[]).map(toSearchResult);
 }
 

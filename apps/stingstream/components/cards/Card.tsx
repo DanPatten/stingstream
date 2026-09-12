@@ -15,6 +15,7 @@ import {
   type CardKind,
   type CardSlots,
   defaultTextPlacement,
+  resolveHoverGlyph,
 } from "./CardData";
 import { CONTENT_GLYPHS } from "./CardPlaceholderTile";
 import { useCardLayout } from "./useCardLayout";
@@ -149,8 +150,15 @@ export const Card: React.FC<CardProps> = ({
 
   // The disc reads as "this plays" without a caption; it only makes sense once
   // a pointer is actually hovering, since touch has no equivalent gesture.
+  //
+  // A plus instead of a play triangle where the library does not hold the title
+  // and the press opens a request. `add` rather than the `requests` ticket: the
+  // ticket is the tab's own glyph, and on a poster it reads as "this has a
+  // ticket" rather than "ask for this". `TVRequestButton` already draws a plus
+  // for exactly this act, so the two surfaces use one symbol.
+  const glyph = resolveHoverGlyph(card, hoverPlayGlyph);
   const playGlyph =
-    lifted && hoverPlayGlyph ? (
+    lifted && glyph !== "none" ? (
       <View
         pointerEvents='none'
         style={{
@@ -173,7 +181,11 @@ export const Card: React.FC<CardProps> = ({
             backgroundColor: rgba("#000000", 0.5),
           }}
         >
-          <Icon name='play' size={20} color='#FFFFFF' />
+          <Icon
+            name={glyph === "play" ? "play" : "add"}
+            size={20}
+            color='#FFFFFF'
+          />
         </View>
       </View>
     ) : null;

@@ -8,6 +8,8 @@ import {
   DEFAULT_REQUEST_FILTERS,
   dedupeSearchResults,
   discoverRequestable,
+  fetchCredits,
+  fetchRelated,
   fetchRequestsAvailable,
   impliesApproval,
   type LibraryIdentity,
@@ -16,6 +18,8 @@ import {
   type RequestSearchResult,
   RequestsUnavailableError,
   reasonsFor,
+  requestCardId,
+  requestHoverGlyph,
   requestTitle,
   sameUser,
   searchAction,
@@ -31,9 +35,11 @@ import {
   toNotification,
   toPolicy,
   toRequest,
+  toRequestableCard,
   toRequestCard,
   toRequestDetail,
   toSearchResult,
+  withoutCurrentTitle,
 } from "./requestsApi";
 
 /**
@@ -829,5 +835,177 @@ describe("createRequest and a library that already has it", () => {
     expect(err).toBeInstanceOf(AlreadyHeldError);
     expect((err as AlreadyHeldError).holders).toEqual([]);
     expect((err as AlreadyHeldError).playableItemId).toBeUndefined();
+  });
+});
+
+describe("a mixed row: which titles play, and which ask", () => {
+  const result = (
+    over: Partial<RequestSearchResult> = {},
+  ): RequestSearchResult => ({
+    kind: "movie",
+    title: "Alien",
+    year: 1979,
+    tmdbId: 348,
+    tvdbId: 0,
+    itemKey: "movie:tmdb:348",
+    availableInGroup: false,
+    holders: [],
+    ...over,
+  });
+
+  test("a title this node can open carries the play glyph", () => {
+    expect(
+      requestHoverGlyph(result({ availableInGroup: true, localItemId: "abc" })),
+    ).toBe("play");
+  });
+
+  test("a title nobody holds carries the request glyph", () => {
+    expect(requestHoverGlyph(result())).toBe("request");
+  });
+
+  test("held by the group but not yet materialised here still asks", () => {
+    // The one that matters. A peer's copy is held before the federated materialiser has made it an
+    // item on this node, and in that window there is nothing here to open. A play disc would be a
+    // press that goes nowhere, so the glyph under-promises and the press lands on the sheet, which
+    // names the holder and offers Play the moment an id resolves.
+    expect(
+      requestHoverGlyph(result({ availableInGroup: true, localItemId: null })),
+    ).toBe("request");
+  });
+
+  test("the card carries the same answer the press will act on", () => {
+    const held = result({ availableInGroup: true, localItemId: "abc" });
+    expect(toRequestableCard(held).hoverGlyph).toBe("play");
+    expect(toRequestableCard(result()).hoverGlyph).toBe("request");
+  });
+
+  test("the held card keeps its In library badge", () => {
+    // Load-bearing: on a touch screen there is no hover and so no disc at all, and this badge is
+    // then the only thing telling the two kinds of card apart.
+    const held = result({ availableInGroup: true, localItemId: "abc" });
+    expect(toRequestableCard(held).badgeLabel).toBe("In library");
+  });
+
+  test("a screen reader hears which cards are not in the library", () => {
+    // The disc is pointerEvents: none with no label of its own, so without this a screen reader
+    // could not tell a title that plays from one that opens a request.
+    expect(toRequestableCard(result(), "not in your library").imageAlt).toBe(
+      "Alien (1979), not in your library",
+    );
+    const held = result({ availableInGroup: true, localItemId: "abc" });
+    expect(toRequestableCard(held, "not in your library").imageAlt).toBe(
+      "Alien (1979)",
+    );
+  });
+
+  test("the card id matches what toRequestCard keyed on", () => {
+    expect(requestCardId(result())).toBe(toRequestCard(result()).id);
+  });
+
+  test("a result with no item key still gets a distinct id", () => {
+    expect(requestCardId(result({ itemKey: "" }))).toBe("movie:348");
+  });
+});
+
+describe("related and credits", () => {
+  const original = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = original;
+  });
+
+  const answer = (status: number, body: unknown) => {
+    globalThis.fetch = (async (input: string | URL) => {
+      seen = String(input);
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+  };
+  let seen = "";
+
+  test("both read through the same shaper the search uses", async () => {
+    // PascalCase, the way Core actually answers.
+    answer(200, [
+      {
+        Kind: "movie",
+        Title: "Aliens",
+        Year: 1986,
+        TmdbId: 679,
+        ItemKey: "movie:tmdb:679",
+        AvailableInGroup: true,
+        LocalItemId: "abc",
+      },
+    ]);
+
+    const related = await fetchRelated(BASE, { itemId: "deadbeef" });
+    expect(related).toHaveLength(1);
+    expect(related[0].title).toBe("Aliens");
+    expect(related[0].availableInGroup).toBe(true);
+    expect(related[0].localItemId).toBe("abc");
+    expect(seen).toContain("/requests/related");
+    expect(seen).toContain("itemId=deadbeef");
+
+    const credits = await fetchCredits(BASE, "cafe");
+    expect(credits[0].itemKey).toBe("movie:tmdb:679");
+    expect(seen).toContain("/requests/credits");
+    expect(seen).toContain("personId=cafe");
+  });
+
+  test("a node that cannot read the catalogue says so", async () => {
+    answer(503, {});
+    await expect(fetchRelated(BASE, { itemId: "x" })).rejects.toBeInstanceOf(
+      RequestsUnavailableError,
+    );
+    await expect(fetchCredits(BASE, "x")).rejects.toBeInstanceOf(
+      RequestsUnavailableError,
+    );
+  });
+
+  test("an explicit provider id is sent instead of an item id", async () => {
+    answer(200, []);
+    await fetchRelated(BASE, { tmdbId: 348, kind: "movie" });
+    expect(seen).toContain("tmdbId=348");
+    expect(seen).toContain("kind=movie");
+    expect(seen).not.toContain("itemId=");
+  });
+});
+
+describe("withoutCurrentTitle", () => {
+  const r = (over: Partial<RequestSearchResult>): RequestSearchResult => ({
+    kind: "movie",
+    title: "T",
+    tmdbId: 1,
+    tvdbId: 0,
+    itemKey: "movie:tmdb:1",
+    availableInGroup: false,
+    holders: [],
+    ...over,
+  });
+
+  test("keeps every title the library does not hold", () => {
+    // The regression. A film has no SeriesId and an unheld result has no localItemId, so a bare
+    // `!==` compared undefined with undefined, called it a match, and emptied the whole row.
+    const results = [r({ title: "A" }), r({ title: "B" })];
+    expect(withoutCurrentTitle(results, "abc", undefined)).toHaveLength(2);
+  });
+
+  test("drops the title you are standing on", () => {
+    const results = [r({ title: "A", localItemId: "abc" }), r({ title: "B" })];
+    expect(
+      withoutCurrentTitle(results, "abc", undefined).map((x) => x.title),
+    ).toEqual(["B"]);
+  });
+
+  test("drops the series an episode belongs to", () => {
+    const results = [r({ title: "S", localItemId: "ser" }), r({ title: "B" })];
+    expect(
+      withoutCurrentTitle(results, "ep", "ser").map((x) => x.title),
+    ).toEqual(["B"]);
+  });
+
+  test("keeps other held titles", () => {
+    const results = [r({ title: "A", localItemId: "other" })];
+    expect(withoutCurrentTitle(results, "abc", undefined)).toHaveLength(1);
   });
 });

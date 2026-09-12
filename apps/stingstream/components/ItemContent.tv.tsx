@@ -41,6 +41,7 @@ import {
   TVSeriesNavigation,
   TVTechnicalDetails,
 } from "@/components/tv";
+import { TVRequestableRow } from "@/components/tv/TVRequestableRow";
 import type { Track } from "@/components/video-player/controls/types";
 import { BITRATES, type Bitrate } from "@/constants/Playback";
 import { useScaledTVSizes } from "@/constants/TVSizes";
@@ -55,6 +56,10 @@ import { useTVOptionModal } from "@/hooks/useTVOptionModal";
 import { useTVSourceChooser } from "@/hooks/useTVSourceChooser";
 import { useTVSubtitleModal } from "@/hooks/useTVSubtitleModal";
 import { useTVThemeMusic } from "@/hooks/useTVThemeMusic";
+import {
+  useRelatedTitles,
+  useRequestsAvailable,
+} from "@/lib/stingstream/requests";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
@@ -105,6 +110,15 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
     const [api] = useAtom(apiAtom);
     const [user] = useAtom(userAtom);
     const isOffline = useOfflineMode();
+
+    // What else is like this, whoever holds it. Offline this asks nothing: the node is not
+    // reachable, and a request cannot be made anyway.
+    const requestsAvailable = useRequestsAvailable();
+    const related = useRelatedTitles(
+      item?.Id,
+      !isOffline && requestsAvailable.data === true,
+    );
+
     const { getDownloadedItemById } = useDownload();
     // A download pins the tracks it was pulled with, and only the record knows
     // them: resolving against the server media source hands back an index for a
@@ -1105,6 +1119,18 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                 horizontalPadding={insets.left + sizes.layout.contentInsetLeft}
               />
             )}
+
+            {/*
+              Related, whoever holds it. A held title opens its own page; anything else is asked
+              for outright with a toast, which is the only request a remote control makes
+              (`useAskForTitle`). Draws nothing at all on a node that cannot read the catalogue,
+              since a television has no good way to explain why.
+            */}
+            <TVRequestableRow
+              title={t("item.related")}
+              results={related.data}
+              horizontalPadding={insets.left + sizes.layout.contentInsetLeft}
+            />
 
             {/* Cast & Crew (text version - director, etc.) */}
             <TVCastCrewText

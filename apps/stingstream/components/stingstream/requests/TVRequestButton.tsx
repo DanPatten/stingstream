@@ -1,14 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useCallback, useMemo } from "react";
-import { toast } from "sonner-native";
 import { TVButton } from "@/components/tv/TVButton";
-import {
-  requestTitle,
-  useCreateRequest,
-  useRequests,
-} from "@/lib/stingstream/requests";
+import { useRequests } from "@/lib/stingstream/requests";
 import { scaleSize } from "@/utils/scaleSize";
+import { useAskForTitle } from "./useAskForTitle";
 
 /**
  * "Ask for the rest of this" — the one request action a ten-foot remote gets.
@@ -30,7 +26,7 @@ export function TVRequestButton({
   /** Shared with the other buttons in its row, so the row is not ragged. */
   minHeight?: number;
 }) {
-  const create = useCreateRequest();
+  const { ask: askFor, pending } = useAskForTitle();
   // Every request this node knows about, so a title already asked for says so rather than being
   // asked for twice. The node collapses a duplicate onto the open request anyway; this is about
   // what the button *says*.
@@ -64,29 +60,18 @@ export function TVRequestButton({
     [requests.data, target],
   );
 
+  // The ask itself lives in `useAskForTitle`, shared with the poster on a related or filmography
+  // row, so a press means the same thing and says the same thing wherever it happens on a
+  // television.
   const ask = useCallback(async () => {
     if (!target || !item) return;
-    try {
-      const made = await create.mutateAsync({
-        tmdbId: "tmdbId" in target ? target.tmdbId : undefined,
-        tvdbId: "tvdbId" in target ? target.tvdbId : undefined,
-        // No seasons: every season. The picker is a phone screen, and "all of it" is the honest
-        // default for a button with no way to say otherwise.
-        seasons: [],
-        title: item.Name ?? undefined,
-        year: item.ProductionYear ?? undefined,
-      });
-      toast.success(
-        made.state === "available"
-          ? `${requestTitle(made)} is already in your library`
-          : made.state === "pending"
-            ? `Asked for ${requestTitle(made)} — waiting for approval`
-            : `Asked for ${requestTitle(made)}`,
-      );
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  }, [create, item, target]);
+    await askFor({
+      tmdbId: "tmdbId" in target ? target.tmdbId : undefined,
+      tvdbId: "tvdbId" in target ? target.tvdbId : undefined,
+      title: item.Name,
+      year: item.ProductionYear,
+    });
+  }, [askFor, item, target]);
 
   if (!target) return null;
 
@@ -96,7 +81,7 @@ export function TVRequestButton({
       onPress={ask}
       variant='glass'
       square
-      disabled={create.isPending || asked}
+      disabled={pending || asked}
       minHeight={minHeight}
     >
       <Ionicons

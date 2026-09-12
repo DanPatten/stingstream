@@ -144,6 +144,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/identity/link-requests/{issuer}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Forget a request, so that server can ask again.
+         * @description The way back from a decline, and the only one. A decision is sticky on purpose — the upsert
+         *     refuses to reset a decided row to pending — so without this an administrator who declined by
+         *     mistake had shut that server out permanently, with no screen anywhere able to undo it.
+         */
+        delete: operations["Identity_StingStreamForgetLinkRequest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/identity/link-requests/{issuer}/approve": {
         parameters: {
             query?: never;
@@ -194,6 +216,30 @@ export interface paths {
         get: operations["Identity_StingStreamMyLinkRequest"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/identity/link-requests/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Offer the server you run to this one, having just proved you run it.
+         * @description Any member, because asking is not deciding: an administrator's own offer is approved as it
+         *     is made, and everybody else's waits for one of them. Unlike `link-requests` above,
+         *     which reads the node being offered out of the caller's link row, this one reads it out of a
+         *     signature, so it works for an account that has always been local. Either way the node id is
+         *     proved rather than typed.
+         */
+        post: operations["Identity_StingStreamStartLinkRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -626,6 +672,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/Libraries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every library on this node. */
+        get: operations["Libraries_GetLibraries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Libraries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change one library: its folder, or whether this server runs it at all.
+         * @description The order is settings, then `config.toml`, then reconcile. A failure to write the
+         *                 switch leaves a saved row that reconciliation will honour on the next start, which is the
+         *                 less surprising half to lose: the library is where the reader put it, and the manager
+         *                 catches up. The reverse order could stop a manager for a library the node then keeps.
+         *
+         *     Switching a library off keeps every file. See StingStream.Core.Data.LibrarySettings.Enabled.
+         */
+        put: operations["Libraries_PutLibrary"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/calendar": {
         parameters: {
             query?: never;
@@ -978,7 +1066,14 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Leave a group. */
+        /**
+         * Leave a group.
+         * @description The share list goes with it. M:StingStream.Core.Sharing.SharedLibraryStore.RemoveAsync(System.String,System.Threading.CancellationToken) had no
+         *     caller at all, so leaving left the row behind — harmless while a group id was never seen
+         *     again, and not harmless now that one link is one server: the tidy way back from a link that
+         *     went wrong is to leave it and add the server again, and a stale row would decide what the
+         *     new link shares before anybody had been asked.
+         */
         delete: operations["Mesh_Leave"];
         options?: never;
         head?: never;
@@ -1506,9 +1601,14 @@ export interface paths {
         post?: never;
         /**
          * Withdraw a request.
-         * @description A request already being fulfilled can be withdrawn too. It does not stop the download — the
-         *     grabbing node may be somebody else's and is already committed — but it does take the request
-         *     off the requester's list, which is what "I no longer want this" means from their side.
+         * @description A request already being fulfilled can be withdrawn too, and doing so <em>stops the
+         *                 download</em>: an unfinished one is cancelled and its partial files are deleted, wherever in
+         *                 the group it is running. Anything that has finished downloading is kept and finishes
+         *                 importing, because a person withdrawing an ask has not asked for an episode they already
+         *                 have to be thrown away. StingStream.Core.Requests.RequestWithdrawal is the whole of that rule.
+         *
+         *     This used to be a row delete, and said so on the confirmation dialog: the request came off
+         *                 the list and the grab it had started ran to the end on whichever node was doing it.
          */
         delete: operations["Requests_Delete"];
         options?: never;
@@ -1604,6 +1704,29 @@ export interface paths {
         };
         /** Badge counts for the navigation bar. */
         get: operations["Requests_Counts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everything a person appears in, whoever holds it.
+         * @description Ordered by popularity rather than in the provider's own order, which is the one place a
+         *     catalogue answer gets sorted here. `combined_credits` arrives roughly by internal id, so
+         *     left alone it opens a working actor's row with the talk shows they appeared on once. See
+         *     `TmdbCatalog.CreditEntries`.
+         */
+        get: operations["Requests_Credits"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1710,6 +1833,34 @@ export interface paths {
         get: operations["Requests_GetPolicy"];
         /** Set the group's request policy. */
         put: operations["Requests_SetPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/related": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What else is like this, whoever holds it.
+         * @description Behind <em>both</em>`CanSearch` and `CanBrowseCatalogue`, which is stricter than
+         *                 `discover` and deliberately so. `CanSearch` alone is true for a node running a
+         *                 manager with a blanked catalogue key, and such a node would answer this with an empty list
+         *                 forever. The app cannot tell that from "this film has no recommendations", and it falls back
+         *                 to a library-only row on the 503, so the honest answer matters here in a way it does not on a
+         *                 screen that still has a working search box.
+         *
+         *     An item that resolves to nothing usable — a box set, a live programme, a title with no
+         *                 provider id — is a 200 and an empty list, not an error. The row simply does not draw.
+         */
+        get: operations["Requests_Related"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1910,7 +2061,7 @@ export interface paths {
          *
          *     The test runs against <em>every</em> configured app rather than one, even though both get
          *                 the same indexer: the two send different category lists, and a Torznab endpoint that has
-         *                 films but no television is a real thing that would otherwise pass here and fail on the first
+         *                 films but no TV is a real thing that would otherwise pass here and fail on the first
          *                 series search.
          */
         post: operations["Settings_TestIndexer"];
@@ -3224,8 +3375,22 @@ export interface components {
              * @description The release year.
              */
             Year?: number | null;
+            /** @description The blurb from the search result, so the request keeps it after the search is gone. */
+            Overview?: string | null;
+            /**
+             * Format: int32
+             * @description How many seasons the show has, from the search result. Zero for a film.
+             */
+            SeasonCount?: number;
             /** @description A poster URL from the search result, so the request list has artwork immediately. */
             PosterUrl?: string | null;
+            /**
+             * @description Why this is being asked for when the group already holds it. One of
+             *     StingStream.Core.Requests.RequestReasons.
+             */
+            Reason?: string | null;
+            /** @description Optional: anything the requester wants to add in their own words. */
+            ReasonNote?: string | null;
         };
         /** @description The custom value option for custom database providers. */
         CustomDatabaseOption: {
@@ -3936,7 +4101,7 @@ export interface components {
         /** @description One holder of a title, as the availability answer reports it. */
         HolderSummary: {
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             Online?: boolean;
             Group?: string;
             Resolution?: string | null;
@@ -3990,6 +4155,8 @@ export interface components {
             InviteToken?: string | null;
             /** @description Also ask for the two servers to be linked. */
             RequestLink?: boolean;
+            /** @description Where their own server answers a browser, when the client resolved one. */
+            Address?: string | null;
             /** @description The salt their own server derived StingStream.Core.Identity.IdentitySignInRequest.Verifier with. */
             Salt?: string | null;
             /** @description PBKDF2 of their password, which becomes their password here. */
@@ -4224,6 +4391,34 @@ export interface components {
              */
             MessageType: "LibraryChanged";
         };
+        /** @description One library: a name, a type, and the folders on this node that hold it. */
+        LibrarySettings: {
+            /** @description Stable identity, surviving renames and path changes. */
+            Id?: string;
+            /** @description What the reader sees, and what titles from other servers merge on. */
+            Name?: string;
+            /** @description The directory name Jellyfin actually gave the virtual folder. Server-owned. */
+            FolderName?: string;
+            /** @description One of StingStream.Core.Data.LibraryTypes. Immutable once the library exists. */
+            Type?: string;
+            /**
+             * @description The folders on this node holding it, in the order they should be listed. Empty means "use
+             *     the supervisor's default for StingStream.Core.Data.LibrarySettings.Type".
+             */
+            Paths?: string[];
+            /** @description Whether this node runs the library at all. Off is the owner saying "not on this server". */
+            Enabled?: boolean;
+            /** @description Hidden from every reader on this node. */
+            Hidden?: boolean;
+            /** @description Movies and TV Shows: never renamed, never removed. */
+            Builtin?: boolean;
+            /** @description Whether this node owns the folders. False for a library that only exists elsewhere. */
+            Managed?: boolean;
+            /** @description The Jellyfin collection folder's id, in `"N"` format. Server-owned. */
+            JellyfinItemId?: string;
+            /** @description Exactly the locations this node last wrote into the virtual folder. Server-owned. */
+            ManagedLocations?: string[];
+        };
         /** @description What the add/request flow decided about one title. */
         LibraryStateRow: {
             ItemKey?: string;
@@ -4260,12 +4455,23 @@ export interface components {
             CollectionFolders?: string[];
             readonly IsEmpty?: boolean;
         };
+        /** @description What a caller wants changed about one library. Omit a property to leave it alone. */
+        LibraryUpdateRequest: {
+            /** @description The folder on this server. Empty means "follow the supervisor's default". */
+            Path?: string | null;
+            /** @description Whether this server runs the library at all. */
+            Enabled?: boolean | null;
+            /** @description Whether readers on this server see it. */
+            Hidden?: boolean | null;
+        };
         /** @description One request in the administrator's list. */
         LinkRequestSummary: {
             /** @description Node id of the server asking — also the id to approve or decline by. */
             IssuerNodeId?: string;
             /** @description What it calls itself. */
             IssuerName?: string;
+            /** @description Where a browser reaches it, or null. What the finishing link is built from. */
+            IssuerAddress?: string | null;
             /** @description The name of the account here that asked. */
             RequestedByName?: string;
             /** @description When they asked, ISO 8601. */
@@ -4274,6 +4480,21 @@ export interface components {
             Status?: string;
             /** @description The group it was approved into, or null. */
             GroupId?: string | null;
+        };
+        /** @description What came of offering it. */
+        LinkStartResult: {
+            /** @description `pending` or `approved`. */
+            Status?: string;
+            /** @description The asking server's node id, as the assertion gave it. */
+            IssuerNodeId?: string;
+            /** @description What that server calls itself. */
+            IssuerName?: string;
+            /** @description Where it answers a browser, or null. */
+            IssuerAddress?: string | null;
+            /** @description The link created for it, once there is one. */
+            GroupId?: string | null;
+            /** @description The invite to redeem over there, once there is one. */
+            Code?: string | null;
         };
         /** @description One remote identity holding an account here, for the administrator's list. */
         LinkedIdentitySummary: {
@@ -4791,7 +5012,7 @@ export interface components {
             /** @description The holding node's iroh node id. */
             Node?: string;
             /** @description The holding node's human name. This is the `<node-label>` in pointer filenames. */
-            NodeName?: string;
+            ServerName?: string;
             /** @description False when the holder has missed its heartbeats. */
             Online?: boolean;
             ItemKey?: string;
@@ -4857,7 +5078,7 @@ export interface components {
             /** @description The member's node id, hex. */
             Node?: string;
             /** @description What the member calls itself. Empty until it has said. */
-            NodeName?: string;
+            ServerName?: string;
             Online?: boolean;
             LastSeen?: string | null;
             /** @description This is the node answering the request. */
@@ -4912,7 +5133,7 @@ export interface components {
         MeshPeer: {
             Group?: string;
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             Online?: boolean;
             FirstSeen?: string;
             LastSeen?: string | null;
@@ -4980,7 +5201,7 @@ export interface components {
         /** @description One scored candidate from `GET /mesh/v1/sources/{group}/{item_key}`. */
         MeshScoredSource: {
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             Online?: boolean;
             FileHash?: string | null;
             /** Format: int64 */
@@ -5025,7 +5246,7 @@ export interface components {
         MeshStatus: {
             /** @description This node's iroh node id, 64 hex characters. */
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             Version?: string;
             /** Format: int32 */
             Groups?: number;
@@ -5165,6 +5386,8 @@ export interface components {
             ServerName?: string;
             /** @description The invite to redeem on their own server, once it is approved. */
             Code?: string | null;
+            /** @description Where their own server answers a browser, or null. */
+            IssuerAddress?: string | null;
         };
         NameGuidPair: {
             Name?: string | null;
@@ -5262,7 +5485,7 @@ export interface components {
         /** @description The node's StingStream status. */
         NodeStatus: {
             NodeId?: string;
-            NodeName?: string;
+            ServerName?: string;
             /** @description True when the supervisor was started with `--dev`. */
             Dev?: boolean;
             /** @description True until first-run wiring has completed successfully. */
@@ -5434,7 +5657,7 @@ export interface components {
             Group?: string;
             /** @description The holder chosen to copy from. */
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             /** @description BLAKE3 of the file being copied, when the holder published one. */
             FileHash?: string | null;
             /** @description Where the copy is going, in this node's own root folder. */
@@ -5911,6 +6134,13 @@ export interface components {
             UnreadNotifications?: number;
             /** @description Whether the caller may see the approvals queue at all. */
             CanApprove?: boolean;
+            /**
+             * Format: int32
+             * @description Requests on the wanted list, for an administrator.
+             */
+            Wanted?: number;
+            /** @description How this group fulfils requests: `automatic` or `manual`. */
+            RequestsMode?: string;
         };
         /** @description Body of an approve or decline. */
         RequestDecisionBody: {
@@ -5969,6 +6199,11 @@ export interface components {
              * @description Requests from other nodes taken into the local store this pass.
              */
             Adopted?: number;
+            /**
+             * Format: int32
+             * @description Requests whose origin withdrew them, dropped and cancelled this pass.
+             */
+            Dropped?: number;
             /**
              * Format: int32
              * @description Requests this node started grabbing this pass.
@@ -6036,6 +6271,14 @@ export interface components {
             Year?: number | null;
             /** @description Poster URL from the arr's own metadata lookup, so the app has something to draw. */
             PosterUrl?: string | null;
+            /** @description The blurb, copied from the search result the request was made from. */
+            Overview?: string | null;
+            /**
+             * Format: int32
+             * @description How many seasons the show has, excluding specials. `0` for a film, and for a request
+             *     made before this was recorded.
+             */
+            SeasonCount?: number;
             /** @description Season numbers wanted. Empty means every season, which is what Sonarr calls "all". */
             Seasons?: number[];
             /** @description One of StingStream.Core.Requests.RequestStates. */
@@ -6049,9 +6292,16 @@ export interface components {
             DecidedAt?: string | null;
             /** @description The node that claimed it, once one has. */
             FulfillingNode?: string | null;
-            FulfillingNodeName?: string | null;
+            FulfillingServerName?: string | null;
             /** @description A sentence a person can read: why it is where it is. */
             Note?: string;
+            /**
+             * @description Why this was asked for when the group already held it. One of StingStream.Core.Requests.RequestReasons,
+             *     or null for an ordinary request, which is almost all of them.
+             */
+            Reason?: string | null;
+            /** @description Anything the requester added in their own words. Shown to the administrator. */
+            ReasonNote?: string | null;
             /** @description Whether this node originated it, as opposed to hearing about it over gossip. */
             Mine?: boolean;
             UpdatedAt?: string;
@@ -6071,6 +6321,8 @@ export interface components {
             TvdbId?: number;
             /** @description The item key, or the series prefix. */
             ItemKey?: string;
+            /** @description The IMDb id, `tt` and seven or eight digits, when the lookup carried one. */
+            ImdbId?: string | null;
             /**
              * Format: int32
              * @description How many seasons this show has, excluding specials. `0` for a movie, and for a series
@@ -6100,6 +6352,8 @@ export interface components {
             AvailableInGroup?: boolean;
             /** @description Who holds it. */
             Holders?: string[];
+            /** @description The library item to play, when the group's copy has resolved to one on this node. */
+            LocalItemId?: string | null;
             /** @description The state of an existing request for the same title, if there is one. */
             RequestState?: string | null;
             /** @description The id of that request, so the app can link to it rather than offering a duplicate. */
@@ -6213,7 +6467,7 @@ export interface components {
         /** @description One scored source, as the API presents it. */
         ScoredSourceResponse: {
             Node?: string;
-            NodeName?: string;
+            ServerName?: string;
             /** @description True when this is the copy on the caller's own server. */
             IsLocal?: boolean;
             /** @description Jellyfin's media-source id for this holder's copy, or null when this node has no item for it. */
@@ -6554,8 +6808,17 @@ export interface components {
             DownloadClients?: components["schemas"]["DownloadClientSettings"];
             /** @description Download clients somebody else runs, registered in both arrs alongside the embedded ones. */
             ExternalDownloadClients?: components["schemas"]["ExternalDownloadClientSettings"][];
-            /** @description Where imported media lands. These are the arrs' root folders and Jellyfin's libraries. */
+            /**
+             * @deprecated
+             * @description Superseded by StingStream.Core.Data.SharedSettings.Libraries, and kept only so an unmigrated `core.db` still
+             *     deserializes.
+             */
             RootFolders?: components["schemas"]["RootFolderSettings"];
+            /**
+             * @description Every library this node has: what it is called, what type it is, and which folders on this
+             *     machine hold it.
+             */
+            Libraries?: components["schemas"]["LibrarySettings"][];
             /** @description File and folder naming, pushed to both apps' `/api/v3/config/naming`. */
             Naming?: components["schemas"]["NamingSettings"];
             Notifications?: components["schemas"]["NotificationSettings"];
@@ -6591,6 +6854,13 @@ export interface components {
              * @description The round count to derive it with, when it must be.
              */
             Iterations?: number;
+        };
+        /** @description Somebody already signed in here, offering the server they run. */
+        StartLinkRequest: {
+            /** @description The assertion their own server signed for this one. */
+            Assertion?: string | null;
+            /** @description Where that server answers a browser, as the wizard resolved it. */
+            Address?: string | null;
         };
         /** @description What the app posts to start a session. */
         StartWatchRequest: {
@@ -7558,7 +7828,7 @@ export interface components {
             /** @description The node's mesh id. */
             Node?: string;
             /** @description Its human name. */
-            NodeName?: string;
+            ServerName?: string;
             /**
              * Format: int32
              * @description How many of that node's own users are in its local SyncPlay group.
@@ -8138,6 +8408,63 @@ export interface operations {
             };
         };
     };
+    Identity_StingStreamForgetLinkRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The asking node's id. */
+                issuer: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description There was no request from that server. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Identity_StingStreamApproveLink: {
         parameters: {
             query?: never;
@@ -8284,6 +8611,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyLinkRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Identity_StingStreamStartLinkRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The assertion that server signed, and where it answers. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartLinkRequest"];
+                "text/json": components["schemas"]["StartLinkRequest"];
+                "application/*+json": components["schemas"]["StartLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded. Approved outright for an administrator, pending otherwise. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkStartResult"];
+                };
+            };
+            /** @description Why it could not be recorded. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
                 };
             };
             /** @description Unauthorized */
@@ -9573,6 +9963,128 @@ export interface operations {
                 content?: never;
             };
             /** @description Nothing on this node can turn that id into a title. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Libraries_GetLibraries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The libraries, in the order a screen should list them. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibrarySettings"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Libraries_PutLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The library's stable id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description What to change. An omitted property is left alone. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LibraryUpdateRequest"];
+                "text/json": components["schemas"]["LibraryUpdateRequest"];
+                "application/*+json": components["schemas"]["LibraryUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The library as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibrarySettings"];
+                };
+            };
+            /** @description The folder cannot be used, and the body says why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No library has that id. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12796,6 +13308,52 @@ export interface operations {
             };
         };
     };
+    Requests_Credits: {
+        parameters: {
+            query?: {
+                /** @description A library person id. What a cast row actually has. */
+                personId?: string;
+                /** @description The provider's own id, when a caller already knows it. */
+                tmdbPersonId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The titles, most-watched first, annotated with what the group holds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestSearchResult"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node cannot read the catalogue, so it cannot answer at all. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     Requests_Discover: {
         parameters: {
             query?: {
@@ -13111,6 +13669,56 @@ export interface operations {
                 content: {
                     "text/html": unknown;
                 };
+            };
+        };
+    };
+    Requests_Related: {
+        parameters: {
+            query?: {
+                /** @description A library item id. The preferred way to ask. */
+                itemId?: string;
+                /** @description A film's provider id, for a title this library does not hold. */
+                tmdbId?: number;
+                /** @description A show's provider id, same. */
+                tvdbId?: number;
+                /** @description `movie` or `series`, beside an explicit provider id. */
+                kind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The titles, annotated with what the group holds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestSearchResult"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node cannot read the catalogue, so it cannot answer at all. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

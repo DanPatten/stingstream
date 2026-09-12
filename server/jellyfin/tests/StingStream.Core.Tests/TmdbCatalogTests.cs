@@ -255,4 +255,149 @@ public sealed class TmdbCatalogTests
         ["popularity"] = 310.0,
         ["genre_ids"] = new JsonArray(10765),
     };
+
+    // --- credits, the one catalogue answer that gets sorted -----------------
+
+    [Fact]
+    public void KeepsOnlyCastOfTheKindAsked()
+    {
+        var films = TmdbCatalog.CreditEntries(Credits(), true, 10);
+        var shows = TmdbCatalog.CreditEntries(Credits(), false, 10);
+
+        Assert.Equal(new[] { "Alien", "Aliens" }, films.ConvertAll(e => e["title"]!.GetValue<string>()));
+        Assert.Equal(new[] { "The Defenders" }, shows.ConvertAll(e => e["name"]!.GetValue<string>()));
+    }
+
+    [Fact]
+    public void OrdersCreditsByPopularity()
+    {
+        // The provider hands `combined_credits` back roughly by its own internal id, so left alone
+        // a row opens on whatever happens to be first. Aliens is listed before Alien in the fixture
+        // and has to come second.
+        var films = TmdbCatalog.CreditEntries(Credits(), true, 10);
+
+        Assert.Equal("Alien", films[0]["title"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void DropsAdultCredits()
+    {
+        var films = TmdbCatalog.CreditEntries(Credits(), true, 10);
+
+        Assert.DoesNotContain(films, e => e["title"]!.GetValue<string>() == "Something Adult");
+    }
+
+    [Fact]
+    public void DropsCrewAndOtherMediaTypes()
+    {
+        // `cast` is the only array read, so a person credited as a producer on something is not in
+        // the answer at all. The row is "what they appear in".
+        var films = TmdbCatalog.CreditEntries(Credits(), true, 10);
+
+        Assert.DoesNotContain(films, e => e["title"]!.GetValue<string>() == "Produced Only");
+    }
+
+    [Fact]
+    public void CapsCredits()
+    {
+        Assert.Single(TmdbCatalog.CreditEntries(Credits(), true, 1));
+        Assert.Empty(TmdbCatalog.CreditEntries(Credits(), true, 0));
+    }
+
+    [Fact]
+    public void SurvivesABodyWithNoCast()
+    {
+        Assert.Empty(TmdbCatalog.CreditEntries(null, true, 10));
+        Assert.Empty(TmdbCatalog.CreditEntries(new JsonObject(), true, 10));
+    }
+
+    // --- the person search fallback, which must never guess -----------------
+
+    [Fact]
+    public void MatchesAPersonOnAnExactName()
+    {
+        Assert.True(TmdbCatalog.MatchesPerson("Sigourney Weaver", Person("Sigourney Weaver")));
+    }
+
+    [Fact]
+    public void MatchesPastCaseAndPunctuation()
+    {
+        Assert.True(TmdbCatalog.MatchesPerson("Peter O'Toole", Person("peter o toole")));
+        Assert.True(TmdbCatalog.MatchesPerson("SIGOURNEY  WEAVER", Person("Sigourney Weaver")));
+    }
+
+    [Fact]
+    public void RefusesANearMiss()
+    {
+        // The whole safety of the fallback. Taking the provider's first result for a near miss
+        // attaches one actor's filmography to another actor's page, which nothing on screen would
+        // reveal and no reader could detect.
+        Assert.False(TmdbCatalog.MatchesPerson("Sigourney Weaver", Person("Sigourney Weaver Jr.")));
+        Assert.False(TmdbCatalog.MatchesPerson("Sigourney Weaver", Person("Weaver")));
+        Assert.False(TmdbCatalog.MatchesPerson("Sigourney Weaver", Person("Sigourney Beaver")));
+    }
+
+    [Fact]
+    public void RefusesWhenEitherSideIsMissing()
+    {
+        Assert.False(TmdbCatalog.MatchesPerson(null, Person("Sigourney Weaver")));
+        Assert.False(TmdbCatalog.MatchesPerson("   ", Person("Sigourney Weaver")));
+        Assert.False(TmdbCatalog.MatchesPerson("Sigourney Weaver", null));
+        Assert.False(TmdbCatalog.MatchesPerson("Sigourney Weaver", new JsonObject()));
+    }
+
+    private static JsonObject Person(string name) => new() { ["name"] = name, ["id"] = 10205 };
+
+    private static JsonObject Credits() => new()
+    {
+        ["cast"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["media_type"] = "movie",
+                ["id"] = 679,
+                ["title"] = "Aliens",
+                ["popularity"] = 40.0,
+            },
+            new JsonObject
+            {
+                ["media_type"] = "movie",
+                ["id"] = 348,
+                ["title"] = "Alien",
+                ["popularity"] = 90.0,
+            },
+            new JsonObject
+            {
+                ["media_type"] = "movie",
+                ["id"] = 999,
+                ["title"] = "Something Adult",
+                ["popularity"] = 99.0,
+                ["adult"] = true,
+            },
+            new JsonObject
+            {
+                ["media_type"] = "tv",
+                ["id"] = 1402,
+                ["name"] = "The Defenders",
+                ["popularity"] = 12.0,
+            },
+            new JsonObject
+            {
+                ["media_type"] = "person",
+                ["id"] = 5,
+                ["title"] = "Not A Title",
+                ["popularity"] = 100.0,
+            },
+        },
+        ["crew"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["media_type"] = "movie",
+                ["id"] = 1234,
+                ["title"] = "Produced Only",
+                ["popularity"] = 100.0,
+            },
+        },
+    };
 }

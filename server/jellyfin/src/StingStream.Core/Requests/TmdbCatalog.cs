@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -145,6 +146,16 @@ public sealed class TmdbCatalog
 
     /// <summary>How many titles have their ids looked up at once.</summary>
     private const int IdConcurrency = 6;
+
+    /// <summary>
+    /// How many titles a related or credits row carries.
+    /// </summary>
+    /// <remarks>
+    /// One provider page. A row is a horizontal scroller on a page about something else, not a
+    /// feed somebody came to browse, and every title past the first screenful costs a TVDB
+    /// translation to be worth having.
+    /// </remarks>
+    private const int RowLimit = PageSize;
 
     /// <summary>Ceiling on one HTTP call.</summary>
     private static readonly TimeSpan _callTimeout = TimeSpan.FromSeconds(5);
@@ -326,7 +337,7 @@ public sealed class TmdbCatalog
 
         var genres = await GenresAsync(isMovie, cancellationToken).ConfigureAwait(false);
         return isMovie
-            ? await MoviesAsync(entries, genres, cancellationToken).ConfigureAwait(false)
+            ? await MoviesAsync(entries, genres, true, cancellationToken).ConfigureAwait(false)
             : await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false);
     }
 
@@ -442,6 +453,98 @@ public sealed class TmdbCatalog
         };
     }
 
+    /// <summary>
+    /// The credits worth showing off a <c>combined_credits</c> body, ordered and capped.
+    /// </summary>
+    /// <param name="body">The provider's answer.</param>
+    /// <param name="wantMovies">Films when true, shows when false.</param>
+    /// <param name="limit">How many to keep.</param>
+    /// <returns>The entries, most-watched first.</returns>
+    /// <remarks>
+    /// <para>
+    /// <strong>Cast only, never crew.</strong> The surface is "what this person appears in"; folding
+    /// in what they executive-produced turns a twelve-card row into a ninety-card one made mostly of
+    /// titles their face is not in.
+    /// </para>
+    /// <para>
+    /// <strong>Ordered by popularity, which is the one place this file sorts a provider answer.</strong>
+    /// A feed and a related row both keep the provider's own order, because both have one worth
+    /// keeping. <c>combined_credits</c> does not: it arrives roughly by the provider's internal id,
+    /// which is neither chronological nor by prominence, so a working actor's one-episode talk-show
+    /// appearances would open the row ahead of the films they are known for. Dan, 2026-09-12.
+    /// </para>
+    /// </remarks>
+    public static List<JsonObject> CreditEntries(JsonNode? body, bool wantMovies, int limit)
+    {
+        var wanted = wantMovies ? "movie" : "tv";
+        if (body?["cast"] is not JsonArray cast)
+        {
+            return new List<JsonObject>();
+        }
+
+        return cast
+            .OfType<JsonObject>()
+            .Where(entry => string.Equals(entry["media_type"]?.GetValue<string>(), wanted, StringComparison.Ordinal))
+
+            // A person's credits are the one catalogue answer that is not already filtered for this.
+            // `/discover` takes `include_adult=false` as a parameter; `combined_credits` has no such
+            // knob and simply tells you, so the filtering happens here instead.
+            .Where(entry => entry["adult"]?.GetValue<bool?>() != true)
+            .OrderByDescending(entry => entry["popularity"]?.GetValue<double?>() ?? 0)
+            .Take(Math.Max(limit, 0))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Whether a person search result really is the person asked about.
+    /// </summary>
+    /// <param name="wantedName">The name off the library's own person item.</param>
+    /// <param name="candidate">One of the provider's matches.</param>
+    /// <returns>True only on an exact name, once both are normalised.</returns>
+    /// <remarks>
+    /// Deliberately strict, and this is the whole safety of the search fallback. Taking the
+    /// provider's first match for a near miss attaches one actor's filmography to another actor's
+    /// page — a failure that is invisible, entirely plausible on screen, and impossible for the
+    /// reader to detect. A miss answers an empty row instead, which is honest.
+    /// </remarks>
+    public static bool MatchesPerson(string? wantedName, JsonObject? candidate)
+    {
+        var wanted = NormaliseName(wantedName);
+        var got = NormaliseName(candidate?["name"]?.GetValue<string>());
+        return wanted.Length > 0 && string.Equals(wanted, got, StringComparison.Ordinal);
+    }
+
+    /// <summary>Case, punctuation and spacing folded away, so two spellings of one name compare equal.</summary>
+    private static string NormaliseName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var ch in value)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                if (pendingSpace && builder.Length > 0)
+                {
+                    builder.Append(' ');
+                }
+
+                pendingSpace = false;
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+            else
+            {
+                pendingSpace = true;
+            }
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>The provider's sort parameter for one of ours.</summary>
     /// <param name="sort">Our sort name.</param>
     /// <param name="order"><c>asc</c>, or anything else for descending.</param>
@@ -462,6 +565,249 @@ public sealed class TmdbCatalog
     }
 
     // --- fetching -----------------------------------------------------------
+
+    /// <summary>
+    /// What the provider's own audience went on to watch after this.
+    /// </summary>
+    /// <param name="isMovie">Whether the subject is a film.</param>
+    /// <param name="tmdbId">The subject's TMDB id. A show's own id, never an episode's.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The titles, in the provider's own order. Empty when the catalogue could not be read.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>/recommendations</c> rather than <c>/similar</c>. The two look interchangeable and are
+    /// not: <c>/similar</c> is keyword and genre overlap, which in practice answers a well-known
+    /// film with a page of direct-to-video titles sharing one tag. <c>/recommendations</c> is the
+    /// collaborative "people who liked this also liked" list, which is what the provider's own site
+    /// shows under that heading and what a person means by "related".
+    /// </para>
+    /// <para>
+    /// The order is the provider's, untouched. Dan, 2026-09-12: a related row is ordered by
+    /// relevance or it is not a related row, and the glyph on each card is what says whether the
+    /// library holds it.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<RequestSearchResult>> RelatedAsync(
+        bool isMovie,
+        int tmdbId,
+        CancellationToken cancellationToken)
+    {
+        if (tmdbId <= 0)
+        {
+            return Array.Empty<RequestSearchResult>();
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_passTimeout);
+
+        try
+        {
+            var id = tmdbId.ToString(CultureInfo.InvariantCulture);
+            var path = isMovie
+                ? $"/movie/{id}/recommendations?page=1"
+                : $"/tv/{id}/recommendations?page=1";
+
+            var body = await GetAsync(path, _feedTtl, budget.Token).ConfigureAwait(false);
+            if (body?["results"] is not JsonArray entries || entries.Count == 0)
+            {
+                return Array.Empty<RequestSearchResult>();
+            }
+
+            var genres = await GenresAsync(isMovie, budget.Token).ConfigureAwait(false);
+            var results = isMovie
+                ? await MoviesAsync(entries, genres, false, budget.Token).ConfigureAwait(false)
+                : await SeriesAsync(entries, genres, budget.Token).ConfigureAwait(false);
+
+            // The subject itself, belt and braces. The provider does not normally recommend a title
+            // to itself, and the caller has already resolved the id, so dropping it here costs
+            // nothing and stops the one case that would look obviously broken.
+            var subjectKey = isMovie ? InventoryKeys.Movie(tmdbId) : null;
+            return Dedupe(results)
+                .Where(r => subjectKey is null || !string.Equals(r.ItemKey, subjectKey, StringComparison.Ordinal))
+                .Take(RowLimit)
+                .ToList();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("The catalogue did not answer about related titles inside {Budget}", _passTimeout);
+            return Array.Empty<RequestSearchResult>();
+        }
+    }
+
+    /// <summary>
+    /// What a person appears in, most-watched first.
+    /// </summary>
+    /// <param name="tmdbPersonId">The provider's id for them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The titles. Empty when the catalogue could not be read.</returns>
+    /// <remarks>
+    /// One call. <c>/combined_credits</c> answers films and shows in a single array tagged by
+    /// <c>media_type</c>, so asking <c>/movie_credits</c> and <c>/tv_credits</c> separately would be
+    /// two calls for the same answer. See <see cref="CreditEntries"/> for why this is the one
+    /// catalogue answer that gets sorted.
+    /// </remarks>
+    public async Task<IReadOnlyList<RequestSearchResult>> CreditsAsync(
+        int tmdbPersonId,
+        CancellationToken cancellationToken)
+    {
+        if (tmdbPersonId <= 0)
+        {
+            return Array.Empty<RequestSearchResult>();
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_passTimeout);
+
+        try
+        {
+            var id = tmdbPersonId.ToString(CultureInfo.InvariantCulture);
+            var body = await GetAsync($"/person/{id}/combined_credits", _feedTtl, budget.Token)
+                .ConfigureAwait(false);
+            if (body is null)
+            {
+                return Array.Empty<RequestSearchResult>();
+            }
+
+            var films = CreditEntries(body, true, RowLimit);
+            var shows = CreditEntries(body, false, RowLimit);
+
+            var results = new List<RequestSearchResult>();
+            if (films.Count > 0)
+            {
+                var genres = await GenresAsync(true, budget.Token).ConfigureAwait(false);
+                results.AddRange(await MoviesAsync(ArrayOf(films), genres, false, budget.Token)
+                    .ConfigureAwait(false));
+            }
+
+            if (shows.Count > 0)
+            {
+                var genres = await GenresAsync(false, budget.Token).ConfigureAwait(false);
+                results.AddRange(await SeriesAsync(ArrayOf(shows), genres, budget.Token)
+                    .ConfigureAwait(false));
+            }
+
+            // Re-sorted after the merge, not before: the two halves were each capped and ordered on
+            // their own, and a row that ran every film before every show would read as two rows
+            // wearing one heading.
+            return Dedupe(results.OrderByDescending(r => r.Popularity ?? 0)).Take(RowLimit).ToList();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("The catalogue did not answer about credits inside {Budget}", _passTimeout);
+            return Array.Empty<RequestSearchResult>();
+        }
+    }
+
+    /// <summary>
+    /// The provider's id for a person the library knows only by name.
+    /// </summary>
+    /// <param name="name">The name off the library's own person item.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The id, or null when nothing matched exactly.</returns>
+    /// <remarks>
+    /// <para>
+    /// The fallback for a person item carrying no TMDB id, which is the ordinary state of every
+    /// person on a library scanned before the metadata provider was turned on. Answering nothing
+    /// there would make this feature quietly not work for exactly the library it is most use to.
+    /// </para>
+    /// <para>
+    /// <strong>Not cached in <c>provider_id_map</c>, and that is not an oversight.</strong> Both of
+    /// that table's ends are integers, and what we hold here is a name. Hashing one to an integer
+    /// key would put a silent collision in the single place a collision attaches the wrong person's
+    /// filmography to somebody's page. <see cref="GetAsync"/>'s own cache keys on the whole path
+    /// string, so the search is already free after the first call within the TTL, for every user on
+    /// this node. That is the right cache for this.
+    /// </para>
+    /// </remarks>
+    public async Task<int?> PersonIdAsync(string? name, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var body = await GetAsync(
+                $"/search/person?query={Uri.EscapeDataString(name)}&include_adult=false",
+                _genreTtl,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (body?["results"] is not JsonArray results)
+        {
+            return null;
+        }
+
+        foreach (var candidate in results.OfType<JsonObject>())
+        {
+            if (!MatchesPerson(name, candidate))
+            {
+                continue;
+            }
+
+            var id = candidate["id"]?.GetValue<int?>() ?? 0;
+            if (id > 0)
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The TMDB show id for a TVDB one, remembered either way.
+    /// </summary>
+    /// <param name="tvdbId">The id a series item key is built from.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The provider's own id for the show, or null.</returns>
+    /// <remarks>
+    /// The reverse of what <see cref="SeriesFactsAsync"/> caches, and it earns a
+    /// <c>provider_id_map</c> row where a person id cannot: both ends are integers. The two
+    /// directions are independent rows, since <c>TryCachedProviderId</c> matches on all three
+    /// columns.
+    /// </remarks>
+    public async Task<int?> TmdbShowIdAsync(int tvdbId, CancellationToken cancellationToken)
+    {
+        if (tvdbId <= 0)
+        {
+            return null;
+        }
+
+        if (_store.TryCachedProviderId(TvdbProvider, tvdbId, TmdbProvider, out var cached))
+        {
+            return cached;
+        }
+
+        var id = tvdbId.ToString(CultureInfo.InvariantCulture);
+        var body = await GetAsync($"/find/{id}?external_source=tvdb_id", _genreTtl, cancellationToken)
+            .ConfigureAwait(false);
+
+        var found = (body?["tv_results"] as JsonArray)?
+            .OfType<JsonObject>()
+            .Select(entry => entry["id"]?.GetValue<int?>() ?? 0)
+            .FirstOrDefault(value => value > 0);
+
+        // Remembered either way, the miss included: a show the provider cannot translate would
+        // otherwise be asked about on every page load that mentions it.
+        await _store.CacheProviderIdAsync(TvdbProvider, tvdbId, TmdbProvider, found, cancellationToken)
+            .ConfigureAwait(false);
+
+        return found is > 0 ? found : null;
+    }
+
+    /// <summary>The entries as the array the mapping passes take.</summary>
+    private static JsonArray ArrayOf(IEnumerable<JsonObject> entries)
+    {
+        var array = new JsonArray();
+        foreach (var entry in entries)
+        {
+            // Detached first: a node already parented to the response cannot be added to a second
+            // array, and `combined_credits` hands us children of its own `cast`.
+            array.Add(entry.DeepClone());
+        }
+
+        return array;
+    }
 
     private async Task<List<RequestSearchResult>> PageAsync(
         TmdbBrowseQuery query,
@@ -490,7 +836,7 @@ public sealed class TmdbCatalog
             }
 
             results.AddRange(isMovie
-                ? await MoviesAsync(entries, genres, cancellationToken).ConfigureAwait(false)
+                ? await MoviesAsync(entries, genres, true, cancellationToken).ConfigureAwait(false)
                 : await SeriesAsync(entries, genres, cancellationToken).ConfigureAwait(false));
         }
 
@@ -498,9 +844,25 @@ public sealed class TmdbCatalog
     }
 
     /// <summary>Turn a page of films into results, with each one's IMDb id.</summary>
+    /// <param name="entries">The provider's objects.</param>
+    /// <param name="genres">Genre ids to names.</param>
+    /// <param name="withImdb">Whether to spend a call per film on its IMDb id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The results, in the order the provider gave them.</returns>
+    /// <remarks>
+    /// <paramref name="withImdb"/> is false for the related and credits rows, and that is a
+    /// deliberate saving rather than an oversight. The IMDb id buys exactly one thing: the score on
+    /// a title becomes a link out to the page it came from, and that link is only ever drawn
+    /// <em>inside <c>RequestSheet</c></em> (<c>docs/REQUESTS.md</c> §9, "The score is a way out to
+    /// IMDb, from the sheet only"), where <c>imdbUrl</c> already falls back to an IMDb search on the
+    /// title when there is no id. A detail page opens up to four of these rows at once, so paying
+    /// twenty cold calls each to decorate something unreachable from the row is the wrong trade.
+    /// The feed still pays it, because a feed is the one place somebody is reading scores to choose.
+    /// </remarks>
     private async Task<List<RequestSearchResult>> MoviesAsync(
         JsonArray entries,
         IReadOnlyDictionary<int, string> genres,
+        bool withImdb,
         CancellationToken cancellationToken)
     {
         using var slots = new SemaphoreSlim(IdConcurrency);
@@ -512,6 +874,11 @@ public sealed class TmdbCatalog
                 if (result is null)
                 {
                     return null;
+                }
+
+                if (!withImdb)
+                {
+                    return result;
                 }
 
                 await slots.WaitAsync(cancellationToken).ConfigureAwait(false);

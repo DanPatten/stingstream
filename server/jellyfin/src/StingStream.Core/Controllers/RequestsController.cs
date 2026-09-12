@@ -198,6 +198,84 @@ public sealed class RequestsController : StingStreamControllerBase
             .ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// What else is like this, whoever holds it.
+    /// </summary>
+    /// <param name="itemId">A library item id. The preferred way to ask.</param>
+    /// <param name="tmdbId">A film's provider id, for a title this library does not hold.</param>
+    /// <param name="tvdbId">A show's provider id, same.</param>
+    /// <param name="kind"><c>movie</c> or <c>series</c>, beside an explicit provider id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The titles, annotated with what the group holds.</response>
+    /// <response code="503">This node cannot read the catalogue, so it cannot answer at all.</response>
+    /// <returns>The titles.</returns>
+    /// <remarks>
+    /// <para>
+    /// Behind <em>both</em> <c>CanSearch</c> and <c>CanBrowseCatalogue</c>, which is stricter than
+    /// <c>discover</c> and deliberately so. <c>CanSearch</c> alone is true for a node running a
+    /// manager with a blanked catalogue key, and such a node would answer this with an empty list
+    /// forever. The app cannot tell that from "this film has no recommendations", and it falls back
+    /// to a library-only row on the 503, so the honest answer matters here in a way it does not on a
+    /// screen that still has a working search box.
+    /// </para>
+    /// <para>
+    /// An item that resolves to nothing usable — a box set, a live programme, a title with no
+    /// provider id — is a 200 and an empty list, not an error. The row simply does not draw.
+    /// </para>
+    /// </remarks>
+    [HttpGet("related")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<IReadOnlyList<RequestSearchResult>>> Related(
+        [FromQuery] string? itemId,
+        [FromQuery] int tmdbId,
+        [FromQuery] int tvdbId,
+        [FromQuery] string? kind,
+        CancellationToken cancellationToken)
+    {
+        if (!_requests.CanSearch() || !_requests.CanBrowseCatalogue())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Ok(await _requests
+            .RelatedAsync(itemId, tmdbId, tvdbId, kind, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Everything a person appears in, whoever holds it.
+    /// </summary>
+    /// <param name="personId">A library person id. What a cast row actually has.</param>
+    /// <param name="tmdbPersonId">The provider's own id, when a caller already knows it.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The titles, most-watched first, annotated with what the group holds.</response>
+    /// <response code="503">This node cannot read the catalogue, so it cannot answer at all.</response>
+    /// <returns>The titles.</returns>
+    /// <remarks>
+    /// Ordered by popularity rather than in the provider's own order, which is the one place a
+    /// catalogue answer gets sorted here. <c>combined_credits</c> arrives roughly by internal id, so
+    /// left alone it opens a working actor's row with the talk shows they appeared on once. See
+    /// <c>TmdbCatalog.CreditEntries</c>.
+    /// </remarks>
+    [HttpGet("credits")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<IReadOnlyList<RequestSearchResult>>> Credits(
+        [FromQuery] string? personId,
+        [FromQuery] int tmdbPersonId,
+        CancellationToken cancellationToken)
+    {
+        if (!_requests.CanSearch() || !_requests.CanBrowseCatalogue())
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Ok(await _requests
+            .CreditsAsync(personId, tmdbPersonId, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
     // --- making ------------------------------------------------------------
 
     /// <summary>

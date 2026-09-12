@@ -628,6 +628,80 @@
         ]
       }
     },
+    "/stingstream/api/v1/identity/link-requests/{issuer}": {
+      "delete": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Forget a request, so that server can ask again.",
+        "description": "The way back from a decline, and the only one. A decision is sticky on purpose — the upsert\r\nrefuses to reset a decided row to pending — so without this an administrator who declined by\r\nmistake had shut that server out permanently, with no screen anywhere able to undo it.",
+        "operationId": "StingStreamForgetLinkRequest",
+        "parameters": [
+          {
+            "name": "issuer",
+            "in": "path",
+            "description": "The asking node's id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Forgotten."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "There was no request from that server.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/identity/link-requests/{issuer}/approve": {
       "post": {
         "tags": [
@@ -834,6 +908,110 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MyLinkRequest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/identity/link-requests/start": {
+      "post": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "Offer the server you run to this one, having just proved you run it.",
+        "description": "Any member, because asking is not deciding: an administrator's own offer is approved as it\r\nis made, and everybody else's waits for one of them. Unlike `link-requests` above,\r\nwhich reads the node being offered out of the caller's link row, this one reads it out of a\r\nsignature, so it works for an account that has always been local. Either way the node id is\r\nproved rather than typed.",
+        "operationId": "StingStreamStartLinkRequest",
+        "requestBody": {
+          "description": "The assertion that server signed, and where it answers.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartLinkRequest"
+                  }
+                ],
+                "description": "Somebody already signed in here, offering the server they run."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartLinkRequest"
+                  }
+                ],
+                "description": "Somebody already signed in here, offering the server they run."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/StartLinkRequest"
+                  }
+                ],
+                "description": "Somebody already signed in here, offering the server they run."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recorded. Approved outright for an administrator, pending otherwise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkStartResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Why it could not be recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityError"
                 }
               }
             }
@@ -2747,6 +2925,192 @@
         ]
       }
     },
+    "/stingstream/api/v1/Libraries": {
+      "get": {
+        "tags": [
+          "Libraries"
+        ],
+        "summary": "Every library on this node.",
+        "operationId": "GetLibraries",
+        "responses": {
+          "200": {
+            "description": "The libraries, in the order a screen should list them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LibrarySettings"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Libraries/{id}": {
+      "put": {
+        "tags": [
+          "Libraries"
+        ],
+        "summary": "Change one library: its folder, or whether this server runs it at all.",
+        "description": "\r\nThe order is settings, then `config.toml`, then reconcile. A failure to write the\r\n            switch leaves a saved row that reconciliation will honour on the next start, which is the\r\n            less surprising half to lose: the library is where the reader put it, and the manager\r\n            catches up. The reverse order could stop a manager for a library the node then keeps.\r\n\r\nSwitching a library off keeps every file. See StingStream.Core.Data.LibrarySettings.Enabled.",
+        "operationId": "PutLibrary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The library's stable id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "What to change. An omitted property is left alone.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryUpdateRequest"
+                  }
+                ],
+                "description": "What a caller wants changed about one library. Omit a property to leave it alone."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryUpdateRequest"
+                  }
+                ],
+                "description": "What a caller wants changed about one library. Omit a property to leave it alone."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryUpdateRequest"
+                  }
+                ],
+                "description": "What a caller wants changed about one library. Omit a property to leave it alone."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The library as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibrarySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The folder cannot be used, and the body says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No library has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/calendar": {
       "get": {
         "tags": [
@@ -4158,6 +4522,7 @@
           "Mesh"
         ],
         "summary": "Leave a group.",
+        "description": "The share list goes with it. M:StingStream.Core.Sharing.SharedLibraryStore.RemoveAsync(System.String,System.Threading.CancellationToken) had no\r\ncaller at all, so leaving left the row behind — harmless while a group id was never seen\r\nagain, and not harmless now that one link is one server: the tidy way back from a link that\r\nwent wrong is to leave it and add the server again, and a stale row would decide what the\r\nnew link shares before anybody had been asked.",
         "operationId": "Leave",
         "parameters": [
           {
@@ -6599,7 +6964,7 @@
           "Requests"
         ],
         "summary": "Withdraw a request.",
-        "description": "A request already being fulfilled can be withdrawn too. It does not stop the download — the\r\ngrabbing node may be somebody else's and is already committed — but it does take the request\r\noff the requester's list, which is what \"I no longer want this\" means from their side.",
+        "description": "\r\nA request already being fulfilled can be withdrawn too, and doing so <em>stops the\r\n            download</em>: an unfinished one is cancelled and its partial files are deleted, wherever in\r\n            the group it is running. Anything that has finished downloading is kept and finishes\r\n            importing, because a person withdrawing an ask has not asked for an episode they already\r\n            have to be thrown away. StingStream.Core.Requests.RequestWithdrawal is the whole of that rule.\r\n\r\nThis used to be a row delete, and said so on the confirmation dialog: the request came off\r\n            the list and the grab it had started ran to the end on whichever node was doing it.",
         "operationId": "Delete",
         "parameters": [
           {
@@ -7166,6 +7531,66 @@
         ]
       }
     },
+    "/stingstream/api/v1/requests/credits": {
+      "get": {
+        "tags": [
+          "Requests"
+        ],
+        "summary": "Everything a person appears in, whoever holds it.",
+        "description": "Ordered by popularity rather than in the provider's own order, which is the one place a\r\ncatalogue answer gets sorted here. `combined_credits` arrives roughly by internal id, so\r\nleft alone it opens a working actor's row with the talk shows they appeared on once. See\r\n`TmdbCatalog.CreditEntries`.",
+        "operationId": "Credits",
+        "parameters": [
+          {
+            "name": "personId",
+            "in": "query",
+            "description": "A library person id. What a cast row actually has.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tmdbPersonId",
+            "in": "query",
+            "description": "The provider's own id, when a caller already knows it.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The titles, most-watched first, annotated with what the group holds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RequestSearchResult"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "This node cannot read the catalogue, so it cannot answer at all."
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/requests/discover": {
       "get": {
         "tags": [
@@ -7649,6 +8074,83 @@
           {
             "CustomAuthentication": [
               "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/requests/related": {
+      "get": {
+        "tags": [
+          "Requests"
+        ],
+        "summary": "What else is like this, whoever holds it.",
+        "description": "\r\nBehind <em>both</em>`CanSearch` and `CanBrowseCatalogue`, which is stricter than\r\n            `discover` and deliberately so. `CanSearch` alone is true for a node running a\r\n            manager with a blanked catalogue key, and such a node would answer this with an empty list\r\n            forever. The app cannot tell that from \"this film has no recommendations\", and it falls back\r\n            to a library-only row on the 503, so the honest answer matters here in a way it does not on a\r\n            screen that still has a working search box.\r\n\r\nAn item that resolves to nothing usable — a box set, a live programme, a title with no\r\n            provider id — is a 200 and an empty list, not an error. The row simply does not draw.",
+        "operationId": "Related",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "query",
+            "description": "A library item id. The preferred way to ask.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tmdbId",
+            "in": "query",
+            "description": "A film's provider id, for a title this library does not hold.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "tvdbId",
+            "in": "query",
+            "description": "A show's provider id, same.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`movie` or `series`, beside an explicit provider id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The titles, annotated with what the group holds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RequestSearchResult"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "This node cannot read the catalogue, so it cannot answer at all."
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
               "DefaultAuthorization"
             ]
           }
@@ -8625,7 +9127,7 @@
           "Settings"
         ],
         "summary": "Ask the arrs whether an indexer actually works, before storing it.",
-        "description": "\r\n`docs/UI-API-GAPS.md` gap 9. The resource posted to the app's own `indexer/test`\r\n            is built by the same code that builds the one a save posts\r\n            (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is the only thing that makes \"the\r\n            test passed\" mean \"the save will work\".\r\n\r\nThe test runs against <em>every</em> configured app rather than one, even though both get\r\n            the same indexer: the two send different category lists, and a Torznab endpoint that has\r\n            films but no television is a real thing that would otherwise pass here and fail on the first\r\n            series search.",
+        "description": "\r\n`docs/UI-API-GAPS.md` gap 9. The resource posted to the app's own `indexer/test`\r\n            is built by the same code that builds the one a save posts\r\n            (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is the only thing that makes \"the\r\n            test passed\" mean \"the save will work\".\r\n\r\nThe test runs against <em>every</em> configured app rather than one, even though both get\r\n            the same indexer: the two send different category lists, and a Torznab endpoint that has\r\n            films but no TV is a real thing that would otherwise pass here and fail on the first\r\n            series search.",
         "operationId": "TestIndexer",
         "requestBody": {
           "description": "The same shape as add. Need not be stored first.",
@@ -12469,9 +12971,29 @@
             "format": "int32",
             "nullable": true
           },
+          "Overview": {
+            "type": "string",
+            "description": "The blurb from the search result, so the request keeps it after the search is gone.",
+            "nullable": true
+          },
+          "SeasonCount": {
+            "type": "integer",
+            "description": "How many seasons the show has, from the search result. Zero for a film.",
+            "format": "int32"
+          },
           "PosterUrl": {
             "type": "string",
             "description": "A poster URL from the search result, so the request list has artwork immediately.",
+            "nullable": true
+          },
+          "Reason": {
+            "type": "string",
+            "description": "Why this is being asked for when the group already holds it. One of\r\nStingStream.Core.Requests.RequestReasons.",
+            "nullable": true
+          },
+          "ReasonNote": {
+            "type": "string",
+            "description": "Optional: anything the requester wants to add in their own words.",
             "nullable": true
           }
         },
@@ -14139,7 +14661,7 @@
           "Node": {
             "type": "string"
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "Online": {
@@ -14268,6 +14790,11 @@
           "RequestLink": {
             "type": "boolean",
             "description": "Also ask for the two servers to be linked."
+          },
+          "Address": {
+            "type": "string",
+            "description": "Where their own server answers a browser, when the client resolved one.",
+            "nullable": true
           },
           "Salt": {
             "type": "string",
@@ -14908,6 +15435,63 @@
         "additionalProperties": false,
         "description": "Library changed message."
       },
+      "LibrarySettings": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "Stable identity, surviving renames and path changes."
+          },
+          "Name": {
+            "type": "string",
+            "description": "What the reader sees, and what titles from other servers merge on."
+          },
+          "FolderName": {
+            "type": "string",
+            "description": "The directory name Jellyfin actually gave the virtual folder. Server-owned."
+          },
+          "Type": {
+            "type": "string",
+            "description": "One of StingStream.Core.Data.LibraryTypes. Immutable once the library exists."
+          },
+          "Paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The folders on this node holding it, in the order they should be listed. Empty means \"use\r\nthe supervisor's default for StingStream.Core.Data.LibrarySettings.Type\"."
+          },
+          "Enabled": {
+            "type": "boolean",
+            "description": "Whether this node runs the library at all. Off is the owner saying \"not on this server\"."
+          },
+          "Hidden": {
+            "type": "boolean",
+            "description": "Hidden from every reader on this node."
+          },
+          "Builtin": {
+            "type": "boolean",
+            "description": "Movies and TV Shows: never renamed, never removed."
+          },
+          "Managed": {
+            "type": "boolean",
+            "description": "Whether this node owns the folders. False for a library that only exists elsewhere."
+          },
+          "JellyfinItemId": {
+            "type": "string",
+            "description": "The Jellyfin collection folder's id, in `\"N\"` format. Server-owned."
+          },
+          "ManagedLocations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Exactly the locations this node last wrote into the virtual folder. Server-owned."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One library: a name, a type, and the folders on this node that hold it."
+      },
       "LibraryStateRow": {
         "type": "object",
         "properties": {
@@ -15010,6 +15594,28 @@
         "additionalProperties": false,
         "description": "Class LibraryUpdateInfo."
       },
+      "LibraryUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "Path": {
+            "type": "string",
+            "description": "The folder on this server. Empty means \"follow the supervisor's default\".",
+            "nullable": true
+          },
+          "Enabled": {
+            "type": "boolean",
+            "description": "Whether this server runs the library at all.",
+            "nullable": true
+          },
+          "Hidden": {
+            "type": "boolean",
+            "description": "Whether readers on this server see it.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "What a caller wants changed about one library. Omit a property to leave it alone."
+      },
       "LinkRequestSummary": {
         "type": "object",
         "properties": {
@@ -15020,6 +15626,11 @@
           "IssuerName": {
             "type": "string",
             "description": "What it calls itself."
+          },
+          "IssuerAddress": {
+            "type": "string",
+            "description": "Where a browser reaches it, or null. What the finishing link is built from.",
+            "nullable": true
           },
           "RequestedByName": {
             "type": "string",
@@ -15041,6 +15652,40 @@
         },
         "additionalProperties": false,
         "description": "One request in the administrator's list."
+      },
+      "LinkStartResult": {
+        "type": "object",
+        "properties": {
+          "Status": {
+            "type": "string",
+            "description": "`pending` or `approved`."
+          },
+          "IssuerNodeId": {
+            "type": "string",
+            "description": "The asking server's node id, as the assertion gave it."
+          },
+          "IssuerName": {
+            "type": "string",
+            "description": "What that server calls itself."
+          },
+          "IssuerAddress": {
+            "type": "string",
+            "description": "Where it answers a browser, or null.",
+            "nullable": true
+          },
+          "GroupId": {
+            "type": "string",
+            "description": "The link created for it, once there is one.",
+            "nullable": true
+          },
+          "Code": {
+            "type": "string",
+            "description": "The invite to redeem over there, once there is one.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "What came of offering it."
       },
       "LinkedIdentitySummary": {
         "type": "object",
@@ -16316,7 +16961,7 @@
             "type": "string",
             "description": "The holding node's iroh node id."
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string",
             "description": "The holding node's human name. This is the `<node-label>` in pointer filenames."
           },
@@ -16477,7 +17122,7 @@
             "type": "string",
             "description": "The member's node id, hex."
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string",
             "description": "What the member calls itself. Empty until it has said."
           },
@@ -16608,7 +17253,7 @@
           "Node": {
             "type": "string"
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "Online": {
@@ -16741,7 +17386,7 @@
           "Node": {
             "type": "string"
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "Online": {
@@ -16856,7 +17501,7 @@
             "type": "string",
             "description": "This node's iroh node id, 64 hex characters."
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "Version": {
@@ -17204,6 +17849,11 @@
             "type": "string",
             "description": "The invite to redeem on their own server, once it is approved.",
             "nullable": true
+          },
+          "IssuerAddress": {
+            "type": "string",
+            "description": "Where their own server answers a browser, or null.",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -17400,7 +18050,7 @@
           "NodeId": {
             "type": "string"
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "Dev": {
@@ -17957,7 +18607,7 @@
             "type": "string",
             "description": "The holder chosen to copy from."
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "FileHash": {
@@ -19355,6 +20005,15 @@
           "CanApprove": {
             "type": "boolean",
             "description": "Whether the caller may see the approvals queue at all."
+          },
+          "Wanted": {
+            "type": "integer",
+            "description": "Requests on the wanted list, for an administrator.",
+            "format": "int32"
+          },
+          "RequestsMode": {
+            "type": "string",
+            "description": "How this group fulfils requests: `automatic` or `manual`."
           }
         },
         "additionalProperties": false,
@@ -19474,6 +20133,11 @@
             "description": "Requests from other nodes taken into the local store this pass.",
             "format": "int32"
           },
+          "Dropped": {
+            "type": "integer",
+            "description": "Requests whose origin withdrew them, dropped and cancelled this pass.",
+            "format": "int32"
+          },
           "Grabbed": {
             "type": "integer",
             "description": "Requests this node started grabbing this pass.",
@@ -19572,6 +20236,16 @@
             "description": "Poster URL from the arr's own metadata lookup, so the app has something to draw.",
             "nullable": true
           },
+          "Overview": {
+            "type": "string",
+            "description": "The blurb, copied from the search result the request was made from.",
+            "nullable": true
+          },
+          "SeasonCount": {
+            "type": "integer",
+            "description": "How many seasons the show has, excluding specials. `0` for a film, and for a request\r\nmade before this was recorded.",
+            "format": "int32"
+          },
           "Seasons": {
             "type": "array",
             "items": {
@@ -19611,13 +20285,23 @@
             "description": "The node that claimed it, once one has.",
             "nullable": true
           },
-          "FulfillingNodeName": {
+          "FulfillingServerName": {
             "type": "string",
             "nullable": true
           },
           "Note": {
             "type": "string",
             "description": "A sentence a person can read: why it is where it is."
+          },
+          "Reason": {
+            "type": "string",
+            "description": "Why this was asked for when the group already held it. One of StingStream.Core.Requests.RequestReasons,\r\nor null for an ordinary request, which is almost all of them.",
+            "nullable": true
+          },
+          "ReasonNote": {
+            "type": "string",
+            "description": "Anything the requester added in their own words. Shown to the administrator.",
+            "nullable": true
           },
           "Mine": {
             "type": "boolean",
@@ -19665,6 +20349,11 @@
             "type": "string",
             "description": "The item key, or the series prefix."
           },
+          "ImdbId": {
+            "type": "string",
+            "description": "The IMDb id, `tt` and seven or eight digits, when the lookup carried one.",
+            "nullable": true
+          },
           "SeasonCount": {
             "type": "integer",
             "description": "How many seasons this show has, excluding specials. `0` for a movie, and for a series\r\nwhose lookup did not say.",
@@ -19710,6 +20399,11 @@
               "type": "string"
             },
             "description": "Who holds it."
+          },
+          "LocalItemId": {
+            "type": "string",
+            "description": "The library item to play, when the group's copy has resolved to one on this node.",
+            "nullable": true
           },
           "RequestState": {
             "type": "string",
@@ -20111,7 +20805,7 @@
           "Node": {
             "type": "string"
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string"
           },
           "IsLocal": {
@@ -21107,7 +21801,15 @@
                 "$ref": "#/components/schemas/RootFolderSettings"
               }
             ],
-            "description": "Where imported media lands. These are the arrs' root folders and Jellyfin's libraries."
+            "description": "Superseded by StingStream.Core.Data.SharedSettings.Libraries, and kept only so an unmigrated `core.db` still\r\ndeserializes.",
+            "deprecated": true
+          },
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibrarySettings"
+            },
+            "description": "Every library this node has: what it is called, what type it is, and which folders on this\r\nmachine hold it."
           },
           "Naming": {
             "allOf": [
@@ -21187,6 +21889,23 @@
         },
         "additionalProperties": false,
         "description": "How a client should send a password for one username."
+      },
+      "StartLinkRequest": {
+        "type": "object",
+        "properties": {
+          "Assertion": {
+            "type": "string",
+            "description": "The assertion their own server signed for this one.",
+            "nullable": true
+          },
+          "Address": {
+            "type": "string",
+            "description": "Where that server answers a browser, as the wizard resolved it.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Somebody already signed in here, offering the server they run."
       },
       "StartWatchRequest": {
         "type": "object",
@@ -23573,7 +24292,7 @@
             "type": "string",
             "description": "The node's mesh id."
           },
-          "NodeName": {
+          "ServerName": {
             "type": "string",
             "description": "Its human name."
           },
@@ -23775,6 +24494,9 @@
     },
     {
       "name": "Items"
+    },
+    {
+      "name": "Libraries"
     },
     {
       "name": "Library"

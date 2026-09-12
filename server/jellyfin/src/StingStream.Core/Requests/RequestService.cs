@@ -667,6 +667,27 @@ public sealed class RequestService
             || _catalogue.CanBrowse();
 
     /// <summary>
+    /// Whether the metadata catalogue can be read at all.
+    /// </summary>
+    /// <returns>True when there is a key to read it with.</returns>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="CanSearch"/>, and the related and credits rows gate on both. That
+    /// pair is not belt and braces: <see cref="CanSearch"/> is true when <em>either</em> a manager
+    /// is running <em>or</em> the catalogue can be read, so a node running Radarr with a
+    /// deliberately blanked key passes it and would then answer these two endpoints with an empty
+    /// list forever. The app could not tell that from "this film has no recommendations", and its
+    /// whole fallback to the library-only row keys on the difference.
+    /// </para>
+    /// <para>
+    /// This is why they 503 where <c>discover</c> does not (<c>docs/REQUESTS.md</c> §7): discover
+    /// has a working search box behind it, so an empty page there is survivable. A related row has
+    /// no fallback inside itself.
+    /// </para>
+    /// </remarks>
+    public bool CanBrowseCatalogue() => _catalogue.CanBrowse();
+
+    /// <summary>
     /// Search TMDB and TVDB for something to request, and say what the group already has.
     /// </summary>
     /// <param name="term">What the person typed.</param>
@@ -1042,6 +1063,249 @@ public sealed class RequestService
         }
 
         return groups[0].Group;
+    }
+
+    /// <summary>What a "related to this" question is actually about.</summary>
+    /// <param name="IsMovie">Whether the subject is a film.</param>
+    /// <param name="TmdbId">The provider's id for it. A show's own id, never an episode's.</param>
+    private readonly record struct RelatedSubject(bool IsMovie, int TmdbId);
+
+    /// <summary>
+    /// What else is like this, whoever holds it.
+    /// </summary>
+    /// <param name="itemId">A library item id. The preferred way to ask.</param>
+    /// <param name="tmdbId">A film's provider id, when the caller has one and no library item.</param>
+    /// <param name="tvdbId">A show's provider id, same.</param>
+    /// <param name="kind"><c>movie</c> or <c>series</c>, beside an explicit provider id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The titles, annotated with what the group holds. Empty when nothing resolved.</returns>
+    /// <remarks>
+    /// <para>
+    /// The library item id is the primary because it is the only thing every caller actually holds:
+    /// a detail screen is handed <c>item.Id</c> and nothing else, and a <c>BaseItemDto</c>'s
+    /// <c>ProviderIds</c> is only populated when the query that fetched it asked for them. Resolving
+    /// here also puts the episode walk in one place instead of four.
+    /// </para>
+    /// <para>
+    /// Annotated by the same <see cref="AnnotateAsync"/> pass search and the catalogue use, so a
+    /// title found here carries the same holders, the same playable item and the same request state
+    /// it would carry anywhere else. That is the whole point of the endpoint.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<RequestSearchResult>> RelatedAsync(
+        string? itemId,
+        int tmdbId,
+        int tvdbId,
+        string? kind,
+        CancellationToken cancellationToken)
+    {
+        var subject = await ResolveSubjectAsync(itemId, tmdbId, tvdbId, kind, cancellationToken)
+            .ConfigureAwait(false);
+        if (subject is null)
+        {
+            return Array.Empty<RequestSearchResult>();
+        }
+
+        var results = (await _catalogue
+            .RelatedAsync(subject.Value.IsMovie, subject.Value.TmdbId, cancellationToken)
+            .ConfigureAwait(false)).ToList();
+
+        await _artwork.FillAsync(results, cancellationToken).ConfigureAwait(false);
+        await AnnotateAsync(results, cancellationToken).ConfigureAwait(false);
+        return results;
+    }
+
+    /// <summary>
+    /// Everything a person appears in, whoever holds it.
+    /// </summary>
+    /// <param name="personId">A library person id. What every caller actually has.</param>
+    /// <param name="tmdbPersonId">The provider's own id, when a caller already knows it.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The titles, annotated. Empty when the person could not be resolved.</returns>
+    /// <remarks>
+    /// A cast row hands the app a <c>BaseItemPerson</c>, which carries a name, a role and an id and
+    /// no provider ids whatsoever. So there is no client-side path to a provider id for a person at
+    /// all, and the node has to do the resolving. See <see cref="ResolvePersonAsync"/> for what
+    /// happens when the library itself does not know one either.
+    /// </remarks>
+    public async Task<IReadOnlyList<RequestSearchResult>> CreditsAsync(
+        string? personId,
+        int tmdbPersonId,
+        CancellationToken cancellationToken)
+    {
+        var resolved = tmdbPersonId > 0
+            ? tmdbPersonId
+            : await ResolvePersonAsync(personId, cancellationToken).ConfigureAwait(false);
+        if (resolved is not > 0)
+        {
+            return Array.Empty<RequestSearchResult>();
+        }
+
+        var results = (await _catalogue.CreditsAsync(resolved.Value, cancellationToken)
+            .ConfigureAwait(false)).ToList();
+
+        await _artwork.FillAsync(results, cancellationToken).ConfigureAwait(false);
+        await AnnotateAsync(results, cancellationToken).ConfigureAwait(false);
+        return results;
+    }
+
+    /// <summary>
+    /// The title a related question is really about, from whatever the caller could name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>An episode resolves to its series, and this is the case that makes the whole method
+    /// worth having.</strong> Related is drawn on episode pages, and an episode's own
+    /// <c>ProviderIds.Tmdb</c> is a TMDB <em>episode</em> id: a small integer that
+    /// <c>/movie/{id}/recommendations</c> will happily answer for, with a coherent-looking page
+    /// about an entirely unrelated film. Nothing on screen would say it was wrong.
+    /// </para>
+    /// <para>
+    /// Anything that is not a film, a show, a season or an episode resolves to null and the row
+    /// draws nothing. The screen mounts this on more item types than it means to, so this must
+    /// never throw.
+    /// </para>
+    /// </remarks>
+    private async Task<RelatedSubject?> ResolveSubjectAsync(
+        string? itemId,
+        int tmdbId,
+        int tvdbId,
+        string? kind,
+        CancellationToken cancellationToken)
+    {
+        var saysSeries = string.Equals(kind, "series", StringComparison.OrdinalIgnoreCase);
+
+        // An explicit provider id wins: a caller that names one is looking at a title this library
+        // may not hold at all, so there is nothing here to look it up in.
+        if (tmdbId > 0 && !saysSeries)
+        {
+            return new RelatedSubject(true, tmdbId);
+        }
+
+        if (tvdbId > 0)
+        {
+            var translated = await _catalogue.TmdbShowIdAsync(tvdbId, cancellationToken).ConfigureAwait(false);
+            return translated is > 0 ? new RelatedSubject(false, translated.Value) : null;
+        }
+
+        if (!Guid.TryParse(itemId, out var guid) || guid.Equals(Guid.Empty))
+        {
+            return null;
+        }
+
+        try
+        {
+            var item = _library.GetItemById(guid);
+            if (item is null)
+            {
+                return null;
+            }
+
+            // Up to the series first, so the branches below only ever see a film or a show.
+            if (item is MediaBrowser.Controller.Entities.TV.Episode episode)
+            {
+                item = episode.Series ?? _library.GetItemById(episode.SeriesId) ?? item;
+            }
+            else if (item is MediaBrowser.Controller.Entities.TV.Season season)
+            {
+                item = season.Series ?? _library.GetItemById(season.SeriesId) ?? item;
+            }
+
+            switch (item)
+            {
+                case MediaBrowser.Controller.Entities.Movies.Movie:
+                    return ProviderInt(item, MediaBrowser.Model.Entities.MetadataProvider.Tmdb) is int movieId and > 0
+                        ? new RelatedSubject(true, movieId)
+                        : null;
+
+                case MediaBrowser.Controller.Entities.TV.Series:
+                    // The show's own TMDB id when the metadata provider wrote one, and otherwise the
+                    // TVDB id translated. A library scanned by the TVDB agent has only the latter.
+                    if (ProviderInt(item, MediaBrowser.Model.Entities.MetadataProvider.Tmdb) is int showId and > 0)
+                    {
+                        return new RelatedSubject(false, showId);
+                    }
+
+                    if (ProviderInt(item, MediaBrowser.Model.Entities.MetadataProvider.Tvdb) is int tvdb and > 0)
+                    {
+                        var translated = await _catalogue.TmdbShowIdAsync(tvdb, cancellationToken)
+                            .ConfigureAwait(false);
+                        return translated is > 0 ? new RelatedSubject(false, translated.Value) : null;
+                    }
+
+                    return null;
+
+                default:
+                    return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not work out what {Item} is related to", itemId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The provider's id for a library person.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The person item's own <c>ProviderIds</c> first, which is the normal path. Failing that, the
+    /// catalogue is searched by name and the answer accepted <em>only on an exact match</em>
+    /// (<c>TmdbCatalog.MatchesPerson</c>).
+    /// </para>
+    /// <para>
+    /// The fallback is worth having because a person with no TMDB id is ordinary rather than
+    /// broken: it is the state of everybody on a library scanned before the metadata provider was
+    /// turned on. Refusing to look would make this feature quietly do nothing for exactly the
+    /// library it is most use to. The exactness is what makes it safe, since attaching one actor's
+    /// filmography to another actor's page is a failure nobody could see.
+    /// </para>
+    /// </remarks>
+    private async Task<int?> ResolvePersonAsync(string? personId, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(personId, out var guid) || guid.Equals(Guid.Empty))
+        {
+            return null;
+        }
+
+        try
+        {
+            var person = _library.GetItemById(guid);
+            if (person is null)
+            {
+                return null;
+            }
+
+            if (ProviderInt(person, MediaBrowser.Model.Entities.MetadataProvider.Tmdb) is int known and > 0)
+            {
+                return known;
+            }
+
+            return await _catalogue.PersonIdAsync(person.Name, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve person {Person} to a catalogue id", personId);
+            return null;
+        }
+    }
+
+    /// <summary>One of an item's provider ids as a number, or null when it has none worth using.</summary>
+    private static int? ProviderInt(
+        MediaBrowser.Controller.Entities.BaseItem item,
+        MediaBrowser.Model.Entities.MetadataProvider provider)
+    {
+        if (item.ProviderIds is null
+            || !item.ProviderIds.TryGetValue(provider.ToString(), out var raw))
+        {
+            return null;
+        }
+
+        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value
+            : null;
     }
 
     /// <summary>

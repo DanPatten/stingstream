@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { getItemsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSegments } from "expo-router";
@@ -26,11 +25,17 @@ import { Image, prefetchServerImage } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { Loader } from "@/components/Loader";
-import { TVPosterCard } from "@/components/tv/TVPosterCard";
+import { TVRequestableCard } from "@/components/tv/TVRequestableRow";
 import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
+import {
+  type RequestSearchResult,
+  requestCardId,
+  useActorCredits,
+  useRequestsAvailable,
+} from "@/lib/stingstream/requests";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { getUserItemData } from "@/utils/jellyfin/user-library/getUserItemData";
@@ -59,7 +64,11 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
 
-  // Track which filmography item is currently focused for dynamic backdrop
+  // Track which filmography item is currently focused for dynamic backdrop.
+  //
+  // Only ever set from a title this node actually holds: a title nobody holds has no Jellyfin
+  // backdrop to show, and clearing it as the D-pad crossed one would flash the screen black. The
+  // last real backdrop stays up instead.
   const [focusedItem, setFocusedItem] = useState<BaseItemDto | null>(null);
 
   // Fetch actor details
@@ -75,61 +84,65 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
     staleTime: 60,
   });
 
-  // Fetch movies
-  const { data: movies = [], isLoading: isLoadingMovies } = useQuery({
-    queryKey: ["actor", "movies", personId],
-    queryFn: async () => {
-      if (!api || !user?.Id) return [];
+  // Everything they appear in, whoever holds it -- not just what is on this disk. The node asks the
+  // metadata provider and annotates each result with what the group holds, so a held title opens its
+  // own page and everything else is asked for outright. Dan, 2026-09-12.
+  //
+  // The library query it replaced is kept on the phone as a fallback for a node that cannot read the
+  // catalogue; here the row simply does not draw, because a television has no way to explain why.
+  const available = useRequestsAvailable();
+  const credits = useActorCredits(personId, available.data === true);
 
-      const response = await getItemsApi(api).getItems({
-        userId: user.Id,
-        personIds: [personId],
-        startIndex: 0,
-        limit: 20,
-        sortOrder: ["Descending", "Descending", "Ascending"],
-        includeItemTypes: ["Movie"],
-        recursive: true,
-        fields: ["ParentId", "PrimaryImageAspectRatio"],
-        sortBy: ["PremiereDate", "ProductionYear", "SortName"],
-        collapseBoxSetItems: false,
-      });
+  const movies = useMemo(
+    () => (credits.data ?? []).filter((r) => r.kind === "movie"),
+    [credits.data],
+  );
+  const series = useMemo(
+    () => (credits.data ?? []).filter((r) => r.kind === "series"),
+    [credits.data],
+  );
+  const isLoadingMovies = available.isLoading || credits.isLoading;
+  const isLoadingSeries = isLoadingMovies;
 
-      return response.data.Items || [];
+  // The backdrop follows focus, and only a held title has one to follow.
+  const heldById = useMemo(() => {
+    const map = new Map<string, BaseItemDto>();
+    for (const result of credits.data ?? []) {
+      if (result.localItemId) {
+        map.set(requestCardId(result), {
+          Id: result.localItemId,
+          Name: result.title,
+          Type: result.kind === "series" ? "Series" : "Movie",
+        } as BaseItemDto);
+      }
+    }
+    return map;
+  }, [credits.data]);
+
+  const focusResult = useCallback(
+    (result: RequestSearchResult) => {
+      const held = heldById.get(requestCardId(result));
+      if (held) setFocusedItem(held);
     },
-    enabled: !!personId && !!api && !!user?.Id,
-    staleTime: 60,
-  });
+    [heldById],
+  );
 
-  // Fetch series
-  const { data: series = [], isLoading: isLoadingSeries } = useQuery({
-    queryKey: ["actor", "series", personId],
-    queryFn: async () => {
-      if (!api || !user?.Id) return [];
-
-      const response = await getItemsApi(api).getItems({
-        userId: user.Id,
-        personIds: [personId],
-        startIndex: 0,
-        limit: 20,
-        sortOrder: ["Descending", "Descending", "Ascending"],
-        includeItemTypes: ["Series"],
-        recursive: true,
-        fields: ["ParentId", "PrimaryImageAspectRatio"],
-        sortBy: ["PremiereDate", "ProductionYear", "SortName"],
-        collapseBoxSetItems: false,
-      });
-
-      return response.data.Items || [];
+  // The played/favourite sheet still belongs on a title this node holds. It acts on a library item,
+  // so a title nobody has simply has no long press rather than one that opens an empty sheet.
+  const longPressHeld = useCallback(
+    (itemId: string) => {
+      const held = [...heldById.values()].find((entry) => entry.Id === itemId);
+      if (held) showItemActions(held);
     },
-    enabled: !!personId && !!api && !!user?.Id,
-    staleTime: 60,
-  });
+    [heldById, showItemActions],
+  );
 
   // Get backdrop URL from the currently focused filmography item
   // Changes dynamically as user navigates through the list
   const backdropUrl = useMemo(() => {
     // Use focused item if available, otherwise fall back to first movie or series
-    const itemForBackdrop = focusedItem ?? movies[0] ?? series[0];
+    const itemForBackdrop =
+      focusedItem ?? heldById.values().next().value ?? null;
     if (!itemForBackdrop) return null;
     return getBackdropUrl({
       api,
@@ -137,7 +150,7 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
       quality: 90,
       width: 1920,
     });
-  }, [api, focusedItem, movies, series]);
+  }, [api, focusedItem, heldById]);
 
   // Crossfade animation for backdrop transitions
   // Use two alternating layers for smooth crossfade
@@ -217,7 +230,7 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
   }, [api?.basePath, item?.Id]);
 
   // Handle filmography item press
-  const handleItemPress = useCallback(
+  const _handleItemPress = useCallback(
     (filmItem: BaseItemDto) => {
       const navigation = getItemNavigation(filmItem, from);
       router.push(navigation as any);
@@ -227,7 +240,10 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
 
   // List item layout
   const getItemLayout = useCallback(
-    (_data: ArrayLike<BaseItemDto> | null | undefined, index: number) => ({
+    (
+      _data: ArrayLike<RequestSearchResult> | null | undefined,
+      index: number,
+    ) => ({
       length: posterSizes.poster + ITEM_GAP,
       offset: (posterSizes.poster + ITEM_GAP) * index,
       index,
@@ -237,38 +253,34 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
 
   // Render movie filmography item
   const renderMovieItem = useCallback(
-    ({ item: filmItem, index }: { item: BaseItemDto; index: number }) => (
+    ({ item: result, index }: { item: RequestSearchResult; index: number }) => (
       <View style={{ marginRight: ITEM_GAP }}>
-        <TVPosterCard
-          item={filmItem}
-          orientation='vertical'
-          onPress={() => handleItemPress(filmItem)}
-          onLongPress={() => showItemActions(filmItem)}
-          onFocus={() => setFocusedItem(filmItem)}
-          hasTVPreferredFocus={index === 0}
+        <TVRequestableCard
+          result={result}
           width={posterSizes.poster}
+          preferredFocus={index === 0}
+          onFocus={focusResult}
+          onLongPressHeld={longPressHeld}
         />
       </View>
     ),
-    [handleItemPress, showItemActions, posterSizes.poster],
+    [focusResult, posterSizes.poster],
   );
 
   // Render series filmography item
   const renderSeriesItem = useCallback(
-    ({ item: filmItem, index }: { item: BaseItemDto; index: number }) => (
+    ({ item: result, index }: { item: RequestSearchResult; index: number }) => (
       <View style={{ marginRight: ITEM_GAP }}>
-        <TVPosterCard
-          item={filmItem}
-          orientation='vertical'
-          onPress={() => handleItemPress(filmItem)}
-          onLongPress={() => showItemActions(filmItem)}
-          onFocus={() => setFocusedItem(filmItem)}
-          hasTVPreferredFocus={movies.length === 0 && index === 0}
+        <TVRequestableCard
+          result={result}
           width={posterSizes.poster}
+          preferredFocus={movies.length === 0 && index === 0}
+          onFocus={focusResult}
+          onLongPressHeld={longPressHeld}
         />
       </View>
     ),
-    [handleItemPress, showItemActions, posterSizes.poster, movies.length],
+    [focusResult, posterSizes.poster, movies.length],
   );
 
   if (isLoadingActor) {
@@ -482,7 +494,7 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
                 <FlatList
                   horizontal
                   data={movies}
-                  keyExtractor={(filmItem) => filmItem.Id!}
+                  keyExtractor={requestCardId}
                   renderItem={renderMovieItem}
                   showsHorizontalScrollIndicator={false}
                   initialNumToRender={6}
@@ -528,7 +540,7 @@ export const TVActorPage: React.FC<TVActorPageProps> = ({ personId }) => {
                 <FlatList
                   horizontal
                   data={series}
-                  keyExtractor={(filmItem) => filmItem.Id!}
+                  keyExtractor={requestCardId}
                   renderItem={renderSeriesItem}
                   showsHorizontalScrollIndicator={false}
                   initialNumToRender={6}

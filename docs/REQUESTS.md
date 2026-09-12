@@ -486,6 +486,8 @@ see `APP-MESH.md` §6).
 | `GET` | `/requests/counts` | member | Badge counts for the navigation bar, plus `wanted` and `requestsMode` (§2a). The one member-readable answer for which shape of request UI to draw: `/status/indexers` is administrator-only and cannot serve a member. |
 | `GET` | `/requests/search?q=&kind=` | member | TMDB/TVDB lookup through the node's arrs, annotated with the group's holdings. |
 | `GET` | `/requests/discover?kind=&sort=&order=&genres=&year=&page=` | member | The catalogue: what is popular now, or the best ever made, annotated the same way. |
+| `GET` | `/requests/related?itemId=&tmdbId=&tvdbId=&kind=` | member | What else is like this, annotated the same way. Takes a library item id by preference; an episode resolves to its series. |
+| `GET` | `/requests/credits?personId=&tmdbPersonId=` | member | Everything a person appears in, most-watched first, annotated the same way. |
 | `GET` | `/requests/policy?group=` | member | The group's policy. Readable by everyone — it changes what the Request button should say. |
 | `PUT` | `/requests/policy` | **admin** | Set it. 400 on an unknown auto-approve mode, with the allowed list. |
 | `GET` | `/requests/users` | **admin** | Every member, with trust, quota and this week's usage. |
@@ -493,6 +495,15 @@ see `APP-MESH.md` §6).
 | `GET` | `/requests/notifications?unreadOnly=&limit=` | member | The caller's own. |
 | `POST` | `/requests/notifications/read` | member | Mark read; an empty id list means all of theirs. |
 | `POST` | `/requests/pass` | **admin** | Run one fulfilment pass now and report what it did. For the harness and for an impatient administrator. |
+
+**`related` and `credits` are behind a stricter gate than everything else here, deliberately.** They
+503 on `CanSearch() && CanBrowseCatalogue()`, where `search` and `discover` ask only the first.
+`CanSearch()` is true when *either* a manager is running *or* the catalogue can be read, so a node
+running Radarr with a blanked catalogue key passes it and would then answer both of these with an
+empty list forever. Nothing in that answer distinguishes "this film has no recommendations" from "I
+cannot ask", and the app's fallback to a library-only row keys on exactly that difference. Discover
+can afford the looser gate because it has a working search box behind it; a related row has no
+fallback inside itself.
 
 `POST /requests` answers **200 even for a new request**, because the interesting outcome is the
 `state` in the body: a request the group can already satisfy comes back `available` having downloaded
@@ -614,7 +625,8 @@ term would be a different search rather than a narrower one. The default sort de
 reorder a search: its own order is relevance, and sorting by popularity the moment the screen opened
 would push the show somebody typed the name of below a dozen films that outrank it.
 
-**Everything opens the sheet, and the sheet is the only place a request is made.** A row's button
+**Everything on this screen opens the sheet, and on a phone or a browser the sheet is the only
+place a request is made.** A row's button
 is labelled with what pressing it will do, and what it does is open `RequestSheet` on that title.
 A tile does the same: it is artwork and a title, the overview is not on it, and the whole card is
 the target, so a tap that spent a group download outright would be one mis-aimed thumb away on a
@@ -637,7 +649,9 @@ decides whether the press ahead asks for a film or for twenty seasons of somethi
 season count for a show; and the community score, which is the one thing the artwork cannot tell you
 and roughly what the choice gets made on. The score is whatever the lookup carried — TMDB's own
 average for the feed, an arr's `ratings` for a search — drawn as `Card`'s star, and a title nobody
-has rated draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here:
+has rated draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here — the
+row-wide default, which a card may override per-card with `CardData.hoverGlyph`, as the related and
+filmography rows do (§9a):
 everywhere else a poster is a thing you press to watch, and the play disc that appears under a
 pointer would be a promise this screen cannot keep, since nobody holds these titles yet.
 
@@ -771,12 +785,85 @@ a D-pad is a bad instrument for a multi-select and everything it cannot do is a 
 renders nothing for an item with no TMDB or TVDB id, since without a provider id there is no item
 key and therefore nothing to look up, dedupe against or ask an arr for.
 
+### 9a. Asking from the rest of the app
+
+**Related and a person's filmography show everything, not just what the library holds.** Four rows
+used to answer "what else is like this" and "what else is this person in" from the local library
+alone: `SimilarItems` over Jellyfin's `getSimilarItems`, `MoreMoviesWithActor` and the person page
+over a `personIds` query, and `TVActorPage` over the same. So a row of four posters under a film was
+not what the film is related to, it was the part of that which happened to be on this disk, with no
+sign the rest existed, and an actor with two films here read as an actor with two films. Dan,
+2026-09-12: *"when showing related movies or what an actor appears in the library do not restrict it
+to whats available but show everything, if its in the library then on hover show a play icon and if
+not on hover show a request icon and clicking shows the request dialog."*
+
+They now read `GET /requests/related` and `GET /requests/credits`, which are the same
+`RequestSearchResult` shape through the same `AnnotateAsync` pass search and the catalogue use. So
+every card already knows whether the group holds it, and a row is one list rather than two.
+
+**A held card plays; everything else asks.** `requestHoverGlyph` decides, and the press reads the
+same field, so the glyph and what pressing it does cannot disagree. **It is keyed on `localItemId`,
+not on `availableInGroup`**, and that is the whole subtlety: a peer's copy is held by the group
+before the federated materialiser has made it an item on this node, and in that window there is
+nothing here to open. Such a card draws the plus and opens the sheet, which says the library already
+has it, names the holder, and offers Play the moment an id resolves. Erring towards the request
+glyph under-promises, which is the right side to err on.
+
+**This is deliberately not what Find does.** There, every title opens the sheet, held ones included,
+because that screen is about asking. These are library surfaces: a play disc has to lead to a
+player.
+
+**The glyph is a plus, not a ticket.** The ticket is the tab's own glyph and on a poster reads as
+"this has a ticket"; `TVRequestButton` has always drawn a plus for the act of asking, so the two
+surfaces use one symbol.
+
+**The pointer-only affordance is an enhancement here, not the only path**, which is what makes it
+different from the F-73 mistake recorded above. `toRequestCard` puts `searchBadgeLabel` on every
+card, so "In library" is drawn over the held ones at rest, on every platform including a touch
+screen with no hover at all; the press works identically either way; and these rows are not request
+screens, so a phone user who never learns the disc exists loses nothing. **If that badge ever stops
+being drawn on these rows the argument collapses**, which is why it is written into
+`RequestableRow`'s own doc comment.
+
+Three details worth keeping:
+
+* **An episode resolves to its series.** Related is mounted on episode pages, and an episode's own
+  TMDB id is an *episode* id that `/movie/{id}/recommendations` will answer for with a
+  coherent-looking page about an unrelated film. `RequestService.ResolveSubjectAsync` walks Episode
+  → Season → Series, and translates a TVDB-only show through `/find`.
+* **Credits are the one catalogue answer that is sorted.** `combined_credits` arrives roughly by the
+  provider's internal id, so left alone a working actor's row opens on the talk shows they appeared
+  on once. Popularity descending. Related keeps the provider's own order untouched.
+* **A person with no TMDB id is looked up by name**, and the answer is taken only on an exact match
+  once both names are normalised (`TmdbCatalog.MatchesPerson`). That is the ordinary state of every
+  person on a library scanned before the metadata provider was on, so refusing to look would make
+  the feature quietly do nothing for the library it is most use to — and a near miss would attach
+  one actor's filmography to another's page, which nothing on screen would reveal.
+
+**A node that cannot read the catalogue keeps the old row.** The Jellyfin queries are still there as
+the `503` branch: a node with no managers and no key still has a library, and a Related row working
+the way it always has beats a section that vanishes. `useRequestsAvailable` is one probe shared by
+every row on the page, and while it is in flight the rows draw their skeletons rather than nothing.
+
+**On a television the plus is drawn at rest, not on focus.** `docs/conventions/tv.md` says focus is
+exactly one treatment, and giving it a second, semantic meaning on some cards and not others is the
+ambiguity that rule exists to stop; a viewer scanning a row also needs to know what is askable
+before landing on it. So rather than porting hover onto focus, the TV card stops keying off state at
+all. A press on an unheld title asks for the whole thing with a toast and no picker, which is
+`useAskForTitle`, shared with `TVRequestButton` — a D-pad is a bad instrument for a multi-select.
+
+One thing is lost and worth naming: these rows no longer carry the long-press played/favourite
+sheet, which is items-mode only and cannot act on a catalogue result. A held title still has its own
+page one press away, where all of it lives. The TV filmography keeps it for held titles.
+
 Files: `apps/stingstream/lib/stingstream/requestsApi.ts` (types, shaping, presentation, plain
 fetch — no React, so `bun:test` can load it), `lib/stingstream/requests.ts` (React Query),
 `components/stingstream/requests/**` (`FindSection.tsx` is the screen, `RequestResultRow.tsx` the
 search rows and `RequestDiscoverGrid.tsx` the feed; `DiscoverSection.tsx` is the television's),
-`components/filters/RequestFilterBar.tsx`, `app/(auth)/(tabs)/(requests)/**`. On the node:
-`Requests/TmdbCatalog.cs`.
+`components/filters/RequestFilterBar.tsx`, `app/(auth)/(tabs)/(requests)/**`. The mixed rows are
+`components/stingstream/requests/RequestableRow.tsx` (`RequestableRow` and `RequestableGrid`),
+`components/tv/TVRequestableRow.tsx` and `components/stingstream/requests/useAskForTitle.ts`. On the
+node: `Requests/TmdbCatalog.cs`.
 
 ---
 

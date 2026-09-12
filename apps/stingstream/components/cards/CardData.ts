@@ -59,7 +59,35 @@ export type CardData = {
    * rated must not read as a title rated zero.
    */
   rating?: number | null;
+  /**
+   * What the hover disc on *this* card promises, overriding the row's own
+   * `hoverPlayGlyph`.
+   *
+   * Set it where one row mixes titles the library holds with titles it does
+   * not: a play disc over artwork that cannot be played is a promise the press
+   * does not keep, and one boolean for a whole row cannot say two things about
+   * two cards. `"none"` draws nothing even in a row that otherwise would.
+   *
+   * Left unset the row's own default applies, so every existing caller behaves
+   * exactly as it did.
+   */
+  hoverGlyph?: CardHoverGlyph;
 };
+
+/** What a card's hover disc promises: playback, a request, or nothing at all. */
+export type CardHoverGlyph = "play" | "request" | "none";
+
+/**
+ * The disc a card draws, given the row's default.
+ *
+ * Pure, and separated from `Card` so `cardLayout.test.ts` can pin the
+ * precedence without a React tree: the card's own answer always wins, and the
+ * row's boolean is only consulted when the card has not given one.
+ */
+export const resolveHoverGlyph = (
+  card: CardData,
+  rowDefault: boolean,
+): CardHoverGlyph => card.hoverGlyph ?? (rowDefault ? "play" : "none");
 
 export type CardKind = "wide" | "portrait" | "rowWide";
 

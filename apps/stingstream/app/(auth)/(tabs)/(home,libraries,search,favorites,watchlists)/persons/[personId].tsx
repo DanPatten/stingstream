@@ -13,6 +13,11 @@ import { MoviesTitleHeader } from "@/components/movies/MoviesTitleHeader";
 import { OverviewText } from "@/components/OverviewText";
 import { ParallaxScrollView } from "@/components/ParallaxPage";
 import { TVActorPage } from "@/components/persons/TVActorPage";
+import { RequestableGrid } from "@/components/stingstream/requests/RequestableRow";
+import {
+  useActorCredits,
+  useRequestsAvailable,
+} from "@/lib/stingstream/requests";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { getBackdropUrl } from "@/utils/jellyfin/image/getBackdropUrl";
 import { getUserItemData } from "@/utils/jellyfin/user-library/getUserItemData";
@@ -36,6 +41,12 @@ const MobileActorPage: React.FC<{ personId: string }> = ({ personId }) => {
 
   const [api] = useAtom(apiAtom);
   const [user] = useAtom(userAtom);
+
+  // The catalogue answers the whole filmography in one capped page, so there is nothing left to
+  // page through. The library query below stays as the fallback for a node that cannot read the
+  // catalogue at all -- see `components/SimilarItems.tsx` for the whole reasoning.
+  const available = useRequestsAvailable();
+  const credits = useActorCredits(personId, available.data === true);
 
   const { data: item, isLoading: l1 } = useQuery({
     queryKey: ["item", personId],
@@ -116,12 +127,22 @@ const MobileActorPage: React.FC<{ personId: string }> = ({ personId }) => {
           <OverviewText text={item.Overview} />
         </View>
 
-        <InfiniteScrollingCollectionList
-          title={t("item_card.appeared_in")}
-          queryKey={["actor", "movies", personId]}
-          queryFn={fetchItems}
-          pageSize={PAGE_SIZE}
-        />
+        {available.data === false ? (
+          <InfiniteScrollingCollectionList
+            title={t("item_card.appeared_in")}
+            queryKey={["actor", "movies", personId]}
+            queryFn={fetchItems}
+            pageSize={PAGE_SIZE}
+          />
+        ) : (
+          <View className='px-4'>
+            <RequestableGrid
+              title={t("item_card.appeared_in")}
+              results={credits.data}
+              loading={available.isLoading || credits.isLoading}
+            />
+          </View>
+        )}
       </View>
     </ParallaxScrollView>
   );

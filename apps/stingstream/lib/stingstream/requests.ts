@@ -14,7 +14,9 @@ import {
   deleteRequest,
   discoverQuery,
   discoverRequestable,
+  fetchCredits,
   fetchNotifications,
+  fetchRelated,
   fetchRequest,
   fetchRequestCounts,
   fetchRequestPolicy,
@@ -61,6 +63,10 @@ const keys = {
     ["stingstream", "requests", "search", term, kind ?? null] as const,
   discover: (query: Record<string, string>) =>
     ["stingstream", "requests", "discover", query] as const,
+  related: (itemId: string) =>
+    ["stingstream", "requests", "related", itemId] as const,
+  credits: (personId: string) =>
+    ["stingstream", "requests", "credits", personId] as const,
   notifications: (unreadOnly: boolean) =>
     ["stingstream", "requests", "notifications", unreadOnly] as const,
 };
@@ -220,6 +226,47 @@ export function useRequestDiscover(state: RequestFilterState, page = 1) {
     enabled: !!base,
     staleTime: 30 * 60000,
     placeholderData: keepPreviousData,
+    retry: 1,
+  });
+}
+
+/**
+ * What else is like this, whoever holds it.
+ *
+ * `enabled` carries the caller's own gate as well as the id, because every one of these rows is
+ * drawn behind `useRequestsAvailable`: a node that cannot read the catalogue answers 503 and the
+ * screen falls back to its library-only row rather than asking this at all.
+ *
+ * The stale window matches the catalogue's, and for the same reason: a film's recommendations do
+ * not move between two glances at its page, and the node caches the upstream call for six hours
+ * anyway. Deliberately not `meta: LIVE` -- this is a catalogue answer, and persisting it is right,
+ * unlike a request's own state.
+ */
+export function useRelatedTitles(
+  itemId: string | null | undefined,
+  enabled = true,
+) {
+  const { base, token } = useConnection();
+  return useQuery({
+    queryKey: keys.related(itemId ?? ""),
+    queryFn: () => fetchRelated(base!, { itemId }, token),
+    enabled: enabled && !!base && !!itemId,
+    staleTime: 30 * 60000,
+    retry: 1,
+  });
+}
+
+/** Everything a person appears in, whoever holds it. Same gating and caching as the row above. */
+export function useActorCredits(
+  personId: string | null | undefined,
+  enabled = true,
+) {
+  const { base, token } = useConnection();
+  return useQuery({
+    queryKey: keys.credits(personId ?? ""),
+    queryFn: () => fetchCredits(base!, personId!, token),
+    enabled: enabled && !!base && !!personId,
+    staleTime: 30 * 60000,
     retry: 1,
   });
 }

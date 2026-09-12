@@ -21,6 +21,7 @@ const {
   cardTextBlockHeight,
   cardTitleBlockHeight,
   defaultTextPlacement,
+  resolveHoverGlyph,
 }: typeof import("./CardData") = await import("./CardData");
 type CardKind = import("./CardData").CardKind;
 type ResolvedCardLayout = import("./CardData").ResolvedCardLayout;
@@ -427,5 +428,27 @@ describe("card artwork", () => {
       { api, kind: "portrait", cardWidth: 170 },
     );
     expect(card.imageUrl).toContain("fillWidth=340");
+  });
+});
+
+describe("resolveHoverGlyph", () => {
+  // One boolean for a whole row cannot say two things about two cards, which is what a row mixing
+  // titles the library holds with titles it does not needs. The card's own answer therefore wins
+  // outright, and the row's boolean is only consulted when the card has not given one.
+  const card = (hoverGlyph?: "play" | "request" | "none") =>
+    ({ id: "x", title: "X", ...(hoverGlyph ? { hoverGlyph } : {}) }) as never;
+
+  test("the card's own answer beats the row's, in both directions", () => {
+    expect(resolveHoverGlyph(card("request"), true)).toBe("request");
+    expect(resolveHoverGlyph(card("play"), false)).toBe("play");
+  });
+
+  test("an explicit none draws nothing even in a play row", () => {
+    expect(resolveHoverGlyph(card("none"), true)).toBe("none");
+  });
+
+  test("without one, the row decides, exactly as it did before", () => {
+    expect(resolveHoverGlyph(card(), true)).toBe("play");
+    expect(resolveHoverGlyph(card(), false)).toBe("none");
   });
 });
