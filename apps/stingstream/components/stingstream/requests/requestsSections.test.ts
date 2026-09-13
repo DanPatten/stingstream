@@ -3,6 +3,7 @@ import type { Segment } from "@/components/common/tabSegments";
 import {
   DEFAULT_REQUEST_SECTION,
   kindFromRoute,
+  requestsViewFromRoute,
   sectionFromRoute,
   visibleRequestSegmentKeys,
 } from "./requestsSections";
@@ -69,6 +70,20 @@ describe("kindFromRoute", () => {
     expect(kindFromRoute("all")).toBeUndefined();
     expect(kindFromRoute("Movie")).toBeUndefined();
     expect(kindFromRoute("tvshows")).toBeUndefined();
+  });
+});
+
+describe("requestsViewFromRoute", () => {
+  test("?view=mine opens the whole request list", () => {
+    // Written by See all on the My requests row, so a reload stays on the list.
+    expect(requestsViewFromRoute("mine")).toBe("mine");
+  });
+
+  test("anything else is the catalogue", () => {
+    expect(requestsViewFromRoute(undefined)).toBeUndefined();
+    expect(requestsViewFromRoute("")).toBeUndefined();
+    expect(requestsViewFromRoute("Mine")).toBeUndefined();
+    expect(requestsViewFromRoute("all")).toBeUndefined();
   });
 });
 

@@ -97,3 +97,18 @@ export const kindFromRoute = (
   kind: string | undefined,
 ): RequestKind | undefined =>
   kind === "movie" || kind === "series" ? kind : undefined;
+
+/** What Discover shows under its search box when it is not showing the catalogue. */
+export type RequestsView = "mine";
+
+/**
+ * Whether `?view=` asks for the member's whole request list.
+ *
+ * On Discover a member's own requests are one row of posters, so fifteen of them cost the catalogue
+ * no more room than two. Its See all swaps the catalogue for the full list, with the state chips and
+ * the Edit and Delete buttons, and writes `view=mine` so a reload comes back to the list. Anything
+ * else, a stale value or a typo included, means the catalogue.
+ */
+export const requestsViewFromRoute = (
+  view: string | undefined,
+): RequestsView | undefined => (view === "mine" ? "mine" : undefined);

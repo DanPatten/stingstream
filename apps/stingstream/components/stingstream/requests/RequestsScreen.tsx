@@ -37,6 +37,8 @@ import { RequestsNotSetUp } from "./RequestsNotSetUp";
 import { RequestsWantedSection } from "./RequestsWantedSection";
 import {
   type RequestSegmentKey,
+  type RequestsView,
+  requestsViewFromRoute,
   sectionFromRoute,
   visibleRequestSegmentKeys,
 } from "./requestsSections";
@@ -321,17 +323,24 @@ function TVRequestsScreen() {
  * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows
  * Find's bar on arrival rather than choosing a section, because the entry point that sets it always
  * names `tab=find` as well: it says what is being asked for, not where to ask.
+ *
+ * `view` is the `view` route param. `mine` swaps Discover's catalogue for the member's whole request
+ * list, written by See all on the My requests row and cleared by its Back or by changing tab.
  */
 export function RequestsScreen({
   tab,
   term = "",
   kind,
+  view,
   onSelectTab,
+  onSelectView,
 }: {
   tab?: string;
   term?: string;
   kind?: RequestKind;
+  view?: string;
   onSelectTab?: (key: string) => void;
+  onSelectView?: (view: RequestsView | undefined) => void;
 } = {}) {
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
@@ -439,7 +448,14 @@ export function RequestsScreen({
         />
       </View>
 
-      {section === "find" && <FindSection term={term} kind={kind} />}
+      {section === "find" && (
+        <FindSection
+          term={term}
+          kind={kind}
+          view={requestsViewFromRoute(view)}
+          onView={onSelectView}
+        />
+      )}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
       {section === "wanted" && canApprove && <RequestsWantedSection />}

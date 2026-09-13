@@ -30,6 +30,7 @@ import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestResultRow } from "./RequestResultRow";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
+import type { RequestsView } from "./requestsSections";
 
 /**
  * Find something to ask for — the Requests tab's own screen, on phone and web.
@@ -57,10 +58,12 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * on the most popular sixty titles, or the best ever made, and somebody who does not already know
  * what they want has something to look at instead of a prompt telling them to think of something.
  *
- * **Your own requests are on this page too**, between the filters and the catalogue, and they give
- * way to the results the moment a search runs. They used to be a tab of their own, and the one
- * Requests opened on, so every search began with a press on this tab. Checking on what you asked
- * for and asking for something else are one errand.
+ * **Your own requests are on this page too**, as one row of posters between the filters and the
+ * catalogue, and they give way to the results the moment a search runs. They used to be a tab of
+ * their own, and the one Requests opened on, so every search began with a press on this tab. They
+ * were then full rows here for a day, and fifteen of those put the catalogue several screens down.
+ * A row is the same height at two requests or fifteen; its See all swaps the catalogue for the whole
+ * list (`view`), and Back swaps it back.
  *
  * **One filter bar over both halves.** The chips are the library's own — the same component, the
  * same sheet, the same Clear — because narrowing a catalogue and narrowing a library are the same
@@ -77,9 +80,15 @@ import { RequestsErrorState } from "./RequestsErrorState";
 export function FindSection({
   term = "",
   kind: entryKind,
+  view,
+  onView,
 }: {
   term?: string;
   kind?: RequestKind;
+  /** `mine` shows the member's whole request list in place of the catalogue. */
+  view?: RequestsView;
+  /** Writes `view` back to the route, which the page owns. */
+  onView?: (view: RequestsView | undefined) => void;
 }) {
   const { t } = useTranslation();
 
@@ -315,17 +324,25 @@ export function FindSection({
         now: with a feed under them there is always something to narrow, and a bar that appeared
         only once you typed would be a bar most readers never saw.
       */}
-      <RequestFilterBar
-        state={filters}
-        set={setFilters}
-        genres={discover.data?.genres ?? []}
-      />
+      {/*
+        Not over the request list: these chips narrow the catalogue, which the list replaces, and
+        the list brings its own state chips.
+      */}
+      {view === "mine" && !searching ? null : (
+        <RequestFilterBar
+          state={filters}
+          set={setFilters}
+          genres={discover.data?.genres ?? []}
+        />
+      )}
 
       {searching ? (
         results()
+      ) : view === "mine" ? (
+        <MyRequestsSection variant='list' onBack={() => onView?.(undefined)} />
       ) : (
         <>
-          <MyRequestsSection />
+          <MyRequestsSection variant='row' onSeeAll={() => onView?.("mine")} />
           {catalogue()}
         </>
       )}
