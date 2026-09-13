@@ -5,7 +5,6 @@ import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SectionHeader } from "@/components/common/SectionHeader";
-import { Text } from "@/components/common/Text";
 import { FilterChip } from "@/components/filters/FilterChip";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
@@ -110,11 +109,6 @@ export function MyRequestsSection({
     }
   };
 
-  // Everything not finished: waiting, approved, downloading, declined, failed. Not the whole list —
-  // a title that arrived is over, and a count of things nobody has to do anything about only ever
-  // goes up, which is how a count stops being read.
-  const open = mine.filter((request) => request.state !== "available").length;
-
   /*
     The same sheet Find opens, reading the stored request through `requestAsSearchResult`. Both the
     overview and the season count are stored on the request for this, because the search result
@@ -142,19 +136,13 @@ export function MyRequestsSection({
           poster does, which is where the grid below puts its own.
         */}
         <View style={{ marginHorizontal: -gutter }}>
+          {/*
+            No count beside the heading. The My requests tab directly above already carries the same
+            number as a badge, and a second, smaller copy of it next to the title read as a stray
+            footnote rather than as information.
+          */}
           <SectionHeader
             title={t("requests.tab_mine")}
-            accessory={
-              // `flex: 1` because `SectionHeader` spaces its children apart: without it the count
-              // floated halfway between the heading and See all.
-              <Text
-                variant='caption'
-                tone='secondary'
-                style={{ flex: 1, marginLeft: 8 }}
-              >
-                {open > 0 ? open : ""}
-              </Text>
-            }
             actionLabel={t("common.seeAll")}
             onPressAction={onSeeAll}
             actionTestID='requests-mine-see-all'
