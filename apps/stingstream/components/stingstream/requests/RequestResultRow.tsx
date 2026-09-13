@@ -8,9 +8,9 @@ import {
 } from "react-native";
 import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
-import { TitleScores } from "@/components/cards/TitleScores";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
+import { RatingChips } from "@/components/ratings/RatingChips";
 import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useTitleScores } from "@/lib/stingstream/requests";
@@ -154,9 +154,7 @@ export function RequestResultRow({
         </View>
 
         {/* Text here, as on a tile. The links are on the sheet the button opens. */}
-        <View style={{ marginTop: 6 }}>
-          <TitleScores scores={scores} size='caption' />
-        </View>
+        <RatingChips {...scores} style={{ marginTop: 6 }} />
 
         {/*
           There used to be a line here naming which server held the title, which on the ordinary

@@ -80,11 +80,11 @@ describe("title scores", () => {
     );
   });
 
-  test("a missing score is a dash, not a zero", () => {
-    expect(cardScores(undefined)).toEqual({ imdb: null, rottenTomatoes: null });
-    expect(cardScores({ imdbRating: 8.2, rottenTomatoesScore: 0 })).toEqual({
-      imdb: 8.2,
-      rottenTomatoes: 0,
+  test("IMDb is the star and Rotten Tomatoes the tomato", () => {
+    expect(cardScores(undefined)).toEqual({ community: null, critics: null });
+    expect(cardScores({ imdbRating: 8.2, rottenTomatoesScore: 71 })).toEqual({
+      community: 8.2,
+      critics: 71,
     });
   });
 

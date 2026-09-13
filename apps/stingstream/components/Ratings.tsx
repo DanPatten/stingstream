@@ -1,13 +1,14 @@
-import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useMemo } from "react";
 import { View, type ViewProps } from "react-native";
-import { Text } from "@/components/common/Text";
-import { radius, tokens } from "@/constants/theme";
+import { RatingChip, RatingChips } from "@/components/ratings/RatingChips";
+import {
+  hasRatings,
+  type RatingScores,
+} from "@/components/ratings/ratingScores";
 import { useJellyseerr } from "@/hooks/useJellyseerr";
-import { useTheme } from "@/hooks/useTheme";
 import { MediaType } from "@/utils/jellyseerr/server/constants/media";
 import type { MovieDetails } from "@/utils/jellyseerr/server/models/Movie";
 import type {
@@ -30,10 +31,13 @@ interface Props extends ViewProps {
 /**
  * A small row of scores under the metadata line.
  *
- * Deliberately quiet: these are chips on `bg2` with a glyph, not the loud
+ * Deliberately quiet: these are chips on `bg3` with a glyph, not the loud
  * outlined badges the fork drew. Ratings are a footnote to a title, and pass-02
  * had three of them shouting at the top-left corner of the page with no gutter
  * at all.
+ *
+ * The scores themselves are `RatingChips`, the same chips Requests draws, so a
+ * title reads the same before and after it is in the library.
  */
 export const Ratings: React.FC<Props> = ({
   item,
@@ -43,11 +47,12 @@ export const Ratings: React.FC<Props> = ({
 }) => {
   if (!item) return null;
 
-  const hasAny =
-    (showOfficialRating && item.OfficialRating) ||
-    item.CommunityRating ||
-    item.CriticRating;
-  if (!hasAny) return <AwardsBadge item={item} />;
+  const scores: RatingScores = {
+    community: item.CommunityRating,
+    critics: item.CriticRating,
+  };
+  const official = showOfficialRating ? item.OfficialRating : null;
+  if (!official && !hasRatings(scores)) return <AwardsBadge item={item} />;
 
   return (
     <View
@@ -63,71 +68,11 @@ export const Ratings: React.FC<Props> = ({
         props.style,
       ]}
     >
-      {showOfficialRating && item.OfficialRating ? (
-        <Chip label={item.OfficialRating} />
-      ) : null}
+      {official ? <RatingChip label={official} /> : null}
 
-      {item.CommunityRating ? (
-        <Chip
-          label={item.CommunityRating.toFixed(1)}
-          icon={<Ionicons name='star' size={13} color='#E0B34A' />}
-          accessibilityLabel={`${item.CommunityRating.toFixed(1)} out of 10`}
-        />
-      ) : null}
-
-      {item.CriticRating ? (
-        <Chip
-          label={`${item.CriticRating}%`}
-          icon={
-            <Image
-              source={
-                item.CriticRating < 60
-                  ? require("@/assets/images/rt_rotten.svg")
-                  : require("@/assets/images/rt_fresh.svg")
-              }
-              style={{ width: 13, height: 13 }}
-            />
-          }
-        />
-      ) : null}
+      <RatingChips {...scores} />
 
       <AwardsBadge item={item} />
-    </View>
-  );
-};
-
-/**
- * A rating chip.
- *
- * Not `Pill`: a rating is a glyph plus a number, and `Pill`'s icon slot only
- * takes a name from the semantic registry — there is no Ionicon for "Rotten
- * Tomatoes" and there should not be one.
- */
-const Chip: React.FC<{
-  label: string;
-  icon?: React.ReactNode;
-  accessibilityLabel?: string;
-}> = ({ label, icon, accessibilityLabel }) => {
-  const { color } = useTheme();
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={accessibilityLabel ?? label}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: radius.pill,
-        backgroundColor: color.bg["3"],
-      }}
-    >
-      {icon}
-      <Text variant='caption' weight='semibold' tone='secondary'>
-        {label}
-      </Text>
     </View>
   );
 };

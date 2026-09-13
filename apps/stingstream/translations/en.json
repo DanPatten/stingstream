@@ -1693,6 +1693,10 @@
     "waiting_for_them": "Waiting for them to accept",
     "waiting_pill": "Not accepted yet"
   },
+  "ratings": {
+    "community": "{{score}} out of 10",
+    "critics": "{{score}}% on Rotten Tomatoes"
+  },
   "requests": {
     "tab_mine": "My requests",
     "tab_alerts": "Alerts",
@@ -1709,10 +1713,6 @@
     "kind_movie": "Movie",
     "kind_series": "TV show",
     "section_recommended": "Recommended",
-    "score_imdb": "{{score}} out of 10 on IMDb",
-    "score_imdb_none": "No IMDb rating",
-    "score_rotten_tomatoes": "{{score}}% on Rotten Tomatoes",
-    "score_rotten_tomatoes_none": "No Rotten Tomatoes score",
     "request_title": "Request {{title}}",
     "policy_hint_admins_only": "Requests on this server wait for an administrator.",
     "sort_popular": "Most popular",

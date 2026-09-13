@@ -1704,10 +1704,13 @@ export const scoresFor = (
   source: RequestSearchResult | MemberRequest,
 ): TitleScores | undefined => scores.get(scoresKey(scoresQueryOf(source)));
 
-/** Scores as a card draws them: a null is a dash. */
+/**
+ * Scores in the shape the library's own are drawn from: IMDb is the star, Rotten Tomatoes the
+ * tomato. A null is not drawn (`components/ratings/ratingScores.ts`).
+ */
 export const cardScores = (
   scores: TitleScores | undefined,
-): { imdb: number | null; rottenTomatoes: number | null } => ({
-  imdb: scores?.imdbRating ?? null,
-  rottenTomatoes: scores?.rottenTomatoesScore ?? null,
+): { community: number | null; critics: number | null } => ({
+  community: scores?.imdbRating ?? null,
+  critics: scores?.rottenTomatoesScore ?? null,
 });

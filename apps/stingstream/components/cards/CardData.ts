@@ -1,6 +1,10 @@
 import type { Api } from "@jellyfin/sdk";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getItemProgressPercentage } from "@/components/common/ProgressBar";
+import {
+  RATING_CHIP_GEOMETRY,
+  type RatingScores,
+} from "@/components/ratings/ratingScores";
 import { type BreakpointName, typeStyle } from "@/constants/theme";
 import { getPortraitImageUrl } from "@/utils/jellyfin/image/getPortraitImageUrl";
 import { getWideImageUrl } from "@/utils/jellyfin/image/getWideImageUrl";
@@ -60,11 +64,12 @@ export type CardData = {
    */
   rating?: number | null;
   /**
-   * IMDb and Rotten Tomatoes, drawn as a line of their own under the subtitle.
+   * A star and a tomato, drawn as a line of chips under the subtitle by `RatingChips`.
    *
-   * Set it and both are always drawn, with a dash for a score that does not exist or has not arrived
-   * yet, so a grid of these keeps one height while the scores load (`cardScoresLineHeight`). Leave it
-   * unset and the card draws no such line. Text only on a card: the links are on the request sheet.
+   * A score that does not exist or has not arrived yet is not drawn, and with neither the line goes.
+   * A grid still reserves the line for every cell once any card sets this
+   * (`cardScoresLineHeight`), so a card without scores sits level with the rest. Text only on a
+   * card: the links are on the request sheet.
    */
   scores?: CardScores;
   /**
@@ -281,21 +286,20 @@ export const cardTextBlockHeight = (breakpoint: BreakpointName): number =>
   CARD_META_GAP +
   typeStyle("micro", breakpoint).lineHeight;
 
-/** What a card's scores line draws. Null is a dash. */
-export type CardScores = {
-  imdb: number | null;
-  rottenTomatoes: number | null;
-};
+/** What a card's scores line draws. The same shape the library's own scores are drawn from. */
+export type CardScores = RatingScores;
 
 /**
- * Height of the scores line (`CardData.scores`) and the gap above it.
+ * Height of the scores line (`CardData.scores`) and the gap above it: one `micro` chip.
  *
  * Reserved by a grid for every cell as soon as any card has one, for the same reason
  * `cardTextBlockHeight` reserves both title lines: the cell is sized before anything in it is
  * measured.
  */
 export const cardScoresLineHeight = (breakpoint: BreakpointName): number =>
-  CARD_META_GAP + typeStyle("micro", breakpoint).lineHeight;
+  CARD_META_GAP +
+  typeStyle("micro", breakpoint).lineHeight +
+  RATING_CHIP_GEOMETRY.micro.paddingVertical * 2;
 
 /**
  * Height of the title itself: both lines, always.

@@ -6,12 +6,12 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
-import { TitleScores } from "@/components/cards/TitleScores";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
+import { RatingChips } from "@/components/ratings/RatingChips";
 import { radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
@@ -428,15 +428,14 @@ export function RequestSheet({
                 </Text>
               </View>
 
-              <TitleScores
-                scores={cardScores(shownScores)}
-                size='caption'
+              <RatingChips
+                {...cardScores(shownScores)}
                 links={{
-                  imdb: imdbUrl({
+                  community: imdbUrl({
                     ...shown,
                     imdbId: shown.imdbId ?? shownScores?.imdbId,
                   }),
-                  rottenTomatoes: rottenTomatoesUrl({
+                  critics: rottenTomatoesUrl({
                     title: shown.title,
                     rottenTomatoesUrl: shownScores?.rottenTomatoesUrl,
                   }),

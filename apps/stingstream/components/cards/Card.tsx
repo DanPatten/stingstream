@@ -3,6 +3,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
+import { RatingChips } from "@/components/ratings/RatingChips";
+import {
+  hasRatings,
+  RATING_STAR_COLOR,
+} from "@/components/ratings/ratingScores";
 import { elevation, rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
@@ -18,7 +23,6 @@ import {
   resolveHoverGlyph,
 } from "./CardData";
 import { CONTENT_GLYPHS } from "./CardPlaceholderTile";
-import { TitleScores } from "./TitleScores";
 import { useCardLayout } from "./useCardLayout";
 
 type CardProps = {
@@ -55,12 +59,6 @@ type CardProps = {
 };
 
 const isWeb = Platform.OS === "web";
-
-/**
- * The star beside a community score — the same gold `components/Ratings.tsx`
- * uses on the details page, so one score means one colour wherever it appears.
- */
-const RATING_STAR = "#E0B34A";
 
 /**
  * A media card. Everything it draws comes from `CardData` — see
@@ -341,17 +339,19 @@ export const Card: React.FC<CardProps> = ({
                   accessibilityLabel={`${rating} out of 10`}
                   style={{ flexShrink: 0 }}
                 >
-                  <Ionicons name='star' size={10} color={RATING_STAR} />
+                  <Ionicons name='star' size={10} color={RATING_STAR_COLOR} />
                   {` ${rating}`}
                 </Text>
               )}
             </View>
           )}
 
-          {card.scores !== undefined && (
-            <View style={{ marginTop: CARD_META_GAP }}>
-              <TitleScores scores={card.scores} />
-            </View>
+          {card.scores !== undefined && hasRatings(card.scores) && (
+            <RatingChips
+              {...card.scores}
+              size='micro'
+              style={{ marginTop: CARD_META_GAP }}
+            />
           )}
 
           {Boolean(card.detail) && (

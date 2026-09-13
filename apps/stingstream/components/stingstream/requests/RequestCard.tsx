@@ -8,10 +8,10 @@ import {
   type ViewStyle,
 } from "react-native";
 import { CardArtwork } from "@/components/cards/CardArtwork";
-import { TitleScores } from "@/components/cards/TitleScores";
 import { Pill, type PillTone } from "@/components/common/Pill";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
+import { RatingChips } from "@/components/ratings/RatingChips";
 import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { ageOf } from "@/lib/stingstream/meshApi";
@@ -146,9 +146,7 @@ export function RequestCard({
             </Text>
           ) : null}
         </View>
-        <View style={{ marginTop: 6 }}>
-          <TitleScores scores={scores} size='caption' />
-        </View>
+        <RatingChips {...scores} style={{ marginTop: 6 }} />
         {/*
           Why it was asked for when the library already had it. This is what makes the wanted list
           a list of jobs rather than a list of titles: "The current copy is bad" tells an

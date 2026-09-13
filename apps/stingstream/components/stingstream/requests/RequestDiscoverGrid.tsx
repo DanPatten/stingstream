@@ -48,7 +48,7 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
   // difference between "I'll start that tonight" and "not this year", and it is the one thing a
   // poster never says. A movie has no season count and gets the year alone.
   //
-  // Under that, IMDb and Rotten Tomatoes, as text. The links are on the sheet.
+  // Under that, the star and the tomato the library draws, as text. The links are on the sheet.
   const cards = useMemo(
     () =>
       results.map((result) => {
