@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import type { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
+import { withCastAction } from "@/components/cast/castHeader";
 import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { headerTarget } from "@/components/shell/headerTarget";
@@ -36,17 +37,19 @@ export default function WatchlistsLayout() {
     headerBlurEffect: "none",
     headerTransparent: Platform.OS === "ios",
     headerShadowVisible: false,
-    headerRight: streamystatsEnabled
-      ? () => (
-          <HeaderButton
-            accessibilityLabel={t("watchlists.create_title")}
-            onPress={() => router.push("/(auth)/(tabs)/(watchlists)/create")}
-            style={headerTarget}
-          >
-            <HeaderIcon name='add' />
-          </HeaderButton>
-        )
-      : undefined,
+    headerRight: withCastAction(
+      streamystatsEnabled
+        ? () => (
+            <HeaderButton
+              accessibilityLabel={t("watchlists.create_title")}
+              onPress={() => router.push("/(auth)/(tabs)/(watchlists)/create")}
+              style={headerTarget}
+            >
+              <HeaderIcon name='add' />
+            </HeaderButton>
+          )
+        : undefined,
+    ),
     ...moreChildOptions,
   };
 
@@ -68,6 +71,8 @@ export default function WatchlistsLayout() {
         options={{
           title: t("watchlists.create_title"),
           presentation: "modal",
+          // A form over the page, not a place you browse from.
+          headerRight: () => null,
           headerShown: !Platform.isTV,
           headerStyle: { backgroundColor: "#171717" },
           headerTintColor: "white",
@@ -79,6 +84,7 @@ export default function WatchlistsLayout() {
         options={{
           title: t("watchlists.edit_title"),
           presentation: "modal",
+          headerRight: () => null,
           headerShown: !Platform.isTV,
           headerStyle: { backgroundColor: "#171717" },
           headerTintColor: "white",

@@ -2,6 +2,7 @@ import { usePathname } from "expo-router";
 import { type PropsWithChildren, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Animated, Easing, Platform, Pressable, View } from "react-native";
+import { CastControlsSheet } from "@/components/cast/CastControlsSheet";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { useNavDrawer } from "@/utils/atoms/navDrawer";
@@ -37,6 +38,7 @@ export const MobileShell: React.FC<PropsWithChildren> = ({ children }) => (
   <View style={{ flex: 1 }}>
     {children}
     <NavDrawer />
+    <CastControlsSheet />
   </View>
 );
 

@@ -97,7 +97,7 @@ code paths for a web-only reason, which is exactly what "native behaviour unchan
 | --- | --- | --- |
 | `react-native-track-player` | Git dependency (`lovegaoshi/…#APM`). Its `main` is `lib/src/index.js`, a build output produced by its `prepare` script. Native is fine because Metro reads its `react-native: "src/index"` field; **web's `resolverMainFields` has no `react-native` entry**, so it falls to the missing `main`. | `lib/platform/web-stubs/react-native-track-player.ts` — full enum/hook/command surface, every command an inert promise, hooks report a stopped player. Background/queued music playback is not available on web. |
 | `@bottom-tabs/react-navigation` | Renders the *platform-native* tab bar; `react-native-bottom-tabs` imports `react-native/Libraries/Utilities/codegenNativeComponent`, which Metro refuses on web ("Importing react-native internals is not supported on web"). | `lib/platform/web-stubs/bottom-tabs-react-navigation.tsx` — `createNativeBottomTabNavigator()` backed by Expo Router's bundled JS bottom-tab navigator (`expo-router/js-tabs`, no new dependency) plus a custom tab bar. The custom bar is necessary because the two navigators disagree on options: the native one takes `tabBarIcon` returning `{ sfSymbol }` or a `require()`d image and hides items with `tabBarItemHidden`, neither of which the JS navigator understands. Rendering from `options.title` sidesteps that, and `app/(auth)/(tabs)/_layout.tsx` is used verbatim. |
-| `react-native-google-cast` | Android/iOS Cast sender SDK; no web backend. | `lib/platform/web-stubs/react-native-google-cast.ts` — `CastButton` renders `null`, hooks report "no device / no session", `CastContext` resolves to `PlayServicesState.MISSING` so callers fall through to local playback. Cast affordances simply do not appear on web. |
+| `react-native-google-cast` | Android/iOS Cast sender SDK; no web backend. | `lib/platform/web-stubs/react-native-google-cast.ts` — no longer inert (2026-09-13): the same surface backed by the Cast Web Sender through `lib/cast/webCastSession.ts`, so the phone's cast callers work unchanged in a browser. See `docs/APP-RELEASE.md` §7, "Casting from a browser". |
 
 ### 3b. Bundled fine, then threw at import and blanked the page
 
@@ -253,9 +253,9 @@ Honest list. None blocks the decision; several will need attention during M2 pro
 3. **Music playback is stubbed out.** `MusicPlayerProvider` / `MusicPlaybackEngine` mount and
    render but do nothing. An `<audio>`-backed engine is a self-contained follow-up; the stub's
    surface is exactly what the app calls.
-4. **Chromecast is absent on web.** Doing it properly means the Cast **Web Sender** API
-   (`cast.framework`), a completely different surface from `react-native-google-cast`. Worth
-   scheduling deliberately, since the architecture already promises casting via the side door.
+4. **Chromecast on web.** Done 2026-09-13 with the Cast **Web Sender** (`cast.framework`), behind
+   `react-native-google-cast`'s own surface (`lib/cast/webCastSession.ts`). It needs a secure page
+   (`https://` or `localhost`); see `docs/APP-RELEASE.md` §7.
 5. **No ASS/SSA subtitles, no subtitle styling.** Structural: browsers render WebVTT only.
 6. **Layout is phone-shaped.** react-native-web faithfully reproduces a portrait phone layout in a
    desktop browser — the player controls in particular stretch oddly on a wide viewport. This is a

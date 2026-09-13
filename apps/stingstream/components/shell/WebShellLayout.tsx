@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { View } from "react-native";
+import { CastControlsSheet } from "@/components/cast/CastControlsSheet";
 import { useTheme } from "@/hooks/useTheme";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -53,6 +54,7 @@ export const WebShellLayout: React.FC<PropsWithChildren> = ({ children }) => {
         <TopBar fallbackTitle={pageTitle} />
         {children}
       </View>
+      <CastControlsSheet />
     </View>
   );
 };

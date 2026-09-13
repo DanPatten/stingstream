@@ -8,6 +8,7 @@ import { radius, webFocusRing } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
+import { CastTopBarButton } from "./CastTopBarButton";
 import { SearchField } from "./SearchField";
 import { useScreenTitle } from "./useScreenTitle";
 import { WatchTogetherButton } from "./WatchTogether";
@@ -27,10 +28,9 @@ interface Props {
  * what it is once, in one place, and search and the account are always in the
  * same spot rather than three glyphs in a native header that changes per tab.
  *
- * The Home tab's own header buttons live here now — Watch together on the
- * right; the account and everything under it belong to the sidebar's own
- * account row. Chromecast is not among them: it has no web implementation at
- * all (`docs/M2-web-spike.md` §7).
+ * The Home tab's own header buttons live here now — Watch together and Cast on
+ * the right, Cast in the corner itself; the account and everything under it
+ * belong to the sidebar's own account row.
  *
  * **It also carries the only back control on a desktop.** Every stack header is
  * hidden at this width (see `useStackScreenOptions`) because two titles four
@@ -96,6 +96,8 @@ export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
           bottom left, where the sidebar's own furniture lives.
         */}
         <WatchTogetherButton />
+        {/* Last, so it is the corner itself: where every casting app puts it. */}
+        <CastTopBarButton />
       </View>
     </View>
   );

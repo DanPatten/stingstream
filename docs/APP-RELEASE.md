@@ -427,9 +427,38 @@ always fell through to the slower discovery-record path. See the M5 commit that 
 `castStreamUrl.ts` and its tests never have to load `providers/JellyfinProvider`'s import graph
 (which `bun:test` cannot load) just to make two fetch calls.
 
+### Casting from a browser, and from a loopback address
+
+The cast button is on every screen: the far right of the desktop top bar
+(`components/shell/CastTopBarButton.tsx`) and every phone or narrow-browser stack header
+(`components/cast/castHeader.tsx`, applied by default in `useStackScreenOptions`). TV builds have
+none.
+
+In a browser, `react-native-google-cast` resolves to `lib/platform/web-stubs/react-native-google-cast.ts`,
+which is the same surface driven by the Cast Web Sender (`lib/cast/webCastSession.ts`) against
+Google's Default Media Receiver. `PlayButton` and `useMusicCast` are unchanged callers, and
+"expanded controls" is a dialog the web shells mount (`components/cast/CastControlsSheet.tsx`).
+Two limits are Chrome's, not ours:
+
+- **The sender only runs on a secure page**: `https://`, or `http://localhost` / `127.0.0.1`. On a
+  node's plain-HTTP LAN address it reports itself unavailable. Nothing sniffs the browser; a
+  Firefox extension that provides the API works the same.
+- **When casting cannot start, a dialog says why.** The store records one of three reasons: the
+  page is not a secure context (checked first, since even Chrome refuses there), the sender said
+  this browser cannot cast, or the sender script never arrived (offline or blocked), which is the
+  only one offered Try again.
+- **The receiver is another device.** A page on `127.0.0.1`, or a phone on the embedded loopback
+  mesh, builds every URL on a loopback origin the receiver can never reach.
+  `lib/stingstream/receiverUrl.ts` swaps that origin for the home node's own side door (HTTPS, or
+  its plain-HTTP LAN address) before `loadMedia`, keeping path and query, which hold the `ApiKey`
+  or the mesh signature, byte for byte. A client already on the LAN or a real domain is untouched
+  and pays for no lookup.
+
 ### Test coverage
 
-`lib/stingstream/castStreamUrl.test.ts` — parsing, both `SideDoor` sources, the discovery-record
+`lib/cast/webCastSession.test.ts` (the web sender mapping and session state, against a fake
+`cast.framework`) and `lib/stingstream/receiverUrl.test.ts` (loopback detection and the origin
+swap). `lib/stingstream/castStreamUrl.test.ts` — parsing, both `SideDoor` sources, the discovery-record
 fallback (with a real hex→z32 conversion), and every fallback-to-home path (no record, race fails,
 network down). `lib/stingstream/sidedoor.test.ts` (M3d's own, unmodified) covers the racing logic
 this reuses.

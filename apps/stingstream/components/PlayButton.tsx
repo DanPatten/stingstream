@@ -19,6 +19,7 @@ import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
 import { resolveCastStreamUrl } from "@/lib/stingstream/castStreamUrl";
+import { createReceiverUrlRewriter } from "@/lib/stingstream/receiverUrl";
 import { getDownloadedItemById } from "@/providers/Downloads/database";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
@@ -212,6 +213,18 @@ export const PlayButton: React.FC<Props> = ({
                       }
                     }
 
+                    // Every URL below was built on the address this client
+                    // reached the node at. A browser on 127.0.0.1, or a phone
+                    // on the embedded loopback mesh, would hand the receiver
+                    // an address it can never reach, so those are moved onto
+                    // the node's side door. A no-op for a client on the LAN
+                    // (lib/stingstream/receiverUrl.ts).
+                    const toReceiver = await createReceiverUrlRewriter({
+                      jellyfinBasePath: api.basePath,
+                      accessToken: api.accessToken,
+                    }).catch(() => (url: string) => url);
+                    castContentUrl = toReceiver(castContentUrl);
+
                     // Text subtitles ride along as sidecar VTT tracks the
                     // receiver renders itself (see the chromecast subtitle
                     // profile). The receiver fetches them without auth
@@ -238,9 +251,11 @@ export const PlayButton: React.FC<Props> = ({
                             id: s.Index,
                             type: "text" as const,
                             subtype: "subtitles" as const,
-                            contentId: needsApiKey
-                              ? `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(api.accessToken)}`
-                              : url,
+                            contentId: toReceiver(
+                              needsApiKey
+                                ? `${url}${url.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(api.accessToken)}`
+                                : url,
+                            ),
                             contentType: "text/vtt",
                             language: s.Language ?? "und",
                             name: s.DisplayTitle ?? undefined,
@@ -301,12 +316,14 @@ export const PlayButton: React.FC<Props> = ({
                                   seriesTitle: item.SeriesName || "",
                                   images: [
                                     {
-                                      url: getParentBackdropImageUrl({
-                                        api,
-                                        item,
-                                        quality: 90,
-                                        width: 2000,
-                                      })!,
+                                      url: toReceiver(
+                                        getParentBackdropImageUrl({
+                                          api,
+                                          item,
+                                          quality: 90,
+                                          width: 2000,
+                                        })!,
+                                      ),
                                     },
                                   ],
                                 }
@@ -317,12 +334,14 @@ export const PlayButton: React.FC<Props> = ({
                                     subtitle: item.Overview || "",
                                     images: [
                                       {
-                                        url: getPrimaryImageUrl({
-                                          api,
-                                          item,
-                                          quality: 90,
-                                          width: 2000,
-                                        })!,
+                                        url: toReceiver(
+                                          getPrimaryImageUrl({
+                                            api,
+                                            item,
+                                            quality: 90,
+                                            width: 2000,
+                                          })!,
+                                        ),
                                       },
                                     ],
                                   }
@@ -332,12 +351,14 @@ export const PlayButton: React.FC<Props> = ({
                                     subtitle: item.Overview || "",
                                     images: [
                                       {
-                                        url: getPrimaryImageUrl({
-                                          api,
-                                          item,
-                                          quality: 90,
-                                          width: 2000,
-                                        })!,
+                                        url: toReceiver(
+                                          getPrimaryImageUrl({
+                                            api,
+                                            item,
+                                            quality: 90,
+                                            width: 2000,
+                                          })!,
+                                        ),
                                       },
                                     ],
                                   },

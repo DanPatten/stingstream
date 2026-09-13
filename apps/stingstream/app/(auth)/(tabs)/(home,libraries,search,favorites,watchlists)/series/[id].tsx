@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toast } from "sonner-native";
+import { withCastAction } from "@/components/cast/castHeader";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { PageContainer } from "@/components/common/PageContainer";
 import { SectionHeader } from "@/components/common/SectionHeader";
@@ -137,10 +138,10 @@ const page: React.FC = () => {
 
   // WP5: the header used to carry a favourite button and a download-series
   // button with no names on them. Both are named rows on the page itself now —
-  // the header is back and title, which is all a detail page's header is for.
+  // the header is back, title and the cast button every header carries.
   useEffect(() => {
     if (Platform.isTV) return;
-    navigation.setOptions({ headerRight: () => null });
+    navigation.setOptions({ headerRight: withCastAction() });
   }, [navigation]);
 
   // The top bar names the series rather than the tab a pasted URL landed in.

@@ -41,8 +41,8 @@ const webModuleStubs = {
   // Git dependency: its `main` points at a `lib/` build output that only exists
   // after its `prepare` script runs, and it is a pure native module regardless.
   "react-native-track-player": "react-native-track-player.ts",
-  // Chromecast sender SDK — Android/iOS only. Web casting would use the Cast
-  // Web Sender API instead; not part of the spike.
+  // Chromecast sender SDK — Android/iOS only. Not an inert stub: the web file is
+  // the same surface driven by the Cast Web Sender (lib/cast/webCastSession.ts).
   "react-native-google-cast": "react-native-google-cast.ts",
   // Native platform tab bar (UITabBarController / BottomNavigationView). Its
   // fabric component imports react-native internals Metro refuses on web.

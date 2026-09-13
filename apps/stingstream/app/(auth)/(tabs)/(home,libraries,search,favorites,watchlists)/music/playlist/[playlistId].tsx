@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { withCastAction } from "@/components/cast/castHeader";
 import { HeaderButton } from "@/components/common/HeaderButton";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { Image } from "@/components/common/ServerImage";
@@ -101,11 +102,11 @@ export default function PlaylistDetailScreen() {
       headerTransparent: true,
       headerStyle: { backgroundColor: "transparent" },
       headerShadowVisible: false,
-      headerRight: () => (
+      headerRight: withCastAction(() => (
         <HeaderButton onPress={() => setPlaylistOptionsOpen(true)}>
           <HeaderIcon name='more' />
         </HeaderButton>
-      ),
+      )),
     });
   }, [playlist?.Name, navigation]);
 

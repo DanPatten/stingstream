@@ -8,6 +8,7 @@ import CastContext, {
   useCastState,
   useRemoteMediaClient,
 } from "react-native-google-cast";
+import { createReceiverUrlRewriter } from "@/lib/stingstream/receiverUrl";
 import { getAudioContentType } from "@/utils/jellyfin/audio/getAudioContentType";
 import { getAudioStreamUrl } from "@/utils/jellyfin/audio/getAudioStreamUrl";
 import { logAndCaptureError } from "@/utils/log";
@@ -65,6 +66,17 @@ export const useMusicCast = ({ api, userId }: UseMusicCastOptions) => {
           return false;
         }
 
+        // A loopback address this client reached the node at means nothing to
+        // the receiver, which is another device (lib/stingstream/receiverUrl.ts).
+        const toReceiver = await createReceiverUrlRewriter({
+          jellyfinBasePath: api.basePath,
+          accessToken: api.accessToken,
+        }).catch(() => (url: string) => url);
+        const albumArt = (track: BaseItemDto) => {
+          const url = getAlbumArtUrl(track);
+          return url ? [{ url: toReceiver(url) }] : [];
+        };
+
         // Build queue items - limit to 100 tracks due to Cast SDK message size limit
         const queueToSend = queue.slice(0, 100);
         const queueItems = await Promise.all(
@@ -92,7 +104,7 @@ export const useMusicCast = ({ api, userId }: UseMusicCastOptions) => {
             return {
               mediaInfo: {
                 contentId: track.Id,
-                contentUrl: streamResult.url,
+                contentUrl: toReceiver(streamResult.url),
                 contentType,
                 streamType: MediaStreamType.BUFFERED,
                 streamDuration: streamDurationSeconds,
@@ -101,9 +113,7 @@ export const useMusicCast = ({ api, userId }: UseMusicCastOptions) => {
                   title: track.Name || "Unknown Track",
                   artist: track.AlbumArtist || track.Artists?.join(", ") || "",
                   albumName: track.Album || "",
-                  images: getAlbumArtUrl(track)
-                    ? [{ url: getAlbumArtUrl(track)! }]
-                    : [],
+                  images: albumArt(track),
                 },
               },
               autoplay: true,

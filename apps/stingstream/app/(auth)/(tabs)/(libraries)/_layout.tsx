@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
+import { withCastAction } from "@/components/cast/castHeader";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
 import { PlatformDropdown } from "@/components/PlatformDropdown";
 import { headerTarget } from "@/components/shell/headerTarget";
@@ -186,31 +187,33 @@ export default function IndexLayout() {
     headerBlurEffect: "none",
     headerTransparent: Platform.OS === "ios",
     headerShadowVisible: false,
-    headerRight: () =>
-      !pluginSettings?.libraryOptions?.locked &&
-      !Platform.isTV && (
-        <PlatformDropdown
-          open={dropdownOpen}
-          onOpenChange={setDropdownOpen}
-          trigger={
-            <View
-              accessible
-              accessibilityRole='button'
-              accessibilityLabel={t("library.options.display")}
-              // A 44 px box, not a 24 px glyph: pass-03 F-52.
-              style={{
-                ...headerTarget,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <HeaderIcon name='more' />
-            </View>
-          }
-          title={t("library.options.display")}
-          groups={dropdownGroups}
-        />
-      ),
+    headerRight: withCastAction(
+      () =>
+        !pluginSettings?.libraryOptions?.locked &&
+        !Platform.isTV && (
+          <PlatformDropdown
+            open={dropdownOpen}
+            onOpenChange={setDropdownOpen}
+            trigger={
+              <View
+                accessible
+                accessibilityRole='button'
+                accessibilityLabel={t("library.options.display")}
+                // A 44 px box, not a 24 px glyph: pass-03 F-52.
+                style={{
+                  ...headerTarget,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <HeaderIcon name='more' />
+              </View>
+            }
+            title={t("library.options.display")}
+            groups={dropdownGroups}
+          />
+        ),
+    ),
     ...tabRootOptions,
   };
 

@@ -1,6 +1,8 @@
 import { Stack } from "expo-router";
+import { useAtom } from "jotai";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
+import { CastHeaderButton } from "@/components/cast/castHeader";
 import {
   HeaderButton,
   HeaderButtonGroup,
@@ -14,12 +16,8 @@ import {
 } from "@/components/stacks/NestedTabPageStack";
 import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
-import { useTheme } from "@/hooks/useTheme";
-
-const Chromecast = Platform.isTV ? null : require("@/components/Chromecast");
-
-import { useAtom } from "jotai";
 import { useSessions, type useSessionsProps } from "@/hooks/useSessions";
+import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { userAtom } from "@/providers/JellyfinProvider";
 
@@ -82,20 +80,12 @@ export default function IndexLayout() {
             Platform.isTV ? null : (
               <HeaderButtonGroup>
                 {/*
-                  Neither of these exists in a browser (pass-03 F-52): there is
-                  no offline download on web — `expo-file-system` is a stub
-                  there — and `react-native-google-cast` has no web build at
-                  all, so the cast button opened nothing. Rendering them was
-                  offering two controls that could not work, and it pushed the
-                  header past the three-action ceiling on compact.
+                  No offline downloads in a browser (pass-03 F-52):
+                  `expo-file-system` is a stub there, so the button could not
+                  work. Casting does work there now, through the Cast Web
+                  Sender, so it stays on every platform.
                 */}
                 {Platform.OS === "web" ? null : <DownloadsButton />}
-                {Platform.OS === "web" ? null : (
-                  <Chromecast.Chromecast
-                    accessibilityLabel={t("shell.cast_to_device")}
-                    style={headerTarget}
-                  />
-                )}
                 {/*
                   Three actions is the ceiling on compact (pass-02, cross-cutting
                   rule 3), and with the app mark now holding the leading edge
@@ -108,6 +98,8 @@ export default function IndexLayout() {
                   <SessionsButton />
                 )}
                 <SettingsButton />
+                {/* Last, so it is the corner itself, as on every other header. */}
+                <CastHeaderButton />
               </HeaderButtonGroup>
             ),
           ...tabRootOptions,

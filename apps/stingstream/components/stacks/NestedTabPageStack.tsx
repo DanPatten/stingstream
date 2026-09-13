@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { type ComponentProps, useMemo } from "react";
 import { Platform } from "react-native";
+import { withCastAction } from "@/components/cast/castHeader";
 import { HeaderGradient } from "@/components/common/HeaderGradient";
 import { HeaderMark } from "@/components/shell/HeaderMark";
 import { MoreBackButton } from "@/components/shell/MoreBackButton";
@@ -63,7 +64,15 @@ export function useStackScreenOptions(): ICommonScreenOptions {
     // it here is what lets them all drop the line, and keeps a television
     // header-free exactly as before.
     if (!isWebWide) {
-      return { ...stackScreenOptions, headerShown: !Platform.isTV };
+      return {
+        ...stackScreenOptions,
+        headerShown: !Platform.isTV,
+        // The cast button on every header, which is Google's own guidance for a
+        // sender. A screen that sets its own `headerRight` replaces this, and
+        // wraps its actions in `withCastAction` to keep it. Web wide has no
+        // stack headers; the top bar carries it there.
+        headerRight: Platform.isTV ? undefined : withCastAction(),
+      };
     }
 
     const title = resolveTextStyle("heading", "primary", "semibold", name);

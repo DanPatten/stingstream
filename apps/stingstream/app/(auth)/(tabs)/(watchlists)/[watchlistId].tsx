@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCardGrid } from "@/components/cards/useCardGrid";
+import { CastHeaderButton, withCastAction } from "@/components/cast/castHeader";
 import {
   HeaderButton,
   HeaderButtonGroup,
@@ -110,9 +111,10 @@ export default function WatchlistDetailScreen() {
               <HeaderButton onPress={handleDelete}>
                 <HeaderIcon name='delete' tintColor='#ef4444' />
               </HeaderButton>
+              <CastHeaderButton />
             </HeaderButtonGroup>
           )
-        : undefined,
+        : withCastAction(),
     });
   }, [navigation, watchlist?.name, isOwner, watchlistId]);
 

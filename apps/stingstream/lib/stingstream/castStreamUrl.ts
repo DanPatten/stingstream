@@ -110,10 +110,13 @@ export interface CastStreamResolution {
   warning?: string;
 }
 
-/** Per-lookup timeout — a coordinator or a home node that is not answering must not hang "Cast". */
-const DEFAULT_LOOKUP_TIMEOUT_MS = 3000;
+/**
+ * Per-lookup timeout — a coordinator or a home node that is not answering must not hang "Cast".
+ * Shared with `receiverUrl.ts`, which makes the same kind of lookup at the same moment.
+ */
+export const DEFAULT_LOOKUP_TIMEOUT_MS = 3000;
 
-async function withTimeout<T>(
+export async function withTimeout<T>(
   work: Promise<T>,
   ms: number,
   onTimeoutOrError: T,
