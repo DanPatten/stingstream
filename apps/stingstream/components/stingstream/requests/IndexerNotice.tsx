@@ -5,6 +5,7 @@ import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { radius, space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import {
   indexerProblem,
@@ -36,18 +37,23 @@ export function IndexerNotice() {
   const { color } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
+  const { isCompact } = useBreakpoint();
   const isAdmin = useCanApproveRequests();
   const { data } = useIndexerHealth(isAdmin);
   const problem = indexerProblem(data);
 
   if (!isAdmin || !problem) return null;
 
+  // On a phone the button is a row of its own. Beside the text it claimed its
+  // own width first and left the sentence a ten-character column down the
+  // middle of the banner: "You can ask for / things, and they / wait on your
+  // list." at 390 px.
   return (
     <View
       testID='requests-indexer-notice'
       style={{
-        flexDirection: "row",
-        alignItems: "center",
+        flexDirection: isCompact ? "column" : "row",
+        alignItems: isCompact ? "flex-start" : "center",
         gap: space["3"],
         padding: 12,
         marginBottom: 12,
@@ -55,18 +61,20 @@ export function IndexerNotice() {
         backgroundColor: color.bg["1"],
       }}
     >
-      <Icon name='warning' tone='accent' size={18} />
-      <View style={{ flex: 1 }}>
-        <Text variant='body' weight='semibold'>
-          {problem === "none-configured"
-            ? t("requests.indexers_none_title")
-            : t("requests.indexers_failing_title")}
-        </Text>
-        <Text variant='caption' tone='secondary' style={{ marginTop: 2 }}>
-          {problem === "none-configured"
-            ? t("requests.indexers_none_detail")
-            : t("requests.indexers_failing_detail")}
-        </Text>
+      <View style={{ flexDirection: "row", gap: space["3"], flex: 1 }}>
+        <Icon name='warning' tone='accent' size={18} />
+        <View style={{ flex: 1 }}>
+          <Text variant='body' weight='semibold'>
+            {problem === "none-configured"
+              ? t("requests.indexers_none_title")
+              : t("requests.indexers_failing_title")}
+          </Text>
+          <Text variant='caption' tone='secondary' style={{ marginTop: 2 }}>
+            {problem === "none-configured"
+              ? t("requests.indexers_none_detail")
+              : t("requests.indexers_failing_detail")}
+          </Text>
+        </View>
       </View>
       <Button
         variant='secondary'

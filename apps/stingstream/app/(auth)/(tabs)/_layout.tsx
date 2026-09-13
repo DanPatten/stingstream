@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
 import { toast } from "sonner-native";
+import { MobileShell } from "@/components/shell/MobileShell";
 import { TAB_LABEL_FONT_SIZE, tabTestID } from "@/components/shell/tabIcons";
 import { WebShellLayout } from "@/components/shell/WebShellLayout";
 import { WatchTogetherBanner } from "@/components/stingstream/watch/WatchTogetherBanner";
@@ -244,7 +245,7 @@ function TVTabLayout() {
  */
 const ICON_ONLY_BELOW = 360;
 
-/** No chrome — a phone, a tablet, and every browser window under 768 px. */
+/** No chrome — a phone and a tablet, where the platform's own bar is all there is. */
 const PlainFrame: React.FC<PropsWithChildren> = ({ children }) => (
   <View style={{ flex: 1 }}>{children}</View>
 );
@@ -278,7 +279,14 @@ export default function TabLayout() {
   // navigator now, not a second navigator — which also means your tab and your
   // place in it survive the resize.
   const wide = Platform.OS === "web" && !isCompact;
-  const Frame = wide ? WebShellLayout : PlainFrame;
+  // Narrower than that, a browser gets the drawer instead of the column: the
+  // same rows, over the page, opened by the bar's own hamburger. See
+  // `components/shell/MobileShell.tsx`.
+  const Frame = wide
+    ? WebShellLayout
+    : Platform.OS === "web"
+      ? MobileShell
+      : PlainFrame;
 
   /*
     The bar Dan reviewed had seven tabs on a 390 px phone and truncated every
@@ -290,6 +298,13 @@ export default function TabLayout() {
     Manage is not among them any more. Its queue, history and calendar are
     Requests → Activity, and its Radarr/Sonarr library is Settings → Radarr &
     Sonarr; the group is gone rather than hidden.
+
+    In a browser at that width the fifth button is a hamburger rather than More,
+    and it opens the drawer instead of navigating — the web tab bar is drawn by
+    `lib/platform/web-stubs/bottom-tabs-react-navigation.tsx`, which skips this
+    `(settings)` screen for that reason. The group and its screen stay: they are
+    what a phone and a tablet still use, where a platform tab bar's item can
+    only ever open a screen.
 
     The declaration order below is the navigator's route order, and `TAB_KEYS`
     is a copy of it that the sidebar and the two tab bars read; keep the two in

@@ -1,8 +1,9 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { Text } from "@/components/common/Text";
 import { ScreenHeaderRow } from "@/components/stingstream/shared/ScreenHeaderRow";
 import { space } from "@/constants/theme";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 
 /**
  * The top of a settings page: what it is, and what is on it.
@@ -29,21 +30,46 @@ export const SettingsPane: React.FC<
     /** Drawn beside the title: a "Save" button, a count, a status pill. */
     accessory?: ReactNode;
   }>
-> = ({ title, detail, accessory, children }) => (
-  <View>
-    <ScreenHeaderRow title={title} accessory={accessory} />
-    {detail ? (
-      <Text
-        variant='caption'
-        tone='secondary'
-        style={{ marginTop: -4, marginBottom: space["4"] }}
-      >
-        {detail}
-      </Text>
-    ) : null}
-    {children}
-  </View>
-);
+> = ({ title, detail, accessory, children }) => {
+  // Below 768 px the screen keeps its own stack header, and that header is
+  // already this page's title — so drawing it again put "Profile" twice on a
+  // phone, forty pixels apart. Pass-03 F-55 is the same finding at the other
+  // width, where the fix was the other way round: the top bar says it once, so
+  // the stack header goes. The accessory is not a duplicate of anything and
+  // stays at every width.
+  const { isWebWide } = useBreakpoint();
+  const headerSaysIt = !isWebWide && !Platform.isTV;
+
+  return (
+    <View>
+      {headerSaysIt ? (
+        accessory ? (
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              marginBottom: 12,
+            }}
+          >
+            {accessory}
+          </View>
+        ) : null
+      ) : (
+        <ScreenHeaderRow title={title} accessory={accessory} />
+      )}
+      {detail ? (
+        <Text
+          variant='caption'
+          tone='secondary'
+          style={{ marginTop: -4, marginBottom: space["4"] }}
+        >
+          {detail}
+        </Text>
+      ) : null}
+      {children}
+    </View>
+  );
+};
 
 /**
  * A titled block of rows inside a pane, for the one page that is about two

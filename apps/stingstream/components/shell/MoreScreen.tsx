@@ -16,6 +16,12 @@ import { buildMoreItems, type SidebarItem } from "./buildSidebarItems";
 /**
  * The fifth tab on a phone.
  *
+ * **A phone, meaning iOS and Android.** In a browser this screen is unreachable:
+ * the web bar's fifth button is a hamburger that opens the drawer
+ * (`MobileShell.tsx`) rather than navigating anywhere, and the drawer lists
+ * these same rows over the page instead of in place of it. The route stays
+ * because a platform tab bar's item can only ever open a screen.
+ *
  * Pass-01 F-08: the bottom bar had grown to seven tabs and truncated every
  * label. Five is the most a 360 dp bar can spell out, so Favorites, Watchlists,
  * Transfers, Sharing and Settings live here instead — the same rows the

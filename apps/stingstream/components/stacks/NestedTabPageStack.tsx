@@ -4,7 +4,7 @@ import { Platform } from "react-native";
 import { HeaderGradient } from "@/components/common/HeaderGradient";
 import { HeaderMark } from "@/components/shell/HeaderMark";
 import { MoreBackButton } from "@/components/shell/MoreBackButton";
-import { resolveTextStyle, tokens } from "@/constants/theme";
+import { resolveTextStyle } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -122,6 +122,11 @@ export function useMoreChildScreenOptions(): ICommonScreenOptions {
 
   return useMemo(() => {
     if (isWebWide || Platform.isTV) return {};
+    // A narrow browser has no More screen to go back to: its fifth tab button
+    // is the hamburger, and these sections are rows in the drawer it opens
+    // (`components/shell/MobileShell.tsx`). So they are tab roots there like
+    // any other, mark and all, and the way out is the same hamburger.
+    if (Platform.OS === "web") return { headerLeft: () => <HeaderMark /> };
     return { headerLeft: () => <MoreBackButton /> };
   }, [isWebWide]);
 }

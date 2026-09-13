@@ -10,7 +10,7 @@ import {
   flattenSidebar,
   type SidebarSettings,
 } from "./buildSidebarItems";
-import { TAB_KEYS, tabPath } from "./tabIcons";
+import { HOME_ROUTE, TAB_KEYS, tabNavigateTarget, tabPath } from "./tabIcons";
 
 // Everything here is the *rules* of the sidebar, which is the only part of the
 // shell with rules in it: who sees which row, in what order, and which row is
@@ -496,5 +496,30 @@ describe("tab paths", () => {
 
   test("an unknown route name falls back to Home rather than a bad path", () => {
     expect(tabPath("(something-new)")).toBe("/");
+  });
+
+  // Both navigators press Home through `tabNavigateTarget`. `/` is every
+  // group's `index` at once, so expo-router resolves it inside the group you
+  // are already in: the sidebar row and the compact tab bar's Home button both
+  // did nothing at all from anywhere but Home.
+  test("Home navigates by its qualified route, never by /", () => {
+    expect(tabNavigateTarget("(home)")).toBe(HOME_ROUTE);
+    expect(tabNavigateTarget("(home)")).not.toBe("/");
+    expect(HOME_ROUTE).toContain("(home)");
+  });
+
+  test("every other section navigates to the address it shows", () => {
+    for (const tab of TAB_KEYS) {
+      if (tab === "(home)") continue;
+      expect(tabNavigateTarget(tab)).toBe(tabPath(tab));
+    }
+  });
+
+  test("the sidebar's Home row carries that route", () => {
+    const home = flattenSidebar(
+      buildSidebarItems(member, settings(), [], t),
+    ).find((item) => item.key === "(home)");
+
+    expect(home?.route.pathname).toBe(HOME_ROUTE);
   });
 });

@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens, webFocusRing } from "@/constants/theme";
+import { radius, webFocusRing } from "@/constants/theme";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import type { SidebarItem as SidebarItemModel } from "./buildSidebarItems";

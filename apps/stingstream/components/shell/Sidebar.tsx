@@ -10,7 +10,7 @@ import {
 import { StingStreamMark, StingStreamWordmark } from "@/components/brand";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { radius, tokens, webFocusRing } from "@/constants/theme";
+import { radius, webFocusRing } from "@/constants/theme";
 import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import type {
@@ -33,19 +33,34 @@ const SIDEBAR_WORDMARK_HEIGHT = 40;
 /** The mark alone, on the rail. 28 in the 44 px control, as in a phone header. */
 const SIDEBAR_MARK_SIZE = 28;
 
+/**
+ * `column` is the permanent left column of the desktop shell; `drawer` is the
+ * same list slid in over a narrow window, where the header's control closes it
+ * rather than collapsing it and the width comes from the panel.
+ */
+export type SidebarVariant = "column" | "drawer";
+
 interface Props {
   sections: SidebarSection[];
   activeKey: string | undefined;
-  /** The 72 px rail: glyphs only, labels on hover. */
+  /** The 72 px rail: glyphs only, labels on hover. Never set in a drawer. */
   collapsed: boolean;
   onSelect: (item: SidebarItemModel) => void;
   onPressBrand: () => void;
-  /** Collapse/expand. See `useSidebarCollapsed`. */
+  /** Collapse/expand, or close the drawer. See `useSidebarCollapsed`. */
   onToggleCollapsed: () => void;
+  variant?: SidebarVariant;
+  /** Drawer only: the panel's width, which the drawer measures from the window. */
+  width?: number;
 }
 
 /**
  * The left column: where everything in the app is.
+ *
+ * Permanent at 768 px and up; below it the same component is the drawer the
+ * bottom bar's hamburger opens (`variant='drawer'`, see `MobileShell`). One
+ * list, one set of rules, one set of testIDs, at every width — the phone's More
+ * *screen* was the second opinion, and it is gone from the web.
  *
  * The one structural idea is that *your libraries are navigation*. On a phone
  * they are a screen you open and then pick from; at 1280 px there is room to
@@ -67,6 +82,8 @@ export const Sidebar: React.FC<Props> = ({
   onSelect,
   onPressBrand,
   onToggleCollapsed,
+  variant = "column",
+  width,
 }) => {
   const { color } = useTheme();
   const body = sections.filter((section) => section.key !== "footer");
@@ -85,7 +102,7 @@ export const Sidebar: React.FC<Props> = ({
       testID='shell-sidebar'
       role='navigation'
       style={{
-        width: collapsed ? SIDEBAR_RAIL_WIDTH : SIDEBAR_WIDTH,
+        width: width ?? (collapsed ? SIDEBAR_RAIL_WIDTH : SIDEBAR_WIDTH),
         backgroundColor: color.bg["1"],
         borderRightWidth: 1,
         borderRightColor: color.border.subtle,
@@ -94,12 +111,16 @@ export const Sidebar: React.FC<Props> = ({
         // by the page: the toggle's own label landed exactly under the top
         // bar's title and never showed at all.
         zIndex: 1,
+        // The desktop column is a row-flex sibling and stretches on its own;
+        // the drawer's panel is a column, where stretch is the other axis.
+        ...(variant === "drawer" ? { flex: 1 } : null),
       }}
     >
       <SidebarHeader
         collapsed={collapsed}
         onPressBrand={onPressBrand}
         onToggleCollapsed={onToggleCollapsed}
+        variant={variant}
       />
 
       <ScrollView
@@ -241,7 +262,8 @@ const SidebarHeader: React.FC<{
   collapsed: boolean;
   onPressBrand: () => void;
   onToggleCollapsed: () => void;
-}> = ({ collapsed, onPressBrand, onToggleCollapsed }) => (
+  variant: SidebarVariant;
+}> = ({ collapsed, onPressBrand, onToggleCollapsed, variant }) => (
   <View
     style={{
       height: SIDEBAR_HEADER_HEIGHT,
@@ -252,7 +274,11 @@ const SidebarHeader: React.FC<{
       gap: 6,
     }}
   >
-    <CollapseToggle collapsed={collapsed} onPress={onToggleCollapsed} />
+    <CollapseToggle
+      collapsed={collapsed}
+      onPress={onToggleCollapsed}
+      variant={variant}
+    />
     {collapsed ? null : <BrandButton onPress={onPressBrand} />}
   </View>
 );
@@ -265,18 +291,22 @@ const SidebarHeader: React.FC<{
  * rail is otherwise headed by the logo rather than by a control. It stays one
  * button throughout: the same name, the same target, the same 44 px.
  */
-const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
-  collapsed,
-  onPress,
-}) => {
+const CollapseToggle: React.FC<{
+  collapsed: boolean;
+  onPress: () => void;
+  variant: SidebarVariant;
+}> = ({ collapsed, onPress, variant }) => {
   const { t } = useTranslation();
   const { color } = useTheme();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const showRing = useFocusVisible(focused);
-  const label = collapsed
-    ? t("shell.expand_sidebar")
-    : t("shell.collapse_sidebar");
+  const drawer = variant === "drawer";
+  const label = drawer
+    ? t("shell.close_menu")
+    : collapsed
+      ? t("shell.expand_sidebar")
+      : t("shell.collapse_sidebar");
   // The rail is headed by the mark until there is a reason to show the control.
   // `showRing`, not `focused`: a click focuses the button too, and swapping the
   // mark out for good the moment somebody collapsed the sidebar with the mouse
@@ -286,7 +316,7 @@ const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
   return (
     <View>
       <Pressable
-        testID='shell-sidebar-toggle'
+        testID={drawer ? "shell-drawer-close" : "shell-sidebar-toggle"}
         accessibilityRole='button'
         accessibilityLabel={label}
         accessibilityState={{ expanded: !collapsed }}
@@ -318,7 +348,13 @@ const CollapseToggle: React.FC<{ collapsed: boolean; onPress: () => void }> = ({
         {showMark ? (
           <StingStreamMark size={SIDEBAR_MARK_SIZE} />
         ) : (
-          <Icon name='menu' size={20} color={color.text.secondary} />
+          <Icon
+            // In a drawer the control dismisses the panel it is drawn on, and
+            // the thing a reader reaches for to do that is a cross.
+            name={drawer ? "close" : "menu"}
+            size={20}
+            color={color.text.secondary}
+          />
         )}
       </Pressable>
       {/* The rail has no labels at all, so the toggle needs the same hover

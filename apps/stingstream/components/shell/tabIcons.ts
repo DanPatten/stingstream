@@ -55,7 +55,8 @@ const TAB_ICONS: Record<TabKey, IconName> = {
   "(requests)": "requests",
   "(downloads)": "transfers",
   // Not a gear: on a phone this group is the "More" tab, and the settings row
-  // is one line inside the list it shows. See `MoreScreen.tsx`.
+  // is one line inside the list it shows. See `MoreScreen.tsx`. In a browser
+  // the group has no button at all — the bar's last slot is the hamburger.
   "(settings)": "more",
 };
 
@@ -131,12 +132,37 @@ export const tabPath = (routeName: string): string =>
   isTabKey(routeName) ? TAB_PATHS[routeName] : "/";
 
 /**
+ * Home's route, fully qualified, because `/` is not enough to navigate with.
+ *
+ * Every tab group holds an `index`, so every group defines `/` — and expo
+ * router resolves a bare `/` *within the group you are already in*. Pressing
+ * Home from the library therefore landed on `(libraries)/index` with the
+ * address bar reading `/` and the screen still showing the library: the Home
+ * button did nothing at all. The sidebar has navigated by this path since Dan
+ * caught it there ("Oh clicking home is what that is doing"); the compact tab
+ * bar had the same bug for the same reason and now uses the same constant.
+ *
+ * The address bar still reads `/` afterwards, which is Home's real address.
+ */
+export const HOME_ROUTE = "/(auth)/(tabs)/(home)/";
+
+/**
+ * Where a tab *button* should send you: the section's public URL, except Home.
+ *
+ * Distinct from `tabPath`, which is what a section's address *is* — that is
+ * what an active-row check compares against, and what the address bar shows.
+ */
+export const tabNavigateTarget = (routeName: string): string =>
+  routeName === "(home)" ? HOME_ROUTE : tabPath(routeName);
+
+/**
  * The groups that lost their tab button to the five-icon bar.
  *
- * They are reached from More and nowhere else on a phone, so More is what the
- * bar should light while you are inside one (pass-03 F-58). `(custom-links)` is
- * here for the same reason the others are, even though the user has to switch
- * it on before it exists.
+ * They are reached from the bar's last button and nowhere else at that width, so
+ * that button is what should be lit while you are inside one (pass-03 F-58) —
+ * More on a phone, the hamburger in a browser. `(custom-links)` is here for the
+ * same reason the others are, even though the user has to switch it on before it
+ * exists.
  */
 const BEHIND_MORE: readonly TabKey[] = [
   "(favorites)",
@@ -150,19 +176,19 @@ export const isBehindMore = (routeName: string | undefined): boolean =>
   (BEHIND_MORE as readonly string[]).includes(routeName);
 
 /**
- * The compact tab bar's label size, in px, for both navigators.
+ * The compact tab bar's label size, in px.
  *
- * Read from the type scale rather than written down, so the native bar and the
- * web stub cannot drift from `micro` or from each other: the web stub renders a
- * `Text variant="micro"` and the native navigator takes a raw `fontSize`, and
- * before this they were two literals that happened to agree.
+ * The native bar only, since 2026-09-12: the web bar is glyphs alone at every
+ * compact width. Dan, on the browser at phone width: "use icons at the bottom
+ * instead of names". A platform tab bar is the one place the words stay, because
+ * a labelled item is the convention on both phones.
  *
- * `micro` at compact is 12 px, which is the accessibility floor the screenshot
- * sweep enforces — text below it is a finding. It was 11 for one pass, chosen
- * only because F-08 asked for "10–11 px"; five labels still fit a 360 dp bar at
- * 12, which was the defect F-08 was actually about. Below `ICON_ONLY_BELOW` the
- * labels go entirely rather than shrink further, because shrinking under the
- * floor is not an option.
+ * Read from the type scale rather than written down. `micro` at compact is
+ * 12 px, which is the accessibility floor the screenshot sweep enforces — text
+ * below it is a finding. It was 11 for one pass, chosen only because F-08 asked
+ * for "10–11 px"; five labels still fit a 360 dp bar at 12, which was the defect
+ * F-08 was actually about. Below `ICON_ONLY_BELOW` the labels go entirely rather
+ * than shrink further, because shrinking under the floor is not an option.
  */
 export const TAB_LABEL_FONT_SIZE = typeStyle("micro", "compact").fontSize;
 

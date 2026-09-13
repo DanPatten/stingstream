@@ -1392,6 +1392,8 @@
     "cast_to_device": "Cast to a device",
     "collapse_sidebar": "Collapse the sidebar",
     "expand_sidebar": "Expand the sidebar",
+    "menu": "Menu",
+    "close_menu": "Close the menu",
     "back": "Back",
     "watch_together": "Watch together",
     "watch_together_here": "On this server",

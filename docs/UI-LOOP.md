@@ -222,7 +222,9 @@ Own `package.json` + lockfile, runs with plain `node`.
   auth flows, `connectAndSignIn` kept as an alias for `signIn`) live here too. `NAV`/`navigateViaNav`
   drive Requests/Sharing by a real nav click as well as by URL (see "Pinned routes"), reading the
   768px `isWebWide` breakpoint (`apps/stingstream/hooks/useBreakpoint.ts`) to pick the desktop
-  sidebar's testID or the compact bar/More screen's.
+  sidebar's testID or the compact bar's -- and below 768px, for a destination the four-icon bar
+  does not carry, opening the drawer (`shell-menu` -> `shell-drawer`) and clicking the sidebar row
+  inside it, which is the same testID as at 1440.
 - **`sweep.mjs`** -- `watchPage(page, {screen, viewport})` (call **before** navigating: console
   errors/warnings against `allowlist.json`, failed responses >= 400 against the same file,
   `pageerror`) and `sweepDom(page, {...})` (call once a screen has settled: page/element overflow,
@@ -237,9 +239,9 @@ Own `package.json` + lockfile, runs with plain `node`.
   plus `smallTextSelectors` -- CSS selectors (not regexes) exempting matching elements from the
   small-text (<12px) check. Starts empty on purpose: pass-00's findings are the old-UI baseline and
   are *meant* to be high (the plan's own words); only add an entry once a finding is genuinely
-  understood and expected, never to make a number look better. One entry as of this pass:
-  `[data-testid="shell-tabbar"] *`, for the compact tab bar's 11px labels (`TAB_LABEL_FONT_SIZE`,
-  `tabIcons.ts`) -- deliberate, F-08, not a defect.
+  understood and expected, never to make a number look better. Empty again as of 2026-09-12: its
+  one entry, `[data-testid="shell-tabbar"] *`, exempted the compact bar's 12px labels, and the web
+  bar has no labels left to exempt -- four glyphs and a hamburger.
 - **`report.mjs`** -- `buildReport(findings, meta)` (importable) and a standalone CLI
   (`node report.mjs --in findings.json --out <dir>`) producing the same `report.json`/`report.md`
   shape `shots.mjs` writes directly.
@@ -282,7 +284,7 @@ right screen. Almost everything is pinned to a direct URL again as a result.
 | ~~Manage~~ | gone -- folded into Requests | |
 | Transfers | `/transfers` | |
 | Favorites | `/favorites` | New this pass (`14-favorites`) |
-| More | `/more` | New this pass (`13-more`), **390px only** -- the "More" screen is a compact-only concept (`buildMoreItems`); at >=768px the same rows are direct sidebar items and there is nothing distinct to shoot |
+| Menu | drawer, no URL | `13-menu`, **390px only** -- the bar's hamburger (`shell-menu`) opens the sidebar as a drawer (`shell-drawer`); at >=768px that same column is permanent and in every other shot. It replaced `13-more`: the More *tab* is gone on the web, and `/more` is now only the native phone bar's fifth item |
 | Details | **not pinned** | keyed by item id; `05-details` starts from Home (not wherever the prior screen left off) and clicks the first `library-card`, asserting the resulting URL is not one of the section URLs above -- Home's rows are real item cards only, so this cannot land on a library tile the way the Libraries screen's own `library-card`-tagged tiles could |
 | Player | **not pinned** | `06-player` clicks the details page's own `details-play` testID |
 
@@ -421,19 +423,21 @@ Add each `testID` in the package that already owns the file it belongs on:
 | `firstrun-username` / `firstrun-password` / `firstrun-confirm` / `firstrun-submit` | First-run form fields + submit | WP3 | **Landed** |
 | `login-server-url` / `login-connect` | Server URL field + Connect button | WP3 | **Landed** |
 | `login-username` / `login-password` / `login-submit` | Sign-in form fields + submit | WP3 | **Landed** |
-| `tab-home` / `tab-search` / `tab-library` / `tab-requests` / `tab-more` | Compact bottom tab bar (`shell-tabbar`, <768px) and desktop sidebar (`buildSidebarItems.ts`, >=768px) -- same testID, shared via `tabTestID()` | WP1 | **Landed** 2026-09-06 (`dbdee21`). The old auto-assigned `tab-(home)`-style ids (literal Expo Router group names) are gone; querying for one now finds nothing. |
-| `tab-favorites` / `tab-watchlists` / `tab-custom-links` / `tab-manage` / `tab-transfers` | Same shared `tabTestID()` ids -- desktop sidebar rows, and (for the ones not on the compact bar) rows inside the phone's `more-screen` too | WP1 | **Landed** |
-| `tab-settings` | The sidebar's Settings row (>=768px), which is not a tab group | WP1 | **Landed** |
-| `more-settings` / `more-sessions` | The same two rows on the phone's `more-screen` (<768px). `more-sessions` is also the sidebar's row for Sessions at >=768px | WP1 | **Landed** |
+| `tab-home` / `tab-search` / `tab-library` / `tab-requests` | Compact bottom tab bar (`shell-tabbar`, <768px) and desktop sidebar (`buildSidebarItems.ts`, >=768px) -- same testID, shared via `tabTestID()` | WP1 | **Landed** 2026-09-06 (`dbdee21`). The old auto-assigned `tab-(home)`-style ids (literal Expo Router group names) are gone; querying for one now finds nothing. |
+| ~~`tab-more`~~ | **Gone on the web 2026-09-12.** The bar's fifth button is `shell-menu`, a hamburger that opens the drawer rather than navigating. The id still exists on the native phone bar, which cannot open anything but a screen | — | Removed (web) |
+| `tab-favorites` / `tab-watchlists` / `tab-custom-links` / `tab-transfers` | Same shared `tabTestID()` ids -- sidebar rows at >=768px, and the same rows inside `shell-drawer` below it | WP1 | **Landed** |
+| `tab-settings` | The sidebar's Settings row (either width), which is not a tab group | WP1 | **Landed** |
+| `more-sessions` | The sidebar's row for Sessions, at either width | WP1 | **Landed** |
 | ~~`tab-users`~~ / ~~`more-users`~~ | **Gone 2026-09-09.** Users is a settings category (`/settings/users`, `settings-nav-users`); `/users` is a redirect. Querying for either id now finds nothing | — | Removed |
 | `settings-nav` / `settings-nav-<key>` | The settings category column (>=1024px) and its rows — the same ids appear as the compact settings list's rows, since both are built by `buildSettingsCategories` | WP10 | **Landed** 2026-09-09 |
 | `settings-pane` | The detail half of the two-pane layout. There is no landing pane: at >=1024px `/settings` redirects to the first category, the way a desktop settings app opens on a real page | WP10 | **Landed** 2026-09-09 |
 | `settings-scope` | The "This device" / "Your account" / "Whole server" badge at the top of every pane | WP10 | **Landed** 2026-09-09 |
 | `settings-search` / `settings-search-results` / `settings-search-result-<id>` | The top bar's box in its settings mode (and the compact list's own box), its result panel, and one result row | WP10 | **Landed** 2026-09-09 |
 | `settings-focus-<id>` | A block the search can jump to and ring — `?focus=<id>` | WP10 | **Landed** 2026-09-09 |
-| `shell-tabbar` | The compact bottom tab bar's own container | WP1 | **Landed** |
-| `more-screen` | The phone "More" screen's container | WP1 | **Landed** |
-| `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron | WP1 | **Landed** |
+| `shell-tabbar` | The compact bottom tab bar's own container: four glyphs and the hamburger, no labels | WP1 | **Landed** |
+| `shell-menu` / `shell-drawer` / `shell-drawer-close` / `shell-drawer-scrim` | The compact hamburger, the drawer it opens, and the two ways out of it | — | **Landed** 2026-09-12 |
+| `more-screen` | The phone "More" screen's container. Native only now; no web surface links to `/more` | WP1 | **Landed** |
+| `header-mark` / `header-back-to-more` | Top bar's app mark / back-to-More chevron (the chevron is native-only: on the web those sections are drawer rows and keep the mark) | WP1 | **Landed** |
 | `home-hero` | The Home hero/spotlight | WP4 | Not landed |
 | `home-row` | Each Home row container | WP4 | Not landed |
 | `library-card` | A poster/card -- both a real item card (`components/cards/Card.tsx`) and the Libraries screen's own "Movies"/"TV Shows" tiles (`components/library/LibraryItemCard.tsx`) carry this exact id, not just item cards | WP2 | **Landed** 2026-09-08 |

@@ -5,6 +5,7 @@ import type {
 import type { IconName } from "@/components/common/Icon";
 import type { Settings } from "@/utils/atoms/settings";
 import {
+  HOME_ROUTE,
   type IoniconName,
   isTabKey,
   libraryIcon,
@@ -207,13 +208,10 @@ export function buildSidebarItems(
   // said what they were.
   const browse: SidebarItem[] = [
     tabItem("(home)", t, {
-      // The one section that cannot use its public URL. Every tab group has an `index`, so
-      // every group defines `/` -- and `replace("/")` resolves *within the group you are
-      // already in*. Pressing Home from a library therefore landed on `(libraries)/index`, the
-      // library grid, with the sidebar still lighting the library you came from. Dan: "Oh
-      // clicking home is what that is doing". The fully qualified path is unambiguous and the
-      // address bar still reads `/`, which is Home's real address.
-      route: { pathname: "/(auth)/(tabs)/(home)/" },
+      // The one section that cannot use its public URL: `/` belongs to every
+      // group's `index` at once. `HOME_ROUTE` is why, and the compact tab bar
+      // navigates by the same constant.
+      route: { pathname: HOME_ROUTE },
     }),
     ...libraries,
     tabItem("(favorites)", t),

@@ -21,8 +21,8 @@
 //     pass that direct navigation to all of the above now lands on the right screen, not the
 //     catch-all.
 //   - The tab bar's testIDs are the clean, stable contract docs/UI-LOOP.md always asked for:
-//     `tab-home|tab-search|tab-library|tab-requests|tab-more` inside `shell-tabbar` (the compact,
-//     <768px navigator). The `tab-(home)`-style parenthesized ids (the literal Expo Router group
+//     `tab-home|tab-search|tab-library|tab-requests` inside `shell-tabbar` (the compact, <768px
+//     navigator), whose fifth button is now `shell-menu`, the hamburger that opens `shell-drawer`. The `tab-(home)`-style parenthesized ids (the literal Expo Router group
 //     names) are gone -- confirmed live; querying for one now finds nothing.
 //   - `tabTestID()` (apps/stingstream/components/shell/tabIcons.ts) is shared between the compact
 //     tab bar AND the >=768px desktop sidebar, so the same `[data-testid="tab-requests"]` selector
@@ -34,10 +34,10 @@
 //   - Settings and Sessions are not tab-group members (no `/(auth)/(tabs)/(x)` of their own), so
 //     they get their own testIDs instead of a shared `tabTestID()`: `tab-settings` and
 //     `more-sessions`, both of which appear in the desktop sidebar (buildSidebarItems, >=768px)
-//     AND in the compact "More" screen (buildMoreItems, reached via `tab-more` -> `more-screen`,
-//     <768px). Favorites/Watchlists/Custom-links/Transfers DO share `tabTestID()` with the
-//     sidebar even inside the More screen (`tab-favorites`, `tab-watchlists`,
-//     `tab-custom-links`, `tab-transfers`). See NAV, below, for the concrete map.
+//     AND in the compact drawer (`shell-drawer`, <768px), which renders that same sidebar.
+//     Favorites/Watchlists/Custom-links/Transfers share `tabTestID()` with it there too
+//     (`tab-favorites`, `tab-watchlists`, `tab-custom-links`, `tab-transfers`). See NAV, below,
+//     for the concrete map.
 //   - `tab-users` and `more-users` are **gone**, and querying for either now finds nothing.
 //     Users is a settings category (`settings-nav-users`, `/settings/users`); `/users` is kept
 //     as a redirect. The desktop sidebar's own bands are browse (unlabelled), Requests (a rule,
@@ -211,26 +211,28 @@ const URLS = {
 
 /**
  * The nav testIDs a screenshot pass actually needs to click through, rather than every row
- * buildSidebarItems.ts/buildMoreItems() can produce. `compact` is the five-item bottom bar
- * (`shell-tabbar`, <768px); `wide` is the desktop sidebar's row for a destination that is not one
- * of the five (>=768px, `isWebWide`); `more` is the phone-only "More" screen's row for the same
- * destination (buildMoreItems, reached via `tab-more`). A destination missing a `wide` or `more`
- * entry does not have that surface -- e.g. Requests has no `more` row because it is already one
- * of the five compact-bar tabs, so it never gets pushed into More.
+ * buildSidebarItems.ts can produce. `compact` is a button on the bottom bar (`shell-tabbar`,
+ * <768px), which since the icons-only pass is four sections and a hamburger; `wide` is the
+ * desktop sidebar's row (>=768px, `isWebWide`).
+ *
+ * A destination with no `compact` entry is reached below 768px by opening the drawer
+ * (`shell-menu`) and clicking its `wide` id -- the drawer IS the sidebar
+ * (components/shell/MobileShell.tsx renders `Sidebar` in a panel), so the rows carry the same
+ * testIDs at both widths and there is no third vocabulary. The old `more` ids are gone with the
+ * More tab; `/more` is still a route for the native phone bar, but nothing on the web links to it.
  */
 const NAV = {
   home: { compact: "tab-home", wide: "tab-home" },
   search: { compact: "tab-search", wide: "tab-search" },
   library: { compact: "tab-library", wide: "tab-library" },
   requests: { compact: "tab-requests", wide: "tab-requests" },
-  more: { compact: "tab-more" },
-  favorites: { more: "tab-favorites", wide: "tab-favorites" },
-  watchlists: { more: "tab-watchlists", wide: "tab-watchlists" },
-  transfers: { more: "tab-transfers", wide: "tab-transfers" },
-  settings: { more: "more-settings", wide: "tab-settings" },
-  // A sidebar row at every width since pass-03 F-72, and a More row on a phone; the desktop
-  // sidebar's own admin band carries it beside Transfers.
-  sessions: { more: "more-sessions", wide: "more-sessions" },
+  favorites: { wide: "tab-favorites" },
+  watchlists: { wide: "tab-watchlists" },
+  transfers: { wide: "tab-transfers" },
+  settings: { wide: "tab-settings" },
+  // A sidebar row at every width since pass-03 F-72; the desktop sidebar's own admin band carries
+  // it beside Transfers, and so does the drawer.
+  sessions: { wide: "more-sessions" },
 };
 
 /**
@@ -288,9 +290,15 @@ async function navigateViaNav(page, base, viewportWidth, key) {
     await clickNav(page, entry.compact, URLS[key]);
     return;
   }
-  if (!entry.more) throw new Error(`"${key}" has no compact-bar tab or More row at ${viewportWidth}px`);
-  await clickNav(page, NAV.more.compact, URLS.more);
-  await clickNav(page, entry.more, URLS[key]);
+  if (!entry.wide) throw new Error(`"${key}" has no compact-bar tab or drawer row at ${viewportWidth}px`);
+  // The hamburger is the bar's last button below 768px, and it opens the drawer rather than
+  // navigating -- so this is a click that must NOT change the URL, which is why it is not
+  // clickNav().
+  const menu = byTestId(page, "shell-menu");
+  await menu.waitFor({ state: "visible", timeout: TIMEOUT });
+  await menu.click({ timeout: TIMEOUT });
+  await byTestId(page, "shell-drawer").waitFor({ state: "visible", timeout: TIMEOUT });
+  await clickNav(page, entry.wide, URLS[key]);
 }
 
 async function gotoUrl(page, base, key) {
@@ -303,8 +311,8 @@ async function gotoUrl(page, base, key) {
  * failure to reach it is recorded as a finding rather than aborting the run. `onlyViewports`, when
  * present, is a list of `${width}x${height}` labels (VIEWPORTS' `name`s) -- shots.mjs skips the
  * screen entirely (no attempt, no finding) at any other viewport, for a screen that only exists at
- * one width (13-more: the "More" screen is a compact-only concept, per NAV above -- there is
- * nothing to screenshot for it at 1024/1440, where the sidebar shows the same rows directly).
+ * one width (13-menu: the drawer is a compact-only concept, per NAV above -- there is nothing to
+ * screenshot for it at 1024/1440, where the sidebar shows the same rows directly).
  */
 export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
   return [
@@ -508,14 +516,21 @@ export function buildScreens({ base, user, pass, firstRunUrl, lanUrl }) {
       },
     },
     {
-      // Compact-only: the "More" screen is what the phone bottom bar's fifth tab opens (NAV.more);
-      // at >=768px the same rows are direct sidebar items and there is no "More" screen to shoot.
-      id: "13-more",
+      // Compact-only: the drawer the bottom bar's hamburger opens, which is where every section
+      // the bar cannot hold now lives. At >=768px the same rows are the permanent sidebar, in
+      // every other shot, and there is nothing distinct to capture.
+      //
+      // It replaced `13-more`, the screen the old fifth tab navigated to. `/more` is still a
+      // route -- the native phone bar's fifth item opens it -- but no web surface links to it.
+      id: "13-menu",
       requiresAuth: true,
       onlyViewports: ["390x844"],
       navigate: async (page) => {
-        await gotoUrl(page, base, "more");
-        await byTestId(page, "more-screen").waitFor({ state: "visible", timeout: TIMEOUT });
+        await gotoUrl(page, base, "home");
+        const menu = byTestId(page, "shell-menu");
+        await menu.waitFor({ state: "visible", timeout: TIMEOUT });
+        await menu.click({ timeout: TIMEOUT });
+        await byTestId(page, "shell-drawer").waitFor({ state: "visible", timeout: TIMEOUT });
       },
     },
     {
