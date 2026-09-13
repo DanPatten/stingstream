@@ -25,7 +25,6 @@ import { createBottomTabNavigator } from "expo-router/js-tabs";
 import type { ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/common/Icon";
 import {
   isBehindMore,
@@ -66,7 +65,7 @@ type NativeOnlyNavigatorProps = {
   tabBarHidden?: boolean;
 };
 
-/** The bar's own height, before the device's bottom inset is added. */
+/** The bar's whole height; see the note on the bar's style for why no inset. */
 const TAB_BAR_HEIGHT = 56;
 
 /** Big enough to carry a section on its own, now that no word is under it. */
@@ -95,7 +94,6 @@ const TAB_ICON_SIZE = 24;
  * screen.
  */
 function WebTabBar({ state, descriptors, navigation }: any) {
-  const insets = useSafeAreaInsets();
   const { color, accent } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -120,8 +118,14 @@ function WebTabBar({ state, descriptors, navigation }: any) {
       style={[
         styles.bar,
         {
-          height: TAB_BAR_HEIGHT + insets.bottom,
-          paddingBottom: insets.bottom,
+          // No bottom safe-area inset, on purpose. `public/index.html` does not
+          // ask for `viewport-fit=cover`, so the page never draws under the
+          // system bars and the inset should read 0. Firefox on Android reports
+          // the navigation bar's height anyway (~41 px on a Pixel with
+          // three-button nav), which padded the bar into a strip of empty
+          // space below its icons. Dan: "a gap on responsive web on Firefox at
+          // the bottom where the icons go".
+          height: TAB_BAR_HEIGHT,
           // Inline rather than in `styles`: a module-scope StyleSheet is one
           // theme's answer baked into the bundle.
           borderTopColor: color.border.subtle,
