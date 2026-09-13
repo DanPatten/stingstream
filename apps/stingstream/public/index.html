@@ -2,7 +2,7 @@
 <!--
   The web shell for `web.output: "single"`. Expo uses this file as its HTML template when
   it exists, substitutes the placeholders and appends its scripts at the end of the head. It is a
-  verbatim copy of Expo's own template plus the icon links below; diff it against
+  verbatim copy of Expo's own template plus the icon links below and a literal title; diff it against
   node_modules/@expo/cli/static/template/index.html after an SDK bump.
   Why it exists rather than app/+html.tsx: docs/APP-RELEASE.md §3 "Branding".
 
@@ -18,7 +18,11 @@
     <meta charset="utf-8" />
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <title>%WEB_TITLE%</title>
+    <!--
+      Spelled out rather than Expo's title placeholder: not every path that serves this file
+      substitutes it, and the raw placeholder showed in the tab while the app loaded.
+    -->
+    <title>StingStream</title>
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /* These styles make the body full-height */
