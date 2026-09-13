@@ -559,7 +559,8 @@ feature is that somebody who cannot administer the node can still ask it for som
 
 | Section | Who sees it |
 |---|---|
-| Discover — the search, your own requests as a row (See all for the list, with Edit and Delete), and the catalogue | everyone |
+| Discover — the search, one line of your own requests, and the catalogue | everyone |
+| My requests — the whole list, with Edit and Delete | everyone |
 | Alerts — the polled notification list | everyone |
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
@@ -588,27 +589,26 @@ most of the way on its own (§2.1: the download stops and an empty entry is remo
 is what is left for the cases it deliberately does not touch — a title with a file already on disk,
 or one this node's manager tracks for a reason no request explains.
 
-**Every row in the full My requests list carries the same two buttons.** Edit and Delete, on every request that
+**Every row on My requests carries the same two buttons.** Edit and Delete, on every request that
 has not arrived, and Edit is not gated on there being a season to change or on this node's manager
 tracking the title. That gate is what put Edit on one of three failed films and nothing on the other
 two, off a fact — which node happened to add it — the reader cannot see; a list whose buttons come
 and go for invisible reasons reads as broken. The sheet always has something behind it: the seasons,
-what this server does about the title, or asking for it again. The My requests heading carries a count of
+what this server does about the title, or asking for it again. The tab, and the line of it on Discover, carry a count of
 everything not yet finished, declined and failed included, which is the same list read the same way
 (`counts.mineOpen` counts only what is in flight and would have said nothing about three films that
 could not be grabbed).
 
 **Discover is where asking happens, it is the first tab, and it is where Requests opens.** Its
 route key is still `find`, so every existing `?tab=find` link keeps working. With nothing typed it
-shows your own requests, when there are any, as one row of posters with each request's state in
-the corner, above the catalogue — the sixty most popular titles, or the best ever made — as a
-poster grid; typing replaces both with the results. A poster opens that request's sheet, which
-edits its seasons or deletes it. The row's See all swaps the catalogue for the whole list, with
-state chips and Edit and Delete on every row, and Back swaps it back. Your requests were a My
-requests tab of their own until 2026-09-12, and the one a bare `/requests` opened on, so every
-search began with a press on a second tab. They were full rows on Discover for a day after that,
-and fifteen of them put the catalogue several screens down; a row is the same height at two or
-fifteen. One box asks
+shows one line of your own requests, when there are any, with each request's state in the corner,
+above the catalogue — the sixty most popular titles, or the best ever made — as a poster grid;
+typing replaces both with the results. The line is the first line of that same grid
+(`RequestPosterGrid` with `lines={1}`), so fifteen requests take no more room than two and every
+poster sits in the catalogue's own columns. A poster opens that request's sheet, which edits its
+seasons or deletes it, and See all opens the My requests tab. That tab was where a bare `/requests`
+opened until 2026-09-12, so every search began with a press on a second tab; it stays, second, for
+the whole list. One box asks
 the node, which asks both managers, and the answers come back films first as rows: a search for a
 common word is a dozen sequels and re-releases whose posters are near-identical, and the overview is
 the only thing that tells them apart. A curated feed is the opposite, sixty unrelated titles nobody
@@ -719,13 +719,11 @@ a fuzzy match or no match at all (`shouldOfferRequest`) — which hands the term
 lands on it directly. Find seeds its box from that param and then keeps its own state: `q` is the
 term you arrived with, not a mirror of the box.
 
-**The open section is in the URL.** `?tab=` names it — `find`, `alerts`, `approvals`, `wanted`,
+**The open section is in the URL.** `?tab=` names it — `find`, `mine`, `alerts`, `approvals`, `wanted`,
 `activity`, `policy` — so a reload, a bookmark and a link pasted to somebody else all come back to
 the section they named, and Search's `Request "…"` button lands on Discover by sending `tab=find`
-beside its `?q=`. A bare `/requests` opens on Discover, and so does a `?tab=mine` link from before
-My requests joined it. `?view=mine` is Discover's whole request list in place of the catalogue:
-See all writes it, Back and a change of tab clear it, and anything else it could say means the
-catalogue (`requestsViewFromRoute`).
+beside its `?q=`. A bare `/requests` opens on Discover, always: My requests is a tab, and
+the line of it on Discover is what most visits need.
 Pressing a tab writes the param with `setParams`, which react-navigation's web linking turns into a
 `history.replace` — the address bar follows the section, but Back still leaves Requests rather than
 walking its six sections, which is the rule `components/common/Tabs.tsx` states for sections of one

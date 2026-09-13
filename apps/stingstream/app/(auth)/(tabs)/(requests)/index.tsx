@@ -15,36 +15,29 @@ import useRouter from "@/hooks/useAppRouter";
  * who cannot administer the node can still ask it for something. The elevated parts (Approvals,
  * Activity, Policy) are simply absent from the section bar for everybody else.
  *
- * Four route params, all optional. `q` is the search term, written by Search's `Request "…"`
+ * Three route params, all optional. `q` is the search term, written by Search's `Request "…"`
  * button; `tab` is the open section, so that button can land on Find directly — and so a reload, a
  * bookmark or a shared link comes back to the section it named; `kind` narrows Find's bar to movies
- * or to shows, written by an empty Movies or TV shows library alongside `tab=find`. `view=mine`
- * swaps Discover's catalogue for the member's whole request list, written by See all on its My
- * requests row. The page reads all four and owns the writing of `tab` and `view`, because the router
- * belongs up here rather than in a section component. Changing tab clears `view`, so coming back to
- * Discover is the catalogue again.
+ * or to shows, written by an empty Movies or TV shows library alongside `tab=find`. The page reads
+ * all three and owns the writing of `tab`, because the router belongs up here rather than in a
+ * section component.
  *
  * `setParams`, not `push`: the sections are flat halves of one screen rather than deep routes, and
  * pushing would put a back step between two halves of the same errand — the same reasoning as
  * Search's `Request "…"` button using `replace`.
  */
 export default function StingStreamRequestsPage() {
-  const { q, tab, kind, view } = useLocalSearchParams<{
+  const { q, tab, kind } = useLocalSearchParams<{
     q?: string;
     tab?: string;
     kind?: string;
-    view?: string;
   }>();
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const router = useRouter();
 
   const selectTab = useCallback(
-    (key: string) => router.setParams({ tab: key, view: undefined }),
-    [router],
-  );
-  const selectView = useCallback(
-    (next: string | undefined) => router.setParams({ view: next }),
+    (key: string) => router.setParams({ tab: key }),
     [router],
   );
 
@@ -69,9 +62,7 @@ export default function StingStreamRequestsPage() {
         tab={tab}
         term={q ?? ""}
         kind={kindFromRoute(kind)}
-        view={view}
         onSelectTab={selectTab}
-        onSelectView={selectView}
       />
     </RefreshScreen>
   );

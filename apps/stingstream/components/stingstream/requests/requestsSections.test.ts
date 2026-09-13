@@ -3,7 +3,6 @@ import type { Segment } from "@/components/common/tabSegments";
 import {
   DEFAULT_REQUEST_SECTION,
   kindFromRoute,
-  requestsViewFromRoute,
   sectionFromRoute,
   visibleRequestSegmentKeys,
 } from "./requestsSections";
@@ -11,10 +10,11 @@ import {
 /** What a member sees. */
 const member: Segment[] = [
   { key: "find", label: "Discover" },
+  { key: "mine", label: "My requests" },
   { key: "alerts", label: "Alerts" },
 ];
 
-/** What an administrator sees: the same two, plus the elevated half. */
+/** What an administrator sees: the same three, plus the elevated half. */
 const admin: Segment[] = [
   ...member,
   { key: "approvals", label: "Approvals" },
@@ -25,22 +25,17 @@ const admin: Segment[] = [
 describe("sectionFromRoute", () => {
   test("the param wins", () => {
     expect(sectionFromRoute(member, "alerts")).toBe("alerts");
+    expect(sectionFromRoute(member, "mine")).toBe("mine");
     expect(sectionFromRoute(admin, "policy")).toBe("policy");
   });
 
-  test("a bare /requests opens on Discover", () => {
+  test("a bare /requests opens on Discover, not My requests", () => {
     // Where searching happens. It used to open on My requests, which put a press on a second tab in
-    // front of every search.
+    // front of every search. My requests is a tab again, and Discover still comes first.
     expect(DEFAULT_REQUEST_SECTION).toBe("find");
     expect(sectionFromRoute(member, undefined)).toBe("find");
     // `?tab=` with nothing after it is the same as no param at all.
     expect(sectionFromRoute(member, "")).toBe("find");
-  });
-
-  test("a link to the old My requests tab lands on Discover", () => {
-    // Bookmarks and shared links from before the merge. The requests they meant are on Discover.
-    expect(sectionFromRoute(member, "mine")).toBe("find");
-    expect(sectionFromRoute(admin, "mine")).toBe("find");
   });
 
   test("a section this member cannot see falls back", () => {
@@ -73,36 +68,27 @@ describe("kindFromRoute", () => {
   });
 });
 
-describe("requestsViewFromRoute", () => {
-  test("?view=mine opens the whole request list", () => {
-    // Written by See all on the My requests row, so a reload stays on the list.
-    expect(requestsViewFromRoute("mine")).toBe("mine");
-  });
-
-  test("anything else is the catalogue", () => {
-    expect(requestsViewFromRoute(undefined)).toBeUndefined();
-    expect(requestsViewFromRoute("")).toBeUndefined();
-    expect(requestsViewFromRoute("Mine")).toBeUndefined();
-    expect(requestsViewFromRoute("all")).toBeUndefined();
-  });
-});
-
 describe("visibleRequestSegmentKeys", () => {
-  test("a member sees the same two sections whichever way requests are filled", () => {
+  test("a member sees the same three sections whichever way requests are filled", () => {
     // The mode changes what an administrator does, not what anybody else sees. If this ever
     // differed, a member would be able to tell how their server is configured from the tab bar.
-    expect(visibleRequestSegmentKeys(false, false)).toEqual(["find", "alerts"]);
-    expect(visibleRequestSegmentKeys(false, true)).toEqual(["find", "alerts"]);
+    expect(visibleRequestSegmentKeys(false, false)).toEqual([
+      "find",
+      "mine",
+      "alerts",
+    ]);
+    expect(visibleRequestSegmentKeys(false, true)).toEqual([
+      "find",
+      "mine",
+      "alerts",
+    ]);
   });
 
-  test("there is no My requests tab for anybody", () => {
-    // A member's own requests are on Discover. A tab for them as well would bring back the extra
-    // press this layout exists to remove.
+  test("Discover is always the first tab", () => {
+    // The tab Requests is about. My requests follows it rather than leading, whoever is looking.
     for (const canApprove of [false, true]) {
       for (const manual of [false, true]) {
-        expect(visibleRequestSegmentKeys(canApprove, manual)).not.toContain(
-          "mine" as never,
-        );
+        expect(visibleRequestSegmentKeys(canApprove, manual)[0]).toBe("find");
       }
     }
   });
@@ -111,6 +97,7 @@ describe("visibleRequestSegmentKeys", () => {
     // Pinned so nothing above quietly takes a tab away from the setup that has always worked.
     expect(visibleRequestSegmentKeys(true, false)).toEqual([
       "find",
+      "mine",
       "alerts",
       "approvals",
       "activity",
@@ -124,6 +111,7 @@ describe("visibleRequestSegmentKeys", () => {
     // governed.
     expect(visibleRequestSegmentKeys(true, true)).toEqual([
       "find",
+      "mine",
       "alerts",
       "wanted",
       "activity",

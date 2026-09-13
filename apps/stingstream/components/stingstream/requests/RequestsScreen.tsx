@@ -31,14 +31,13 @@ import { ApprovalsSection } from "./ApprovalsSection";
 import { DiscoverSection } from "./DiscoverSection";
 import { FindSection } from "./FindSection";
 import { IndexerNotice } from "./IndexerNotice";
+import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
 import { RequestsNotSetUp } from "./RequestsNotSetUp";
 import { RequestsWantedSection } from "./RequestsWantedSection";
 import {
   type RequestSegmentKey,
-  type RequestsView,
-  requestsViewFromRoute,
   sectionFromRoute,
   visibleRequestSegmentKeys,
 } from "./requestsSections";
@@ -323,29 +322,28 @@ function TVRequestsScreen() {
  * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows
  * Find's bar on arrival rather than choosing a section, because the entry point that sets it always
  * names `tab=find` as well: it says what is being asked for, not where to ask.
- *
- * `view` is the `view` route param. `mine` swaps Discover's catalogue for the member's whole request
- * list, written by See all on the My requests row and cleared by its Back or by changing tab.
  */
 export function RequestsScreen({
   tab,
   term = "",
   kind,
-  view,
   onSelectTab,
-  onSelectView,
 }: {
   tab?: string;
   term?: string;
   kind?: RequestKind;
-  view?: string;
   onSelectTab?: (key: string) => void;
-  onSelectView?: (view: RequestsView | undefined) => void;
 } = {}) {
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
   const available = useRequestsAvailable();
+  // The same query My requests itself runs, so the badge costs no extra poll: React Query hands
+  // both callers one entry. It is read rather than `counts.mineOpen` because that number counts
+  // only what is still in flight, and a request that was declined or could not be filled is
+  // exactly the kind this member most needs telling about.
+  const userId = useCurrentUserId();
+  const myRequests = useRequests({ mine: true });
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape,
@@ -363,9 +361,15 @@ export function RequestsScreen({
   // flicker an approvals queue in and straight back out on a manual node. The loading gate below
   // holds the screen for the first fetch; this covers a refetch.
   const manual = counts.data?.requestsMode === "manual";
+  // Everything of this member's own that is not finished: waiting, approved, downloading, declined,
+  // failed. Not the whole list — a title that arrived is over, and a badge that counts things
+  // nobody has to do anything about only ever goes up, which is how a badge stops being read.
+  const mineOpen = selectMine(myRequests.data, userId).filter(
+    (request) => request.state !== "available",
+  ).length;
 
-  // Find (labelled Discover) is first, it is where a bare /requests opens, and it carries the
-  // member's own requests as well, which used to be a My requests tab of their own. It
+  // Find (labelled Discover) is first and is where a bare /requests opens. It carries a line of the
+  // member's own requests too, whose See all opens My requests, the tab with the whole list. It
   // was removed once (F-73) in favour of the Search tab answering one box with
   // both halves, and that left the Requests screen with no way to request at
   // all: a button that navigated to another tab, where the catalogue results
@@ -381,6 +385,7 @@ export function RequestsScreen({
   // the one rule that matters is visible in one place: with no indexer there is nothing to approve,
   // so the queue becomes a plain list of what people want and the policy governing it goes with it.
   const badges: Partial<Record<RequestSegmentKey, number>> = {
+    mine: mineOpen,
     alerts: unread,
     approvals: pending,
     wanted: wantedCount,
@@ -452,10 +457,10 @@ export function RequestsScreen({
         <FindSection
           term={term}
           kind={kind}
-          view={requestsViewFromRoute(view)}
-          onView={onSelectView}
+          onSeeAllRequests={() => select("mine")}
         />
       )}
+      {section === "mine" && <MyRequestsSection variant='list' />}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
       {section === "wanted" && canApprove && <RequestsWantedSection />}

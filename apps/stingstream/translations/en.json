@@ -1750,6 +1750,7 @@
     "request_all_seasons": "Request all",
     "request_n_seasons": "Request ({{count}})",
     "my_filter_empty_title": "Nothing in this filter",
+    "more_count": "+{{count}} more",
     "filter_all": "All",
     "filter_pending": "Waiting",
     "filter_approved": "Approved",

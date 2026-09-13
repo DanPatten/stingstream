@@ -236,6 +236,11 @@ export function useCardGrid({
      * browser resize that crosses a column boundary needs a remount to show it.
      */
     columns,
+    /**
+     * The cell geometry `renderItem` uses, for a caller drawing a cell of its own in the same grid
+     * (a "+3 more" tile) that has to land exactly where a card would.
+     */
+    cell: { width: columnWidth, height: cellHeight, cardWidth, columnOffset },
     /** Mount alongside the list; renders nothing until a long press. */
     actionSheet,
   };

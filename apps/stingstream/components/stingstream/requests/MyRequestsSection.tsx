@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { ScrollView, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { CardRow } from "@/components/cards/CardRow";
 import { EmptyState } from "@/components/common/EmptyState";
+import { SectionHeader } from "@/components/common/SectionHeader";
 import { Text } from "@/components/common/Text";
 import { FilterChip } from "@/components/filters/FilterChip";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/stingstream/requests";
 import { confirmDestructive } from "../shared/confirm";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
+import { RequestPosterGrid } from "./RequestPosterGrid";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
 
@@ -35,18 +36,18 @@ const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
 ];
 
 /**
- * What this member has asked for, and where each one got to. Two shapes, both on Discover.
+ * What this member has asked for, and where each one got to. Two shapes.
  *
- * **`row`** sits between Discover's filters and its catalogue: one horizontal row of posters, each
- * with its state in the corner (`toRequestCard` puts `stateLabel` in `badgeLabel`). It was a list of
- * full rows for a day, and Dan, 2026-09-12: *"if I have 15 requests they are gonna fill up and I
- * wont see the discover"*. A row is the same height at two requests or fifteen. A poster opens that
- * request's sheet, which edits its seasons or deletes it, so nothing the list offered is out of
- * reach. With nothing asked for yet it draws nothing: the catalogue under it is already the answer
- * to "find something".
+ * **`row`** is on Discover, between its filters and its catalogue: the first line of the same poster
+ * grid the catalogue uses, each poster with its state in the corner (`toRequestCard` puts
+ * `stateLabel` in `badgeLabel`). One line, because full rows here put fifteen requests between the
+ * reader and the catalogue (Dan, 2026-09-12: *"if I have 15 requests they are gonna fill up and I
+ * wont see the discover"*). The catalogue's own cells, because a horizontal `CardRow` sized its
+ * posters on its own scale and sat out of step with the grid under it (*"my reuqests are mis aligned
+ * with the grid below it"*). A poster opens that request's sheet, which edits its seasons or deletes
+ * it; See all opens the My requests tab. With nothing asked for yet it draws nothing.
  *
- * **`list`** is what See all opens, in place of the catalogue rather than as a tab of its own: the
- * state chips, and Edit and Delete on every row. Back returns to the row.
+ * **`list`** is the My requests tab: the state chips, and Edit and Delete on every row.
  *
  * The node already filters to the caller's own for a non-administrator, so `selectMine` is for the
  * administrator case only — an administrator's list is everybody's, and their own requests still
@@ -57,11 +58,9 @@ const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
 export function MyRequestsSection({
   variant,
   onSeeAll,
-  onBack,
 }: {
   variant: "row" | "list";
   onSeeAll?: () => void;
-  onBack?: () => void;
 }) {
   const { t } = useTranslation();
   const { gutter } = useBreakpoint();
@@ -83,15 +82,7 @@ export function MyRequestsSection({
     () => new Map(mine.map((request) => [request.id, request])),
     [mine],
   );
-  // No hover disc: nothing on this row plays, and a press opens the request's sheet.
-  const cards = useMemo(
-    () =>
-      mine.map((request) => ({
-        ...toRequestCard(request),
-        hoverGlyph: "none" as const,
-      })),
-    [mine],
-  );
+  const cards = useMemo(() => mine.map(toRequestCard), [mine]);
 
   const withdraw = async (id: string, title: string) => {
     const confirmed = await confirmDestructive(
@@ -110,15 +101,8 @@ export function MyRequestsSection({
 
   // Everything not finished: waiting, approved, downloading, declined, failed. Not the whole list —
   // a title that arrived is over, and a count of things nobody has to do anything about only ever
-  // goes up, which is how a count stops being read. It was the My requests tab's badge.
+  // goes up, which is how a count stops being read.
   const open = mine.filter((request) => request.state !== "available").length;
-  // `flex: 1` because `SectionHeader` spaces its children apart: without it the count floated
-  // halfway between the heading and See all instead of sitting beside the heading it counts.
-  const count = (
-    <Text variant='caption' tone='secondary' style={{ flex: 1, marginLeft: 8 }}>
-      {open > 0 ? open : ""}
-    </Text>
-  );
 
   /*
     The same sheet Find opens, reading the stored request through `requestAsSearchResult`. Both the
@@ -136,25 +120,43 @@ export function MyRequestsSection({
 
   if (variant === "row") {
     // Nothing at all on a failed fetch: a full error panel above the catalogue would push it down
-    // for a list the reader did not ask to see. See all still reports what broke.
+    // for a list the reader did not ask to see. The My requests tab still reports what broke.
     if (requests.error) return null;
+    if (!requests.isLoading && mine.length === 0) return null;
     return (
-      // `CardRow` pads itself with the page gutter, and this sits inside a page that already has
-      // one, so it bleeds back out by the same amount, as `RequestDiscoverGrid` does.
-      <View
-        testID='requests-mine'
-        style={{ marginHorizontal: -gutter, marginBottom: 16 }}
-      >
-        <CardRow
-          kind='portrait'
-          title={t("requests.tab_mine")}
-          headerAccessory={count}
-          seeAllLabel={t("common.seeAll")}
-          onPressSeeAll={onSeeAll}
-          seeAllTestID='requests-mine-see-all'
+      <View testID='requests-mine' style={{ marginBottom: 16 }}>
+        {/*
+          `SectionHeader` pads itself with the page gutter, and this sits inside a page that already
+          has one, so it bleeds back out by the same amount: the heading then starts where the first
+          poster does, which is where the grid below puts its own.
+        */}
+        <View style={{ marginHorizontal: -gutter }}>
+          <SectionHeader
+            title={t("requests.tab_mine")}
+            accessory={
+              // `flex: 1` because `SectionHeader` spaces its children apart: without it the count
+              // floated halfway between the heading and See all.
+              <Text
+                variant='caption'
+                tone='secondary'
+                style={{ flex: 1, marginLeft: 8 }}
+              >
+                {open > 0 ? open : ""}
+              </Text>
+            }
+            actionLabel={t("common.seeAll")}
+            onPressAction={onSeeAll}
+            actionTestID='requests-mine-see-all'
+          />
+        </View>
+        <RequestPosterGrid
           cards={cards}
           loading={requests.isLoading}
-          hideIfEmpty
+          lines={1}
+          // More than fit on the line: the last cell says how many, and opens the tab with them all.
+          onMore={onSeeAll}
+          testID='requests-mine-grid'
+          cardTestID='requests-mine-card'
           onPressId={(id) => {
             const request = byId.get(id);
             if (request) setEditing(request);
@@ -165,53 +167,21 @@ export function MyRequestsSection({
     );
   }
 
-  const back = onBack ? (
-    <View style={{ alignItems: "flex-start", marginBottom: 8 }}>
-      <Button
-        variant='ghost'
-        size='sm'
-        icon='chevronLeft'
-        onPress={onBack}
-        testID='requests-mine-back'
-      >
-        {t("common.back")}
-      </Button>
-    </View>
-  ) : null;
-
-  if (requests.isLoading) {
-    return (
-      <View>
-        {back}
-        <RequestCardSkeletonList />
-      </View>
-    );
-  }
+  if (requests.isLoading) return <RequestCardSkeletonList />;
   if (requests.error) {
     return (
-      <View>
-        {back}
-        <RequestsErrorState error={requests.error} onRetry={requests.refetch} />
-      </View>
+      <RequestsErrorState error={requests.error} onRetry={requests.refetch} />
+    );
+  }
+
+  if (mine.length === 0) {
+    return (
+      <EmptyState icon='requests' title={t("requests.my_filter_empty_title")} />
     );
   }
 
   return (
     <View testID='requests-mine-list'>
-      {back}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "baseline",
-          marginBottom: 8,
-        }}
-      >
-        <Text variant='heading' weight='semibold'>
-          {t("requests.tab_mine")}
-        </Text>
-        {count}
-      </View>
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -233,7 +203,7 @@ export function MyRequestsSection({
           title={t("requests.my_filter_empty_title")}
         />
       ) : (
-        <View>
+        <View testID='requests-list'>
           {rows.map((request) => (
             <RequestCard
               key={request.id}

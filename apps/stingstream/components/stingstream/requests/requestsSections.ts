@@ -15,9 +15,10 @@ import type { RequestKind } from "@/lib/stingstream/requestsApi";
  *
  * It used to be My requests, a tab of its own, on the reasoning that opening Requests without naming
  * a section is checking on what you already asked for. That made every search start with a press on
- * a second tab. Checking and asking are one page now, so there is nothing to choose between. Dan,
- * 2026-09-12: *"i dont like how clicking requests takes you to my requests but I have to click find
- * every time to start searching - unify the experience"*.
+ * a second tab. Dan, 2026-09-12: *"i dont like how clicking requests takes you to my requests but I
+ * have to click find every time to start searching - unify the experience"*. My requests is a tab
+ * again, for the whole list, but Discover carries a row of the same requests and is still where
+ * Requests opens. Dan, same day: *"discover tab is still always the tab to focus on"*.
  */
 export const DEFAULT_REQUEST_SECTION = "find";
 
@@ -37,7 +38,7 @@ export const DEFAULT_REQUEST_SECTION = "find";
  * default section is the one that answers.
  *
  * `resolveSegment` does the rest, so a section this member cannot see — `?tab=policy` after a
- * demotion, a `?tab=mine` link from before My requests joined Discover, a typo — falls back to a
+ * demotion, a stale link, a typo — falls back to a
  * real one instead of leaving the bar with nothing selected above a screen with nothing on it.
  */
 export const sectionFromRoute = (
@@ -50,6 +51,7 @@ export const sectionFromRoute = (
 /** Every section the Requests screen can show. */
 export type RequestSegmentKey =
   | "find"
+  | "mine"
   | "alerts"
   | "approvals"
   | "wanted"
@@ -67,15 +69,15 @@ export type RequestSegmentKey =
  * Activity stays in both. It is the transfer and history view, which is a different question from
  * how a request is governed, and hiding more than was asked for is its own kind of surprise.
  *
- * A member's own two tabs are identical either way, deliberately: the mode changes what an
- * administrator does, not what anybody else sees. There is no My requests tab. A member's own
- * requests sit on Discover, above the catalogue, so looking at them never costs a search a press.
+ * A member's own three tabs are identical either way, deliberately: the mode changes what an
+ * administrator does, not what anybody else sees. Discover comes first, because it is where
+ * Requests opens and it carries a row of the member's own requests; My requests is the whole list.
  */
 export const visibleRequestSegmentKeys = (
   canApprove: boolean,
   manual: boolean,
 ): RequestSegmentKey[] => {
-  const mine: RequestSegmentKey[] = ["find", "alerts"];
+  const mine: RequestSegmentKey[] = ["find", "mine", "alerts"];
   if (!canApprove) return mine;
   return manual
     ? [...mine, "wanted", "activity"]
@@ -97,18 +99,3 @@ export const kindFromRoute = (
   kind: string | undefined,
 ): RequestKind | undefined =>
   kind === "movie" || kind === "series" ? kind : undefined;
-
-/** What Discover shows under its search box when it is not showing the catalogue. */
-export type RequestsView = "mine";
-
-/**
- * Whether `?view=` asks for the member's whole request list.
- *
- * On Discover a member's own requests are one row of posters, so fifteen of them cost the catalogue
- * no more room than two. Its See all swaps the catalogue for the full list, with the state chips and
- * the Edit and Delete buttons, and writes `view=mine` so a reload comes back to the list. Anything
- * else, a stale value or a typo included, means the catalogue.
- */
-export const requestsViewFromRoute = (
-  view: string | undefined,
-): RequestsView | undefined => (view === "mine" ? "mine" : undefined);
