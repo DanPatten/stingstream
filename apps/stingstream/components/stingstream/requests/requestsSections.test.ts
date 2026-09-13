@@ -9,12 +9,11 @@ import {
 
 /** What a member sees. */
 const member: Segment[] = [
-  { key: "find", label: "Find" },
-  { key: "mine", label: "My requests" },
+  { key: "find", label: "Discover" },
   { key: "alerts", label: "Alerts" },
 ];
 
-/** What an administrator sees: the same three, plus the elevated half. */
+/** What an administrator sees: the same two, plus the elevated half. */
 const admin: Segment[] = [
   ...member,
   { key: "approvals", label: "Approvals" },
@@ -28,26 +27,19 @@ describe("sectionFromRoute", () => {
     expect(sectionFromRoute(admin, "policy")).toBe("policy");
   });
 
-  test("a bare /requests opens on the default", () => {
-    expect(sectionFromRoute(member, undefined)).toBe(DEFAULT_REQUEST_SECTION);
+  test("a bare /requests opens on Discover", () => {
+    // Where searching happens. It used to open on My requests, which put a press on a second tab in
+    // front of every search.
+    expect(DEFAULT_REQUEST_SECTION).toBe("find");
+    expect(sectionFromRoute(member, undefined)).toBe("find");
     // `?tab=` with nothing after it is the same as no param at all.
-    expect(sectionFromRoute(member, "")).toBe(DEFAULT_REQUEST_SECTION);
+    expect(sectionFromRoute(member, "")).toBe("find");
   });
 
-  test("a term with no section lands on Find", () => {
-    // Search's `Request "…"` button sends both; anything that sends only `?q=`
-    // still means "ask for this", and Find is the only section that can.
-    expect(sectionFromRoute(member, undefined, "Nosferatu")).toBe("find");
-    expect(sectionFromRoute(member, undefined, "   ")).toBe(
-      DEFAULT_REQUEST_SECTION,
-    );
-  });
-
-  test("the param beats the term, so pressing a tab sticks", () => {
-    // The old behaviour was an effect that forced Find whenever `q` was set,
-    // which meant a member who arrived from Search and then pressed My requests
-    // could be thrown back on the next render.
-    expect(sectionFromRoute(member, "mine", "Nosferatu")).toBe("mine");
+  test("a link to the old My requests tab lands on Discover", () => {
+    // Bookmarks and shared links from before the merge. The requests they meant are on Discover.
+    expect(sectionFromRoute(member, "mine")).toBe("find");
+    expect(sectionFromRoute(admin, "mine")).toBe("find");
   });
 
   test("a section this member cannot see falls back", () => {
@@ -81,26 +73,29 @@ describe("kindFromRoute", () => {
 });
 
 describe("visibleRequestSegmentKeys", () => {
-  test("a member sees the same three sections whichever way requests are filled", () => {
+  test("a member sees the same two sections whichever way requests are filled", () => {
     // The mode changes what an administrator does, not what anybody else sees. If this ever
     // differed, a member would be able to tell how their server is configured from the tab bar.
-    expect(visibleRequestSegmentKeys(false, false)).toEqual([
-      "find",
-      "mine",
-      "alerts",
-    ]);
-    expect(visibleRequestSegmentKeys(false, true)).toEqual([
-      "find",
-      "mine",
-      "alerts",
-    ]);
+    expect(visibleRequestSegmentKeys(false, false)).toEqual(["find", "alerts"]);
+    expect(visibleRequestSegmentKeys(false, true)).toEqual(["find", "alerts"]);
+  });
+
+  test("there is no My requests tab for anybody", () => {
+    // A member's own requests are on Discover. A tab for them as well would bring back the extra
+    // press this layout exists to remove.
+    for (const canApprove of [false, true]) {
+      for (const manual of [false, true]) {
+        expect(visibleRequestSegmentKeys(canApprove, manual)).not.toContain(
+          "mine" as never,
+        );
+      }
+    }
   });
 
   test("an administrator on a node with an indexer keeps every section", () => {
     // Pinned so nothing above quietly takes a tab away from the setup that has always worked.
     expect(visibleRequestSegmentKeys(true, false)).toEqual([
       "find",
-      "mine",
       "alerts",
       "approvals",
       "activity",
@@ -114,7 +109,6 @@ describe("visibleRequestSegmentKeys", () => {
     // governed.
     expect(visibleRequestSegmentKeys(true, true)).toEqual([
       "find",
-      "mine",
       "alerts",
       "wanted",
       "activity",

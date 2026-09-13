@@ -559,8 +559,7 @@ feature is that somebody who cannot administer the node can still ask it for som
 
 | Section | Who sees it |
 |---|---|
-| Find — the search, and the Request button | everyone |
-| My requests — with Withdraw | everyone |
+| Discover — the search, your own requests with Edit and Withdraw, and the catalogue | everyone |
 | Alerts — the polled notification list | everyone |
 | Approvals — the queue, plus failed requests with Retry | administrators |
 | Policy — auto-approve mode, quota, per-member trust | administrators |
@@ -589,18 +588,23 @@ most of the way on its own (§2.1: the download stops and an empty entry is remo
 is what is left for the cases it deliberately does not touch — a title with a file already on disk,
 or one this node's manager tracks for a reason no request explains.
 
-**Every row on My requests carries the same two buttons.** Edit and Delete, on every request that
+**Every row under My requests carries the same two buttons.** Edit and Delete, on every request that
 has not arrived, and Edit is not gated on there being a season to change or on this node's manager
 tracking the title. That gate is what put Edit on one of three failed films and nothing on the other
 two, off a fact — which node happened to add it — the reader cannot see; a list whose buttons come
 and go for invisible reasons reads as broken. The sheet always has something behind it: the seasons,
-what this server does about the title, or asking for it again. The tab itself carries a count of
+what this server does about the title, or asking for it again. Its heading carries a count of
 everything not yet finished, declined and failed included, which is the same list read the same way
 (`counts.mineOpen` counts only what is in flight and would have said nothing about three films that
 could not be grabbed).
 
-**Find is where asking happens, and it is the first tab.** With nothing typed it opens on the
-catalogue — the sixty most popular titles, or the best ever made — as a poster grid. One box asks
+**Discover is where asking happens, it is the first tab, and it is where Requests opens.** Its
+route key is still `find`, so every existing `?tab=find` link keeps working. With nothing typed it
+shows your own requests, when there are any, above the catalogue — the sixty most popular titles,
+or the best ever made — as a poster grid; typing replaces both with the results. Your requests
+were a My requests tab of their own until 2026-09-12, and the one a bare `/requests` opened on, so
+every search began with a press on a second tab. Checking on what you asked for and asking for
+something else are one errand, so they are one page. One box asks
 the node, which asks both managers, and the answers come back films first as rows: a search for a
 common word is a dozen sequels and re-releases whose posters are near-identical, and the overview is
 the only thing that tells them apart. A curated feed is the opposite, sixty unrelated titles nobody
@@ -711,11 +715,11 @@ a fuzzy match or no match at all (`shouldOfferRequest`) — which hands the term
 lands on it directly. Find seeds its box from that param and then keeps its own state: `q` is the
 term you arrived with, not a mirror of the box.
 
-**The open section is in the URL.** `?tab=` names it — `find`, `mine`, `alerts`, `approvals`,
+**The open section is in the URL.** `?tab=` names it — `find`, `alerts`, `approvals`, `wanted`,
 `activity`, `policy` — so a reload, a bookmark and a link pasted to somebody else all come back to
-the section they named, and Search's `Request "…"` button lands on Find by sending `tab=find`
-beside its `?q=`. A bare `/requests` opens on My requests: opening Requests without naming a
-section is checking on what you already asked for, and landing on Find is always deliberate.
+the section they named, and Search's `Request "…"` button lands on Discover by sending `tab=find`
+beside its `?q=`. A bare `/requests` opens on Discover, and so does a `?tab=mine` link from before
+My requests joined it.
 Pressing a tab writes the param with `setParams`, which react-navigation's web linking turns into a
 `history.replace` — the address bar follows the section, but Back still leaves Requests rather than
 walking its six sections, which is the rule `components/common/Tabs.tsx` states for sections of one
@@ -724,10 +728,10 @@ link) falls back through `resolveSegment` to a real one rather than leaving the 
 selected above a blank page. The mapping is pure and tested:
 `components/stingstream/requests/requestsSections.ts`.
 
-**Landing on Find puts the caret in the box.** The section is mounted only while its tab is open,
-so mounting is landing, and every way of arriving there — the tab, `?tab=find`, the Request button
-— is somebody who came to type. The exception is arriving *with* a term: the box is already filled
-and the results are under it, and on a phone the keyboard would open over the answer.
+**Landing on Discover puts the caret in the box, on web.** The section is mounted only while its
+tab is open, so mounting is landing. A phone does not open its keyboard on its own: every visit to
+Requests lands here, including the ones to check on a request, and the keyboard would cover that
+list. Nor does arriving *with* a term: the box is already filled and the results are under it.
 
 `GET /requests/search` answers **503** rather than an empty list when it cannot look at all
 (`RequestService.CanSearch()`). "Nothing matched" and "I could not look" are the same empty list on

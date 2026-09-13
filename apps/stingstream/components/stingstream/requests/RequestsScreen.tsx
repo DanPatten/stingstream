@@ -31,7 +31,6 @@ import { ApprovalsSection } from "./ApprovalsSection";
 import { DiscoverSection } from "./DiscoverSection";
 import { FindSection } from "./FindSection";
 import { IndexerNotice } from "./IndexerNotice";
-import { MyRequestsSection } from "./MyRequestsSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
 import { RequestsNotSetUp } from "./RequestsNotSetUp";
@@ -315,9 +314,9 @@ function TVRequestsScreen() {
  * it does for `q` — and `sectionFromRoute` reads it back, narrowed to the sections this member
  * actually has.
  *
- * `term` is the `q` route param, handed over by Search's `Request "…"` button. It picks Find when
- * `tab` is silent: somebody who arrives at Requests with a movie's name is asking for it, not
- * filtering their own list.
+ * `term` is the `q` route param, handed over by Search's `Request "…"` button, and Discover seeds its
+ * box with it. It needs no say in the section: Discover is where a bare `/requests` opens anyway,
+ * and a member's own requests are on the same page rather than a tab away.
  *
  * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows
  * Find's bar on arrival rather than choosing a section, because the entry point that sets it always
@@ -338,12 +337,6 @@ export function RequestsScreen({
   const canApprove = useCanApproveRequests();
   const counts = useRequestCounts();
   const available = useRequestsAvailable();
-  // The same query My requests itself runs, so the badge costs no extra poll: React Query hands
-  // both callers one entry. It is read rather than `counts.mineOpen` because that number counts
-  // only what is still in flight, and a request that was declined or could not be filled is
-  // exactly the kind this member most needs telling about.
-  const userId = useCurrentUserId();
-  const myRequests = useRequests({ mine: true });
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape,
@@ -361,14 +354,9 @@ export function RequestsScreen({
   // flicker an approvals queue in and straight back out on a manual node. The loading gate below
   // holds the screen for the first fetch; this covers a refetch.
   const manual = counts.data?.requestsMode === "manual";
-  // Everything of this member's own that is not finished: waiting, approved, downloading, declined,
-  // failed. Not the whole list — a title that arrived is over, and a badge that counts things
-  // nobody has to do anything about only ever goes up, which is how a badge stops being read.
-  const mineOpen = selectMine(myRequests.data, userId).filter(
-    (request) => request.state !== "available",
-  ).length;
 
-  // Find is first, and it is the one tab every other entry point aims at. It
+  // Find (labelled Discover) is first, it is where a bare /requests opens, and it carries the
+  // member's own requests as well, which used to be a My requests tab of their own. It
   // was removed once (F-73) in favour of the Search tab answering one box with
   // both halves, and that left the Requests screen with no way to request at
   // all: a button that navigated to another tab, where the catalogue results
@@ -384,7 +372,6 @@ export function RequestsScreen({
   // the one rule that matters is visible in one place: with no indexer there is nothing to approve,
   // so the queue becomes a plain list of what people want and the policy governing it goes with it.
   const badges: Partial<Record<RequestSegmentKey, number>> = {
-    mine: mineOpen,
     alerts: unread,
     approvals: pending,
     wanted: wantedCount,
@@ -399,7 +386,7 @@ export function RequestsScreen({
 
   // Derived, never held: the URL is the one place the open section is written
   // down, so there is no second copy to fall out of step with it.
-  const section = sectionFromRoute(segments, tab, term);
+  const section = sectionFromRoute(segments, tab);
   const select = (key: string) => onSelectTab?.(key);
 
   // The gate, ahead of the section bar rather than inside it.
@@ -453,9 +440,6 @@ export function RequestsScreen({
       </View>
 
       {section === "find" && <FindSection term={term} kind={kind} />}
-      {section === "mine" && (
-        <MyRequestsSection onFind={() => select("find")} />
-      )}
       {section === "alerts" && <NotificationsSection />}
       {section === "approvals" && canApprove && <ApprovalsSection />}
       {section === "wanted" && canApprove && <RequestsWantedSection />}

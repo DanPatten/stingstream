@@ -4,6 +4,7 @@ import { ScrollView, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
+import { Text } from "@/components/common/Text";
 import { FilterChip } from "@/components/filters/FilterChip";
 import {
   type MemberRequest,
@@ -33,17 +34,19 @@ const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
 /**
  * What this member has asked for, and where each one got to.
  *
+ * A block on Discover (`FindSection`), between the filters and the catalogue, rather than a tab of
+ * its own. It was a tab, and the one Requests opened on, which meant every search began with a
+ * press on a different tab. With nothing asked for yet it draws nothing at all: the catalogue under
+ * it is already the answer to "find something", and an empty state saying so would only push that
+ * catalogue down the page.
+ *
  * The node already filters to the caller's own for a non-administrator, so `selectMine` is for the
  * administrator case only — an administrator's list is everybody's, and their own requests still
  * belong on their own screen. The state filter is client-side: the whole list is never more than a
  * few dozen rows, and a chip is cheaper to answer from what is already on screen than from a fresh
  * request to the node.
- *
- * `onFind` switches the screen to its own Find section. It used to be a `router.replace("/search")`
- * — the empty state's only offer was to leave for another tab, which is what made this screen look
- * like it could not do the one thing it is for.
  */
-export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
+export function MyRequestsSection() {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<RequestState | "all">("all");
   const requests = useRequests({ mine: true });
@@ -75,34 +78,43 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
     }
   };
 
-  if (requests.isLoading) return <RequestCardSkeletonList />;
+  // Two rows, not a full list: this is a block above the catalogue, and a tall skeleton that turns
+  // out to stand for nothing moves the whole catalogue a long way when it goes.
+  if (requests.isLoading) return <RequestCardSkeletonList count={2} />;
   if (requests.error) {
     return (
       <RequestsErrorState error={requests.error} onRetry={requests.refetch} />
     );
   }
 
-  if (mine.length === 0) {
-    return (
-      <EmptyState
-        icon='requests'
-        title={t("requests.my_empty_title")}
-        detail={t("requests.my_empty_detail")}
-        action={
-          onFind
-            ? {
-                label: t("requests.my_empty_action"),
-                icon: "search",
-                onPress: onFind,
-              }
-            : undefined
-        }
-      />
-    );
-  }
+  if (mine.length === 0) return null;
+
+  // Everything not finished: waiting, approved, downloading, declined, failed. Not the whole list —
+  // a title that arrived is over, and a count of things nobody has to do anything about only ever
+  // goes up, which is how a count stops being read. It was the My requests tab's badge.
+  const open = mine.filter((request) => request.state !== "available").length;
 
   return (
-    <View>
+    <View testID='requests-mine' style={{ marginBottom: 24 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "baseline",
+          gap: 8,
+          marginTop: 4,
+          marginBottom: 8,
+        }}
+      >
+        <Text variant='heading' weight='semibold'>
+          {t("requests.tab_mine")}
+        </Text>
+        {open > 0 ? (
+          <Text variant='caption' tone='secondary'>
+            {open}
+          </Text>
+        ) : null}
+      </View>
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -124,7 +136,7 @@ export function MyRequestsSection({ onFind }: { onFind?: () => void }) {
           title={t("requests.my_filter_empty_title")}
         />
       ) : (
-        <View testID='requests-list'>
+        <View>
           {rows.map((request) => (
             <RequestCard
               key={request.id}

@@ -10,16 +10,16 @@ import { resolveSegment, type Segment } from "@/components/common/tabSegments";
 import type { RequestKind } from "@/lib/stingstream/requestsApi";
 
 /**
- * What a bare `/requests` opens on.
+ * What a bare `/requests` opens on: Discover, which is the search box over the member's own
+ * requests and the catalogue.
  *
- * Not Find, although Find is the first tab in the bar: somebody who opens Requests without naming
- * a section is checking on what they already asked for. Landing on Find is always deliberate —
- * the tab itself, or the `?tab=find` that Search's `Request "…"` button hands over.
+ * It used to be My requests, a tab of its own, on the reasoning that opening Requests without naming
+ * a section is checking on what you already asked for. That made every search start with a press on
+ * a second tab. Checking and asking are one page now, so there is nothing to choose between. Dan,
+ * 2026-09-12: *"i dont like how clicking requests takes you to my requests but I have to click find
+ * every time to start searching - unify the experience"*.
  */
-export const DEFAULT_REQUEST_SECTION = "mine";
-
-/** The one section that answers a term, and so the one a `?q=` implies. */
-const TERM_SECTION = "find";
+export const DEFAULT_REQUEST_SECTION = "find";
 
 /**
  * The section to show, from the route params and the sections this member actually has.
@@ -33,28 +33,23 @@ const TERM_SECTION = "find";
  * (the route count is unchanged): the address bar follows the section, Back still leaves Requests
  * rather than walking its sections, and the entry it leaves behind remembers the last one open.
  *
- * `term` decides only when `tab` is silent. Somebody who arrives with a title on the route is
- * asking for it, and Find is the only section that can answer; once they press a tab the param is
- * written and it is their choice that counts, not the term they arrived with.
+ * A `?q=` needs no rule of its own. Somebody who arrives with a title is asking for it, and the
+ * default section is the one that answers.
  *
  * `resolveSegment` does the rest, so a section this member cannot see — `?tab=policy` after a
- * demotion, a stale link, a typo — falls back to a real one instead of leaving the bar with
- * nothing selected above a screen with nothing on it.
+ * demotion, a `?tab=mine` link from before My requests joined Discover, a typo — falls back to a
+ * real one instead of leaving the bar with nothing selected above a screen with nothing on it.
  */
 export const sectionFromRoute = (
   segments: readonly Segment[],
   tab: string | undefined,
-  term = "",
 ): string =>
-  resolveSegment(
-    segments,
-    tab || (term.trim() ? TERM_SECTION : DEFAULT_REQUEST_SECTION),
-  ) ?? DEFAULT_REQUEST_SECTION;
+  resolveSegment(segments, tab || DEFAULT_REQUEST_SECTION) ??
+  DEFAULT_REQUEST_SECTION;
 
 /** Every section the Requests screen can show. */
 export type RequestSegmentKey =
   | "find"
-  | "mine"
   | "alerts"
   | "approvals"
   | "wanted"
@@ -72,14 +67,15 @@ export type RequestSegmentKey =
  * Activity stays in both. It is the transfer and history view, which is a different question from
  * how a request is governed, and hiding more than was asked for is its own kind of surprise.
  *
- * A member's own three tabs are identical either way, deliberately: the mode changes what an
- * administrator does, not what anybody else sees.
+ * A member's own two tabs are identical either way, deliberately: the mode changes what an
+ * administrator does, not what anybody else sees. There is no My requests tab. A member's own
+ * requests sit on Discover, above the catalogue, so looking at them never costs a search a press.
  */
 export const visibleRequestSegmentKeys = (
   canApprove: boolean,
   manual: boolean,
 ): RequestSegmentKey[] => {
-  const mine: RequestSegmentKey[] = ["find", "mine", "alerts"];
+  const mine: RequestSegmentKey[] = ["find", "alerts"];
   if (!canApprove) return mine;
   return manual
     ? [...mine, "wanted", "activity"]

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
@@ -24,6 +24,7 @@ import {
   useRequests,
 } from "@/lib/stingstream/requests";
 import { AddByIdDialog } from "../arr/AddByIdDialog";
+import { MyRequestsSection } from "./MyRequestsSection";
 import { RequestCardSkeletonList } from "./RequestCard";
 import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestResultRow } from "./RequestResultRow";
@@ -55,6 +56,11 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * fabricated row would have been worse than none. The node has a catalogue now, so the screen opens
  * on the most popular sixty titles, or the best ever made, and somebody who does not already know
  * what they want has something to look at instead of a prompt telling them to think of something.
+ *
+ * **Your own requests are on this page too**, between the filters and the catalogue, and they give
+ * way to the results the moment a search runs. They used to be a tab of their own, and the one
+ * Requests opened on, so every search began with a press on this tab. Checking on what you asked
+ * for and asking for something else are one errand.
  *
  * **One filter bar over both halves.** The chips are the library's own — the same component, the
  * same sheet, the same Clear — because narrowing a catalogue and narrowing a library are the same
@@ -270,13 +276,13 @@ export function FindSection({
   return (
     <View>
       {/*
-        Landing on Find puts the caret in the box. This section only exists while its tab is the
-        open one — `?tab=find`, a press on the tab, or Search handing a title over — so mounting
-        *is* landing, and every one of those arrivals is somebody who came here to type.
+        Landing here puts the caret in the box, on web. This section only exists while its tab is
+        the open one, and it is the tab Requests opens on, so mounting *is* landing.
 
-        Not when a term arrived with them: the box has already been filled and the results are
-        below it, and on a phone the keyboard would open over the answer they came to read. Same
-        shape as `ConnectScreen`'s `autoFocus={initialUrl.length === 0}`.
+        Not on a phone: every visit to Requests lands here, including the ones to check on a
+        request, and a keyboard opening on its own would cover the list they came to read. And not
+        when a term arrived with them: the box has already been filled and the results are below
+        it. Same shape as `ConnectScreen`'s `autoFocus={initialUrl.length === 0}`.
       */}
       <Input
         testID='requests-search'
@@ -285,7 +291,7 @@ export function FindSection({
         placeholder={t("requests.search_placeholder")}
         icon='search'
         autoCorrect={false}
-        autoFocus={term.trim().length === 0}
+        autoFocus={Platform.OS === "web" && term.trim().length === 0}
         returnKeyType='search'
       />
 
@@ -315,7 +321,14 @@ export function FindSection({
         genres={discover.data?.genres ?? []}
       />
 
-      {searching ? results() : catalogue()}
+      {searching ? (
+        results()
+      ) : (
+        <>
+          <MyRequestsSection />
+          {catalogue()}
+        </>
+      )}
 
       {/*
         The open request behind the row, when there is one, so the sheet can edit it rather than

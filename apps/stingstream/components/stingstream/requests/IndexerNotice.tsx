@@ -14,24 +14,26 @@ import {
 import { useCanApproveRequests } from "@/lib/stingstream/requests";
 
 /**
- * "Requests will not go anywhere yet."
+ * "The indexers have stopped answering."
  *
  * Search on this screen answers from TMDB, so it fills with results on a node that cannot fetch a
- * single one of them. Downloading being on only says a manager is running — it says nothing about
- * whether that manager has an indexer to ask. With none configured, or with every one of them
- * failing, a request is accepted, searched for nowhere, and never arrives; the only symptom is
- * silence, days later, on a screen that said nothing was wrong.
+ * single one of them. When every configured indexer is failing, a request is accepted, searched for
+ * nowhere, and never arrives; the only symptom is silence, days later, on a screen that said nothing
+ * was wrong. That is a thing that used to work and has broken, and it is worth a line above the tabs.
+ *
+ * **A node with no indexer at all is deliberately not flagged here.** It used to be, as "No indexers
+ * configured", and Dan asked for it gone from this page completely (2026-09-12). Not having set one
+ * up is a choice the group can make on purpose: requests still collect on the list and wait, the
+ * approvals queue becomes Wanted, and the place to change it is Settings → Indexers & engines.
+ * `indexerProblem` still tells the two cases apart, which is exactly what lets this draw one of them.
  *
  * A banner above the tabs rather than a screen instead of them, which is what `RequestsNotSetUp`
- * does for its own case. The difference is what the reader can still usefully do: with downloading
- * off, nothing on this screen works and there is no point drawing it. With no indexer, searching,
- * browsing and reading the queue all work, and a request made now starts working the moment an
- * indexer is added. Taking the screen away would be a bigger lie than leaving it.
+ * does for its own case: searching, browsing and reading the queue all still work, and a request
+ * made now starts working the moment the indexers answer again.
  *
  * Administrators only, and it does not ask the node anything for anybody else: the fix is two
  * screens away in settings, and a member told about indexers has been handed a word from our
- * plumbing and nothing to do with it. They already have `requests.my_empty_detail` for the
- * symptom.
+ * plumbing and nothing to do with it.
  */
 export function IndexerNotice() {
   const { color } = useTheme();
@@ -40,14 +42,12 @@ export function IndexerNotice() {
   const { isCompact } = useBreakpoint();
   const isAdmin = useCanApproveRequests();
   const { data } = useIndexerHealth(isAdmin);
-  const problem = indexerProblem(data);
 
-  if (!isAdmin || !problem) return null;
+  if (!isAdmin || indexerProblem(data) !== "all-failing") return null;
 
   // On a phone the button is a row of its own. Beside the text it claimed its
   // own width first and left the sentence a ten-character column down the
-  // middle of the banner: "You can ask for / things, and they / wait on your
-  // list." at 390 px.
+  // middle of the banner at 390 px.
   return (
     <View
       testID='requests-indexer-notice'
@@ -65,14 +65,10 @@ export function IndexerNotice() {
         <Icon name='warning' tone='accent' size={18} />
         <View style={{ flex: 1 }}>
           <Text variant='body' weight='semibold'>
-            {problem === "none-configured"
-              ? t("requests.indexers_none_title")
-              : t("requests.indexers_failing_title")}
+            {t("requests.indexers_failing_title")}
           </Text>
           <Text variant='caption' tone='secondary' style={{ marginTop: 2 }}>
-            {problem === "none-configured"
-              ? t("requests.indexers_none_detail")
-              : t("requests.indexers_failing_detail")}
+            {t("requests.indexers_failing_detail")}
           </Text>
         </View>
       </View>

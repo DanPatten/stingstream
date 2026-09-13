@@ -176,7 +176,8 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   `(home,libraries,search,favorites,watchlists)`.
 - There is no `(manage)` group, and no arr library screen either. Both were folded into
   the things they were about: the arr queue, history and calendar are Requests → Activity,
-  adding a title is Requests → Find, and what this server does about one title it already
+  adding a title is Requests → Discover (route key `find`, and home to a member's own
+  requests as well; there is no My requests tab), and what this server does about one title it already
   tracks — monitoring, quality profile, remove with or without files — is the overflow menu
   on that title's own page (`components/stingstream/arr/ManageTitleSheet.tsx`, offered only
   when `useArrTitle` finds a row, so a title held by another node offers nothing), and the
