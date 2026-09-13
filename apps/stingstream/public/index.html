@@ -25,6 +25,24 @@
       html,
       body {
         height: 100%;
+        /*
+          ...as tall as the window a phone can actually *show*.
+
+          A percentage height, and `100vh` with it, resolves against the large
+          viewport: the one a mobile browser would have if its address bar were
+          retracted. Chrome on Android keeps that bar out until the *document*
+          scrolls, and the rule below says the document never scrolls -- so the
+          last ~60 px of this app sat permanently below the fold with no way to
+          reach it, and the bottom tab bar lives in exactly those pixels. Dan,
+          on a Pixel: "icons are missing on responsive view at the bottom" -- a
+          desktop window at 390 px has no address bar eating its own layout, so
+          nothing about this is visible in a responsive view.
+
+          `dvh` is the current visible height and tracks the bar as it comes and
+          goes. Second declaration, not a `@supports`, so a browser that does not
+          know the unit keeps the line above it.
+        */
+        height: 100dvh;
       }
       /* These styles disable body scrolling if you are using <ScrollView> */
       body {
