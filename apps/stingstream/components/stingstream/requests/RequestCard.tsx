@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Platform,
@@ -7,15 +8,19 @@ import {
   type ViewStyle,
 } from "react-native";
 import { CardArtwork } from "@/components/cards/CardArtwork";
+import { TitleScores } from "@/components/cards/TitleScores";
 import { Pill, type PillTone } from "@/components/common/Pill";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Text } from "@/components/common/Text";
 import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { ageOf } from "@/lib/stingstream/meshApi";
+import { useTitleScores } from "@/lib/stingstream/requests";
 import {
+  cardScores,
   type MemberRequest,
   requestTitle,
+  scoresFor,
   seasonsLabel,
   stateLabel,
   stateTone,
@@ -70,6 +75,8 @@ export function RequestCard({
   // row thumbnail it has nowhere to fit and spills past the artwork's edge. The `Pill` beside the
   // title already says the same thing at a size that reads.
   const card = { ...toRequestCard(request), badgeLabel: null };
+  const scoreSources = useMemo(() => [request], [request]);
+  const scores = cardScores(scoresFor(useTitleScores(scoreSources), request));
   const tone = TONE[stateTone(request.state)];
   const age = ageOf(request.requestedAt);
   const name = request.requestedByName || t("requests.someone");
@@ -138,6 +145,9 @@ export function RequestCard({
               {seasonsLabel(request.seasons)}
             </Text>
           ) : null}
+        </View>
+        <View style={{ marginTop: 6 }}>
+          <TitleScores scores={scores} size='caption' />
         </View>
         {/*
           Why it was asked for when the library already had it. This is what makes the wanted list

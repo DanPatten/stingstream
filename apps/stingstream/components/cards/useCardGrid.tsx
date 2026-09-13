@@ -9,6 +9,7 @@ import {
   CARD_GRID_ROW_GAP,
   type CardData,
   type CardKind,
+  cardScoresLineHeight,
   cardTextBlockHeight,
   defaultTextPlacement,
 } from "./CardData";
@@ -130,9 +131,14 @@ export function useCardGrid({
   // Room under the artwork for the title block, when this kind puts its title
   // there — the same reservation `CardRow` makes, for the same reason: the
   // cell is given a height before the text inside it has been measured.
+  //
+  // Plus the scores line when any card draws one, reserved for every cell so a card whose scores
+  // are still loading, or that has none, sits level with the rest.
+  const hasScores = cards.some((card) => card.scores !== undefined);
   const belowArtwork =
     defaultTextPlacement(kind) === "below"
-      ? cardTextBlockHeight(breakpoint)
+      ? cardTextBlockHeight(breakpoint) +
+        (hasScores ? cardScoresLineHeight(breakpoint) : 0)
       : 0;
 
   // A library can mix poster art with square album art, and a grid row is as

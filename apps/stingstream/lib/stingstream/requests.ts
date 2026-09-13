@@ -1,15 +1,19 @@
 import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
 import {
   keepPreviousData,
+  type UseQueryResult,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
+import { useCallback, useMemo } from "react";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   type CreateRequestInput,
   createRequest,
+  createScoresBatcher,
   decideRequest,
   deleteRequest,
   discoverQuery,
@@ -23,16 +27,22 @@ import {
   fetchRequests,
   fetchRequestsAvailable,
   fetchRequestUsers,
+  fetchTitleScores,
   type MemberRequest,
   markNotificationsRead,
   type RequestFilterState,
   type RequestPolicy,
+  type RequestSearchResult,
   type RequestState,
   type RequestsMode,
   saveRequestPolicy,
   saveRequestUser,
+  scoresKey,
+  scoresQueryOf,
   searchRequestable,
   setRequestSeasons,
+  type TitleScores,
+  type TitleScoresQuery,
 } from "./requestsApi";
 
 /**
@@ -91,6 +101,71 @@ function useConnection() {
   const api = useAtomValue(apiAtom);
   const base = api?.basePath ? getStingStreamApiBaseUrl(api.basePath) : null;
   return { base, token: api?.accessToken ?? null };
+}
+
+/**
+ * One batcher per server and token, so the cards on one screen share their calls and a second
+ * account never rides on the first one's session.
+ */
+const scoreLoaders = new Map<
+  string,
+  (title: TitleScoresQuery) => Promise<TitleScores>
+>();
+
+function scoresLoader(base: string, token: string | null) {
+  const id = `${base}|${token ?? ""}`;
+  let loader = scoreLoaders.get(id);
+  if (!loader) {
+    loader = createScoresBatcher((titles) =>
+      fetchTitleScores(base, titles, token),
+    );
+    scoreLoaders.set(id, loader);
+  }
+  return loader;
+}
+
+/** How long a title's scores are reused here. The node itself remembers them for a day. */
+const SCORES_STALE_MS = 6 * 60 * 60000;
+
+/**
+ * IMDb and Rotten Tomatoes scores for what a screen is drawing, keyed by `scoresKey`; read one with
+ * `scoresFor`. A title still loading is simply absent.
+ *
+ * One query per title rather than one per list, so a card already seen costs nothing on the next
+ * page or the next screen, and `createScoresBatcher` turns a grid's sixty asks back into one call.
+ *
+ * Keyed outside `keys.all` on purpose: every request mutation invalidates that prefix, and asking
+ * for one film must not re-fetch the scores of sixty others.
+ */
+export function useTitleScores(
+  sources: readonly (RequestSearchResult | MemberRequest)[],
+): ReadonlyMap<string, TitleScores> {
+  const { base, token } = useConnection();
+  const queries = useMemo(() => sources.map(scoresQueryOf), [sources]);
+
+  // Stable while the titles are, which is what lets `useQueries` hand back the same map between
+  // renders instead of a fresh one that would re-run every `useMemo` downstream.
+  const combine = useCallback(
+    (results: UseQueryResult<TitleScores>[]) => {
+      const map = new Map<string, TitleScores>();
+      for (const [index, result] of results.entries()) {
+        if (result.data) map.set(scoresKey(queries[index]), result.data);
+      }
+      return map;
+    },
+    [queries],
+  );
+
+  return useQueries({
+    queries: queries.map((query) => ({
+      queryKey: ["stingstream", "scores", scoresKey(query)] as const,
+      queryFn: () => scoresLoader(base!, token)(query),
+      enabled: !!base,
+      staleTime: SCORES_STALE_MS,
+      retry: 1,
+    })),
+    combine,
+  });
 }
 
 /** Whether the signed-in user administers this node. Mirrors `useIsStingStreamAdmin`. */

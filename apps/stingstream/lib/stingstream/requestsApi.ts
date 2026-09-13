@@ -682,10 +682,10 @@ export const toRequestCard = (
         imageAlt: requestTitle(source),
         badgeLabel: searchBadgeLabel(source),
         placeholder: kindPlaceholder(source.kind),
-        // What the provider's own audience made of it, out of ten. The one
-        // thing a poster cannot tell you and the reason half these presses
-        // happen: sixty strangers on a page, and this is what sorts them.
-        rating: source.rating,
+        // No `rating`. TMDB's average drew as a star that read as IMDb and was not; the Requests
+        // screens lay the real IMDb and Rotten Tomatoes scores on as `scores` once they arrive
+        // (`useTitleScores`). `toRequestableCard` puts the star back for the rows that have no such
+        // call behind them.
       }
     : {
         id: source.id,
@@ -739,6 +739,9 @@ export const toRequestableCard = (
   const glyph = requestHoverGlyph(result);
   return {
     ...card,
+    // The star stays on these rows. They sit on a title's own page among library rows, draw no
+    // scores line, and ask the ratings endpoint for nothing: four of them open at once.
+    rating: result.rating,
     hoverGlyph: glyph,
     imageAlt:
       glyph === "request" && notInLibraryLabel
@@ -1539,3 +1542,172 @@ export async function discoverRequestable(
   if (!res.ok) throw await readRequestsError(res, "GET /requests/discover");
   return toDiscoverPage(await res.json());
 }
+
+// --- scores -------------------------------------------------------------------------------------
+
+/**
+ * What a title scored on IMDb and Rotten Tomatoes, from `POST /requests/ratings`.
+ *
+ * Every field may be absent: a title neither service knows, a show with no critics' score yet, or an
+ * upstream that did not answer this minute. The screen draws a dash for each, never an error.
+ */
+export interface TitleScores {
+  /** The id the IMDb rating was read for, which is also where its link goes. */
+  imdbId?: string | null;
+  /** Out of ten. */
+  imdbRating?: number | null;
+  /** The critics' score, a percentage. */
+  rottenTomatoesScore?: number | null;
+  /** The page the score was matched to. */
+  rottenTomatoesUrl?: string | null;
+}
+
+/** One title, as the ratings endpoint is asked about it. */
+export interface TitleScoresQuery {
+  kind: "movie" | "series";
+  tmdbId: number;
+  tvdbId: number;
+  imdbId?: string | null;
+  title: string;
+  year?: number | null;
+}
+
+export const toTitleScores = (raw: unknown): TitleScores => ({
+  imdbId: field<string>(raw, ...both("imdbId")),
+  imdbRating: field<number>(raw, ...both("imdbRating")),
+  rottenTomatoesScore: field<number>(raw, ...both("rottenTomatoesScore")),
+  rottenTomatoesUrl: field<string>(raw, ...both("rottenTomatoesUrl")),
+});
+
+/**
+ * A search result or a member's request, as the ratings endpoint takes it.
+ *
+ * A request stores one provider id and no IMDb id, so the node resolves that one itself, through the
+ * same cached lookups the catalogue makes.
+ */
+export const scoresQueryOf = (
+  source: RequestSearchResult | MemberRequest,
+): TitleScoresQuery =>
+  isSearchResult(source)
+    ? {
+        kind: source.kind,
+        tmdbId: source.tmdbId,
+        tvdbId: source.tvdbId,
+        imdbId: source.imdbId ?? null,
+        title: source.title,
+        year: source.year ?? null,
+      }
+    : {
+        kind: source.kind,
+        tmdbId: source.provider === "tmdb" ? source.providerId : 0,
+        tvdbId: source.provider === "tvdb" ? source.providerId : 0,
+        imdbId: null,
+        title: source.title,
+        year: source.year ?? null,
+      };
+
+/**
+ * What a title's scores are cached under.
+ *
+ * Not the IMDb id: a search result carries one and the request made from it does not, and the two
+ * are the same title with the same scores.
+ */
+export const scoresKey = (query: TitleScoresQuery): string =>
+  [
+    query.kind,
+    query.tmdbId || 0,
+    query.tvdbId || 0,
+    normalisedTitle(query.title),
+    query.year ?? "",
+  ].join(":");
+
+/**
+ * Where the Rotten Tomatoes score goes when somebody taps it.
+ *
+ * The page the node matched when it found one, and Rotten Tomatoes' own search for the title when
+ * it did not, so the link lands one press from the right page rather than nowhere. The IMDb half is
+ * `imdbUrl`, above.
+ */
+export const rottenTomatoesUrl = (result: {
+  title: string;
+  rottenTomatoesUrl?: string | null;
+}): string =>
+  result.rottenTomatoesUrl?.trim() ||
+  `https://www.rottentomatoes.com/search?search=${encodeURIComponent(result.title)}`;
+
+/** Scores, a page at a time. */
+export async function fetchTitleScores(
+  apiBaseUrl: string,
+  titles: TitleScoresQuery[],
+  accessToken?: string | null,
+): Promise<TitleScores[]> {
+  // Not in `ROUTES`, for the reason `setRequestSeasons` gives: this route is newer than the last
+  // regeneration of `packages/api-client/openapi.json`. Pinned by `RequestsController.Ratings`.
+  const res = await fetch(`${apiBaseUrl}/requests/ratings`, {
+    method: "POST",
+    headers: json(accessToken),
+    body: JSON.stringify({ titles }),
+  });
+  if (!res.ok) throw await readRequestsError(res, "POST /requests/ratings");
+  return ((await res.json()) as unknown[]).map(toTitleScores);
+}
+
+/**
+ * One call for however many cards asked in the same moment.
+ *
+ * Every card on a page asks for its own title, so each is cached on its own and a card already seen
+ * costs nothing. Sent one by one that would be sixty requests for one grid, so the asks that land
+ * within `wait` milliseconds of each other go out together, `size` at a time, and each promise is
+ * answered from its own place in the reply.
+ */
+export const createScoresBatcher = (
+  load: (titles: TitleScoresQuery[]) => Promise<TitleScores[]>,
+  { wait = 16, size = 60 }: { wait?: number; size?: number } = {},
+): ((title: TitleScoresQuery) => Promise<TitleScores>) => {
+  type Entry = {
+    title: TitleScoresQuery;
+    resolve: (scores: TitleScores) => void;
+    reject: (error: unknown) => void;
+  };
+  let queued: Entry[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = () => {
+    timer = null;
+    const batch = queued;
+    queued = [];
+    for (let start = 0; start < batch.length; start += size) {
+      const chunk = batch.slice(start, start + size);
+      load(chunk.map((entry) => entry.title)).then(
+        (answers) => {
+          for (const [index, entry] of chunk.entries()) {
+            entry.resolve(answers[index] ?? {});
+          }
+        },
+        (error: unknown) => {
+          for (const entry of chunk) entry.reject(error);
+        },
+      );
+    }
+  };
+
+  return (title) =>
+    new Promise<TitleScores>((resolve, reject) => {
+      queued.push({ title, resolve, reject });
+      if (timer === null) timer = setTimeout(flush, wait);
+    });
+};
+
+/** A title's scores out of what `useTitleScores` has so far, or undefined while they load. */
+export const scoresFor = (
+  scores: ReadonlyMap<string, TitleScores>,
+  source: RequestSearchResult | MemberRequest,
+): TitleScores | undefined => scores.get(scoresKey(scoresQueryOf(source)));
+
+/** Scores as a card draws them: a null is a dash. */
+export const cardScores = (
+  scores: TitleScores | undefined,
+): { imdb: number | null; rottenTomatoes: number | null } => ({
+  imdb: scores?.imdbRating ?? null,
+  rottenTomatoes: scores?.rottenTomatoesScore ?? null,
+});

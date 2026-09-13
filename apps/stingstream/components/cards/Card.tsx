@@ -18,6 +18,7 @@ import {
   resolveHoverGlyph,
 } from "./CardData";
 import { CONTENT_GLYPHS } from "./CardPlaceholderTile";
+import { TitleScores } from "./TitleScores";
 import { useCardLayout } from "./useCardLayout";
 
 type CardProps = {
@@ -344,6 +345,12 @@ export const Card: React.FC<CardProps> = ({
                   {` ${rating}`}
                 </Text>
               )}
+            </View>
+          )}
+
+          {card.scores !== undefined && (
+            <View style={{ marginTop: CARD_META_GAP }}>
+              <TitleScores scores={card.scores} />
             </View>
           )}
 

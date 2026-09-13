@@ -8,13 +8,17 @@ import {
 } from "react-native";
 import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
+import { TitleScores } from "@/components/cards/TitleScores";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
+import { useTitleScores } from "@/lib/stingstream/requests";
 import {
+  cardScores,
   type RequestSearchResult,
   requestTitle,
+  scoresFor,
   searchAction,
   searchBadgeLabel,
   toRequestCard,
@@ -70,6 +74,7 @@ export function RequestResultRow({
   const card = { ...toRequestCard(result), badgeLabel: null };
   const action = searchAction(result);
   const badge = searchBadgeLabel(result);
+  const scores = cardScores(scoresFor(useTitleScores([result]), result));
   // Both open the sheet rather than doing something outright, so the poster and title are pressable
   // targets for the same thing the button does.
   const openable = action.intent === "manage" || action.intent === "duplicate";
@@ -146,6 +151,11 @@ export function RequestResultRow({
             size='sm'
           />
           {badge ? <Pill label={badge} tone='success' size='sm' /> : null}
+        </View>
+
+        {/* Text here, as on a tile. The links are on the sheet the button opens. */}
+        <View style={{ marginTop: 6 }}>
+          <TitleScores scores={scores} size='caption' />
         </View>
 
         {/*

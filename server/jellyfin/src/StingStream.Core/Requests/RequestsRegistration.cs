@@ -42,6 +42,14 @@ public static class RequestsRegistration
             client.DefaultRequestHeaders.UserAgent.ParseAdd("StingStream/1.0");
         });
         services.AddSingleton<TmdbCatalog>();
+
+        // IMDb and Rotten Tomatoes scores for the Requests screen. Its own client because neither
+        // service is the catalogue, and a slow one must not share a connection budget with it.
+        services.AddHttpClient(ExternalRatings.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddSingleton<ExternalRatings>();
         services.AddSingleton<RequestService>();
 
         // Withdrawing, which is the delete path and the download it has to stop. Shared by the

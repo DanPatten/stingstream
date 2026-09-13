@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Input } from "@/components/common/Input";
+import { SectionHeader } from "@/components/common/SectionHeader";
 import { Text } from "@/components/common/Text";
 import { RequestFilterBar } from "@/components/filters/RequestFilterBar";
 import {
   REQUEST_SEARCH_DEBOUNCE_MS,
   REQUEST_SEARCH_MIN_LENGTH,
 } from "@/constants/Requests";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   applyRequestFilters,
   DEFAULT_REQUEST_FILTERS,
@@ -87,6 +89,7 @@ export function FindSection({
   onSeeAllRequests?: () => void;
 }) {
   const { t } = useTranslation();
+  const { gutter } = useBreakpoint();
 
   // `term` is the `q` route param, which is an *entry* term rather than a mirror of this box:
   // Search's `Request "…"` button hands a title over with it (and `tab=find`), and nothing on this
@@ -269,12 +272,20 @@ export function FindSection({
         />
       );
     }
+    // A heading of its own, so the line of the member's own requests above it and the catalogue
+    // read as two sections rather than one grid that changes subject halfway down. It bleeds out of
+    // the page gutter the same way My requests' heading does, so the two start on the same edge.
     return (
-      <RequestDiscoverGrid
-        results={feed}
-        loading={discover.isLoading}
-        onPress={act}
-      />
+      <View testID='requests-recommended'>
+        <View style={{ marginHorizontal: -gutter }}>
+          <SectionHeader title={t("requests.section_recommended")} />
+        </View>
+        <RequestDiscoverGrid
+          results={feed}
+          loading={discover.isLoading}
+          onPress={act}
+        />
+      </View>
     );
   };
 

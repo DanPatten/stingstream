@@ -1,17 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Linking,
-  Platform,
-  Pressable,
-  View,
-  type ViewStyle,
-} from "react-native";
+import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { CardArtwork } from "@/components/cards/CardArtwork";
+import { TitleScores } from "@/components/cards/TitleScores";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
@@ -23,18 +18,22 @@ import { useTheme } from "@/hooks/useTheme";
 import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
   AlreadyHeldError,
+  cardScores,
   imdbUrl,
   type MemberRequest,
   RequestFinishedError,
   type RequestReason,
   type RequestSearchResult,
   requestTitle,
+  rottenTomatoesUrl,
+  scoresFor,
   searchAction,
   toRequestCard,
   useCanApproveRequests,
   useCreateRequest,
   useDeleteRequest,
   useSetRequestSeasons,
+  useTitleScores,
 } from "@/lib/stingstream/requests";
 import { QualityProfileRow } from "../arr/QualityProfileRow";
 import { confirmDestructive } from "../shared/confirm";
@@ -50,11 +49,6 @@ import {
 /** Big enough to recognise a poster by, which the row's 92px thumbnail is not always. */
 const POSTER_WIDTH = 96;
 const POSTER_HEIGHT = Math.round(POSTER_WIDTH * 1.5);
-
-/** The same gold star the tiles and the details page use. See `components/cards/Card.tsx`. */
-const RATING_STAR = "#E0B34A";
-
-const isWeb = Platform.OS === "web";
 
 /**
  * Which seasons, and what to do when the library already has it.
@@ -119,11 +113,6 @@ export function RequestSheet({
     holders: string[];
     playableItemId?: string;
   } | null>(null);
-  // `hovered` is absent from `PressableStateCallbackType` in these typings even though
-  // react-native-web passes it, so the hover state is held here instead -- same as `Button` and
-  // `PreviousServersList`. Reading it off the style callback's argument typechecks against the
-  // typings on one machine and not the other, which is how it reached CI unnoticed.
-  const [ratingHovered, setRatingHovered] = useState(false);
   const create = useCreateRequest();
   const isAdmin = useCanApproveRequests();
   const setSeasonsOn = useSetRequestSeasons();
@@ -178,7 +167,13 @@ export function RequestSheet({
     isAdmin && !!result,
   );
 
+  // The same query the card behind the sheet made, so this is almost always already in the cache.
+  const scoreSources = useMemo(() => (shown ? [shown] : []), [shown]);
+  const scores = useTitleScores(scoreSources);
+
   if (!shown) return null;
+
+  const shownScores = scoresFor(scores, shown);
 
   const total = seasonTotal(shown);
   const action = searchAction(shown);
@@ -403,9 +398,10 @@ export function RequestSheet({
           {/* No year here: the dialog's own title is `requestTitle`, which already ends in it. */}
           <View style={{ flex: 1, gap: 8 }}>
             {/*
-              The same three facts the tile carries, in the same order: what it is, how long it is,
-              and what it scored. The score is the way out to IMDb, exactly as it is on the tile —
-              a reader who has opened the sheet to decide is the one most likely to want it.
+              The same facts the tile carries, in the same order: what it is, how long it is, and
+              what it scored. Here the scores are links out to IMDb and Rotten Tomatoes, and on the
+              tile they are not: a reader who has opened the sheet to decide is the one most likely
+              to want them. Dan: *"Linkable on modal only."*
             */}
             <View
               style={{
@@ -432,30 +428,20 @@ export function RequestSheet({
                 </Text>
               </View>
 
-              {shown.rating != null && shown.rating > 0 ? (
-                <Pressable
-                  accessibilityRole='link'
-                  accessibilityLabel={`${shown.rating.toFixed(1)} out of 10 on IMDb`}
-                  onPress={() => void Linking.openURL(imdbUrl(shown))}
-                  onHoverIn={() => setRatingHovered(true)}
-                  onHoverOut={() => setRatingHovered(false)}
-                  style={[
-                    {
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 5,
-                      opacity: ratingHovered ? 0.7 : 1,
-                    },
-                    isWeb ? ({ cursor: "pointer" } as ViewStyle) : null,
-                  ]}
-                >
-                  <Ionicons name='star' size={13} color={RATING_STAR} />
-                  <Text variant='caption' tone='secondary'>
-                    {shown.rating.toFixed(1)}
-                  </Text>
-                  <Icon name='openExternal' size={11} tone='tertiary' />
-                </Pressable>
-              ) : null}
+              <TitleScores
+                scores={cardScores(shownScores)}
+                size='caption'
+                links={{
+                  imdb: imdbUrl({
+                    ...shown,
+                    imdbId: shown.imdbId ?? shownScores?.imdbId,
+                  }),
+                  rottenTomatoes: rottenTomatoesUrl({
+                    title: shown.title,
+                    rottenTomatoesUrl: shownScores?.rottenTomatoesUrl,
+                  }),
+                }}
+              />
             </View>
 
             {shown.overview ? (

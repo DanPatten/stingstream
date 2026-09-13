@@ -60,6 +60,14 @@ export type CardData = {
    */
   rating?: number | null;
   /**
+   * IMDb and Rotten Tomatoes, drawn as a line of their own under the subtitle.
+   *
+   * Set it and both are always drawn, with a dash for a score that does not exist or has not arrived
+   * yet, so a grid of these keeps one height while the scores load (`cardScoresLineHeight`). Leave it
+   * unset and the card draws no such line. Text only on a card: the links are on the request sheet.
+   */
+  scores?: CardScores;
+  /**
    * What the hover disc on *this* card promises, overriding the row's own
    * `hoverPlayGlyph`.
    *
@@ -272,6 +280,22 @@ export const cardTextBlockHeight = (breakpoint: BreakpointName): number =>
   cardTitleBlockHeight(breakpoint) +
   CARD_META_GAP +
   typeStyle("micro", breakpoint).lineHeight;
+
+/** What a card's scores line draws. Null is a dash. */
+export type CardScores = {
+  imdb: number | null;
+  rottenTomatoes: number | null;
+};
+
+/**
+ * Height of the scores line (`CardData.scores`) and the gap above it.
+ *
+ * Reserved by a grid for every cell as soon as any card has one, for the same reason
+ * `cardTextBlockHeight` reserves both title lines: the cell is sized before anything in it is
+ * measured.
+ */
+export const cardScoresLineHeight = (breakpoint: BreakpointName): number =>
+  CARD_META_GAP + typeStyle("micro", breakpoint).lineHeight;
 
 /**
  * Height of the title itself: both lines, always.

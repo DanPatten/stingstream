@@ -10,12 +10,15 @@ import { REQUEST_SEARCH_DEBOUNCE_MS } from "@/constants/Requests";
 import { maxWidth as MAX_WIDTHS } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
+  cardScores,
   DEFAULT_REQUEST_FILTERS,
   type RequestSearchResult,
+  scoresFor,
   toRequestCard,
   useRequestDiscover,
   useRequestPolicy,
   useRequestSearch,
+  useTitleScores,
 } from "@/lib/stingstream/requests";
 import { RequestDiscoverGrid } from "./RequestDiscoverGrid";
 import { RequestSheet } from "./RequestSheet";
@@ -69,7 +72,15 @@ export function DiscoverSection() {
     () => new Map(results.map((result) => [result.itemKey, result])),
     [results],
   );
-  const cards = useMemo(() => results.map(toRequestCard), [results]);
+  const scores = useTitleScores(results);
+  const cards = useMemo(
+    () =>
+      results.map((result) => ({
+        ...toRequestCard(result),
+        scores: cardScores(scoresFor(scores, result)),
+      })),
+    [results, scores],
+  );
 
   // The same width `PageContainer width="media"` would render at, measured rather than assumed:
   // the requests screen sits inside the web shell's sidebar+topbar content pane, whose width is

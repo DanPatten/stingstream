@@ -9,15 +9,18 @@ import { Text } from "@/components/common/Text";
 import { FilterChip } from "@/components/filters/FilterChip";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
+  cardScores,
   type MemberRequest,
   type RequestState,
   requestAsSearchResult,
   requestTitle,
+  scoresFor,
   selectMine,
   toRequestCard,
   useCurrentUserId,
   useDeleteRequest,
   useRequests,
+  useTitleScores,
 } from "@/lib/stingstream/requests";
 import { confirmDestructive } from "../shared/confirm";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
@@ -82,7 +85,15 @@ export function MyRequestsSection({
     () => new Map(mine.map((request) => [request.id, request])),
     [mine],
   );
-  const cards = useMemo(() => mine.map(toRequestCard), [mine]);
+  const scores = useTitleScores(mine);
+  const cards = useMemo(
+    () =>
+      mine.map((request) => ({
+        ...toRequestCard(request),
+        scores: cardScores(scoresFor(scores, request)),
+      })),
+    [mine, scores],
+  );
 
   const withdraw = async (id: string, title: string) => {
     const confirmed = await confirmDestructive(

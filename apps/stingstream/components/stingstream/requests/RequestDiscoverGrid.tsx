@@ -1,8 +1,11 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  cardScores,
   type RequestSearchResult,
+  scoresFor,
   toRequestCard,
+  useTitleScores,
 } from "@/lib/stingstream/requests";
 import { RequestPosterGrid } from "./RequestPosterGrid";
 
@@ -34,6 +37,7 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
   onPress,
 }) => {
   const { t } = useTranslation();
+  const scores = useTitleScores(results);
 
   const byId = useMemo(
     () => new Map(results.map((result) => [result.itemKey, result])),
@@ -43,10 +47,15 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
   // The year, and how long the show is when the catalogue knows: a run of twenty seasons is the
   // difference between "I'll start that tonight" and "not this year", and it is the one thing a
   // poster never says. A movie has no season count and gets the year alone.
+  //
+  // Under that, IMDb and Rotten Tomatoes, as text. The links are on the sheet.
   const cards = useMemo(
     () =>
       results.map((result) => {
-        const card = toRequestCard(result);
+        const card = {
+          ...toRequestCard(result),
+          scores: cardScores(scoresFor(scores, result)),
+        };
         const seasons = result.seasonCount ?? 0;
         if (seasons <= 0) return card;
         return {
@@ -59,7 +68,7 @@ export const RequestDiscoverGrid: React.FC<Props> = ({
             .join(" · "),
         };
       }),
-    [results, t],
+    [results, scores, t],
   );
 
   return (

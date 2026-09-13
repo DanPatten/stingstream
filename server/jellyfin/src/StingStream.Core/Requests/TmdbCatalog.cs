@@ -795,6 +795,36 @@ public sealed class TmdbCatalog
         return found is > 0 ? found : null;
     }
 
+    /// <summary>
+    /// The IMDb id for a title known only by the ids a request stores.
+    /// </summary>
+    /// <param name="isMovie">Whether it is a film.</param>
+    /// <param name="tmdbId">A film's TMDB id.</param>
+    /// <param name="tvdbId">A show's TVDB id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The id, or null when the provider knows none.</returns>
+    /// <remarks>
+    /// What <see cref="ExternalRatings"/> asks when a title arrived without one, which is every row
+    /// on My requests and every film from a related row. Both halves are the cached lookups the feed
+    /// already makes, so a title that has been scrolled past once costs nothing here.
+    /// </remarks>
+    public async Task<string?> ImdbIdAsync(
+        bool isMovie,
+        int tmdbId,
+        int tvdbId,
+        CancellationToken cancellationToken)
+    {
+        if (isMovie)
+        {
+            return await MovieImdbIdAsync(tmdbId, cancellationToken).ConfigureAwait(false);
+        }
+
+        var showId = await TmdbShowIdAsync(tvdbId, cancellationToken).ConfigureAwait(false);
+        return showId is > 0
+            ? (await SeriesFactsAsync(showId.Value, cancellationToken).ConfigureAwait(false)).ImdbId
+            : null;
+    }
+
     /// <summary>The entries as the array the mapping passes take.</summary>
     private static JsonArray ArrayOf(IEnumerable<JsonObject> entries)
     {

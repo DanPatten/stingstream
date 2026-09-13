@@ -654,20 +654,39 @@ first)"*.
 **A tile says what it is, when it came out, how long it is and what it scored, and promises no
 playback.** A glyph for film or show, because the two are mixed on one grid and which one a poster is
 decides whether the press ahead asks for a film or for twenty seasons of something; the year; the
-season count for a show; and the community score, which is the one thing the artwork cannot tell you
-and roughly what the choice gets made on. The score is whatever the lookup carried — TMDB's own
-average for the feed, an arr's `ratings` for a search — drawn as `Card`'s star, and a title nobody
-has rated draws nothing rather than a zero. `Card` also takes `hoverPlayGlyph={false}` here — the
+season count for a show; and what it scored on IMDb and Rotten Tomatoes, which is the one thing the
+artwork cannot tell you and roughly what the choice gets made on. Every film and show on the Requests
+tab draws both, on the tiles, the search rows and the request rows alike, as a line of their own
+under the year (`CardData.scores`, `TitleScores`), with a dash where a source has no score, so a grid
+of sixty keeps one height whether or not the scores have arrived. TMDB's own average is no longer
+drawn there: it was a star that read as IMDb and was not. It still orders "Top rated", and still
+decorates the related and filmography rows (§9a) as `Card`'s star. `Card` also takes `hoverPlayGlyph={false}` here — the
 row-wide default, which a card may override per-card with `CardData.hoverGlyph`, as the related and
 filmography rows do (§9a):
 everywhere else a poster is a thing you press to watch, and the play disc that appears under a
 pointer would be a promise this screen cannot keep, since nobody holds these titles yet.
 
-**The score is a way out to IMDb, from the sheet only.** `imdbUrl` prefers the id the node sends and
-falls back to IMDb's own title search on the name and year, so the link always lands somewhere.
-It is on the sheet and deliberately not on the tile: a tile's whole point is the one press that
-opens it, and a second destination inside it is a mis-tap waiting to happen on a grid of sixty. Dan,
-2026-09-10: *"lets NOT have clicking the star from the CARD view open IMDB - only from the modal."*
+**The scores link out, from the sheet only.** `imdbUrl` prefers the id the node sends and falls back
+to IMDb's own title search on the name and year; `rottenTomatoesUrl` prefers the page the node
+matched and falls back to Rotten Tomatoes' own search, so either link always lands somewhere. They
+are on the sheet and deliberately not on the tile or the row: a tile's whole point is the one press
+that opens it, and a second destination inside it is a mis-tap waiting to happen on a grid of sixty.
+Dan, 2026-09-10: *"lets NOT have clicking the star from the CARD view open IMDB - only from the
+modal."* And 2026-09-12: *"make sure in the requests tab that all tv shows and movies show both IMDB
+and rotten tomato ratings. Linkable on modal only."*
+
+**Where the scores come from.** `POST /requests/ratings` takes the titles a screen is drawing and
+answers in the same order. `ExternalRatings` resolves an IMDb id for any title that arrived without
+one (every request row, since a request stores only its TMDB or TVDB id) through the catalogue's
+cached lookups, then asks IMDb for every rating in one call and Rotten Tomatoes for every match in
+one call, and remembers each answer for a day. A Rotten Tomatoes match needs the same title within a
+year either way, or, in the same year only, a title that adds a subtitle ("Arcane" is "Arcane: League
+of Legends" there); anything looser is a dash rather than another film's score. Neither service has
+a published API: IMDb's is the GraphQL endpoint its own site reads and Rotten Tomatoes' is the search
+index its own site queries, both unauthenticated and both marked for non-commercial use, so every call
+is capped and every failure is a dash, never an error. The app batches the asks itself
+(`createScoresBatcher`): each card caches its own title, and the cards that ask in the same moment go
+out as one request.
 
 **Where the id and the season count come from.** One call per title, and for a show it is the call
 the catalogue was already making. `TmdbCatalog` used to ask `/tv/{id}/external_ids` for the TVDB id

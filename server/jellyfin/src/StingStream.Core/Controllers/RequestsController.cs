@@ -276,6 +276,39 @@ public sealed class RequestsController : StingStreamControllerBase
             .ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// What a list of titles scored on IMDb and Rotten Tomatoes.
+    /// </summary>
+    /// <param name="body">The titles a screen is drawing.</param>
+    /// <param name="ratings">The ratings service.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">One answer per title, in the order asked. A score nobody could find is null.</response>
+    /// <returns>The scores.</returns>
+    /// <remarks>
+    /// <para>
+    /// A POST because it is a batch: the app sends a whole page of cards at once, and sixty titles do
+    /// not fit a query string.
+    /// </para>
+    /// <para>
+    /// Not behind <c>CanSearch</c>. Nothing here touches a manager, and a score is as true on a node
+    /// with no indexer as on one with three. An upstream that will not answer is a 200 with nulls,
+    /// never an error; see <see cref="ExternalRatings"/>.
+    /// </para>
+    /// </remarks>
+    [HttpPost("ratings")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<TitleRatings>>> Ratings(
+        [FromBody] TitleRatingsBody? body,
+        [FromServices] ExternalRatings ratings,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ratings);
+
+        return Ok(await ratings
+            .RatingsAsync(body?.Titles ?? new List<TitleRatingsQuery>(), cancellationToken)
+            .ConfigureAwait(false));
+    }
+
     // --- making ------------------------------------------------------------
 
     /// <summary>
