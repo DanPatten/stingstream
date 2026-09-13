@@ -44,6 +44,10 @@ const webModuleStubs = {
   // Chromecast sender SDK — Android/iOS only. Not an inert stub: the web file is
   // the same surface driven by the Cast Web Sender (lib/cast/webCastSession.ts).
   "react-native-google-cast": "react-native-google-cast.ts",
+  // Works on web, but as a drawer sliding up from the bottom of the window. The
+  // web file is the same API drawn as a centred Dialog
+  // (components/common/ActionSheetDialog.tsx), like every other web modal.
+  "@expo/react-native-action-sheet": "expo-react-native-action-sheet.tsx",
   // Native platform tab bar (UITabBarController / BottomNavigationView). Its
   // fabric component imports react-native internals Metro refuses on web.
   "@bottom-tabs/react-navigation": "bottom-tabs-react-navigation.tsx",

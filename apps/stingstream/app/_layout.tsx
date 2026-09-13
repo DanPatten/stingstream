@@ -18,6 +18,7 @@ import * as Device from "expo-device";
 import { Image } from "expo-image";
 import { ThemeProvider } from "expo-router/react-navigation";
 import { Platform } from "react-native";
+import { ActionSheetDialog } from "@/components/common/ActionSheetDialog";
 import { AppDialogHost } from "@/components/common/AppDialogHost";
 import { GlobalModal } from "@/components/GlobalModal";
 import { JellyseerrAutoLogin } from "@/components/jellyseerr/JellyseerrAutoLogin";
@@ -812,6 +813,9 @@ function Layout() {
                                           Alert, and docs/conventions/tv.md rules out overlay
                                           modals on that platform outright. */}
                                       {!Platform.isTV && <AppDialogHost />}
+                                      {/* Every action sheet, as a centred dialog in a browser.
+                                          Renders nothing on a phone, which keeps its sheet. */}
+                                      <ActionSheetDialog />
                                       <JellyseerrAutoLogin />
                                     </ThemeProvider>
                                   </IntroSheetProvider>
